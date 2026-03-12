@@ -1,40 +1,17 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "planwise-marketplace",
+  "version": "1.0.0",
+  "description": "Agentic project management for Claude Code — plan, execute, review, and track projects with structured workflows",
   "owner": {
     "name": "Gabriel Gosselin"
-  },
-  "metadata": {
-    "description": "Agentic project management for Claude Code — plan, execute, review, and track projects with structured workflows",
-    "version": "1.0.0"
   },
   "plugins": [
     {
       "name": "planwise",
-      "source": "github", "repo": "gabgoss/planwise",
-      "description": "Planwise is a Claude Code plugin that brings end-to-end project management to your CLI. Create plans, execute sessions with READ-CONFIRM-ACT protocol, run multi-agent reviews, manage backlogs, and capture lessons — all via /planwise.",
-      "version": "1.0.0",
-      "author": {
-        "name": "Gabriel Gosselin"
-      },
-      "license": "MIT",
-      "keywords": [
-        "project-management",
-        "planning",
-        "execution",
-        "review",
-        "backlog",
-        "sessions",
-        "agentic",
-        "workflow"
-      ],
-      "category": "productivity",
-      "tags": [
-        "project-management",
-        "planning",
-        "agile",
-        "backlog",
-        "lessons-learned"
-      ]
+      "description": "Agentic project management — plan, execute, review, and track projects with structured workflows",
+      "source": "./plugins/planwise",
+      "category": "productivity"
     }
   ]
 }
