@@ -6,16 +6,16 @@ This handler does NOT require `config.yaml` to exist — it creates it.
 
 ---
 
-## Required References
+## Tool Usage Rules
 
-Before proceeding, read these reference files from `${CLAUDE_PLUGIN_ROOT}/references/`:
+This handler MUST use Claude Code's dedicated tools for all file operations:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
+- **Read** to read plugin source files (references, seeds, templates)
+- **Write** to create files in the project
+- **Glob** to check if files already exist (skip if they do)
+- **Bash** ONLY for `mkdir -p` (directory creation)
 
-**Init-specific references (always load):**
-1. Read `references/agent-authoring.md`
-2. Read `references/skill-authoring.md`
-3. Read `references/rule-authoring.md`
+Do NOT use `cat`, `cp`, `sed`, `awk`, or other bash commands for file operations.
 
 ---
 
@@ -42,46 +42,34 @@ Store responses as:
 
 ### Step 2 — Create directories
 
-Create the planwise root and all subdirectories using Bash:
+Use Bash for directory creation only:
 
 ```bash
-mkdir -p "{planwise_root}/{plans_dir}"
-mkdir -p "{planwise_root}/{backlog_dir}"
-mkdir -p "{planwise_root}/{lessons_dir}"
+mkdir -p "{planwise_root}/{plans_dir}" "{planwise_root}/{backlog_dir}" "{planwise_root}/{lessons_dir}" ".claude/rules/planwise"
 ```
 
 ---
 
 ### Step 3 — Copy seed files
 
-The plugin's `seed/` folder contains starter index files. Copy them to the user's directories.
+The plugin's `seed/` folder contains starter index files. For each seed file:
 
-Resolve the plugin root via `${CLAUDE_PLUGIN_ROOT}` (the directory containing this plugin).
+1. Use **Glob** to check if the destination already exists — **skip if it does**
+2. Use **Read** to read the source file from the plugin: [../seed/](../seed/)
+3. Use **Write** to create the destination file
 
-Copy these files (skip if destination already exists):
-
-| Source (plugin seed/) | Destination |
-|-----------------------|-------------|
-| `seed/00-Index-Backlog.md` | `{planwise_root}/{backlog_dir}/00-Index-Backlog.md` |
-| `seed/00-Index-LessonsLearned.md` | `{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md` |
-| `seed/00-Index-Plans.md` | `{planwise_root}/{plans_dir}/00-Index-Plans.md` |
-
-Use Bash to copy. Example:
-
-```bash
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
-cp -n "${PLUGIN_ROOT}/seed/00-Index-Backlog.md" "{planwise_root}/{backlog_dir}/00-Index-Backlog.md"
-cp -n "${PLUGIN_ROOT}/seed/00-Index-LessonsLearned.md" "{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md"
-cp -n "${PLUGIN_ROOT}/seed/00-Index-Plans.md" "{planwise_root}/{plans_dir}/00-Index-Plans.md"
-```
-
-**Note:** `-n` (no-clobber) skips copy if the destination already exists, preserving user content.
+| Source (read from plugin) | Destination |
+|---------------------------|-------------|
+| [../seed/00-Index-Backlog.md](../seed/00-Index-Backlog.md) | `{planwise_root}/{backlog_dir}/00-Index-Backlog.md` |
+| [../seed/00-Index-LessonsLearned.md](../seed/00-Index-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md` |
+| [../seed/00-Index-Plans.md](../seed/00-Index-Plans.md) | `{planwise_root}/{plans_dir}/00-Index-Plans.md` |
 
 ---
 
 ### Step 4 — Generate config.yaml
 
-Read `config.yaml.template` from the plugin root. Replace the following placeholders with user-provided values:
+1. **Read** the config template: [../config.yaml.template](../config.yaml.template)
+2. Replace placeholders with user-provided values:
 
 | Placeholder | Replace With |
 |-------------|--------------|
@@ -91,51 +79,40 @@ Read `config.yaml.template` from the plugin root. Replace the following placehol
 | `"Backlog"` (backlog_dir value) | `"{backlog_dir}"` |
 | `"LessonsLearned"` (lessons_dir value) | `"{lessons_dir}"` |
 
-Write the result to `{planwise_root}/config.yaml`.
+3. **Write** the result to `{planwise_root}/config.yaml`
 
-If `{planwise_root}/config.yaml` already exists, ask the user before overwriting:
-- "config.yaml already exists. Overwrite with new settings? (Yes / No — keep existing)"
+If `{planwise_root}/config.yaml` already exists, ask the user before overwriting.
 
 ---
 
 ### Step 5 — Install rules to `.claude/rules/planwise/`
 
-The plugin ships 10 reference files that are installed as path-scoped rules. All rules go into `.claude/rules/planwise/` to keep the user's rules directory clean.
+The plugin ships 10 reference files that are installed as path-scoped rules. For each rule:
 
-**Step 5a:** Create the rules directory:
+1. Use **Glob** to check if the destination already exists — **skip if it does**
+2. Use **Read** to read the source file from the plugin (links below)
+3. Modify the frontmatter in memory:
+   - If the file has existing frontmatter with a `paths:` field, replace its value
+   - If the file has existing frontmatter without a `paths:` field, add the `paths:` line
+   - If the file has no frontmatter, prepend a new `---` block with `description` and `paths`
+4. Use **Write** to create the destination file
 
-```bash
-mkdir -p ".claude/rules/planwise"
-```
+#### Rules table
 
-**Step 5b:** Copy each reference file, adding or updating the `paths:` frontmatter to match the user's actual directory choices. Guard condition: skip if destination already exists.
+| # | Source (read from plugin) | Destination | `paths:` value |
+|---|---------------------------|-------------|----------------|
+| 1 | [../references/agent-authoring.md](../references/agent-authoring.md) | `.claude/rules/planwise/agent-authoring.md` | `.claude/agents/**` |
+| 2 | [../references/skill-authoring.md](../references/skill-authoring.md) | `.claude/rules/planwise/skill-authoring.md` | `.claude/skills/**` |
+| 3 | [../references/rule-authoring.md](../references/rule-authoring.md) | `.claude/rules/planwise/rule-authoring.md` | `.claude/rules/**` |
+| 4 | [../references/session-planning-protocol.md](../references/session-planning-protocol.md) | `.claude/rules/planwise/session-planning-protocol.md` | `{planwise_root}/{plans_dir}/**` |
+| 5 | [../references/session-plan-requirements.md](../references/session-plan-requirements.md) | `.claude/rules/planwise/session-plan-requirements.md` | `{planwise_root}/{plans_dir}/**` |
+| 6 | [../references/session-context-budget.md](../references/session-context-budget.md) | `.claude/rules/planwise/session-context-budget.md` | `{planwise_root}/{plans_dir}/**` |
+| 7 | [../references/session-execution-protocol.md](../references/session-execution-protocol.md) | `.claude/rules/planwise/session-execution-protocol.md` | `{planwise_root}/{plans_dir}/**` |
+| 8 | [../references/agent-orchestration.md](../references/agent-orchestration.md) | `.claude/rules/planwise/agent-orchestration.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
+| 9 | [../references/callout-conventions.md](../references/callout-conventions.md) | `.claude/rules/planwise/callout-conventions.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
+| 10 | [../references/markdown-conventions.md](../references/markdown-conventions.md) | `.claude/rules/planwise/markdown-conventions.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
 
-| # | Plugin Source | Install Destination | `paths:` frontmatter to set |
-|---|---------------|--------------------|-----------------------------|
-| 1 | `references/agent-authoring.md` | `.claude/rules/planwise/agent-authoring.md` | `paths: .claude/agents/**` |
-| 2 | `references/skill-authoring.md` | `.claude/rules/planwise/skill-authoring.md` | `paths: .claude/skills/**` |
-| 3 | `references/rule-authoring.md` | `.claude/rules/planwise/rule-authoring.md` | `paths: .claude/rules/**` |
-| 4 | `references/session-planning-protocol.md` | `.claude/rules/planwise/session-planning-protocol.md` | `paths: {planwise_root}/{plans_dir}/**` |
-| 5 | `references/session-plan-requirements.md` | `.claude/rules/planwise/session-plan-requirements.md` | `paths: {planwise_root}/{plans_dir}/**` |
-| 6 | `references/session-context-budget.md` | `.claude/rules/planwise/session-context-budget.md` | `paths: {planwise_root}/{plans_dir}/**` |
-| 7 | `references/session-execution-protocol.md` | `.claude/rules/planwise/session-execution-protocol.md` | `paths: {planwise_root}/{plans_dir}/**` |
-| 8 | `references/agent-orchestration.md` | `.claude/rules/planwise/agent-orchestration.md` | `paths: {planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-| 9 | `references/callout-conventions.md` | `.claude/rules/planwise/callout-conventions.md` | `paths: {planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-| 10 | `references/markdown-conventions.md` | `.claude/rules/planwise/markdown-conventions.md` | `paths: {planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-
-**Frontmatter rewriting:** When copying, read the source file. If it has an existing YAML frontmatter block (between `---` delimiters):
-- If a `paths:` field exists, replace its value with the correct paths from the table above
-- If no `paths:` field exists, insert it into the existing frontmatter block
-
-If there is no frontmatter, prepend a new block:
-
-```yaml
----
-paths: {resolved-paths}
----
-```
-
-Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with the actual values from Step 1.
+Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with actual values from Step 1.
 
 ---
 
