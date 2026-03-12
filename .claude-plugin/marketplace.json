@@ -10,8 +10,8 @@
   "plugins": [
     {
       "name": "planwise",
-      "source": ".",
-      "description": "Agentic project management — plan, execute, review, and track projects with structured workflows",
+      "source": "github", "repo": "gabgoss/planwise",
+      "description": "Planwise is a Claude Code plugin that brings end-to-end project management to your CLI. Create plans, execute sessions with READ-CONFIRM-ACT protocol, run multi-agent reviews, manage backlogs, and capture lessons — all via /planwise.",
       "version": "1.0.0",
       "author": {
         "name": "Gabriel Gosselin"
