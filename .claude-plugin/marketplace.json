@@ -1,0 +1,40 @@
+{
+  "name": "planwise-marketplace",
+  "owner": {
+    "name": "Gabriel Gosselin"
+  },
+  "metadata": {
+    "description": "Agentic project management for Claude Code — plan, execute, review, and track projects with structured workflows",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "planwise",
+      "source": ".",
+      "description": "Agentic project management — plan, execute, review, and track projects with structured workflows",
+      "version": "1.0.0",
+      "author": {
+        "name": "Gabriel Gosselin"
+      },
+      "license": "MIT",
+      "keywords": [
+        "project-management",
+        "planning",
+        "execution",
+        "review",
+        "backlog",
+        "sessions",
+        "agentic",
+        "workflow"
+      ],
+      "category": "productivity",
+      "tags": [
+        "project-management",
+        "planning",
+        "agile",
+        "backlog",
+        "lessons-learned"
+      ]
+    }
+  ]
+}

@@ -1,228 +1,341 @@
-# planwise — Agentic Project Manager
+# planwise
 
-A Claude Code plugin that brings structured project management workflows to your Claude sessions. planwise helps you plan, execute, review, and track work across sessions using a consistent file-based methodology built on markdown artifacts.
+**Your AI project manager that never forgets.**
 
-## What It Does
-
-Software projects often lose continuity across Claude Code sessions. Context is forgotten, tasks are duplicated, and decisions are re-litigated. planwise solves this by maintaining a persistent project structure — plans, backlog items, and lessons learned — that survives session boundaries.
-
-**Problems planwise solves:**
-- Session plans are ad hoc and inconsistent across projects
-- No structured way to review plans before executing them
-- Backlog items accumulate without scoring, prioritization, or routing
-- Lessons learned are captured informally and lost
-- No standard way to track what was completed, what is pending, and what is blocked
+planwise is a plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that helps you plan, execute, review, and track your work across sessions. It keeps everything organized in simple markdown files so nothing gets lost between conversations.
 
 ---
 
-## Installation
+### The problem
 
-### Via Claude Plugin (recommended)
+Ever had Claude Code forget what you were working on? Started a new session and had to re-explain everything? Watched tasks pile up with no way to prioritize them?
+
+**planwise fixes that.** It gives your projects a persistent memory — structured plans, scored backlogs, and lessons learned that survive across every session.
+
+---
+
+## Getting started
+
+This guide walks you through everything from zero. No prior experience with plugins or terminals required.
+
+### What you'll need
+
+- **Claude Code** installed and working ([get it here](https://docs.anthropic.com/en/docs/claude-code) if you haven't already)
+- **Python 3.8+** installed on your computer (planwise uses small Python scripts for backlog scoring)
+- A project you want to manage
+
+> **How to check if Python is installed:**
+> Open your terminal and type `python --version` or `python3 --version`.
+> If you see something like `Python 3.11.5`, you're good to go.
+> If not, download Python from [python.org](https://www.python.org/downloads/).
+
+### Optional: install PyYAML
+
+planwise works fine without it, but installing PyYAML gives you slightly better config file parsing.
 
 ```bash
-claude plugin install planwise
+pip install pyyaml
 ```
 
-Once installed, the `/planwise` command is available in all Claude Code sessions for the project.
+> **What's pip?** It's Python's package installer. It comes bundled with Python.
+> If `pip` doesn't work, try `pip3 install pyyaml` instead.
 
-### Manual Setup
+---
 
-1. Clone or copy this directory into your project
-2. Add the plugin to your `.claude/settings.json`:
-   ```json
-   {
-     "plugins": ["./planwise"]
-   }
-   ```
+## Step 1 — Add the planwise marketplace
 
-### Initialize in a Project
+A **marketplace** is like an app store for Claude Code plugins. You need to add the planwise marketplace first, then install the plugin from it.
 
-After installation, run the init command to set up the project structure:
+Open Claude Code in your terminal and type:
+
+```
+/plugin marketplace add gabgo/planwise
+```
+
+> **Replace `gabgo/planwise`** with the actual GitHub username/repo if it's different.
+
+Claude Code will download the marketplace catalog. You should see a confirmation message.
+
+> **What if I get an error?** Make sure the repository is public on GitHub and that you typed the name correctly. If you're using a private repo, you'll need to be authenticated with GitHub first (`gh auth login`).
+
+---
+
+## Step 2 — Install the plugin
+
+Now that the marketplace is added, install planwise:
+
+```
+/plugin install planwise@planwise-marketplace
+```
+
+That's it! The `/planwise` command is now available in all your Claude Code sessions.
+
+> **What does `@planwise-marketplace` mean?** It tells Claude Code *which marketplace* to install from. Think of it like specifying which app store to download from.
+
+---
+
+## Step 3 — Initialize planwise in your project
+
+Navigate to the project you want to manage, open Claude Code there, and run:
 
 ```
 /planwise init
 ```
 
-This creates a `planwise/` folder in your project root containing `config.yaml`, `Plans/`, `Backlog/`, and `LessonsLearned/` directories, and installs 10 path-scoped rules to `.claude/rules/planwise/`.
+Claude will ask you a few questions:
 
----
+1. **Project name** — just type your project's name (e.g., `my-cool-app`)
+2. **Planwise root directory** — where to store planwise files (default: `planwise/` in your project root — just press Enter to accept)
+3. **Directory names** — for Plans, Backlog, and Lessons Learned (defaults are fine)
 
-## Subcommand Reference
-
-| Subcommand | Usage | Description |
-|------------|-------|-------------|
-| `init` | `/planwise init` | Initialize project configuration and seed index files |
-| `plan` | `/planwise plan [name]` | Create or scaffold a new session plan interactively |
-| `review` | `/planwise review [plan-path]` | Review a plan with structural and content analysis before execution |
-| `run` | `/planwise run [@orchestration-file]` | Execute a planned session with task tracking and recovery |
-| `backlog` | `/planwise backlog [item-id]` | Triage backlog items — score, route, and update status |
-| `list` | `/planwise list` | List all plans with name, abbreviation, status, and sprint count |
-| `lessons` | `/planwise lessons [args]` | Search, capture, or promote lessons learned |
-
-### init
-
-Sets up the project management structure for a new project. Prompts for project name and directory preferences, then creates `config.yaml`, seeds the plan index, backlog index, and lessons learned index.
-
-### plan
-
-Creates new session plans using structured templates. Supports two modes:
-- `plan [name]` — Create a new plan from scratch, prompting for abbreviation, sprint count, and session structure
-- `plan --scaffold [abbrev]` — Scaffold a full plan from a Discovery phase, building out sprints and tasks automatically
-
-### review
-
-Reviews a plan before execution using a two-phase agent team approach:
-- **Phase 1 (structural-reviewer):** Validates file naming, cross-references, orchestration format, and plan hierarchy
-- **Phase 2 (plan-reviewer):** Reviews content quality — task specs, token estimates, dependency accuracy, and success criteria
-
-Produces a structured review report and returns an APPROVED or CHANGES REQUIRED verdict.
-
-### run
-
-Executes a planned session by reading an orchestration file and working through tasks in dependency order. Supports two execution modes:
-- **GUIDED mode** — Orchestrator proposes each task and waits for approval
-- **DELEGATED mode** — Orchestrator delegates tasks to the `task-runner` agent automatically
-
-Maintains a recovery file throughout execution so sessions can be interrupted and resumed.
-
-### backlog
-
-Interactive backlog triage workflow. Reads the backlog index, presents scored and prioritized items, and routes each item to one of three paths:
-- **Route A (Direct Fix)** — Small bugs delegated to the `fix-agent`
-- **Route B (Task List)** — Medium scope items broken into steps and worked through using TaskCreate
-- **Route C (New Plan)** — Large scope items that need their own plan
-
-### list
-
-Displays all plans defined in the plan index with their abbreviation, status, sprint count, and file path. Supports optional status filtering.
-
-### lessons
-
-Manages lessons learned across the project lifecycle:
-- `/planwise lessons [search-terms]` — Search lessons by keyword
-- `/planwise lessons capture` — Capture a lesson learned mid-session
-- `/planwise lessons promote <id>` — Promote a lesson to a formal artifact
-
----
-
-## Configuration
-
-After running `/planwise init`, a `config.yaml` is created in your planwise root directory (default: `planwise/config.yaml`):
-
-```yaml
-project:
-  name: "{project-name}"
-  planwise_root: "planwise"
-  # Directories below are relative to planwise_root
-  plans_dir: "Plans"
-  backlog_dir: "Backlog"
-  lessons_dir: "LessonsLearned"
-  index_files:
-    plans: "00-Index-Plans.md"
-    backlog: "00-Index-Backlog.md"
-    lessons: "00-Index-LessonsLearned.md"
-
-abbreviations:
-  APP: "Application features"
-  BUG: "Bug fixes"
-  DOC: "Documentation"
-  INFRA: "Infrastructure and DevOps"
-
-lesson_abbreviations:
-  TOOL: "Tool usage patterns"
-  PERF: "Performance optimization"
-  SEC: "Security practices"
-  PROC: "Process and workflow"
-
-scoring:
-  priority_high: 30
-  priority_medium: 20
-  priority_low: 10
-  bug_fix_bonus: 15
-  blocks_bonus: 20
-
-statuses:
-  - NOT_STARTED
-  - PLANNING
-  - IN_PROGRESS
-  - BLOCKED
-  - COMPLETE
-  - CLOSED
-
-build_commands:
-  default: "echo 'Configure build_commands in config.yaml'"
-```
-
-**Key fields to customize:**
-- `project.name` — Your project name, used in plan file headers
-- `project.planwise_root` — Root folder for all planwise files (default: `planwise`)
-- `abbreviations` — Domain prefixes for plan file naming (e.g., `APP-S01`, `BUG-S02`)
-- `lesson_abbreviations` — Category prefixes for lessons learned files
-- `scoring` — Weight adjustments for backlog scoring algorithm
-- `build_commands.default` — Command to verify builds after code changes
-
----
-
-## Custom Agents
-
-planwise ships four custom agent definitions used automatically during review and execution workflows:
-
-| Agent | Model | Tools | Role |
-|-------|-------|-------|------|
-| `structural-reviewer` | Haiku | Read, Glob, Grep | Phase 1 plan review — validates file structure, naming, and cross-references |
-| `plan-reviewer` | Sonnet | Read, Glob, Grep | Phase 2 plan review — deep content quality analysis with role-based review modes |
-| `task-runner` | Inherit | All subagent tools | Executes individual tasks in DELEGATED run mode |
-| `fix-agent` | Sonnet | All subagent tools | Applies targeted code fixes for Route A backlog items |
-
-Agents are defined in the `agents/` directory and are auto-discovered by Claude Code when the plugin is installed.
-
----
-
-## Directory Structure
-
-### Plugin structure (in your project or plugin directory)
-
-```
-planwise/                        # Plugin root
-├── .claude-plugin/
-│   └── plugin.json              # Plugin manifest
-├── skills/
-│   └── planwise/
-│       └── SKILL.md             # Router — invoked as /planwise
-├── handlers/                    # Subcommand handlers (7 files)
-│   ├── init.md
-│   ├── plan.md
-│   ├── review.md
-│   ├── run.md
-│   ├── backlog.md
-│   ├── list.md
-│   └── lessons.md
-├── agents/                      # Custom agent definitions (4 files)
-│   ├── structural-reviewer.md
-│   ├── plan-reviewer.md
-│   ├── task-runner.md
-│   └── fix-agent.md
-├── references/                  # Reference knowledge base (10 files)
-├── templates/                   # Plan file templates (11 files)
-├── seed/                        # Project init seed files (3 files)
-├── scripts/                     # Python backlog utilities (7 files)
-├── examples/                    # Example outputs (3 files)
-└── config.yaml.template         # Config template for init
-```
-
-### Project structure (created by `/planwise init`)
+Once done, you'll see a new folder structure in your project:
 
 ```
 your-project/
-├── planwise/                    # Planwise root (configurable)
-│   ├── config.yaml              # Project configuration
-│   ├── Plans/                   # Plan folders
-│   ├── Backlog/                 # Backlog items
-│   └── LessonsLearned/         # Lessons learned
-└── .claude/
-    └── rules/
-        └── planwise/            # 10 path-scoped rules (installed by init)
+  planwise/
+    config.yaml          <-- your project settings
+    Plans/               <-- where session plans live
+    Backlog/             <-- where tracked items go
+    LessonsLearned/      <-- where insights are saved
+  .claude/
+    rules/
+      planwise/          <-- 10 rules that help Claude work with your plans
 ```
+
+> **You only need to run `init` once per project.** After that, planwise remembers your setup.
+
+---
+
+## Step 4 — Start using planwise
+
+Here's what you can do now. Each command starts with `/planwise` followed by a subcommand.
+
+---
+
+### Create a plan
+
+```
+/planwise plan my-new-feature
+```
+
+This walks you through creating a structured session plan. Claude will ask about:
+- What abbreviation to use (like `APP` for app features, `BUG` for bug fixes)
+- How many sprints you need
+- What tasks go in each session
+
+Your plan gets saved as organized markdown files you can review anytime.
+
+> **What's a sprint?** A group of related work sessions. If your feature is small, one sprint with one session is enough. Bigger features might need multiple sprints.
+
+**Scaffold from an existing Discovery phase:**
+
+```
+/planwise plan --scaffold APP
+```
+
+This takes a Discovery plan you've already written and automatically builds out all the sprints and tasks from it.
+
+---
+
+### Review a plan before executing it
+
+```
+/planwise review
+```
+
+This sends your plan through a two-phase AI review:
+
+1. **Structural review** — checks that files are named correctly, links aren't broken, and the plan hierarchy makes sense
+2. **Content review** — checks task quality, token estimates, dependencies, and success criteria
+
+You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict.
+
+> **Why review?** Catching problems in a plan is much cheaper than catching them mid-execution. Think of it like proofreading before you hit send.
+
+---
+
+### Execute a plan
+
+```
+/planwise run
+```
+
+This starts working through your planned tasks in order. You get two modes:
+
+- **GUIDED mode** — Claude proposes each task and waits for your OK before doing it (recommended for your first time)
+- **DELEGATED mode** — Claude works through tasks automatically using a task-runner agent
+
+If you need to stop mid-session, don't worry — planwise saves a recovery file so you can pick up exactly where you left off.
+
+---
+
+### Manage your backlog
+
+```
+/planwise backlog
+```
+
+Opens an interactive view of all your tracked items, scored and prioritized. For each item, you choose a route:
+
+| Route | When to use | What happens |
+|-------|-------------|--------------|
+| **A — Direct Fix** | Small bugs, quick changes | An AI agent fixes it right away |
+| **B — Task List** | Medium scope work | Breaks it into steps and works through them |
+| **C — New Plan** | Large features or overhauls | Creates a full plan for it |
+
+**Filter your backlog:**
+
+```
+/planwise backlog --priority High
+/planwise backlog --status IN_PROGRESS
+/planwise backlog BUG-042
+```
+
+---
+
+### List all your plans
+
+```
+/planwise list
+```
+
+Shows a table of every plan in your project with its status, sprint count, and when it was created.
+
+---
+
+### Work with lessons learned
+
+**Search your lessons:**
+```
+/planwise lessons database migration
+```
+
+**Capture a lesson mid-session:**
+```
+/planwise lessons capture
+```
+
+**Promote a lesson to a formal rule:**
+```
+/planwise lessons promote LL-003
+```
+
+> **What are lessons learned?** When something goes wrong (or right!), planwise can capture that insight so you don't repeat mistakes or forget what worked.
+
+---
+
+## Quick reference
+
+| Command | What it does |
+|---------|-------------|
+| `/planwise init` | Set up planwise in your project (once) |
+| `/planwise plan [name]` | Create a new session plan |
+| `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
+| `/planwise review` | AI-review a plan before running it |
+| `/planwise run` | Execute a planned session |
+| `/planwise backlog` | Triage and work on backlog items |
+| `/planwise list` | See all plans and their status |
+| `/planwise lessons` | Search, capture, or promote lessons |
+
+---
+
+## How it works under the hood
+
+planwise is built entirely on markdown files and Python scripts — no databases, no servers, no external services. Everything lives in your project folder and gets version-controlled with your code.
+
+### Custom agents
+
+planwise uses four specialized AI agents behind the scenes:
+
+| Agent | What it does |
+|-------|-------------|
+| **structural-reviewer** | Validates plan file structure, naming, and cross-references |
+| **plan-reviewer** | Deep content review — task specs, estimates, dependencies |
+| **task-runner** | Executes individual tasks during plan runs |
+| **fix-agent** | Applies targeted code fixes for small backlog items |
+
+You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, and `/planwise backlog`.
+
+### Configuration
+
+After running `/planwise init`, your settings live in `planwise/config.yaml`. Here are the key things you might want to customize:
+
+| Setting | What it controls | Default |
+|---------|-----------------|---------|
+| `project.name` | Your project name (used in headers) | Set during init |
+| `abbreviations` | Category prefixes for plans (APP, BUG, etc.) | 4 defaults |
+| `scoring` | How backlog items are scored and ranked | Sensible defaults |
+| `build_commands.default` | Command to verify builds after changes | `echo '...'` |
+
+### Plugin file structure
+
+```
+planwise/                           # Plugin root
+  .claude-plugin/
+    plugin.json                     # Plugin identity
+    marketplace.json                # Marketplace catalog
+  skills/planwise/SKILL.md          # The /planwise command router
+  handlers/                         # 7 subcommand handlers
+  agents/                           # 4 custom AI agents
+  references/                       # 10 knowledge base documents
+  templates/                        # 11 markdown templates
+  seed/                             # Index file seeds for init
+  scripts/                          # 7 Python backlog utilities
+  examples/                         # Sample outputs
+  config.yaml.template              # Config template
+```
+
+---
+
+## Updating planwise
+
+To get the latest version, run:
+
+```
+/plugin marketplace update
+```
+
+Then reinstall:
+
+```
+/plugin install planwise@planwise-marketplace
+```
+
+---
+
+## Uninstalling
+
+To remove the plugin:
+
+```
+/plugin uninstall planwise
+```
+
+To remove the marketplace:
+
+```
+/plugin marketplace remove planwise-marketplace
+```
+
+> **Note:** Uninstalling the plugin does **not** delete your `planwise/` project folder or any of your plans, backlogs, or lessons. Your data is always safe.
+
+---
+
+## Troubleshooting
+
+**"Command not found" when typing `/planwise`**
+- Make sure you completed both Step 1 (add marketplace) and Step 2 (install plugin)
+- Try restarting Claude Code
+
+**"Config not found" when running a subcommand**
+- Run `/planwise init` first — most commands need the project to be initialized
+
+**Python scripts show errors**
+- Check that Python 3.8+ is installed: `python --version`
+- If you see YAML-related warnings, install PyYAML: `pip install pyyaml` (optional but silences warnings)
+
+**Plans or backlog seem out of date**
+- Run `/plugin marketplace update` then reinstall to get the latest plugin version
 
 ---
 
