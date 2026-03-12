@@ -63,8 +63,6 @@ ARGUMENTS: $ARGUMENTS
 
 ## Base Context
 
-!`cat ${CLAUDE_PLUGIN_ROOT}/references/markdown-conventions.md`
-
-!`cat ${CLAUDE_PLUGIN_ROOT}/references/callout-conventions.md`
-
-!`cat ${CLAUDE_PLUGIN_ROOT}/references/agent-orchestration.md`
+- [Markdown conventions](../../references/markdown-conventions.md)
+- [Callout conventions](../../references/callout-conventions.md)
+- [Agent orchestration](../../references/agent-orchestration.md)
