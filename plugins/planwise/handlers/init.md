@@ -40,7 +40,23 @@ Store responses as:
 
 ---
 
-### Step 2 — Create directories
+### Step 2 — Run the init script (fast path)
+
+Try running the Python init script first. It handles directory creation, seed files, config generation, and rule installation in one command:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}"
+```
+
+If `python` is not found, try `python3`.
+
+**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then skip to **Step 7** (team sharing).
+
+**If the script fails** (Python not available or any error): Fall through to Steps 3-5 below.
+
+---
+
+### Step 3 — Create directories (fallback)
 
 Use Bash for directory creation only:
 
@@ -50,7 +66,7 @@ mkdir -p "{planwise_root}/{plans_dir}" "{planwise_root}/{backlog_dir}" "{planwis
 
 ---
 
-### Step 3 — Copy seed files
+### Step 4 — Copy seed files (fallback)
 
 The plugin's `seed/` folder contains starter index files. For each seed file:
 
@@ -66,7 +82,7 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 
 ---
 
-### Step 4 — Generate config.yaml
+### Step 5 — Generate config.yaml (fallback)
 
 1. **Read** the config template: [../config.yaml.template](../config.yaml.template)
 2. Replace placeholders with user-provided values:
@@ -85,7 +101,7 @@ If `{planwise_root}/config.yaml` already exists, ask the user before overwriting
 
 ---
 
-### Step 5 — Install rules to `.claude/rules/planwise/`
+### Step 6 — Install rules to `.claude/rules/planwise/` (fallback)
 
 The plugin ships 10 reference files that are installed as path-scoped rules. For each rule:
 
@@ -116,7 +132,7 @@ Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with 
 
 ---
 
-### Step 6 — (Optional) Configure team sharing
+### Step 7 — (Optional) Configure team sharing
 
 Use `AskUserQuestion`:
 
@@ -138,7 +154,7 @@ Use `AskUserQuestion`:
 
 ---
 
-### Step 7 — Output confirmation
+### Step 8 — Output confirmation
 
 Output a summary of all actions taken:
 
