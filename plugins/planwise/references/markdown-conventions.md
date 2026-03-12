@@ -1,3 +1,7 @@
+---
+description: Markdown header hierarchy, section length limits, YAML frontmatter, structural signals, emphasis, and cross-reference conventions
+---
+
 # Markdown Conventions
 
 ## 1. Header Hierarchy

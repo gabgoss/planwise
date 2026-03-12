@@ -111,27 +111,34 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
     return ConfigResult.CREATED, config_rel
 
 
-def update_frontmatter(content: str, paths_value: str) -> str:
-    """Update or add paths: field in YAML frontmatter."""
+def _format_paths_yaml(paths: list[str]) -> str:
+    """Format paths as a YAML array block."""
+    return "paths:\n" + "\n".join(f'  - "{p}"' for p in paths)
+
+
+def update_frontmatter(content: str, paths: list[str]) -> str:
+    """Update or add paths: field in YAML frontmatter as a YAML array."""
+    paths_block = _format_paths_yaml(paths)
+
     if content.startswith("---\n"):
         end = content.find("\n---\n", 4)
         if end == -1:
-            return f"---\npaths: {paths_value}\n---\n\n{content}"
+            return f"---\n{paths_block}\n---\n\n{content}"
 
         frontmatter = content[4:end]
         body = content[end + 5:]
 
         if re.search(r"^paths:", frontmatter, re.MULTILINE):
             frontmatter = re.sub(
-                r"^paths:.*$", f"paths: {paths_value}",
+                r"^paths:.*(?:\n  - .*)*", paths_block,
                 frontmatter, count=1, flags=re.MULTILINE
             )
         else:
-            frontmatter = frontmatter.rstrip() + f"\npaths: {paths_value}"
+            frontmatter = frontmatter.rstrip() + "\n" + paths_block
 
         return f"---\n{frontmatter}\n---\n{body}"
     else:
-        return f"---\npaths: {paths_value}\n---\n\n{content}"
+        return f"---\n{paths_block}\n---\n\n{content}"
 
 
 def install_rules(cfg: InitConfig) -> list[str]:
@@ -141,27 +148,27 @@ def install_rules(cfg: InitConfig) -> list[str]:
     refs_dir = cfg.plugin_root / "references"
     rules_dir = cfg.project_root / ".claude" / "rules" / "planwise"
 
-    plans_path = f"{cfg.planwise_root}/{cfg.plans_dir}/**"
-    all_paths = ", ".join([
+    plans_paths = [f"{cfg.planwise_root}/{cfg.plans_dir}/**"]
+    all_paths = [
         f"{cfg.planwise_root}/{cfg.plans_dir}/**",
         f"{cfg.planwise_root}/{cfg.backlog_dir}/**",
         f"{cfg.planwise_root}/{cfg.lessons_dir}/**",
-    ])
+    ]
 
     rules = [
-        ("agent-authoring.md", ".claude/agents/**"),
-        ("skill-authoring.md", ".claude/skills/**"),
-        ("rule-authoring.md", ".claude/rules/**"),
-        ("session-planning-protocol.md", plans_path),
-        ("session-plan-requirements.md", plans_path),
-        ("session-context-budget.md", plans_path),
-        ("session-execution-protocol.md", plans_path),
+        ("agent-authoring.md", [".claude/agents/**"]),
+        ("skill-authoring.md", [".claude/skills/**"]),
+        ("rule-authoring.md", [".claude/rules/**"]),
+        ("session-planning-protocol.md", plans_paths),
+        ("session-plan-requirements.md", plans_paths),
+        ("session-context-budget.md", plans_paths),
+        ("session-execution-protocol.md", plans_paths),
         ("agent-orchestration.md", all_paths),
         ("callout-conventions.md", all_paths),
         ("markdown-conventions.md", all_paths),
     ]
 
-    for filename, paths_value in rules:
+    for filename, paths in rules:
         dst = rules_dir / filename
         if dst.exists():
             continue
@@ -172,7 +179,7 @@ def install_rules(cfg: InitConfig) -> list[str]:
             print(f"  Warning: reference not found: {src}", file=sys.stderr)
             continue
 
-        content = update_frontmatter(content, paths_value)
+        content = update_frontmatter(content, paths)
         dst.write_text(content, encoding="utf-8")
         installed.append(filename)
 
