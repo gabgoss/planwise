@@ -1,0 +1,48 @@
+# Agentic Project Management — Project Configuration
+project:
+  name: "{project-name}"
+  planwise_root: "planwise"
+  # Directories below are relative to planwise_root
+  plans_dir: "Plans"
+  backlog_dir: "Backlog"
+  lessons_dir: "LessonsLearned"
+  index_files:
+    plans: "00-Index-Plans.md"
+    backlog: "00-Index-Backlog.md"
+    lessons: "00-Index-LessonsLearned.md"
+
+abbreviations:
+  APP: "Application features"
+  BUG: "Bug fixes"
+  DOC: "Documentation"
+  INFRA: "Infrastructure and DevOps"
+
+lesson_abbreviations:
+  TOOL: "Tool usage patterns"
+  PERF: "Performance optimization"
+  SEC: "Security practices"
+  PROC: "Process and workflow"
+
+scoring:
+  priority_high: 30
+  priority_medium: 20
+  priority_low: 10
+  bug_fix_bonus: 15
+  in_progress_bonus: 10
+  file_count_bonus: 5
+  planning_penalty: -5
+  blocks_bonus: 20
+  momentum_bonus: 5
+  age_bonus_per_week: 1
+  age_cap: 12
+
+statuses:
+  - NOT_STARTED
+  - PLANNING
+  - IN_PROGRESS
+  - BLOCKED
+  - COMPLETE
+  - CLOSED
+
+build_commands:
+  default: "echo 'Configure build_commands in config.yaml'"
