@@ -159,6 +159,7 @@ Every Task file MUST follow this structure:
 **Agent:** {Haiku|Sonnet|Opus}
 **Estimated Tokens:** ~{X}K
 **Depends On:** {task numbers or "-"}
+**Output:** {path where deliverable should be saved, e.g., Outputs/{Abbrev}-{description}.md}
 
 ---
 
