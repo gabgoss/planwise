@@ -264,8 +264,8 @@ To remove the marketplace:
 ## Troubleshooting
 
 **"Command not found" when typing `/planwise`**
-- Make sure you completed both Step 1 (add marketplace) and Step 2 (install plugin)
-- Try restarting Claude Code
+- Make sure you installed the plugin from the marketplace
+- Run `/reload-plugins` or restart Claude Code to activate newly installed plugins
 
 **"Config not found" when running a subcommand**
 - Run `/planwise init` first — most commands need the project to be initialized

@@ -64,9 +64,19 @@ Now that the marketplace is added, install planwise:
 /plugin install planwise@planwise-marketplace
 ```
 
-That's it! The `/planwise` command is now available in all your Claude Code sessions.
+ > **What does `@planwise-marketplace` mean?** It tells Claude Code *which marketplace* to install from. Think of it like specifying which app store to download from.
 
-> **What does `@planwise-marketplace` mean?** It tells Claude Code *which marketplace* to install from. Think of it like specifying which app store to download from.
+---
+
+## Step 3 — Activate the plugin
+
+After installing, you need to activate planwise. Either run:
+
+```
+/reload-plugins
+```
+
+Or simply start a new Claude Code session. The `/planwise` command is now available.
 
 ---
 
@@ -123,7 +133,7 @@ To remove the marketplace:
 
 **"Command not found" when typing `/planwise`**
 - Make sure you completed both Step 1 (add marketplace) and Step 2 (install plugin)
-- Try restarting Claude Code
+- Run `/reload-plugins` or restart Claude Code to activate newly installed plugins
 
 **"Config not found" when running a subcommand**
 - Run `/planwise init` first — most commands need the project to be initialized
