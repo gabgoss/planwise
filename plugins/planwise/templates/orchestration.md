@@ -59,6 +59,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 | 3 | {Task 3} | Opus | ~{X}K | 2 |
 
 **Total Estimated:** ~{XX}K tokens
+<!-- Reconciliation: this total MUST equal the sum of Est. Tokens above.
+     This session's total MUST match the Est. Tokens in the Sprint Plan Sessions table. -->
 
 ---
 

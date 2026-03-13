@@ -29,6 +29,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 | 2 | {file path} | ~{N} | ~{X}K | {why needed} |
 
 **Context subtotal:** ~{X}K tokens (reads) + ~{X}K (output) = ~{X}K total
+<!-- Reconciliation: this total MUST match the Estimated Tokens in this task's header. -->
 <!-- Use ~13 tokens/line for reads. See reference.md Token Estimation Reference for output costs. -->
 
 **Section Reference Rule (scaffolded plans):** When referencing Execution Inputs, enumerate INDIVIDUAL section numbers with purpose — never ranges.

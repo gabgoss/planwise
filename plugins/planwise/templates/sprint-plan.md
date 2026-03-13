@@ -10,6 +10,7 @@ Use this template when creating `{Abbrev}-S{XX}-Sprint-Plan.md`.
 **Sprint ID:** {ABBREV}-S{XX}
 **Status:** PLANNED
 **Estimated Tokens:** ~{XX}K total across all sessions
+<!-- Reconciliation: this total MUST equal the sum of Est. Tokens in the Sessions table below. -->
 
 ---
 

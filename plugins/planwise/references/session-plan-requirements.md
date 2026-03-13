@@ -176,6 +176,7 @@ Every Task file MUST follow this structure:
 | 1 | {file path} | ~{N} | ~{X}K | {why needed} |
 
 **Context subtotal:** ~{X}K tokens (reads) + ~{X}K (output) = ~{X}K total
+<!-- Reconciliation: this total MUST match the Estimated Tokens in this task's header. -->
 <!-- Use ~13 tokens/line for reads. See planwise plugin reference.md for per-operation costs. -->
 
 **Section Reference Rule (scaffolded plans):** When referencing Execution Inputs, enumerate INDIVIDUAL section numbers with purpose — never ranges.

@@ -123,6 +123,26 @@ Task token estimates MUST be computed bottom-up from measured or estimated file 
 
 For detailed per-operation costs, see the [Token Estimation Reference](reference.md#token-estimation-reference) in the planwise plugin.
 
+### Token Estimate Reconciliation (BINDING)
+
+Token estimates appear at three levels. They MUST reconcile arithmetically:
+
+```
+Task context subtotal  ──must equal──►  Task header Estimated Tokens
+     ↓ (sum of all tasks)
+Orchestration Total Estimated  ──must equal──►  Sprint Plan Sessions table Est. Tokens
+     ↓ (sum of all sessions)
+Sprint Plan header Estimated Tokens
+```
+
+| Check | Formula | When to Verify |
+|-------|---------|----------------|
+| Task internal | Context subtotal = Task header `Estimated Tokens` | After writing each task file |
+| Session total | Sum of task `Est. Tokens` = Orchestration `Total Estimated` | After writing orchestration |
+| Sprint total | Sum of session `Est. Tokens` = Sprint Plan header `Estimated Tokens` | After writing sprint plan |
+
+**Enforcement:** The `/planwise plan` handler's Step 8c computes estimates bottom-up. The `/planwise review` handler checks reconciliation as part of structural review. Template comments in orchestration, sprint plan, and task file templates remind the planner to verify.
+
 ### Context Accumulation Formula
 
 > [!gate] Context Budget Gate
