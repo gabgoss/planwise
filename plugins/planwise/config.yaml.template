@@ -2,11 +2,11 @@
 project:
   name: "{project-name}"
   install_scope: "{install-scope}"  # project, user, or local
-  planwise_root: "planwise"
+  planwise_root: "{planwise-root}"
   # Directories below are relative to planwise_root
-  plans_dir: "Plans"
-  backlog_dir: "Backlog"
-  lessons_dir: "LessonsLearned"
+  plans_dir: "{plans-dir}"
+  backlog_dir: "{backlog-dir}"
+  lessons_dir: "{lessons-dir}"
   index_files:
     plans: "00-Index-Plans.md"
     backlog: "00-Index-Backlog.md"

@@ -20,10 +20,11 @@ import argparse
 import dataclasses
 import json
 import re
-import shutil
 import sys
 from enum import Enum
 from pathlib import Path
+
+from constants import InstallScope
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -33,9 +34,6 @@ class ConfigResult(Enum):
     CREATED = "created"
     SKIPPED_EXISTS = "skipped_exists"
     SKIPPED_NO_TEMPLATE = "skipped_no_template"
-
-
-VALID_SCOPES = ("project", "user", "local")
 
 
 @dataclasses.dataclass
@@ -82,12 +80,15 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
     for src_name, dst_rel in seeds:
         src = seed_dir / src_name
         dst = cfg.project_root / dst_rel
-        if dst.exists():
-            continue
         try:
-            shutil.copy2(src, dst)
+            src_content = src.read_bytes()
         except FileNotFoundError:
             print(f"  Warning: seed file not found: {src}", file=sys.stderr)
+            continue
+        try:
+            with open(dst, "xb") as f:
+                f.write(src_content)
+        except FileExistsError:
             continue
         copied.append(dst_rel)
     return copied
@@ -99,9 +100,6 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
     config_rel = f"{cfg.planwise_root}/config.yaml"
     dst = cfg.project_root / cfg.planwise_root / "config.yaml"
 
-    if dst.exists():
-        return ConfigResult.SKIPPED_EXISTS, config_rel
-
     try:
         content = template_path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -109,12 +107,16 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
 
     content = content.replace("{project-name}", cfg.project_name)
     content = content.replace("{install-scope}", cfg.install_scope)
-    content = content.replace('planwise_root: "planwise"', f'planwise_root: "{cfg.planwise_root}"')
-    content = content.replace('plans_dir: "Plans"', f'plans_dir: "{cfg.plans_dir}"')
-    content = content.replace('backlog_dir: "Backlog"', f'backlog_dir: "{cfg.backlog_dir}"')
-    content = content.replace('lessons_dir: "LessonsLearned"', f'lessons_dir: "{cfg.lessons_dir}"')
+    content = content.replace("{planwise-root}", cfg.planwise_root)
+    content = content.replace("{plans-dir}", cfg.plans_dir)
+    content = content.replace("{backlog-dir}", cfg.backlog_dir)
+    content = content.replace("{lessons-dir}", cfg.lessons_dir)
 
-    dst.write_text(content, encoding="utf-8")
+    try:
+        with open(dst, "x", encoding="utf-8") as f:
+            f.write(content)
+    except FileExistsError:
+        return ConfigResult.SKIPPED_EXISTS, config_rel
     return ConfigResult.CREATED, config_rel
 
 
@@ -150,7 +152,7 @@ def install_rules(cfg: InitConfig) -> list[str]:
 
     plans_path = f"{cfg.planwise_root}/{cfg.plans_dir}/**"
     all_paths = ", ".join([
-        f"{cfg.planwise_root}/{cfg.plans_dir}/**",
+        plans_path,
         f"{cfg.planwise_root}/{cfg.backlog_dir}/**",
         f"{cfg.planwise_root}/{cfg.lessons_dir}/**",
     ])
@@ -170,8 +172,6 @@ def install_rules(cfg: InitConfig) -> list[str]:
 
     for filename, paths_value in rules:
         dst = rules_dir / filename
-        if dst.exists():
-            continue
         src = refs_dir / filename
         try:
             content = src.read_text(encoding="utf-8")
@@ -180,7 +180,11 @@ def install_rules(cfg: InitConfig) -> list[str]:
             continue
 
         content = update_frontmatter(content, paths_value)
-        dst.write_text(content, encoding="utf-8")
+        try:
+            with open(dst, "x", encoding="utf-8") as f:
+                f.write(content)
+        except FileExistsError:
+            continue
         installed.append(filename)
 
     return installed
@@ -188,28 +192,30 @@ def install_rules(cfg: InitConfig) -> list[str]:
 
 def get_settings_path(cfg: InitConfig) -> Path:
     """Return the settings.json path based on install scope."""
-    if cfg.install_scope == "user":
+    if cfg.install_scope == InstallScope.USER:
         return Path.home() / ".claude" / "settings.json"
-    elif cfg.install_scope == "local":
+    elif cfg.install_scope == InstallScope.LOCAL:
         return cfg.project_root / ".claude" / "settings.local.json"
     else:  # project
         return cfg.project_root / ".claude" / "settings.json"
 
 
-def configure_agent_teams(cfg: InitConfig) -> str:
+def configure_agent_teams(cfg: InitConfig) -> str | None:
     """Add CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS env var to the appropriate settings.json.
 
-    Returns a status message.
+    Returns the settings file path on success, or None if skipped.
     """
     settings_path = get_settings_path(cfg)
     settings_path.parent.mkdir(parents=True, exist_ok=True)
 
-    settings = {}
-    if settings_path.exists():
-        try:
-            settings = json.loads(settings_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            settings = {}
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        settings = {}
+    except json.JSONDecodeError:
+        print(f"  Warning: {settings_path} contains invalid JSON — skipping Agent Teams.", file=sys.stderr)
+        print(f"  Fix the file manually and re-run /planwise init.", file=sys.stderr)
+        return None
 
     env = settings.setdefault("env", {})
     env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
@@ -225,7 +231,8 @@ def main():
     parser.add_argument("--plans-dir", default="Plans", help="Plans subdirectory name")
     parser.add_argument("--backlog-dir", default="Backlog", help="Backlog subdirectory name")
     parser.add_argument("--lessons-dir", default="LessonsLearned", help="Lessons subdirectory name")
-    parser.add_argument("--scope", default="project", choices=VALID_SCOPES,
+    parser.add_argument("--scope", default=InstallScope.PROJECT,
+                        choices=[s.value for s in InstallScope],
                         help="Install scope: project, user, or local (default: project)")
     parser.add_argument("--project-root", default=None, help="Project root (default: cwd)")
     args = parser.parse_args()
@@ -278,8 +285,11 @@ def main():
     print()
 
     settings_path = configure_agent_teams(cfg)
-    print(f"Agent Teams enabled ({cfg.install_scope} scope):")
-    print(f"  + {settings_path}")
+    if settings_path:
+        print(f"Agent Teams enabled ({cfg.install_scope} scope):")
+        print(f"  + {settings_path}")
+    else:
+        print("Agent Teams: skipped (see warning above)")
     print()
 
     print("Done!")
