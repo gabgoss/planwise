@@ -1,6 +1,7 @@
 # Agentic Project Management — Project Configuration
 project:
   name: "{project-name}"
+  install_scope: "{install-scope}"  # project, user, or local
   planwise_root: "planwise"
   # Directories below are relative to planwise_root
   plans_dir: "Plans"

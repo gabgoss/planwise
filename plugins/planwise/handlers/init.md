@@ -26,33 +26,43 @@ Do NOT use `cat`, `cp`, `sed`, `awk`, or other bash commands for file operations
 Use `AskUserQuestion` to collect:
 
 1. **Project name** — The name of this project (e.g., "MyApp", "DataPipeline")
-2. **Planwise root folder** — Where all planwise files will live (default: `planwise`)
-3. **Plans directory** — Subdirectory name for plans within the root (default: `Plans`)
-4. **Backlog directory** — Subdirectory name for backlog items within the root (default: `Backlog`)
-5. **Lessons directory** — Subdirectory name for lessons learned within the root (default: `LessonsLearned`)
+2. **Install scope** — Where to apply planwise settings: `project` (.claude/settings.json, shared with team), `user` (~/.claude/settings.json, personal across all projects), or `local` (.claude/settings.local.json, personal to this project). Default: `project`
+3. **Planwise root folder** — Where all planwise files will live (default: `planwise`)
+4. **Plans directory** — Subdirectory name for plans within the root (default: `Plans`)
+5. **Backlog directory** — Subdirectory name for backlog items within the root (default: `Backlog`)
+6. **Lessons directory** — Subdirectory name for lessons learned within the root (default: `LessonsLearned`)
 
 Store responses as:
 - `{project_name}` — from question 1
-- `{planwise_root}` — from question 2 (use `planwise` if blank)
-- `{plans_dir}` — from question 3 (use `Plans` if blank)
-- `{backlog_dir}` — from question 4 (use `Backlog` if blank)
-- `{lessons_dir}` — from question 5 (use `LessonsLearned` if blank)
+- `{install_scope}` — from question 2 (use `project` if blank; must be one of: `project`, `user`, `local`)
+- `{planwise_root}` — from question 3 (use `planwise` if blank)
+- `{plans_dir}` — from question 4 (use `Plans` if blank)
+- `{backlog_dir}` — from question 5 (use `Backlog` if blank)
+- `{lessons_dir}` — from question 6 (use `LessonsLearned` if blank)
 
 ---
 
 ### Step 2 — Run the init script (fast path)
 
-Try running the Python init script first. It handles directory creation, seed files, config generation, and rule installation in one command:
+Try running the Python init script first. It handles directory creation, seed files, config generation, rule installation, and Agent Teams configuration in one command.
+
+**Before running the script**, set the `CLAUDE_PLUGIN_ROOT` environment variable. The plugin root is resolved from the marketplace cache:
 
 ```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}"
+export CLAUDE_PLUGIN_ROOT="$HOME/.claude/plugins/marketplaces/planwise-marketplace/plugins/planwise"
+```
+
+Then run the script:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}"
 ```
 
 If `python` is not found, try `python3`.
 
 **If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then skip to **Step 7** (team sharing).
 
-**If the script fails** (Python not available or any error): Fall through to Steps 3-5 below.
+**If the script fails** (Python not available or any error): Fall through to Steps 3-6 below.
 
 ---
 
@@ -90,6 +100,7 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 | Placeholder | Replace With |
 |-------------|--------------|
 | `{project-name}` | `{project_name}` from Step 1 |
+| `{install-scope}` | `{install_scope}` from Step 1 |
 | `"planwise"` (planwise_root value) | `"{planwise_root}"` |
 | `"Plans"` (plans_dir value) | `"{plans_dir}"` |
 | `"Backlog"` (backlog_dir value) | `"{backlog_dir}"` |
@@ -132,7 +143,33 @@ Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with 
 
 ---
 
-### Step 7 — (Optional) Configure team sharing
+### Step 7 — Configure Agent Teams (fallback)
+
+Enable Agent Teams by adding the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environment variable to the settings file determined by `{install_scope}`:
+
+| Scope | Settings file |
+|-------|---------------|
+| `project` | `.claude/settings.json` |
+| `user` | `~/.claude/settings.json` |
+| `local` | `.claude/settings.local.json` |
+
+1. **Read** the target settings file (if it exists — it may not for new projects)
+2. Parse as JSON. If the file does not exist or is empty, start with `{}`
+3. Add or merge the `env` key — do NOT overwrite existing env vars:
+   ```json
+   {
+     "env": {
+       "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+     }
+   }
+   ```
+4. **Write** the updated JSON back to the same file
+
+**Important:** Preserve all existing settings in the file. Only add/update the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` key within the `env` object.
+
+---
+
+### Step 8 — (Optional) Configure team sharing
 
 Use `AskUserQuestion`:
 
@@ -140,7 +177,7 @@ Use `AskUserQuestion`:
 
 **If Yes:**
 - Read `.claude/settings.json` (create if it does not exist)
-- Add or merge `enabledPlugins` entry:
+- Add or merge `enabledPlugins` entry — preserve all existing settings:
   ```json
   {
     "enabledPlugins": {
@@ -154,7 +191,7 @@ Use `AskUserQuestion`:
 
 ---
 
-### Step 8 — Output confirmation
+### Step 9 — Output confirmation
 
 Output a summary of all actions taken:
 
@@ -162,6 +199,7 @@ Output a summary of all actions taken:
 /planwise init — Complete
 
 Project: {project_name}
+Scope: {install_scope}
 
 Directories created:
   ✓ {planwise_root}/
@@ -175,7 +213,10 @@ Seed files installed:
   ✓ {planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md
 
 Configuration:
-  ✓ {planwise_root}/config.yaml
+  ✓ {planwise_root}/config.yaml (scope: {install_scope})
+
+Agent Teams:
+  ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}
 
 Rules installed to .claude/rules/planwise/:
   ✓ agent-authoring.md         (paths: .claude/agents/**)
@@ -195,4 +236,4 @@ Next steps:
   /planwise list          — List all plans
 ```
 
-Adjust the output to reflect what was actually created vs. skipped.
+Replace `{settings_file}` with the actual path used based on scope. Adjust the output to reflect what was actually created vs. skipped.

@@ -13,10 +13,12 @@ Options:
     --plans-dir     Plans subdirectory name (default: Plans)
     --backlog-dir   Backlog subdirectory name (default: Backlog)
     --lessons-dir   Lessons subdirectory name (default: LessonsLearned)
+    --scope         Install scope: project, user, or local (default: project)
 """
 
 import argparse
 import dataclasses
+import json
 import re
 import shutil
 import sys
@@ -33,6 +35,9 @@ class ConfigResult(Enum):
     SKIPPED_NO_TEMPLATE = "skipped_no_template"
 
 
+VALID_SCOPES = ("project", "user", "local")
+
+
 @dataclasses.dataclass
 class InitConfig:
     project_name: str
@@ -42,6 +47,7 @@ class InitConfig:
     plans_dir: str = "Plans"
     backlog_dir: str = "Backlog"
     lessons_dir: str = "LessonsLearned"
+    install_scope: str = "project"
 
 
 def get_plugin_root() -> Path:
@@ -102,6 +108,7 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
         return ConfigResult.SKIPPED_NO_TEMPLATE, config_rel
 
     content = content.replace("{project-name}", cfg.project_name)
+    content = content.replace("{install-scope}", cfg.install_scope)
     content = content.replace('planwise_root: "planwise"', f'planwise_root: "{cfg.planwise_root}"')
     content = content.replace('plans_dir: "Plans"', f'plans_dir: "{cfg.plans_dir}"')
     content = content.replace('backlog_dir: "Backlog"', f'backlog_dir: "{cfg.backlog_dir}"')
@@ -179,6 +186,38 @@ def install_rules(cfg: InitConfig) -> list[str]:
     return installed
 
 
+def get_settings_path(cfg: InitConfig) -> Path:
+    """Return the settings.json path based on install scope."""
+    if cfg.install_scope == "user":
+        return Path.home() / ".claude" / "settings.json"
+    elif cfg.install_scope == "local":
+        return cfg.project_root / ".claude" / "settings.local.json"
+    else:  # project
+        return cfg.project_root / ".claude" / "settings.json"
+
+
+def configure_agent_teams(cfg: InitConfig) -> str:
+    """Add CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS env var to the appropriate settings.json.
+
+    Returns a status message.
+    """
+    settings_path = get_settings_path(cfg)
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    settings = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            settings = {}
+
+    env = settings.setdefault("env", {})
+    env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
+
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    return str(settings_path)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Initialize planwise project structure")
     parser.add_argument("--name", required=True, help="Project name")
@@ -186,6 +225,8 @@ def main():
     parser.add_argument("--plans-dir", default="Plans", help="Plans subdirectory name")
     parser.add_argument("--backlog-dir", default="Backlog", help="Backlog subdirectory name")
     parser.add_argument("--lessons-dir", default="LessonsLearned", help="Lessons subdirectory name")
+    parser.add_argument("--scope", default="project", choices=VALID_SCOPES,
+                        help="Install scope: project, user, or local (default: project)")
     parser.add_argument("--project-root", default=None, help="Project root (default: cwd)")
     args = parser.parse_args()
 
@@ -197,6 +238,7 @@ def main():
         plans_dir=args.plans_dir,
         backlog_dir=args.backlog_dir,
         lessons_dir=args.lessons_dir,
+        install_scope=args.scope,
     )
 
     print(f"Initializing planwise for '{cfg.project_name}'...")
@@ -233,6 +275,11 @@ def main():
             print(f"  + {r}")
     else:
         print("Rules: already exist, skipped")
+    print()
+
+    settings_path = configure_agent_teams(cfg)
+    print(f"Agent Teams enabled ({cfg.install_scope} scope):")
+    print(f"  + {settings_path}")
     print()
 
     print("Done!")
