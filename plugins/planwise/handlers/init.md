@@ -46,11 +46,16 @@ Store responses as:
 
 Try running the Python init script first. It handles directory creation, seed files, config generation, rule installation, and Agent Teams configuration in one command.
 
-**Before running the script**, set the `CLAUDE_PLUGIN_ROOT` environment variable. The plugin root is resolved from the marketplace cache:
+**Before running the script**, resolve the `CLAUDE_PLUGIN_ROOT` environment variable. Try the marketplace path first, fall back to the cache:
 
 ```bash
 export CLAUDE_PLUGIN_ROOT="$HOME/.claude/plugins/marketplaces/planwise-marketplace/plugins/planwise"
+if [ ! -d "$CLAUDE_PLUGIN_ROOT/scripts" ]; then
+  export CLAUDE_PLUGIN_ROOT="$HOME/.claude/plugins/cache/planwise-marketplace/planwise/1.0.0"
+fi
 ```
+
+If neither path exists, fall through to the manual fallback steps (3-7).
 
 Then run the script:
 
@@ -60,7 +65,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/init_project.py" --name "{project_name}" -
 
 If `python` is not found, try `python3`.
 
-**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then skip to **Step 7** (team sharing).
+**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then skip to **Step 8** (team sharing).
 
 **If the script fails** (Python not available or any error): Fall through to Steps 3-6 below.
 
@@ -101,10 +106,10 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 |-------------|--------------|
 | `{project-name}` | `{project_name}` from Step 1 |
 | `{install-scope}` | `{install_scope}` from Step 1 |
-| `"planwise"` (planwise_root value) | `"{planwise_root}"` |
-| `"Plans"` (plans_dir value) | `"{plans_dir}"` |
-| `"Backlog"` (backlog_dir value) | `"{backlog_dir}"` |
-| `"LessonsLearned"` (lessons_dir value) | `"{lessons_dir}"` |
+| `{planwise-root}` | `{planwise_root}` from Step 1 |
+| `{plans-dir}` | `{plans_dir}` from Step 1 |
+| `{backlog-dir}` | `{backlog_dir}` from Step 1 |
+| `{lessons-dir}` | `{lessons_dir}` from Step 1 |
 
 3. **Write** the result to `{planwise_root}/config.yaml`
 
