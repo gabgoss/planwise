@@ -44,7 +44,7 @@ Store responses as:
 
 ### Step 2 — Run the init script (fast path)
 
-Try running the Python init script first. It handles directory creation, seed files, config generation, rule installation, and Agent Teams configuration in one command.
+Try running the Python init script first. It handles directory creation, seed files, config generation, rule installation, and settings configuration (Agent Teams + plugin permissions) in one command.
 
 **Before running the script**, resolve the `CLAUDE_PLUGIN_ROOT` environment variable. Try the marketplace path first, fall back to the cache:
 
@@ -55,7 +55,7 @@ if [ ! -d "$CLAUDE_PLUGIN_ROOT/scripts" ]; then
 fi
 ```
 
-If neither path exists, fall through to the manual fallback steps (3-7).
+If neither path exists, fall through to the manual fallback steps (3-8).
 
 Then run the script:
 
@@ -65,9 +65,9 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/init_project.py" --name "{project_name}" -
 
 If `python` is not found, try `python3`.
 
-**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then skip to **Step 8** (team sharing).
+**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then skip to **Step 9** (team sharing).
 
-**If the script fails** (Python not available or any error): Fall through to Steps 3-6 below.
+**If the script fails** (Python not available or any error): Fall through to Steps 3-8 below.
 
 ---
 
@@ -172,11 +172,13 @@ Enable Agent Teams by adding the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environm
 
 **Important:** Preserve all existing settings in the file. Only add/update the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` key within the `env` object.
 
-#### Configure plugin read permissions
+---
+
+### Step 8 — Configure plugin read permissions (fallback)
 
 Add the plugin cache directory to `permissions.additionalDirectories` so Claude Code can read plugin files (handlers, references, scripts) without prompting.
 
-1. **Read** the same settings file used above
+1. **Read** the same settings file used in Step 7
 2. Parse as JSON
 3. Add or merge the `permissions.additionalDirectories` key — do NOT overwrite existing entries:
    ```json
@@ -195,7 +197,7 @@ Add the plugin cache directory to `permissions.additionalDirectories` so Claude 
 
 ---
 
-### Step 8 — (Optional) Configure team sharing
+### Step 9 — (Optional) Configure team sharing
 
 Use `AskUserQuestion`:
 
@@ -217,7 +219,7 @@ Use `AskUserQuestion`:
 
 ---
 
-### Step 9 — Output confirmation
+### Step 10 — Output confirmation
 
 Output a summary of all actions taken:
 
@@ -245,7 +247,7 @@ Agent Teams:
   ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}
 
 Plugin permissions:
-  ✓ additionalDirectories: <CLAUDE_PLUGIN_ROOT> → {settings_file}
+  ✓ additionalDirectories: {plugin_root} → {settings_file}
 
 Rules installed to .claude/rules/planwise/:
   ✓ agent-authoring.md         (paths: .claude/agents/**)
