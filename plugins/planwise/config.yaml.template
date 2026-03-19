@@ -1,4 +1,5 @@
 # Agentic Project Management — Project Configuration
+plugin_root: "{plugin-root}"
 project:
   name: "{project-name}"
   install_scope: "{install-scope}"  # project, user, or local

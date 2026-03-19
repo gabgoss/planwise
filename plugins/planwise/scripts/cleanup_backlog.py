@@ -113,7 +113,7 @@ def main():
         help="What to clean up: index (remove COMPLETE/CLOSED rows), "
              "archive (delete files), both (do both)",
     )
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     config = load_config(Path(__file__))
 

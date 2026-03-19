@@ -105,6 +105,7 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
     except FileNotFoundError:
         return ConfigResult.SKIPPED_NO_TEMPLATE, config_rel
 
+    content = content.replace("{plugin-root}", str(get_plugin_root()).replace("\\", "/"))
     content = content.replace("{project-name}", cfg.project_name)
     content = content.replace("{install-scope}", cfg.install_scope)
     content = content.replace("{planwise-root}", cfg.planwise_root)
@@ -215,7 +216,7 @@ def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None]:
         settings = {}
     except json.JSONDecodeError:
         print(f"  Warning: {settings_path} contains invalid JSON — skipping settings configuration.", file=sys.stderr)
-        print(f"  Fix the file manually and re-run /planwise init.", file=sys.stderr)
+        print("  Fix the file manually and re-run /planwise init.", file=sys.stderr)
         return None, None
 
     # Agent Teams

@@ -46,21 +46,12 @@ Store responses as:
 
 Try running the Python init script first. It handles directory creation, seed files, config generation, rule installation, and settings configuration (Agent Teams + plugin permissions) in one command.
 
-**Before running the script**, resolve the `CLAUDE_PLUGIN_ROOT` environment variable. Try the marketplace path first, fall back to the cache:
+**Resolve `{plugin_root}`:** For first-time init, resolve the plugin root from this handler's known location (the plugin base directory provided by SKILL.md). For re-init, read `plugin_root` from the existing `config.yaml`.
+
+Run the script:
 
 ```bash
-export CLAUDE_PLUGIN_ROOT="$HOME/.claude/plugins/marketplaces/planwise-marketplace/plugins/planwise"
-if [ ! -d "$CLAUDE_PLUGIN_ROOT/scripts" ]; then
-  export CLAUDE_PLUGIN_ROOT="$HOME/.claude/plugins/cache/planwise-marketplace/planwise/1.0.0"
-fi
-```
-
-If neither path exists, fall through to the manual fallback steps (3-8).
-
-Then run the script:
-
-```bash
-python "${CLAUDE_PLUGIN_ROOT}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}"
+python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}"
 ```
 
 If `python` is not found, try `python3`.
@@ -185,12 +176,12 @@ Add the plugin cache directory to `permissions.additionalDirectories` so Claude 
    {
      "permissions": {
        "additionalDirectories": [
-         "<CLAUDE_PLUGIN_ROOT>"
+         "{plugin_root}"
        ]
      }
    }
    ```
-   Where `<CLAUDE_PLUGIN_ROOT>` is the resolved plugin path from Step 2 (e.g., `~/.claude/plugins/cache/planwise-marketplace/planwise/1.0.0`).
+   Where `{plugin_root}` is the resolved plugin path from Step 2 (e.g., `~/.claude/plugins/cache/planwise-marketplace/planwise/1.0.0`).
 4. **Write** the updated JSON back
 
 **Important:** Preserve all existing settings and any existing entries in `additionalDirectories`. Only append the plugin root if it is not already present.

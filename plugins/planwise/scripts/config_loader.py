@@ -194,6 +194,13 @@ def load_config(script_path: Path | None = None) -> dict:
     index_files = project.get("index_files", {}) if isinstance(project.get("index_files"), dict) else {}
     config["_index_path"] = config["_backlog_dir"] / index_files.get("backlog", "00-Index-Backlog.md")
 
+    # Resolve plugin root
+    plugin_root_val = config.get("plugin_root")
+    if plugin_root_val:
+        config["_plugin_root"] = Path(plugin_root_val)
+    else:
+        config["_plugin_root"] = Path(__file__).resolve().parent.parent
+
     # Resolve plans path
     plans_rel = project.get("plans_dir", "Plans")
     config["_plans_dir"] = planwise_root / plans_rel

@@ -19,6 +19,7 @@ Locate `config.yaml` by checking:
 3. If not found: "Project not initialized. Run `/planwise init` first."
 
 Extract from `config.yaml`:
+- `plugin_root` — the plugin installation path
 - `project.planwise_root` — the planwise root folder (default: `planwise`)
 - `project.backlog_dir` — the Backlog directory name (relative to planwise_root)
 - `project.index_files.backlog` — the backlog index filename
@@ -32,7 +33,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Bac
 
 ## Required References
 
-Before proceeding, read these reference files from `${CLAUDE_PLUGIN_ROOT}/references/`:
+Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
 
@@ -48,8 +49,8 @@ Before proceeding, read these reference files from `${CLAUDE_PLUGIN_ROOT}/refere
 **Score and parse the backlog index:**
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/score_backlog.py --config {planwise_root}/config.yaml
-python ${CLAUDE_PLUGIN_ROOT}/scripts/parse_backlog.py --config {planwise_root}/config.yaml
+python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml
+python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml
 ```
 
 - `score_backlog.py` computes priority scores (8 configurable factors, weights from `config.yaml`) and writes the Score column to the index
@@ -63,9 +64,9 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/parse_backlog.py --config {planwise_root}/c
 **With filters (pass through from `$ARGUMENTS`):**
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --priority High
-python ${CLAUDE_PLUGIN_ROOT}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --abbrev APP
-python ${CLAUDE_PLUGIN_ROOT}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --status IN_PROGRESS
+python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --priority High
+python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --abbrev APP
+python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --status IN_PROGRESS
 ```
 
 Display the table to the user.
@@ -88,7 +89,7 @@ Display the table to the user.
 **For each selected item**, update status to IN_PROGRESS:
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status IN_PROGRESS
+python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status IN_PROGRESS
 ```
 
 ---
@@ -232,13 +233,13 @@ For large-scope or architectural items:
 | Skipped | No change |
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status "{new_status}"
+python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status "{new_status}"
 ```
 
 **Re-score after status changes** (skip if outcome was "Skipped" — nothing changed):
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/score_backlog.py --config {planwise_root}/config.yaml
+python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml
 ```
 
 **Automatic archival:** When status is set to COMPLETE or CLOSED, `update_backlog.py` automatically:
@@ -407,12 +408,12 @@ Items are ranked by a computed priority score using 8 weighted factors. All weig
 
 ## Script Interfaces
 
-All scripts are in `${CLAUDE_PLUGIN_ROOT}/scripts/`. They locate `config.yaml` in the planwise root directory (e.g., `planwise/config.yaml`). Pass `--config {planwise_root}/config.yaml` explicitly.
+All scripts are in `{plugin_root}/scripts/`. They locate `config.yaml` in the planwise root directory (e.g., `planwise/config.yaml`). Pass `--config {planwise_root}/config.yaml` explicitly.
 
 ### parse_backlog.py
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/parse_backlog.py [OPTIONS]
+python {plugin_root}/scripts/parse_backlog.py [OPTIONS]
 ```
 
 | Argument | Required | Description |
@@ -446,7 +447,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/parse_backlog.py [OPTIONS]
 ### update_backlog.py
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/update_backlog.py --id ID --status STATUS
+python {plugin_root}/scripts/update_backlog.py --id ID --status STATUS
 ```
 
 | Argument | Required | Description |
@@ -459,7 +460,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/update_backlog.py --id ID --status STATUS
 ### score_backlog.py
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/score_backlog.py [OPTIONS]
+python {plugin_root}/scripts/score_backlog.py [OPTIONS]
 ```
 
 | Argument | Required | Description |
@@ -470,7 +471,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/score_backlog.py [OPTIONS]
 ### cleanup_backlog.py
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup_backlog.py --target {index|archive|both}
+python {plugin_root}/scripts/cleanup_backlog.py --target {index|archive|both}
 ```
 
 Run when the index exceeds ~500 lines to remove COMPLETE/CLOSED rows. `--target archive` deletes archived files; `--target both` does both operations.

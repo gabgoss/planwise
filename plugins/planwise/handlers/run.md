@@ -33,6 +33,7 @@ Locate `config.yaml` by checking:
 3. If not found: "Project not initialized. Run `/planwise init` first."
 
 Extract from `config.yaml`:
+- `plugin_root` -- the plugin installation path
 - `project.planwise_root` -- the planwise root folder (default: `planwise`)
 - `project.plans_dir` -- the Plans directory name (relative to planwise_root)
 - `project.lessons_dir` -- the Lessons directory name (relative to planwise_root)
@@ -44,7 +45,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 
 ## Required References
 
-Before proceeding, read these reference files from `${CLAUDE_PLUGIN_ROOT}/references/`:
+Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
 
