@@ -224,6 +224,36 @@ def configure_agent_teams(cfg: InitConfig) -> str | None:
     return str(settings_path)
 
 
+def configure_plugin_permissions(cfg: InitConfig) -> str | None:
+    """Add plugin cache directory to permissions.additionalDirectories.
+
+    This allows Claude Code to read plugin files (handlers, references)
+    without prompting for permission each time.
+
+    Returns the plugin directory path on success, or None if skipped.
+    """
+    settings_path = get_settings_path(cfg)
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        settings = {}
+    except json.JSONDecodeError:
+        print(f"  Warning: {settings_path} contains invalid JSON — skipping plugin permissions.", file=sys.stderr)
+        return None
+
+    permissions = settings.setdefault("permissions", {})
+    additional_dirs = permissions.setdefault("additionalDirectories", [])
+
+    plugin_dir = str(cfg.plugin_root)
+    if plugin_dir not in additional_dirs:
+        additional_dirs.append(plugin_dir)
+
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    return plugin_dir
+
+
 def main():
     parser = argparse.ArgumentParser(description="Initialize planwise project structure")
     parser.add_argument("--name", required=True, help="Project name")
@@ -290,6 +320,14 @@ def main():
         print(f"  + {settings_path}")
     else:
         print("Agent Teams: skipped (see warning above)")
+    print()
+
+    plugin_dir = configure_plugin_permissions(cfg)
+    if plugin_dir:
+        print(f"Plugin permissions configured ({cfg.install_scope} scope):")
+        print(f"  + additionalDirectories: {plugin_dir}")
+    else:
+        print("Plugin permissions: skipped (see warning above)")
     print()
 
     print("Done!")

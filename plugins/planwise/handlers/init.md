@@ -172,6 +172,27 @@ Enable Agent Teams by adding the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environm
 
 **Important:** Preserve all existing settings in the file. Only add/update the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` key within the `env` object.
 
+#### Configure plugin read permissions
+
+Add the plugin cache directory to `permissions.additionalDirectories` so Claude Code can read plugin files (handlers, references, scripts) without prompting.
+
+1. **Read** the same settings file used above
+2. Parse as JSON
+3. Add or merge the `permissions.additionalDirectories` key — do NOT overwrite existing entries:
+   ```json
+   {
+     "permissions": {
+       "additionalDirectories": [
+         "<CLAUDE_PLUGIN_ROOT>"
+       ]
+     }
+   }
+   ```
+   Where `<CLAUDE_PLUGIN_ROOT>` is the resolved plugin path from Step 2 (e.g., `~/.claude/plugins/cache/planwise-marketplace/planwise/1.0.0`).
+4. **Write** the updated JSON back
+
+**Important:** Preserve all existing settings and any existing entries in `additionalDirectories`. Only append the plugin root if it is not already present.
+
 ---
 
 ### Step 8 — (Optional) Configure team sharing
@@ -222,6 +243,9 @@ Configuration:
 
 Agent Teams:
   ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}
+
+Plugin permissions:
+  ✓ additionalDirectories: <CLAUDE_PLUGIN_ROOT> → {settings_file}
 
 Rules installed to .claude/rules/planwise/:
   ✓ agent-authoring.md         (paths: .claude/agents/**)
