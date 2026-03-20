@@ -172,6 +172,11 @@ def load_config(script_path: Path | None = None) -> dict:
             )
             sys.exit(1)
 
+        print(
+            f"Warning: --config not provided, found config at {config_path}",
+            file=sys.stderr,
+        )
+
     raw = config_path.read_text(encoding="utf-8")
 
     if HAS_YAML:
@@ -188,6 +193,17 @@ def load_config(script_path: Path | None = None) -> dict:
 
     # Resolve paths relative to planwise root
     project = config.get("project", {})
+
+    # Validate project.name when config was found via upward search
+    if explicit_config is None:
+        project_name = project.get("name", "")
+        if not project_name or "{" in project_name:
+            print(
+                f"Warning: config at {config_path} has placeholder or missing "
+                f"project.name '{project_name}' — may not be the intended config",
+                file=sys.stderr,
+            )
+
     backlog_rel = project.get("backlog_dir", "Backlog")
     config["_backlog_dir"] = planwise_root / backlog_rel
     config["_archive_dir"] = planwise_root / project.get("archive_dir", f"{backlog_rel}/Archive")
