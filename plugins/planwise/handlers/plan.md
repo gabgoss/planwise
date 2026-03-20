@@ -54,15 +54,31 @@ This status is the **execution gate**. The `/planwise run` command checks this b
 
 Before gathering information, check the user's prompt for **Scaffolding Mode** indicators:
 
-| Indicator | Mode |
-|-----------|------|
-| User mentions "Consolidated Context parts" or "spec parts" | **Scaffolding** |
-| User provides a path to `Meta-{Abbrev}/Outputs/` | **Scaffolding** |
-| User says "scaffold", "scaffolding phase", or "from Discovery" | **Scaffolding** |
-| `--scaffold` flag present in arguments | **Scaffolding** |
-| None of the above | **Standard** (proceed to Step 1) |
+**Explicit indicators** (go directly to Scaffolding Workflow):
 
-**If Scaffolding Mode:** Follow the [Scaffolding Workflow](#scaffolding-workflow) section below instead of Steps 1-9.
+| Indicator | Action |
+|-----------|--------|
+| `--scaffold` flag present in arguments | **Scaffolding** |
+| User says "scaffold", "scaffolding phase", or "from Discovery" | **Scaffolding** |
+
+**Implicit indicators** (recommend Scaffolding via `AskUserQuestion`):
+
+| Indicator | Action |
+|-----------|--------|
+| User-provided paths contain `Meta-` prefix | **Recommend Scaffolding** |
+| User references `/Outputs/` directories | **Recommend Scaffolding** |
+| User mentions "Consolidated Context parts" or "spec parts" | **Recommend Scaffolding** |
+
+If **any implicit indicator** is detected without an explicit indicator, use `AskUserQuestion`:
+
+> "Your source material references Meta-Plan Discovery outputs. The Scaffolding workflow creates focused per-sprint Execution Inputs from this research, preventing subagents from reading entire Discovery docs. **Recommended: use Scaffolding.** Proceed with Scaffolding or Standard?"
+
+- If user chooses **Scaffolding** → follow the [Scaffolding Workflow](#scaffolding-workflow) below
+- If user chooses **Standard** → proceed to Step 1
+
+If **no indicators** are detected → proceed to Step 1 (Standard).
+
+**If Scaffolding Mode (explicit):** Follow the [Scaffolding Workflow](#scaffolding-workflow) section below instead of Steps 1-9.
 
 ---
 
