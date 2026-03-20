@@ -160,6 +160,20 @@ For each task in the session, compute a bottom-up token estimate:
 
 Update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates.
 
+### Step 8d: Update Plans Index
+
+Add a row to the plans index so `/planwise list` reflects the new plan:
+
+1. Read `{plans_dir}/{plans_index}` (path from `config.yaml`)
+2. Add a row to the table:
+   - **Abbrev:** `{ABBREV}`
+   - **Name:** `{PlanName}`
+   - **Status:** `NOT_STARTED`
+   - **Created:** `{today's date}`
+   - **Last Updated:** `{today's date}`
+   - **Path:** `{plans_dir}/{PlanName}/`
+3. Write the updated index back to disk
+
 ---
 
 ### Step 9: Output Confirmation
@@ -248,6 +262,7 @@ Before completing `/planwise plan`, verify:
 [ ] Recovery file initialized
 [ ] Outputs/ folder created
 [ ] All files follow naming conventions
+[ ] Plans index updated with new row (Abbrev, Name, Status, Created, Last Updated, Path)
 [ ] Session token estimates validated (< 100K per session)
 [ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
 [ ] If DELEGATED: each task estimate + 54K overhead < 200K
