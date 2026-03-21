@@ -151,13 +151,38 @@ Use `AskUserQuestion` to collect:
 Before creating files, verify:
 
 ```
-[ ] Abbreviation is 2-4 characters
+[ ] Abbreviation is 2-4 characters (see validation protocol below)
 [ ] Abbreviation is unique (check {plans_dir} for existing)
 [ ] Vision is clear and actionable
 [ ] At least one sprint is defined
 ```
 
 If validation fails, ask user to correct.
+
+#### Abbreviation Length Validation
+
+> [!constraint] Never Silently Truncate Abbreviations
+> WRONG: User provides `HBS-VBD` → handler silently truncates to `VBD` and proceeds.
+>
+> CORRECT: User provides `HBS-VBD` → handler prompts with `AskUserQuestion` showing the constraint, what they provided, and alternatives.
+
+> [!protocol] Abbreviation Validation Protocol
+> 1. Check if the user-provided abbreviation is 2-4 characters
+> 2. If valid (2-4 chars) → proceed to uniqueness check
+> 3. If invalid (< 2 or > 4 chars) → use `AskUserQuestion` with the following:
+>
+>    **Prompt the user with:**
+>    - The constraint: "Planwise abbreviations must be 2-4 characters"
+>    - What they provided: "`{user_abbrev}` is {N} characters"
+>    - Alternatives (present all that apply):
+>
+>    | # | Alternative | When to Show |
+>    |---|-------------|--------------|
+>    | 1 | "`{matching_abbrev}` (matches existing `Meta-{matching_abbrev}/` — recommended)" | A `Meta-{portion}/` folder exists in `{plans_dir}` for a substring of the provided abbreviation |
+>    | 2 | "`{truncated}` (first 4 characters)" | Always (as fallback) |
+>    | 3 | "Other — type your preferred 2-4 character abbreviation" | Always |
+>
+> 4. Validate the user's choice is 2-4 characters — if not, repeat from step 3
 
 ### Step 3: Create Folder Structure
 
@@ -366,7 +391,7 @@ Use `AskUserQuestion` to collect:
 
 ### Discovery Step 2: Validate and Design
 
-1. **Validate abbreviation:** 2-4 characters, unique (check `{plans_dir}` for existing)
+1. **Validate abbreviation:** 2-4 characters, unique (check `{plans_dir}` for existing). Follow the [Abbreviation Validation Protocol](#abbreviation-length-validation) — never silently truncate or adjust
 2. **Inventory source files:** List all source files with estimated line counts and token costs (~13 tokens/line)
 3. **Confirm context exceeds 100K:** Sum total source tokens. If < 100K, recommend Standard plan instead
 4. **Group sources by domain/topic:** Each group becomes a discovery sprint or session focus area
