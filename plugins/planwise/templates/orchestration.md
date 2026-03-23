@@ -13,13 +13,13 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 ---
 
-## Session Objective
+## Session Objective <!-- REQUIRED -->
 
 {2-3 sentences describing what this session accomplishes}
 
 ---
 
-## Required Context Files
+## Required Context Files <!-- REQUIRED -->
 
 <!-- DIRECT mode: list all context files needed for the session -->
 <!-- DELEGATED mode: list ONLY plan files (Orchestration, Recovery, task files) -->
@@ -35,9 +35,9 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 ---
 
-## Execution Strategy
+## Execution Strategy <!-- REQUIRED -->
 
-**Mode:** {DIRECT | DELEGATED}
+**Mode:** {DIRECT | DELEGATED} <!-- REQUIRED -->
 **Reason:** {Why this mode — e.g., "3 sequential Opus tasks each needing fresh context"}
 
 ### Context Boundary (DELEGATED mode only)
@@ -50,7 +50,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 ---
 
-## Session Task List
+## Session Task List <!-- REQUIRED -->
 
 | # | Task | Agent | Est. Tokens | Depends On |
 |---|------|-------|-------------|------------|
@@ -58,13 +58,13 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 | 2 | {Task 2} | Sonnet | ~{X}K | 1 |
 | 3 | {Task 3} | Opus | ~{X}K | 2 |
 
-**Total Estimated:** ~{XX}K tokens
+**Total Estimated:** ~{XX}K tokens <!-- REQUIRED -->
 <!-- Reconciliation: this total MUST equal the sum of Est. Tokens above.
      This session's total MUST match the Est. Tokens in the Sprint Plan Sessions table. -->
 
 ---
 
-## Success Criteria
+## Success Criteria <!-- REQUIRED -->
 
 - [ ] {Measurable criterion 1}
 - [ ] {Measurable criterion 2}
@@ -72,13 +72,13 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 ---
 
-## Recovery Protocol
+## Recovery Protocol <!-- REQUIRED -->
 
 Update `{Abbrev}-S{XX}-{YY}-Recovery.md` after EACH task completion.
 
 ---
 
-## Task Files
+## Task Files <!-- REQUIRED -->
 
 | # | Task File | Agent |
 |---|-----------|-------|
@@ -88,7 +88,7 @@ Update `{Abbrev}-S{XX}-{YY}-Recovery.md` after EACH task completion.
 
 ---
 
-## Post-Session Checklist
+## Post-Session Checklist <!-- REQUIRED -->
 
 > Corresponds to Phase 4 of the run handler. Complete these steps after all tasks finish.
 

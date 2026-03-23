@@ -531,6 +531,7 @@ After the confirmation, proceed to [Step 10: Plan Review Gate](#step-10-plan-rev
 From the user's prompt or by asking:
 - **Abbreviation:** Same as the Meta-Plan's abbreviation (e.g., `GCW`)
 - **Root:** `{plans_dir}/{PlanName}/Exec-{Abbrev}/` (resolved from config.yaml)
+- **Scaffold folder:** Always create `{plans_dir}/{PlanName}/Scaffold-{Abbrev}/` to maintain the three-phase convention (`Meta-{Abbrev}/`, `Scaffold-{Abbrev}/`, `Exec-{Abbrev}/`), even when scaffolding is done inline in the same session as planning
 - **Sprints:** Derived from each part's `Scope:` field (one sprint per execution-scoped part)
 - If stale `Exec-{Abbrev}/` files exist from a placeholder, **delete them first**
 
@@ -573,6 +574,25 @@ Use the [scaffolding master plan template](../templates/scaffolding-master-plan.
 Use standard templates for all other files (sprint plans, orchestrations, recovery, task files).
 
 **Critical difference from standard planning:** Every task file's `Required Context` table MUST reference the sprint's **Execution Input** file (with section numbers), NOT the original Consolidated Context parts. The Execution Input replaces the parts for execution purposes.
+
+**Status rule:** Set ALL Sprint Plan files to `**Status:** PLANNED`. Only the Master Plan gets `READY_TO_EXECUTE`. Do NOT copy the Master Plan's status into Sprint Plans — each Sprint Plan starts as PLANNED and transitions to IN_PROGRESS → COMPLETE during execution.
+
+> [!constraint] Agent Prompts Must Include Exact Headers
+> Subagents start with fresh context (no inherited file reads). Saying "follow the template" forces a subagent to discover and read the template — an extra hop that may be skipped or interpreted loosely.
+>
+> WRONG: `"Follow the orchestration template to generate the orchestration file."`
+>
+> CORRECT: Include exact section headers and required formatting lines inline in the Task `prompt` parameter:
+> ```
+> "Generate the orchestration file with these exact section headers in order:
+> ## Session Objective, ## Required Context Files, ## Execution Strategy,
+> ## Session Task List, ## Success Criteria, ## Recovery Protocol,
+> ## Task Files, ## Post-Session Checklist.
+> Include the **Total Estimated:** line after the Session Task List table.
+> Include the **Mode:** line in Execution Strategy."
+> ```
+>
+> This applies to ALL file-generation agent prompts during scaffolding: sprint plans, orchestrations, task files.
 
 ### Scaffolding Step 6: Validation
 

@@ -37,6 +37,12 @@ maxTurns: 20
 - [ ] Task files have: Objective, Required Context, Execution Steps, Expected Output, Success Criteria
 - [ ] Recovery files have: Step Completion Status table, Key Findings, Files Modified, Change Log
 
+## Status Consistency
+
+- [ ] Master plan status is READY_TO_EXECUTE (the only file with this status at scaffolding time)
+- [ ] All sprint plan files have status PLANNED (not READY_TO_EXECUTE)
+- [ ] No sprint plan has READY_TO_EXECUTE while its prerequisites are incomplete
+
 ## Numbering and Consistency
 
 - [ ] Sprint numbers are sequential (S01, S02, ...)

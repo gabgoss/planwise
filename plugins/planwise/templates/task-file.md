@@ -15,13 +15,13 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 
 ---
 
-## Objective
+## Objective <!-- REQUIRED -->
 
 {Clear, specific goal for this task - what must be accomplished}
 
 ---
 
-## Required Context
+## Required Context <!-- REQUIRED -->
 
 | Priority | File | Est. Lines | Est. Tokens | Purpose |
 |----------|------|-----------|-------------|---------|
@@ -43,7 +43,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 
 ---
 
-## Execution Steps
+## Execution Steps <!-- REQUIRED -->
 
 1. {Step 1 - specific action}
 2. {Step 2 - specific action}
@@ -63,13 +63,13 @@ Never leave many-to-many mappings for the agent to infer.
 
 ---
 
-## Expected Output
+## Expected Output <!-- REQUIRED -->
 
 {What the subagent should produce - be specific about format and content}
 
 ---
 
-## Success Criteria
+## Success Criteria <!-- REQUIRED -->
 
 - [ ] {Measurable criterion 1}
 - [ ] {Measurable criterion 2}

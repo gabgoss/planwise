@@ -9,18 +9,19 @@ Use this template when creating `{Abbrev}-S{XX}-Sprint-Plan.md`.
 
 **Sprint ID:** {ABBREV}-S{XX}
 **Status:** PLANNED
+<!-- All Sprint Plans start as PLANNED. Only the Master Plan uses READY_TO_EXECUTE. Lifecycle: PLANNED → IN_PROGRESS → COMPLETE. -->
 **Estimated Tokens:** ~{XX}K total across all sessions
 <!-- Reconciliation: this total MUST equal the sum of Est. Tokens in the Sessions table below. -->
 
 ---
 
-## Sprint Objective
+## Sprint Objective <!-- REQUIRED -->
 
 {2-3 sentences describing what this sprint accomplishes and its purpose within the larger plan}
 
 ---
 
-## Sessions
+## Sessions <!-- REQUIRED -->
 
 | Session | ID | Name | Objective | Est. Tokens |
 |---------|----|----- |-----------|-------------|
@@ -29,14 +30,14 @@ Use this template when creating `{Abbrev}-S{XX}-Sprint-Plan.md`.
 
 ---
 
-## Prerequisites
+## Prerequisites <!-- REQUIRED -->
 
 - {Prerequisite 1 - e.g., Sprint {XX-1} completed}
 - {Prerequisite 2 - e.g., Required document exists}
 
 ---
 
-## Success Criteria
+## Success Criteria <!-- REQUIRED -->
 
 - [ ] {Measurable criterion 1}
 - [ ] {Measurable criterion 2}
@@ -44,7 +45,7 @@ Use this template when creating `{Abbrev}-S{XX}-Sprint-Plan.md`.
 
 ---
 
-## Deliverables
+## Deliverables <!-- REQUIRED -->
 
 1. **{Deliverable 1}:** {Description of what will be produced}
 2. **{Deliverable 2}:** {Description of what will be produced}

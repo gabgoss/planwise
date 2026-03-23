@@ -13,19 +13,19 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 
 ---
 
-## Vision
+## Vision <!-- REQUIRED -->
 
 {User's vision statement - 2-3 sentences describing what this plan accomplishes and why it matters}
 
 ---
 
-## Sprint Overview
+## Sprint Overview <!-- REQUIRED -->
 
 | Sprint | Name | Purpose | Sessions | Status |
 |--------|------|---------|----------|--------|
 | 01 | {SprintName} | {What this sprint delivers} | {count} | ⏳ NOT STARTED |
 
-**Total Sessions:** {sum of all sessions}
+**Total Sessions:** {sum of all sessions} <!-- REQUIRED -->
 **Prerequisite For:** {next plan or "None - standalone project"}
 
 ---
@@ -38,7 +38,7 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 
 ---
 
-## Session Completion Tracking
+## Session Completion Tracking <!-- REQUIRED -->
 
 > **Update this table when each session completes.**
 
@@ -54,7 +54,7 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 
 ---
 
-## Success Criteria
+## Success Criteria <!-- REQUIRED -->
 
 ### Sprint-01 Complete When:
 - [ ] {Measurable criterion 1}
