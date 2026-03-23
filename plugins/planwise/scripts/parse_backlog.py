@@ -232,7 +232,7 @@ def main():
     parser.add_argument("--show-blocked", action="store_true", help="Include items blocked by open dependencies")
     parser.add_argument("--sort", choices=["score", "id"], default="score", help="Sort order (default: score descending)")
 
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     # Load config
     config = load_config(Path(__file__))

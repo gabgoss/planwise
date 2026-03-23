@@ -2,6 +2,23 @@
 
 **Purpose:** Create a new plan following structured development best practices.
 
+## Table of Contents
+
+- [Config Gate](#config-gate)
+- [Required References](#required-references)
+- [Status Field](#status-field)
+- [Workflow](#workflow)
+  - [Step 0: Detect Mode](#step-0-detect-mode)
+  - [Steps 1-9: Standard Plan](#step-1-gather-information)
+  - [Step 10: Plan Review Gate](#step-10-plan-review-gate)
+- [Validation Checklist](#validation-checklist)
+- [Discovery Workflow](#discovery-workflow)
+- [Scaffolding Workflow](#scaffolding-workflow)
+- [Naming Conventions](#naming-conventions)
+- [Token Budget Rules](#token-budget-rules)
+- [Agent Assignment](#agent-assignment)
+- [Additional Resources](#additional-resources)
+
 ---
 
 ## Config Gate
@@ -12,6 +29,7 @@ Locate `config.yaml` by checking:
 3. If not found: "Project not initialized. Run `/planwise init` first."
 
 Extract from `config.yaml`:
+- `plugin_root` — the plugin installation path
 - `project.planwise_root` — the planwise root folder (default: `planwise`)
 - `project.plans_dir` — the Plans directory name (relative to planwise_root)
 - `project.lessons_dir` — the Lessons directory name (relative to planwise_root)
@@ -23,7 +41,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 
 ## Required References
 
-Before proceeding, read these reference files from `${CLAUDE_PLUGIN_ROOT}/references/`:
+Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
 
@@ -51,17 +69,65 @@ This status is the **execution gate**. The `/planwise run` command checks this b
 
 ### Step 0: Detect Mode
 
-Before gathering information, check the user's prompt for **Scaffolding Mode** indicators:
+Before gathering information, check the user's prompt for **Discovery Mode** and **Scaffolding Mode** indicators. Check Discovery first — it is upstream of Scaffolding.
 
-| Indicator | Mode |
-|-----------|------|
-| User mentions "Consolidated Context parts" or "spec parts" | **Scaffolding** |
-| User provides a path to `Meta-{Abbrev}/Outputs/` | **Scaffolding** |
-| User says "scaffold", "scaffolding phase", or "from Discovery" | **Scaffolding** |
+#### Discovery Mode (Meta-Plan Creation)
+
+**Explicit indicators** (go directly to Discovery Workflow):
+
+| Indicator | Action |
+|-----------|--------|
+| `--meta` flag present in arguments | **Discovery** |
+| User says "meta-plan", "discovery phase", or "consolidated context" | **Discovery** |
+| User says the context is "too large" or "> 100K" | **Discovery** |
+
+**Implicit indicators** (recommend Discovery via `AskUserQuestion`):
+
+| Indicator | Action |
+|-----------|--------|
+| User describes needing to read many source files across multiple domains | **Recommend Discovery** |
+| User says there's "too much to read in one session" or "too much context" | **Recommend Discovery** |
+| Source material spans multiple large files (estimated total > 100K tokens) | **Recommend Discovery** |
+| User asks to "organize", "consolidate", or "cross-reference" source material | **Recommend Discovery** |
+
+If **any Discovery implicit indicator** is detected without an explicit indicator, use `AskUserQuestion`:
+
+> "Your project appears to require more context than fits in a single session (~100K tokens). The **Meta-Plan Discovery** workflow reads source material across multiple sessions, consolidates findings into structured Consolidated Context Parts, and then scaffolds an Execution Plan from those parts. **Recommended: use Discovery (Meta-Plan).** Proceed with Discovery, Scaffolding (if you already have Consolidated Context parts), or Standard?"
+
+- If user chooses **Discovery** → follow the [Discovery Workflow](#discovery-workflow) below
+- If user chooses **Scaffolding** → follow the [Scaffolding Workflow](#scaffolding-workflow) below
+- If user chooses **Standard** → proceed to Step 1
+
+**If Discovery Mode (explicit):** Follow the [Discovery Workflow](#discovery-workflow) section below instead of Steps 1-9.
+
+#### Scaffolding Mode (Execution Plan from Discovery Outputs)
+
+**Explicit indicators** (go directly to Scaffolding Workflow):
+
+| Indicator | Action |
+|-----------|--------|
 | `--scaffold` flag present in arguments | **Scaffolding** |
-| None of the above | **Standard** (proceed to Step 1) |
+| User says "scaffold", "scaffolding phase", or "from Discovery" | **Scaffolding** |
 
-**If Scaffolding Mode:** Follow the [Scaffolding Workflow](#scaffolding-workflow) section below instead of Steps 1-9.
+**Implicit indicators** (recommend Scaffolding via `AskUserQuestion`):
+
+| Indicator | Action |
+|-----------|--------|
+| User-provided paths contain `Meta-` prefix | **Recommend Scaffolding** |
+| User references `/Outputs/` directories | **Recommend Scaffolding** |
+| User mentions "Consolidated Context parts" or "spec parts" | **Recommend Scaffolding** |
+| Existing `Meta-{Abbrev}/Outputs/` folder contains `Consolidated-Context-Part-*` files | **Recommend Scaffolding** |
+
+If **any Scaffolding implicit indicator** is detected without an explicit indicator, use `AskUserQuestion`:
+
+> "Your source material references Meta-Plan Discovery outputs. The Scaffolding workflow creates focused per-sprint Execution Inputs from this research, preventing subagents from reading entire Discovery docs. **Recommended: use Scaffolding.** Proceed with Scaffolding or Standard?"
+
+- If user chooses **Scaffolding** → follow the [Scaffolding Workflow](#scaffolding-workflow) below
+- If user chooses **Standard** → proceed to Step 1
+
+#### No Mode Detected
+
+If **no indicators** are detected → proceed to Step 1 (Standard).
 
 ---
 
@@ -85,13 +151,38 @@ Use `AskUserQuestion` to collect:
 Before creating files, verify:
 
 ```
-[ ] Abbreviation is 2-4 characters
+[ ] Abbreviation is 2-4 characters (see validation protocol below)
 [ ] Abbreviation is unique (check {plans_dir} for existing)
 [ ] Vision is clear and actionable
 [ ] At least one sprint is defined
 ```
 
 If validation fails, ask user to correct.
+
+#### Abbreviation Length Validation
+
+> [!constraint] Never Silently Truncate Abbreviations
+> WRONG: User provides `HBS-VBD` → handler silently truncates to `VBD` and proceeds.
+>
+> CORRECT: User provides `HBS-VBD` → handler prompts with `AskUserQuestion` showing the constraint, what they provided, and alternatives.
+
+> [!protocol] Abbreviation Validation Protocol
+> 1. Check if the user-provided abbreviation is 2-4 characters
+> 2. If valid (2-4 chars) → proceed to uniqueness check
+> 3. If invalid (< 2 or > 4 chars) → use `AskUserQuestion` with the following:
+>
+>    **Prompt the user with:**
+>    - The constraint: "Planwise abbreviations must be 2-4 characters"
+>    - What they provided: "`{user_abbrev}` is {N} characters"
+>    - Alternatives (present all that apply):
+>
+>    | # | Alternative | When to Show |
+>    |---|-------------|--------------|
+>    | 1 | "`{matching_abbrev}` (matches existing `Meta-{matching_abbrev}/` — recommended)" | A `Meta-{portion}/` folder exists in `{plans_dir}` for a substring of the provided abbreviation |
+>    | 2 | "`{truncated}` (first 4 characters)" | Always (as fallback) |
+>    | 3 | "Other — type your preferred 2-4 character abbreviation" | Always |
+>
+> 4. Validate the user's choice is 2-4 characters — if not, repeat from step 3
 
 ### Step 3: Create Folder Structure
 
@@ -113,7 +204,7 @@ Create the following structure under the configured `{plans_dir}`:
 
 ### Steps 4-7: Generate Files
 
-Use templates from `${CLAUDE_PLUGIN_ROOT}/templates/`:
+Use templates from `{plugin_root}/templates/`:
 
 | Step | Template | Output File |
 |------|----------|-------------|
@@ -158,6 +249,20 @@ For each task in the session, compute a bottom-up token estimate:
 5. **DELEGATED check:** For DELEGATED tasks, verify (task estimate + 54K subagent overhead) < 200K
 
 Update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates.
+
+### Step 8d: Update Plans Index
+
+Add a row to the plans index so `/planwise list` reflects the new plan:
+
+1. Read `{plans_dir}/{plans_index}` (path from `config.yaml`)
+2. Add a row to the table:
+   - **Abbrev:** `{ABBREV}`
+   - **Name:** `{PlanName}`
+   - **Status:** `NOT_STARTED`
+   - **Created:** `{today's date}`
+   - **Last Updated:** `{today's date}`
+   - **Path:** `{plans_dir}/{PlanName}/`
+3. Write the updated index back to disk
 
 ---
 
@@ -247,6 +352,7 @@ Before completing `/planwise plan`, verify:
 [ ] Recovery file initialized
 [ ] Outputs/ folder created
 [ ] All files follow naming conventions
+[ ] Plans index updated with new row (Abbrev, Name, Status, Created, Last Updated, Path)
 [ ] Session token estimates validated (< 100K per session)
 [ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
 [ ] If DELEGATED: each task estimate + 54K overhead < 200K
@@ -255,6 +361,156 @@ Before completing `/planwise plan`, verify:
 [ ] If DELEGATED: Orchestration Required Context = plan files only
 [ ] If DELEGATED: Context Boundary subsection lists what orchestrator never reads
 ```
+
+---
+
+## Discovery Workflow
+
+**When:** Total context exceeds ~100K tokens, or the user explicitly requests a Meta-Plan. The Discovery phase reads source material, cross-references it, and produces Consolidated Context Parts — structured, full-detail specification documents organized by execution scope.
+
+**Output:** `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md` files
+
+> [!constraint] Discovery ≠ Standard Planning
+> WRONG: Create a standard execution plan inside `Meta-{Abbrev}/` with implementation tasks and a different abbreviation.
+>
+> CORRECT: Create a **discovery plan** inside `Meta-{Abbrev}/` with **reading and consolidation tasks** that produce Consolidated Context Parts. The abbreviation MUST match the parent project. The purpose is context discovery and consolidation — NOT implementation.
+
+### Discovery Step 1: Gather Source Inventory
+
+Use `AskUserQuestion` to collect:
+
+**Question 1: Project Details**
+- What is the project name? (e.g., "DataMigration", "UserAuthentication") — pre-fill from `$1` if provided
+- What is the 2-4 character abbreviation? (e.g., "DM", "UA") — this abbreviation will be used across ALL three phases (Meta, Scaffold, Exec)
+- Briefly describe the project vision (1-2 sentences)
+
+**Question 2: Source Material**
+- What source files/documents need to be read and consolidated? (paths, URLs, or descriptions)
+- Are there specific domains or topics to organize findings by?
+- What should the consolidated output contain? (e.g., schema definitions, API contracts, design decisions)
+
+### Discovery Step 2: Validate and Design
+
+1. **Validate abbreviation:** 2-4 characters, unique (check `{plans_dir}` for existing). Follow the [Abbreviation Validation Protocol](#abbreviation-length-validation) — never silently truncate or adjust
+2. **Inventory source files:** List all source files with estimated line counts and token costs (~13 tokens/line)
+3. **Confirm context exceeds 100K:** Sum total source tokens. If < 100K, recommend Standard plan instead
+4. **Group sources by domain/topic:** Each group becomes a discovery sprint or session focus area
+5. **Define expected Consolidated Context Parts:** One part per execution scope (each part ≤ 500 lines), with anticipated `Scope:` values
+
+### Discovery Step 3: Create Folder Structure
+
+Create the Meta-Plan structure under `{plans_dir}`:
+
+```
+{plans_dir}/{PlanName}/
+└── Meta-{Abbrev}/
+    ├── {Abbrev}-META-Master-Plan.md
+    ├── Sprint-01-Discovery/
+    │   ├── {Abbrev}-META-S01-Sprint-Plan.md
+    │   └── Session-01-{SessionName}/
+    │       ├── {Abbrev}-S01-01-Orchestration.md
+    │       ├── {Abbrev}-S01-01-Recovery.md
+    │       ├── {Abbrev}-S01-01-{##}-{Agent}-{Task}.md
+    │       └── Outputs/
+    └── Outputs/                                # Consolidated Context Parts go here
+```
+
+**Naming rules** (see [Meta-Plan File Naming](#meta-plan-file-naming) for full reference):
+- Master Plan: `{Abbrev}-META-Master-Plan.md` (META infix distinguishes from Execution Plan)
+- Sprint Plans: `{Abbrev}-META-S{XX}-Sprint-Plan.md` (META infix)
+- Orchestration/Recovery: standard naming, no META infix (structural files)
+- Task outputs: `{Abbrev}-META-S{XX}-{YY}-{TaskOutput}.md` (in session `Outputs/`)
+- Consolidated outputs: `{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md` (in `Meta-{Abbrev}/Outputs/`)
+
+### Discovery Step 4: Generate Meta-Plan Files
+
+Use standard templates with the following overrides:
+
+**Master Plan overrides:**
+- Vision: "Context discovery and consolidation for {PlanName}" — NOT implementation
+- Purpose: "Read source material, cross-reference findings, and produce Consolidated Context Parts"
+- Success Criteria: Define what each Consolidated Context Part must contain
+- List all source files/documents to be read (by reference, not loaded into the Master Plan)
+- Expected output: Number and topics of Consolidated Context Parts
+
+**Sprint Plan overrides:**
+- Objective: "Gather and consolidate context for {domain/topic}" — NOT "implement"
+- Sessions focused on reading and cross-referencing, not code generation
+
+**Orchestration overrides:**
+- Execution Strategy: **DELEGATED** (mandatory for META sessions — each agent needs fresh context to read sources)
+- Context Boundary: Orchestrator reads plan files only; source material is read by task agents
+
+**Task design rules:**
+- Tasks are **reading and consolidation** tasks, not implementation tasks
+- Each task reads a subset of source files and produces organized findings
+- The **final task** in a session (or a dedicated consolidation session) combines findings into Consolidated Context Parts
+- Agent assignments: Use **Opus** for cross-referencing and consolidation tasks (complex analysis); use **Sonnet** for straightforward reading tasks
+
+### Discovery Step 5: Define Consolidation Tasks
+
+The most critical part of the Discovery plan. The final task(s) must produce Consolidated Context Parts with this structure:
+
+**Each Consolidated Context Part MUST have:**
+- A header with `Scope:` field identifying which execution sprint it feeds
+- A `What This Enables` section describing what downstream work this context supports
+- Cross-references to other parts where topics overlap
+- Full substantive detail — consolidation means organize and deduplicate, NOT summarize
+- ≤ 500 lines per part; use multiple parts as needed
+
+**Task file for a consolidation task should specify:**
+- **Objective:** "Consolidate findings from {sources} into Consolidated Context Part(s) for {scope}"
+- **Required Context:** The reading task outputs from earlier tasks in the session
+- **Expected Output:** `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md`
+- **Success Criteria:** All source material covered, no substantive content lost, organized by execution scope
+
+### Discovery Step 6: Validation
+
+Standard checklist applies, plus:
+
+```
+[ ] Plan is inside Meta-{Abbrev}/ folder
+[ ] Master Plan and Sprint Plans include META infix (e.g., {Abbrev}-META-Master-Plan.md)
+[ ] Orchestration and Recovery files use standard naming (no META infix)
+[ ] Abbreviation matches the project abbreviation (not a new one)
+[ ] Master Plan purpose is "discovery and consolidation" (NOT implementation)
+[ ] Tasks are reading/consolidation tasks (NOT implementation tasks)
+[ ] Execution Strategy is DELEGATED
+[ ] Final task(s) produce Consolidated Context Parts in Meta-{Abbrev}/Outputs/
+[ ] Expected Consolidated Context Parts are defined with Scope values
+[ ] Source files are listed by reference in Master Plan
+[ ] Each Consolidated Context Part target is ≤ 500 lines
+[ ] Plans index updated with new row
+```
+
+### Discovery Step 7: Output Confirmation
+
+```
+META-PLAN CREATED: {PlanName} (Discovery Phase)
+
+**Abbreviation:** {ABBREV}
+**Location:** {plans_dir}/{PlanName}/Meta-{Abbrev}/
+**Phase:** 1 of 3 (Discovery → Scaffolding → Execution)
+
+**Source Files:** {N} files (~{X}K total tokens)
+**Expected Output:** {N} Consolidated Context Parts in Meta-{Abbrev}/Outputs/
+
+**Files Created:**
+- {Abbrev}-META-Master-Plan.md
+- Sprint-01-Discovery/{Abbrev}-META-S01-Sprint-Plan.md
+- Sprint-01-Discovery/Session-01-{Name}/{Abbrev}-S01-01-Orchestration.md
+- Sprint-01-Discovery/Session-01-{Name}/{Abbrev}-S01-01-Recovery.md
+- Sprint-01-Discovery/Session-01-{Name}/{Abbrev}-S01-01-{##}-{Agent}-{Task}.md (x{N} task files)
+- Sprint-01-Discovery/Session-01-{Name}/Outputs/ (folder)
+- Outputs/ (folder for Consolidated Context Parts)
+
+**Next Steps:**
+1. Review the Meta-Plan files
+2. Execute Discovery sessions with `/planwise run`
+3. After Discovery completes, scaffold the Execution Plan with `/planwise plan --scaffold`
+```
+
+After the confirmation, proceed to [Step 10: Plan Review Gate](#step-10-plan-review-gate).
 
 ---
 
@@ -275,6 +531,7 @@ Before completing `/planwise plan`, verify:
 From the user's prompt or by asking:
 - **Abbreviation:** Same as the Meta-Plan's abbreviation (e.g., `GCW`)
 - **Root:** `{plans_dir}/{PlanName}/Exec-{Abbrev}/` (resolved from config.yaml)
+- **Scaffold folder:** Always create `{plans_dir}/{PlanName}/Scaffold-{Abbrev}/` to maintain the three-phase convention (`Meta-{Abbrev}/`, `Scaffold-{Abbrev}/`, `Exec-{Abbrev}/`), even when scaffolding is done inline in the same session as planning
 - **Sprints:** Derived from each part's `Scope:` field (one sprint per execution-scoped part)
 - If stale `Exec-{Abbrev}/` files exist from a placeholder, **delete them first**
 
@@ -317,6 +574,25 @@ Use the [scaffolding master plan template](../templates/scaffolding-master-plan.
 Use standard templates for all other files (sprint plans, orchestrations, recovery, task files).
 
 **Critical difference from standard planning:** Every task file's `Required Context` table MUST reference the sprint's **Execution Input** file (with section numbers), NOT the original Consolidated Context parts. The Execution Input replaces the parts for execution purposes.
+
+**Status rule:** Set ALL Sprint Plan files to `**Status:** PLANNED`. Only the Master Plan gets `READY_TO_EXECUTE`. Do NOT copy the Master Plan's status into Sprint Plans — each Sprint Plan starts as PLANNED and transitions to IN_PROGRESS → COMPLETE during execution.
+
+> [!constraint] Agent Prompts Must Include Exact Headers
+> Subagents start with fresh context (no inherited file reads). Saying "follow the template" forces a subagent to discover and read the template — an extra hop that may be skipped or interpreted loosely.
+>
+> WRONG: `"Follow the orchestration template to generate the orchestration file."`
+>
+> CORRECT: Include exact section headers and required formatting lines inline in the Task `prompt` parameter:
+> ```
+> "Generate the orchestration file with these exact section headers in order:
+> ## Session Objective, ## Required Context Files, ## Execution Strategy,
+> ## Session Task List, ## Success Criteria, ## Recovery Protocol,
+> ## Task Files, ## Post-Session Checklist.
+> Include the **Total Estimated:** line after the Session Task List table.
+> Include the **Mode:** line in Execution Strategy."
+> ```
+>
+> This applies to ALL file-generation agent prompts during scaffolding: sprint plans, orchestrations, task files.
 
 ### Scaffolding Step 6: Validation
 
@@ -376,6 +652,19 @@ After the scaffolding confirmation, proceed to [Step 10: Plan Review Gate](#step
 | Summary | `{Abbrev}-S{XX}-{YY}-Summary.md` | `PI-S01-01-Summary.md` |
 | Execution Input | `{Abbrev}-S{XX}-Execution-Input.md` | `PI-S01-Execution-Input.md` |
 | Execution Input (multi-part) | `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md` | `PI-S01-Execution-Input-Part-1-Schema.md` |
+
+### Meta-Plan File Naming
+
+Files inside `Meta-{Abbrev}/` insert `META` after the abbreviation to distinguish them from Execution Plan files with the same abbreviation. This follows the pattern shown in [session-planning-protocol.md](../references/session-planning-protocol.md#with-meta-plan--100k-context-needed).
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| META Master Plan | `{Abbrev}-META-Master-Plan.md` | `PI-META-Master-Plan.md` |
+| META Sprint Plan | `{Abbrev}-META-S{XX}-Sprint-Plan.md` | `PI-META-S01-Sprint-Plan.md` |
+| META Task Output | `{Abbrev}-META-S{XX}-{YY}-{TaskOutput}.md` | `PI-META-S01-01-SourceAnalysis.md` |
+| Consolidated Context Part | `{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md` | `PI-Consolidated-Context-Part-1-Schema.md` |
+
+Orchestration and Recovery files inside `Meta-{Abbrev}/` use the standard naming pattern (no META infix) — they are structural files, not discovery artifacts.
 
 ### Task Number Convention
 

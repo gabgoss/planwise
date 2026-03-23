@@ -184,7 +184,7 @@ def main():
         help=f"New status. Valid: {', '.join(sorted(VALID_STATUSES))}",
     )
 
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     if args.status.upper() not in VALID_STATUSES:
         print(
@@ -242,7 +242,7 @@ def main():
             archived_content = index_path.read_text(encoding="utf-8")
             archived_content = update_index_links_to_archive(archived_content, args.id)
             index_path.write_text(archived_content, encoding="utf-8")
-            print(f"  Index links updated to Archive/")
+            print("  Index links updated to Archive/")
 
 
 if __name__ == "__main__":

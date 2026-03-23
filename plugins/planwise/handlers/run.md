@@ -33,6 +33,7 @@ Locate `config.yaml` by checking:
 3. If not found: "Project not initialized. Run `/planwise init` first."
 
 Extract from `config.yaml`:
+- `plugin_root` -- the plugin installation path
 - `project.planwise_root` -- the planwise root folder (default: `planwise`)
 - `project.plans_dir` -- the Plans directory name (relative to planwise_root)
 - `project.lessons_dir` -- the Lessons directory name (relative to planwise_root)
@@ -44,7 +45,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 
 ## Required References
 
-Before proceeding, read these reference files from `${CLAUDE_PLUGIN_ROOT}/references/`:
+Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
 
@@ -312,6 +313,9 @@ Ask the user: "Were any lessons learned during this session?"
 2. Update orchestration: Status -> COMPLETE
 3. Update Sprint Plan session status (if sprint plan exists)
 4. Update Master Plan Status field (e.g., COMPLETE if all sprints done, or IN_PROGRESS with notes on completed sprint)
+5. Update plans index row for this plan in `{plans_dir}/{plans_index}`:
+   - Set **Status** to match the Master Plan status (e.g., IN_PROGRESS or COMPLETE)
+   - Set **Last Updated** to today's date
 
 ### Step 4.4: Git Commit
 
@@ -323,7 +327,7 @@ git push
 
 **Rules:**
 - Stage specific files -- never use `git add .` or `git add -A`
-- Include: task output files, recovery file, orchestration file, summary file, lesson files (if created)
+- Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), plans index (if updated)
 - Commit types: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
 
 ### Step 4.5: Output Completion
@@ -375,6 +379,33 @@ The recovery file follows [templates/recovery.md](../templates/recovery.md). Req
 ## Delegated Execution Protocol
 
 When the orchestration's Execution Strategy section declares DELEGATED mode, you are the orchestrator -- not the executor.
+
+### Background vs Foreground Gate
+
+> [!constraint] Write-Producing Agents MUST Run in Foreground
+> Background subagents auto-deny any permission not explicitly pre-approved at launch — including Write, Edit, and Bash. The `bypassPermissions` mode does NOT override this gate. Tool calls fail silently: the agent continues executing but produces no output files.
+>
+> WRONG: Launch task-runner in background when it writes output files:
+> ```
+> Task(
+>   subagent_type: "task-runner",
+>   run_in_background: true,
+>   prompt: "Execute task 01..."
+> )
+> ```
+> CORRECT: Launch task-runner in foreground (default) — background is only safe for read-only agents:
+> ```
+> Task(
+>   subagent_type: "task-runner",
+>   prompt: "Execute task 01..."
+> )
+> ```
+
+| Task Produces | Launch Mode | Rationale |
+|---------------|-------------|-----------|
+| File output (Write, Edit) | **Foreground** | Permissions resolved interactively |
+| Shell commands (Bash) | **Foreground** | Bash permission needs interactive approval |
+| Read-only research (Explore) | Background OK | No write permissions needed |
 
 ### Context Boundary Rules
 

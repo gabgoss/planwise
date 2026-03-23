@@ -418,12 +418,15 @@ These constraints are empirically verified. The enforcement mechanism column exp
 | 5 | No EnterPlanMode/ExitPlanMode in spawned contexts | Tool restriction | Cannot enter plan mode | Plan in main session before delegating |
 | 6 | Path-specific rules are main-session-only | Path rule loading requires OWN file activity [LoadTest-07] | Spawned contexts see only global rules | Include rule content explicitly in task prompt |
 | 7 | MCP unavailable in background subagents | Background execution mode restriction | Cannot use external systems | Run in foreground if MCP tools are required |
+| 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate [LL-001-PROC] | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
 | 8 | Skill discovery ≠ system-prompt injection | File system access (Glob on `.claude/skills/`) | Mid-session agents not discoverable as subagent_type | Use `skills:` frontmatter to inject domain knowledge; all contexts discover existing skills via FS |
 | 9 | Teammate identity is Agent SDK, not CC CLI | System prompt differentiation at spawn time | Teammates self-identify differently; less "Claude Code aware" | Design teammates as workers; orchestrate from main session |
 
 > **Constraint 6 — path rules detail:** Spawned contexts begin with zero file activity. Path rules check the context's OWN active files. If a spawned context later works on files matching a path rule's pattern, those rules CAN trigger dynamically for that context. What they do NOT do is inherit the parent session's already-active path triggers.
 
 > **Constraint 8 — skills note:** The `skills:` frontmatter field injects SKILL.md content into the agent's context at startup — use it for domain knowledge needed immediately. It does not restrict which skills the agent can discover; all contexts with file system access can discover all project skills regardless of the `skills:` field.
+
+> **Constraint 10 — background pre-approval detail [LL-001-PROC]:** Background subagents use an upfront pre-approval gate: before launch, Claude Code prompts for all permissions the agent will need. At runtime, anything not pre-approved is auto-denied — the tool call fails silently but the agent continues executing. `bypassPermissions` mode does NOT override this gate. Practical consequence: task-runner agents that write output files MUST run in foreground. Background mode is only safe for read-only operations (Explore, research).
 
 > **Team tool compatibility:** TeamCreate and SendMessage are not listed in the `allowed-tools` frontmatter system. Skills that need team functionality should use `context: fork` with `agent: general-purpose`. Do NOT attempt to list TeamCreate or SendMessage in `allowed-tools`.
 

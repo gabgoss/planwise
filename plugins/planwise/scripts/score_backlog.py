@@ -358,7 +358,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Compute and print scores without writing to the index.")
     parser.add_argument("--review", action="store_true", help="Output a priority review report (no index writes).")
 
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     # Load config
     config = load_config(Path(__file__))
