@@ -4,6 +4,16 @@
 
 planwise is a plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that helps you plan, execute, review, and track your work across sessions. It keeps everything organized in simple markdown files so nothing gets lost between conversations.
 
+---
+
+### The problem
+
+Ever had Claude Code forget what you were working on? Started a new session and had to re-explain everything? Watched tasks pile up with no way to prioritize them?
+
+**planwise fixes that.** It gives your projects a persistent memory — structured plans, scored backlogs, and lessons learned that survive across every session.
+
+---
+
 ## Table of contents
 
 - [Getting started](#getting-started)
@@ -16,14 +26,6 @@ planwise is a plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude
 - [Updating planwise](#updating-planwise)
 - [Uninstalling](#uninstalling)
 - [Troubleshooting](#troubleshooting)
-
----
-
-### The problem
-
-Ever had Claude Code forget what you were working on? Started a new session and had to re-explain everything? Watched tasks pile up with no way to prioritize them?
-
-**planwise fixes that.** It gives your projects a persistent memory — structured plans, scored backlogs, and lessons learned that survive across every session.
 
 ---
 
