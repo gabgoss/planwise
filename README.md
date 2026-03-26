@@ -114,6 +114,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
 | `/planwise lessons` | Search, capture, or promote lessons |
+| `/planwise help` | Show available commands and link to user guide |
 
 ---
 
@@ -166,6 +167,9 @@ To remove the marketplace:
 
 **Plans or backlog seem out of date**
 - Run `/plugin marketplace update` then reinstall to get the latest plugin version
+
+**Not sure which command to use?**
+- Run `/planwise help` to see all available commands and a link to the full user guide
 
 ---
 
