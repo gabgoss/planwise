@@ -4,7 +4,7 @@ description: >
   Agentic project management — plan, execute, review, and track projects
   with structured workflows. Use when user wants to create plans, run sessions,
   review plans, manage backlog items, or search lessons learned.
-argument-hint: "<init|plan|review|run|backlog|list|lessons> [args]"
+argument-hint: "<init|plan|review|run|backlog|list|lessons|help> [args]"
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -26,6 +26,7 @@ Parse `$ARGUMENTS`:
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
 | `list` | Read [handlers/list.md](../../handlers/list.md) |
 | `lessons` | Read [handlers/lessons.md](../../handlers/lessons.md) |
+| `help` | Read [handlers/help.md](../../handlers/help.md) |
 
 If `$0` is empty, display help (below).
 If `$0` is not in the table, respond: "Unknown subcommand: {$0}. Run `/planwise` for usage."
@@ -46,6 +47,7 @@ Available subcommands:
   lessons [search-terms]       Search lessons learned
   lessons capture              Capture a lesson mid-session
   lessons promote <id>         Promote lesson to artifact
+  help                         Show this help message
 ```
 
 ## Argument Forwarding

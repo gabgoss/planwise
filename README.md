@@ -76,7 +76,29 @@ After installing, you need to activate planwise. Either run:
 /reload-plugins
 ```
 
-Or simply start a new Claude Code session. The `/planwise` command is now available.
+I personally prefer to close the current Claude Code session with `Ctrl+C` twice, then type `claude` and press Enter to start a fresh session. The `/planwise` command is now available.
+
+---
+
+## Step 4 — Initialize planwise in your project
+
+Navigate to the project you want to manage, open Claude Code there, and run:
+
+```
+/planwise init
+```
+
+Claude will ask you a few questions — your project name, where to store planwise files, and directory names for Plans, Backlog, and Lessons Learned. The defaults work great, so you can just press Enter through most of them.
+
+Once done, you'll have a `planwise/` folder with your config and three subdirectories, plus rules in `.claude/rules/planwise/` that help Claude work with your plans.
+
+> **You only need to run `init` once per project.** After that, planwise remembers your setup.
+
+---
+
+## Full user guide
+
+For detailed documentation on every command, agents, configuration options, and how planwise works under the hood, see the **[planwise user guide](plugins/planwise/)**.
 
 ---
 
