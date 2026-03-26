@@ -17,10 +17,10 @@ Ever had Claude Code forget what you were working on? Started a new session and 
 ## Table of contents
 
 - [Getting started](#getting-started)
-- [Step 1 — Add the planwise marketplace](#step-1--add-the-planwise-marketplace)
-- [Step 2 — Install the plugin](#step-2--install-the-plugin)
-- [Step 3 — Activate the plugin](#step-3--activate-the-plugin)
-- [Step 4 — Initialize planwise in your project](#step-4--initialize-planwise-in-your-project)
+  - [Step 1 — Add the planwise marketplace](#step-1--add-the-planwise-marketplace)
+  - [Step 2 — Install the plugin](#step-2--install-the-plugin)
+  - [Step 3 — Activate the plugin](#step-3--activate-the-plugin)
+  - [Step 4 — Initialize planwise in your project](#step-4--initialize-planwise-in-your-project)
 - [Full user guide](#full-user-guide)
 - [Quick reference](#quick-reference)
 - [Updating planwise](#updating-planwise)
@@ -57,7 +57,7 @@ pip install pyyaml
 
 ---
 
-## Step 1 — Add the planwise marketplace
+### Step 1 — Add the planwise marketplace
 
 A **marketplace** is like an app store for Claude Code plugins. You need to add the planwise marketplace first, then install the plugin from it.
 
@@ -71,7 +71,7 @@ Claude Code will download the marketplace catalog. You should see a confirmation
 
 ---
 
-## Step 2 — Install the plugin
+### Step 2 — Install the plugin
 
 Now that the marketplace is added, install planwise:
 
@@ -83,7 +83,7 @@ Now that the marketplace is added, install planwise:
 
 ---
 
-## Step 3 — Activate the plugin
+### Step 3 — Activate the plugin
 
 After installing, you need to activate planwise. Either run:
 
@@ -95,7 +95,7 @@ I personally prefer to close the current Claude Code session with `Ctrl+C` twice
 
 ---
 
-## Step 4 — Initialize planwise in your project
+### Step 4 — Initialize planwise in your project
 
 Navigate to the project you want to manage, open Claude Code there, and run:
 
