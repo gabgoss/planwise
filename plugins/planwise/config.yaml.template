@@ -25,6 +25,30 @@ lesson_abbreviations:
   SEC: "Security practices"
   PROC: "Process and workflow"
 
+# Domain bucketing for lessons learned. Consumed by /planwise lessons curate and /planwise lessons promote-batch.
+categorization:
+  buckets:
+    - id: A
+      slug: database
+      name: "Database / SQL"
+      description: "Lessons that touch the live database, schema, or DDL semantics."
+    - id: B
+      slug: code
+      name: "Application Code"
+      description: "Lessons about language-level patterns, type-checking, lint, runtime behaviour."
+    - id: C
+      slug: process
+      name: "Planwise / Process"
+      description: "Lessons about planning, scaffolding, dispatch, signoff, review."
+      sub_buckets: []  # Add C1, C2, ... sub-buckets here for finer planwise-process bucketing (see schema docs).
+    - id: D
+      slug: tooling
+      name: "Tooling / Ergonomics"
+      description: "Toolchain, shell, notebook, IDE, harness ergonomics."
+  decision_tree_order: [A, B, C, D]
+  default_bucket: D
+  edge_cases_section: true
+
 scoring:
   priority_high: 30
   priority_medium: 20

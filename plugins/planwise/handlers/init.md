@@ -108,6 +108,39 @@ If `{planwise_root}/config.yaml` already exists, ask the user before overwriting
 
 ---
 
+### Step 5.1 — Seed Categorisation file (fallback)
+
+Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` from the plugin template, populated with the user's `categorization:` block. This produces the companion file referenced by `{lessons_dir}/00-Index-LessonsLearned.md` and consumed by `/planwise lessons curate` and `/planwise lessons promote-batch`.
+
+> **Note:** This step is handler-rendered (no script). The fast-path init script (Step 2) handles seeding directly when run; this fallback path performs the same work via Claude. A future enhancement may extract this rendering into `{plugin_root}/scripts/init_project.py` for parity, but it is not required today.
+
+1. Use **Glob** to check if `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` already exists — **skip this step if it does**.
+2. **Read** `{planwise_root}/config.yaml` (written in Step 5) and extract the `categorization:` block. The block has these keys: `buckets` (list), `decision_tree_order` (list), `default_bucket` (string), `edge_cases_section` (bool). Each bucket has `id`, `slug`, `name`, `description`, and optionally `sub_buckets` (list) and `code_bucket` (bool).
+3. **Read** the template: [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md).
+4. Render the template by substituting placeholders and expanding the iteration directives:
+
+   | Placeholder | Substitute With |
+   |-------------|-----------------|
+   | `{lessons_dir}` | `{lessons_dir}` from Step 1 |
+   | `{lessons_index}` | `00-Index-LessonsLearned.md` (from `config.yaml: project.index_files.lessons`) |
+   | `{TODAY}` | Today's date in ISO format (`YYYY-MM-DD`) |
+   | `{SCOPE_PARAGRAPH}` | Default sentence: `Lessons captured during {project_name} sessions.` (substitute `{project_name}` from Step 1) |
+
+5. Expand `{FOR EACH BUCKET in config.yaml: categorization.buckets:} ... {END}` once per bucket in `decision_tree_order`. For each bucket render:
+   - `## {BUCKET_ID}. {BUCKET_NAME} (0)` heading (the `(0)` is a per-bucket lesson count, initialised to 0)
+   - `{BUCKET_DESCRIPTION}` paragraph
+   - Empty table:
+     - Default 3-column schema: `| ID | Title | Severity |`
+     - If the bucket has `code_bucket: true` in `config.yaml`, render 4 columns: `| ID | Title | Module | Severity |`
+6. Inside each bucket block, expand `{IF bucket has sub_buckets:} ... {END}` once per sub-bucket (skip entirely if `sub_buckets` is empty or absent). For each sub-bucket render:
+   - `### {SUB_ID}. {SUB_NAME} (0)` heading
+   - Empty table with the same column schema as the parent bucket
+7. Preserve the `## Cross-cutting observations` section with its placeholder bullet and the `## Classification edge cases` section with its 3-column header (no rows).
+8. Strip the header HTML comment (lines 3-8 of the template) and the inline `<!-- Column schema: ... -->` comments inside each bucket — those are template-authoring notes, not output content.
+9. Use **Write** to create `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` with the rendered result.
+
+---
+
 ### Step 6 — Install rules to `.claude/rules/planwise/` (fallback)
 
 The plugin ships 10 reference files that are installed as path-scoped rules. For each rule:
@@ -230,6 +263,7 @@ Seed files installed:
   ✓ {planwise_root}/{plans_dir}/00-Index-Plans.md
   ✓ {planwise_root}/{backlog_dir}/00-Index-Backlog.md
   ✓ {planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md
+  ✓ {planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md  (rendered from config.yaml: categorization)
 
 Configuration:
   ✓ {planwise_root}/config.yaml (scope: {install_scope})
