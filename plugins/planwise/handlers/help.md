@@ -22,6 +22,7 @@ Available commands:
   /planwise lessons [search-terms]       Search lessons learned
   /planwise lessons capture              Capture a lesson mid-session
   /planwise lessons promote <id>         Promote lesson to artifact
+  /planwise lessons curate [--phase=X]   Categorise lessons and track promotions
   /planwise help                         Show this help message
 ```
 

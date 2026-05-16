@@ -36,6 +36,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
 
 **Conditional references:**
+- If running curate mode: Read `references/lessons-curate-workflow.md`
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
 - If a task creates or modifies skills: Read `references/skill-authoring.md`
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
@@ -47,11 +48,12 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 | Input | Mode | Action |
 |-------|------|--------|
 | No arguments | **list** | Display lessons index table |
-| `<terms>` (not `promote` or `capture`) | **search** | Search by keyword across lesson files |
+| `<terms>` (not `promote`, `capture`, or `curate`) | **search** | Search by keyword across lesson files |
+| `curate [--phase=categorize|promote|both]` | **curate** | Run the two-phase curation workflow (see references/lessons-curate-workflow.md) |
 | `promote <lesson-id>` | **promote** | Promote a lesson to a Claude Code artifact |
 | `capture` | **capture** | Create a new lesson mid-session |
 
-Parse `$1` to determine the mode. If `$1` is `promote`, parse `$2` as the lesson ID. If `$1` is `capture`, enter capture mode. If `$1` is absent, enter list mode. Otherwise, treat all arguments as search terms.
+Parse `$1` to determine the mode. If `$1` is `curate`, enter curate mode and parse `$2` for an optional `--phase=categorize|promote|both` flag (default `both`). If `$1` is `promote`, parse `$2` as the lesson ID. If `$1` is `capture`, enter capture mode. If `$1` is absent, enter list mode. Otherwise, treat all arguments as search terms.
 
 ---
 
@@ -100,6 +102,44 @@ If no lessons match, respond with:
 - "No lessons found matching: {terms}"
 - Suggest checking valid taxonomy values: `category` (anti-pattern, pattern, process), `domain` (from config.yaml abbreviations)
 - Link to the index: `{lessons_dir}/{lessons_index}`
+
+---
+
+## Curate Mode (`/planwise lessons curate [--phase=categorize|promote|both]`)
+
+**Purpose:** Sync `{lessons_dir}/00-Categorization-By-Domain.md` with the master index and track lessons promoted to permanent artifacts. Does NOT author new `LL-*` files.
+
+### Pre-condition Gate
+
+Verify `{lessons_dir}/00-Categorization-By-Domain.md` exists. If it does not, error:
+
+```
+Categorisation file not found at {path}. Run /planwise init to create it, or copy {plugin_root}/templates/categorization-by-domain.md and populate it from config.yaml.
+```
+
+Halt without modifying any files.
+
+### Workflow
+
+Curate runs two phases against the lesson set. **Phase 1** diffs the master index against the categorisation file, reads uncategorised `LL-*` files in full, applies the config-driven decision tree, and appends rows to the matching bucket tables. **Phase 2** greps for `status: applied` / `status: rule`, verifies each `applied-as` artifact exists, and appends rows to the Rule Promotion Log in the master index. Optional file moves to `Archive/` require explicit user approval.
+
+See `references/lessons-curate-workflow.md` for the binding step-by-step protocol (bucket selection algorithm, reporting format, anomaly detection, and constraint set).
+
+### Argument Parsing
+
+Parse `$2` for the `--phase=` flag:
+
+| Value | Behaviour |
+|-------|-----------|
+| `--phase=categorize` | Run Phase 1 only |
+| `--phase=promote` | Run Phase 2 only |
+| `--phase=both` (default) | Run both phases sequentially |
+
+If `$2` is absent or not a recognised `--phase=` value, default to `both`.
+
+### Output
+
+Chat report only (markdown summary with Phase 1 / Phase 2 / Anomalies sections per the reference doc's §6). File writes are limited to: appending rows to `00-Categorization-By-Domain.md` (Phase 1), appending rows to the Rule Promotion Log in `{lessons_dir}/{lessons_index}` (Phase 2), updating the Status column in the Master Table (Phase 2). No new `LL-*` files are created.
 
 ---
 

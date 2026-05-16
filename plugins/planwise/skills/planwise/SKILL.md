@@ -47,6 +47,7 @@ Available subcommands:
   lessons [search-terms]       Search lessons learned
   lessons capture              Capture a lesson mid-session
   lessons promote <id>         Promote lesson to artifact
+  lessons curate [--phase=X]   Categorise lessons and track promotions
   help                         Show this help message
 ```
 
