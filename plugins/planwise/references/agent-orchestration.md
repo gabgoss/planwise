@@ -221,6 +221,31 @@ A **subagent** (spawned via `Task` tool) is ephemeral — one task, returns a re
 
 A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use when the same role is needed repeatedly, tool restrictions must be enforced consistently, or automatic delegation by description is desired.
 
+### Plugin Handler Spawns Resolve in the Consumer's Scope Chain
+
+> [!pitfall] Un-Namespaced Plugin-Handler Spawn
+> **Problem:** A plugin handler that spawns an agent by bare name (e.g., `subagent_type: "plan-reviewer"`) resolves the agent in the CONSUMER PROJECT's scope chain, not the plugin's scope chain. If the consumer has not run `/planwise init`, the agent file does not exist in `.claude/agents/` and the spawn fails with "agent not found".
+>
+> PLG-017 documents this constraint (empirically verified 2026-05-12; behavior may not be re-verified).
+>
+> **Solution:** Plugin handlers MUST spawn agents with the plugin-namespaced form: `subagent_type: "{plugin-name}:plan-reviewer"`. The `{plugin-name}:` prefix forces resolution against the plugin's own `agents/` directory, bypassing the consumer scope chain.
+>
+> WRONG (bare name — fails if consumer has no plan-reviewer agent):
+> ```
+> Task(
+>   subagent_type: "plan-reviewer",
+>   ...
+> )
+> ```
+> CORRECT (plugin-namespaced — always resolves against plugin agents/):
+> ```
+> Task(
+>   subagent_type: "{plugin-name}:plan-reviewer",
+>   ...
+> )
+> ```
+> See `handlers/review.md` (7 sites), `handlers/run.md` (4 sites), `handlers/backlog.md` (1 site) for spawn-call updates.
+
 ---
 
 ## 6. Team Lifecycle
@@ -403,6 +428,261 @@ Before launching a background agent, Claude prompts for all permissions the agen
 
 **Background failure:** If a background agent fails due to missing permissions, resume it in foreground to retry with interactive permission approval.
 
+### DELEGATED Dispatch Discipline
+
+When the Execution Strategy is DELEGATED (orchestrator spawns task-runner subagents), the following subsections govern dispatch behavior. These rules apply whenever any DELEGATED trigger is present (see `references/session-plan-requirements.md` Execution Strategy section for mandatory triggers).
+
+#### 11.1 Mandatory Triggers (PLG-002)
+
+DELEGATED mode is REQUIRED when ANY of the following triggers are present in a session:
+- Session has 2 or more Opus tasks
+- Session is part of a META Discovery phase
+- Any single task estimates >50K token context load
+- Sequential tasks where one task's output is the next task's input (output-chaining)
+
+Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not an execution-time inference.
+
+> [!constraint] DELEGATED Declaration — Planning Time Only
+> WRONG — orchestrator infers DELEGATED at runtime after reading context:
+> ```
+> # Orchestration file: Execution Strategy: DIRECT
+> # (then orchestrator discovers tasks are too large and pivots at runtime)
+> ```
+> CORRECT — planner declares DELEGATED trigger in Orchestration before execution:
+> ```
+> ## Execution Strategy
+> Mode: DELEGATED
+> Trigger: Task 03 estimates >50K context load (output-chaining to Task 04)
+> ```
+
+#### 11.2 Task-File Error Recovery (PLG-002)
+
+When a DELEGATED subagent fails or produces incomplete output, the orchestrator applies this recovery shape:
+
+1. Read the subagent's partial output (from its output file or Recovery file)
+2. Assess whether partial output is usable as-is or requires retry
+3. If retry needed: spawn a new subagent with explicit "resume from step N" instructions
+4. Cap retries at 3 attempts per task; after 3 failures mark task BLOCKED in Recovery
+
+> [!constraint] Retry Cap — DELEGATED Task Failure
+> WRONG — orchestrator retries indefinitely, consuming budget:
+> ```
+> (Task fails) → retry → (fails again) → retry → (fails again) → retry...
+> ```
+> CORRECT — retry cap of 3; after 3 mark BLOCKED and report:
+> ```
+> Attempt 1: FAILED (output file missing)
+> Attempt 2: FAILED (partial output, <50% coverage)
+> Attempt 3: FAILED (subagent stopped mid-execution)
+> → Mark task BLOCKED in Recovery; report to orchestrator
+> ```
+
+#### 11.3 Orchestration Context Boundary (PLG-002)
+
+When Execution Strategy is DELEGATED:
+- Orchestration's Required Context MUST list ONLY plan files (Orchestration.md, Recovery.md, task files)
+- Heavy context files (reference docs, codebase modules, large output files) MUST appear ONLY in individual task file Required Context sections
+- The orchestrator reads plan files only; subagents read their full task-specific context with fresh ~100K budget
+
+> [!constraint] DELEGATED Context Boundary
+> WRONG — Orchestration Required Context loads heavy files (orchestrator context fills before dispatching):
+> ```
+> ## Required Context
+> | 1 | references/agent-orchestration.md | ~440 | ~6K | Rule reference |
+> | 2 | src/models/schema.sql | ~1200 | ~15K | Schema for tasks |
+> | 3 | Outputs/research-part-1.md | ~480 | ~6K | Research for tasks |
+> ```
+> CORRECT — Orchestration Required Context contains only plan files; heavy context in task files:
+> ```
+> ## Required Context
+> | 1 | {Abbrev}-S{XX}-{YY}-Orchestration.md | ~80 | ~1K | Task list |
+> | 2 | {Abbrev}-S{XX}-{YY}-Recovery.md | ~40 | ~0.5K | Progress state |
+>
+> (Task 03 Required Context loads schema.sql + research-part-1.md in its own section)
+> ```
+
+#### 11.4 Inter-Dispatch Diagnostics Verification (PLG-002 + PLG-020 extension)
+
+When DELEGATED dispatches modify shared files (e.g., a shared algorithm module or schema file), the orchestrator MUST independently run the project's primary diagnostic command between dispatches to verify no regression:
+
+- Run `{lint-cmd}` (or equivalent) on the shared file after each dispatch that modifies it
+- Run `{precheck-cmd}` if the shared file is a data-layer contract (schema, config)
+- If diagnostics fail: halt subsequent dispatches; surface the failure in Recovery before retrying
+
+**PLG-020 extension — orchestrator `wc -l` verification:**
+
+After each dispatch that produces output files, the orchestrator MUST run `wc -l` on every output file and compare against the Expected Output line budget declared in the task file. Deviations >20% from the declared budget are a signal to review before proceeding to the next dispatch.
+
+> [!constraint] Inter-Dispatch Diagnostic Check
+> WRONG — orchestrator dispatches all tasks in sequence without diagnostics between:
+> ```
+> Dispatch Task 01 → (completes) → Dispatch Task 02 → (completes) → Dispatch Task 03
+> (no diagnostic check; regression from Task 01 propagates silently to Task 03)
+> ```
+> CORRECT — orchestrator runs diagnostics on shared files between dispatches:
+> ```
+> Dispatch Task 01 → run {lint-cmd} {src/module/file.ext} → CLEAN → Dispatch Task 02
+> Dispatch Task 02 → run {lint-cmd} {src/module/file.ext} → 2 errors → HALT → fix before Task 03
+> ```
+
+#### 11.5 Live-HTTP-Probing Tool-Use Budget Reservation (PLG-012)
+
+When a DELEGATED subagent performs live HTTP probing (WebFetch/WebSearch calls in a loop), the orchestrator MUST reserve tool-use budget for this activity:
+
+- Cap: 30 WebFetch/WebSearch calls per dispatch (not per session)
+- Recovery point: archive fetched bodies to disk (output file) after each successful fetch; if dispatch fails mid-probe, the archive allows resuming without re-fetching
+- Spawn prompt MUST declare the probe ceiling explicitly: "Your WebFetch budget for this dispatch is 30 calls."
+
+> [!practice] HTTP Probe Budget Declaration
+> Include in every dispatch prompt that involves HTTP probing:
+> ```
+> **Tool-Use Budget:** Maximum 30 WebFetch/WebSearch calls in this dispatch.
+> Archive each successful fetch response to `Outputs/{Abbrev}-{task-id}-Probe-Archive.md`
+> before proceeding to the next URL. If you hit the budget ceiling, stop and report
+> what was fetched and what remains.
+> ```
+
+#### 11.6 Path-Scoped Rule Injection in Spawn Prompts (PLG-012)
+
+Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatically load for spawned subagents — spawned contexts start with zero file activity and inherit no path triggers from the parent. When a DELEGATED task requires path-specific rules, the orchestrator MUST inject those rule contents explicitly into the spawn prompt.
+
+> [!constraint] Path Rule Injection
+> WRONG — orchestrator assumes subagent will load path rules automatically:
+> ```
+> Task(
+>   subagent_type: "general-purpose",
+>   prompt: "Execute {Abbrev}-S01-02-01-Haiku-ScanModels.md — the relevant rules will load automatically."
+> )
+> ```
+> CORRECT — orchestrator injects path-rule content or file reference explicitly:
+> ```
+> Task(
+>   subagent_type: "general-purpose",
+>   prompt: "Execute {Abbrev}-S01-02-01-Haiku-ScanModels.md.
+>   IMPORTANT: The following path-scoped rule applies to {src/module/file.ext} files:
+>   [paste rule content or file reference here]"
+> )
+> ```
+
+#### 11.7 Idle-Mid-Step Wake-Up via SendMessage (PLG-012)
+
+Teammates (in agent team mode) go idle after every turn. This is NORMAL — idle does not mean stopped. When a teammate is idle mid-step (has more work to do but has not been prompted for the next step), the orchestrator sends a wake-up message:
+
+```
+SendMessage(
+  type: "message",
+  recipient: "{teammate-name}",
+  content: "Continue from where you stopped. Your remaining work: {bullet list of remaining items from task file}.",
+  summary: "Wake-up: continue task execution"
+)
+```
+
+> [!pitfall] Idle Teammate Mid-Task
+> **Problem:** Teammate completes step N and goes idle, waiting for acknowledgment before proceeding to step N+1. Lead session treats idle as "done" and marks task complete.
+> **Solution:** After receiving partial results from a teammate, check whether the task file has more steps. If yes, send a continuation message. Only treat idle as "done" when the task file's final step is confirmed complete.
+
+#### 11.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause (PLG-020 §11.5 → §11.8)
+
+Every DELEGATED spawn prompt MUST include a HARD CONSTRAINTS section and a SCOPE BOUNDARY clause:
+
+```markdown
+## HARD CONSTRAINTS (non-negotiable)
+1. Modify ONLY files listed in this task's Required Context — no other files
+2. Do NOT read files not listed in Required Context
+3. Do NOT spawn sub-agents or create teams
+4. If you encounter an ambiguity requiring a file not in Required Context, STOP and report it; do NOT expand scope
+
+## SCOPE BOUNDARY
+This task operates within:
+- **In scope:** {list of files/modules this task modifies}
+- **Out of scope:** {list of adjacent files/modules this task must NOT touch}
+```
+
+> [!constraint] HARD CONSTRAINTS Presence
+> WRONG — spawn prompt omits HARD CONSTRAINTS; subagent reads adjacent files and expands scope:
+> ```
+> "Execute task file {Abbrev}-S02-01-03-Sonnet-GenEntities.md. Good luck!"
+> ```
+> CORRECT — spawn prompt includes HARD CONSTRAINTS and SCOPE BOUNDARY:
+> ```
+> "Execute task file {Abbrev}-S02-01-03-Sonnet-GenEntities.md.
+>
+> ## HARD CONSTRAINTS (non-negotiable)
+> 1. Modify ONLY the files listed in the task's Required Context...
+> [full HARD CONSTRAINTS + SCOPE BOUNDARY block]"
+> ```
+
+#### 11.9 Tier-Rank Fixes by Invasiveness (PLG-020 §11.6 → §11.9)
+
+When a DELEGATED task produces results requiring fixes, rank the fixes by invasiveness before dispatching a follow-up:
+
+| Tier | Fix Type | Invasiveness | Dispatch Approach |
+|------|----------|--------------|-------------------|
+| Tier 1 | Comment / doc update | Low | Inline in continuation message |
+| Tier 2 | Single-file logic fix | Medium | New targeted dispatch |
+| Tier 3 | Multi-file refactor | High | New session with full context |
+
+Start with Tier 1 fixes before escalating; do not over-dispatch high-invasiveness fixes when lower-tier corrections suffice.
+
+#### 11.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol (PLG-020 §11.7 → §11.10)
+
+When reviewing a dispatch's output, scan for forward-looking verbs in the last paragraph ("will", "next I will", "the following step will", "planned"). These signal the subagent stopped mid-task and intends to continue but has gone idle.
+
+**Resume protocol:**
+```
+SendMessage(
+  type: "message",
+  recipient: "{task-runner}",
+  content: "You said you would {forward-looking action}. Please continue now. Resume from your last completed step.",
+  summary: "Resume: forward-looking task continuation"
+)
+```
+
+> [!pitfall] Forward-Looking-Verb Tail
+> **Problem:** Subagent ends its turn with "I will next write the schema pin" but goes idle. Orchestrator reads output and marks task complete without checking for completion.
+> **Solution:** Grep the last 3 paragraphs of every dispatch output for `\b(will|next I will|the following step will|planned to)\b`. If found, send a resume message rather than marking COMPLETE.
+
+#### 11.11 Operational-Ceiling Disclaimers in Spawn Prompts (PLG-020 §11.8 → §11.11)
+
+Spawn prompts for tasks approaching operational ceilings (>25 file edits, >30 HTTP probes, >100K expected context) MUST include an operational ceiling disclaimer:
+
+```markdown
+## Operational Ceiling Notice
+This task approaches operational ceilings:
+- **Edit ceiling:** ~{N} file edits expected (ceiling: 25 per dispatch)
+- **Context ceiling:** ~{X}K expected context load
+If you reach a ceiling before completing all steps, STOP, write a partial output file documenting
+what was completed and what remains, then signal completion via your final response.
+```
+
+#### 11.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation (PLG-020 §11.9 → §11.12)
+
+When a task requires >25 file edits and cannot be split further, use the N>25 Edit-Task Resume Protocol:
+
+1. Estimate tool-use budget: `({N} edits × 2 tool calls/edit) + {M} reads + {K} overhead = {total} tool calls`
+2. Declare the estimate in the spawn prompt under Operational Ceiling Notice
+3. After dispatch, if subagent reports incomplete: spawn continuation dispatch with "Resume from file {N+1}" instruction
+4. Cap continuation dispatches at 3; if still incomplete after 3 dispatches, escalate to orchestrator for redesign
+
+> [!practice] Tool-Use Budget Estimation for Edit-Heavy Tasks
+> Before dispatching >25-edit tasks, estimate: `(edits × 2) + reads + overhead`. If total exceeds 80% of model tool-budget ceiling, split the task. Example: 30 edits = 60 edit calls + 20 reads + 10 overhead = 90 tool calls — review against model ceiling before dispatching.
+
+#### 11.13 Shared-Edit-Target Parallelism Cap (PLG-020 supplemental)
+
+When two or more DELEGATED dispatches modify the same file, they MUST run sequentially — not in parallel. The parallelism cap for shared edit targets is 1 concurrent dispatch per file.
+
+> [!constraint] Shared-Edit-Target Parallelism
+> WRONG — two parallel dispatches modify the same schema file:
+> ```
+> Dispatch Task 02 (modifies schema.sql) ─┐ parallel
+> Dispatch Task 03 (modifies schema.sql) ─┘
+> (last write wins; one dispatch's changes are silently overwritten)
+> ```
+> CORRECT — sequential dispatches for shared edit targets:
+> ```
+> Dispatch Task 02 (modifies schema.sql) → COMPLETE → Dispatch Task 03 (modifies schema.sql)
+> ```
+
 ---
 
 ## 10. Constraints
@@ -428,7 +708,67 @@ These constraints are empirically verified. The enforcement mechanism column exp
 
 > **Constraint 10 — background pre-approval detail [LL-001-PROC]:** Background subagents use an upfront pre-approval gate: before launch, Claude Code prompts for all permissions the agent will need. At runtime, anything not pre-approved is auto-denied — the tool call fails silently but the agent continues executing. `bypassPermissions` mode does NOT override this gate. Practical consequence: task-runner agents that write output files MUST run in foreground. Background mode is only safe for read-only operations (Explore, research).
 
+> **Constraint 10 — background pre-approval hazard (PLG-012 operational guidance):** Design background agents for read-only operations only. Before launching a background agent that you believe needs Write/Edit/Bash, convert it to foreground mode. The pre-approval gate cannot be bypassed by prompting or by `bypassPermissions` mode — both are enforced at the runtime layer, not the policy layer.
+
 > **Team tool compatibility:** TeamCreate and SendMessage are not listed in the `allowed-tools` frontmatter system. Skills that need team functionality should use `context: fork` with `agent: general-purpose`. Do NOT attempt to list TeamCreate or SendMessage in `allowed-tools`.
+
+---
+
+## 12. Verify-Before-Acting on LSP Diagnostics
+
+> [!practice] LSP Diagnostic Verification
+> LSP diagnostics ({type-checker}/`{linter}`/rust-analyzer/gopls) may go stale when the underlying source file is edited mid-session. Before acting on a diagnostic (e.g., adding an import, fixing a type), verify the diagnostic is still live.
+
+### Stale vs Live Diagnostic Decision Matrix
+
+| Signal | Likely Stale | Likely Live |
+|--------|--------------|-------------|
+| Diagnostic line number > file's actual line count | Yes | — |
+| Diagnostic mentions identifier not present in file | Yes | — |
+| Diagnostic timestamp predates last edit | Yes | — |
+| Diagnostic re-fired after LSP refresh | — | Yes |
+| Same diagnostic appears across multiple unrelated files | Yes (index drift) | — |
+| Diagnostic references a type that was recently renamed | Yes | — |
+
+**When a diagnostic is likely stale:**
+1. Trigger an LSP refresh (close and reopen the file, or run `{lint-cmd}` from CLI)
+2. If diagnostic is gone after refresh → it was stale; do NOT act on it
+3. If diagnostic persists after refresh → it is live; act on it
+
+**When to act without refreshing:**
+- Diagnostic is confirmed live (matches current file content at the reported line)
+- Diagnostic was emitted by a CLI tool run this session (not cached from prior session)
+
+---
+
+## 13. Large-File Read Tactics
+
+> [!practice] 4-Step Ladder for Files Exceeding Read Tool Token Limit
+> When a file exceeds the Read tool's effective token budget (~13K tokens / ~1000 lines at `~13 tokens/line`), apply this ladder in order — stop at the first step that succeeds:
+
+**Step 1 — Output-clear pre-step:** Clear conversation output buffer before reading. Freed budget enables a larger Read call. Effective when the conversation history is large but the file itself is borderline.
+
+**Step 2 — Substitution:** Read a smaller substitute:
+- Adjacent `*.md` documentation next to the `{src/module/file.ext}` source file
+- A smaller version-compatible equivalent (e.g., a config file that describes the large source file's structure)
+
+**Step 3 — Grep-based scanning:** Use Grep with `output_mode: "content"` and context lines to extract the needed sections without a full Read. Effective when you know which section or function you need.
+
+```bash
+# Example: extract a specific function from a large file
+Grep(pattern: "def {symbol}", path: "{src/module/file.ext}", output_mode: "content", context: 30)
+```
+
+**Step 4 — Script-based extraction:** For structured files (JSON/YAML), use a Bash command via `jq`/`yq` to project only relevant fields:
+
+```bash
+# Example: extract a specific key from a large YAML config
+Bash("yq '.{config-field}' {src/module/file.ext}")
+```
+
+### Module Split Threshold (cross-reference)
+
+For adapter/client modules whose row dataclass exceeds 75-80 fields, see the Module Split Threshold subsection in `references/session-plan-requirements.md`. Large-file read tactics are orthogonal to the module split decision — apply both when applicable.
 
 ---
 

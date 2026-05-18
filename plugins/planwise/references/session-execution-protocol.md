@@ -55,6 +55,21 @@ After outputting, use `AskUserQuestion` tool: "Ready to proceed with [next actio
 > Next Action: Execute PRJ-S01-02-02-Sonnet-ImplementFeature.md
 > ```
 
+> [!binding] READ-CONFIRM-ACT Cannot Be Waived
+> The READ-CONFIRM-ACT pattern applies before ANY task execution, including plan scaffolding. When `/planwise plan --scaffold` produces a CONFIRM block, the user MUST approve it before any Write or Edit tool calls are made. Skipping the CONFIRM step and proceeding directly to writes is a protocol violation.
+>
+> WRONG — agent reads orchestration and immediately begins writing task files without CONFIRM:
+> ```
+> (reads Orchestration.md) → (writes Sprint-01/Session-01/Orchestration.md directly)
+> ```
+> CORRECT — agent reads orchestration, produces CONFIRM block, waits for approval, then writes:
+> ```
+> (reads Orchestration.md)
+> → CONTEXT LOADED / File: Orchestration.md / Current State: ... / Next Action: scaffold Sprint-01
+> → AskUserQuestion("Ready to proceed with scaffolding Sprint-01?")
+> → (user approves) → (writes Sprint-01/Session-01/Orchestration.md)
+> ```
+
 ---
 
 ## 2. Reference Documents
@@ -189,6 +204,42 @@ Detailed reference material for this project. Documents with a **Must Read** con
 > - [ ] Fallback instructions documented
 > - [ ] Self-correction pattern enabled
 > - [ ] Build verification after changes
+
+---
+
+## 4.5 Discovery / Meta-Plan Status with User-Action Gates
+
+> [!binding] Discovery Status with User-Action Gates
+> When a Discovery or Meta-Plan has user-action gates outside `/planwise run` scope (e.g., "user reviews Consolidated Context before scaffolding begins"), Master Plan Status is `IN_PROGRESS` with an explicit `awaiting {user action}` note — NOT `COMPLETE`, even when all sprints have completed their tasks.
+
+### State Table
+
+| All Sprints Complete? | User-Action Gate Pending? | Master Plan Status |
+|-----------------------|---------------------------|--------------------|
+| Yes | No | COMPLETE |
+| Yes | Yes | IN_PROGRESS — awaiting {user action} |
+| No | — | IN_PROGRESS |
+
+### WRONG/CORRECT
+
+> [!constraint] Master Plan Status — All-Sprints-Complete + User-Gate-Pending
+> WRONG — status set to COMPLETE even though user must act before scaffolding can begin:
+> ```
+> Status: COMPLETE
+> # All 3 Discovery sprints landed, but user has not yet reviewed Consolidated Context
+> # to confirm scaffolding scope — scaffolding cannot begin without that confirmation.
+> ```
+> CORRECT — status reflects pending user action:
+> ```
+> Status: IN_PROGRESS — awaiting user confirmation on scaffolding scope
+> # (Consolidated Context Part {N} is ready for review; scaffolding starts after approval)
+> ```
+
+> [!practice] Sprint Overview Row vs Master Plan Status Distinction
+> Even when Master Plan Status is `IN_PROGRESS` (awaiting user action), individual Sprint Overview rows SHOULD flip to ✅ COMPLETE if their sprints have finished. The Master Plan Status field encodes "all sprints landed but downstream scaffolding awaits user input" — Sprint Overview rows reflect per-sprint progress, not the overall gate status.
+
+> [!practice] /planwise run Phase 4.3 Handler — User-Action-Gate Check
+> When `/planwise run` Phase 4.3 detects all sprints COMPLETE, the handler MUST check the Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain open, set Master Plan Status to `IN_PROGRESS — awaiting {user action}` rather than COMPLETE. See `handlers/run.md` Phase 4.3 for implementation.
 
 ---
 

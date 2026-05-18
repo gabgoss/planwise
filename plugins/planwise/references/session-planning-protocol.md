@@ -28,6 +28,11 @@ description: Plan hierarchy, naming conventions, agent delegation, recovery prot
 **Companion files:**
 - [session-context-budget.md](session-context-budget.md) — Token budget, context loading strategy, conservation (Sections 5-7)
 - [session-plan-requirements.md](session-plan-requirements.md) — Required files per level, task file template, completion tracking (Sections 8-9)
+- [scaffolding-hygiene.md](scaffolding-hygiene.md) — Scaffolding hygiene rules: Meta-Plan source detection, folder naming, abbreviation validation, sprint status defaults, Outputs/ creation, sequential-sprint prerequisites, parallel-scaffold deviation classes, plan-sizing expansion ratio, cohort token-uplift (PLG-001/PLG-011/PLG-022)
+- [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) — Discovery scope rigor and cross-layer enforcement: count by execution, persist IDs, binding-refinement echo, enforceable-surface checks, verbatim-quote exit criteria, design-extension traceability, cross-tier audit triage (PLG-006/PLG-015/PLG-019/PLG-022)
+- [ei-fidelity.md](ei-fidelity.md) — Execution Input fidelity: EI-as-archival transform, severity vocabulary, threshold alignment, UNCONFIRMED caveat enforcement, cross-tier preservation, citation propagation, token reconciliation gate (PLG-005/PLG-014)
+- [task-content-fidelity.md](task-content-fidelity.md) — Task file content fidelity: Required Context freshness, no `~?` placeholders, token rate bands, verify-before-cite discipline (14 rules including Schema Pin, env vars, Field Mapping) (PLG-004/PLG-013/PLG-021)
+- [schema-pin-requirement.md](schema-pin-requirement.md) — Schema Pin requirement: pin construction recipe, pin format template, plan-review enforcement (D-005)
 
 ---
 
@@ -337,6 +342,11 @@ Before starting ANY session, verify:
 > - [ ] If DELEGATED: Orchestration Required Context lists ONLY plan files
 > - [ ] If DELEGATED: Heavy context files appear ONLY in task file Required Context
 > - [ ] If DELEGATED: Context Boundary subsection present in Execution Strategy
+> - [ ] If plan uses Meta-Plan: `Exec-{Abbrev}/` folder exists (not writing into Meta parent)
+> - [ ] If plan uses Meta-Plan: `Scaffold-{Abbrev}/` folder exists (scaffolding phase was run)
+> - [ ] All prerequisite sprints marked COMPLETE before starting this sprint
+> - [ ] Outputs/ folder for this session exists (with `.gitkeep` if empty)
+> - [ ] If any task reads cross-sprint files: `Depends On` field uses `cross-sprint:` prefix
 
 ---
 
@@ -385,6 +395,33 @@ Before ANY planning work:
    Next Action: {action}
    ```
 3. **ACT** only after user approval
+
+---
+
+## 14. Scaffolding Hygiene
+
+See [scaffolding-hygiene.md](scaffolding-hygiene.md) for the complete set of binding rules governing multi-sprint scaffolded plans:
+- §1-§7: Six foundational hygiene rules (Meta-Plan source detection, folder naming, abbreviation validation, sprint status defaults, Outputs/ creation, sequential-sprint prerequisites)
+- §8: Parallel-Scaffold Deviation Classes
+- §9: Multi-Shape Integration Plan-Sizing Expansion Ratio
+- §10: Pre-Allocate Tokens for Known High-Divergence Cohorts
+
+---
+
+## 15. Discovery Scope Rigor
+
+See [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) §15 for binding rules governing Discovery and Meta-Plan scope:
+- §15.1: Count by execution (not estimation)
+- §15.2: Persist IDs, not just counts
+
+---
+
+## 16. Cross-Layer Enforcement & Exit-Criteria Fidelity
+
+See [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) §16 for cross-layer enforcement rules:
+- §16.1: Binding refinements echo across all plan layers
+- §16.2: "Surfaces" claims require enforceable checks
+- §16.3: Verbatim-quote EI exit criteria with mechanical anchors
 
 ---
 
