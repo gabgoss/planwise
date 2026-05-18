@@ -61,6 +61,15 @@ your-project/
 
 > **You only need to run `init` once per project.** After that, planwise remembers your setup.
 
+#### How `init` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Answer a few<br/>questions]
+    B --> C[planwise creates<br/>folders &amp; config]
+    C --> D([Ready to use])
+```
+
 ---
 
 ## Step 2 — Start using planwise
@@ -92,6 +101,13 @@ Your plan gets saved as organized markdown files you can review anytime.
 
 This takes a Discovery plan you've already written and automatically builds out all the sprints and tasks from it.
 
+#### How `plan` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Describe your<br/>plan &amp; sprints] --> C[Plan files<br/>created] --> D([Ready to run])
+```
+
 ---
 
 ### Review a plan before executing it
@@ -109,6 +125,13 @@ You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict.
 
 > **Why review?** Catching problems in a plan is much cheaper than catching them mid-execution. Think of it like proofreading before you hit send.
 
+#### How `review` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[AI checks<br/>structure] --> C[AI checks<br/>content] --> D([Get verdict])
+```
+
 ---
 
 ### Execute a plan
@@ -123,6 +146,13 @@ This starts working through your planned tasks in order. You get two modes:
 - **DELEGATED mode** — Claude works through tasks automatically using a task-runner agent
 
 If you need to stop mid-session, don't worry — planwise saves a recovery file so you can pick up exactly where you left off.
+
+#### How `run` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Confirm to start] --> C[Work through<br/>tasks] --> D[Get summary] --> E([Done])
+```
 
 ---
 
@@ -148,6 +178,13 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 /planwise backlog BUG-042
 ```
 
+#### How `backlog` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[See prioritized<br/>items] --> C[Pick an item] --> D[AI works on it] --> E([Approve &amp; close])
+```
+
 ---
 
 ### List all your plans
@@ -157,6 +194,13 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 ```
 
 Shows a table of every plan in your project with its status, sprint count, and when it was created.
+
+#### How `list` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[See table of<br/>all your plans]
+```
 
 ---
 
@@ -179,6 +223,13 @@ Shows a table of every plan in your project with its status, sprint count, and w
 
 > **What are lessons learned?** When something goes wrong (or right!), planwise can capture that insight so you don't repeat mistakes or forget what worked.
 
+#### How `lessons` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Search, capture,<br/>or promote] --> C([Done])
+```
+
 ---
 
 ### Get help
@@ -188,6 +239,13 @@ Shows a table of every plan in your project with its status, sprint count, and w
 ```
 
 Shows all available commands at a glance and links to this full user guide.
+
+#### How `help` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[See command list<br/>&amp; docs link]
+```
 
 ---
 
