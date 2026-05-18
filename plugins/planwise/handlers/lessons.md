@@ -242,6 +242,7 @@ Present to the user:
 - Proposed artifact name (kebab-case)
 - Proposed file path
 - Brief rationale for the classification
+- **On approval, the lesson file will also be moved to `{lessons_dir}/Archive/`** (Stage 6). Approving this prompt covers the artifact generation, the frontmatter flip, the archive move, and the Rule Promotion Log row.
 
 Wait for user approval before proceeding.
 

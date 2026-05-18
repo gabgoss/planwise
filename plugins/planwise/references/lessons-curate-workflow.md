@@ -137,6 +137,9 @@ Use the lesson's frontmatter `date` if it represents the promotion date; otherwi
 
 Update the Master Table row's Status column to match the lesson frontmatter (`applied` or `rule`). Do NOT change the Status Definitions table.
 
+> [!gate] Deduplicate Before Appending
+> Single-lesson `/planwise lessons promote` (handler Stage 7) also appends a row to the Rule Promotion Log at promotion time. Before appending, parse the existing log and skip any `(lesson_id, artifact_path)` tuple that is already present. Dedup key is the pair — a lesson with multiple `applied-as` paths (§4.5) gets one row per *new* path, even if a sibling path is already logged. Count skipped tuples in the Phase 2 summary as `Already logged: N` so the anomaly section stays honest.
+
 ### 4.4 Optional — Move file to Archive/
 
 The master index typically says: *"Lessons with status `applied` or `rule` are moved to `Archive/` as part of the promotion workflow."*
@@ -244,6 +247,8 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 ## Phase 2 — Promotions
 
 **Lessons promoted since last sync:** M
+**Already logged (deduplicated):** K  _<!-- per §4.3 gate; pairs already present in the Rule Promotion Log -->_
+
 | ID | Status | Artifact | Date |
 |----|--------|----------|------|
 | LL-001 | applied | `src/lib/example.py` | 2026-05-16 |

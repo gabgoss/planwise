@@ -128,7 +128,11 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise run` | Execute a planned session |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
-| `/planwise lessons` | Search, capture, or promote lessons |
+| `/planwise lessons` | Search the lessons learned index |
+| `/planwise lessons capture` | Capture a lesson mid-session |
+| `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
+| `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
+| `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
 | `/planwise help` | Show available commands and link to user guide |
 
 ---

@@ -25,28 +25,51 @@ lesson_abbreviations:
   SEC: "Security practices"
   PROC: "Process and workflow"
 
-# Domain bucketing for lessons learned. Consumed by /planwise lessons curate and /planwise lessons promote-batch.
+# Domain bucketing for lessons learned. Consumed by /planwise lessons curate
+# and /planwise lessons promote-batch. Curate iterates `decision_tree_order`
+# and routes each new lesson into the first bucket whose `triggers` match the
+# lesson frontmatter's `technology:` or `domain:` list (OR-combined). If no
+# bucket matches, the lesson lands in `default_bucket`.
 categorization:
   buckets:
     - id: A
       slug: database
       name: "Database / SQL"
       description: "Lessons that touch the live database, schema, or DDL semantics."
+      # Optional. Without `triggers`, this bucket never auto-matches and
+      # lessons fall through to `default_bucket`. Activate routing with:
+      # triggers:
+      #   technology: [sql, mssql, postgres, sqlite, pyodbc]
+      #   domain: [DB, SCHEMA]
     - id: B
       slug: code
       name: "Application Code"
       description: "Lessons about language-level patterns, type-checking, lint, runtime behaviour."
+      # Optional. `code_bucket: true` switches this bucket's table to the
+      # 4-column schema (ID | Title | Module | Severity) instead of the
+      # default 3-column schema (ID | Title | Severity):
+      # code_bucket: true
+      # triggers:
+      #   technology: [python, javascript, typescript, pyright, ruff, eslint]
+      #   domain: [APP]
     - id: C
       slug: process
       name: "Planwise / Process"
       description: "Lessons about planning, scaffolding, dispatch, signoff, review."
-      sub_buckets: []  # Add C1, C2, ... sub-buckets here for finer planwise-process bucketing (see schema docs).
+      # Optional. Sub-buckets render as `### {sub_id}. {sub_name}` tables
+      # inside this bucket and are first-class scope targets for
+      # `/planwise lessons promote-batch --category=C1` (etc.). One level of
+      # nesting is supported; sub-buckets inherit the parent's `code_bucket`
+      # flag. Each sub-bucket needs `id` and `name`.
+      sub_buckets: []  # e.g., - { id: C1, name: "Scaffolding hygiene" }
+      # triggers:
+      #   domain: [PROC, PMS]
     - id: D
       slug: tooling
       name: "Tooling / Ergonomics"
       description: "Toolchain, shell, notebook, IDE, harness ergonomics."
   decision_tree_order: [A, B, C, D]
-  default_bucket: D
+  default_bucket: D  # Catch-all when no bucket's triggers match.
   edge_cases_section: true
 
 scoring:

@@ -21,6 +21,7 @@ import dataclasses
 import json
 import re
 import sys
+from datetime import date
 from enum import Enum
 from pathlib import Path
 
@@ -29,11 +30,18 @@ from constants import InstallScope
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
+try:
+    import yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
 
 class ConfigResult(Enum):
     CREATED = "created"
     SKIPPED_EXISTS = "skipped_exists"
     SKIPPED_NO_TEMPLATE = "skipped_no_template"
+    SKIPPED_NO_YAML = "skipped_no_yaml"
 
 
 @dataclasses.dataclass
@@ -119,6 +127,138 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
     except FileExistsError:
         return ConfigResult.SKIPPED_EXISTS, config_rel
     return ConfigResult.CREATED, config_rel
+
+
+def _render_bucket_section(bucket: dict, code_bucket_inherited: bool = False) -> list[str]:
+    """Render one top-level bucket plus its sub-buckets to a list of lines."""
+    bucket_id = str(bucket.get("id", "?"))
+    bucket_name = str(bucket.get("name", ""))
+    description = str(bucket.get("description", ""))
+    code_bucket = bool(bucket.get("code_bucket", code_bucket_inherited))
+
+    if code_bucket:
+        header_row = "| ID | Title | Module | Severity |"
+        sep_row = "|----|-------|--------|----------|"
+    else:
+        header_row = "| ID | Title | Severity |"
+        sep_row = "|----|-------|----------|"
+
+    lines = [
+        f"## {bucket_id}. {bucket_name} (0)",
+        "",
+        description,
+        "",
+        header_row,
+        sep_row,
+    ]
+
+    for sub in bucket.get("sub_buckets") or []:
+        if not isinstance(sub, dict):
+            continue
+        sub_id = str(sub.get("id", "?"))
+        sub_name = str(sub.get("name", ""))
+        lines.extend([
+            "",
+            f"### {sub_id}. {sub_name} (0)",
+            "",
+            header_row,
+            sep_row,
+        ])
+
+    return lines
+
+
+def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
+    """Render 00-Categorization-By-Domain.md from config + categorization schema.
+
+    Idempotent — returns SKIPPED_EXISTS if the file already exists.
+    Returns SKIPPED_NO_YAML if PyYAML is unavailable (the init handler's
+    Step 5.1 fallback renders the file via Claude in that case).
+    """
+    dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/00-Categorization-By-Domain.md"
+    dst = cfg.project_root / dst_rel
+    if dst.exists():
+        return ConfigResult.SKIPPED_EXISTS, dst_rel
+
+    if not HAS_YAML:
+        return ConfigResult.SKIPPED_NO_YAML, dst_rel
+
+    config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
+    try:
+        config_text = config_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ConfigResult.SKIPPED_NO_TEMPLATE, dst_rel
+
+    try:
+        full = yaml.safe_load(config_text) or {}
+    except yaml.YAMLError:
+        return ConfigResult.SKIPPED_NO_TEMPLATE, dst_rel
+
+    cat = full.get("categorization") if isinstance(full, dict) else None
+    if not isinstance(cat, dict):
+        return ConfigResult.SKIPPED_NO_TEMPLATE, dst_rel
+
+    buckets = cat.get("buckets") or []
+    buckets = [b for b in buckets if isinstance(b, dict)]
+    if not buckets:
+        return ConfigResult.SKIPPED_NO_TEMPLATE, dst_rel
+
+    decision_tree_order = cat.get("decision_tree_order") or [b.get("id") for b in buckets]
+    buckets_by_id = {b.get("id"): b for b in buckets}
+    ordered_buckets = [buckets_by_id[bid] for bid in decision_tree_order if bid in buckets_by_id]
+    for b in buckets:
+        if b.get("id") not in {bb.get("id") for bb in ordered_buckets}:
+            ordered_buckets.append(b)
+
+    bucket_blocks = []
+    for b in ordered_buckets:
+        bucket_blocks.append("\n".join(_render_bucket_section(b)))
+
+    today = date.today().isoformat()
+    lessons_index = "00-Index-LessonsLearned.md"
+    scope_paragraph = f"Lessons captured during {cfg.project_name} sessions."
+
+    rendered = (
+        "# Lessons Learned — Categorization by Domain\n"
+        "\n"
+        f"**Purpose:** Group lessons in `{cfg.lessons_dir}/` by domain for scope-specific review and rule-promotion decisions.\n"
+        f"**Last Updated:** {today}\n"
+        f"**Companion to:** [{lessons_index}]({lessons_index}) (chronological master table)\n"
+        "\n"
+        "---\n"
+        "\n"
+        "## Scope\n"
+        "\n"
+        f"{scope_paragraph}\n"
+        "\n"
+        "---\n"
+        "\n"
+        + "\n\n".join(bucket_blocks)
+        + "\n"
+        "\n"
+        "---\n"
+        "\n"
+        "## Cross-cutting observations\n"
+        "\n"
+        "_Populated by `/planwise lessons curate` as patterns emerge across buckets._\n"
+        "\n"
+        "---\n"
+        "\n"
+        "## Classification edge cases\n"
+        "\n"
+        "| ID | Why it could fit elsewhere | Final bucket |\n"
+        "|----|---------------------------|---------------|\n"
+        "\n"
+        "---\n"
+    )
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(dst, "x", encoding="utf-8") as f:
+            f.write(rendered)
+    except FileExistsError:
+        return ConfigResult.SKIPPED_EXISTS, dst_rel
+    return ConfigResult.CREATED, dst_rel
 
 
 def update_frontmatter(content: str, paths_value: str) -> str:
@@ -283,6 +423,17 @@ def main():
         print("Configuration: already exists, skipped")
     else:
         print("Configuration: warning - template not found")
+    print()
+
+    cat_result, cat_rel = render_categorization_file(cfg)
+    if cat_result == ConfigResult.CREATED:
+        print(f"Categorization: + {cat_rel}")
+    elif cat_result == ConfigResult.SKIPPED_EXISTS:
+        print("Categorization: already exists, skipped")
+    elif cat_result == ConfigResult.SKIPPED_NO_YAML:
+        print("Categorization: skipped (PyYAML not installed — install with `pip install pyyaml`, or let the /planwise init handler render via Step 5.1)")
+    else:
+        print("Categorization: skipped (config.yaml: categorization block missing or unparseable)")
     print()
 
     rules = install_rules(cfg)

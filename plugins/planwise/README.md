@@ -221,13 +221,34 @@ flowchart LR
 /planwise lessons promote LL-003
 ```
 
+**Curate lessons — categorise new ones and track promotions:**
+```
+/planwise lessons curate
+/planwise lessons curate --phase=categorize
+/planwise lessons curate --phase=promote
+```
+
+Curate runs two phases against your lesson set. Phase 1 sorts uncategorised lessons into the domain buckets defined in `config.yaml` (Database, Application Code, Process, Tooling — customisable). Phase 2 finds lessons you've already promoted to rules or applied to code, verifies the destination artifact exists, and logs each one in the Rule Promotion Log inside your lessons index. Run `--phase=both` (the default) to do both at once, or scope to just one phase.
+
+**Batch-draft promotion plans for a whole bucket:**
+```
+/planwise lessons promote-batch --category=A
+/planwise lessons promote-batch LL-052,LL-053,LL-054
+/planwise lessons promote-batch --all-documented
+/planwise lessons promote-batch --category=A --dry-run
+```
+
+Where `/planwise lessons promote LL-003` promotes one lesson immediately, `promote-batch` plans the promotion of many lessons at once — grouping them by domain bucket and drafting backlog items (BBs) that describe the rules to be created, with the WRONG/CORRECT examples from each lesson inlined. Execution happens later via `/planwise backlog`. Add `--dry-run` to see the grouping plan without writing any files.
+
 > **What are lessons learned?** When something goes wrong (or right!), planwise can capture that insight so you don't repeat mistakes or forget what worked.
+
+> **Curate before you batch-promote.** `promote-batch` will refuse to run if any lessons in the master index aren't yet categorised. Run `/planwise lessons curate --phase=categorize` first to keep the bucketing file in sync.
 
 #### How `lessons` works
 
 ```mermaid
 flowchart LR
-    A([Run command]) --> B[Search, capture,<br/>or promote] --> C([Done])
+    A([Run command]) --> B[Search, capture,<br/>promote, curate,<br/>or batch-draft] --> C([Done])
 ```
 
 ---
@@ -260,7 +281,11 @@ flowchart LR
 | `/planwise run` | Execute a planned session |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
-| `/planwise lessons` | Search, capture, or promote lessons |
+| `/planwise lessons` | Search the lessons learned index |
+| `/planwise lessons capture` | Capture a lesson mid-session |
+| `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
+| `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
+| `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
 | `/planwise help` | Show available commands and link to user guide |
 
 ---
