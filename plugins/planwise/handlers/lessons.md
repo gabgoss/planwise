@@ -37,6 +37,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 **Conditional references:**
 - If running curate mode: Read `references/lessons-curate-workflow.md`
+- If running promote-batch mode: Read `references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md` and `references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md`
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
 - If a task creates or modifies skills: Read `references/skill-authoring.md`
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
@@ -48,12 +49,13 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 | Input | Mode | Action |
 |-------|------|--------|
 | No arguments | **list** | Display lessons index table |
-| `<terms>` (not `promote`, `capture`, or `curate`) | **search** | Search by keyword across lesson files |
+| `<terms>` (not `promote`, `promote-batch`, `capture`, or `curate`) | **search** | Search by keyword across lesson files |
 | `curate [--phase=categorize|promote|both]` | **curate** | Run the two-phase curation workflow (see references/lessons-curate-workflow.md) |
+| `promote-batch [--category=X | LL-NNN,LL-NNN | --all-documented] [--dry-run]` | **batch** | Draft promotion BB items bundling related documented lessons (see references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md) |
 | `promote <lesson-id>` | **promote** | Promote a lesson to a Claude Code artifact |
 | `capture` | **capture** | Create a new lesson mid-session |
 
-Parse `$1` to determine the mode. If `$1` is `curate`, enter curate mode and parse `$2` for an optional `--phase=categorize|promote|both` flag (default `both`). If `$1` is `promote`, parse `$2` as the lesson ID. If `$1` is `capture`, enter capture mode. If `$1` is absent, enter list mode. Otherwise, treat all arguments as search terms.
+Parse `$1` to determine the mode. If `$1` is `curate`, enter curate mode and parse `$2` for an optional `--phase=categorize|promote|both` flag (default `both`). If `$1` is `promote-batch`, enter batch mode and parse the remaining arguments for scope (one of `--category=X`, comma-separated LL IDs, or `--all-documented`) plus an optional `--dry-run` flag. If `$1` is `promote`, parse `$2` as the lesson ID (single-lesson mode — preserved verbatim from the pre-batch handler). If `$1` is `capture`, enter capture mode. If `$1` is absent, enter list mode. Otherwise, treat all arguments as search terms.
 
 ---
 
@@ -140,6 +142,56 @@ If `$2` is absent or not a recognised `--phase=` value, default to `both`.
 ### Output
 
 Chat report only (markdown summary with Phase 1 / Phase 2 / Anomalies sections per the reference doc's §6). File writes are limited to: appending rows to `00-Categorization-By-Domain.md` (Phase 1), appending rows to the Rule Promotion Log in `{lessons_dir}/{lessons_index}` (Phase 2), updating the Status column in the Master Table (Phase 2). No new `LL-*` files are created.
+
+---
+
+## Batch-Promote Mode (`/planwise lessons promote-batch <scope> [--dry-run]`)
+
+**Purpose:** Draft promotion **backlog items (BBs)** that bundle related `documented` lessons into self-contained promotion artifacts. Each BB plans the work of authoring one or more rules, code applications, or settings entries; rule creation happens later at BB execution time via `/planwise backlog`. This mode is the batched, deferred complement to the single-lesson `promote` mode below — the two are not duplicates.
+
+### Pre-condition Gates
+
+Both gates are binding. Halt without modifying any files if either fails.
+
+**Gate 1 — Categorisation file must exist.** Verify `{lessons_dir}/00-Categorization-By-Domain.md` exists. If it does not, error with the same message used by Curate Mode:
+
+```
+Categorisation file not found at {path}. Run /planwise init to create it, or copy {plugin_root}/templates/categorization-by-domain.md and populate it from config.yaml.
+```
+
+**Gate 2 — Categorisation must be up to date.** Diff `{lessons_dir}/{lessons_index}` against `{lessons_dir}/00-Categorization-By-Domain.md`. If any `LL-NNN` appears in the master table but NOT in any bucket table of the categorisation file, error with:
+
+```
+Lessons missing from categorisation file: {list of LL IDs}. Run /planwise lessons curate --phase=categorize first.
+```
+
+### Workflow
+
+The four-phase workflow (Resolve scope / Group lessons / Draft BBs / Write files) is specified in [references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md](../references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md) (Phases 1-2) and [references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md](../references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md) (Phases 3-4, BB structure spec, self-containment grep, decomposition mechanics, constraints). Do NOT duplicate Phase 1-4 content here — read the reference doc when entering batch mode.
+
+### Argument Parsing
+
+Parse the arguments after `promote-batch` for one scope argument and an optional `--dry-run` flag:
+
+| Argument form | Resolves to |
+|---------------|-------------|
+| `--category=X` (X is a top-level `bucket.id` or sub-bucket id from `config.yaml: categorization`) | All `documented` lessons currently listed under that bucket or sub-bucket. Sub-buckets are first-class scope targets. |
+| `LL-NNN,LL-NNN,...` (comma-separated) | Exactly those lessons |
+| `--all-documented` | Every `documented` lesson across all buckets — likely produces multiple BBs |
+| (no scope argument) | Prompt the user via `AskUserQuestion`; do NOT assume `--all-documented` |
+
+The `--dry-run` flag is orthogonal to scope. When present, the workflow short-circuits after Phase 2 — Phase 1 lesson-body reads STILL happen (full-body reads are required for grouping decisions), but Phases 3 and 4 are skipped. The grouping plan is reported to chat without writing any BB files.
+
+### Output
+
+| Surface | Change |
+|---------|--------|
+| `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md` | One new BB file per planned grouping |
+| `{backlog_dir}/{backlog_index}` | Appended row per new BB; `Last Updated` bumped |
+| Scoring | `python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml` is invoked after writes to compute Score columns |
+| Lesson files | NOT modified — status flips happen at BB execution time, not BB drafting time |
+
+The single-lesson `promote <id>` mode below is preserved verbatim. Batch promotion is a parallel path, not a replacement.
 
 ---
 

@@ -23,6 +23,7 @@ Available commands:
   /planwise lessons capture              Capture a lesson mid-session
   /planwise lessons promote <id>         Promote lesson to artifact
   /planwise lessons curate [--phase=X]   Categorise lessons and track promotions
+  /planwise lessons promote-batch <scope>  Batch-draft promotion BBs
   /planwise help                         Show this help message
 ```
 

@@ -48,6 +48,7 @@ Available subcommands:
   lessons capture              Capture a lesson mid-session
   lessons promote <id>         Promote lesson to artifact
   lessons curate [--phase=X]   Categorise lessons and track promotions
+  lessons promote-batch <scope>  Batch-draft promotion BBs
   help                         Show this help message
 ```
 
