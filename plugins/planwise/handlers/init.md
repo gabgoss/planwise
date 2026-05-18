@@ -143,7 +143,7 @@ Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` from the p
 
 ### Step 6 — Install rules to `.claude/rules/planwise/` (fallback)
 
-The plugin ships 10 reference files that are installed as path-scoped rules. For each rule:
+The plugin ships 15 reference files that are installed as path-scoped rules. For each rule:
 
 1. Use **Glob** to check if the destination already exists — **skip if it does**
 2. Use **Read** to read the source file from the plugin (links below)
@@ -167,6 +167,11 @@ The plugin ships 10 reference files that are installed as path-scoped rules. For
 | 8 | [../references/agent-orchestration.md](../references/agent-orchestration.md) | `.claude/rules/planwise/agent-orchestration.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
 | 9 | [../references/callout-conventions.md](../references/callout-conventions.md) | `.claude/rules/planwise/callout-conventions.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
 | 10 | [../references/markdown-conventions.md](../references/markdown-conventions.md) | `.claude/rules/planwise/markdown-conventions.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
+| 11 | [../references/scaffolding-hygiene.md](../references/scaffolding-hygiene.md) | `.claude/rules/planwise/scaffolding-hygiene.md` | `{planwise_root}/{plans_dir}/**` |
+| 12 | [../references/discovery-and-exit-criteria.md](../references/discovery-and-exit-criteria.md) | `.claude/rules/planwise/discovery-and-exit-criteria.md` | `{planwise_root}/{plans_dir}/**` |
+| 13 | [../references/ei-fidelity.md](../references/ei-fidelity.md) | `.claude/rules/planwise/ei-fidelity.md` | `{planwise_root}/{plans_dir}/**` |
+| 14 | [../references/schema-pin-requirement.md](../references/schema-pin-requirement.md) | `.claude/rules/planwise/schema-pin-requirement.md` | `{planwise_root}/{plans_dir}/**` |
+| 15 | [../references/task-content-fidelity.md](../references/task-content-fidelity.md) | `.claude/rules/planwise/task-content-fidelity.md` | `{planwise_root}/{plans_dir}/**` |
 
 Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with actual values from Step 1.
 
