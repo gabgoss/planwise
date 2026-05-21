@@ -23,6 +23,10 @@ Do NOT use `cat`, `cp`, `sed`, `awk`, or other bash commands for file operations
 
 ### Step 1 — Gather project information
 
+<!-- AUTO-MODE: convenience -->
+<!-- All 6 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
+     install_scope = project; planwise_root = planwise; plans_dir = Plans;
+     backlog_dir = Backlog; lessons_dir = LessonsLearned. -->
 Use `AskUserQuestion` to collect:
 
 1. **Project name** — The name of this project (e.g., "MyApp", "DataPipeline")
@@ -56,7 +60,7 @@ python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{
 
 If `python` is not found, try `python3`.
 
-**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML) and skip to **Step 9** (team sharing).
+**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML) and skip to **Step 9** (team sharing).
 
 **If the script fails** (Python not available or any error): Fall through to Steps 3-8 below.
 
@@ -104,7 +108,7 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 
 3. **Write** the result to `{planwise_root}/config.yaml`
 
-If `{planwise_root}/config.yaml` already exists, ask the user before overwriting.
+<!-- AUTO-MODE: critical --> If `{planwise_root}/config.yaml` already exists, ask the user before overwriting.
 
 ---
 
@@ -143,7 +147,7 @@ Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` from the p
 
 ### Step 6 — Install rules to `.claude/rules/planwise/` (fallback)
 
-The plugin ships 15 reference files that are installed as path-scoped rules. For each rule:
+The plugin ships 15 reference files (or 18 if all pending user-confirmation rules are adopted) that are installed as path-scoped rules. For each rule:
 
 1. Use **Glob** to check if the destination already exists — **skip if it does**
 2. Use **Read** to read the source file from the plugin (links below)
@@ -172,8 +176,32 @@ The plugin ships 15 reference files that are installed as path-scoped rules. For
 | 13 | [../references/ei-fidelity.md](../references/ei-fidelity.md) | `.claude/rules/planwise/ei-fidelity.md` | `{planwise_root}/{plans_dir}/**` |
 | 14 | [../references/schema-pin-requirement.md](../references/schema-pin-requirement.md) | `.claude/rules/planwise/schema-pin-requirement.md` | `{planwise_root}/{plans_dir}/**` |
 | 15 | [../references/task-content-fidelity.md](../references/task-content-fidelity.md) | `.claude/rules/planwise/task-content-fidelity.md` | `{planwise_root}/{plans_dir}/**` |
+| 16 | [../references/verification-gates.md](../references/verification-gates.md) | `.claude/rules/planwise/verification-gates.md` | `{planwise_root}/{plans_dir}/**` |
+| 17 | [../references/verify-against-shipped-artifact.md](../references/verify-against-shipped-artifact.md) | `.claude/rules/planwise/verify-against-shipped-artifact.md` | `{planwise_root}/{plans_dir}/**` |
+| 18 | [../references/webfetch-registry-fallbacks.md](../references/webfetch-registry-fallbacks.md) | `.claude/rules/planwise/webfetch-registry-fallbacks.md` | `{planwise_root}/{plans_dir}/**` |
 
 Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with actual values from Step 1.
+
+---
+
+### Step 6b — Mirror plugin agents/ into project .claude/agents/
+
+The plugin ships 4 custom agents that handlers spawn by name. To enable bare-name resolution in consumer projects and allow consumer-side agent overrides, mirror plugin agents into `.claude/agents/`:
+
+1. Use **Glob** to enumerate `{plugin_root}/agents/*.md`
+2. For each agent file:
+   a. Use **Glob** to check if `.claude/agents/{filename}` exists — **skip if it does**
+   b. Use **Read** to read source agent file
+   c. Use **Write** to create destination
+
+| Source (plugin) | Destination (project) |
+|----------------|----------------------|
+| `{plugin_root}/agents/plan-reviewer.md` | `.claude/agents/plan-reviewer.md` |
+| `{plugin_root}/agents/structural-reviewer.md` | `.claude/agents/structural-reviewer.md` |
+| `{plugin_root}/agents/task-runner.md` | `.claude/agents/task-runner.md` |
+| `{plugin_root}/agents/fix-agent.md` | `.claude/agents/fix-agent.md` |
+
+> **Note:** Step 6b is a companion fix for PLG-017 (plugin-handler spawn name resolution). Handlers also work with namespaced spawns alone (`subagent_type: "planwise:plan-reviewer"`) — Step 6b additionally enables consumer-project agent overrides. Without Step 6b the consumer cannot customize plan-reviewer or task-runner. The fast-path script (Step 2) also calls `install_agents()` to perform the same mirroring; this fallback runs only when the Python script is unavailable.
 
 ---
 
@@ -228,6 +256,8 @@ Add the plugin cache directory to `permissions.additionalDirectories` so Claude 
 
 ### Step 9 — (Optional) Configure team sharing
 
+<!-- AUTO-MODE: convenience -->
+<!-- Default: No. SUPPRESSED ENTIRELY when --auto-from flag is set (subroutine mode). -->
 Use `AskUserQuestion`:
 
 > "Share this planwise plugin with your team via .claude/settings.json? (Yes / No)"
@@ -279,6 +309,12 @@ Agent Teams:
 Plugin permissions:
   ✓ additionalDirectories: {plugin_root} → {settings_file}
 
+Agents mirrored to .claude/agents/:
+  ✓ plan-reviewer.md
+  ✓ structural-reviewer.md
+  ✓ task-runner.md
+  ✓ fix-agent.md
+
 Rules installed to .claude/rules/planwise/:
   ✓ agent-authoring.md         (paths: .claude/agents/**)
   ✓ skill-authoring.md         (paths: .claude/skills/**)
@@ -290,6 +326,14 @@ Rules installed to .claude/rules/planwise/:
   ✓ agent-orchestration.md
   ✓ callout-conventions.md
   ✓ markdown-conventions.md
+  ✓ scaffolding-hygiene.md
+  ✓ discovery-and-exit-criteria.md
+  ✓ ei-fidelity.md
+  ✓ schema-pin-requirement.md
+  ✓ task-content-fidelity.md
+  ✓ verification-gates.md      (if installed)
+  ✓ verify-against-shipped-artifact.md (if installed)
+  ✓ webfetch-registry-fallbacks.md (if installed)
 
 Next steps:
   /planwise plan          — Create your first plan
@@ -298,3 +342,21 @@ Next steps:
 ```
 
 Replace `{settings_file}` with the actual path used based on scope. Adjust the output to reflect what was actually created vs. skipped.
+
+---
+
+## Called As Subroutine
+
+When another handler detects a missing `config.yaml` and invokes `/planwise init` via the
+Auto-Init Fallback, the init handler runs in **subroutine mode**:
+
+- The calling handler passes `--auto-from {handler-name}` to `init_project.py`.
+- The team-sharing prompt (Step 9) is suppressed — no `AskUserQuestion` is issued.
+- The Step 10 banner is replaced by: "Init complete — resuming /planwise {caller}…"
+- All other steps execute normally (directories, seeds, config, rules, settings, agent mirroring).
+- If Auto Mode is active in the caller, all convenience questions in Step 1
+  (project name, install scope, directories) use their inferred defaults
+  (see Auto Mode Policy in `references/skill-authoring.md` §4b). If Auto Mode is NOT
+  active, Step 1 runs interactively as normal.
+- After the subroutine returns, the calling handler RE-RESOLVES `config.yaml` and
+  resumes at its own Step 1.

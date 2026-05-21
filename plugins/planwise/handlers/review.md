@@ -210,9 +210,9 @@ Task(
 > [!decide] Team Composition
 > | Scale | Plan Reviewers | Roles |
 > |-------|---------------|-------|
-> | MEDIUM (2-3 EIs) | 2 | ei-reviewer, task-reviewer |
-> | LARGE (4-5 EIs) | 3 | ei-reviewer, task-reviewer, dependency-reviewer |
-> | VERY LARGE (6+ EIs) | 4 | ei-reviewer (batched), task-reviewer, dependency-reviewer, coverage-reviewer |
+> | MEDIUM (2-3 EIs) | 2 (+1 optional) | ei-reviewer, task-reviewer (+ scaffolding-hygiene-reviewer if Meta-Plan) |
+> | LARGE (4-5 EIs) | 3 (+2 optional) | ei-reviewer, task-reviewer, dependency-reviewer (+ scaffolding-hygiene-reviewer, design-extension-reviewer) |
+> | VERY LARGE (6+ EIs) | 4 (+2 optional) | ei-reviewer (batched), task-reviewer, dependency-reviewer, coverage-reviewer (+ both sub-role reviewers) |
 
 6. Spawn ALL Phase 2 reviewers in parallel -- issue all Task calls together in a single batch (do not wait between spawns):
 
@@ -316,6 +316,32 @@ Task(
     Report each finding as a separate DM to the team lead.
     Prefix uncertain findings (MEDIUM/LOW confidence) with [UNCERTAIN].
     End with DM: "Phase 2 complete, {N} findings reported"
+)
+```
+
+**Scaffolding Hygiene Reviewer** (MEDIUM/LARGE/VERY LARGE — Meta-Plan only):
+```
+Task(
+  team_name: "plan-review-{abbrev}",
+  name: "scaffolding-hygiene-reviewer",
+  subagent_type: "plan-reviewer",
+  prompt: |
+    Your assigned role: Scaffolding Hygiene Reviewer
+    Execute Checks 046-050 from your protocol.
+    ...
+)
+```
+
+**Design-Extension Reviewer** (LARGE/VERY LARGE — when audit/design-extension findings expected):
+```
+Task(
+  team_name: "plan-review-{abbrev}",
+  name: "design-extension-reviewer",
+  subagent_type: "plan-reviewer",
+  prompt: |
+    Your assigned role: Design-Extension Reviewer
+    Execute Checks 051-054 from your protocol.
+    ...
 )
 ```
 

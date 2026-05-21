@@ -336,6 +336,36 @@ def install_rules(cfg: InitConfig) -> list[str]:
     return installed
 
 
+def install_agents(cfg: InitConfig) -> list[str]:
+    """Copy plugin's agents/ files into project's .claude/agents/ directory.
+
+    This enables bare-name agent resolution in consumer projects for handlers
+    that spawn agents by name (per PLG-017). Companion to the handler-side
+    namespaced-spawn updates (`subagent_type: "planwise:plan-reviewer"`).
+
+    Skips if destination exists. Returns list of installed agent filenames.
+    """
+    installed = []
+    agents_src_dir = cfg.plugin_root / "agents"
+    agents_dst_dir = cfg.project_root / ".claude" / "agents"
+    agents_dst_dir.mkdir(parents=True, exist_ok=True)
+
+    for src in sorted(agents_src_dir.glob("*.md")):
+        dst = agents_dst_dir / src.name
+        try:
+            content = src.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            print(f"  Warning: agent file not found: {src}", file=sys.stderr)
+            continue
+        try:
+            with open(dst, "x", encoding="utf-8") as f:
+                f.write(content)
+        except FileExistsError:
+            continue
+        installed.append(src.name)
+    return installed
+
+
 def get_settings_path(cfg: InitConfig) -> Path:
     """Return the settings.json path based on install scope."""
     if cfg.install_scope == InstallScope.USER:
@@ -390,6 +420,11 @@ def main():
                         choices=[s.value for s in InstallScope],
                         help="Install scope: project, user, or local (default: project)")
     parser.add_argument("--project-root", default=None, help="Project root (default: cwd)")
+    parser.add_argument("--auto-from", default=None,
+                        help="Subroutine mode: caller handler name (e.g., 'plan', 'review'). "
+                             "Suppresses team-sharing prompt (Step 9) and replaces Step 10 banner "
+                             "with a single line. Used by handlers when invoking init via "
+                             "Auto-Init Fallback.")
     args = parser.parse_args()
 
     cfg = InitConfig(
@@ -450,6 +485,15 @@ def main():
         print("Rules: already exist, skipped")
     print()
 
+    agents = install_agents(cfg)
+    if agents:
+        print("Agents mirrored to .claude/agents/:")
+        for a in agents:
+            print(f"  + {a}")
+    else:
+        print("Agents: already exist, skipped")
+    print()
+
     settings_path, plugin_dir = configure_settings(cfg)
     if settings_path:
         print(f"Settings configured ({cfg.install_scope} scope):")
@@ -460,7 +504,10 @@ def main():
         print("Settings: skipped (see warning above)")
     print()
 
-    print("Done!")
+    if args.auto_from:
+        print(f"Init complete — resuming /planwise {args.auto_from}…")
+    else:
+        print("Done!")
 
 
 if __name__ == "__main__":
