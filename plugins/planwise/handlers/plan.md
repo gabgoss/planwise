@@ -21,19 +21,41 @@
 
 ---
 
-## Config Gate
+## Config Gate (Auto-Init Fallback)
 
-Locate `config.yaml` by checking:
-1. `planwise/config.yaml` (default planwise root)
-2. If not found, search one level down from the project root for `*/config.yaml`
-3. If not found: "Project not initialized. Run `/planwise init` first."
+1. Resolve config.yaml:
+   a. Check `planwise/config.yaml` (default planwise root)
+   b. If not found, search one level down from project root for `*/config.yaml`
 
-Extract from `config.yaml`:
-- `plugin_root` — the plugin installation path
-- `project.planwise_root` — the planwise root folder (default: `planwise`)
-- `project.plans_dir` — the Plans directory name (relative to planwise_root)
-- `project.lessons_dir` — the Lessons directory name (relative to planwise_root)
-- `project.index_files.lessons` — the lessons index filename
+2. If found → continue to Required References (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.lessons_dir`, `project.index_files.lessons`).
+
+3. If NOT found:
+   a. Announce: "Planwise not initialized in this project. Running /planwise init first…"
+   b. Resolve `{plugin_root}` from the handler's own known location (SKILL.md plugin base path).
+   c. Invoke init subroutine:
+      - **If Auto Mode active:**
+        ```bash
+        python "{plugin_root}/scripts/init_project.py" \
+          --name "{inferred_project_name}" \
+          --root "planwise" \
+          --plans-dir "Plans" \
+          --backlog-dir "Backlog" \
+          --lessons-dir "LessonsLearned" \
+          --scope "project" \
+          --auto-from "plan"
+        ```
+      - **If Auto Mode NOT active (interactive):**
+        Use `AskUserQuestion` to collect project info (project name, scope, dirs),
+        then run `init_project.py` with those values + `--auto-from "plan"`.
+   d. After init completes, RE-RESOLVE `config.yaml` (loop to step 1).
+   e. If still NOT found after init:
+      FAIL LOUD: "Init did not produce config.yaml. See output above."
+      STOP — do not continue.
+
+Where `{inferred_project_name}` = current git repo name or `cwd` basename (strip trailing `-`, `_`, `.git` suffix).
+
+> [!gate] Config Malformed → FAIL LOUD
+> If `config.yaml` is present but malformed (YAMLError), DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise plan." STOP.
 
 All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Plans`).
 
@@ -54,6 +76,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
+- If planning a scaffolded multi-sprint plan (Discovery → Scaffolding workflow): Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md`
+- If planning a task with DB writes (SQL INSERT/UPDATE/MERGE): Read `references/schema-pin-requirement.md`
 
 ---
 
@@ -90,6 +114,7 @@ Before gathering information, check the user's prompt for **Discovery Mode** and
 | Source material spans multiple large files (estimated total > 100K tokens) | **Recommend Discovery** |
 | User asks to "organize", "consolidate", or "cross-reference" source material | **Recommend Discovery** |
 
+<!-- AUTO-MODE: critical -->
 If **any Discovery implicit indicator** is detected without an explicit indicator, use `AskUserQuestion`:
 
 > "Your project appears to require more context than fits in a single session (~100K tokens). The **Meta-Plan Discovery** workflow reads source material across multiple sessions, consolidates findings into structured Consolidated Context Parts, and then scaffolds an Execution Plan from those parts. **Recommended: use Discovery (Meta-Plan).** Proceed with Discovery, Scaffolding (if you already have Consolidated Context parts), or Standard?"
@@ -109,6 +134,19 @@ If **any Discovery implicit indicator** is detected without an explicit indicato
 | `--scaffold` flag present in arguments | **Scaffolding** |
 | User says "scaffold", "scaffolding phase", or "from Discovery" | **Scaffolding** |
 
+**Optional Scaffolding flag — `--scaffold-per-sprint`:**
+
+When `--scaffold-per-sprint` is present, scaffold ONE sprint at a time, pausing after each for user confirmation. This allows user-action gates between sprints (e.g., user reviews Sprint-01 scaffold before scaffolding Sprint-02).
+
+Behavior:
+1. Scaffold Sprint-01 completely (EI + plan files + task files)
+2. Set Master Plan Status: `IN_PROGRESS — Sprint-01 scaffolded; awaiting user review`
+3. <!-- AUTO-MODE: critical -->
+   Use `AskUserQuestion`: "Sprint-01 scaffold complete. Proceed with Sprint-02 scaffolding?"
+4. Repeat for each sprint
+
+Without the flag (default), scaffold all sprints in one pass.
+
 **Implicit indicators** (recommend Scaffolding via `AskUserQuestion`):
 
 | Indicator | Action |
@@ -118,6 +156,7 @@ If **any Discovery implicit indicator** is detected without an explicit indicato
 | User mentions "Consolidated Context parts" or "spec parts" | **Recommend Scaffolding** |
 | Existing `Meta-{Abbrev}/Outputs/` folder contains `Consolidated-Context-Part-*` files | **Recommend Scaffolding** |
 
+<!-- AUTO-MODE: critical -->
 If **any Scaffolding implicit indicator** is detected without an explicit indicator, use `AskUserQuestion`:
 
 > "Your source material references Meta-Plan Discovery outputs. The Scaffolding workflow creates focused per-sprint Execution Inputs from this research, preventing subagents from reading entire Discovery docs. **Recommended: use Scaffolding.** Proceed with Scaffolding or Standard?"
@@ -135,6 +174,7 @@ If **no indicators** are detected → proceed to Step 1 (Standard).
 
 Parse `$1` for the plan name. If `$1` is empty, use `AskUserQuestion` to collect it.
 
+<!-- AUTO-MODE: critical -->
 Use `AskUserQuestion` to collect:
 
 **Question 1: Plan Details**
@@ -166,6 +206,7 @@ If validation fails, ask user to correct.
 >
 > CORRECT: User provides `HBS-VBD` → handler prompts with `AskUserQuestion` showing the constraint, what they provided, and alternatives.
 
+<!-- AUTO-MODE: critical -->
 > [!protocol] Abbreviation Validation Protocol
 > 1. Check if the user-provided abbreviation is 2-4 characters
 > 2. If valid (2-4 chars) → proceed to uniqueness check
@@ -297,6 +338,8 @@ PLAN CREATED: {PlanName}
 
 After outputting the Step 9 confirmation, offer plan review options.
 
+<!-- AUTO-MODE: convenience -->
+<!-- Default: auto-review in this session. -->
 Use `AskUserQuestion` with:
 
 **Question 1: Plan Review Approach**
@@ -304,6 +347,8 @@ Use `AskUserQuestion` with:
 - "Review manually first" -- User will review plan files before executing
 - "Skip to /planwise run" -- Proceed directly to execution
 
+<!-- AUTO-MODE: convenience -->
+<!-- Default: this session; switch to new session if > 3 sprints or > 10 task files. -->
 **Question 2: Review Context** (show only if Question 1 = auto-review)
 - "Run in this session" (Recommended for standard plans) -- Subagent gets fresh context; no token budget concern
 - "Run in a new session" -- Output the command for user to run separately; recommended if this was a large scaffolding session
@@ -360,6 +405,10 @@ Before completing `/planwise plan`, verify:
 [ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED
 [ ] If DELEGATED: Orchestration Required Context = plan files only
 [ ] If DELEGATED: Context Boundary subsection lists what orchestrator never reads
+[ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
+[ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
+[ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
+[ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
 ```
 
 ---
@@ -377,6 +426,27 @@ Before completing `/planwise plan`, verify:
 
 ### Discovery Step 1: Gather Source Inventory
 
+**CONFIRM block (per `references/scaffolding-hygiene.md` §1):**
+
+Before gathering source inventory, output the Discovery context confirmation:
+
+> [!template] Discovery Context Confirmation
+> ```
+> CONTEXT LOADED — DISCOVERY MODE
+> Workflow: Discovery (Meta-Plan creation)
+> Trigger: {indicator that triggered Discovery mode}
+> Plugin references loaded: {list of loaded conditional refs}
+> Next Action: Gather source inventory for {abbreviation}
+> ```
+
+<!-- AUTO-MODE: critical -->
+Use `AskUserQuestion`: "Confirm Discovery mode for this plan?"
+(Auto-default: proceed; user can switch to Standard or Scaffolding.)
+
+Then proceed with the source inventory questions below.
+
+<!-- AUTO-MODE: critical -->
+<!-- All Discovery Step 1 questions (Project name, Abbreviation, Vision, Source files, Domains, Expected output) are CRITICAL per S03-03 audit table — no safe inference. -->
 Use `AskUserQuestion` to collect:
 
 **Question 1: Project Details**
@@ -522,9 +592,30 @@ After the confirmation, proceed to [Step 10: Plan Review Gate](#step-10-plan-rev
 
 ### Scaffolding Step 1: Read Consolidated Context Parts
 
+**CONFIRM block (per `references/scaffolding-hygiene.md` §1):**
+
+Before reading Consolidated Context parts, output the Scaffolding context confirmation:
+
+> [!template] Scaffolding Context Confirmation
+> ```
+> CONTEXT LOADED — SCAFFOLDING MODE
+> Workflow: Scaffolding (Execution Plan from Discovery outputs)
+> Source Meta-Plan: Meta-{Abbrev}/
+> Plugin references loaded: {list of loaded conditional refs}
+> Consolidated Context Parts detected: {list of part filenames}
+> Next Action: Read all parts and design sprints from Scope: fields
+> ```
+
+<!-- AUTO-MODE: critical -->
+Use `AskUserQuestion`: "Confirm Scaffolding mode for this plan?"
+(Auto-default: proceed.)
+
+Then proceed with the original steps below.
+
 1. Find all `{Abbrev}-Consolidated-Context-Part-*.md` files in `Meta-{Abbrev}/Outputs/`
 2. Read EVERY part completely -- each part's header has `Scope:` (the sprint it feeds) and a `What This Enables` section
 3. Note: Part headers contain cross-references between parts
+4. Read Tier 1 raw task outputs from `Meta-{Abbrev}/Sprint-XX-Discovery/Session-YY-*/Outputs/` and Tier 3 final consolidated layer (if produced). Tier 2 Consolidated Context Parts (above) are the primary input; Tier 1 + Tier 3 supply detail that Tier 2 shed. See Step 4.5 for the binding extraction rules.
 
 ### Scaffolding Step 2: Determine Plan Details
 
@@ -566,6 +657,53 @@ For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extracti
 **Cross-sprint content handling:**
 - **Cross-sprint reference parts** (e.g., DesignDecisions with `Scope: Cross-sprint reference`): Extract relevant portions into each sprint's EI
 - **Sprint-scoped sources with cross-relevant sections**: If Sprint 02 needs content from a source primarily assigned to Sprint 01, list that source in the EI's `Extracted from:` header like any other source. The Global Source Map in the Master Plan tracks which sources are shared
+
+### Scaffolding Step 4.5: Multi-Tier Discovery Extraction
+
+When extracting from Meta-Plan Discovery outputs, scaffolding agent MUST consume THREE tiers of source material — Tier 1 raw outputs carry detail that Tier 2/3 consolidated parts shed; skipping any tier is BLOCKER at `/planwise review`:
+
+| Tier | Location | Content |
+|------|----------|---------|
+| **Tier 1** | `Meta-{Abbrev}/Sprint-XX-Discovery/Session-YY-*/Outputs/{Abbrev}-META-S{XX}-{YY}-{TaskOutput}*.md` | Raw task outputs (per-task detail) |
+| **Tier 2** | `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md` | Per-sprint consolidated context parts |
+| **Tier 3** | `Meta-{Abbrev}/Outputs/{Abbrev}-Triage-*.md` or `*-Cross-Reference-*.md` (if produced) | Final consolidated layer |
+
+**Extraction rules** (cross-reference `references/session-plan-requirements.md` §8 Multi-Tier extension):
+
+1. The EI's `Extracted from:` header MUST list all three tiers when applicable.
+2. Tier 1 raw outputs carry detail that Tier 2/3 consolidated parts shed; skipping Tier 1 is BLOCKER.
+3. Every sprint's EI MUST include a **Deferred / Out-of-Scope Log** at `{Abbrev}-S{XX}-Deferred-OutOfScope-Log.md` enumerating:
+   - Content from Tier 1/2/3 NOT extracted into this sprint's EI
+   - Rationale for deferral (e.g., "covered by Sprint-03", "out of scope per Master Plan §X")
+   - Target sprint or "Out of scope"
+
+**Deferred / Out-of-Scope Log template:**
+
+```markdown
+# {Abbrev}-S{XX}-Deferred-OutOfScope-Log
+
+**Sprint:** {XX} - {SprintName}
+**Generated:** {ISO date during scaffolding}
+
+## Deferred (covered elsewhere)
+
+| Source | Tier | Content | Target |
+|--------|------|---------|--------|
+| {Spec #N (filename.md)} | T{1,2,3} | {1-line description} | {Sprint-YY \| Out of scope} |
+
+## Out-of-Scope (no future coverage planned)
+
+| Source | Tier | Content | Rationale |
+|--------|------|---------|-----------|
+| {Spec #N (filename.md)} | T{1,2,3} | {1-line description} | {why excluded} |
+```
+
+**Reviewer retention threshold** (enforced by `agents/plan-reviewer.md` Coverage Reviewer role):
+- < 80 % retention → auto-reject
+- 80 – 95 % retention → warn
+- ≥ 95 % retention → pass
+
+Retention = `(sum of EI section tokens + Deferred/OOS log tokens) / (sum of Tier 1+2+3 source tokens)`.
 
 ### Scaffolding Step 5: Generate Plan Files
 
@@ -612,6 +750,10 @@ Same checklist as standard mode, plus:
 [ ] Task file Required Context enumerates individual section numbers with purpose (no ranges)
 [ ] Cross-sprint task references use full Task ID format ({Abbrev}-S{XX}-{YY}-{##})
 [ ] If global numbering used, Global Source Map exists in Master Plan
+[ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
+[ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
+[ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
+[ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
 ```
 
 ### Scaffolding Step 7: Output Confirmation

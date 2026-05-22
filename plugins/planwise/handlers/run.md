@@ -25,21 +25,16 @@
 
 ---
 
-## Config Gate
+## Config Gate (Auto-Init Fallback)
 
-Locate `config.yaml` by checking:
-1. `planwise/config.yaml` (default planwise root)
-2. If not found, search one level down from the project root for `*/config.yaml`
-3. If not found: "Project not initialized. Run `/planwise init` first."
+1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
+2. If found → continue (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.lessons_dir`, `project.index_files.lessons`).
+3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "run"`, RE-RESOLVE, fail loud if still missing.
 
-Extract from `config.yaml`:
-- `plugin_root` -- the plugin installation path
-- `project.planwise_root` -- the planwise root folder (default: `planwise`)
-- `project.plans_dir` -- the Plans directory name (relative to planwise_root)
-- `project.lessons_dir` -- the Lessons directory name (relative to planwise_root)
-- `project.index_files.lessons` -- the lessons index filename
+> [!gate] Config Malformed → FAIL LOUD
+> If `config.yaml` is present but malformed, DO NOT auto-init. FAIL LOUD and STOP.
 
-All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Plans`).
+All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 ---
 
@@ -56,6 +51,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
 - If a task creates or modifies skills: Read `references/skill-authoring.md`
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
+- If a task involves DB writes or MERGE/upsert briefs: Read `references/task-content-fidelity.md`, `references/schema-pin-requirement.md`
+- If a session is IPC/protocol/codec: Read `references/verification-gates.md`
 
 ---
 
@@ -66,6 +63,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 Parse `$ARGUMENTS` to identify the orchestration file:
 - `$1` or `@file` syntax -- path to orchestration file or Master Plan
 
+<!-- AUTO-MODE: critical -->
 If no argument provided, ask the user:
 ```
 Which session should I execute? Provide the orchestration file path.
@@ -90,6 +88,7 @@ Example: /planwise run @Plans/MyPlan/Sprint-01/APM-S01-01-Orchestration.md
 
 Read the Master Plan. Check the `Status:` field.
 - If `READY_TO_EXECUTE` or `REVIEWED` or `APPROVED` -- proceed
+<!-- AUTO-MODE: critical -->
 - Otherwise -- warn the user: "Master Plan status is `{status}`. Run `/planwise plan` or `/planwise review` first. Proceed anyway?" Use `AskUserQuestion`.
 
 ---
@@ -121,6 +120,7 @@ Output the confirmation block:
 
 ### Step 1.3: ACT
 
+<!-- AUTO-MODE: critical -->
 Use `AskUserQuestion`: "Ready to proceed with {next action}?"
 
 Only proceed after user approval.
@@ -204,7 +204,7 @@ Launch the `task-runner` agent via Task tool. See [Delegated Execution Protocol]
 
 ```
 Task(
-  subagent_type: "task-runner",
+  subagent_type: "planwise:task-runner",
   description: "Execute task {task-num}: {task-name}",
   model: "{model-override-from-task-file-Agent-field}",
   prompt: |
@@ -273,6 +273,8 @@ Write to: `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` in the sprint folder.
 
 ### Step 4.2: Lesson Capture
 
+<!-- AUTO-MODE: convenience -->
+<!-- Default: No (proceed without confirmation; user can invoke /planwise lessons capture separately). -->
 Ask the user: "Were any lessons learned during this session?"
 
 **If yes, for each lesson:**
@@ -312,7 +314,13 @@ Ask the user: "Were any lessons learned during this session?"
 1. Mark recovery file Session Status: COMPLETE
 2. Update orchestration: Status -> COMPLETE
 3. Update Sprint Plan session status (if sprint plan exists)
-4. Update Master Plan Status field (e.g., COMPLETE if all sprints done, or IN_PROGRESS with notes on completed sprint)
+4. Update Master Plan Status field:
+   - If all sprints COMPLETE AND no user-action gates pending → `Status: COMPLETE`
+   - If all sprints COMPLETE BUT user-action gates pending (per Master Plan "Project Complete When" section) → `Status: IN_PROGRESS — awaiting {user action}` (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
+   - If not all sprints COMPLETE → `Status: IN_PROGRESS`
+
+   > [!practice] User-Action-Gate Check (BLI-031 P3)
+   > When all sprints COMPLETE, check Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain, set IN_PROGRESS with note — NOT COMPLETE.
 5. Update plans index row for this plan in `{plans_dir}/{plans_index}`:
    - Set **Status** to match the Master Plan status (e.g., IN_PROGRESS or COMPLETE)
    - Set **Last Updated** to today's date
@@ -388,7 +396,7 @@ When the orchestration's Execution Strategy section declares DELEGATED mode, you
 > WRONG: Launch task-runner in background when it writes output files:
 > ```
 > Task(
->   subagent_type: "task-runner",
+>   subagent_type: "planwise:task-runner",
 >   run_in_background: true,
 >   prompt: "Execute task 01..."
 > )
@@ -396,7 +404,7 @@ When the orchestration's Execution Strategy section declares DELEGATED mode, you
 > CORRECT: Launch task-runner in foreground (default) — background is only safe for read-only agents:
 > ```
 > Task(
->   subagent_type: "task-runner",
+>   subagent_type: "planwise:task-runner",
 >   prompt: "Execute task 01..."
 > )
 > ```
@@ -427,7 +435,7 @@ When the orchestration's Execution Strategy section declares DELEGATED mode, you
    b. Launch `task-runner` agent:
       ```
       Task(
-        subagent_type: "task-runner",
+        subagent_type: "planwise:task-runner",
         description: "Execute task {task-num}: {task-name}",
         model: "{agent-from-task-file}",
         prompt: |

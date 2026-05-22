@@ -27,17 +27,23 @@
 
 ---
 
-## Config Gate
+## Config Gate (Auto-Init Fallback)
 
-Locate `config.yaml` by checking:
-1. `planwise/config.yaml` (default planwise root)
-2. If not found, search one level down from the project root for `*/config.yaml`
-3. If not found: "Project not initialized. Run `/planwise init` first."
+1. Resolve config.yaml:
+   a. Check `planwise/config.yaml` (default planwise root)
+   b. If not found, search one level down from project root for `*/config.yaml`
 
-Extract from `config.yaml`:
-- `plugin_root` -- the plugin installation path
-- `project.planwise_root` -- the planwise root folder (default: `planwise`)
-- `project.plans_dir` -- the Plans directory name (relative to planwise_root)
+2. If found → continue to Required References (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`).
+
+3. If NOT found:
+   a. Announce: "Planwise not initialized in this project. Running /planwise init first…"
+   b. Resolve `{plugin_root}` from the handler's own known location.
+   c. Invoke init subroutine with `--auto-from "review"` (interactive or auto per Auto Mode).
+   d. After init completes, RE-RESOLVE config.yaml (loop to step 1).
+   e. If still NOT found: FAIL LOUD and STOP.
+
+> [!gate] Config Malformed → FAIL LOUD
+> If `config.yaml` is present but malformed (YAMLError), DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise review." STOP.
 
 All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Plans`).
 
@@ -57,6 +63,10 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
+- If reviewing a scaffolded multi-sprint plan: Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md`
+- If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
+- If reviewing IPC/protocol/codec sessions: Read `references/verification-gates.md`
+- If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
 
 ---
 
@@ -96,7 +106,7 @@ Spawn `structural-reviewer` agent via Task tool:
 
 ```
 Task(
-  subagent_type: "structural-reviewer",
+  subagent_type: "planwise:structural-reviewer",
   description: "Structural review for {Abbrev}",
   prompt: |
     You are reviewing plan {Abbrev} for structural integrity.
@@ -122,7 +132,7 @@ If no blockers, spawn `plan-reviewer` agent via Task tool:
 
 ```
 Task(
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   description: "Content review for {Abbrev}",
   prompt: |
     You are reviewing plan {Abbrev} for content quality.
@@ -175,7 +185,7 @@ For plans with 2+ EIs, use full team with phase gating.
 Task(
   team_name: "plan-review-{abbrev}",
   name: "structural-reviewer",
-  subagent_type: "structural-reviewer",
+  subagent_type: "planwise:structural-reviewer",
   prompt: |
     You are reviewing plan {Abbrev} for structural integrity.
 
@@ -223,7 +233,7 @@ Task(
 Task(
   team_name: "plan-review-{abbrev}",
   name: "ei-reviewer-{N}",
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   prompt: |
     You are reviewing plan {Abbrev} for EI content integrity.
     Your assigned role: EI Reviewer
@@ -255,7 +265,7 @@ For VERY LARGE plans, batch 2 EIs per ei-reviewer (max 3 ei-reviewers). If a rev
 Task(
   team_name: "plan-review-{abbrev}",
   name: "task-reviewer",
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   prompt: |
     You are reviewing plan {Abbrev} for task quality.
     Your assigned role: Task Reviewer
@@ -279,7 +289,7 @@ Task(
 Task(
   team_name: "plan-review-{abbrev}",
   name: "dependency-reviewer",
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   prompt: |
     You are reviewing plan {Abbrev} for dependency accuracy.
     Your assigned role: Dependency Reviewer
@@ -301,7 +311,7 @@ Task(
 Task(
   team_name: "plan-review-{abbrev}",
   name: "coverage-reviewer",
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   prompt: |
     You are reviewing plan {Abbrev} for requirement coverage.
     Your assigned role: Coverage Reviewer
@@ -324,7 +334,7 @@ Task(
 Task(
   team_name: "plan-review-{abbrev}",
   name: "scaffolding-hygiene-reviewer",
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   prompt: |
     Your assigned role: Scaffolding Hygiene Reviewer
     Execute Checks 046-050 from your protocol.
@@ -337,7 +347,7 @@ Task(
 Task(
   team_name: "plan-review-{abbrev}",
   name: "design-extension-reviewer",
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   prompt: |
     Your assigned role: Design-Extension Reviewer
     Execute Checks 051-054 from your protocol.
@@ -588,3 +598,15 @@ Quick reference for common patterns and their correct classification.
 | 8 | Orphaned spec section (appears in no EI) | WARNING | EI completeness check |
 | 9 | Reviewer prompt missing plan context | ERROR | Reviewer spawn prompt |
 | 10 | Idle teammate treated as error | INFO | Normal behavior -- not a failure |
+| 11 | DELEGATED dispatch mandatory trigger violated (`agent-orchestration.md` §11.1) | BLOCKER | Orchestration Execution Strategy |
+| 12 | Task-file error recovery semantics missing (`agent-orchestration.md` §11.2) | BLOCKER | Task file Notes for Agent |
+| 13 | Schema Pin pre-execution form missing (`schema-pin-requirement.md` §3) | BLOCKER | Task file Required Context |
+| 14 | Token estimate uses `~?` placeholder (`task-content-fidelity.md` §9.A.2) | BLOCKER | Task file Estimated Tokens |
+| 15 | Cross-sprint Required Context not mirrored in Depends On (`session-plan-requirements.md` §9 cross-sprint) | BLOCKER | Task file Depends On |
+| 16 | EI bidirectional consistency violation (every Spec in `Extracted from:` MUST appear in ≥ 1 Cross-References row and vice versa) | WARNING (HIGH confidence) | EI header + Cross-References |
+| 17 | DELEGATED dispatch round-2 sub-rule violation (`agent-orchestration.md` §11.8..§11.13) | BLOCKER | Orchestration spawn prompts |
+| 18 | Verify-before-cite round-2 (`task-content-fidelity.md` §9.B.11..§9.B.14) | BLOCKER (varies by sub-rule) | Task file SQL/MERGE briefs |
+| 19 | Sprint exit-gate verdict not reflecting gate-defining step (`verification-gates.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
+| 20 | Sprint Overview row encoding session-count fraction instead of gate verdict (`verification-gates.md` §4) | ERROR | Master Plan Sprint Overview |
+| 21 | EI Cross-References §-citation format violated (`ei-fidelity.md` §7) | BLOCKER | EI Cross-References table |
+| 22 | UNCONFIRMED claim missing four-site enforcement (`ei-fidelity.md` §4) | BLOCKER | EI body |

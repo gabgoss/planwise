@@ -11,21 +11,41 @@
 
 ---
 
-## Config Gate
+## Config Gate (Auto-Init Fallback)
 
-Locate `config.yaml` by checking:
-1. `planwise/config.yaml` (default planwise root)
-2. If not found, search one level down from the project root for `*/config.yaml`
-3. If not found: "Project not initialized. Run `/planwise init` first."
+1. Resolve config.yaml:
+   a. Check `planwise/config.yaml` (default planwise root)
+   b. If not found, search one level down from project root for `*/config.yaml`
 
-Extract from `config.yaml`:
-- `plugin_root` — the plugin installation path
-- `project.planwise_root` — the planwise root folder (default: `planwise`)
-- `project.backlog_dir` — the Backlog directory name (relative to planwise_root)
-- `project.index_files.backlog` — the backlog index filename
-- `project.lessons_dir` — the LessonsLearned directory name (relative to planwise_root)
-- `project.index_files.lessons` — the lessons index filename
-- `build_commands.default` — the build command for fix-agent delegation
+2. If found → continue to Required References (extract `plugin_root`, `project.planwise_root`, `project.backlog_dir`, `project.index_files.backlog`, `project.lessons_dir`, `project.index_files.lessons`, `build_commands.default`).
+
+3. If NOT found:
+   a. Announce: "Planwise not initialized in this project. Running /planwise init first…"
+   b. Resolve `{plugin_root}` from the handler's own known location (SKILL.md plugin base path).
+   c. Invoke init subroutine:
+      - **If Auto Mode active:**
+        ```bash
+        python "{plugin_root}/scripts/init_project.py" \
+          --name "{inferred_project_name}" \
+          --root "planwise" \
+          --plans-dir "Plans" \
+          --backlog-dir "Backlog" \
+          --lessons-dir "LessonsLearned" \
+          --scope "project" \
+          --auto-from "backlog"
+        ```
+      - **If Auto Mode NOT active (interactive):**
+        Use `AskUserQuestion` to collect project info (project name, scope, dirs),
+        then run `init_project.py` with those values + `--auto-from "backlog"`.
+   d. After init completes, RE-RESOLVE `config.yaml` (loop to step 1).
+   e. If still NOT found after init:
+      FAIL LOUD: "Init did not produce config.yaml. See output above."
+      STOP — do not continue.
+
+Where `{inferred_project_name}` = current git repo name or `cwd` basename (strip trailing `-`, `_`, `.git` suffix).
+
+> [!gate] Config Malformed → FAIL LOUD
+> If `config.yaml` is present but malformed (YAMLError), DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise backlog." STOP.
 
 All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Backlog`). All script invocations should pass `--config {planwise_root}/config.yaml`.
 
@@ -41,6 +61,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
 - If a task creates or modifies skills: Read `references/skill-authoring.md`
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
+- If resolving a backlog item that touches task files: Read `references/task-content-fidelity.md`
+- If resolving a BLI cluster (≥ 2 BLIs same Surfaced by + created): Read `references/verify-against-shipped-artifact.md`
 
 ---
 
@@ -81,6 +103,7 @@ Display the table to the user.
 
 **If no arguments:**
 - Present the table from Phase 1 (only selectable items — blocked items are excluded)
+<!-- AUTO-MODE: convenience if $1 provided (use that item ID); critical if interactive (gate on user selection). -->
 - Use `AskUserQuestion` to ask: "Which items would you like to triage?"
   - Provide the first 4 item IDs as options (highest priority from selectable items)
   - User can select one or more, or type a custom ID
@@ -139,6 +162,8 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
 ## Phase 4: ACT
 
+<!-- AUTO-MODE: convenience -->
+<!-- Default: Accept Phase 3 recommended route (DIRECT_FIX / TASK_LIST / SESSION_PLANNING). -->
 **Use `AskUserQuestion` to confirm the routing:**
 - Option 1: Recommended route (from Phase 3 assessment)
 - Option 2: Alternative route
@@ -152,7 +177,7 @@ Delegate to the `fix-agent` via the Task tool:
 
 ```
 Task {
-  subagent_type: "fix-agent"
+  subagent_type: "planwise:fix-agent"
   description: "Fix backlog item {item-id}: {item-summary}"
   prompt: |
     Fix the following backlog item:
@@ -200,6 +225,7 @@ For large-scope or architectural items:
    ```bash
    git diff
    ```
+<!-- AUTO-MODE: critical -->
 2. Use `AskUserQuestion`:
    - **Approve** — Accept changes, mark COMPLETE
    - **Revert** — Discard changes, mark NOT_STARTED
@@ -213,6 +239,7 @@ For large-scope or architectural items:
 **After Route B (Task List):**
 1. Verify all tasks are marked completed
 2. Show summary of changes made
+<!-- AUTO-MODE: critical -->
 3. Use `AskUserQuestion`: Approve (COMPLETE) or Revert (NOT_STARTED)
 
 **After Route C (Session Planning):**
@@ -259,10 +286,92 @@ python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.ya
 
 ---
 
-## Phase 7: LESSON CAPTURE
+## Phase 7: FOLLOW-UP BLI CAPTURE
+
+After closing all triaged items, auto-surface actionable recommendations from resolution Outputs as candidate backlog items.
+
+### Step 7.1: Grep Resolution Outputs
+
+Use Grep to scan resolution Outputs in `{plans_dir}/**/Outputs/` for the declarative follow-up block convention:
+
+```
+pattern: > \[!followup\]
+path: {plans_dir}
+output_mode: content
+-A: 20
+```
+
+Identify candidate recommendations. Also check task files of recently-closed items for inline `> [!followup]` callouts (per `references/session-plan-requirements.md` Declarative Follow-Up Block Convention).
+
+### Step 7.2: Surface Candidates to User
+
+Present each candidate to the user with the auto-recommendation heuristic:
+
+> [!template] Follow-Up Candidate Block
+> ```
+> ─────────────────────────────────────────────
+> CANDIDATE: from {Outputs/source-file.md}
+> ─────────────────────────────────────────────
+>
+> Recommendation: {description}
+> Target file: {file_path}
+> Severity: {high|medium|low}
+> Originating item: {BLI-NNN-..}
+> ─────────────────────────────────────────────
+> ```
+
+<!-- AUTO-MODE: convenience -->
+<!-- Default: skip all (do not auto-create BBs unattended; user explicitly invokes /planwise backlog to surface). -->
+Use `AskUserQuestion`: "Create backlog item from this candidate?"
+- Option 1: Yes — create BLI
+- Option 2: No — skip
+- Option 3: Edit — modify before creating
+
+### Step 7.3: Auto-Create BLI Files
+
+For each accepted candidate:
+
+1. **Get next BLI ID:**
+   ```bash
+   python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --next-id
+   ```
+
+2. **Create BLI file** at `{backlog_dir}/BLI-{NNN}-{Domain}-{Topic}.md` using the [backlog-item.md](../templates/backlog-item.md) template; pre-fill:
+   - Title from recommendation
+   - `created:` today's date
+   - `status: NOT_STARTED`
+   - Body from candidate description + target file + severity
+
+3. **Append row to backlog index:**
+   ```bash
+   python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{recommendation}" --priority "{inferred from severity}" --abbrev "{Domain}" --files "BLI-{NNN}-{Domain}-{Topic}.md"
+   ```
+
+4. **Re-score backlog** after all candidates processed:
+   ```bash
+   python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml
+   ```
+
+### Step 7.4: Output Summary
+
+```
+PHASE 7 — FOLLOW-UP BLIs CAPTURED
+
+Candidates surfaced: {N}
+BLIs created: {M}
+Skipped: {N - M}
+
+New BLI IDs: BLI-{NNN}, BLI-{NNN+1}, ...
+```
+
+---
+
+## Phase 8: LESSON CAPTURE
 
 After closing all triaged items, prompt for lessons learned.
 
+<!-- AUTO-MODE: convenience -->
+<!-- Default: No. -->
 **Ask the user:** "Were any lessons learned during this triage session? (y/n)"
 
 **If no:** Skip this phase and finish.
