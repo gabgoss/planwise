@@ -10,7 +10,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 **Task ID:** {Abbrev}-S{XX}-{YY}-{##}
 **Agent:** {Haiku|Sonnet|Opus}
 **Estimated Tokens:** ~{X}K
-**Depends On:** {task numbers or "-"}
+**Depends On:** {task numbers, or "cross-sprint: {Abbrev}-S{XX}-{YY}-{##}", or "-"}
+**Cross-Sprint Refs:** {list of cross-sprint files in Required Context, or "None"}  <!-- Add only when Required Context cites cross-sprint files (per session-plan-requirements.md cross-sprint dependency convention) -->
 **Output:** {path where deliverable should be saved, e.g., Outputs/{Abbrev}-{description}.md}
 
 ---
@@ -39,6 +40,24 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 | `EI.md (Sections 2-5)` | **NO** — agent doesn't know which section provides what |
 | `EI.md — Section 2 (event types), Section 3 (patterns)` | **YES** — each section annotated with purpose |
 
+### Schema Pin (Required when task touches DB writes)
+
+When this task emits SQL touching `{table_name}`, include a Schema Pin block per `references/schema-pin-requirement.md` §3:
+
+```
+**Schema Pin** — {schema_file}#{section}
+```sql
+{verbatim DDL slice — CREATE TABLE + relevant ALTER TABLEs}
+```
+Live as of: {YYYY-MM-DD}
+```
+
+Missing Schema Pin for SQL-emitting tasks = BLOCKER at `/planwise review`.
+
+> [!constraint] No `~?` Placeholders in Token Estimates
+> WRONG: `**Estimated Tokens:** ~?K` or `Est. Tokens: ~?`
+> CORRECT: Compute bottom-up estimate per `references/task-content-fidelity.md` §9.A.2 + §9.A.3 token rate band. Final estimate MUST be a concrete integer.
+
 > **In DELEGATED sessions:** These files are read by the **subagent**, not the orchestrator. The orchestrator reads only plan files and passes this task's content to the subagent prompt. See the Orchestration's Execution Strategy for the declared mode.
 
 ---
@@ -61,11 +80,63 @@ Never leave many-to-many mappings for the agent to infer.
 |-------------|----------|
 | {field_name} | {how it is used in this task} |
 
+### Field Mapping (Required for MERGE/upsert tasks)
+
+When this task emits MERGE or upsert SQL, include a Field Mapping subsection with Row↔DDL alignment per `references/task-content-fidelity.md` §9.B.13:
+
+| Source Field | DDL Column | Type Cast | Default | Notes |
+|--------------|------------|-----------|---------|-------|
+| `{source_field_name}` | `{ddl_column_name}` | `{type}` | `{default}` | {1-line note} |
+
+Missing Field Mapping for MERGE/upsert tasks = BLOCKER at `/planwise review`.
+
+### USED-Helper Enumeration (Required when copying helpers from reference modules)
+
+When this task copies helpers from a reference module, explicitly enumerate USED helpers and NOT-USED helpers per `references/task-content-fidelity.md` §9.B.7:
+
+**USED helpers** (will be invoked in this task):
+- `{helper_name_1}` — {1-line purpose}
+- `{helper_name_2}` — {1-line purpose}
+
+**NOT-USED helpers** (in the reference module but NOT invoked):
+- `{helper_name_3}` — {why not used}
+
+Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise review`.
+
 ---
 
 ## Expected Output <!-- REQUIRED -->
 
 {What the subagent should produce - be specific about format and content}
+
+---
+
+## Verification Commands <!-- CONDITIONAL — required if task touches code, tests, or schemas -->
+
+> [!verify] Before / After Commands
+> **Before:**
+> ```
+> {cmd_before_1}   # e.g., {lint-cmd} on changed files
+> {cmd_before_2}   # e.g., grep current row count
+> ```
+> **After:**
+> ```
+> {cmd_after_1}    # e.g., {lint-cmd} on changed files (expect: pass)
+> {cmd_after_2}    # e.g., {test-cmd} or specific test
+> {cmd_after_3}    # e.g., grep updated row count
+> ```
+
+### Per-File-Type Commands
+
+| File Type | Verification Command (example) |
+|-----------|--------------------------------|
+| `.py` | `{lint-cmd} check {path}` |
+| `.ipynb` (notebooks) | `{notebook-exec-cmd} {path}` |
+| `.sql` | `psql -f {path}` (or `{driver-cli} -f {path}`) |
+| `.{ext}` | `{cmd}` |
+
+> [!practice] Connectivity Precheck Placement
+> When the task requires network/DB connectivity, the connectivity precheck command MUST appear in the **Before** block (not inline in Execution Steps).
 
 ---
 

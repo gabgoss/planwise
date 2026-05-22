@@ -56,7 +56,7 @@ your-project/
     LessonsLearned/      <-- where insights are saved
   .claude/
     rules/
-      planwise/          <-- 10 rules that help Claude work with your plans
+      planwise/          <-- 15 rules (or 18 if all pending references are adopted) that help Claude work with your plans
 ```
 
 > **You only need to run `init` once per project.** After that, planwise remembers your setup.
@@ -326,15 +326,84 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 7 subcommand handlers
-  agents/                           # 4 custom AI agents
-  references/                       # 10 knowledge base documents
-  templates/                        # 11 markdown templates
+  handlers/                         # 7 subcommand handlers (init, plan, review, run, backlog, list, lessons, help)
+  agents/                           # 4 custom AI agents (auto-mirrored into project .claude/agents/ on init)
+  references/                       # 18 knowledge base documents (10 baseline + 5 confirmed PPU additions + 3 pending user confirmation)
+  templates/                        # 13 markdown templates
   seed/                             # Index file seeds for init
   scripts/                          # 7 Python backlog utilities
   examples/                         # Sample outputs
   config.yaml.template              # Config template
 ```
+
+---
+
+## Changelog
+
+### 1.1.0 (planned PPU release)
+
+**New reference files** (5 confirmed + 3 pending user confirmation):
+
+- `references/ei-fidelity.md` — Execution Input fidelity (8 sections)
+- `references/task-content-fidelity.md` — Task content fidelity §9.A + §9.B (21 rules)
+- `references/schema-pin-requirement.md` — Schema Pin requirement for SQL-emitting tasks
+- `references/discovery-and-exit-criteria.md` — Discovery scope rigor + cross-layer exit-criteria fidelity
+- `references/scaffolding-hygiene.md` — Six binding rules for plan scaffolding (with parallel-scaffold deviation classes)
+- `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement *(pending user confirmation)*
+- `references/verify-against-shipped-artifact.md` — Cross-sprint + cross-version symbol verification *(pending user confirmation)*
+- `references/webfetch-registry-fallbacks.md` — Registry / database fetch reliability map *(pending user confirmation)*
+
+**New template:**
+
+- `templates/sprint-signoff.md` — Sprint signoff template with EI exit-criteria verbatim quote + mechanical anchors + gate verdict + round-trip evidence
+
+**Handler enhancements:**
+
+- `handlers/plan.md` — Pre-Scaffold CONFIRM blocks at Discovery Step 1 + Scaffolding Step 1; multi-tier Discovery extraction (Tier 1 + Tier 2 + Tier 3); new `--scaffold-per-sprint` flag; Deferred / Out-of-Scope log per sprint; Auto-Init Fallback Config Gate; Auto-Mode tags at 14 critical + 2 convenience AskUserQuestion sites
+- `handlers/review.md` — Namespaced agent spawns (`planwise:plan-reviewer`, `planwise:structural-reviewer`) at 7 spawn sites; ~12 new Error Pattern Catalog entries; Required References extended with 4 new conditional loads; Auto-Init Fallback Config Gate
+- `handlers/run.md` — Namespaced `task-runner` spawns at 4 sites; Phase 4.3 user-action-gate check; Auto-Init Fallback Config Gate; Auto-Mode tags at 3 critical + 1 convenience sites
+- `handlers/backlog.md` — Namespaced `fix-agent` spawn at 1 site; new Phase 7 FOLLOW-UP BLI CAPTURE (auto-files actionable recommendations from resolution Outputs); existing Phase 7 renumbered to Phase 8; Auto-Init Fallback Config Gate; Auto-Mode tags at 2 critical + 3 convenience sites
+- `handlers/init.md` — Step 6 Rules table extended with 5 confirmed + 3 pending reference rows; NEW Step 6b agent mirroring; NEW `## Called As Subroutine` section documenting `--auto-from` subroutine contract; Step 10 banner updated to include Agents mirrored section
+- `handlers/list.md` — Auto-Init Fallback Config Gate (no other substantive changes)
+- `handlers/lessons.md` — Auto-Init Fallback Config Gate + Auto-Mode tags at 4 critical sites *(applied AFTER LCP-S03 merges)*
+
+**Agent enhancements** (covered in separate consolidation parts):
+
+- `agents/plan-reviewer.md` — Role checklists extended with ~50+ new BLOCKING / ERROR / WARNING checks (PLG-001..022 + Markuup + BB-028/031/032)
+- `agents/structural-reviewer.md` — Folder-count check; Outputs/.gitkeep presence check; sequential-sprint prerequisite check
+
+**Template enhancements:**
+
+- `templates/task-file.md` — `Cross-Sprint Refs:` header field; Schema Pin subsection; Field Mapping subsection (MERGE/upsert); USED-Helper Enumeration subsection; Verification Commands section; `~?` placeholder prohibition constraint
+- `templates/orchestration.md` — Scaffolding CONFIRM block placeholder; NEW DELEGATED Mandatory Triggers Reminder; updated Context Boundary callout (`> [!constraint]` form)
+
+**Reference enhancements** (covered in separate consolidation parts):
+
+- `references/agent-orchestration.md` — New §5 plugin-handler-spawn pitfall callout (PLG-017); §10 background-write hazard row; new §11 DELEGATED Dispatch Discipline (13 subsections); LSP-diagnostic-verification subsection; Large-File Read Tactics subsection
+- `references/session-execution-protocol.md` — Discovery / Meta-Plan Status with user-action gates
+- `references/session-plan-requirements.md` — Multi-tier Discovery extraction; EI bidirectional consistency; cross-sprint dependency mirroring; post-scaffold back-propagation; module split threshold; declarative follow-up block convention
+- `references/callout-conventions.md` — New `> [!chain-halt]` callout type (PLG-007 S4)
+
+**Auto-Init Fallback & Auto Mode Policy:**
+
+- All 7 handlers receive Config Gate fallback subroutines (`plan`, `review`, `run`, `backlog`, `list`, `init`; `lessons` deferred to LCP merge)
+- Per-handler AskUserQuestion call sites tagged with `<!-- AUTO-MODE: critical -->` or `<!-- AUTO-MODE: convenience -->` comments (24 critical + 13 convenience tags total)
+- New `## 4b. Auto Mode Policy` section in `references/skill-authoring.md` documenting critical/convenience taxonomy + inference defaults
+- New `install_agents()` function in `scripts/init_project.py` mirrors plugin agents into `.claude/agents/` (companion to PLG-017 namespacing)
+- New `--auto-from {caller}` flag in `init_project.py` for subroutine-mode invocation
+
+**Plugin file structure** (updated counts):
+
+```
+planwise/
+  handlers/      # 8 subcommand handlers (init, plan, review, run, backlog, list, lessons, help)
+  references/   # 18 knowledge base documents (10 baseline + 5 confirmed + 3 pending)
+  templates/    # 13 markdown templates (12 baseline + sprint-signoff.md)
+```
+
+### 1.0.1 (current)
+
+Baseline release. Existing 10 reference rules + 12 templates + 7 handlers + 4 agents.
 
 ---
 

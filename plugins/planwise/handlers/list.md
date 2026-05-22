@@ -10,20 +10,16 @@
 
 ---
 
-## Config Gate
+## Config Gate (Auto-Init Fallback)
 
-Locate `config.yaml` by checking:
-1. `planwise/config.yaml` (default planwise root)
-2. If not found, search one level down from the project root for `*/config.yaml`
-3. If not found: "Project not initialized. Run `/planwise init` first."
+1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
+2. If found → continue (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`).
+3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "list"`, RE-RESOLVE, fail loud if still missing.
 
-Extract from `config.yaml`:
-- `plugin_root` — the plugin installation path
-- `project.planwise_root` — the planwise root folder (default: `planwise`)
-- `project.plans_dir` — the Plans directory name (relative to planwise_root, default: `Plans`)
-- `project.index_files.plans` — the plans index filename (default: `00-Index-Plans.md`)
+> [!gate] Config Malformed → FAIL LOUD
+> If `config.yaml` is present but malformed, DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise list." STOP.
 
-All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Plans`).
+All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 ---
 

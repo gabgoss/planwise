@@ -12,20 +12,16 @@
 
 ---
 
-## Config Gate
+## Config Gate (Auto-Init Fallback)
 
-Locate `config.yaml` by checking:
-1. `planwise/config.yaml` (default planwise root)
-2. If not found, search one level down from the project root for `*/config.yaml`
-3. If not found: "Project not initialized. Run `/planwise init` first."
+1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
+2. If found → continue (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.lessons_dir`, `project.index_files.lessons`).
+3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "lessons"`, RE-RESOLVE, fail loud if still missing.
 
-Extract from `config.yaml`:
-- `plugin_root` — the plugin installation path
-- `project.planwise_root` — the planwise root folder (default: `planwise`)
-- `project.lessons_dir` — the LessonsLearned directory name (relative to planwise_root)
-- `project.index_files.lessons` — the lessons index filename (e.g., `00-Index-LessonsLearned.md`)
+> [!gate] Config Malformed → FAIL LOUD
+> If `config.yaml` is present but malformed, DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise lessons." STOP.
 
-All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/LessonsLearned`).
+All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 ---
 
@@ -178,7 +174,7 @@ Parse the arguments after `promote-batch` for one scope argument and an optional
 | `--category=X` (X is a top-level `bucket.id` or sub-bucket id from `config.yaml: categorization`) | All `documented` lessons currently listed under that bucket or sub-bucket. Sub-buckets are first-class scope targets. |
 | `LL-NNN,LL-NNN,...` (comma-separated) | Exactly those lessons |
 | `--all-documented` | Every `documented` lesson across all buckets — likely produces multiple BBs |
-| (no scope argument) | Prompt the user via `AskUserQuestion`; do NOT assume `--all-documented` |
+| (no scope argument) | Prompt the user via `AskUserQuestion`; do NOT assume `--all-documented` | <!-- AUTO-MODE: critical -->
 
 The `--dry-run` flag is orthogonal to scope. When present, the workflow short-circuits after Phase 2 — Phase 1 lesson-body reads STILL happen (full-body reads are required for grouping decisions), but Phases 3 and 4 are skipped. The grouping plan is reported to chat without writing any BB files.
 
@@ -234,7 +230,7 @@ Read the lesson content and determine the appropriate artifact type based on the
 
 Most lessons describe patterns or anti-patterns that map to **Rule** type. Lessons about workflows may map to **Skill**. Hook and agent types are rare.
 
-### Stage 3: Confirm (REQUIRED — never skip)
+### Stage 3: Confirm (REQUIRED — never skip) <!-- AUTO-MODE: critical -->
 
 Present to the user:
 - Lesson ID and title
@@ -259,7 +255,7 @@ Create the artifact file at the approved location:
 | Hook | `.claude/hooks/{name}.sh` |
 | Agent | `.claude/agents/{name}.md` |
 
-Check if the file already exists before writing. If it exists, ask the user to rename or merge.
+Check if the file already exists before writing. If it exists, ask the user to rename or merge. <!-- AUTO-MODE: critical -->
 
 ### Stage 5: Update Frontmatter
 
@@ -353,7 +349,7 @@ applied-as: null
 
 Present the draft to the user:
 - Show pre-filled frontmatter and draft Context/Lesson/Applies To sections
-- Ask: "Capture this lesson? (approve / edit / skip)"
+- Ask: "Capture this lesson? (approve / edit / skip)" <!-- AUTO-MODE: critical -->
 
 ### Step 4: Write
 

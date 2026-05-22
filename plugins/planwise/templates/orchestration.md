@@ -11,6 +11,11 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 **Sprint:** {XX} - {SprintName}
 **Status:** PLANNED
 
+<!-- Scaffolding CONFIRM block placeholder:
+     When this orchestration is part of a scaffolded plan, ensure the handler emits the CONFIRM block
+     before reading Consolidated Context parts. See handlers/plan.md Scaffolding Step 1
+     and references/scaffolding-hygiene.md §1. -->
+
 ---
 
 ## Session Objective <!-- REQUIRED -->
@@ -40,7 +45,35 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 **Mode:** {DIRECT | DELEGATED} <!-- REQUIRED -->
 **Reason:** {Why this mode — e.g., "3 sequential Opus tasks each needing fresh context"}
 
+### DELEGATED Mandatory Triggers Reminder
+
+> [!checklist] When DELEGATED is Mandatory
+> Set `Mode: DELEGATED` if ANY of these triggers apply:
+> - [ ] Session has 2 or more Opus tasks
+> - [ ] Session is part of a META Discovery phase
+> - [ ] Any single task estimates > 50 K token context load
+> - [ ] Sequential tasks where one task's output is the next task's input (output-chaining)
+>
+> See `references/agent-orchestration.md` §11.1 Mandatory Triggers for the binding rule.
+
 ### Context Boundary (DELEGATED mode only)
+
+> [!constraint] Mandatory Context Boundary
+> In DELEGATED mode, the orchestrator reads ONLY plan files (Orchestration, Recovery, task files). Heavy context files (Consolidated Context parts, reference docs, source code) are read by subagents only.
+>
+> WRONG (orchestrator reads heavy context):
+> ```
+> Orchestrator reads:
+> - Orchestration, Recovery, task files
+> - Consolidated Context Part 4 (200K)   ← blows budget; defeats DELEGATED
+> ```
+> CORRECT (orchestrator reads only plan files):
+> ```
+> Orchestrator reads:
+> - Orchestration, Recovery, task files
+> Orchestrator NEVER reads:
+> - Consolidated Context parts, reference docs, source code
+> ```
 
 **Orchestrator reads:** Orchestration, Recovery, task files (plan files only)
 **Orchestrator NEVER reads:** {list the heavy files — Consolidated Context parts, reference docs, source code}
