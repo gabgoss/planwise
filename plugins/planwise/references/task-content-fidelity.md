@@ -117,6 +117,118 @@ A complementary `/planwise review` check rejects any plan whose task files conta
 > | SQL DDL (`.sql`) | ~13 tok/line | Project standard |
 > | Notebook JSON | ~13–20 tok/line | Use 13 for the table; budget the upper bound when subagent budget margin is tight (>140K including overhead) |
 > | Plain text logs | ~10 tok/line | Often light |
+> | Minified / bundled JS | ~30–60 tok/line | Very high density — few line breaks, long lines; never assume 13, measure per file |
+> | Compressed JSON | ~20–40 tok/line | Dense single-line or near-single-line structures; measure when it dominates a task's budget |
+
+### 9.A.4 Re-glob file-set counts at task-author time
+
+> [!constraint] Glob-cited file-set counts MUST be re-globbed when the task file is authored, not copied from an upstream estimate
+> When a task's Required Context cites a file-set by glob pattern (e.g.
+> `references/*.md`, `src/**/*.ext`), the file count and the derived
+> `Est. Lines` / `Est. Tokens` cells MUST be produced by running the glob at
+> task-author time. A count copied from an upstream plan, an earlier sprint's
+> estimate, or the Master Plan's Sprint Overview is stale the moment any task
+> adds, splits, or deletes a matching file.
+>
+> WRONG — task cites `{glob-pattern}` and reuses the "{N} files" figure from the
+> sprint plan written several sessions earlier:
+> ```markdown
+> | 1 | {glob-pattern} | ~{N} files, ~{old_L} lines | ~{old_T}K | {purpose} |
+> ```
+> Two intervening tasks added files matching `{glob-pattern}`; the subagent's
+> real read is larger than budgeted and the session total is wrong.
+>
+> CORRECT — re-glob when the task file is authored and record the live count:
+> ```markdown
+> <!-- Re-globbed {YYYY-MM-DD}: {glob-pattern} → {N} files, {L} lines total -->
+> | 1 | {glob-pattern} | {N} files, ~{L} lines | ~{T}K | {purpose} |
+> ```
+> The `Est. Tokens` cell is re-derived from the live line total per §9.A.3, and
+> the Context subtotal and task header are reconciled per §9.A.2.
+
+Applies to any task whose Required Context references files by glob rather than by individual path — especially plans where earlier tasks create or split files that the glob matches.
+
+### 9.A.5 Budget 1.5-2× the naive sum for consolidation tasks
+
+> [!constraint] A consolidation task reading N upstream outputs MUST budget 1.5-2× the naive token sum
+> When a task's job is to read N upstream artifacts and produce a consolidated,
+> cross-referenced, or deduplicated output, the token estimate MUST be 1.5-2× the
+> naive sum of the N inputs' sizes. The naive sum captures only the raw reads; it
+> omits the cross-referencing overhead — re-reading earlier inputs to resolve a
+> reference, holding partial state while merging, and an output larger than any
+> single input.
+>
+> WRONG — consolidation task budgeted at the bare read sum:
+> ```markdown
+> Context subtotal: ~{sum}K reads + ~{out}K output = ~{sum_plus_out}K total
+> <!-- {sum}K = naive sum of the {N} input files -->
+> ```
+> Mid-task the subagent re-reads inputs 1-3 to reconcile a contradiction flagged
+> in input 7; actual context lands ~1.7× the estimate and the budget margin is gone.
+>
+> CORRECT — apply the consolidation multiplier and state it:
+> ```markdown
+> Context subtotal: ~{sum}K reads × 1.7 (consolidation overhead) + ~{out}K output = ~{total}K total
+> <!-- {N} inputs cross-referenced; 1.5-2× per §9.A.5 — 1.7× chosen for moderate cross-reference density -->
+> ```
+
+Applies to Meta-Plan Discovery consolidation tasks, Execution-Input extraction tasks, and any task that merges multiple upstream outputs into one cross-referenced artifact.
+
+### 9.A.6 Cite the generator, not the walked file-set, for ≥100-file inputs
+
+> [!constraint] When a task's Required Context is produced by a generator walking ≥100 files, cite the generator and its input root — not the individual files
+> If a task consumes input produced by a script or tool that walks a large file
+> tree (≥100 files), the Required Context table MUST cite (a) the generator
+> command or script and (b) its input root directory — NOT 100+ individual file
+> rows. Enumerating every walked file bloats the task file past the 500-line
+> limit, makes the `Est. Lines` arithmetic unauditable, and goes stale the
+> instant one file is added.
+>
+> WRONG — 100+ rows, one per walked file:
+> ```markdown
+> | 1 | {input-root}/file-001.ext | ~{L} | ~{T}K | walked |
+> | 1 | {input-root}/file-002.ext | ~{L} | ~{T}K | walked |
+> | 1 | ... 130 more rows ... | | | |
+> ```
+>
+> CORRECT — cite the generator + input root + the generated artifact:
+> ```markdown
+> | 1 | {generator-cmd} over {input-root}/ ({N} files) | ~{L} | ~{T}K | input produced by the generator; do not enumerate the walked tree |
+> | 1 | {generated-output-path} | ~{L2} | ~{T2}K | the generator's consolidated output — this is what the task reads |
+> ```
+> The `Est. Lines` / `Est. Tokens` cells reflect the generator's *output* (what
+> the subagent actually reads), not the sum of the walked tree.
+
+Applies to tasks fed by codebase-scan scripts, doc-index generators, manifest builders, or any tool whose input is a directory walk of ≥100 files.
+
+### 9.A.7 Declare multi-artifact output splits at plan-author time
+
+> [!constraint] When a task's output would exceed the 500-line soft limit, the split MUST be declared in the task file at plan-author time
+> If a task's Expected Output is projected to exceed the 500-line soft limit (see
+> [session-context-budget.md](session-context-budget.md) File Size Limits), the
+> planner MUST declare the multi-part split in the task file — naming each part
+> and its topic — rather than leaving the executing subagent to discover the
+> overflow and improvise a split mid-task.
+>
+> WRONG — single output path for an output that will not fit:
+> ```markdown
+> **Output:** Outputs/{Abbrev}-{artifact}.md
+> <!-- projected ~900 lines -->
+> ```
+> The subagent writes 900 lines into one file (violating the limit) or invents an
+> ad-hoc split with names no downstream task references.
+>
+> CORRECT — pre-declare the split with the Multi-Part Output Convention:
+> ```markdown
+> **Output:** (projected ~900 lines — pre-split per §9.A.7)
+> - Outputs/{Abbrev}-{artifact}-Part-1-{Topic}.md  (~450 lines)
+> - Outputs/{Abbrev}-{artifact}-Part-2-{Topic}.md  (~450 lines)
+> ```
+> Each part stays under 500 lines, carries a descriptive topic suffix, and is
+> self-contained enough to feed a downstream task per the Multi-Part Output
+> Convention.
+
+Applies to any task — spec authoring, consolidation, large code generation — whose Expected Output is projected past the 500-line soft limit.
 
 ---
 
@@ -125,6 +237,18 @@ A complementary `/planwise review` check rejects any plan whose task files conta
 When a task brief asserts something about an external artifact — a lesson ID, a schema file, a column name, a notebook path, a helper function — the planner MUST open and skim that artifact at scaffold time. Deferring verification to the executing subagent is the load-bearing failure mode; DELEGATED subagents have no shared context with the user and either burn tokens reconciling the brief with reality or, worse, hallucinate content that matches the brief.
 
 The cost is one Read + one Grep per cited artifact. The savings are at minimum one full subagent re-discovery cycle.
+
+**External contracts come in many shapes.** A *contract* here is any artifact whose exact shape another piece of work depends on. The rules below are stated for the general case; a database schema is one example among several, not the only one:
+
+| Contract Type | Artifact | What "verify" means |
+|---------------|----------|---------------------|
+| Database schema | `CREATE TABLE` / `ALTER TABLE` DDL | Column names, types, constraints exist as cited |
+| OpenAPI / Swagger spec | `openapi.yaml` / `swagger.json` | Path, operation, request/response schema exist as cited |
+| protobuf / gRPC | `.proto` definition | Message, field number/name, service method exist as cited |
+| GraphQL SDL | schema `.graphql` | Type, field, query/mutation exist as cited |
+| TypeScript declarations | `.d.ts` file | Exported type, member, signature exist as cited |
+
+§9.B.1-§9.B.3 and §9.B.6-§9.B.9 are stated generically for all contract types. §9.B.4 and §9.B.5 are the **database-schema instances** of the general rule and remain stated in DB terms.
 
 ### 9.B.1 Verify user-prompt-cited artifacts during scaffolding
 
@@ -157,17 +281,21 @@ The cost is one Read + one Grep per cited artifact. The savings are at minimum o
 >
 > Common artifact types to verify: lesson IDs, schema file paths, notebook paths
 > and zone references, helper function names and locations, citation ranges
-> (line numbers, cell indices).
+> (line numbers, cell indices), and external-contract files of any shape —
+> OpenAPI / Swagger specs, protobuf `.proto` definitions, GraphQL SDL, and
+> TypeScript declaration (`.d.ts`) files.
 
 A complementary `/planwise plan` enhancement: insert a Step 1.5 ("Verify cited artifacts") between Gather Information and Validate.
 
-### 9.B.2 Field-name reconciliation against the live schema
+### 9.B.2 Identifier reconciliation against the live contract
 
 > [!constraint] DELEGATED task briefs that reference concrete identifiers from another module MUST be reconciled against the live source at dispatch time
 > For DELEGATED task prompts that reference concrete code artifacts (config
 > dataclass fields, function signatures, column names, table names, enum values),
 > audit the prompt against the live artifact AT DISPATCH TIME — not only at
-> scaffolding time.
+> scaffolding time. The "live contract" is whichever shape the identifier comes
+> from — a DB schema, an OpenAPI spec, a protobuf `.proto`, a GraphQL SDL, or a
+> TypeScript `.d.ts` — and the reconciliation grep targets that artifact.
 >
 > Two failure modes share this remediation:
 >
@@ -214,6 +342,8 @@ A complementary `/planwise review` check: structural reviewer greps the target a
 
 ### 9.B.3 Pipeline facade re-export verification (architecture-rule plans)
 
+*Generalizes to any single-entry-point contract — a package facade, a barrel / index module, or a declared public API surface.*
+
 > [!constraint] Plans enforcing a facade-import architecture rule MUST verify the facade re-exports everything downstream tasks consume
 > When a plan enforces an architecture rule like "consumers import only from
 > `{src/module/path}`" (or any equivalent facade restriction), the planner MUST
@@ -238,6 +368,8 @@ A complementary `/planwise review` check: structural reviewer greps the target a
 >    task and budgets extra tokens per task to cover it.
 
 ### 9.B.4 Upsert-helper design verification before authoring column-presence checks
+
+*Database-schema instance of the general verify-before-cite rule (see §9.B intro).*
 
 > [!constraint] Tasks that ask "verify column X is in the INSERT/UPDATE list" MUST first categorize the upsert helper's design
 > Before writing a task that requires a column-presence verification on a DB
@@ -269,6 +401,8 @@ A complementary `/planwise review` check: structural reviewer greps the target a
 > ```
 
 ### 9.B.5 SQL column-name verification for SQL-emitting tasks
+
+*Database-schema instance of the general verify-before-cite rule (see §9.B intro).*
 
 > [!constraint] Tasks that produce inline SQL MUST grep the live schema for EVERY column name BEFORE the query string is written
 > Subagents executing SQL-emitting tasks hallucinate column names whenever the
@@ -344,6 +478,143 @@ A complementary `/planwise review` check: structural reviewer greps the target a
 > task file whose Execution Steps mention writing SQL against project tables AND
 > lacks BOTH (a) a Schema Pin section per `schema-pin-requirement.md` AND (b) a
 > `Pre-SQL Schema Verification` instruction in the Notes for Agent.
+
+### 9.B.6 Verify examples-repo citations against the pinned version
+
+<!-- Canonical numbering: §9.B.6-§9.B.9 are the canonical numbers for these four
+rules. handlers/review.md:608 (Error Pattern Catalog row 18) currently mis-cites
+them as §9.B.11-§9.B.14; Sprint-07 session S07-02 repoints that citation to
+§9.B.6-§9.B.9. Do not renumber these sections. -->
+
+> [!constraint] An example cited from a versioned examples repository MUST be verified against the version the project actually pins
+> When a task brief cites a code sample, config snippet, or usage pattern drawn
+> from an external **examples repository** (an SDK examples repo, a framework
+> cookbook, a sample-app repo), the planner MUST verify the cited example against
+> the *exact version* the consuming project pins — not the examples repo's
+> default branch. Examples repos track their library's latest release; a project
+> pinned to an older (or pre-release) version may need a materially different form.
+>
+> WRONG — cite a sample from the examples repo's `main` branch:
+> ```markdown
+> ## Notes for Agent
+> - Follow the {feature} example in {examples-repo} for the call shape.
+> ```
+> The project pins `{library}@{pinned-version}`; the `main`-branch example uses
+> an API that exists only in `{newer-version}`. The subagent writes code that
+> fails to resolve against the pinned version.
+>
+> CORRECT — pin the example to the consumed version and cite the matching ref:
+> ```markdown
+> ## Notes for Agent
+> - The project pins `{library}@{pinned-version}` (see {manifest-file}).
+>   Follow the {feature} example from {examples-repo} at tag/branch
+>   `{ref-matching-pinned-version}` — NOT `main`. If the pinned version predates
+>   the example, adapt the older call shape and note the divergence.
+> ```
+
+Applies to any task whose brief cites an external examples / cookbook / sample repository for an API usage pattern — verify the example against the project's pinned dependency version.
+
+### 9.B.7 Enumerate the specific helpers a spawn prompt tells an agent to use
+
+> [!constraint] A spawn prompt that says "use the project's helpers" MUST enumerate the specific helpers — name, location, signature
+> When a DELEGATED task's spawn prompt instructs the executing subagent to "use
+> the existing helpers", "reuse the project's utilities", or any equivalent
+> blanket phrasing, the prompt MUST instead enumerate each helper the task is
+> expected to use: its name, the file it lives in, and its signature (or a
+> one-line contract). A subagent has no shared context — a blanket instruction
+> forces it to either re-discover the helper set (token burn) or reimplement
+> functionality that already exists (duplication).
+>
+> WRONG — blanket reuse instruction:
+> ```markdown
+> ## Notes for Agent
+> - Use the project's existing helpers; do not reinvent utilities.
+> ```
+>
+> CORRECT — enumerate the USED helpers explicitly:
+> ```markdown
+> ## Notes for Agent — Helpers to use (do not reimplement)
+> | Helper | Location | Signature / contract |
+> |--------|----------|----------------------|
+> | {helper-1} | {module-path} | {signature} |
+> | {helper-2} | {module-path} | {signature} |
+>
+> Use ONLY these; if a needed helper is absent, report it in Recovery rather
+> than inventing one.
+> ```
+
+Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Notes for Agent guidance) and the `/planwise review` reviewer check for blanket-helper references.
+
+### 9.B.8 Field-mapping table for consumed data models; `wc -l ≤ 500` output gate
+
+> [!constraint] A task consuming another module's data model MUST carry a field-mapping table, and task-file outputs MUST be gated at `wc -l ≤ 500`
+> Two distinct contract-fidelity gates share this subsection:
+>
+> **Field-mapping table.** When a task's input is another module's data model (a
+> struct / dataclass, a typed record, a deserialized payload), the task file MUST
+> include a field-mapping table showing which fields are consumed and how — per
+> the Interface Consumption guidance in
+> [session-plan-requirements.md](session-plan-requirements.md) §9. The subagent
+> must not infer the consumed fields from the type's name.
+>
+> **`wc -l ≤ 500` output gate.** A task whose output is itself a task file (or
+> any plan artifact) MUST be gated so the produced file satisfies `wc -l ≤ 500` —
+> the project soft limit. If the projected output exceeds it, pre-split per §9.A.7.
+>
+> WRONG — consume a data model with no field map; emit a 700-line task file:
+> ```markdown
+> ## Execution Steps
+> 1. Read {ModelType} and generate the downstream config.
+> ```
+>
+> CORRECT — field-mapping table + explicit output-size gate:
+> ```markdown
+> ## Execution Steps
+> 1. Read {ModelType}; consume only the mapped fields:
+>
+>    | Input Field | Used For |
+>    |-------------|----------|
+>    | {field-a} | {purpose} |
+>    | {field-b} | {purpose} |
+>
+> 2. Emit the config; verify `wc -l` of each produced file ≤ 500 (pre-split
+>    per §9.A.7 if not).
+> ```
+
+Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Interface Consumption block) and [session-plan-requirements.md](session-plan-requirements.md) §9 (Task File Template).
+
+### 9.B.9 Tiered-fetch tactics for large external sources
+
+> [!constraint] A task that fetches from a large external source MUST use the tiered-fetch ladder — cheapest probe first
+> When a task must pull data from a large external source (a web page, a
+> paginated API, a large remote document, a registry), the task file MUST
+> prescribe a tiered-fetch ladder rather than an unbounded "fetch the source"
+> instruction. Start with the cheapest probe that can answer the question and
+> escalate only on a miss. An unbounded fetch either blows the subagent's context
+> budget or fails silently on a source larger than expected.
+>
+> Tiered-fetch ladder (cheapest → most expensive):
+>
+> | Tier | Probe | Use When |
+> |------|-------|----------|
+> | 1 | Targeted query / search / `HEAD` request | A specific fact or existence check is all that is needed |
+> | 2 | Single section / page / paginated slice | The relevant content is a known sub-range |
+> | 3 | Full fetch with an explicit size cap + budget note | The whole source is genuinely required |
+>
+> WRONG — unbounded fetch:
+> ```markdown
+> - Fetch {external-source} and extract {data}.
+> ```
+>
+> CORRECT — laddered fetch with a stop-at-first-hit rule:
+> ```markdown
+> - Tier 1: query {external-source} for `{specific-key}`; if found, stop.
+> - Tier 2: on a miss, fetch the `{known-section}` slice only.
+> - Tier 3: on a miss, full-fetch with a {N}K cap; if the cap is hit, report in
+>   Recovery rather than truncating silently.
+> ```
+
+Applies to tasks that fetch from web pages, paginated APIs, large remote documents, or external registries.
 
 ---
 
