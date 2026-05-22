@@ -458,6 +458,48 @@ Task files MAY include a Declarative Follow-Up block enumerating actionable reco
 
 The `> [!followup]` callout type signals to `handlers/backlog.md` Phase 7 that these recommendations should be surfaced for auto-creation as backlog items.
 
+### Selective Helper Enumeration in Spawn Prompts
+
+When a task brief instructs a subagent to copy helpers from a reference or template module, "verbatim from reference" is ambiguous — the subagent typically copies ALL helpers, triggering unused-symbol diagnostics and pushing borderline files past the line limit. The fix is in the spawn prompt, not the lint rule. This subsection is the canonical anchor for reviewer Check 030 (USED-helper enumeration); it elaborates the spawn-prompt discipline summarized as `task-content-fidelity.md §9.B.7`.
+
+> [!constraint] Spawn prompts MUST enumerate USED helpers explicitly rather than instruct "verbatim from reference"
+> WRONG — "Helpers — copy verbatim from {reference module}." The subagent copies
+> ALL helpers; unused ones trigger LSP `unused-function`-class diagnostics and
+> inflate file size past project limits.
+>
+> CORRECT — enumerate the USED and NOT-used sets explicitly:
+>
+> ```
+> Helpers — copy ONLY what your module uses, not all N. For Task X:
+>   USED     = _to_int, _to_decimal, _to_date, _split_localized
+>   NOT used = _to_bigint, _to_str, _to_str_64, _to_datetime, _to_raw_text
+> Do NOT embed unused helpers.
+> ```
+
+> [!practice] Indirect-dependency audit
+> Some helpers call other helpers internally (e.g., `_split_localized` may call
+> `_to_str` or `_to_raw_text`). When trimming, grep for each candidate-deletion
+> helper inside the file body. Indirectly-called helpers MUST be retained even
+> when not used directly. Verification:
+>
+> ```bash
+> # For each helper considered for removal:
+> grep -nE "<helper>\(" <file>
+> # If matches > 0 inside another retained helper's body → keep.
+> ```
+
+A related code-generation discipline applies when the LSP reports a diagnostic the agent suspects is stale:
+
+> [!practice] Do not silence a stale linter diagnostic with an inline suppression
+> Suppressing a diagnostic instead of resolving it is an anti-pattern: a stale
+> diagnostic clears on the next LSP refresh, and the suppression then becomes
+> permanent dead weight that also hides any future real defect on the same line.
+> When a diagnostic is stale, wait for the refresh; when it is real, fix the
+> underlying cause. Inline suppression directives — illustratively, an
+> ignore-comment or an allow-attribute in whatever language is in use — are not a
+> substitute for either. (Verify stale-vs-real per the verify-before-acting LSP
+> discipline in `agent-orchestration.md`.)
+
 ### Completion Tracking (BINDING)
 
 **After each Session completes:**
