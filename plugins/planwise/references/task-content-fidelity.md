@@ -174,15 +174,15 @@ Applies to any task whose Required Context references files by glob rather than 
 
 Applies to Meta-Plan Discovery consolidation tasks, Execution-Input extraction tasks, and any task that merges multiple upstream outputs into one cross-referenced artifact.
 
-### 9.A.6 Cite the generator, not the walked file-set, for ≥100-file inputs
+### 9.A.6 Cite the generator, not the walked file-set, for large generated inputs
 
-> [!constraint] When a task's Required Context is produced by a generator walking ≥100 files, cite the generator and its input root — not the individual files
+> [!constraint] When a task's Required Context is produced by a generator walking ≥100 files (or a tree totaling ≥10K lines), cite the generator and its input root — not the individual files
 > If a task consumes input produced by a script or tool that walks a large file
-> tree (≥100 files), the Required Context table MUST cite (a) the generator
-> command or script and (b) its input root directory — NOT 100+ individual file
-> rows. Enumerating every walked file bloats the task file past the 500-line
-> limit, makes the `Est. Lines` arithmetic unauditable, and goes stale the
-> instant one file is added.
+> tree — **≥100 files, OR a tree totaling ≥10K lines** — the Required Context
+> table MUST cite (a) the generator command or script and (b) its input root
+> directory — NOT 100+ individual file rows. Enumerating every walked file bloats
+> the task file past the 500-line limit, makes the `Est. Lines` arithmetic
+> unauditable, and goes stale the instant one file is added.
 >
 > WRONG — 100+ rows, one per walked file:
 > ```markdown
@@ -199,7 +199,7 @@ Applies to Meta-Plan Discovery consolidation tasks, Execution-Input extraction t
 > The `Est. Lines` / `Est. Tokens` cells reflect the generator's *output* (what
 > the subagent actually reads), not the sum of the walked tree.
 
-Applies to tasks fed by codebase-scan scripts, doc-index generators, manifest builders, or any tool whose input is a directory walk of ≥100 files.
+Applies to tasks fed by codebase-scan scripts, doc-index generators, manifest builders, or any tool whose input is a directory walk of ≥100 files or ≥10K total lines.
 
 ### 9.A.7 Declare multi-artifact output splits at plan-author time
 
@@ -555,7 +555,10 @@ Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Notes f
 > include a field-mapping table showing which fields are consumed and how — per
 > the Interface Consumption guidance in
 > [session-plan-requirements.md](session-plan-requirements.md) §9. The subagent
-> must not infer the consumed fields from the type's name.
+> must not infer the consumed fields from the type's name. For **MERGE / upsert**
+> task briefs specifically, the field-mapping table MUST also state the Row↔DDL
+> alignment strategy — which row field maps to which target column, and how name
+> or position mismatches are resolved.
 >
 > **`wc -l ≤ 500` output gate.** A task whose output is itself a task file (or
 > any plan artifact) MUST be gated so the produced file satisfies `wc -l ≤ 500` —
