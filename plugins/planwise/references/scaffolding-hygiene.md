@@ -1,9 +1,9 @@
 ---
-description: Seven binding hygiene rules for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, and no-improvisation of artifact types
+description: Seven binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, parallel-scaffold deviation classes, multi-shape plan-sizing, and high-divergence cohort token uplift
 ---
 # Scaffolding Hygiene
 
-**Purpose:** Enforce seven mechanical hygiene rules when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same seven issues.
+**Purpose:** Enforce seven mechanical hygiene rules — and apply three advisory scaffolding practices (§8–§10) — when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
 
 This file is the §14 expansion of [session-planning-protocol.md](session-planning-protocol.md). Read it before generating any `Sprint-{XX}-{Name}/` folders.
 
@@ -16,6 +16,9 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 - [5. Outputs/ Folder Per Session — Created at Scaffold Time](#5-outputs-folder-per-session--created-at-scaffold-time)
 - [6. Sequential-Sprint Prerequisite — Declared in Each Orchestration](#6-sequential-sprint-prerequisite--declared-in-each-orchestration)
 - [7. No Improvisation of Artifact Types During Scaffolding](#7-no-improvisation-of-artifact-types-during-scaffolding)
+- [8. Parallel-Scaffold Deviation Classes](#8-parallel-scaffold-deviation-classes)
+- [9. Multi-Shape Integration Plan-Sizing Expansion Ratio](#9-multi-shape-integration-plan-sizing-expansion-ratio)
+- [10. Pre-Allocate Tokens for Known High-Divergence Cohorts](#10-pre-allocate-tokens-for-known-high-divergence-cohorts)
 
 ---
 
@@ -209,4 +212,110 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 
 ---
 
-*Seven binding rules for multi-sprint plan scaffolding. Cross-referenced from [session-planning-protocol.md](session-planning-protocol.md) §14.*
+## 8. Parallel-Scaffold Deviation Classes
+
+> [!practice] When 2+ scaffold subagents author plan files in parallel from the same templates, three deviation classes accumulate that `/planwise review` should catch
+>
+> None of the three breaks execution; all three reduce consistency and weaken
+> reviewer signal. They recur in any project that scaffolds with parallel
+> subagents.
+>
+> 1. **Class A — Section-header text drift.** Semantically equivalent but
+>    textually different headers (e.g., `## Execution Plan` vs `## Task List`).
+> 2. **Class B — Optional formatting lines omitted.** Bold totals, divider
+>    rules, and other lines present in the templates but not structurally
+>    required (e.g., `**Total Estimated:** ~50K`).
+> 3. **Class C — Scaffold folder absent when scaffolding is done inline.**
+>    `Scaffold-{Abbrev}/` folder missing because scaffolding ran inline rather
+>    than in a dedicated session.
+>
+> Mitigation hooks:
+> - `/planwise review` Phase 1 structural check runs three greps — one per
+>   class — against the plan tree.
+> - The reviewer flags each deviation by class severity (A = WARNING,
+>   B = ERROR, C = BLOCKER) and prompts the orchestrator to harmonize.
+>
+> WRONG — parallel scaffolders silently produce inconsistent files; the
+> reviewer trusts the variance is intentional.
+>
+> CORRECT — the reviewer flags the three deviation classes; the orchestrator
+> harmonizes section headers, restores the optional formatting lines, and
+> creates the Scaffold folder if appropriate.
+
+---
+
+## 9. Multi-Shape Integration Plan-Sizing Expansion Ratio
+
+> [!practice] Size a multi-shape external-integration plan from the expanded artifact count, not the endpoint-family count
+>
+> When sizing a plan that ingests data from an external system with multi-shape
+> endpoints — one base path with sub-resources whose response containers differ,
+> or query-flag-driven shape variants — artifact count expands to roughly
+> `1.5–2.0 × endpoint_family_count`. Sizing the plan from the bare family count
+> under-budgets the work by 50–100%.
+>
+> | Pattern | Ratio | Rationale |
+> |---------|-------|-----------|
+> | Shape-uniform integration (single response container, no sub-paths, no aggregate flags) | ~1.0× | Most internal CRUD APIs |
+> | Light multi-shape (entity-type variants, optional aggregate flags) | ~1.3–1.5× | Each variant gets its own table or artifact |
+> | Heavy sub-path multiplexing (one base path → sub-resources with fundamentally different response containers; or query-flag-driven shape variants) | ~1.6–2.0× | Each leaf shape gets its own artifact |
+>
+> **CONDITIONALLY-EXTENDED ≠ MULTI-SHAPE — do not over-split.** An endpoint with
+> an optional sub-object (a field that only appears under specific conditions)
+> gets a *single* artifact with nullable columns / fields, not multiple
+> artifacts. The expansion ratio applies only to genuinely distinct response
+> shapes.
+>
+> Sprint-planning implication: when a plan estimates token cost per artifact
+> (DDL + adapter + notebook + facade re-export + index entry, or the equivalent
+> stack for the project), multiply by the *expanded* count, not the family
+> count.
+
+---
+
+## 10. Pre-Allocate Tokens for Known High-Divergence Cohorts
+
+> [!practice] Pre-Allocate Tokens for Known High-Divergence Cohorts
+>
+> When a sprint authors multiple deliverables across a cohort that empirically
+> exhibits MAX cross-tier divergence (e.g., adapter row vs deployed schema,
+> source-spec vs implementation, EI prose vs downstream code), scaffold-time
+> token estimates MUST include a cohort-specific uplift — not just the
+> per-deliverable baseline. The uplift covers the extra reconciliation-discipline
+> overhead: explicit field mappings, named-parameter binding, additional
+> verification gates.
+>
+> Three-step protocol:
+> 1. **Identify cohort divergence at scaffold time** — grep the upstream
+>    artifact (adapter dataclass, source schema, etc.) and the downstream
+>    artifact (DDL, consumer code, etc.) for the cohort's members. Compute the
+>    average rename count + dispatched-field count + field-count delta across
+>    the cohort.
+> 2. **If average divergence exceeds the project's field/rename threshold per
+>    deliverable** → declare the cohort "high-divergence" and apply the
+>    token-uplift heuristic.
+> 3. **Encode the uplift in the Master Plan token-budget summary AND in each
+>    per-task estimate.**
+>
+> Cohort-divergence signal table:
+>
+> | Cohort divergence | Reconciliation effort | Token impact |
+> |---|---|---|
+> | None / matching shapes | Standard positional binding — ~200 tokens | Standard estimate |
+> | Minor (≤5 renames, no dispatch) | Aliased positional binding — ~500 tokens | +500 over standard |
+> | Major (>5 renames OR dispatched fields) | Explicit named-param binding — ~2000 tokens | +2000 over standard |
+> | **High-divergence cohort (structural)** | **Explicit named-param binding + Field Mapping subsection (`task-content-fidelity.md` §9.B.8)** — **~3000–4000 tokens** | **+3000–4000 over standard** |
+>
+> Mechanical signal: when a cohort's task briefs all share a paste-templated
+> Field Mapping subsection (per `task-content-fidelity.md` §9.B.8), the cohort
+> is divergence-aware by construction; the token-uplift is the budget mechanism
+> that makes the Field Mapping actionable.
+>
+> Project-specific applications of this pattern — a particular API family known
+> to exhibit MAX divergence, for instance — belong in project-local rule files,
+> not in this plugin reference. This reference defines the *principle* and the
+> *signal*; a project's own rules name the *cohorts*.
+
+---
+
+*Seven binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from [session-planning-protocol.md](session-planning-protocol.md) §14.*

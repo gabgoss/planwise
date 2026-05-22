@@ -14,11 +14,13 @@ description: EI fidelity across scaffolding tiers — source preservation, thres
 - [1. EI as Archival — Transform at Task Layer](#1-ei-as-archival--transform-at-task-layer)
 - [2. Source Severity Vocabulary Preservation](#2-source-severity-vocabulary-preservation)
 - [3. Threshold Alignment with Operational Dispatch Contract](#3-threshold-alignment-with-operational-dispatch-contract)
+  - [3.1 Algorithm-Sprint Retention-Band Calibration](#31-algorithm-sprint-retention-band-calibration)
 - [4. UNCONFIRMED Caveats — Four-Site Redundant Enforcement](#4-unconfirmed-caveats--four-site-redundant-enforcement)
 - [5. Cross-Tier Duplicate Preservation](#5-cross-tier-duplicate-preservation)
 - [6. Cross-Tier Citation Propagation to Implementation Surface](#6-cross-tier-citation-propagation-to-implementation-surface)
 - [7. §-Citation Discipline — Cite, Do Not Restate](#7--citation-discipline--cite-do-not-restate)
 - [8. Token Reconciliation Gate — Arithmetic Beats Summary](#8-token-reconciliation-gate--arithmetic-beats-summary)
+  - [8.1 Recompute Prose-Stated Numerical Exemplars at Design Review](#81-recompute-prose-stated-numerical-exemplars-at-design-review)
 
 ---
 
@@ -130,6 +132,66 @@ Red flags during template authoring:
 - Two different retention percentages in the same task file
 - Threshold in task file does not match threshold in Sprint Plan
 - "Floor" defined without pointing to the source that sets it
+
+---
+
+### 3.1 Algorithm-Sprint Retention-Band Calibration
+
+> [!constraint] Algorithm-sprint EIs are calibrated against an algorithm-specific retention band; retention >100% MUST be checked against the legitimate-driver checklist BEFORE it is flagged as bloat
+> Retention (output line count ÷ source line count) is the cross-tier fidelity
+> signal for an Execution Input. The default 80–120% band is sprint-type-agnostic.
+> Algorithm sprints legitimately exceed 100% retention: preserved formula notes,
+> pseudocode, and cross-tier duplicate annotations all add lines without adding
+> drift. Applying the generic band to an algorithm-sprint EI auto-rejects
+> fidelity-correct work.
+>
+> When a fidelity-review task computes retention >100% for an algorithm sprint,
+> it MUST first check the legitimate-driver checklist; bloat is flagged only
+> after a non-legitimate driver surfaces.
+>
+> Legitimate-driver checklist:
+>
+> | Driver | Adds lines? | Legitimate? |
+> |--------|-------------|-------------|
+> | Cross-tier duplicate notes (method signatures restated in EI body and in the cross-references section) | YES | YES — preserves verifiability |
+> | Algorithm pseudocode | YES | YES — preserves implementation guidance |
+> | Duplicate formula tables (one in body, one in tests section) | YES | YES — preserves test-source traceability |
+> | Verbose section headers / explanatory prose | YES | Conditional — flag if not domain-justified |
+> | Restated count claims (numerical exemplars cited multiple times) | YES | YES — preserves verification anchors |
+> | Reworded verbatim source | YES | NO — counts as drift, not legitimate retention |
+>
+> Band interpretation:
+>
+> | Retention | Action |
+> |-----------|--------|
+> | < 80% | Investigate as GAP — content likely lost |
+> | 80–100% | Standard band; PASS unless other signals fire |
+> | 100–115% | Algorithm-sprint normal; check the legitimate-driver checklist before flagging |
+> | 115–120% | Border zone; require explicit justification in the EI preamble |
+> | > 120% | Likely bloat or duplicated source; investigate |
+>
+> Sprint-type calibration:
+>
+> | Sprint type | Expected retention band |
+> |-------------|-------------------------|
+> | Schema / harmonization | 80–105% |
+> | Algorithm | 95–120% |
+> | Integration | 85–110% |
+> | Pure discovery | 70–95% (Discovery → EI compresses) |
+>
+> WRONG — a fidelity-review task computes 112% retention for an algorithm-sprint
+> EI and flags it as bloat against the generic band, without checking what drove
+> the extra lines. Those lines are preserved pseudocode and duplicate formula
+> tables; the flag auto-rejects fidelity-correct work and burns a remediation
+> cycle.
+>
+> CORRECT — the fidelity-review task reads the Sprint Plan Objective, recognises
+> algorithmic / numerical-design work, applies the 95–120% algorithm band, and
+> runs the legitimate-driver checklist against the extra lines. Pseudocode and
+> duplicate formula tables are legitimate drivers → PASS. Only a non-legitimate
+> driver (reworded verbatim source) converts the result to a bloat finding.
+
+Apply order: when a fidelity-review task computes retention >100% for an algorithm sprint, FIRST check the legitimate-driver checklist; flag bloat only after a non-legitimate category surfaces.
 
 ---
 
@@ -399,6 +461,39 @@ Downstream propagation check (Sprint Plan / task scaffolding tasks MUST apply):
 Fidelity-review verification: a designated checkpoint confirms per-task estimates in task files sum to Orchestration totals, which sum to the Sprint total, which matches the design task's reconciliation block.
 
 NOT applicable when there is only one token-estimate layer (no divergence possible).
+
+---
+
+### 8.1 Recompute Prose-Stated Numerical Exemplars at Design Review
+
+> [!constraint] Design-review tasks MUST recompute every prose-stated numerical exemplar from its formula — never pass prose values through to implementation
+> When an EI or Sprint Plan provides numerical exemplars meant to become
+> regression tests, doctests, or success-criterion thresholds (e.g.,
+> "x = 0.051 → y ≈ 0.952"), the design-review task that locks function
+> signatures and doctests MUST recompute every exemplar from its formula and
+> surface any divergence as a [BLOCKING] open question. It MUST NOT pass the
+> prose values through to implementation tasks unverified.
+>
+> Prose exemplars drift from exact arithmetic. Recomputing during the design
+> phase costs seconds; catching the drift at implementation time costs one extra
+> subagent dispatch plus a doctest correction plus an EI errata note.
+>
+> **Tolerance:** flag any mismatch greater than 1e-9 as a [BLOCKING] open question.
+>
+> WRONG — the EI states "input 0.051 → output ≈ 0.952"; the Sprint Plan inherits
+> the value verbatim; the implementation-time subagent computes
+> `1 / (1 + 0.051) = 0.95147` → 0.951, not 0.952. The correction lands late as a
+> doctest fix plus an EI errata note.
+>
+> CORRECT — the design-review task recomputes the exemplar during planning,
+> surfaces "exemplar 0.952 → actual 0.951; flag [BLOCKING]", and the
+> implementation task receives the corrected value.
+>
+> Template integration: a design-review task that locks function signatures and
+> doctests MUST carry an explicit Execution Step — "Recompute every prose-stated
+> numerical exemplar; flag mismatches > 1e-9 as a [BLOCKING] open question."
+
+This recompute step is the algorithm-sprint extension of the §8 reconciliation gate: §8 reconciles token-estimate arithmetic; §8.1 reconciles every other prose-stated numerical exemplar an algorithm-sprint EI carries.
 
 ---
 

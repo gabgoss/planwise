@@ -11,6 +11,7 @@ Any task file whose Required Context references a DB table — directly (inline 
 - [1. Schema Pin Requirement](#1-schema-pin-requirement)
 - [2. Pin Construction Recipe](#2-pin-construction-recipe)
 - [3. Pin Format](#3-pin-format)
+  - [3.1 Abbreviated Pre-Execution Pin Form](#31-abbreviated-pre-execution-pin-form)
 - [4. Plan-Review Enforcement](#4-plan-review-enforcement)
 
 ---
@@ -104,6 +105,36 @@ Required columns of the Pin table:
 - **Table**: bare table name (no schema prefix unless the project uses one).
 - **Columns + constraints (post-migration shape)**: comma-separated column list with type/nullability when relevant, followed by an em-dash and a constraint summary (PK, UNIQUE, FK shorthand). Annotate post-migration state explicitly when it differs from the original CREATE.
 - **Source ranges**: file path + line range for the CREATE block, plus every contributing ALTER block cited separately with a one-phrase description.
+
+---
+
+### 3.1 Abbreviated Pre-Execution Pin Form
+
+The full Pin (§3) quotes a live, post-migration column shape from a schema file — which presupposes the table already exists. When one sprint creates a table (a DDL sprint) and a later sprint references it, the later sprint's task files cannot quote a schema file that has not been written yet. For that case — and only that case — an abbreviated **2-column pre-execution Pin form** is valid.
+
+> [!template] Abbreviated Pre-Execution Schema Pin
+> ```markdown
+> ## Schema Pin (pre-execution — {table_name} authored by {Sprint-N}, not yet shipped)
+>
+> | Table | Planned column shape — source of truth |
+> |-------|----------------------------------------|
+> | {table_name} | {Abbrev}-S{XX}-Execution-Input.md §{N.M} ({DDL section title}) — columns + constraints are authored there; upgrade to a full §3 Pin once {Sprint-N} ships the schema file |
+> ```
+
+The abbreviated form names the table and points — by `§N.M` reference, never by prose restatement — at the Execution Input section (or DDL task file) that carries the planned column shape. It does not assert column names itself; the cited source-of-truth section does.
+
+> [!practice] Pin format note
+> A task file that uses the abbreviated 2-column form MUST carry a `> [!practice] Pin format note` callout directly beneath the Pin. The note states (1) that the target table does not yet exist because an earlier, not-yet-executed sprint creates it, (2) the `§N.M` reference to the Execution Input section (or DDL task file) holding the planned column shape, and (3) that the Pin MUST be upgraded to the full post-migration form (§3) once the creating sprint completes. Paste-ready form:
+> ```markdown
+> > [!practice] Pin format note
+> > {table_name} does not yet exist — it is created by {Sprint-N}. Planned
+> > column shape: {Abbrev}-S{XX}-Execution-Input.md §{N.M}. Upgrade this Pin to
+> > the full post-migration form (schema-pin-requirement.md §3) once {Sprint-N}
+> > ships the schema file.
+> ```
+> Without the format note, plan-review cannot distinguish a legitimate pre-execution Pin from a degraded full Pin and treats the abbreviated form as a §1 violation.
+
+The abbreviated form is a planning-time bridge, not a substitute. Once the creating sprint ships, re-run the §2 grep recipe against the now-existing schema file and replace the abbreviated Pin with the full post-migration shape.
 
 ---
 
