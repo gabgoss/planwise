@@ -356,7 +356,7 @@ After completing a session:
 
 > [!checklist] Post-Session Validation
 > - [ ] All tasks marked COMPLETE in Recovery
-> - [ ] If session produced code changes and `/simplify` has not already been run on all changed files, run `/simplify` to review for reuse, quality, and efficiency
+> - [ ] If session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` to review for reuse, quality, and efficiency
 > - [ ] Summary file created in Outputs/
 > - [ ] Orchestration status updated to COMPLETE
 > - [ ] Sprint Plan tracking table updated
@@ -369,7 +369,7 @@ After completing a session:
 
 ## 12. Git Workflow
 
-**BINDING:** Commit at the end of each session. If session produced code changes, run `/simplify` before the final commit.
+**BINDING:** Commit at the end of each session. If session produced code changes, run `/code-review` before the final commit.
 
 ```bash
 git add {specific files}  # Never use git add . or -A

@@ -295,7 +295,7 @@ Detailed reference material for this project. Documents with a **Must Read** con
 > | Phase | Action |
 > |-------|--------|
 > | **BEFORE** refactoring | Create `{filename}.backup-{YYYY-MM-DD}.txt` in same folder |
-> | **AFTER** refactoring | Run `/simplify` on refactored files to verify quality |
+> | **AFTER** refactoring | Run `/code-review` on refactored files to verify quality |
 > | **AFTER** verified working | Move backup to `RefactoringArchive/` |
 
 ---
@@ -304,7 +304,7 @@ Detailed reference material for this project. Documents with a **Must Read** con
 
 > [!binding] Git Discipline
 > - **Commit** at the end of each session
-> - If session produced code changes and `/simplify` has not already been run on all changed files, run `/simplify` before committing
+> - If session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before committing
 > - **Push** automatically (no confirmation needed)
 > - **git add** specific files (never `git add .` or `git add -A`)
 
