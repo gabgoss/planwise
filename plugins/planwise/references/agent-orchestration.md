@@ -21,6 +21,9 @@ See [skill-authoring.md](skill-authoring.md) for skill/forked context authoring.
 - [8. Scaling Rules](#8-scaling-rules)
 - [9. Execution Modes](#9-execution-modes)
 - [10. Constraints](#10-constraints)
+- [11. DELEGATED Dispatch Discipline](#11-delegated-dispatch-discipline)
+- [12. Verify-Before-Acting on LSP Diagnostics](#12-verify-before-acting-on-lsp-diagnostics)
+- [13. Large-File Read Tactics](#13-large-file-read-tactics)
 
 ---
 
@@ -244,7 +247,7 @@ A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use
 >   ...
 > )
 > ```
-> See `handlers/review.md` (7 sites), `handlers/run.md` (4 sites), `handlers/backlog.md` (1 site) for spawn-call updates.
+> See `handlers/review.md` (9 sites), `handlers/run.md` (4 sites), `handlers/backlog.md` (1 site) for spawn-call updates.
 
 ---
 
@@ -379,6 +382,7 @@ When a reviewer has MEDIUM or LOW confidence, prefix the finding with `[UNCERTAI
 > [!pitfall] Idle Teammates
 > **Problem:** Teammates go idle after every turn. This looks like they stopped working.
 > **Solution:** Idle is NORMAL and EXPECTED. Send a message to wake them up — they respond immediately. The standard flow: teammate completes work → goes idle → lead sends next assignment → teammate wakes. Do NOT wait for them to "come back" or treat idle as an error.
+> **See also:** §11.7 (Idle-Mid-Step Wake-Up via SendMessage) for the operational wake-up protocol used by DELEGATED orchestrators.
 
 Messages from teammates are delivered automatically — do NOT poll for their output manually.
 
@@ -428,11 +432,42 @@ Before launching a background agent, Claude prompts for all permissions the agen
 
 **Background failure:** If a background agent fails due to missing permissions, resume it in foreground to retry with interactive permission approval.
 
-### DELEGATED Dispatch Discipline
+---
+
+## 10. Constraints
+
+These constraints are empirically verified. The enforcement mechanism column explains why each cannot be bypassed by prompting.
+
+| # | Constraint | Enforcement Mechanism | Impact | Workaround |
+|---|-----------|----------------------|--------|------------|
+| 1 | No sub-subagent spawning | Task tool stripped from ALL non-main contexts at spawn time | Single-level delegation only | Orchestrate all agents from main conversation; chain sequentially |
+| 2 | Teammates lack Task, TeamCreate, TeamDelete | Tool restriction at spawn time [NestTest-05] | Cannot spawn, cannot create/delete teams | All delegation through team lead (hub-and-spoke mandatory) |
+| 3 | Context NOT inherited by subagents/teammates | Fresh context per spawn | Teammates start with empty context | Self-contained prompts; share via explicit messages or file references |
+| 4 | No AskUserQuestion in spawned contexts | Tool restriction | Cannot interactively prompt user | Pre-gather requirements before spawning |
+| 5 | No EnterPlanMode/ExitPlanMode in spawned contexts | Tool restriction | Cannot enter plan mode | Plan in main session before delegating |
+| 6 | Path-specific rules are main-session-only | Path rule loading requires OWN file activity [LoadTest-07] | Spawned contexts see only global rules | Include rule content explicitly in task prompt |
+| 7 | MCP unavailable in background subagents | Background execution mode restriction | Cannot use external systems | Run in foreground if MCP tools are required |
+| 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate [LL-001-PROC] | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
+| 8 | Skill discovery ≠ system-prompt injection | File system access (Glob on `.claude/skills/`) | Mid-session agents not discoverable as subagent_type | Use `skills:` frontmatter to inject domain knowledge; all contexts discover existing skills via FS |
+| 9 | Teammate identity is Agent SDK, not CC CLI | System prompt differentiation at spawn time | Teammates self-identify differently; less "Claude Code aware" | Design teammates as workers; orchestrate from main session |
+
+> **Constraint 6 — path rules detail:** Spawned contexts begin with zero file activity. Path rules check the context's OWN active files. If a spawned context later works on files matching a path rule's pattern, those rules CAN trigger dynamically for that context. What they do NOT do is inherit the parent session's already-active path triggers.
+
+> **Constraint 8 — skills note:** The `skills:` frontmatter field injects SKILL.md content into the agent's context at startup — use it for domain knowledge needed immediately. It does not restrict which skills the agent can discover; all contexts with file system access can discover all project skills regardless of the `skills:` field.
+
+> **Constraint 10 — background pre-approval detail [LL-001-PROC]:** Background subagents use an upfront pre-approval gate: before launch, Claude Code prompts for all permissions the agent will need. At runtime, anything not pre-approved is auto-denied — the tool call fails silently but the agent continues executing. `bypassPermissions` mode does NOT override this gate. Practical consequence: task-runner agents that write output files MUST run in foreground. Background mode is only safe for read-only operations (Explore, research).
+
+> **Constraint 10 — background pre-approval hazard (PLG-012 operational guidance):** Design background agents for read-only operations only. Before launching a background agent that you believe needs Write/Edit/Bash, convert it to foreground mode. The pre-approval gate cannot be bypassed by prompting or by `bypassPermissions` mode — both are enforced at the runtime layer, not the policy layer.
+
+> **Team tool compatibility:** TeamCreate and SendMessage are not listed in the `allowed-tools` frontmatter system. Skills that need team functionality should use `context: fork` with `agent: general-purpose`. Do NOT attempt to list TeamCreate or SendMessage in `allowed-tools`.
+
+---
+
+## 11. DELEGATED Dispatch Discipline
 
 When the Execution Strategy is DELEGATED (orchestrator spawns task-runner subagents), the following subsections govern dispatch behavior. These rules apply whenever any DELEGATED trigger is present (see `references/session-plan-requirements.md` Execution Strategy section for mandatory triggers).
 
-#### 11.1 Mandatory Triggers (PLG-002)
+### 11.1 Mandatory Triggers (PLG-002)
 
 DELEGATED mode is REQUIRED when ANY of the following triggers are present in a session:
 - Session has 2 or more Opus tasks
@@ -455,7 +490,7 @@ Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not
 > Trigger: Task 03 estimates >50K context load (output-chaining to Task 04)
 > ```
 
-#### 11.2 Task-File Error Recovery (PLG-002)
+### 11.2 Task-File Error Recovery (PLG-002)
 
 When a DELEGATED subagent fails or produces incomplete output, the orchestrator applies this recovery shape:
 
@@ -477,7 +512,7 @@ When a DELEGATED subagent fails or produces incomplete output, the orchestrator 
 > → Mark task BLOCKED in Recovery; report to orchestrator
 > ```
 
-#### 11.3 Orchestration Context Boundary (PLG-002)
+### 11.3 Orchestration Context Boundary (PLG-002)
 
 When Execution Strategy is DELEGATED:
 - Orchestration's Required Context MUST list ONLY plan files (Orchestration.md, Recovery.md, task files)
@@ -501,7 +536,7 @@ When Execution Strategy is DELEGATED:
 > (Task 03 Required Context loads schema.sql + research-part-1.md in its own section)
 > ```
 
-#### 11.4 Inter-Dispatch Diagnostics Verification (PLG-002 + PLG-020 extension)
+### 11.4 Inter-Dispatch Diagnostics Verification (PLG-002 + PLG-020 extension)
 
 When DELEGATED dispatches modify shared files (e.g., a shared algorithm module or schema file), the orchestrator MUST independently run the project's primary diagnostic command between dispatches to verify no regression:
 
@@ -525,7 +560,7 @@ After each dispatch that produces output files, the orchestrator MUST run `wc -l
 > Dispatch Task 02 → run {lint-cmd} {src/module/file.ext} → 2 errors → HALT → fix before Task 03
 > ```
 
-#### 11.5 Live-HTTP-Probing Tool-Use Budget Reservation (PLG-012)
+### 11.5 Live-HTTP-Probing Tool-Use Budget Reservation (PLG-012)
 
 When a DELEGATED subagent performs live HTTP probing (WebFetch/WebSearch calls in a loop), the orchestrator MUST reserve tool-use budget for this activity:
 
@@ -542,7 +577,7 @@ When a DELEGATED subagent performs live HTTP probing (WebFetch/WebSearch calls i
 > what was fetched and what remains.
 > ```
 
-#### 11.6 Path-Scoped Rule Injection in Spawn Prompts (PLG-012)
+### 11.6 Path-Scoped Rule Injection in Spawn Prompts (PLG-012)
 
 Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatically load for spawned subagents — spawned contexts start with zero file activity and inherit no path triggers from the parent. When a DELEGATED task requires path-specific rules, the orchestrator MUST inject those rule contents explicitly into the spawn prompt.
 
@@ -564,7 +599,7 @@ Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatica
 > )
 > ```
 
-#### 11.7 Idle-Mid-Step Wake-Up via SendMessage (PLG-012)
+### 11.7 Idle-Mid-Step Wake-Up via SendMessage (PLG-012)
 
 Teammates (in agent team mode) go idle after every turn. This is NORMAL — idle does not mean stopped. When a teammate is idle mid-step (has more work to do but has not been prompted for the next step), the orchestrator sends a wake-up message:
 
@@ -581,7 +616,7 @@ SendMessage(
 > **Problem:** Teammate completes step N and goes idle, waiting for acknowledgment before proceeding to step N+1. Lead session treats idle as "done" and marks task complete.
 > **Solution:** After receiving partial results from a teammate, check whether the task file has more steps. If yes, send a continuation message. Only treat idle as "done" when the task file's final step is confirmed complete.
 
-#### 11.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause (PLG-020 §11.5 → §11.8)
+### 11.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause (PLG-020 §11.5 → §11.8)
 
 Every DELEGATED spawn prompt MUST include a HARD CONSTRAINTS section and a SCOPE BOUNDARY clause:
 
@@ -612,7 +647,7 @@ This task operates within:
 > [full HARD CONSTRAINTS + SCOPE BOUNDARY block]"
 > ```
 
-#### 11.9 Tier-Rank Fixes by Invasiveness (PLG-020 §11.6 → §11.9)
+### 11.9 Tier-Rank Fixes by Invasiveness (PLG-020 §11.6 → §11.9)
 
 When a DELEGATED task produces results requiring fixes, rank the fixes by invasiveness before dispatching a follow-up:
 
@@ -624,7 +659,7 @@ When a DELEGATED task produces results requiring fixes, rank the fixes by invasi
 
 Start with Tier 1 fixes before escalating; do not over-dispatch high-invasiveness fixes when lower-tier corrections suffice.
 
-#### 11.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol (PLG-020 §11.7 → §11.10)
+### 11.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol (PLG-020 §11.7 → §11.10)
 
 When reviewing a dispatch's output, scan for forward-looking verbs in the last paragraph ("will", "next I will", "the following step will", "planned"). These signal the subagent stopped mid-task and intends to continue but has gone idle.
 
@@ -642,7 +677,7 @@ SendMessage(
 > **Problem:** Subagent ends its turn with "I will next write the schema pin" but goes idle. Orchestrator reads output and marks task complete without checking for completion.
 > **Solution:** Grep the last 3 paragraphs of every dispatch output for `\b(will|next I will|the following step will|planned to)\b`. If found, send a resume message rather than marking COMPLETE.
 
-#### 11.11 Operational-Ceiling Disclaimers in Spawn Prompts (PLG-020 §11.8 → §11.11)
+### 11.11 Operational-Ceiling Disclaimers in Spawn Prompts (PLG-020 §11.8 → §11.11)
 
 Spawn prompts for tasks approaching operational ceilings (>25 file edits, >30 HTTP probes, >100K expected context) MUST include an operational ceiling disclaimer:
 
@@ -655,7 +690,7 @@ If you reach a ceiling before completing all steps, STOP, write a partial output
 what was completed and what remains, then signal completion via your final response.
 ```
 
-#### 11.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation (PLG-020 §11.9 → §11.12)
+### 11.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation (PLG-020 §11.9 → §11.12)
 
 When a task requires >25 file edits and cannot be split further, use the N>25 Edit-Task Resume Protocol:
 
@@ -667,50 +702,81 @@ When a task requires >25 file edits and cannot be split further, use the N>25 Ed
 > [!practice] Tool-Use Budget Estimation for Edit-Heavy Tasks
 > Before dispatching >25-edit tasks, estimate: `(edits × 2) + reads + overhead`. If total exceeds 80% of model tool-budget ceiling, split the task. Example: 30 edits = 60 edit calls + 20 reads + 10 overhead = 90 tool calls — review against model ceiling before dispatching.
 
-#### 11.13 Shared-Edit-Target Parallelism Cap (PLG-020 supplemental)
+### 11.13 Shared-Edit-Target Strategy Matrix (PLG-020 supplemental)
 
-When two or more DELEGATED dispatches modify the same file, they MUST run sequentially — not in parallel. The parallelism cap for shared edit targets is 1 concurrent dispatch per file.
+When N DELEGATED dispatches in a single session must write the same target (a shared content file, or the shared Recovery file all task-runners update), three strategies are available. Choose by the count of concurrent dispatches sharing the target; **Option C (orchestrator-reconciled delta) is the preferred default** because it remains safe at every band and aligns with the recorded parallel-task-runner Recovery practice.
 
-> [!constraint] Shared-Edit-Target Parallelism
-> WRONG — two parallel dispatches modify the same schema file:
+| Concurrent dispatches sharing the target | Strategy | Mechanism |
+|------------------------------------------|----------|-----------|
+| ≤ 4 | **Option A — Parallelism cap at 4** | Allow up to 4 parallel dispatches on the same target. PLG-020 found 4-way parallelism converges when edits are to disjoint regions. Beyond 4, escalate to Option B or C. |
+| 5 – 6 | **Option B — Recovery / target shards** | Each dispatch writes to its own per-dispatch shard (e.g., `…-Recovery-shard-{N}.md` or a per-dispatch output file). Orchestrator merges shards after all dispatches return. Avoids last-write-wins clobbering at the cost of a merge step. |
+| 7 + | **Option C — Orchestrator-reconciled delta (PREFERRED)** | Each dispatch returns its changes as a status block / delta in its final message instead of writing the shared target directly. The orchestrator applies the deltas centrally — single writer, no clobbering, fully auditable. Also valid (and recommended) at lower bands. |
+
+> [!decide] Choose a Shared-Edit-Target Strategy
+> | Situation | Strategy |
+> |-----------|----------|
+> | N ≤ 4 dispatches editing disjoint regions of a content file | Option A — cap at 4 parallel dispatches |
+> | 5–6 dispatches sharing a Recovery or content file | Option B — per-dispatch shards, orchestrator merges |
+> | 7+ dispatches sharing any target, **or** when in doubt | Option C — dispatches return deltas, orchestrator reconciles centrally |
+
+> [!constraint] Never Run Uncoordinated Parallel Writes to the Same Target
+> WRONG — N parallel dispatches write the same shared file with no cap, no shards, no delta reconciliation:
 > ```
-> Dispatch Task 02 (modifies schema.sql) ─┐ parallel
-> Dispatch Task 03 (modifies schema.sql) ─┘
-> (last write wins; one dispatch's changes are silently overwritten)
+> Dispatch Task 02 (writes {shared-file}) ─┐
+> Dispatch Task 03 (writes {shared-file}) ─┼ parallel, no coordination
+> Dispatch Task 04 (writes {shared-file}) ─┘
+> # last write wins; earlier dispatches' changes are silently overwritten
 > ```
-> CORRECT — sequential dispatches for shared edit targets:
+> CORRECT — pick A, B, or C from the matrix above; if uncertain, default to Option C:
 > ```
-> Dispatch Task 02 (modifies schema.sql) → COMPLETE → Dispatch Task 03 (modifies schema.sql)
+> # Option C example — task-runners return deltas, orchestrator reconciles:
+> Dispatch Task 02 → returns "delta: +rows 5-9"   → orchestrator writes
+> Dispatch Task 03 → returns "delta: +rows 10-14" → orchestrator writes
+> Dispatch Task 04 → returns "delta: +rows 15-19" → orchestrator writes
 > ```
 
----
+### 11.14 Orchestrator-Only Review Commands (LL-057)
 
-## 10. Constraints
+Slash-commands that themselves spawn review agents (`/simplify`, `/code-review`, and similar multi-agent review skills) CANNOT run inside a task-runner subagent. Per Constraint 1 (§10), the Task tool is stripped from all non-main contexts at spawn time, so a subagent has no way to spawn the review agents the command depends on; the call resolves to "Unknown subcommand" or fails silently.
 
-These constraints are empirically verified. The enforcement mechanism column explains why each cannot be bypassed by prompting.
+A DELEGATED task-runner does an INLINE self-review — it applies the review lenses itself, with no agent spawn. The orchestrator (running in the main session) invokes the real review command on the diff after the task-runner returns, before commit.
 
-| # | Constraint | Enforcement Mechanism | Impact | Workaround |
-|---|-----------|----------------------|--------|------------|
-| 1 | No sub-subagent spawning | Task tool stripped from ALL non-main contexts at spawn time | Single-level delegation only | Orchestrate all agents from main conversation; chain sequentially |
-| 2 | Teammates lack Task, TeamCreate, TeamDelete | Tool restriction at spawn time [NestTest-05] | Cannot spawn, cannot create/delete teams | All delegation through team lead (hub-and-spoke mandatory) |
-| 3 | Context NOT inherited by subagents/teammates | Fresh context per spawn | Teammates start with empty context | Self-contained prompts; share via explicit messages or file references |
-| 4 | No AskUserQuestion in spawned contexts | Tool restriction | Cannot interactively prompt user | Pre-gather requirements before spawning |
-| 5 | No EnterPlanMode/ExitPlanMode in spawned contexts | Tool restriction | Cannot enter plan mode | Plan in main session before delegating |
-| 6 | Path-specific rules are main-session-only | Path rule loading requires OWN file activity [LoadTest-07] | Spawned contexts see only global rules | Include rule content explicitly in task prompt |
-| 7 | MCP unavailable in background subagents | Background execution mode restriction | Cannot use external systems | Run in foreground if MCP tools are required |
-| 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate [LL-001-PROC] | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
-| 8 | Skill discovery ≠ system-prompt injection | File system access (Glob on `.claude/skills/`) | Mid-session agents not discoverable as subagent_type | Use `skills:` frontmatter to inject domain knowledge; all contexts discover existing skills via FS |
-| 9 | Teammate identity is Agent SDK, not CC CLI | System prompt differentiation at spawn time | Teammates self-identify differently; less "Claude Code aware" | Design teammates as workers; orchestrate from main session |
+> [!constraint] Do Not Instruct a Task-Runner to Invoke Orchestrator-Only Commands
+> WRONG — spawn prompt instructs the task-runner to run a slash-command that itself spawns review agents:
+> ```
+> Task(
+>   subagent_type: "task-runner",
+>   prompt: "...implement X; build; then run /simplify"
+> )
+> # task-runner: "Unknown subcommand: simplify" — it cannot spawn the review agents.
+> ```
+> CORRECT — task-runner applies the review lenses inline; orchestrator runs the real review command on the diff after:
+> ```
+> Task(
+>   subagent_type: "task-runner",
+>   prompt: "...implement X; apply the review lenses INLINE yourself — do NOT invoke /simplify or /code-review, you cannot spawn the review agents"
+> )
+> # orchestrator, after task-runner returns: Skill(code-review) (or /simplify) on the diff.
+> ```
 
-> **Constraint 6 — path rules detail:** Spawned contexts begin with zero file activity. Path rules check the context's OWN active files. If a spawned context later works on files matching a path rule's pattern, those rules CAN trigger dynamically for that context. What they do NOT do is inherit the parent session's already-active path triggers.
+### 11.15 Delegated Code Task-Runners Build LAST (LL-057)
 
-> **Constraint 8 — skills note:** The `skills:` frontmatter field injects SKILL.md content into the agent's context at startup — use it for domain knowledge needed immediately. It does not restrict which skills the agent can discover; all contexts with file system access can discover all project skills regardless of the `skills:` field.
+In a DELEGATED code task, the build/verification command is the FINAL step — after any inline self-review edits. This guarantees the reported build result reflects what is actually on disk. A task-runner that builds, then edits, then reports "build clean" has published a stale verification: the build predates the final code, and any post-build edit could silently invalidate the gate.
 
-> **Constraint 10 — background pre-approval detail [LL-001-PROC]:** Background subagents use an upfront pre-approval gate: before launch, Claude Code prompts for all permissions the agent will need. At runtime, anything not pre-approved is auto-denied — the tool call fails silently but the agent continues executing. `bypassPermissions` mode does NOT override this gate. Practical consequence: task-runner agents that write output files MUST run in foreground. Background mode is only safe for read-only operations (Explore, research).
+If the task-runner edits after building (whether by accident or because the spawn prompt allowed it), the orchestrator MUST re-run `{build-cmd}` on the final on-disk code before trusting the gate and before commit.
 
-> **Constraint 10 — background pre-approval hazard (PLG-012 operational guidance):** Design background agents for read-only operations only. Before launching a background agent that you believe needs Write/Edit/Bash, convert it to foreground mode. The pre-approval gate cannot be bypassed by prompting or by `bypassPermissions` mode — both are enforced at the runtime layer, not the policy layer.
-
-> **Team tool compatibility:** TeamCreate and SendMessage are not listed in the `allowed-tools` frontmatter system. Skills that need team functionality should use `context: fork` with `agent: general-purpose`. Do NOT attempt to list TeamCreate or SendMessage in `allowed-tools`.
+> [!constraint] Build/Verification Is the Final Step in a Delegated Code Task
+> WRONG — build, then refactor, then report (verified build no longer matches on-disk code):
+> ```
+> 1. write code  2. run {build-cmd} (CLEAN)  3. apply self-review edits  4. report "CLEAN"
+> # The reported result is from step 2; step 3's edits are unverified.
+> ```
+> CORRECT — refactor first, build last, so the reported result matches what is on disk:
+> ```
+> 1. write code  2. apply self-review edits (inline review lenses)  3. run {build-cmd} LAST  4. report
+> # If the agent edits after building despite the prompt, the orchestrator re-runs {build-cmd} on the
+> # final on-disk code before trusting the gate.
+> ```
 
 ---
 
