@@ -38,11 +38,14 @@ maxTurns: 50
 
 ## 4. RECOVERY — Update State
 
+> [!constraint] Checkpoint Recovery After Each Major Step
+> Update Recovery incrementally — after EACH major Execution Step completes — not just once at the end of the task. If the dispatch is cut short (early stop, context-window pressure, timeout, upstream Claude Code subagent-stop bug), an incremental Recovery preserves which steps actually finished and lets the orchestrator resume cleanly. A single end-of-task write loses all progress if the runner stops mid-step.
+
 1. Read the recovery file
 2. Update the task row: set Status to COMPLETE and add Completed timestamp
 3. Add any Key Findings discovered during execution
 4. Add all Files Modified during this task
-5. Add a Change Log row with date, step number, status, and notes
+5. Add a Change Log row with date, step number, status, and notes — write a new row after each major step, not one batched row at task end
 6. Update Current Step to the next task number
 
 ---

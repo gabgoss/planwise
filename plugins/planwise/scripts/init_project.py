@@ -314,7 +314,6 @@ def install_rules(cfg: InitConfig) -> list[str]:
         ("agent-orchestration.md", all_paths),
         ("callout-conventions.md", all_paths),
         ("markdown-conventions.md", all_paths),
-        # PPU additions (pending user confirmation — D-024 / D-025):
         ("verification-gates.md", plans_path),
         ("verify-against-shipped-artifact.md", plans_path),
     ]

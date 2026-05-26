@@ -56,7 +56,7 @@ your-project/
     LessonsLearned/      <-- where insights are saved
   .claude/
     rules/
-      planwise/          <-- 15 rules (or 18 if all pending references are adopted) that help Claude work with your plans
+      planwise/          <-- 17 path-scoped rules that help Claude work with your plans
 ```
 
 > **You only need to run `init` once per project.** After that, planwise remembers your setup.
@@ -326,9 +326,9 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 7 subcommand handlers (init, plan, review, run, backlog, list, lessons, help)
+  handlers/                         # 8 subcommand handlers (init, plan, review, run, backlog, list, lessons, help)
   agents/                           # 4 custom AI agents (auto-mirrored into project .claude/agents/ on init)
-  references/                       # 18 knowledge base documents (10 baseline + 5 confirmed PPU additions + 3 pending user confirmation)
+  references/                       # 20 knowledge base documents (17 installed as path-scoped rules + 3 lessons-workflow helpers consumed inline)
   templates/                        # 13 markdown templates
   seed/                             # Index file seeds for init
   scripts/                          # 7 Python backlog utilities
@@ -340,17 +340,72 @@ planwise/                           # Plugin root
 
 ## Changelog
 
-### 1.1.0 (planned PPU release)
+### 1.2.0 (PPU remediation)
 
-**New reference files** (5 confirmed + 2 pending user confirmation):
+This release closes the gaps surfaced by the 2026-05-22 external-feedback audit. The 1.1.0 release shipped the enforcement layer (reviewer checks, role wiring) ahead of the rule prose it referenced; v1.2.0 authors the missing rule prose, repoints every dangling reviewer citation, ships the two reserved project-agnostic references, and applies the two divergence decisions. The "all 16 Consolidated Context parts implemented" criterion that 1.1.0 over-claimed (audit C1) is closed only with this release.
 
-- `references/ei-fidelity.md` — Execution Input fidelity (8 sections)
-- `references/task-content-fidelity.md` — Task content fidelity §9.A + §9.B (21 rules)
-- `references/schema-pin-requirement.md` — Schema Pin requirement for SQL-emitting tasks
-- `references/discovery-and-exit-criteria.md` — Discovery scope rigor + cross-layer exit-criteria fidelity
-- `references/scaffolding-hygiene.md` — Six binding rules for plan scaffolding (with parallel-scaffold deviation classes)
-- `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement *(pending user confirmation)*
-- `references/verify-against-shipped-artifact.md` — Cross-sprint + cross-version symbol verification *(pending user confirmation)*
+**Missing rule-body sections authored:**
+
+- `references/task-content-fidelity.md` §9.A.4-7 + §9.B.6-9 — §9.B reframed for generic external contracts per PLG-004; 2 missing §9.A.3 rate rows added per P5-2
+- `references/ei-fidelity.md` §3.1 (`paths_consume_first` schema) + §8.1 (bidirectional consistency)
+- `references/scaffolding-hygiene.md` §8 + §9 + §10 — parallel-scaffold deviation classes (PLG-011)
+- `references/schema-pin-requirement.md` §3.1
+- `references/discovery-and-exit-criteria.md` §17 (design-extension) + §18 (audit-triage) + §16.3 (BLI-cited-anchor re-verification — PLG-019)
+- `references/callout-conventions.md` — PLG-007 S4 Sequential Chain pattern + new `> [!chain-halt]` callout type
+- `references/session-plan-requirements.md` — §B Selective Helper Enumeration (PLG-010)
+- `references/agent-orchestration.md` §11.13 PLG-020 shared-target matrix restored (Option A cap-at-4 / Option B shards / Option C orchestrator-reconciled — PREFERRED); §11.14 Orchestrator-Only Review Commands + §11.15 Delegated Code Task-Runners Build LAST (LL-057, project-agnostic); §11 hierarchy normalised (ToC entries; H3 promotions; §7→§11.7 cross-link added)
+
+**Dangling-reference defect closed (audit §0):**
+
+Every `§N.M` citation across `agents/plan-reviewer.md`, `handlers/review.md`, `templates/task-file.md`, and `references/session-plan-requirements.md` now resolves to an authored section. 49/49 `plan-reviewer.md` citations verified resolved. The C2 / C5 "Sprint-03 COMPLETE-by-count-not-enforceability" defect is closed.
+
+**New references:**
+
+- `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement (generalised from RevitWise round-trip-gate + LL-052; 122 lines, project-agnostic)
+- `references/verify-against-shipped-artifact.md` — cross-sprint + cross-version symbol verification; §6 Discovery-phase citation + SDK-premise verification (LL-054 folded in; 532 lines, project-agnostic)
+- `references/webfetch-registry-fallbacks.md` — recorded **JUSTIFIED-SKIP *low-value*** (kernel too thin + wrong-domain + no enforcement layer). Stub removed from `scripts/init_project.py` / `handlers/init.md` / README. Slot permanently retired (not deferred).
+
+**Divergence decisions:**
+
+- **PLG-003 enforcement severity** — raised WARNING → BLOCKING for runnable-artifact tasks. Source PLG-003 §3C called BLOCKING; the v1.2.0 population infrastructure (`templates/task-file.md` Per-File-Type table + `handlers/plan.md` Step 8e Populate Verification Commands) makes the constraint coherent; the `<!-- VERIFICATION: not-applicable (reason) -->` HTML-comment escape hatch covers legitimate doc/decision-only exemptions. Applied to `references/session-plan-requirements.md` enforcement table + `handlers/review.md` rows 34/35/36.
+- **`--scaffold-per-sprint`** — recorded **JUSTIFIED-SKIP *out-of-remediation-scope***. The full per-Exec-sprint Scaffold-session resume mechanism is a new feature beyond remediation scope; the shipped pause-between-sprints behavior is accurately documented in `handlers/plan.md` (no over-claim, no README correction required). Added `> [!practice] Scope — Pause-Between-Sprints, Not Per-Sprint Scaffold Sessions` block to `handlers/plan.md` so the intentional simplification is visible to future maintainers.
+
+**Wiring gaps closed:**
+
+- `templates/orchestration.md` — `**Prerequisite:**` field added under `Status:` (PLG-001 §14.6)
+- `templates/task-file.md` — DELEGATED retry-limited error-recovery line under "Notes for Agent"
+- `skills/planwise/SKILL.md` — Base Context list extended with the 7 new references (3 → 10 entries; all resolve)
+- `skills/planwise/SKILL.md` + `handlers/help.md` — follow-up-BLI-capture help line for `backlog` (PLG-018 §18.3)
+- `handlers/plan.md` — `Outputs/.gitkeep` emitted for every session folder (Scaffolding Step 5); new Step 8e Populate Verification Commands from per-file-type command map (PLG-003 §3C)
+- `handlers/review.md` — Error Pattern Catalog completed; collapsed PLG-020 row 17 expanded into 8 checks
+- `scripts/init_project.py` — `install_rules()` reconciled; "pending user confirmation" comment removed; all 17 tuples map to existing files; `init_project.py --name SmokeTest` runs warning-free
+- `handlers/init.md` — Step 6 header count reconciled to 17; Step 10 banner hedges removed for `verification-gates.md` and `verify-against-shipped-artifact.md`
+
+**Lessons folded in:**
+
+- **LL-052** — folded into `references/verification-gates.md` as `> [!practice]` (round-trip evidence as sprint exit-gate)
+- **LL-054** — folded into `references/verify-against-shipped-artifact.md` §6 with `> [!constraint]` (WRONG: silent laundering of stale `file:line` + verified-false delegate-only premise → CORRECT: verified position + prominent task-brief premise correction) + operational rule for multi-task Discovery sessions + `> [!practice]` enforcing prominent (non-silent) corrections
+- **LL-057** — folded into `references/agent-orchestration.md` §11.14 (Orchestrator-Only Review Commands) + §11.15 (Delegated Code Task-Runners Build LAST); both `> [!constraint]`, project-agnostic (`{build-cmd}` placeholder + "review lenses" generic phrasing)
+
+**1.1.0 reconciliation (no over-claims):**
+
+- "Pending user confirmation" hedges on `verification-gates.md` and `verify-against-shipped-artifact.md` removed from README and `handlers/init.md` — both files ship.
+- Reference count reconciled: `references/` holds 20 files (17 installed as path-scoped rules + 3 lessons-workflow helpers consumed inline by lessons handlers). The 1.1.0 "18 (10 baseline + 5 confirmed + 3 pending)" count is corrected here.
+- PPU Disposition Ledger marked **RESOLVED** — every recommendation in the source corpus carries an explicit verdict (IMPLEMENT, ALREADY COMPLETE, or JUSTIFIED-SKIP with a fixed-taxonomy reason).
+
+### 1.1.0 (PPU initial release)
+
+> **Note (added in 1.2.0):** The 1.1.0 release shipped the enforcement layer (reviewer checks, role wiring) ahead of the rule prose it referenced. The 2026-05-22 external-feedback audit identified the gap; v1.2.0 closes it. The original 1.1.0 entries are preserved below; the "pending user confirmation" hedges have been removed (those references now ship), and the `webfetch-registry-fallbacks.md` slot was retired in v1.2.0 (JUSTIFIED-SKIP *low-value*).
+
+**New reference files** (7 shipped — `webfetch-registry-fallbacks.md` retired in v1.2.0):
+
+- `references/ei-fidelity.md` — Execution Input fidelity (§3.1 + §8 authored in v1.2.0)
+- `references/task-content-fidelity.md` — Task content fidelity §9.A + §9.B (§9.A.4-7 + §9.B.6-9 authored in v1.2.0)
+- `references/schema-pin-requirement.md` — Schema Pin requirement for SQL-emitting tasks (§3.1 authored in v1.2.0)
+- `references/discovery-and-exit-criteria.md` — Discovery scope rigor + cross-layer exit-criteria fidelity (§17 + §18 authored in v1.2.0)
+- `references/scaffolding-hygiene.md` — Six binding rules for plan scaffolding (§8 + §9 + §10 authored in v1.2.0)
+- `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement (file authored in v1.2.0)
+- `references/verify-against-shipped-artifact.md` — Cross-sprint + cross-version symbol verification (file authored in v1.2.0)
 
 **New template:**
 
@@ -362,7 +417,7 @@ planwise/                           # Plugin root
 - `handlers/review.md` — Namespaced agent spawns (`planwise:plan-reviewer`, `planwise:structural-reviewer`) at 7 spawn sites; ~12 new Error Pattern Catalog entries; Required References extended with 4 new conditional loads; Auto-Init Fallback Config Gate
 - `handlers/run.md` — Namespaced `task-runner` spawns at 4 sites; Phase 4.3 user-action-gate check; Auto-Init Fallback Config Gate; Auto-Mode tags at 3 critical + 1 convenience sites
 - `handlers/backlog.md` — Namespaced `fix-agent` spawn at 1 site; new Phase 7 FOLLOW-UP BLI CAPTURE (auto-files actionable recommendations from resolution Outputs); existing Phase 7 renumbered to Phase 8; Auto-Init Fallback Config Gate; Auto-Mode tags at 2 critical + 3 convenience sites
-- `handlers/init.md` — Step 6 Rules table extended with 5 confirmed + 3 pending reference rows; NEW Step 6b agent mirroring; NEW `## Called As Subroutine` section documenting `--auto-from` subroutine contract; Step 10 banner updated to include Agents mirrored section
+- `handlers/init.md` — Step 6 Rules table extended with 7 new reference rows (count reconciled to 17 in v1.2.0); NEW Step 6b agent mirroring; NEW `## Called As Subroutine` section documenting `--auto-from` subroutine contract; Step 10 banner updated to include Agents mirrored section
 - `handlers/list.md` — Auto-Init Fallback Config Gate (no other substantive changes)
 - `handlers/lessons.md` — Auto-Init Fallback Config Gate + Auto-Mode tags at 4 critical sites *(applied AFTER LCP-S03 merges)*
 
@@ -396,11 +451,11 @@ planwise/                           # Plugin root
 ```
 planwise/
   handlers/      # 8 subcommand handlers (init, plan, review, run, backlog, list, lessons, help)
-  references/   # 18 knowledge base documents (10 baseline + 5 confirmed + 3 pending)
+  references/   # 20 knowledge base documents (17 path-scoped rules + 3 lessons-workflow helpers); count reconciled in v1.2.0
   templates/    # 13 markdown templates (12 baseline + sprint-signoff.md)
 ```
 
-### 1.0.1 (current)
+### 1.0.1
 
 Baseline release. Existing 10 reference rules + 12 templates + 7 handlers + 4 agents.
 

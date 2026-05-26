@@ -147,7 +147,7 @@ Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` from the p
 
 ### Step 6 — Install rules to `.claude/rules/planwise/` (fallback)
 
-The plugin ships 15 reference files (or 18 if all pending user-confirmation rules are adopted) that are installed as path-scoped rules. For each rule:
+The plugin ships 17 reference files that are installed as path-scoped rules. For each rule:
 
 1. Use **Glob** to check if the destination already exists — **skip if it does**
 2. Use **Read** to read the source file from the plugin (links below)
@@ -330,8 +330,8 @@ Rules installed to .claude/rules/planwise/:
   ✓ ei-fidelity.md
   ✓ schema-pin-requirement.md
   ✓ task-content-fidelity.md
-  ✓ verification-gates.md      (if installed)
-  ✓ verify-against-shipped-artifact.md (if installed)
+  ✓ verification-gates.md
+  ✓ verify-against-shipped-artifact.md
 
 Next steps:
   /planwise plan          — Create your first plan
