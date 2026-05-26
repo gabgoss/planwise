@@ -17,7 +17,7 @@ Available commands:
   /planwise plan --scaffold [abbrev]     Scaffold from Discovery phase
   /planwise review [plan-path]           Review plan before execution
   /planwise run [@orchestration-file]    Execute a planned session
-  /planwise backlog [item-id]            Triage backlog items
+  /planwise backlog [item-id]            Triage backlog items; capture follow-up BLIs from resolution outputs
   /planwise list                         List all plans with status
   /planwise lessons [search-terms]       Search lessons learned
   /planwise lessons capture              Capture a lesson mid-session

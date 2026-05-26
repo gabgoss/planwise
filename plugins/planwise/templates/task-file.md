@@ -82,7 +82,7 @@ Never leave many-to-many mappings for the agent to infer.
 
 ### Field Mapping (Required for MERGE/upsert tasks)
 
-When this task emits MERGE or upsert SQL, include a Field Mapping subsection with Row↔DDL alignment per `references/task-content-fidelity.md` §9.B.13:
+When this task emits MERGE or upsert SQL, include a Field Mapping subsection with Row↔DDL alignment per `references/task-content-fidelity.md` §9.B.8:
 
 | Source Field | DDL Column | Type Cast | Default | Notes |
 |--------------|------------|-----------|---------|-------|
@@ -150,6 +150,8 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 ## Notes for Agent
 
 {Special instructions, edge cases, or context the agent needs}
+
+**DELEGATED retry-limited error recovery:** When this task runs as a delegated task-runner subagent, retry a failed step up to 3 times before reporting BLOCKED in the Recovery file (per `handlers/run.md` Self-Correction Pattern — never loop indefinitely).
 ```
 
 ---

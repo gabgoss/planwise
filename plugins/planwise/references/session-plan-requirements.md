@@ -405,9 +405,9 @@ Task file Required Context sections and Execution Steps are subject to the rules
 - §9.B.2: Reconcile field/column/parameter names against live source (DDL, function signatures) — use `{long_form_identifier}` vs `{abbreviated_identifier}` pair to illustrate drift
 - §9.B.5: SQL column names MUST be verified against pinned schema before encoding in task brief
 - §9.B.7: USED-helper enumeration: when copying helpers, enumerate USED and NOT-USED explicitly
-- §9.B.11: Schema Pin at planning time MUST be reconciled against deployed-tier schema at execution time (cross-ref `schema-pin-requirement.md`)
-- §9.B.12: Env vars, function signatures, and config keys verified against live source
-- §9.B.13: MERGE/upsert task briefs MUST include Field Mapping subsection (Source Field | DDL Column | Type Cast | Default)
+- Schema Pin: at planning time MUST be reconciled against deployed-tier schema at execution time (see `schema-pin-requirement.md` §3)
+- §9.B.2 (extended): Env vars, function signatures, and config keys verified against live source (extends `task-content-fidelity.md` §9.B.2 identifier reconciliation)
+- §9.B.8: MERGE/upsert task briefs MUST include Field Mapping subsection (Source Field | DDL Column | Type Cast | Default)
 
 **Cross-sprint dependency mirroring (PLG-007 S2):**
 

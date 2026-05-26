@@ -10,6 +10,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 **Session ID:** {ABBREV}-S{XX}-{YY}
 **Sprint:** {XX} - {SprintName}
 **Status:** PLANNED
+**Prerequisite:** {previous session or sprint that must be COMPLETE before this session can run, or "None" if first session of a plan}
 
 <!-- Scaffolding CONFIRM block placeholder:
      When this orchestration is part of a scaffolded plan, ensure the handler emits the CONFIRM block
