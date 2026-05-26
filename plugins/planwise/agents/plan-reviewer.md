@@ -423,7 +423,7 @@ Fix: Increase per references/task-content-fidelity.md §9.A.5 | Confidence: MEDI
 
 ### Check 027 — Task Generator-Script Pattern (≥100-file Walks)
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | PLG-013 §9.A.6 + PLG-021 §9.B.14 (D-014, D-022) | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | PLG-013 §9.A.6 + PLG-021 §9.B.9 (D-014, D-022) | NEW
 - **What:** Tasks walking ≥100 files MUST use generator-script pattern. Generator-script architecture MUST be verified before encoding "re-run" instructions.
 - **Detection:** Count file references in Required Context. ≥100 AND no generator-script reference in Execution Steps → BLOCKER.
 - **Finding template:**
@@ -431,7 +431,7 @@ Fix: Increase per references/task-content-fidelity.md §9.A.5 | Confidence: MEDI
 [BLOCKER] Task generator-script pattern missing
 File: {task file path} | Location: Execution Steps
 Issue: Task walks {N} files (≥100) without generator-script architecture
-Fix: Add per references/task-content-fidelity.md §9.A.6 / §9.B.14 | Confidence: HIGH
+Fix: Add per references/task-content-fidelity.md §9.A.6 / §9.B.9 | Confidence: HIGH
 ```
 - **Insert:** Third item under `**New checks (PLG-013):**`.
 
@@ -481,7 +481,7 @@ Fix: Add enumeration per templates/task-file.md | Confidence: HIGH
 
 ### Check 031 — Task Planning-Tier Schema Pin Reconciliation
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | PLG-021 §9.B.11 (D-022) | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | PLG-021 §9.B.6 (D-022) | NEW
 - **What:** Schema Pins in planning-tier docs MUST reconcile against deployed-tier schema (`{schema-file}` / `{schema_glob_path}`).
 - **Detection:** Extract Schema Pin block; grep deployed schema for pinned column/constraint names. Unknown → BLOCKER.
 - **Finding template:**
@@ -489,13 +489,13 @@ Fix: Add enumeration per templates/task-file.md | Confidence: HIGH
 [BLOCKER] Task Schema Pin planning-vs-deployed drift
 File: {task file path} | Location: Schema Pin section
 Issue: Pinned identifier "{name}" not found in deployed {schema-file}
-Fix: Reconcile per references/task-content-fidelity.md §9.B.11 + schema-pin-requirement.md | Confidence: HIGH
+Fix: Reconcile per references/task-content-fidelity.md §9.B.6 + schema-pin-requirement.md | Confidence: HIGH
 ```
 - **Insert:** First item under `**New checks (PLG-021):**`.
 
 ### Check 032 — Task Env Var / Function Signature / Config Key Drift
 
-- **Severity / Role / Source / Type:** ERROR | Task Reviewer | PLG-021 §9.B.12 (D-022) | NEW
+- **Severity / Role / Source / Type:** ERROR | Task Reviewer | PLG-021 §9.B.7 (D-022) | NEW
 - **What:** Env vars (`{ENV_VAR_NAME}`), function signatures (`{symbol}`), config keys (`{config-field}`) cited in tasks MUST match live source.
 - **Detection:** Extract references; grep live source. Absent → ERROR.
 - **Finding template:**
@@ -503,13 +503,13 @@ Fix: Reconcile per references/task-content-fidelity.md §9.B.11 + schema-pin-req
 [ERROR] Task env/signature/config-key drift
 File: {task file path} | Location: Execution Steps
 Issue: Reference "{name}" not found in live source "{source_path}"
-Fix: Verify per references/task-content-fidelity.md §9.B.12 | Confidence: HIGH
+Fix: Verify per references/task-content-fidelity.md §9.B.7 | Confidence: HIGH
 ```
 - **Insert:** Second item under `**New checks (PLG-021):**`.
 
 ### Check 033 — Task MERGE/Upsert Field Mapping Subsection
 
-- **Severity / Role / Source / Type:** BLOCKER (MERGE/upsert tasks) | Task Reviewer | PLG-021 §9.B.13 (D-022) | NEW
+- **Severity / Role / Source / Type:** BLOCKER (MERGE/upsert tasks) | Task Reviewer | PLG-021 §9.B.8 (D-022) | NEW
 - **What:** Tasks performing MERGE/upsert MUST include `### Field Mapping` subsection with Row↔DDL alignment.
 - **Detection:** Grep Execution Steps for `MERGE|UPSERT|ON CONFLICT`; check for `^### Field Mapping`. MERGE present + Field Mapping absent → BLOCKER.
 - **Finding template:**
