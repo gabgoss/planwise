@@ -604,9 +604,43 @@ Quick reference for common patterns and their correct classification.
 | 14 | Token estimate uses `~?` placeholder (`task-content-fidelity.md` §9.A.2) | BLOCKER | Task file Estimated Tokens |
 | 15 | Cross-sprint Required Context not mirrored in Depends On (`session-plan-requirements.md` §9 cross-sprint) | BLOCKER | Task file Depends On |
 | 16 | EI bidirectional consistency violation (every Spec in `Extracted from:` MUST appear in ≥ 1 Cross-References row and vice versa) | WARNING (HIGH confidence) | EI header + Cross-References |
-| 17 | DELEGATED dispatch round-2 sub-rule violation (`agent-orchestration.md` §11.8..§11.13) | BLOCKER | Orchestration spawn prompts |
-| 18 | Verify-before-cite round-2 (`task-content-fidelity.md` §9.B.11..§9.B.14) | BLOCKER (varies by sub-rule) | Task file SQL/MERGE briefs |
-| 19 | Sprint exit-gate verdict not reflecting gate-defining step (`verification-gates.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
-| 20 | Sprint Overview row encoding session-count fraction instead of gate verdict (`verification-gates.md` §4) | ERROR | Master Plan Sprint Overview |
-| 21 | EI Cross-References §-citation format violated (`ei-fidelity.md` §7) | BLOCKER | EI Cross-References table |
-| 22 | UNCONFIRMED claim missing four-site enforcement (`ei-fidelity.md` §4) | BLOCKER | EI body |
+| 17 | DELEGATED inter-dispatch lint/precheck diagnostics missing on shared file (PLG-020 sub-check / `agent-orchestration.md` §11.4) | BLOCKER | Orchestration between dispatches |
+| 18 | DELEGATED output `wc -l` verification missing after dispatch (PLG-020 sub-check / `agent-orchestration.md` §11.4 PLG-020 extension) | BLOCKER | Orchestration between dispatches |
+| 19 | DELEGATED spawn prompt missing HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause (PLG-020 sub-check / `agent-orchestration.md` §11.8) | BLOCKER | Orchestration spawn prompts |
+| 20 | DELEGATED follow-up fixes not tier-ranked by invasiveness (PLG-020 sub-check / `agent-orchestration.md` §11.9) | BLOCKER | Orchestration follow-up dispatches |
+| 21 | DELEGATED forward-looking-verb detection + SendMessage resume protocol missing (PLG-020 sub-check / `agent-orchestration.md` §11.10) | BLOCKER | Orchestration post-dispatch scan |
+| 22 | DELEGATED spawn prompt missing operational-ceiling disclaimer (PLG-020 sub-check / `agent-orchestration.md` §11.11) | BLOCKER | Orchestration spawn prompts |
+| 23 | DELEGATED edit-heavy task missing N>25 resume protocol + tool-use budget estimation (PLG-020 sub-check / `agent-orchestration.md` §11.12) | BLOCKER | Orchestration spawn prompts |
+| 24 | DELEGATED shared-edit-target dispatches missing parallelism cap/shard/delta strategy (PLG-020 sub-check / `agent-orchestration.md` §11.13) | BLOCKER | Orchestration dispatch matrix |
+| 25 | Verify-before-cite round-2 (`task-content-fidelity.md` §9.B.6..§9.B.9) | BLOCKER (varies by sub-rule) | Task file SQL/MERGE briefs |
+| 26 | Sprint exit-gate verdict not reflecting gate-defining step (`verification-gates.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
+| 27 | Sprint Overview row encoding session-count fraction instead of gate verdict (`verification-gates.md` §4) | ERROR | Master Plan Sprint Overview |
+| 28 | EI Cross-References §-citation format violated (`ei-fidelity.md` §7) | BLOCKER | EI Cross-References table |
+| 29 | UNCONFIRMED claim missing four-site enforcement (`ei-fidelity.md` §4) | BLOCKER | EI body |
+| 30 | Sprint Plan has `READY_TO_EXECUTE` at scaffolding time (PLG-001 / `scaffolding-hygiene.md` §4) | WARNING | Sprint Plan Status field |
+| 31 | Per-session `Outputs/` directory missing (PLG-001 / `scaffolding-hygiene.md` §5) | BLOCKER | Session folder |
+| 32 | Orchestration `**Prerequisite:**` declaration missing for sequential session (PLG-001 / `scaffolding-hygiene.md` §6) | ERROR | Orchestration Prerequisites |
+| 33 | Orchestration Context Boundary callout missing (PLG-002 / `agent-orchestration.md` §11.3) | BLOCKER | Orchestration Execution Strategy |
+| 34 | Verification Commands section missing for runnable-artifact task (PLG-003 / `verification-gates.md` §3) <!-- PLG-003 severity: confirm vs S08-02 decision --> | WARNING | Task file Verification Commands |
+| 35 | Per-file-type Verification Commands table empty (PLG-003 / `verification-gates.md` §3) <!-- PLG-003 severity: confirm vs S08-02 decision --> | WARNING | Task file Verification Commands |
+| 36 | Verify Before/After callout missing for runnable artifact (PLG-003 / `verification-gates.md` §4) <!-- PLG-003 severity: confirm vs S08-02 decision --> | WARNING | Task file Verification Commands |
+| 37 | Required Context not updated when a prior task changed file structure (PLG-004 / `task-content-fidelity.md` §9.A.1) | ERROR | Task Required Context |
+| 38 | Per-file-type token rate band violation (PLG-004 / `task-content-fidelity.md` §9.A.3) | WARNING | Task Required Context |
+| 39 | User-prompt-cited artifact unverified at scaffolding (PLG-004 / `task-content-fidelity.md` §9.B.1) | BLOCKER | Task file cited paths |
+| 40 | Identifier not reconciled with live contract (PLG-004 / `task-content-fidelity.md` §9.B.2) | BLOCKER | Task Execution Steps |
+| 41 | Helper-function design not categorized in column-presence check (PLG-004 / `task-content-fidelity.md` §9.B.4) | WARNING | Task helper refs |
+| 42 | EI archival fidelity violated — transform happens at EI not Task layer (PLG-005 / `ei-fidelity.md` §1) | ERROR | EI body |
+| 43 | EI source severity vocabulary not preserved (PLG-005 / `ei-fidelity.md` §2) | ERROR | EI body |
+| 44 | EI threshold misaligned with operational dispatch contract (PLG-005 / `ei-fidelity.md` §3) | BLOCKER | EI vs Sprint Plan |
+| 45 | EI cross-tier duplicate not preserved (PLG-005 / `ei-fidelity.md` §5) | ERROR | EI Cross-References |
+| 46 | EI cross-tier citation not propagated to implementation surface (PLG-005 / `ei-fidelity.md` §6) | ERROR | EI Cross-References |
+| 47 | EI token reconciliation gate failed (PLG-005 / `ei-fidelity.md` §8) | BLOCKER | EI token totals |
+| 48 | Discovery count missing execution citation (PLG-006 / `discovery-and-exit-criteria.md` §15.1) | BLOCKER | Discovery outputs |
+| 49 | Binding refinement not echoed across plan layers (PLG-006 / `discovery-and-exit-criteria.md` §16.1) | BLOCKER | Multi-layer files |
+| 50 | "Surfaces" used as non-enforceable mention not enforcement claim (PLG-006 / `discovery-and-exit-criteria.md` §16.2) | ERROR | EI / Sprint Plan |
+| 51 | Sprint signoff row-count mismatch with EI exit criteria (PLG-006 / `discovery-and-exit-criteria.md` §16.3) | BLOCKER | Sprint signoff |
+| 52 | Cross-session dependency not mirrored in task `Depends On` (PLG-007 D2 / `session-plan-requirements.md` §9 cross-session) | BLOCKER | Task Depends On |
+| 53 | Post-scaffold back-propagation missed after task edit (PLG-007 D3 / `session-plan-requirements.md` §9 post-scaffold sync) | ERROR | Task file + EI section |
+| 54 | BLI-cited audit anchor not re-verified before execution (PLG-019 / `verify-against-shipped-artifact.md` §6) | BLOCKER | Orchestration BLI refs |
+| 55 | Cohort token-uplift missing for known high-divergence cohort (PLG-022 / `scaffolding-hygiene.md` §10) | WARNING | Master Plan Sprint Overview Notes |
+| 56 | Cross-tier audit-finding triage table missing (PLG-022 / `discovery-and-exit-criteria.md` §18) | WARNING | Discovery/audit sessions |
