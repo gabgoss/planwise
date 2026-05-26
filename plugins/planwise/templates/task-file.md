@@ -68,6 +68,25 @@ Missing Schema Pin for SQL-emitting tasks = BLOCKER at `/planwise review`.
 2. {Step 2 - specific action}
 3. {Step 3 - specific action}
 
+### Cross-Sprint Prerequisite Grep Gate (Required when this task edits a file already edited by a prior sprint)
+
+When this task edits a file that an earlier sprint of the same plan also edited (per the Sprint Plan's `## Cross-Sprint File Touches` section), Step 1 MUST be a grep gate that verifies the prior sprint's delta marker is present in the file. The gate makes the cross-sprint dependency mechanical: the executor cannot proceed against an outdated baseline.
+
+```bash
+# Step 1: Cross-sprint prerequisite — verify {prior-sprint-task-id} delta landed
+grep -c '{prior-delta-marker}' {path/to/cross-sprint-file.ext}
+# Expected: ≥1 (marker inserted by {prior-sprint-task-id}). If 0 → HALT, prior sprint incomplete.
+```
+
+Authoring rules:
+
+- `{prior-delta-marker}` MUST be specific enough to disambiguate the prior delta from unrelated content (e.g., a row anchor, a named callout, a unique identifier — not a generic word).
+- The HALT message MUST name the specific prior-sprint task ID so the executor knows which sprint is incomplete.
+- If multiple prior sprints touched this file, the gate runs once per prior delta — each with its own grep + HALT pair.
+- The gate is Step 1 (before any read of the file's "Current state" anchor) — anchor reads against an outdated baseline produce false matches that mask the real defect.
+
+Missing prerequisite grep gate when the Sprint Plan declares a Cross-Sprint File Touch for this file = BLOCKER at `/planwise review`.
+
 **Mapping Disambiguation:** When a task creates X→Y mapping logic (enum→domain, type→template, event→category), include either:
 - A complete mapping table in the task file, OR
 - Explicit decision rules with fallback (e.g., "if X matches pattern A → Y1; else → default")

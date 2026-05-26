@@ -71,6 +71,21 @@ Use this template when creating `{Abbrev}-S{XX}-Sprint-Plan.md`.
 
 ---
 
+## Cross-Sprint File Touches <!-- OPTIONAL — include when this sprint edits a file already edited by a prior sprint -->
+
+List every file this sprint edits that was ALSO edited by an earlier sprint of the same plan. Each row pairs the file with the prior sprint's edit so the executor can verify the prior delta landed before applying this sprint's delta.
+
+| File | Prior Sprint Task | Prior Delta Marker (grep target) | This Sprint Adds |
+|------|-------------------|----------------------------------|------------------|
+| `{path/to/file.ext}` | {Abbrev}-S{XX_prior}-{YY}-{##} | `{grep-anchor text the prior sprint inserted}` | {delta this sprint adds} |
+| `{path/to/file2.ext}` | {Abbrev}-S{XX_prior}-{YY}-{##} | `{grep-anchor text}` | {delta this sprint adds} |
+
+The first task in this sprint that edits each listed file MUST include a Step-1 prerequisite grep gate verifying the prior delta marker is present (see `templates/task-file.md` "Cross-Sprint Prerequisite Grep Gate"). If the marker is missing, HALT — the prior sprint is incomplete and this sprint cannot run against the outdated baseline.
+
+When this section is empty (no cross-sprint file touches in this sprint), delete the section entirely rather than leaving an empty table.
+
+---
+
 ## Change Log
 
 | Date | Change | Author |
