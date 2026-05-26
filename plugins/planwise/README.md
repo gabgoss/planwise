@@ -342,7 +342,7 @@ planwise/                           # Plugin root
 
 ### 1.1.0 (planned PPU release)
 
-**New reference files** (5 confirmed + 3 pending user confirmation):
+**New reference files** (5 confirmed + 2 pending user confirmation):
 
 - `references/ei-fidelity.md` — Execution Input fidelity (8 sections)
 - `references/task-content-fidelity.md` — Task content fidelity §9.A + §9.B (21 rules)
@@ -351,7 +351,6 @@ planwise/                           # Plugin root
 - `references/scaffolding-hygiene.md` — Six binding rules for plan scaffolding (with parallel-scaffold deviation classes)
 - `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement *(pending user confirmation)*
 - `references/verify-against-shipped-artifact.md` — Cross-sprint + cross-version symbol verification *(pending user confirmation)*
-- `references/webfetch-registry-fallbacks.md` — Registry / database fetch reliability map *(pending user confirmation)*
 
 **New template:**
 

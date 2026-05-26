@@ -178,7 +178,6 @@ The plugin ships 15 reference files (or 18 if all pending user-confirmation rule
 | 15 | [../references/task-content-fidelity.md](../references/task-content-fidelity.md) | `.claude/rules/planwise/task-content-fidelity.md` | `{planwise_root}/{plans_dir}/**` |
 | 16 | [../references/verification-gates.md](../references/verification-gates.md) | `.claude/rules/planwise/verification-gates.md` | `{planwise_root}/{plans_dir}/**` |
 | 17 | [../references/verify-against-shipped-artifact.md](../references/verify-against-shipped-artifact.md) | `.claude/rules/planwise/verify-against-shipped-artifact.md` | `{planwise_root}/{plans_dir}/**` |
-| 18 | [../references/webfetch-registry-fallbacks.md](../references/webfetch-registry-fallbacks.md) | `.claude/rules/planwise/webfetch-registry-fallbacks.md` | `{planwise_root}/{plans_dir}/**` |
 
 Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with actual values from Step 1.
 
@@ -333,7 +332,6 @@ Rules installed to .claude/rules/planwise/:
   ✓ task-content-fidelity.md
   ✓ verification-gates.md      (if installed)
   ✓ verify-against-shipped-artifact.md (if installed)
-  ✓ webfetch-registry-fallbacks.md (if installed)
 
 Next steps:
   /planwise plan          — Create your first plan
