@@ -103,7 +103,7 @@ Before gathering information, check the user's prompt for **Discovery Mode** and
 |-----------|--------|
 | `--meta` flag present in arguments | **Discovery** |
 | User says "meta-plan", "discovery phase", or "consolidated context" | **Discovery** |
-| User says the context is "too large" or "> 100K" | **Discovery** |
+| User says the context is "too large" or above `meta_plan_threshold` (100K on Pro / 500K on Max — see `references/session-context-budget.md` §5 Threshold Formulas) | **Discovery** |
 
 **Implicit indicators** (recommend Discovery via `AskUserQuestion`):
 
@@ -111,13 +111,13 @@ Before gathering information, check the user's prompt for **Discovery Mode** and
 |-----------|--------|
 | User describes needing to read many source files across multiple domains | **Recommend Discovery** |
 | User says there's "too much to read in one session" or "too much context" | **Recommend Discovery** |
-| Source material spans multiple large files (estimated total > 100K tokens) | **Recommend Discovery** |
+| Source material spans multiple large files (estimated total > `meta_plan_threshold` — 100K on Pro, 500K on Max) | **Recommend Discovery** |
 | User asks to "organize", "consolidate", or "cross-reference" source material | **Recommend Discovery** |
 
 <!-- AUTO-MODE: critical -->
-If **any Discovery implicit indicator** is detected without an explicit indicator, use `AskUserQuestion`:
+If **any Discovery implicit indicator** is detected without an explicit indicator, use `AskUserQuestion`. Resolve `meta_plan_threshold` first by reading `context.context_window` from `config.yaml` (100K on Pro, 500K on Max). Substitute that value into the prompt:
 
-> "Your project appears to require more context than fits in a single session (~100K tokens). The **Meta-Plan Discovery** workflow reads source material across multiple sessions, consolidates findings into structured Consolidated Context Parts, and then scaffolds an Execution Plan from those parts. **Recommended: use Discovery (Meta-Plan).** Proceed with Discovery, Scaffolding (if you already have Consolidated Context parts), or Standard?"
+> "Your project appears to require more context than fits in a single session (above ~{meta_plan_threshold} tokens for this plan tier). The **Meta-Plan Discovery** workflow reads source material across multiple sessions, consolidates findings into structured Consolidated Context Parts, and then scaffolds an Execution Plan from those parts. **Recommended: use Discovery (Meta-Plan).** Proceed with Discovery, Scaffolding (if you already have Consolidated Context parts), or Standard?"
 
 - If user chooses **Discovery** → follow the [Discovery Workflow](#discovery-workflow) below
 - If user chooses **Scaffolding** → follow the [Scaffolding Workflow](#scaffolding-workflow) below
@@ -302,7 +302,7 @@ For each task in the session, compute a bottom-up token estimate:
 2. **Convert to tokens:** Apply ~13 tokens/line (see [Token Estimation Reference](#token-estimation-reference))
 3. **Add output cost:** Estimate output generation tokens from the operation-level table
 4. **Compare:** If the bottom-up estimate exceeds the qualitative category estimate, use the higher number
-5. **DELEGATED check:** For DELEGATED tasks, verify (task estimate + 54K subagent overhead) < 200K
+5. **DELEGATED check:** For DELEGATED tasks, verify `(task estimate + 54K subagent overhead) < context_window` per subagent. Subagents inherit the parent session's tier, so `context_window` comes from `config.yaml` `context.context_window` (defaults to 200,000 when the block is missing). See `references/session-context-budget.md` §5 Threshold Formulas.
 
 Update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates.
 
@@ -484,9 +484,9 @@ Before completing `/planwise plan`, verify:
 [ ] Outputs/ folder created
 [ ] All files follow naming conventions
 [ ] Plans index updated with new row (Abbrev, Name, Status, Created, Last Updated, Path)
-[ ] Session token estimates validated (< 100K per session)
+[ ] Session token estimates validated (< `practical_session_limit` per session — 100K on Pro, 400K on Max; see `references/session-context-budget.md` §5)
 [ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
-[ ] If DELEGATED: each task estimate + 54K overhead < 200K
+[ ] If DELEGATED: each task estimate + 54K overhead < `context_window` (200K on Pro, 1M on Max)
 [ ] Execution Strategy declared in Orchestration (DIRECT or DELEGATED)
 [ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED
 [ ] If DELEGATED: Orchestration Required Context = plan files only
@@ -908,27 +908,31 @@ Orchestration and Recovery files inside `Meta-{Abbrev}/` use the standard naming
 
 ### Session Limits
 
-**Available for work:** ~100K (after system overhead)
+**Available for work:** scales by tier. On Pro: ~100K. On Max: ~900K (with a 400K practical session cap). See `references/session-context-budget.md` §5 Tier-Specific Budget Table.
 
-| Pattern | Initial Load | Growth | Total | Guideline |
-|---------|--------------|--------|-------|-----------|
+The pattern thresholds below are expressed for the Pro tier (the backward-compatible default). On Max, multiply by `available_for_work / 100_000` and cap "Too Large" at `meta_plan_threshold` (500K, not 9×).
+
+| Pattern | Initial Load (Pro) | Growth | Total (Pro) | Guideline |
+|---------|--------------------|--------|-------------|-----------|
 | Discovery | < 30K | +40-50K | ~70-80K | Don't know files upfront |
 | Planned | 30-70K | +10-20K | ~80-90K | Know most files upfront |
 | Front-loaded | 70-90K | +5-10K | ~95-100K | Know all files upfront |
-| **Too Large** | > 100K | - | - | **MUST use Meta-Plan** |
+| **Too Large** | > `meta_plan_threshold` | - | - | **MUST use Meta-Plan** |
 
 ### Task Sizing Categories
 
-| Task Size | Token Estimate | Guideline |
-|-----------|----------------|-----------|
+The task-size thresholds below are expressed for the Pro tier. On Max, scale by the same ratio used for session limits — a "Too Large" task on Pro is ~80% of `practical_session_limit`. The "always split a task above 80% of one session" principle is tier-invariant.
+
+| Task Size | Token Estimate (Pro) | Guideline |
+|-----------|---------------------|-----------|
 | Small | < 20K | Single file, simple lookup |
 | Medium | 20-50K | Multi-file, code generation |
 | Large | 50-80K | Complex analysis, multiple entities |
-| Too Large | > 80K | **MUST SPLIT** |
+| Too Large | > 80K (Pro) / > 320K (Max practical) | **MUST SPLIT** |
 
 **These categories are a cross-check, not the primary estimate.** Always compute the bottom-up estimate first, then compare against the category. Use the HIGHER of the two.
 
-**Note:** Session limits (~100K) apply to DIRECT mode in the main conversation. In DELEGATED mode, each task-runner subagent gets a fresh context budget. Verify: (task estimate + 54K overhead) < 200K per subagent.
+**Note:** Session limits apply to DIRECT mode in the main conversation. In DELEGATED mode, each task-runner subagent gets a fresh context budget at the parent's tier. Verify: `(task estimate + 54K overhead) < context_window` per subagent (200K on Pro, 1M on Max).
 
 ### Token Estimation Reference
 
@@ -969,8 +973,11 @@ Use this table to compute bottom-up token estimates for each task.
 
 ```
 Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)
-DELEGATED check: Task Estimate + 54K overhead < 200K per subagent (standard context)
+DELEGATED check: Task Estimate + 54K overhead < context_window per subagent
+                 (read from config.yaml: context.context_window — defaults to 200000)
 ```
+
+Subagents inherit the parent session's tier. On Pro, `context_window = 200000`; on Max, `1000000`. See `references/session-context-budget.md` §5 Threshold Formulas.
 
 ---
 

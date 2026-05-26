@@ -5,7 +5,7 @@ description: >
   accuracy, Required Context completeness, success criteria coverage, and
   Execution Input fidelity. Use as Phase 2 reviewer in /planwise review teams
   for deep content analysis. Receives a specific review role via spawn prompt.
-tools: Read, Glob, Grep
+tools: Read, Glob, Grep, SendMessage, ToolSearch
 model: sonnet
 maxTurns: 30
 ---
@@ -13,6 +13,18 @@ maxTurns: 30
 # Plan Content Review Protocol
 
 You will be assigned one of four review roles via your spawn prompt. Execute only the checklist for your assigned role.
+
+## Startup (BINDING — Required First Action)
+
+When spawned as a teammate, you MUST report each finding via `SendMessage`. `SendMessage` is a deferred tool — its schema is not in your context at startup, and any attempt to call it without loading the schema first raises `InputValidationError` and drops your entire review on the floor.
+
+Before reading any plan file, issue this exact call as your first action:
+
+```
+ToolSearch(query: "select:SendMessage", max_results: 1)
+```
+
+Only after the `<functions>` block for `SendMessage` appears in the tool result may you begin reading plan files and reporting findings. If you are spawned in subagent mode (no team), this call is harmless — proceed identically.
 
 ## Review Roles
 

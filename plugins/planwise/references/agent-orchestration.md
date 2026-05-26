@@ -447,7 +447,7 @@ These constraints are empirically verified. The enforcement mechanism column exp
 | 5 | No EnterPlanMode/ExitPlanMode in spawned contexts | Tool restriction | Cannot enter plan mode | Plan in main session before delegating |
 | 6 | Path-specific rules are main-session-only | Path rule loading requires OWN file activity [LoadTest-07] | Spawned contexts see only global rules | Include rule content explicitly in task prompt |
 | 7 | MCP unavailable in background subagents | Background execution mode restriction | Cannot use external systems | Run in foreground if MCP tools are required |
-| 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate [LL-001-PROC] | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
+| 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
 | 8 | Skill discovery ≠ system-prompt injection | File system access (Glob on `.claude/skills/`) | Mid-session agents not discoverable as subagent_type | Use `skills:` frontmatter to inject domain knowledge; all contexts discover existing skills via FS |
 | 9 | Teammate identity is Agent SDK, not CC CLI | System prompt differentiation at spawn time | Teammates self-identify differently; less "Claude Code aware" | Design teammates as workers; orchestrate from main session |
 
@@ -455,7 +455,7 @@ These constraints are empirically verified. The enforcement mechanism column exp
 
 > **Constraint 8 — skills note:** The `skills:` frontmatter field injects SKILL.md content into the agent's context at startup — use it for domain knowledge needed immediately. It does not restrict which skills the agent can discover; all contexts with file system access can discover all project skills regardless of the `skills:` field.
 
-> **Constraint 10 — background pre-approval detail [LL-001-PROC]:** Background subagents use an upfront pre-approval gate: before launch, Claude Code prompts for all permissions the agent will need. At runtime, anything not pre-approved is auto-denied — the tool call fails silently but the agent continues executing. `bypassPermissions` mode does NOT override this gate. Practical consequence: task-runner agents that write output files MUST run in foreground. Background mode is only safe for read-only operations (Explore, research).
+> **Constraint 10 — background pre-approval detail:** Background subagents use an upfront pre-approval gate: before launch, Claude Code prompts for all permissions the agent will need. At runtime, anything not pre-approved is auto-denied — the tool call fails silently but the agent continues executing. `bypassPermissions` mode does NOT override this gate. Practical consequence: task-runner agents that write output files MUST run in foreground. Background mode is only safe for read-only operations (Explore, research).
 
 > **Constraint 10 — background pre-approval hazard (PLG-012 operational guidance):** Design background agents for read-only operations only. Before launching a background agent that you believe needs Write/Edit/Bash, convert it to foreground mode. The pre-approval gate cannot be bypassed by prompting or by `bypassPermissions` mode — both are enforced at the runtime layer, not the policy layer.
 
@@ -735,7 +735,60 @@ When N DELEGATED dispatches in a single session must write the same target (a sh
 > Dispatch Task 04 → returns "delta: +rows 15-19" → orchestrator writes
 > ```
 
-### 11.14 Orchestrator-Only Review Commands (LL-057)
+#### Recovery File in Parallel DELEGATED Dispatch (PLG-020 supplemental)
+
+The §11.13 cap (≤4 parallel for shared targets) addresses **task output files**, not the Recovery file. The Recovery file is a structurally shared edit target for every DELEGATED task-runner in a session — applying the cap to it would wrongly serialize all parallelizable independent tasks.
+
+For Recovery specifically, **Option C is the binding default whenever 3 or more task-runners dispatch in parallel.** Task-runners do NOT touch the Recovery file in this mode; the orchestrator reconciles Recovery centrally after all parallel runners return. This applies regardless of whether each runner's *output* files are disjoint.
+
+> [!constraint] Parallel-Dispatch Recovery Reconciliation
+> When dispatching 3+ task-runners in parallel within a single DELEGATED session:
+>
+> **Task-runner contract (MUST appear in every spawn prompt):**
+> ```markdown
+> ## PARALLEL DISPATCH — Recovery Handling
+> Do NOT read, edit, or write the Recovery file during this task.
+> Return your completion as the structured status block below in your FINAL message.
+> The orchestrator reconciles Recovery centrally after all parallel runners return.
+>
+> ## Status Block (required final-message format)
+> ```
+> TASK_STATUS:   COMPLETE | BLOCKED | PARTIAL
+> TASK_ID:       {Abbrev}-S{XX}-{YY}-{##}
+> OUTPUT_FILES:  {comma-separated absolute paths actually written}
+> LINES_PRODUCED: {sum of lines across output files}
+> KEY_FINDINGS:  {2-5 short bullets — preserved across compaction}
+> ISSUES:        {one line per issue, or "none"}
+> ```
+> ```
+>
+> **Orchestrator contract (single writer):**
+> 1. Dispatch all parallel-eligible task-runners (no inter-dependencies among them)
+> 2. Wait for ALL to return their status blocks
+> 3. Parse each status block; verify referenced OUTPUT_FILES exist on disk
+> 4. Write Recovery ONCE: add one Step Completion row per task, append KEY_FINDINGS, append OUTPUT_FILES to the Files Modified section, append a Change Log row per task with a single timestamp window
+> 5. Only then advance Current Step and dispatch the next dependency layer
+>
+> **WRONG — task-runners race on Recovery:**
+> ```
+> Dispatch Task 03 (parallel) ─┐
+> Dispatch Task 04 (parallel) ─┼ each calls Edit on Recovery file
+> Dispatch Task 05 (parallel) ─┘
+> # last write wins; Task 03 and 04 completion rows are silently lost
+> ```
+>
+> **CORRECT — task-runners return status blocks; orchestrator writes once:**
+> ```
+> Dispatch Task 03 (parallel) → status block (no Recovery write) ─┐
+> Dispatch Task 04 (parallel) → status block (no Recovery write) ─┼─► orchestrator reconciles Recovery once
+> Dispatch Task 05 (parallel) → status block (no Recovery write) ─┘
+> ```
+
+> [!pitfall] Sequential-Phase Tail After Parallel Dispatch
+> **Problem:** A session that runs 3+ parallel runners followed by a single sequential verification task. If the verifier follows the standard Recovery-write protocol (§4 of task-runner contract), Recovery gets written twice — once by the orchestrator's reconciliation, once by the verifier — and the second write may clobber the first if the verifier read Recovery before reconciliation completed.
+> **Solution:** Reconcile Recovery centrally BEFORE dispatching the sequential tail. The tail task may then write Recovery directly per the normal §4 protocol — it runs alone, so no race exists.
+
+### 11.14 Orchestrator-Only Review Commands
 
 Slash-commands that themselves spawn review agents (`/simplify`, `/code-review`, and similar multi-agent review skills) CANNOT run inside a task-runner subagent. Per Constraint 1 (§10), the Task tool is stripped from all non-main contexts at spawn time, so a subagent has no way to spawn the review agents the command depends on; the call resolves to "Unknown subcommand" or fails silently.
 
@@ -759,7 +812,7 @@ A DELEGATED task-runner does an INLINE self-review — it applies the review len
 > # orchestrator, after task-runner returns: Skill(code-review) (or /simplify) on the diff.
 > ```
 
-### 11.15 Delegated Code Task-Runners Build LAST (LL-057)
+### 11.15 Delegated Code Task-Runners Build LAST
 
 In a DELEGATED code task, the build/verification command is the FINAL step — after any inline self-review edits. This guarantees the reported build result reflects what is actually on disk. A task-runner that builds, then edits, then reports "build clean" has published a stale verification: the build predates the final code, and any post-build edit could silently invalidate the gate.
 

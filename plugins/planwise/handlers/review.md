@@ -187,6 +187,8 @@ Task(
   name: "structural-reviewer",
   subagent_type: "planwise:structural-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     You are reviewing plan {Abbrev} for structural integrity.
 
     Plan type: {Standard | Meta-Plan}
@@ -235,6 +237,8 @@ Task(
   name: "ei-reviewer-{N}",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     You are reviewing plan {Abbrev} for EI content integrity.
     Your assigned role: EI Reviewer
 
@@ -267,6 +271,8 @@ Task(
   name: "task-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     You are reviewing plan {Abbrev} for task quality.
     Your assigned role: Task Reviewer
 
@@ -291,6 +297,8 @@ Task(
   name: "dependency-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     You are reviewing plan {Abbrev} for dependency accuracy.
     Your assigned role: Dependency Reviewer
 
@@ -313,6 +321,8 @@ Task(
   name: "coverage-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     You are reviewing plan {Abbrev} for requirement coverage.
     Your assigned role: Coverage Reviewer
 
@@ -336,6 +346,8 @@ Task(
   name: "scaffolding-hygiene-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     Your assigned role: Scaffolding Hygiene Reviewer
     Execute Checks 046-050 from your protocol.
     ...
@@ -349,6 +361,8 @@ Task(
   name: "design-extension-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     Your assigned role: Design-Extension Reviewer
     Execute Checks 051-054 from your protocol.
     ...
@@ -400,7 +414,7 @@ Task(
 
 ## Reviewer Prompt Template
 
-Every reviewer spawn prompt MUST include these six elements:
+Every reviewer spawn prompt MUST include these seven elements:
 
 1. **Plan context:** abbreviation, type (Standard / Meta-Plan), global numbering scheme note
 2. **Scope:** explicit file paths to read (never assume inherited context)
@@ -416,6 +430,12 @@ Every reviewer spawn prompt MUST include these six elements:
    ```
 5. **Uncertainty protocol:** flag `[UNCERTAIN]` for MEDIUM or LOW confidence; check Known Patterns Whitelist first before flagging
 6. **Completion signal:** "Phase {N} complete, {M} findings reported"
+7. **Tool pre-load (BINDING for team-mode spawns):** the first instruction line in the spawn prompt MUST be `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` `SendMessage` is a deferred tool; without the schema loaded, the reviewer's findings cannot be delivered. The reviewer's agent definition already carries this rule in its own `## Startup` section — the spawn-prompt instruction is the belt-and-braces gate.
+
+> [!constraint] Spawn prompts MUST front-load the SendMessage schema load
+> WRONG — spawn prompt opens with `You are reviewing plan {Abbrev} ...` and the reviewer attempts `SendMessage(finding)` after its first read. The deferred-tool schema was never fetched; the call raises `InputValidationError` and the entire review (40-70K tokens of work for an EI reviewer) is silently lost — the lead never receives a "Phase complete" DM.
+>
+> CORRECT — spawn prompt opens with `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` followed by the role/scope/checklist content. Schema lands before any reporting attempt; the reviewer's DMs are delivered.
 
 > [!pitfall] Context Not Inherited
 > **Problem:** Subagents and teammates start with fresh context -- they do NOT inherit the lead's file reads, research, or analysis.
@@ -644,3 +664,6 @@ Quick reference for common patterns and their correct classification.
 | 54 | BLI-cited audit anchor not re-verified before execution (PLG-019 / `verify-against-shipped-artifact.md` §6) | BLOCKER | Orchestration BLI refs |
 | 55 | Cohort token-uplift missing for known high-divergence cohort (PLG-022 / `scaffolding-hygiene.md` §10) | WARNING | Master Plan Sprint Overview Notes |
 | 56 | Cross-tier audit-finding triage table missing (PLG-022 / `discovery-and-exit-criteria.md` §18) | WARNING | Discovery/audit sessions |
+| 57 | EI multi-sprint cumulative state not reconciled (`ei-fidelity.md` §9.1) | BLOCKER | Later-sprint EI Current state block + Sprint Plan Cross-Sprint File Touches + task-file Step-1 prerequisite grep gate |
+| 58 | EI repoint map cluster incomplete — fewer enumerated rows than audit cluster cites (`ei-fidelity.md` §9.2) | BLOCKER | EI repoint map vs audit cluster |
+| 59 | EI audit-grep-table coverage gap — verification scope wider than upstream repair scope (`ei-fidelity.md` §9.3) | BLOCKER | EI verification task vs repair task Required Context |

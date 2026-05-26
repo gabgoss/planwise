@@ -225,13 +225,23 @@ For large-scope or architectural items:
    ```bash
    git diff
    ```
+
+2. **Self-containment grep gate (BINDING when the BB touches content-bearing artifacts):** If the diff includes any added or modified files under `.claude/rules/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/commands/**`, or `CLAUDE.md`, run the grep from [`references/artifact-self-containment.md` §4](../references/artifact-self-containment.md#4-mechanical-verification) on the changed files:
+
+   ```bash
+   grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' {changed-content-artifact-paths}
+   # MUST return zero matches.
+   ```
+
+   If matches → mark VERIFY as failing, return the grep output to the fix-agent (Route A) or open a follow-up task (Route B) requesting the cited content be inlined. Do NOT proceed to step 3 with grep hits outstanding. A BB whose diff touches ONLY bookkeeping zones (lessons index, backlog index, lesson frontmatter, BB Notes) skips this gate. See [§4.1](../references/artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover) for the exempt zones.
+
 <!-- AUTO-MODE: critical -->
-2. Use `AskUserQuestion`:
+3. Use `AskUserQuestion`:
    - **Approve** — Accept changes, mark COMPLETE
    - **Revert** — Discard changes, mark NOT_STARTED
    - **Skip** — Keep changes, don't update status
 
-3. If Revert:
+4. If Revert:
    ```bash
    git checkout -- {list of modified files}
    ```

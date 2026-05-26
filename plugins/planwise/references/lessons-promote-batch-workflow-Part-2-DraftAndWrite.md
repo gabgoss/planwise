@@ -30,11 +30,13 @@ If a Phase 1 read was missed (e.g., a lesson surfaced via decomposition only aft
 
 ### 5.2 The self-containment principle (BINDING)
 
+**Canonical reference:** [artifact-self-containment.md](artifact-self-containment.md) is the canonical doc for the self-containment rule. It states the asymmetry between content-bearing artifacts (rules, agents, handlers, CLAUDE.md callouts) and bookkeeping artifacts (indexes, promotion logs, BB Notes), and defines the mechanical grep gate. The examples below specialise that rule for the promote-batch workflow context.
+
 > [!constraint] Promoted Artefacts Are Self-Contained
 > WRONG — rule body cites the lesson it came from, leaving the lesson as a load-bearing reference:
 > ```markdown
 > ## §1. Schema Pin requirement
-> Per LL-050, every task file must include a Schema Pin (see LL-050 for the
+> Per LL-X, every task file must include a Schema Pin (see LL-X for the
 > WRONG/CORRECT examples and the construction recipe).
 > ```
 > CORRECT — rule body inlines every WRONG/CORRECT example, recipe, and command from the source lessons. The lesson file becomes archival and is NOT cited:
@@ -51,18 +53,18 @@ If a Phase 1 read was missed (e.g., a lesson surfaced via decomposition only aft
 This applies in both directions:
 
 1. **Rules never contain `see LL-XXX` references.** If LL-X's content is needed, it is inlined verbatim in the rule body (or a paraphrase that preserves all WRONG/CORRECT examples and verification commands). If not, the rule does NOT mention LL-X at all.
-2. **CLAUDE.md callouts describe the trigger and consequence in plain language.** They point at rules, not lessons. They never reason like *"Reason: LL-020 (timezone-mismatch...)"* — they state the reason directly.
+2. **CLAUDE.md callouts describe the trigger and consequence in plain language.** They point at rules, not lessons. They never reason like *"Reason: LL-X (timezone-mismatch...)"* — they state the reason directly.
 
 > [!constraint] Out-of-Scope Lessons Are Not Cited
 > WRONG — BB's rule design includes a "§N. Cross-references" section listing related lessons that were not promoted:
 > ```markdown
 > ## §5. Cross-references
-> Related lessons: LL-038 (field-name audit), LL-046 (orchestrator verify).
+> Related lessons: LL-X (field-name audit), LL-Y (orchestrator verify).
 > ```
 > CORRECT — out-of-scope lessons are mentioned ONLY in the BB's "Notes" section as a planning artefact (the BB itself, not the rule). The rule body does not include any cross-reference section pointing at lessons:
 > ```markdown
 > ## Notes (in the BB file)
-> - **Out of scope (intentionally NOT promoted in this BB):** LL-038, LL-046.
+> - **Out of scope (intentionally NOT promoted in this BB):** LL-X, LL-Y.
 >   They share themes with this rule but describe a different layer; they
 >   remain as standalone documented lessons. The rule does NOT cite them.
 > ```
@@ -97,13 +99,13 @@ The Notes section is the only place where lessons NOT promoted **by THIS specifi
 **(a) Lesson decomposed across BBs** — the lesson is fully accounted for, but other fragments live in sibling BBs:
 
 ```markdown
-- **Decomposed across BBs:** LL-058 fragments split across this BB (READ-CONFIRM-ACT enforcement) + BB-{P} (structural-reviewer extension) + BB-{Q} (post-scaffold hook). LL-058 status flips to `rule` only when ALL three BBs ship.
+- **Decomposed across BBs:** LL-X fragments split across this BB ({fragment-1 description}) + BB-{P} ({fragment-2 description}) + BB-{Q} ({fragment-3 description}). LL-X status flips to `rule` only when ALL three BBs ship.
 ```
 
 **(b) Lesson owned by another active BB** — already excluded in Part-1 §3.2 step 5; mention only for traceability:
 
 ```markdown
-- **Owned by other active BB (excluded from this batch run):** LL-074, LL-075 → BB-051 (IN_PROGRESS).
+- **Owned by other active BB (excluded from this batch run):** LL-X, LL-Y → BB-{Z} (IN_PROGRESS).
 ```
 
 > [!constraint] No "Stays Documented" Without an Owner
@@ -251,7 +253,7 @@ Emit a markdown summary with three sections:
 > - [ ] CLAUDE.md updated per Deliverable 3
 > - [ ] {N} lesson frontmatters updated; {N} rows added to Rule Promotion Log
 > - [ ] {regression checks specific to this BB's domain}
-> - [ ] `grep -rn "LL-[0-9]\{3\}" .claude/rules/{path}.md` returns zero matches (rule self-containment check)
+> - [ ] `grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' .claude/rules/{path}.md .claude/agents/{paths-touched} .claude/skills/{paths-touched} .claude/commands/{paths-touched} CLAUDE.md` returns zero matches (artifact self-containment check — see `references/artifact-self-containment.md` §4)
 > - [ ] `/planwise lessons curate` reports no anomalies after the run
 >
 > ## Notes
@@ -266,24 +268,31 @@ Emit a markdown summary with three sections:
 
 ## 8. Self-Containment Verification
 
-Every BB's Acceptance Criteria MUST include a mechanical grep check that catches accidental LL references in the rule files at execution time:
+**Canonical reference:** [artifact-self-containment.md §4 Mechanical Verification](artifact-self-containment.md#4-mechanical-verification) defines the canonical grep — it covers BOTH `LL-NNN` and `BB-NNN` patterns and scans rules, agents, skills, handlers/commands, AND `CLAUDE.md`. Every BB drafted by this workflow MUST include that grep as an Acceptance Criterion. The minimal acceptance row to insert into a BB drafted by this workflow:
 
-> [!verify] Rule Self-Containment Grep
+> [!verify] Self-Containment Grep (BB Acceptance Row)
 > ```bash
-> # For each rule file produced or extended by this BB:
-> grep -rn "LL-[0-9]\{3\}" .claude/rules/{path}.md
+> # Bash / POSIX — replace {paths-touched} with the files this BB writes:
+> grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' \
+>   .claude/rules/{paths-touched} \
+>   .claude/agents/{paths-touched} \
+>   .claude/skills/{paths-touched} \
+>   .claude/commands/{paths-touched} \
+>   CLAUDE.md
 > # MUST return zero matches.
 > ```
 >
-> PowerShell equivalent (Windows shells):
 > ```powershell
-> Select-String -Path .claude/rules/{path}.md -Pattern 'LL-[0-9]{3}'
+> # PowerShell (Windows shells):
+> Get-ChildItem -Path .claude/rules, .claude/agents, .claude/skills, .claude/commands, CLAUDE.md `
+>   -Recurse -Include *.md `
+>   | Select-String -Pattern '(LL-\d{3}|BB-\d{3})'
 > # MUST return zero matches.
 > ```
 
-If grep returns matches, the BB executor must inline the cited lesson content into the rule body or remove the reference. The check is binary — any LL reference in any rule body is a fail.
+If grep returns matches, the BB executor MUST inline the cited content into the rule body or remove the reference. The check is binary — any `LL-NNN` or `BB-NNN` reference in any content-bearing artifact is a fail.
 
-This check is what prevents the BB from drifting back into "see LL-XXX" cross-references during implementation. Do not omit it.
+This check is what prevents the BB from drifting back into "see LL-XXX" or "per BB-XXX" cross-references during implementation. Do not omit it. See [artifact-self-containment.md §4.1](artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover) for the exempt zones (lessons/backlog dirs, README changelog, plugin-internal design labels) and [§7 Exemptions](artifact-self-containment.md#7-exemptions) for handling the rare legitimate sample/placeholder patterns.
 
 ---
 

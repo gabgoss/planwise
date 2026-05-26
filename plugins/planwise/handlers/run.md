@@ -224,8 +224,10 @@ Task(
 
 > [!binding] Recovery Update After EVERY Task
 > Update the recovery file AFTER EACH TASK completes -- never batch updates.
+>
+> **Parallel-dispatch exception:** When dispatching 3+ task-runners in parallel within a DELEGATED session, the runners do NOT write Recovery — the orchestrator (you) reconciles Recovery centrally after the parallel batch returns. See [Parallel Dispatch Branch](#parallel-dispatch-branch-delegated) below and `references/agent-orchestration.md` §11.13 Recovery-file subsection. The "after EVERY task" rule still holds at batch granularity: reconcile Recovery once before dispatching the next dependency layer.
 
-After each task completes (DIRECT or DELEGATED):
+After each task completes (DIRECT or DELEGATED, sequential):
 
 1. **Recovery file** -- update immediately:
    - Mark task COMPLETE with timestamp
@@ -236,6 +238,19 @@ After each task completes (DIRECT or DELEGATED):
 2. **TaskList** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
 3. **Verify output** -- confirm expected output files were written (if applicable)
 4. **THEN** proceed to next task
+
+After a **parallel batch** of 3+ task-runners returns:
+
+1. Parse the status block from each runner's final message (schema: `TASK_STATUS / TASK_ID / OUTPUT_FILES / LINES_PRODUCED / KEY_FINDINGS / ISSUES`)
+2. Verify referenced OUTPUT_FILES exist on disk for every COMPLETE row
+3. **Recovery file** -- write ONCE for the entire batch:
+   - One Step Completion row per task in the batch, all with the reconciliation timestamp
+   - Append every runner's KEY_FINDINGS to the "Key Findings" section
+   - Append every runner's OUTPUT_FILES to the "Files Modified" section
+   - One Change Log row per task (or one batch row noting the parallel group)
+   - Update "Current Step" to the next dependency layer
+4. **TaskList** -- mark every batch task `completed`
+5. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch)
 
 ### Step 3.4: Handle Task Failure
 
@@ -423,44 +438,101 @@ When the orchestration's Execution Strategy section declares DELEGATED mode, you
 | Actor | Reads | Never Reads |
 |-------|-------|-------------|
 | Orchestrator (you) | Orchestration, Recovery, task files | Consolidated Context parts, Execution Inputs, reference docs, source code |
-| Task-runner agent | Task Required Context files, task file | Other tasks' context, Recovery file (except for its own update) |
+| Task-runner agent (sequential dispatch) | Task Required Context files, task file | Other tasks' context, Recovery file (except for its own update) |
+| Task-runner agent (parallel dispatch, 3+ runners) | Task Required Context files, task file | Other tasks' context, **the Recovery file (do NOT read or write — return a status block instead)** |
 
 ### Step-by-Step (DELEGATED)
 
 1. Read plan files only: Orchestration + Recovery + all task files
 2. Output CONTEXT LOADED confirmation block
 3. Ask user to proceed (standard READ-CONFIRM-ACT)
-4. For each task (sequential, respecting dependencies):
-   a. Build spawn prompt with all task parameters (see Phase 3, Step 3.2)
-   b. Launch `task-runner` agent:
-      ```
-      Task(
-        subagent_type: "planwise:task-runner",
-        description: "Execute task {task-num}: {task-name}",
-        model: "{agent-from-task-file}",
-        prompt: |
-          Execute the following task:
+4. Identify the next dependency layer (group of tasks whose `Depends On` are all COMPLETE)
+5. Choose dispatch mode for that layer:
+   - **Sequential** — 1 or 2 tasks in the layer, OR any layer task targets a file another layer task also targets (output-file collision)
+   - **Parallel** — 3+ tasks in the layer with no inter-dependencies and disjoint output files (see [Parallel Dispatch Branch](#parallel-dispatch-branch-delegated))
+6. Dispatch the layer per the chosen mode (see subsections below)
+7. After the layer completes, return to step 4 for the next layer
+8. Cleanup: generate summary, prompt for lessons, git commit (Phase 4)
 
-          Task file: {task-file-absolute-path}
-          Session ID: {session-id}
-          Abbreviation: {abbrev}
-          Recovery file: {recovery-file-absolute-path}
-          Output directory: {output-dir-absolute-path}
-      )
-      ```
-   c. Wait for task-runner to return
-   d. Read updated recovery file -- check task status
-   e. If BLOCKED: decide proceed or halt based on dependencies
-   f. If COMPLETE: update TaskList, proceed to next task
-5. Cleanup: generate summary, prompt for lessons, git commit (Phase 4)
+#### Sequential Branch (DELEGATED)
+
+For each task in the layer (respecting any intra-layer dependencies):
+
+a. Build spawn prompt with all task parameters (see Phase 3, Step 3.2)
+b. Launch `task-runner` agent:
+   ```
+   Task(
+     subagent_type: "planwise:task-runner",
+     description: "Execute task {task-num}: {task-name}",
+     model: "{agent-from-task-file}",
+     prompt: |
+       Execute the following task:
+
+       Task file: {task-file-absolute-path}
+       Session ID: {session-id}
+       Abbreviation: {abbrev}
+       Recovery file: {recovery-file-absolute-path}
+       Output directory: {output-dir-absolute-path}
+   )
+   ```
+c. Wait for task-runner to return
+d. Read updated recovery file -- check task status
+e. If BLOCKED: decide proceed or halt based on dependencies
+f. If COMPLETE: update TaskList, proceed to next task
+
+#### Parallel Dispatch Branch (DELEGATED)
+
+Trigger: a dependency layer has 3+ tasks with no inter-dependencies and disjoint output files. (For 1-2 tasks, use the Sequential Branch — coordination overhead outweighs the gain.)
+
+a. For each task in the layer, build a spawn prompt that includes the **PARALLEL DISPATCH addendum** below in addition to the standard parameters.
+b. Launch all task-runners in the layer in a single message (multiple Task tool calls in one assistant turn — they run concurrently):
+   ```
+   Task(
+     subagent_type: "planwise:task-runner",
+     description: "Execute task {task-num} (parallel batch): {task-name}",
+     model: "{agent-from-task-file}",
+     prompt: |
+       Execute the following task:
+
+       Task file: {task-file-absolute-path}
+       Session ID: {session-id}
+       Abbreviation: {abbrev}
+       Output directory: {output-dir-absolute-path}
+
+       ## PARALLEL DISPATCH — Recovery Handling
+       Do NOT read, edit, or write the Recovery file during this task.
+       Return your completion as the structured status block below in your FINAL message.
+       The orchestrator reconciles Recovery centrally after all parallel runners return.
+
+       ## Status Block (required final-message format)
+       TASK_STATUS:    COMPLETE | BLOCKED | PARTIAL
+       TASK_ID:        {task-id}
+       OUTPUT_FILES:   {comma-separated absolute paths actually written}
+       LINES_PRODUCED: {sum of lines across output files}
+       KEY_FINDINGS:   {2-5 short bullets — preserved across compaction}
+       ISSUES:         {one line per issue, or "none"}
+   )
+   ```
+
+   Note that the spawn prompt for parallel-mode runners OMITS the `Recovery file:` parameter — the runner must not touch it.
+c. Wait for ALL parallel runners to return their status blocks.
+d. Reconcile Recovery centrally per Step 3.3 "After a parallel batch" instructions: parse each status block, verify OUTPUT_FILES on disk, write Recovery ONCE for the whole batch.
+e. If any task returned BLOCKED or PARTIAL: decide proceed or halt based on downstream dependencies. Mark BLOCKED tasks IN_PROGRESS in TaskList (do NOT mark `completed`).
+f. Advance to the next dependency layer.
+
+> [!pitfall] Mixed-Mode Layer
+> **Problem:** A dependency layer with 4 tasks where two write the same output file. Dispatching all 4 in parallel races on the shared output file (separate from the Recovery-file question). Splitting into "3 parallel + 1 sequential" is awkward and error-prone.
+> **Solution:** Apply `references/agent-orchestration.md` §11.13 to the *output files*: if any two tasks in the layer share an output target, the layer is NOT parallel-eligible — fall back to the Sequential Branch for the whole layer, or split the offending task pair into a separate sub-layer.
 
 ### Anti-Patterns
 
 > [!antipattern] Delegated Mode Anti-Patterns
 > - **Orchestrator reads Consolidated Context:** Blows context budget; task-runners duplicate the read
-> - **Skip Recovery between tasks:** Context compaction loses progress
+> - **Skip Recovery between tasks (sequential dispatch):** Context compaction loses progress
+> - **Skip Recovery reconciliation after a parallel batch:** Context compaction loses the entire batch; status blocks were returned but never persisted
 > - **Combine tasks in one task-runner:** Defeats fresh-context purpose
-> - **Launch Task N+1 before Recovery updated:** Compaction loses Task N completion
+> - **Launch sequential Task N+1 before Recovery updated:** Compaction loses Task N completion
+> - **Allow parallel task-runners to write Recovery:** Last-write-wins races silently drop completion rows
 > - **Orchestrator produces task outputs:** Context accumulates; no fresh budget benefit
 > - **Infer DELEGATED at runtime:** Planning should have set this; warn user and re-plan if needed
 

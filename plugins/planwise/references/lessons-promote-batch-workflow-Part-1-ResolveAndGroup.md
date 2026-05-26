@@ -111,7 +111,7 @@ Before doing any further work, emit a short table to the chat:
 | ID | Bucket | Severity | Status | Title |
 |----|--------|----------|--------|-------|
 | LL-... | A | HIGH | in scope | ... |
-| LL-... | B | MEDIUM | excluded — owned by BB-051 (IN_PROGRESS) | ... |
+| LL-... | B | MEDIUM | excluded — owned by BB-{Y} (IN_PROGRESS) | ... |
 ```
 
 ### 3.4 Read every in-scope lesson body in full (BINDING)
@@ -163,28 +163,28 @@ Within one BB, lessons can target multiple deliverables. Decide each lesson's de
 > WRONG — a lesson the workflow accepted into scope is left in `documented` status with the BB's Notes section saying "stays documented, no project-side fix":
 > ```markdown
 > ## Notes
-> - LL-001 (background subagents auto-deny `Write`/`Bash`) stays documented:
->   Claude Code platform constraint with no project-side fix.
+> - LL-X (a Claude Code platform constraint, e.g., a tool the runtime auto-denies) stays documented:
+>   Platform constraint with no project-side fix.
 > ```
 > This is the `documented`-as-limbo failure mode. The lesson re-surfaces in the next `/planwise lessons promote-batch --all-documented` run, and the next, indefinitely.
 >
-> CORRECT — even platform constraints land in a destination row of the table above. LL-001 belongs as a `> [!hazard]` operational-guidance entry in `agent-orchestration.md` ("Background subagents auto-deny `Write`/`Bash`; keep write-producing agents in foreground"). Status flips to `rule` once the hazard callout lands.
+> CORRECT — even platform constraints land in a destination row of the table above. LL-X belongs as a `> [!hazard]` operational-guidance entry in `agent-orchestration.md` (a short statement of the constraint + its operational workaround). Status flips to `rule` once the hazard callout lands.
 >
 > The only valid reason for an in-scope lesson to remain `documented` AFTER this workflow run is: another active BB in `{backlog_dir}/` already owns it (caught by §3.2 step 5; the lesson was already excluded). Anything else is the limbo failure.
 
 ### 4.3 Bundling rule
 
 > [!practice] Prefer One Rule per Cluster
-> When 2+ lessons share a root cause (e.g., LL-040, LL-042, LL-044 all surface from "Ruff and Pyright are independent gates"), bundle them into ONE rule rather than producing N near-duplicate rules. The rule body inlines all WRONG/CORRECT examples from each lesson, organised by sub-section.
+> When 2+ lessons share a root cause (e.g., LL-X, LL-Y, LL-Z all surface from one root cause like "two independent lint/type gates"), bundle them into ONE rule rather than producing N near-duplicate rules. The rule body inlines all WRONG/CORRECT examples from each lesson, organised by sub-section.
 
 ### 4.4 Lesson decomposition across multiple BBs
 
 A single lesson MAY span multiple destination artefacts when its body covers content for distinct rules. Force-fitting a multi-part lesson into one BB either drops two-thirds of its content or pollutes the receiving rule with off-topic material.
 
 > [!constraint] Decompose Multi-Destination Lessons
-> WRONG — LL-058 has content covering (a) READ-CONFIRM-ACT enforcement, (b) `Outputs/` checklist additions, (c) structural-reviewer extension, (d) post-scaffold verify-script. The workflow bundles all of LL-058 into one BB (say, the C1 scaffolding-hygiene BB). The receiving BB either inflates beyond 500 lines OR the (c)/(d) fragments get summarised away because they don't fit C1's narrative.
+> WRONG — LL-X has content covering four distinct fragments (a)/(b)/(c)/(d) that map to different destination rules. The workflow bundles all of LL-X into one BB (say, the C1 bucket BB). The receiving BB either inflates beyond 500 lines OR the (c)/(d) fragments get summarised away because they don't fit C1's narrative.
 >
-> CORRECT — LL-058 is decomposed: the (a) fragment lands in the C1 BB; the (c) fragment lands in a tooling/agent-extension BB; the (d) fragment lands in a CLAUDE.md hooks BB. Each BB's Evidence table cites LL-058 with the specific fragment it owns; each BB's rule design inlines ONLY the WRONG/CORRECT examples relevant to its destination.
+> CORRECT — LL-X is decomposed: the (a) fragment lands in the C1 BB; the (c) fragment lands in a tooling/agent-extension BB; the (d) fragment lands in a CLAUDE.md hooks BB. Each BB's Evidence table cites LL-X with the specific fragment it owns; each BB's rule design inlines ONLY the WRONG/CORRECT examples relevant to its destination.
 
 Decomposition signal: during Phase 1 full-body reads (§3.4), an LL whose Context section names ≥2 distinct rule files OR whose "Applies To" lists ≥2 distinct file domains is a decomposition candidate. Flag in the Phase 2 grouping output: *"LL-X decomposes across BBs P, Q, R — fragments listed below."*
 

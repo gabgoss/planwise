@@ -77,3 +77,4 @@ ARGUMENTS: $ARGUMENTS
 - [Task content fidelity](../../references/task-content-fidelity.md)
 - [Verification gates](../../references/verification-gates.md)
 - [Verify against shipped artifact](../../references/verify-against-shipped-artifact.md)
+- [Artifact self-containment](../../references/artifact-self-containment.md)

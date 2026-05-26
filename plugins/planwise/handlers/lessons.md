@@ -257,6 +257,15 @@ Create the artifact file at the approved location:
 
 Check if the file already exists before writing. If it exists, ask the user to rename or merge. <!-- AUTO-MODE: critical -->
 
+**Self-containment verification (BINDING — do not skip):** After writing the artifact, run the grep from [`references/artifact-self-containment.md` §4](../references/artifact-self-containment.md#4-mechanical-verification) against the produced file. The artifact body MUST inline every WRONG/CORRECT example, recipe, and verification command from the source lesson — no `see LL-NNN` / `per BB-NNN` cross-references in the rule body, agent definition, skill body, or hook script.
+
+```bash
+grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' {generated-artifact-path}
+# MUST return zero matches.
+```
+
+If grep returns matches, revise the artifact to inline the cited content and re-run the grep. Do NOT proceed to Stage 5 (Update Frontmatter) until the grep returns zero. The `applied-as:` and Rule Promotion Log entries written in Stage 5 and Stage 7 ARE permitted to carry the `LL-NNN` reference — those are bookkeeping artifacts whose purpose is traceability.
+
 ### Stage 5: Update Frontmatter
 
 Edit the lesson file's YAML frontmatter:

@@ -15,14 +15,16 @@ description: Required file specifications per plan level, task file templates, a
 
 | Context Needed | Plan Type | Structure |
 |----------------|-----------|-----------|
-| < 100K | Standard (Execution Plan only) | Single plan with standard hierarchy |
-| > 100K | Meta-Plan + Execution Plan | Two-phase: Discovery → Execution |
+| < `meta_plan_threshold` | Standard (Execution Plan only) | Single plan with standard hierarchy |
+| > `meta_plan_threshold` | Meta-Plan + Execution Plan | Two-phase: Discovery → Execution |
+
+`meta_plan_threshold` is tier-aware: 100K on Pro, 500K on Max. Read `context.context_window` from `config.yaml` and resolve per `references/session-context-budget.md` §5 Threshold Formulas.
 
 ---
 
 ### Meta-Plan Requirements (Discovery Phase)
 
-*Only needed when total context > 100K*
+*Only needed when total context > `meta_plan_threshold` (100K on Pro, 500K on Max)*
 
 **Meta-Plan Master Plan MUST Have:**
 - Purpose: Context discovery and consolidation (not implementation)

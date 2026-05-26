@@ -13,6 +13,15 @@ project:
     backlog: "00-Index-Backlog.md"
     lessons: "00-Index-LessonsLearned.md"
 
+# Context window tier — used by all handlers to scale token budgets.
+# plan_tier: "pro" (200K) or "max" (1M). Subagents inherit this tier.
+# When this block is missing, handlers default to plan_tier=pro / context_window=200000
+# for backward compatibility with configs generated before this field existed.
+# See references/session-context-budget.md "Context Window Tier" for tier-specific budget tables.
+context:
+  plan_tier: "{plan-tier}"
+  context_window: {context-window}
+
 abbreviations:
   APP: "Application features"
   BUG: "Bug fixes"

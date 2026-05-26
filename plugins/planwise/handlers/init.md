@@ -4,6 +4,29 @@
 
 This handler does NOT require `config.yaml` to exist — it creates it.
 
+`/planwise init` also exposes a `--migrate` mode (Step 11 below) that idempotently
+adds missing top-level keys from `config.yaml.template` to an existing project
+config without overwriting user customisations. Use it when the plugin ships a
+new config block and your project's config predates it.
+
+---
+
+## Artifact Manifest
+
+Every on-disk artifact the init script produces is registered in
+[../manifests/artifacts.yaml](../manifests/artifacts.yaml) along with:
+
+- the config key (or block) it depends on,
+- the producer (script function or handler step),
+- the downstream consumer skill(s), and
+- the missing-key behaviour (`render_from_template_default`, `warn_loud`,
+  `fail_loud`, or `migrate_only`).
+
+The manifest is the source of truth for the gap-detection logic implemented by
+`init_project.py` and surfaced in the Step 10 banner. When a new handler or skill
+introduces a config-driven artifact, add a row to the manifest so the
+silent-skip class of failure stays mechanical to prevent.
+
 ---
 
 ## Tool Usage Rules
@@ -24,9 +47,9 @@ Do NOT use `cat`, `cp`, `sed`, `awk`, or other bash commands for file operations
 ### Step 1 — Gather project information
 
 <!-- AUTO-MODE: convenience -->
-<!-- All 6 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
+<!-- All 7 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
      install_scope = project; planwise_root = planwise; plans_dir = Plans;
-     backlog_dir = Backlog; lessons_dir = LessonsLearned. -->
+     backlog_dir = Backlog; lessons_dir = LessonsLearned; plan_tier = pro. -->
 Use `AskUserQuestion` to collect:
 
 1. **Project name** — The name of this project (e.g., "MyApp", "DataPipeline")
@@ -35,6 +58,7 @@ Use `AskUserQuestion` to collect:
 4. **Plans directory** — Subdirectory name for plans within the root (default: `Plans`)
 5. **Backlog directory** — Subdirectory name for backlog items within the root (default: `Backlog`)
 6. **Lessons directory** — Subdirectory name for lessons learned within the root (default: `LessonsLearned`)
+7. **Claude plan tier** — Which Claude plan you're on: `pro` (200K context window) or `max` (1M context window). This scales all token budgets, Meta-Plan thresholds, and DELEGATED checks. Default: `pro`. See `references/session-context-budget.md` §4 for tier-specific budget tables.
 
 Store responses as:
 - `{project_name}` — from question 1
@@ -43,6 +67,7 @@ Store responses as:
 - `{plans_dir}` — from question 4 (use `Plans` if blank)
 - `{backlog_dir}` — from question 5 (use `Backlog` if blank)
 - `{lessons_dir}` — from question 6 (use `LessonsLearned` if blank)
+- `{plan_tier}` — from question 7 (use `pro` if blank; must be one of: `pro`, `max`). The companion `{context_window}` is derived: `pro` → 200000, `max` → 1000000.
 
 ---
 
@@ -55,7 +80,7 @@ Try running the Python init script first. It handles directory creation, seed fi
 Run the script:
 
 ```bash
-python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}"
+python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}"
 ```
 
 If `python` is not found, try `python3`.
@@ -105,6 +130,8 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 | `{plans-dir}` | `{plans_dir}` from Step 1 |
 | `{backlog-dir}` | `{backlog_dir}` from Step 1 |
 | `{lessons-dir}` | `{lessons_dir}` from Step 1 |
+| `{plan-tier}` | `{plan_tier}` from Step 1 |
+| `{context-window}` | `200000` if `{plan_tier}` is `pro`, `1000000` if `max` |
 
 3. **Write** the result to `{planwise_root}/config.yaml`
 
@@ -116,7 +143,12 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 
 Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` from the plugin template, populated with the user's `categorization:` block. This produces the companion file referenced by `{lessons_dir}/00-Index-LessonsLearned.md` and consumed by `/planwise lessons curate` and `/planwise lessons promote-batch`.
 
-> **Note:** This step runs in both the fast-path (after Step 2's script succeeds) and the fallback path. The script in `{plugin_root}/scripts/init_project.py` renders the categorization file when PyYAML is available; if PyYAML is missing the script silently skips and Claude renders the file here instead. The Glob check in step 1 below makes the step idempotent — if the file already exists (either from a prior init or from the script just running) the step is a no-op.
+> **Note:** This step runs in both the fast-path (after Step 2's script succeeds) and the fallback path. The script in `{plugin_root}/scripts/init_project.py` renders the categorization file when PyYAML is available; if PyYAML is missing the script falls through to this step and Claude renders the file via Read+Write. The Glob check in step 1 below makes the step idempotent — if the file already exists (either from a prior init or from the script just running) the step is a no-op.
+
+> [!practice] Missing `categorization:` Block — Render From Defaults
+> When the user's `config.yaml` has no `categorization:` block (or the block is empty), the script falls back to a built-in default that mirrors the 4-bucket template (database / code / process / tooling) and surfaces an INFO line in the Step 10 banner naming the missing block. The downstream skill (`/planwise lessons curate`) still works against the rendered file. Suggest the user run `python init_project.py --migrate` to seed the block into their `config.yaml` for full customisation.
+>
+> If Claude runs Step 5.1 in fallback mode (because PyYAML is unavailable), apply the same rule: if the user's `config.yaml` lacks the block, use the bucket list from `config.yaml.template` as the default and add a banner line noting it.
 
 1. Use **Glob** to check if `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` already exists — **skip this step if it does**.
 2. **Read** `{planwise_root}/config.yaml` (written in Step 5) and extract the `categorization:` block. The block has these keys: `buckets` (list), `decision_tree_order` (list), `default_bucket` (string), `edge_cases_section` (bool). Each bucket has `id`, `slug`, `name`, `description`, and optionally `triggers` (object with `technology` and/or `domain` lists), `sub_buckets` (list of `{id, name}` objects), and `code_bucket` (bool). `triggers` and `code_bucket` are not used by this rendering step — they are consumed by `/planwise lessons curate` and only need to round-trip cleanly through the read.
@@ -300,7 +332,7 @@ Seed files installed:
   ✓ {planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md  (rendered from config.yaml: categorization)
 
 Configuration:
-  ✓ {planwise_root}/config.yaml (scope: {install_scope})
+  ✓ {planwise_root}/config.yaml (scope: {install_scope}, plan tier: {plan_tier} → {context_window} context window)
 
 Agent Teams:
   ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}
@@ -333,6 +365,16 @@ Rules installed to .claude/rules/planwise/:
   ✓ verification-gates.md
   ✓ verify-against-shipped-artifact.md
 
+Skipped (action required):
+  ! {planwise_root}/config.yaml (key: context)
+      reason:      config.yaml has no `context:` block — likely a config that predates this key
+      affects:     /planwise plan, /planwise review, /planwise run (token-budget scaling)
+      remediation: Run `python {plugin_root}/scripts/init_project.py --name "{project_name}" --migrate` to merge the block from the template.
+  ! {planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md
+      reason:      PyYAML not installed (cannot read config.yaml from the script path)
+      affects:     /planwise lessons curate, /planwise lessons promote-batch
+      remediation: Install PyYAML (`pip install pyyaml`), or run /planwise init and let the handler's Step 5.1 fallback render the file via Read+Write.
+
 Next steps:
   /planwise plan          — Create your first plan
   /planwise backlog       — Triage your backlog
@@ -340,6 +382,69 @@ Next steps:
 ```
 
 Replace `{settings_file}` with the actual path used based on scope. Adjust the output to reflect what was actually created vs. skipped.
+
+> [!constraint] SKIPPED Section MUST Be Loud
+> WRONG — the banner is silent about a non-rendered artifact; the gap surfaces later when the downstream skill fails:
+> ```
+> Categorization: skipped (config.yaml: categorization block missing or unparseable)
+>
+> Done!
+> ```
+> CORRECT — the SKIPPED section enumerates every artifact that was not produced with reason, affected consumer skill, and remediation hint; the user can act before the downstream skill is invoked:
+> ```
+> Categorization: + {planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md (rendered with default buckets — config.yaml `categorization:` block missing)
+>                   Add the block to customise buckets, or run --migrate to seed it from the template.
+>
+> Skipped (action required):
+>   ! {planwise_root}/config.yaml (key: context)
+>       reason:      config.yaml has no `context:` block — likely a config that predates this key
+>       affects:     /planwise plan, /planwise review, /planwise run (token-budget scaling)
+>       remediation: Run `python {plugin_root}/scripts/init_project.py --name "{project_name}" --migrate` to merge the block from the template.
+>
+> Done!
+> ```
+
+When running the fallback path manually (Steps 3-9 instead of the Python script), Claude MUST reproduce the SKIPPED section by tracking, for each step that did not produce its expected artifact, the (artifact, reason, affects, remediation) tuple and emitting them under the `Skipped (action required):` heading. Reference the manifest at [../manifests/artifacts.yaml](../manifests/artifacts.yaml) for the canonical artifact / consumer / remediation mapping.
+
+---
+
+### Step 11 — Migrate an existing project's config.yaml
+
+When the plugin adds a new top-level config block (for example, `context:` for
+plan-tier scaling, or `categorization:` for lesson bucketing), projects whose
+`config.yaml` predates that block do not pick it up by re-running `/planwise init` —
+the config gate sees the file exists and skips regeneration. `--migrate` solves
+this without overwriting user customisations.
+
+**Invocation:**
+
+```bash
+python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --migrate
+```
+
+**What it does (idempotent):**
+
+1. Resolves `{planwise_root}/config.yaml` (must already exist — otherwise it errors and instructs you to run plain `/planwise init`).
+2. Reads `config.yaml.template`, replaces the placeholders, and parses both files.
+3. For each top-level key in the script's `MIGRATABLE_TOP_LEVEL_KEYS` list (`plugin_root`, `context`, `categorization`):
+   - If the key is **absent** in the user's config → copies the template value in.
+   - If the key is **present** → leaves it untouched, no value overwriting.
+4. Re-emits the merged config preserving the user's leading comment header.
+5. Reports which keys were added vs. which were already present.
+
+**When to recommend `--migrate`:**
+
+| Scenario | Action |
+|----------|--------|
+| Step 10 banner lists a `migrate_only` SKIPPED row | Run `--migrate`, then re-run the affected handler. |
+| User upgraded the plugin and a new key appeared in the template | Run `--migrate` once. |
+| User edited `config.yaml` and a key disappeared by accident | Run `--migrate` to restore it from the template. |
+
+**What `--migrate` does NOT do:**
+
+- Does NOT re-render seed files, rules, or agents (those are install-time only).
+- Does NOT modify `settings.json` (use plain `/planwise init` for settings drift).
+- Does NOT touch existing keys — even if the template's default differs from the user's value, the user's value wins.
 
 ---
 

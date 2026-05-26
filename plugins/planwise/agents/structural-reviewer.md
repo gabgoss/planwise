@@ -5,12 +5,24 @@ description: >
   links, hierarchy completeness, orchestration format, and sprint organization.
   Use as Phase 1 reviewer in /planwise review teams to catch structural blockers
   before content review begins.
-tools: Read, Glob, Grep
-model: haiku
+tools: Read, Glob, Grep, SendMessage, ToolSearch
+model: sonnet
 maxTurns: 20
 ---
 
 # Structural Review Protocol
+
+## Startup (BINDING — Required First Action)
+
+When spawned as a teammate, you MUST report findings via `SendMessage`. `SendMessage` is a deferred tool — its schema is not in your context at startup, and any attempt to call it without loading the schema first raises `InputValidationError` and drops your entire review on the floor.
+
+Before reading any plan file, issue this exact call as your first action:
+
+```
+ToolSearch(query: "select:SendMessage", max_results: 1)
+```
+
+Only after the `<functions>` block for `SendMessage` appears in the tool result may you begin reading plan files and reporting findings. If you are spawned in subagent mode (no team), this call is harmless — proceed identically.
 
 ## File Structure
 
@@ -20,7 +32,7 @@ maxTurns: 20
 - [ ] Task files exist for each task declared in orchestration files
 - [ ] Outputs/ directories exist at session level
 - [ ] Recovery files exist for each session
-- [ ] LL-058 folder-count check: planned folder count matches actual scaffold folder count
+- [ ] Folder-count check: planned folder count matches actual scaffold folder count
 - [ ] Per-session Outputs/.gitkeep presence (PLG-001 rule 5)
 
 ## Cross-References
@@ -79,16 +91,16 @@ Confidence: HIGH | MEDIUM | LOW
 
 ## Mechanical Check Definitions (S01-S04)
 
-### Check S01 — LL-058 Folder-Count Consistency
+### Check S01 — Folder-Count Consistency
 
 - **Severity:** BLOCKER
-- **Source:** LL-058 + PLG-001
+- **Source:** PLG-001
 - **Type:** NEW
 - **What:** Sum of physical `Sprint-XX-*/Session-YY-*/` folders MUST equal sum of Sessions-table row counts across all Sprint Plans AND equal Master Plan Sprint Overview row count summed across sprints.
 - **Detection:** Glob `Sprint-*/Session-*/`; sum rows in each Sprint Plan Sessions table; cross-check Master Plan. Mismatch → BLOCKER.
 - **Finding template:**
 ```
-[BLOCKER] LL-058 folder-count inconsistency
+[BLOCKER] Folder-count inconsistency
 File: {Plan root path} | Location: Sprint Plan Sessions tables vs disk folders
 Issue: Disk has {N_disk} sessions; Sprint Plans declare {N_declared}
 Fix: Reconcile per references/scaffolding-hygiene.md §6 | Confidence: HIGH

@@ -80,7 +80,7 @@ Append a row to the matching table preserving the existing column order. The col
 | Default (3-col) | `ID`, `Title`, `Severity` |
 | `code_bucket: true` (4-col) | `ID`, `Title`, `Module`, `Severity` |
 
-Keep severity-formatting consistent with existing rows (HIGH/MEDIUM/LOW; bold the ID with `**LL-NNN**` only when status is `applied` or `rule`). Bump the `Last Updated:` line at the top of the file to today's date and append a parenthetical summary, e.g.: `2026-04-27 (added LL-002, LL-003; LL-003 marked applied)`.
+Keep severity-formatting consistent with existing rows (HIGH/MEDIUM/LOW; bold the ID with `**LL-NNN**` only when status is `applied` or `rule`). Bump the `Last Updated:` line at the top of the file to today's date and append a parenthetical summary, e.g.: `2026-04-27 (added LL-N, LL-M; LL-M marked applied)`.
 
 > [!practice] Sort Within a Bucket
 > Order between severity tiers: HIGH → MEDIUM → LOW. Within a severity tier, append to the END of the matching block — do not rearrange existing rows. Preserve whichever ID ordering (ascending or descending) the bucket already uses.
@@ -130,7 +130,7 @@ Append one row per promoted lesson to the table at the bottom of `{lessons_dir}/
 ```markdown
 | Date | Lesson ID | Artifact Created | File |
 |------|-----------|-----------------|------|
-| 2026-05-16 | LL-001 | Rule promotion (parameterised query) | `.claude/rules/db/parameterised-queries.md` |
+| 2026-05-16 | LL-NNN | Rule promotion (parameterised query) | `.claude/rules/db/parameterised-queries.md` |
 ```
 
 Use the lesson's frontmatter `date` if it represents the promotion date; otherwise use the date the `applied-as` artifact was created (read from `git log -1 --format=%ci -- <path>`).
@@ -153,7 +153,7 @@ If the user approves, create `{lessons_dir}/Archive/` (or whatever archive folde
 
 ### 4.5 Cross-check Companion / Cross-references blocks
 
-Some lessons reference each other (e.g., LL-002 cites LL-001). When a referenced lesson is moved to `Archive/`, the link target changes. After any move, grep the remaining lessons for stale `[LL-NNN](LL-NNN-*.md)` links and rewrite them to `[LL-NNN](Archive/LL-NNN-*.md)`. Skip this step if no files were moved.
+Some lessons reference each other (e.g., LL-X cites LL-Y). When a referenced lesson is moved to `Archive/`, the link target changes. After any move, grep the remaining lessons for stale `[LL-NNN](LL-NNN-*.md)` links and rewrite them to `[LL-NNN](Archive/LL-NNN-*.md)`. Skip this step if no files were moved.
 
 > [!constraint] Decompose Multi-Destination Lessons
 > WRONG: A single lesson promoted to two artifacts is logged as one ambiguous row.
@@ -241,8 +241,8 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 **New lessons categorised:** N
 | ID | Bucket | Severity | One-line title |
 |----|--------|----------|----------------|
-| LL-002 | C | MEDIUM | ... |
-| LL-003 | A | HIGH | ... |
+| LL-N | C | MEDIUM | ... |
+| LL-M | A | HIGH | ... |
 
 ## Phase 2 — Promotions
 
@@ -251,7 +251,7 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 
 | ID | Status | Artifact | Date |
 |----|--------|----------|------|
-| LL-001 | applied | `src/lib/example.py` | 2026-05-16 |
+| LL-NNN | applied | `src/lib/example.py` | 2026-05-16 |
 
 ## Anomalies
 
@@ -287,7 +287,7 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 | User says | Workflow action | CLI form |
 |-----------|-----------------|----------|
 | "Refresh the lessons categorisation" | Both phases | `/planwise lessons curate` |
-| "Categorise new lessons added since LL-005" | Phase 1 only | `/planwise lessons curate --phase=categorize` |
+| "Categorise new lessons added since LL-NNN" | Phase 1 only | `/planwise lessons curate --phase=categorize` |
 | "Update the rule promotion log" | Phase 2 only | `/planwise lessons curate --phase=promote` |
 | "Which lessons became rules?" | Phase 2 read-only — list `status: rule` lessons without writing | `/planwise lessons curate --phase=promote` (then decline the log-update prompt) |
 | "Move applied lessons to Archive/" | Phase 2 with the move-to-Archive step explicitly approved | `/planwise lessons curate --phase=promote` (approve the Archive prompt) |
