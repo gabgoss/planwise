@@ -347,9 +347,25 @@ Never leave many-to-many mappings for the agent to infer.
 
 | Check | Severity | Reviewer Action |
 |-------|----------|-----------------|
-| Task file has `## Verification Commands` section | WARNING if absent for any task with Write steps | Flag as missing |
-| Commands are explicit shell invocations (not vague prose) | WARNING if vague | Flag as non-enforceable |
-| All command types present (connectivity + lint + exec) | WARNING if only 1 type present | Flag as incomplete |
+| Task file has `## Verification Commands` section | **BLOCKING** if absent for any task with Write steps that touch code, tests, or schemas (runnable-artifact tasks) | Block plan approval until populated, OR until a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment in the task's `## Notes for Agent` explicitly justifies the omission |
+| Commands are explicit shell invocations (not vague prose) | **BLOCKING** if vague (e.g., "run lint and tests") on a runnable-artifact task | Block plan approval; require the planner to resolve `{lint-cmd}` / `{test-cmd}` / `{exec-cmd}` placeholders from `config.yaml.build_commands` or project convention |
+| All command types present (connectivity / pre-condition + lint or format + exec or smoke test) | **BLOCKING** if only 1 type present on a runnable-artifact task | Block plan approval; require the planner to emit all three command types per `templates/task-file.md` §Per-File-Type Commands |
+| Verification Commands omitted (pure-doc / decision-only / research task) | INFO if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in Notes for Agent | Pass (intentional omission); flag as ERROR if comment absent but task produces no runnable artifact (planner forgot the escape hatch) |
+
+**Scope of BLOCKING enforcement:** The BLOCKING severity applies ONLY to tasks that touch code, tests, or schemas (i.e., tasks whose Expected Output or Execution Steps create or modify files with extensions in the `templates/task-file.md` §Per-File-Type Commands table — `.py` / `.ipynb` / `.sql` / `.cs` / `.cshtml` / `.ts` / `.tsx` / `.{ext}` and equivalents). For purely documentary tasks (markdown edits, decision-only Opus tasks, research-and-report Sonnet tasks), Verification Commands MAY be omitted entirely — but the omission MUST be marked with a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment so the reviewer can confirm the choice was intentional rather than an oversight. The `handlers/plan.md` Step 8e (Populate Verification Commands) populates the section for runnable-artifact tasks; the `handlers/review.md` Error Pattern Catalog rows 34/35/36 enforce this at review time.
+
+> [!constraint] BLOCKING Severity — Source PLG-003 Discipline
+> WRONG — Verification Commands enforcement left at WARNING, allowing plans to ship with blank `{cmd_before_1}` / `{cmd_after_1}` placeholders:
+> ```
+> | Severity | Reviewer Action       |
+> | WARNING  | Flag as missing       |
+> ```
+> CORRECT — BLOCKING for runnable-artifact tasks (source PLG-003 §3C), with explicit `<!-- VERIFICATION: not-applicable -->` escape hatch for documentation/decision-only tasks:
+> ```
+> | Severity   | Reviewer Action                                           |
+> | BLOCKING   | Block plan approval until populated or explicitly exempted |
+> ```
+> The escape hatch keeps the rule humane (pure-doc tasks aren't penalized) without weakening enforcement on tasks that actually produce runnable artifacts. Per PPU-S08-02 Disposition Ledger row P5-3 (Verdict: BLOCKING — raise from WARNING; rationale: source PLG-003 spec called BLOCKING, task-file template has per-file-type infrastructure, plan-handler Step 8e populates it, escape hatch covers legitimate exemptions).
 
 > [!constraint] One Task File Per Task — Never Combined
 > WRONG — multiple tasks combined into one file, tasks numbered inline rather than as separate files:

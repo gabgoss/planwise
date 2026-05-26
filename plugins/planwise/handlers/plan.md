@@ -147,6 +147,9 @@ Behavior:
 
 Without the flag (default), scaffold all sprints in one pass.
 
+> [!practice] Scope — Pause-Between-Sprints, Not Per-Sprint Scaffold Sessions
+> The `--scaffold-per-sprint` flag is an **in-conversation pause-and-confirm** mechanism — it does NOT create per-Exec-sprint `Scaffold-{Abbrev}-S{XX}/` sessions with their own Orchestration/Recovery files (which the source PLG-008 spec envisioned for compaction-resume capability). The simpler pause-only mechanism shipped intentionally; per PPU-S08-02 Disposition Ledger row P5-5 (Verdict: JUSTIFIED-SKIP *out-of-remediation-scope*), the full per-sprint Scaffold-session resume mechanism is a new feature beyond the PPU remediation scope. Future maintainers — do NOT treat the absence of per-sprint Scaffold sessions as a regression; it is the documented design. If compaction during multi-sprint scaffolding becomes a real problem, file a NEW backlog item (do not silently expand this flag's contract).
+
 **Implicit indicators** (recommend Scaffolding via `AskUserQuestion`):
 
 | Indicator | Action |
@@ -239,9 +242,21 @@ Create the following structure under the configured `{plans_dir}`:
 │       ├── {Abbrev}-S01-01-Recovery.md
 │       ├── {Abbrev}-S01-01-{##}-{Agent}-{Task}.md   # One file per task
 │       └── Outputs/
+│           └── .gitkeep                              # Required so Outputs/ is tracked by git
 ```
 
 **Task File Naming:** `{##}` = two-digit task number (01, 02, 03...) matching the task list.
+
+> [!constraint] Emit `Outputs/.gitkeep` for Every Session Folder
+> WRONG — Outputs/ folder created empty; git does not track empty directories, so the folder disappears on clone:
+> ```
+> mkdir Session-01-{Name}/Outputs    # ← empty dir, not committed
+> ```
+> CORRECT — write an `Outputs/.gitkeep` placeholder file inside every session's Outputs/ folder so the directory is preserved in version control:
+> ```
+> Write {plans_dir}/{PlanName}/Sprint-01-{Name}/Session-01-{Name}/Outputs/.gitkeep
+> ```
+> Apply this to EVERY session folder created during planning (standard mode here, Scaffolding Step 5 for scaffolded plans). The `.gitkeep` file is an empty placeholder — its purpose is solely to make git track the otherwise-empty `Outputs/` directory.
 
 ### Steps 4-7: Generate Files
 
@@ -304,6 +319,77 @@ Add a row to the plans index so `/planwise list` reflects the new plan:
    - **Last Updated:** `{today's date}`
    - **Path:** `{plans_dir}/{PlanName}/`
 3. Write the updated index back to disk
+
+### Step 8e: Populate Verification Commands (Per-File-Type Map)
+
+For every task file generated in Step 8 whose task touches code, tests, or schemas, populate
+the **Verification Commands** section using a per-file-type command map — never leave the
+section's `{placeholder}` tokens unfilled. The plan-reviewer treats blank, vague, or single-type
+Verification Commands as a finding (`references/session-plan-requirements.md` §Verification
+Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type Commands).
+
+**Procedure:**
+
+1. **Inspect** the task's Expected Output and Execution Steps to identify the set of file
+   extensions the task creates or modifies (e.g., `.py`, `.ipynb`, `.sql`, `.cs`, `.cshtml`,
+   `.ts`, `.tsx`, `.md`).
+2. **Look up** the verification command(s) for each extension in the per-file-type command
+   map below (resolve `{lint-cmd}`, `{format-cmd}`, `{exec-cmd}`, `{notebook-exec-cmd}` from
+   `config.yaml.build_commands` or project convention).
+3. **Emit** a `Verification Commands` section in the task file using the
+   `templates/task-file.md` `> [!verify] Before / After Commands` block + Per-File-Type
+   Commands table — substitute every `{placeholder}` with a concrete shell invocation.
+4. **Ensure all three command types appear** (connectivity / pre-condition, lint or format,
+   exec or smoke test). A task missing one of these types is downgraded to a `> [!verify]`
+   block with a `<!-- NEEDS-COMMAND -->` comment so the gap is visible at review time, NOT
+   silently left blank.
+
+**Per-File-Type Command Map** (mirrors `templates/task-file.md` §Per-File-Type Commands):
+
+| File Type | Lint / Format | Exec / Smoke | Notes |
+|-----------|--------------|--------------|-------|
+| `.{src-ext}` (compiled or scripted source) | `{lint-cmd} {path}` / `{format-cmd} {path}` | `{test-cmd} {path}` | Consumer fills `{lint-cmd}` / `{test-cmd}` from `config.yaml.build_commands` |
+| `.{notebook-ext}` (runnable-notebook artifact) | `{lint-cmd} {path}` (if applicable) | `{exec-cmd} {path}` | `{exec-cmd}` is the consumer's notebook runner / execute-in-place command |
+| `.sql` | `{sql-lint-cmd} {path}` (if applicable) | `{driver-cli} -f {path}` | DB writes also pin schema per `references/schema-pin-requirement.md` |
+| `.{build-system-ext}` (e.g., compiled-language sources) | `{format-cmd} {project} --verify-no-changes` | `{build-cmd} {project}` then `{test-cmd} {project}` | Connectivity precheck if integration test |
+| `.{view-template-ext}` | `{format-cmd} {project} --verify-no-changes` | `{build-cmd} {project}` | Smoke render if applicable |
+| `.{ts-ext}` / `.{tsx-ext}` | `{lint-cmd} {path}` | `{build-cmd}` then `{test-cmd}` | Plus `{type-check-cmd}` if the language supports it |
+| `.md` (reference / rule edits) | `{md-lint-cmd} {path}` (if configured) | `{line-count-cmd} {path}` (file ≤ 500 lines per soft limit) | Per `references/markdown-conventions.md` §2 |
+| `.{ext}` (other) | `{lint-cmd} {path}` | `{exec-cmd}` | Consumer-project supplies the binding from `config.yaml.build_commands` |
+
+> [!constraint] Verification Commands MUST Be Populated, Not Templated
+> WRONG — task file ships with the literal `{cmd_before_1}` / `{cmd_after_1}` placeholders, or
+> with vague prose like "run lint and tests":
+> ```markdown
+> ## Verification Commands
+> > [!verify] Before / After Commands
+> > **Before:** {cmd_before_1}
+> > **After:**  {cmd_after_1}
+> ```
+> CORRECT — placeholders resolved to explicit shell invocations from the per-file-type map,
+> covering all three command types (precheck + lint/format + exec):
+> ```markdown
+> ## Verification Commands
+> > [!verify] Before / After Commands
+> > **Before:**
+> > ```
+> > {lint-cmd} src/{module}/        # lint baseline
+> > {test-cmd} src/{module}/        # test baseline
+> > ```
+> > **After:**
+> > ```
+> > {lint-cmd} src/{module}/        # expect: pass
+> > {test-cmd} src/{module}/        # expect: green
+> > ```
+> ```
+>
+> A blank or vague Verification Commands section is a `/planwise review` finding (per the
+> `Verification Commands Plan-Review Enforcement` table in `session-plan-requirements.md`).
+
+**If the task creates no code/test/schema files** (pure documentation, decision-only, or
+research): the Verification Commands section MAY be omitted, but the task file MUST then
+include a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment in its `## Notes for
+Agent` section so the reviewer can confirm the omission was intentional.
 
 ---
 
@@ -714,6 +800,8 @@ Use standard templates for all other files (sprint plans, orchestrations, recove
 **Critical difference from standard planning:** Every task file's `Required Context` table MUST reference the sprint's **Execution Input** file (with section numbers), NOT the original Consolidated Context parts. The Execution Input replaces the parts for execution purposes.
 
 **Status rule:** Set ALL Sprint Plan files to `**Status:** PLANNED`. Only the Master Plan gets `READY_TO_EXECUTE`. Do NOT copy the Master Plan's status into Sprint Plans — each Sprint Plan starts as PLANNED and transitions to IN_PROGRESS → COMPLETE during execution.
+
+**`.gitkeep` emission (mirrors standard [Step 3](#step-3-create-folder-structure)):** For EVERY session folder created during scaffolding, write an empty `Outputs/.gitkeep` placeholder file inside the session's `Outputs/` directory. Empty directories are not tracked by git, so a missing `.gitkeep` means the `Outputs/` folder disappears on clone and downstream `/planwise run` cannot write summary or task-output files into the expected path. Apply to every sprint × every session — same per-session `.gitkeep` rule as the standard Step 3 constraint. Also populate each task file's Verification Commands per the [Step 8e per-file-type command map](#step-8e-populate-verification-commands-per-file-type-map) — scaffolded plans must NOT ship with blank verification placeholders any more than standard plans do.
 
 > [!constraint] Agent Prompts Must Include Exact Headers
 > Subagents start with fresh context (no inherited file reads). Saying "follow the template" forces a subagent to discover and read the template — an extra hop that may be skipped or interpreted loosely.
