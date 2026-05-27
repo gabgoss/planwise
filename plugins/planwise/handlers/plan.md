@@ -424,14 +424,30 @@ PLAN CREATED: {PlanName}
 
 After outputting the Step 9 confirmation, offer plan review options.
 
+**Mega-Scaffold Gate — count sprints authored this pass.**
+
+Before presenting the review options, count `n_sprints_scaffolded_this_pass` — the number of distinct Sprint Plan files this `/planwise plan` invocation authored. For a standard single-sprint plan, this is 1. For an inline mega-scaffold (`/planwise plan --scaffold` against Meta-Plan output, or a multi-sprint `/planwise plan` session that authored 2+ Sprint Plan files in one pass), this can be 2 or more.
+
+If `n_sprints_scaffolded_this_pass ≥ 2`, the "Skip to /planwise run" option is REMOVED from Question 1 below — `/planwise review` becomes mandatory. The rationale and full rule live at `references/scaffolding-hygiene.md` §11 (Mega-Scaffold Review-Gate); the short version is that inline mega-scaffolds trade per-sprint authoring-time self-review for speed, and the post-scaffold review gate is what catches the EI header⇄Cross-References hygiene defects that otherwise ride into execution.
+
 <!-- AUTO-MODE: convenience -->
 <!-- Default: auto-review in this session. -->
 Use `AskUserQuestion` with:
 
 **Question 1: Plan Review Approach**
+
+*If `n_sprints_scaffolded_this_pass == 1` (standard single-sprint plan):*
+
 - "Auto-review with /planwise review" (Recommended) -- Spawn a subagent to validate the plan and return findings
 - "Review manually first" -- User will review plan files before executing
 - "Skip to /planwise run" -- Proceed directly to execution
+
+*If `n_sprints_scaffolded_this_pass ≥ 2` (mega-scaffold — review is MANDATORY per `references/scaffolding-hygiene.md` §11):*
+
+- "Auto-review with /planwise review" (Recommended) -- Spawn a subagent to validate the plan and return findings
+- "Review manually first" -- User will review plan files before executing
+
+(The "Skip to /planwise run" option is intentionally omitted for multi-sprint scaffolds. If review must legitimately be deferred — e.g., a follow-up session is scheduled — record the deferral in the Master Plan's Status note rather than skipping the gate.)
 
 <!-- AUTO-MODE: convenience -->
 <!-- Default: this session; switch to new session if > 3 sprints or > 10 task files. -->

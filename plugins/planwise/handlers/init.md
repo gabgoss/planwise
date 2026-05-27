@@ -400,6 +400,10 @@ Replace `{settings_file}` with the actual path used based on scope. Adjust the o
 >       reason:      config.yaml has no `context:` block — likely a config that predates this key
 >       affects:     /planwise plan, /planwise review, /planwise run (token-budget scaling)
 >       remediation: Run `python {plugin_root}/scripts/init_project.py --name "{project_name}" --migrate` to merge the block from the template.
+>   ! {planwise_root}/config.yaml (key: plugin_version)
+>       reason:      pinned plugin_version `1.1.0` is older than the installed plugin `1.2.0` — installed rules/agents may be stale
+>       affects:     all handlers (rule and agent freshness)
+>       remediation: Run `python {plugin_root}/scripts/init_project.py --name "{project_name}" --upgrade` (or `/planwise upgrade`) to refresh artifacts.
 >
 > Done!
 > ```

@@ -461,19 +461,35 @@ Baseline release. Existing 10 reference rules + 12 templates + 7 handlers + 4 ag
 
 ---
 
-## Updating planwise
+## Upgrading
 
-To get the latest version, run:
+When a new plugin version is published:
 
-```
-/plugin marketplace update
-```
+1. **Refresh the plugin source**
 
-Then reinstall:
+   ```
+   /plugin marketplace update
+   /plugin install planwise@planwise-marketplace
+   ```
 
-```
-/plugin install planwise@planwise-marketplace
-```
+   This updates the plugin's handlers, references, templates, and scripts to the latest version. Files Claude reads directly from the plugin directory are now current.
+
+2. **Propagate updates into your project's `.claude/` directory**
+
+   ```
+   /planwise upgrade
+   ```
+
+   `/plugin install` does not refresh the rules in `.claude/rules/planwise/` or the agents in `.claude/agents/` — those were installed once during `/planwise init` and are skip-if-exists thereafter. `/planwise upgrade`:
+
+   - Bumps the pinned `plugin_version:` in your `config.yaml`
+   - Adds any new top-level config keys (the additive merge previously available via `--migrate`)
+   - Refreshes installed rules/agents whose local body still matches the previously-shipped body
+   - Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any file whose body has diverged from the shipped version, so your customisations are preserved
+
+   See `handlers/upgrade.md` for the full workflow.
+
+> Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
 
 ---
 
@@ -508,8 +524,8 @@ To remove the marketplace:
 - Check that Python 3.8+ is installed: `python --version`
 - If you see YAML-related warnings, install PyYAML: `pip install pyyaml` (optional but silences warnings)
 
-**Plans or backlog seem out of date**
-- Run `/plugin marketplace update` then reinstall to get the latest plugin version
+**Plans or backlog seem out of date after a plugin update**
+- Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules and agents into your project
 
 **Not sure which command to use?**
 - Run `/planwise help` to see all available commands and a link to the full user guide

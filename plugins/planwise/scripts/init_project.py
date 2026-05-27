@@ -65,8 +65,42 @@ DEFAULT_CATEGORIZATION = {
 # so merged output stays readable.
 MIGRATABLE_TOP_LEVEL_KEYS = [
     "plugin_root",
+    "plugin_version",   # paired with plugin_root: version pin set on init, bumped by upgrade
     "context",
     "categorization",
+]
+
+# Files copied from references/ into .claude/rules/planwise/ on init.
+# Each tuple is (source_filename, paths_template). paths_template uses
+# {plans_path} / {all_paths} placeholders resolved at install/upgrade time
+# from cfg.planwise_root + cfg.plans_dir / cfg.backlog_dir / cfg.lessons_dir.
+# The upgrade flow consults this list as the authoritative refresh allowlist.
+INSTALLED_RULES: list[tuple[str, str]] = [
+    ("agent-authoring.md", ".claude/agents/**"),
+    ("skill-authoring.md", ".claude/skills/**"),
+    ("rule-authoring.md", ".claude/rules/**"),
+    ("session-planning-protocol.md", "{plans_path}"),
+    ("session-plan-requirements.md", "{plans_path}"),
+    ("session-context-budget.md", "{plans_path}"),
+    ("session-execution-protocol.md", "{plans_path}"),
+    ("scaffolding-hygiene.md", "{plans_path}"),
+    ("discovery-and-exit-criteria.md", "{plans_path}"),
+    ("ei-fidelity.md", "{plans_path}"),
+    ("schema-pin-requirement.md", "{plans_path}"),
+    ("task-content-fidelity.md", "{plans_path}"),
+    ("agent-orchestration.md", "{all_paths}"),
+    ("callout-conventions.md", "{all_paths}"),
+    ("markdown-conventions.md", "{all_paths}"),
+    ("verification-gates.md", "{plans_path}"),
+    ("verify-against-shipped-artifact.md", "{plans_path}"),
+]
+
+# Filenames copied verbatim from agents/ into .claude/agents/ on init.
+INSTALLED_AGENTS: list[str] = [
+    "fix-agent.md",
+    "plan-reviewer.md",
+    "structural-reviewer.md",
+    "task-runner.md",
 ]
 
 import argparse
@@ -124,6 +158,7 @@ class InitConfig:
     lessons_dir: str = "LessonsLearned"
     install_scope: str = "project"
     plan_tier: str = "pro"
+    plugin_version: str = "0.0.0"
 
     @property
     def context_window(self) -> int:
@@ -133,6 +168,32 @@ class InitConfig:
 def get_plugin_root() -> Path:
     """Return the plugin root (parent of scripts/)."""
     return Path(__file__).resolve().parent.parent
+
+
+def read_plugin_version(plugin_root: Path) -> str:
+    """Read the plugin version from .claude-plugin/plugin.json.
+
+    Returns the version string. Falls back to "0.0.0" if the file is
+    missing or malformed — callers use this as the "unknown / never pinned"
+    sentinel so the upgrade flow treats the project as pre-versioning.
+    """
+    plugin_json = plugin_root / ".claude-plugin" / "plugin.json"
+    try:
+        data = json.loads(plugin_json.read_text(encoding="utf-8"))
+        return str(data.get("version", "0.0.0"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return "0.0.0"
+
+
+def resolve_rule_paths_value(cfg: "InitConfig", paths_template: str) -> str:
+    """Substitute {plans_path} / {all_paths} placeholders into a paths: value."""
+    plans_path = f"{cfg.planwise_root}/{cfg.plans_dir}/**"
+    all_paths = ", ".join([
+        plans_path,
+        f"{cfg.planwise_root}/{cfg.backlog_dir}/**",
+        f"{cfg.planwise_root}/{cfg.lessons_dir}/**",
+    ])
+    return paths_template.replace("{plans_path}", plans_path).replace("{all_paths}", all_paths)
 
 
 def create_directories(cfg: InitConfig) -> list[str]:
@@ -196,6 +257,7 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
     content = content.replace("{lessons-dir}", cfg.lessons_dir)
     content = content.replace("{plan-tier}", cfg.plan_tier)
     content = content.replace("{context-window}", str(cfg.context_window))
+    content = content.replace("{plugin-version}", cfg.plugin_version)
 
     try:
         with open(dst, "x", encoding="utf-8") as f:
@@ -385,34 +447,8 @@ def install_rules(cfg: InitConfig) -> list[str]:
     refs_dir = cfg.plugin_root / "references"
     rules_dir = cfg.project_root / ".claude" / "rules" / "planwise"
 
-    plans_path = f"{cfg.planwise_root}/{cfg.plans_dir}/**"
-    all_paths = ", ".join([
-        plans_path,
-        f"{cfg.planwise_root}/{cfg.backlog_dir}/**",
-        f"{cfg.planwise_root}/{cfg.lessons_dir}/**",
-    ])
-
-    rules = [
-        ("agent-authoring.md", ".claude/agents/**"),
-        ("skill-authoring.md", ".claude/skills/**"),
-        ("rule-authoring.md", ".claude/rules/**"),
-        ("session-planning-protocol.md", plans_path),
-        ("session-plan-requirements.md", plans_path),
-        ("session-context-budget.md", plans_path),
-        ("session-execution-protocol.md", plans_path),
-        ("scaffolding-hygiene.md", plans_path),
-        ("discovery-and-exit-criteria.md", plans_path),
-        ("ei-fidelity.md", plans_path),
-        ("schema-pin-requirement.md", plans_path),
-        ("task-content-fidelity.md", plans_path),
-        ("agent-orchestration.md", all_paths),
-        ("callout-conventions.md", all_paths),
-        ("markdown-conventions.md", all_paths),
-        ("verification-gates.md", plans_path),
-        ("verify-against-shipped-artifact.md", plans_path),
-    ]
-
-    for filename, paths_value in rules:
+    for filename, paths_template in INSTALLED_RULES:
+        paths_value = resolve_rule_paths_value(cfg, paths_template)
         dst = rules_dir / filename
         src = refs_dir / filename
         try:
@@ -439,6 +475,10 @@ def install_agents(cfg: InitConfig) -> list[str]:
     that spawn agents by name (per PLG-017). Companion to the handler-side
     namespaced-spawn updates (`subagent_type: "planwise:plan-reviewer"`).
 
+    Only the filenames declared in INSTALLED_AGENTS are copied — this is
+    intentional so the manifest's allowlist contract is the authoritative
+    source rather than implicit glob-all behaviour.
+
     Skips if destination exists. Returns list of installed agent filenames.
     """
     installed = []
@@ -446,8 +486,9 @@ def install_agents(cfg: InitConfig) -> list[str]:
     agents_dst_dir = cfg.project_root / ".claude" / "agents"
     agents_dst_dir.mkdir(parents=True, exist_ok=True)
 
-    for src in sorted(agents_src_dir.glob("*.md")):
-        dst = agents_dst_dir / src.name
+    for filename in INSTALLED_AGENTS:
+        src = agents_src_dir / filename
+        dst = agents_dst_dir / filename
         try:
             content = src.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -458,7 +499,7 @@ def install_agents(cfg: InitConfig) -> list[str]:
                 f.write(content)
         except FileExistsError:
             continue
-        installed.append(src.name)
+        installed.append(filename)
     return installed
 
 
@@ -524,6 +565,7 @@ def migrate_config(cfg: InitConfig) -> tuple[str, list[str], list[str]]:
     template_text = template_text.replace("{lessons-dir}", cfg.lessons_dir)
     template_text = template_text.replace("{plan-tier}", cfg.plan_tier)
     template_text = template_text.replace("{context-window}", str(cfg.context_window))
+    template_text = template_text.replace("{plugin-version}", cfg.plugin_version)
 
     template_data = yaml.safe_load(template_text) or {}
     user_text = config_path.read_text(encoding="utf-8")
@@ -633,6 +675,261 @@ def _print_skipped_banner(skipped: list[SkippedArtifact]) -> None:
     print()
 
 
+def normalize_rule_for_diff(content: str) -> str:
+    """Return the rule body with the `paths:` frontmatter key removed.
+
+    Per-project install rewrites the `paths:` line via update_frontmatter().
+    To detect whether the installed body matches the shipped body, we strip
+    that single key from BOTH sides before comparing. Everything else in the
+    frontmatter and the body content must match exactly for the file to be
+    considered "unmodified by user."
+
+    Uses a pure regex line-strip (no YAML round-trip) so the shipped
+    reference's placeholder paths value (which contains literal curly
+    braces) and the installed file's resolved paths value are normalized
+    identically.
+    """
+    if not content.startswith("---\n"):
+        return content
+    end = content.find("\n---\n", 4)
+    if end == -1:
+        return content
+    frontmatter_text = content[4:end]
+    body = content[end + 5:]
+    cleaned_frontmatter = re.sub(
+        r"^paths:.*$\n?", "", frontmatter_text, count=1, flags=re.MULTILINE
+    )
+    cleaned_frontmatter = cleaned_frontmatter.rstrip()
+    if not cleaned_frontmatter:
+        return body
+    return f"---\n{cleaned_frontmatter}\n---\n{body}"
+
+
+def upgrade_artifacts(
+    cfg: "InitConfig",
+    manifest: dict,
+    from_version: str,
+    to_version: str,
+) -> tuple[list[str], list[str], list[tuple[str, str]], list[str]]:
+    """Refresh artifacts whose upgrade_behavior is `refresh_or_sidecar`.
+
+    Returns a 4-tuple:
+      refreshed: list of destination paths overwritten cleanly
+      unchanged: list of destination paths whose installed body already matched the shipped body
+      conflicts: list of (destination_path, sidecar_path) tuples — installed body diverged
+      untracked: list of destination paths found in the install dirs but NOT in the manifest allowlist
+    """
+    refreshed: list[str] = []
+    unchanged: list[str] = []
+    conflicts: list[tuple[str, str]] = []
+    untracked: list[str] = []
+
+    conflict_dir = (
+        cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
+        / f"{from_version}-to-{to_version}"
+    )
+
+    # --- planwise_rules ---
+    refs_dir = cfg.plugin_root / "references"
+    rules_dst_dir = cfg.project_root / ".claude" / "rules" / "planwise"
+
+    for filename, paths_template in INSTALLED_RULES:
+        src = refs_dir / filename
+        dst = rules_dst_dir / filename
+        try:
+            shipped_raw = src.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            print(f"  Warning: shipped reference not found: {src}", file=sys.stderr)
+            continue
+
+        installed_raw = dst.read_text(encoding="utf-8") if dst.exists() else None
+
+        if installed_raw is None:
+            # Fresh install — write via update_frontmatter() to set paths:.
+            paths_value = resolve_rule_paths_value(cfg, paths_template)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(update_frontmatter(shipped_raw, paths_value), encoding="utf-8")
+            refreshed.append(str(dst))
+        elif normalize_rule_for_diff(shipped_raw) == normalize_rule_for_diff(installed_raw):
+            # Bodies match after stripping per-project paths: — no rewrite needed.
+            unchanged.append(str(dst))
+        else:
+            # Installed body diverged from shipped body — write sidecar for user review.
+            sidecar_dst = (
+                conflict_dir / ".claude" / "rules" / "planwise" / f"{filename}.new"
+            )
+            sidecar_dst.parent.mkdir(parents=True, exist_ok=True)
+            sidecar_dst.write_text(shipped_raw, encoding="utf-8")
+            conflicts.append((str(dst), str(sidecar_dst)))
+
+    # --- planwise_agents ---
+    agents_src_dir = cfg.plugin_root / "agents"
+    agents_dst_dir = cfg.project_root / ".claude" / "agents"
+
+    for filename in INSTALLED_AGENTS:
+        src = agents_src_dir / filename
+        dst = agents_dst_dir / filename
+        try:
+            shipped_raw = src.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            print(f"  Warning: shipped agent not found: {src}", file=sys.stderr)
+            continue
+
+        installed_raw = dst.read_text(encoding="utf-8") if dst.exists() else None
+
+        if installed_raw is None:
+            # Fresh install — straight copy.
+            agents_dst_dir.mkdir(parents=True, exist_ok=True)
+            dst.write_text(shipped_raw, encoding="utf-8")
+            refreshed.append(str(dst))
+        elif shipped_raw == installed_raw:
+            unchanged.append(str(dst))
+        else:
+            sidecar_dst = conflict_dir / ".claude" / "agents" / f"{filename}.new"
+            sidecar_dst.parent.mkdir(parents=True, exist_ok=True)
+            sidecar_dst.write_text(shipped_raw, encoding="utf-8")
+            conflicts.append((str(dst), str(sidecar_dst)))
+
+    # --- Untracked detection ---
+    rule_allowlist = {r[0] for r in INSTALLED_RULES}
+    agent_allowlist = set(INSTALLED_AGENTS)
+
+    for md_file in rules_dst_dir.glob("*.md"):
+        if md_file.name not in rule_allowlist:
+            untracked.append(str(md_file))
+
+    agents_dir = cfg.project_root / ".claude" / "agents"
+    if agents_dir.exists():
+        for md_file in agents_dir.glob("*.md"):
+            if md_file.name not in agent_allowlist:
+                untracked.append(str(md_file))
+
+    # --- Conflict INDEX.md ---
+    if conflicts:
+        index_path = conflict_dir / "INDEX.md"
+        lines = [
+            f"# Plugin upgrade conflicts: {from_version} -> {to_version}",
+            "",
+            "| # | Installed file | Sidecar | Notes |",
+            "|---|---------------|---------|-------|",
+        ]
+        for i, (dst_path, sidecar_path) in enumerate(conflicts, start=1):
+            lines.append(f"| {i} | {dst_path} | {sidecar_path} | (diff and merge manually) |")
+        index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    return refreshed, unchanged, conflicts, untracked
+
+
+def _bump_plugin_version(config_path: Path, new_version: str) -> None:
+    """Update the plugin_version: line in config.yaml in-place, preserving formatting.
+
+    Prefers a line-level edit over PyYAML round-trip so the user's comment
+    layout is preserved. Falls back to PyYAML re-emit if the line isn't found
+    (e.g., legacy config that never got the migrate-added key).
+    """
+    text = config_path.read_text(encoding="utf-8")
+    pattern = re.compile(r'^(\s*plugin_version:\s*)("[^"]*"|\S+)\s*$', re.MULTILINE)
+    if pattern.search(text):
+        new_text = pattern.sub(rf'\1"{new_version}"', text)
+        config_path.write_text(new_text, encoding="utf-8")
+        return
+    # Fallback — append the key under the existing top-level set.
+    data = yaml.safe_load(text) or {}
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{config_path} is not a YAML mapping — cannot pin version.")
+    data["plugin_version"] = new_version
+    config_path.write_text(
+        yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+
+def _run_upgrade(cfg: "InitConfig") -> int:
+    """Execute the --upgrade flow and print a banner. Returns exit code."""
+    if not HAS_YAML:
+        print(
+            "Upgrade failed: PyYAML is required for --upgrade. Install with `pip install pyyaml`.",
+            file=sys.stderr,
+        )
+        return 2
+
+    config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
+    if not config_path.exists():
+        print(
+            f"Upgrade failed: {config_path} does not exist — run /planwise init before --upgrade.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # 1. Read pinned vs. target version.
+    try:
+        user_cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        print(f"Upgrade failed: cannot parse {config_path}: {exc}", file=sys.stderr)
+        return 2
+    pinned_version = str(user_cfg.get("plugin_version", "0.0.0"))
+    target_version = cfg.plugin_version
+
+    if pinned_version == target_version:
+        print(f"Plugin version: {pinned_version}")
+        print("Already up to date.")
+        return 0
+
+    print(f"Plugin upgrade: {pinned_version} -> {target_version}")
+    print()
+
+    # 2. Run additive config merge.
+    try:
+        _, added, _present = migrate_config(cfg)
+    except (FileNotFoundError, RuntimeError) as exc:
+        print(f"Upgrade failed during migrate phase: {exc}", file=sys.stderr)
+        return 2
+    if added:
+        print("Config keys added:")
+        for key in added:
+            print(f"  + {key}")
+        print()
+
+    # 3. Refresh artifacts.
+    manifest = load_artifact_manifest(cfg.plugin_root)
+    refreshed, unchanged, conflicts, untracked = upgrade_artifacts(
+        cfg, manifest, pinned_version, target_version
+    )
+
+    if refreshed:
+        print(f"Refreshed: {len(refreshed)}")
+        for r in refreshed:
+            print(f"  + {r}")
+    if unchanged:
+        print(f"Unchanged: {len(unchanged)} (installed body already matches shipped)")
+    if untracked:
+        print(f"Untracked preserved: {len(untracked)}")
+        for u in untracked:
+            print(f"  = {u}")
+    print()
+
+    if conflicts:
+        print("Conflicts (action required):")
+        for dst, sidecar in conflicts:
+            print(f"  ! {dst}")
+            print(f"      reason:      installed body diverged from plugin-shipped version")
+            print(f"      sidecar:     {sidecar}")
+            print(f"      remediation: diff the sidecar against the installed file, merge manually, then delete the .new")
+        index_path = (
+            cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
+            / f"{pinned_version}-to-{target_version}" / "INDEX.md"
+        )
+        print(f"  See {index_path} for the full conflict list.")
+        print()
+
+    # 4. Commit point: bump plugin_version: in config.yaml LAST.
+    _bump_plugin_version(config_path, target_version)
+    print(f"Plugin version pinned: {target_version}")
+    print()
+    print("Upgrade complete.")
+    return 0
+
+
 def _run_migrate(cfg: InitConfig) -> int:
     """Execute the --migrate flow and print a focused report. Returns exit code."""
     try:
@@ -685,19 +982,29 @@ def main():
                              "without overwriting user customisations. Does not create "
                              "directories, seeds, rules, or settings — use plain /planwise "
                              "init for those.")
+    parser.add_argument("--upgrade", action="store_true",
+                        help="Refresh installed rules/agents and bump plugin_version: in "
+                             "config.yaml after a plugin update.")
     args = parser.parse_args()
 
+    _plugin_root = get_plugin_root()
     cfg = InitConfig(
         project_name=args.name,
         project_root=Path(args.project_root).resolve() if args.project_root else Path.cwd(),
-        plugin_root=get_plugin_root(),
+        plugin_root=_plugin_root,
         planwise_root=args.root,
         plans_dir=args.plans_dir,
         backlog_dir=args.backlog_dir,
         lessons_dir=args.lessons_dir,
         install_scope=args.scope,
         plan_tier=args.plan_tier,
+        plugin_version=read_plugin_version(_plugin_root),
     )
+
+    if args.upgrade:
+        if args.migrate:
+            print("Note: --migrate is redundant when --upgrade is used (upgrade internally calls migrate).", file=sys.stderr)
+        sys.exit(_run_upgrade(cfg))
 
     if args.migrate:
         sys.exit(_run_migrate(cfg))
@@ -868,6 +1175,26 @@ def main():
                 remediation=migrate_remediation if behavior == "migrate_only" else
                             f"Add the `{top_key}:` block to {cfg.planwise_root}/config.yaml and re-run /planwise init.",
             ))
+
+    # Plugin version drift detection — surfaces a SKIPPED row directing the
+    # user at /planwise upgrade if their pinned plugin_version is older than
+    # the currently-installed plugin. Independent of the manifest loop above
+    # because the check is comparative (pinned vs. shipped), not a presence
+    # check on a config key.
+    pinned_version = str(user_cfg.get("plugin_version", "0.0.0"))
+    if pinned_version != cfg.plugin_version:
+        skipped.append(SkippedArtifact(
+            artifact=f"{cfg.planwise_root}/config.yaml (key: plugin_version)",
+            reason=(
+                f"pinned plugin_version `{pinned_version}` is older than the installed plugin "
+                f"`{cfg.plugin_version}` — installed rules/agents may be stale"
+            ),
+            consumer="all handlers (rule and agent freshness)",
+            remediation=(
+                f"Run `python {cfg.plugin_root.as_posix()}/scripts/init_project.py "
+                f"--name \"{cfg.project_name}\" --upgrade` (or `/planwise upgrade`) to refresh artifacts."
+            ),
+        ))
 
     if args.auto_from:
         print(f"Init complete — resuming /planwise {args.auto_from}…")

@@ -12,7 +12,7 @@
 # When a new handler or skill introduces a config-driven artifact, add a row
 # here so the gap-detection logic remains mechanical instead of implicit.
 
-schema_version: 1
+schema_version: 2
 
 # How init_project.py reacts when an artifact's required config key is missing.
 #
@@ -36,6 +36,34 @@ missing_key_behaviors:
   - fail_loud
   - migrate_only
 
+# upgrade_behavior dictates how `/planwise upgrade` treats each artifact when
+# the user's pinned plugin_version is older than the currently-installed
+# plugin version.
+#
+#   refresh_or_sidecar: For installed copies. Compare the normalized installed
+#     body to the shipped body. Match -> overwrite preserving per-project
+#     frontmatter (rules: keep the user's paths: line). Diverged -> write
+#     a `.new` sidecar under {planwise_root}/upgrade-conflicts/<from>-to-<to>/
+#     and emit a SKIPPED row in the upgrade banner.
+#
+#   preserve: Never modify after install. User-owned data (config.yaml,
+#     rendered categorization file, seed index files). Banner emits an INFO
+#     row only if the file is missing (re-run init to recreate).
+#
+#   migrate_only: Handled by migrate_config(), not by the artifact-refresh
+#     loop. Applies to top-level config keys.
+#
+#   not_installed: Documents an artifact that is read in-place from the
+#     plugin directory (never copied to the project). The upgrade loop
+#     ignores it; the row exists for contributor visibility so future work
+#     doesn't invent a duplicate install path.
+
+upgrade_behaviors:
+  - refresh_or_sidecar
+  - preserve
+  - migrate_only
+  - not_installed
+
 artifacts:
   - id: config_yaml
     on_disk: "{planwise_root}/config.yaml"
@@ -44,6 +72,7 @@ artifacts:
     consumers:
       - "all handlers (config gate)"
     missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
     notes: >
       If config.yaml is absent, every handler's config gate triggers
       Auto-Init Fallback. The init script generates it from
@@ -60,6 +89,7 @@ artifacts:
       - "/planwise lessons curate"
       - "/planwise lessons promote-batch"
     missing_key_behavior: render_from_template_default
+    upgrade_behavior: preserve
     template_default: "DEFAULT_CATEGORIZATION (init_project.py)"
     notes: >
       When the user's config omits the categorization block, fall back to the
@@ -78,6 +108,7 @@ artifacts:
       - "/planwise review (Meta-Plan thresholds)"
       - "/planwise run (DELEGATED checks)"
     missing_key_behavior: migrate_only
+    upgrade_behavior: migrate_only
     notes: >
       Handlers default to plan_tier=pro / context_window=200000 when the
       block is absent, so init does not block on this — but `--migrate`
@@ -91,6 +122,7 @@ artifacts:
     consumers:
       - "all handlers (script invocation paths)"
     missing_key_behavior: migrate_only
+    upgrade_behavior: migrate_only
     notes: >
       `plugin_root:` lets handlers locate plugin scripts without depending on
       CLAUDE_PLUGIN_ROOT. When missing in an existing config, `--migrate`
@@ -106,6 +138,7 @@ artifacts:
       - "/planwise backlog"
       - "/planwise list"
     missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
 
   - id: plans_index
     on_disk: "{planwise_root}/{plans_dir}/00-Index-Plans.md"
@@ -117,6 +150,7 @@ artifacts:
       - "/planwise plan"
       - "/planwise list"
     missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
 
   - id: lessons_index
     on_disk: "{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md"
@@ -127,6 +161,7 @@ artifacts:
     consumers:
       - "/planwise lessons"
     missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
 
   - id: planwise_rules
     on_disk: ".claude/rules/planwise/*.md"
@@ -139,6 +174,7 @@ artifacts:
     consumers:
       - "all handlers (path-scoped rule injection)"
     missing_key_behavior: warn_loud
+    upgrade_behavior: refresh_or_sidecar
 
   - id: planwise_agents
     on_disk: ".claude/agents/*.md"
@@ -149,6 +185,7 @@ artifacts:
       - "/planwise run (task-runner)"
       - "/planwise backlog (fix-agent)"
     missing_key_behavior: warn_loud
+    upgrade_behavior: refresh_or_sidecar
     notes: >
       Mirrored to enable bare-name agent resolution and consumer-side overrides.
       Always installed; no config gate.
@@ -161,6 +198,7 @@ artifacts:
     consumers:
       - "/planwise review (multi-reviewer teams)"
     missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
 
   - id: plugin_permissions
     on_disk: "{settings_file}: permissions.additionalDirectories"
@@ -170,6 +208,37 @@ artifacts:
     consumers:
       - "all handlers (reading plugin files without prompts)"
     missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
+
+  - id: plugin_version_key
+    on_disk: "{planwise_root}/config.yaml (key: plugin_version)"
+    config_keys:
+      - "plugin_version"
+    producer: "generate_config() / --migrate"
+    consumers:
+      - "/planwise init (Step 10 stale-version detection)"
+      - "/planwise upgrade (drift detection)"
+    missing_key_behavior: migrate_only
+    upgrade_behavior: migrate_only
+    notes: >
+      Pinned plugin version, set on fresh init from .claude-plugin/plugin.json
+      and added to existing configs by `--migrate`. When missing or older
+      than the currently-installed plugin, `/planwise init` Step 10 emits a
+      drift-detection SKIPPED row directing the user at `/planwise upgrade`.
+
+  - id: planwise_skill
+    on_disk: "plugin in-place (skills/planwise/SKILL.md)"
+    config_keys: []
+    producer: "(not produced — read in-place from the plugin)"
+    consumers:
+      - "/planwise (router)"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: not_installed
+    notes: >
+      Documents that the planwise router skill is read in-place from the
+      plugin directory and is never copied to the project. The upgrade
+      loop ignores it; this row exists so contributors don't invent a
+      duplicate install path.
 
 # Skills register their config dependencies here so the gap-detection rule
 # stays mechanical. To extend:

@@ -1,5 +1,5 @@
 ---
-description: Seven binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, parallel-scaffold deviation classes, multi-shape plan-sizing, and high-divergence cohort token uplift
+description: Eight binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, and high-divergence cohort token uplift
 ---
 # Scaffolding Hygiene
 
@@ -19,6 +19,7 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 - [8. Parallel-Scaffold Deviation Classes](#8-parallel-scaffold-deviation-classes)
 - [9. Multi-Shape Integration Plan-Sizing Expansion Ratio](#9-multi-shape-integration-plan-sizing-expansion-ratio)
 - [10. Pre-Allocate Tokens for Known High-Divergence Cohorts](#10-pre-allocate-tokens-for-known-high-divergence-cohorts)
+- [11. Mega-Scaffold Review-Gate — Non-Skippable for 2+ Sprints In One Pass](#11-mega-scaffold-review-gate--non-skippable-for-2-sprints-in-one-pass)
 
 ---
 
@@ -318,4 +319,64 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 
 ---
 
-*Seven binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from [session-planning-protocol.md](session-planning-protocol.md) §14.*
+## 11. Mega-Scaffold Review-Gate — Non-Skippable for 2+ Sprints In One Pass
+
+> [!gate] When a `/planwise plan --scaffold` (or equivalent inline-scaffolding session) authors 2+ sprints / Execution Inputs in a single pass, `/planwise review` is MANDATORY before the plan can advance to `/planwise run`
+> The two scaffolding strategies (per-sprint cadence vs inline mega-scaffold) have different self-review economics. Per-sprint scaffolding allows the author to run the bidirectional-consistency self-check (every Cross-References file appears in `Extracted from:`, and vice versa; every cited identifier is a full, resolvable filename) after each sprint, while the scaffolding context is still fresh. Inline mega-scaffold trades that per-sprint self-review for speed — and EI header/cross-reference hygiene is the first thing to slip.
+>
+> The defect is silent: every file is individually well-formed; only the *consistency between* a header and its Cross-References table is wrong. The downstream cost is mechanical — typically a handful of mis-cited spec numbers, missing header entries, or unresolvable short-form filenames — but every one of those defects rides into execution if the review gate is also skipped. An agent reading a Cross-References row that points at a source the header never declared will either burn tokens reconciling or fall back to an invented framing.
+>
+> **The gate, stated mechanically:**
+>
+> 1. The scaffolder counts `n_sprints_scaffolded_this_pass` — the number of distinct Sprint Plan files authored during the current `/planwise plan` invocation.
+> 2. If `n_sprints_scaffolded_this_pass ≥ 2`, the plan's Step-10 plan-review gate (in `handlers/plan.md`) MUST present a non-skippable branch — "Skip to /planwise run" is removed from the available options. Only "Auto-review with /planwise review" or "Review manually first" remain.
+> 3. The scaffold session may legitimately defer the *content* review for cause (e.g., a follow-up session is already scheduled), but the *gate itself* — the explicit decision to defer — MUST be recorded in the Master Plan's status note rather than silently skipped.
+>
+> WRONG — scaffold N sprints inline, declare the scaffold "done", proceed toward `/planwise run` without a review:
+>
+> ```
+> /planwise plan --scaffold (4 sprints, one pass)
+>   → Step-10 prompt: "Auto-review / Manual review / Skip to /planwise run"
+>   → User picks "Skip to /planwise run"
+>   → Header⇄Cross-References inconsistencies ride into execution
+>   → Agent reads a Cross-References row pointing at a source the header never declared
+> ```
+>
+> CORRECT — scaffold N sprints inline, gate forces a review decision:
+>
+> ```
+> /planwise plan --scaffold (4 sprints, one pass)
+>   → Step-10 detects n_sprints_scaffolded_this_pass = 4
+>   → Prompt: "Auto-review with /planwise review (Recommended) / Review manually first"
+>     (no "Skip" option; review is mandatory)
+>   → User picks Auto-review
+>   → /planwise review runs, finds 2 ERROR + 5 WARNING (header⇄Cross-References hygiene)
+>   → User addresses findings before /planwise run
+> ```
+>
+> Equivalently: scaffold per-sprint and run the bidirectional-consistency self-check after each sprint. Skipping both the per-sprint cadence AND the post-scaffold review gate is the trap this rule closes.
+
+The cost asymmetry justifies the gate: roughly half a dozen mechanical fixes after the fact, vs a one-pass self-check at authoring time. The point is not "never scaffold inline" — it is that the inline path is only safe when paired with the review gate.
+
+How the gate is enforced at the planner layer:
+
+- `handlers/plan.md` Step 10 counts `n_sprints_scaffolded_this_pass` (1 for standard plans; N for `/planwise plan --scaffold` sessions).
+- When `n_sprints_scaffolded_this_pass ≥ 2`, the `AskUserQuestion` "Plan Review Approach" prompt omits the "Skip to /planwise run" option.
+- The handler's Question 2 ("Review Context") still applies — auto-review can run in this session or a new one — but Question 1's "Skip" option is gated off.
+
+Applies to:
+
+- Any `/planwise plan` invocation that produces 2+ Sprint Plan files in a single pass.
+- Any hand-authored multi-sprint scaffolding session where the same pattern applies (2+ sprints authored in one work-session before any review runs).
+- Reinforces the existing EI bidirectional-consistency rule (`ei-fidelity.md` §9) and the new body⇄citation source-promise rule (`ei-fidelity.md` §10) — both rules exist; this gate ensures the most likely failure pattern (inline mega-scaffold skips both per-sprint self-review and the post-scaffold review) is closed.
+
+Red flags during reviewer audit:
+
+- Master Plan Status is `READY_TO_EXECUTE` AND `n_sprints_scaffolded_this_pass ≥ 2` AND no `/planwise review` report is referenced — gate skipped.
+- The Step-10 confirmation block in the planner's transcript shows a "Skip to /planwise run" choice was offered for a multi-sprint scaffold — gate not enforced by the handler.
+
+See also: `handlers/plan.md` Step 10 (the gate's mechanical enforcement point), `ei-fidelity.md` §9 (EI bidirectional consistency — the rule the inline mega-scaffold most often violates), `ei-fidelity.md` §10 (Source-Promise Integrity — the rule the scaffolder's body⇄citation promises depend on).
+
+---
+
+*Eight binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from [session-planning-protocol.md](session-planning-protocol.md) §14.*

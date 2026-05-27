@@ -23,6 +23,7 @@ Parse `$ARGUMENTS`:
 | `plan` | Read [handlers/plan.md](../../handlers/plan.md) |
 | `review` | Read [handlers/review.md](../../handlers/review.md) |
 | `run` | Read [handlers/run.md](../../handlers/run.md) |
+| `upgrade` | Read [handlers/upgrade.md](../../handlers/upgrade.md) |
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
 | `list` | Read [handlers/list.md](../../handlers/list.md) |
 | `lessons` | Read [handlers/lessons.md](../../handlers/lessons.md) |
@@ -42,6 +43,7 @@ Available subcommands:
   plan --scaffold [abbrev]     Scaffold from Discovery phase
   review [plan-path]           Review plan before execution
   run [@orchestration-file]    Execute a planned session
+  upgrade                      Refresh installed rules/agents after a plugin update
   backlog [item-id]            Triage backlog items; capture follow-up BLIs from resolution outputs
   list                         List all plans with status
   lessons [search-terms]       Search lessons learned
