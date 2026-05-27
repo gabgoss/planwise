@@ -235,6 +235,26 @@ Fix: Add explicit repair task(s) authorizing edits to {missing_files}, OR remove
 ```
 - **Insert:** Third item under `**New checks (EI Completeness — three-axis scope coverage):**`.
 
+**New checks (EI Verbatim-Copy Line-Count Discipline):**
+
+### Check 061 — EI Verbatim-Copy Task Line-Count Body-Block Scope
+
+- **Severity / Role / Source / Type:** ERROR | EI Reviewer | `references/ei-fidelity.md` §8.2 | NEW
+- **What:** When a task instruction is "copy verbatim from EI §X" (or equivalent), the task's success-criteria `wc -l` smoke-check range MUST be computed against the EI's marked verbatim body block only — NOT the surrounding EI section, which embeds scaffolding metadata (Substitution Log, EI-only headers, EI-only Notes) the task instructions strip from the written file. The EI section authoring a verbatim block MUST contain explicit body delimiters (start/end markers or an unambiguous demarcating callout) so the task-scaffolder can count the body without inferring the boundary.
+- **Detection:**
+  1. Grep the EI for verbatim-copy task references: `copy.*verbatim.*from.*§|Verbatim Body|Body Content runs from|copy verbatim from EI`.
+  2. For each verbatim-copy task: open the cited EI §X and confirm explicit body delimiters are present (start-line + end-line markers, or a callout that demarcates the body block from surrounding EI metadata). Absent → ERROR.
+  3. Open the corresponding task file's Success Criteria; extract the `wc -l` range (e.g., `~{min}-{max} lines`).
+  4. Count the marked body block of EI §X (between the delimiters). Count the full EI §X section. If the documented range is within ±5% of the FULL section line count AND >10% above the body-block line count → ERROR (estimate measured the EI section, not the body block).
+- **Finding template:**
+```
+[ERROR] EI verbatim-copy line-count estimate measures EI section, not body block
+File: {task file path} | Location: Success Criteria
+Issue: wc -l range {documented_range} matches EI §{section} section length ({section_lines}) rather than body block ({body_lines})
+Fix: Recompute range against the marked body block per references/ei-fidelity.md §8.2 (and add body delimiters to EI §{section} if missing) | Confidence: MEDIUM
+```
+- **Insert:** First item under `**New checks (EI Verbatim-Copy Line-Count Discipline):**`.
+
 ### Task Reviewer
 
 - Verify each task file has complete Required Context with file paths and token estimates
@@ -635,6 +655,63 @@ Fix: Move to Before block per references/callout-conventions.md > [!verify] | Co
 ```
 - **Insert:** Third item under `**New checks (Verification Commands enforcement):**`.
 
+**New checks (Verification-task authoring discipline):**
+
+### Check 058 — Verification Task Anchored Aggregate Count Threshold
+
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/verification-task-authoring.md` §2 | NEW
+- **What:** A verification task MUST NOT ship an anchored aggregate count threshold (e.g., `grep -cE '^…' {file}` paired with `expect ≥N`) as its sole pass/fail gate. If sibling extraction tasks produce more than one output format for the measured construct, the threshold is structurally unreachable and the verifier will either FAIL incorrectly or fudge to PASS. Replace with per-unit existence assertions: enumerate the units the verifier is checking and assert the property holds per unit.
+- **Detection:**
+  1. For each task whose Objective contains verification-style language (`verify`, `count`, `coverage`, `expect ≥/≤`), open the Execution Steps and Verification Commands sections.
+  2. Grep for the anchored-count pattern: a `grep -c…` or `grep -cE…` invocation paired with a comparator (`-ge`, `-le`, `≥`, `≤`) and a numeric threshold.
+  3. Cross-read the sibling extraction tasks that write to the file the verifier scans; enumerate the output formats each produces.
+  4. If ≥2 distinct formats exist AND the verifier's pattern is anchored (`^…` or a single format) → BLOCKER.
+  5. If exactly 1 format exists AND the threshold is exactly equal to the produced count, also flag as WARNING (brittle to format drift).
+- **Finding template:**
+```
+[BLOCKER] Verification task uses structurally unreachable anchored count threshold
+File: {task file path} | Location: Verification Commands / Execution Steps
+Issue: Verifier pattern `{anchored-grep}` paired with `expect {comparator}{N}`; sibling tasks produce {format_count} formats not all matched by the pattern
+Fix: Replace with per-unit existence assertions per references/verification-task-authoring.md §2 (enumerate units, assert per unit, derive aggregate from per-unit results) | Confidence: HIGH
+```
+- **Insert:** First item under `**New checks (Verification-task authoring discipline):**`.
+
+### Check 059 — Verification Task Keyword-Proximity Coverage Gate
+
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/verification-task-authoring.md` §4 | NEW
+- **What:** A verification task MUST NOT ship a keyword-proximity heuristic (e.g., `grep -B{N} keyword {file} | grep -c tag`) paired with a coverage-ratio denominator from a bare keyword grep (`grep -c keyword`) as its pass/fail gate. The denominator is inflated by prose, table headers, and fenced pseudo-code that mention the keyword without invoking the construct, and the proximity bound (`-B1`, `-A1`) misses correctly-tagged sites whose tag sits 2+ lines away. Replace with explicit-site enumeration: verify the spec's enumerated anchors are tagged, do not re-derive the site set from a keyword grep.
+- **Detection:**
+  1. Grep Verification Commands and Execution Steps for the proximity-gate shape: `grep -[BA]\d+ '{keyword}'` piped to `grep -c '{tag}'`, paired with a denominator `grep -c '{keyword}'` and a coverage comparator (`-ge`, `-eq`).
+  2. If the bare denominator `grep -c '{keyword}'` is used AND the file under scan is a prose document (`.md`) — denominator includes prose / table rows / fenced code → BLOCKER.
+  3. If the spec lists the explicit sites (e.g., an EI repoint map or an edit-group list) AND the verifier instead uses a keyword grep → BLOCKER (the spec's enumerated sites are the ground truth; verify them by anchor).
+  4. Also flag: any verification step that maps `Actual<Expected` to BLOCKER directly without an `INVESTIGATE` escalation path → ERROR (denominator may be inflated; missing adjudication path forces false rework).
+- **Finding template:**
+```
+[BLOCKER] Verification task uses keyword-proximity coverage gate with inflated denominator
+File: {task file path} | Location: Verification Commands / Execution Steps
+Issue: Verifier uses `grep -B{N} '{keyword}' | grep -c '{tag}'` over denominator `grep -c '{keyword}'`; denominator counts prose/table/fenced-code mentions, proximity bound misses tags ≥2 lines away
+Fix: Replace with explicit-site enumeration per references/verification-task-authoring.md §4 (verify the spec's enumerated anchors by name, scope denominator to real construct instances, or re-classify as INVESTIGATE if denominator cannot be made precise) | Confidence: HIGH
+```
+- **Insert:** Second item under `**New checks (Verification-task authoring discipline):**`.
+
+### Check 060 — Verification Task Verdict-Arithmetic Contract
+
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/verification-task-authoring.md` §5 + §6 | NEW
+- **What:** A verification task spec MUST require the verifier to return FAIL or `[UNCERTAIN]` when Actual contradicts Expected per the comparison operator — never PASS. The spec MUST also declare an orchestrator adjudication path for BLOCKER-from-heuristic findings (the orchestrator validates flagged sites against source before routing rework, per the rules above).
+- **Detection:**
+  1. Open Verification Commands and any output-template the verifier task instructs the subagent to emit (e.g., a results table with `Actual` / `Expected` / `Verdict` columns).
+  2. If the template permits a PASS verdict on a row where the `Actual` value does not satisfy the `Expected` comparator → BLOCKER (verdict-arithmetic contract violation enabled).
+  3. If the spec emits BLOCKER directly to downstream rework without an `INVESTIGATE` / orchestrator-adjudication branch → ERROR (denies the adjudication path required when a heuristic produces a false signal).
+  4. If the spec contains language like "approximate", "close enough", or "within tolerance" without a numeric tolerance band → WARNING (arithmetic-fudging risk).
+- **Finding template:**
+```
+[BLOCKER] Verification task spec permits PASS on contradicted comparator
+File: {task file path} | Location: Verification Commands / output template
+Issue: Spec permits Verdict=PASS when Actual does not satisfy Expected; orchestrator adjudication path for BLOCKER-from-heuristic not declared
+Fix: Constrain verdict per references/verification-task-authoring.md §5 (FAIL or [UNCERTAIN] when Actual contradicts Expected) and §6 (orchestrator adjudicates BLOCKER-from-heuristic against source before routing rework) | Confidence: HIGH
+```
+- **Insert:** Third item under `**New checks (Verification-task authoring discipline):**`.
+
 ### Dependency Reviewer
 
 - Verify task dependency DAG has no cycles
@@ -828,9 +905,9 @@ Fix: Re-verify per references/discovery-and-exit-criteria.md §16.3 (PLG-019) | 
 
 ## Sub-role: Design-Extension Reviewer (NEW)
 
-**Scope:** Audit-triggered design extensions (undocumented section/callout additions, DELEGATED round-2 sub-rule compliance, cross-tier audit triage tables, session-start BLI anchor re-verification).
+**Scope:** Audit-triggered design extensions (undocumented section/callout additions, DELEGATED round-2 sub-rule compliance, cross-tier audit triage tables, session-start BLI anchor re-verification, Phase-1 scope-expansion approval reference).
 **Assigned via:** Spawn-prompt `role: "Design-Extension Reviewer"` (see `handlers/review.md` Phase 2).
-**Checks:** 051-054 below.
+**Checks:** 051-054, 062 below.
 
 ### Check 051 — Undocumented Design Extension
 
@@ -859,6 +936,27 @@ Fix: Re-verify per references/discovery-and-exit-criteria.md §16.3 (PLG-019) | 
 - **Detection:** At session-start, re-verify all BLI-cited audit anchors (also covered as Coverage Check 044; duplicated here for design-extension scope at session start).
 - **Finding template:** `[BLOCKER] Session-start BLI anchor re-verification missing/failing | Fix per references/discovery-and-exit-criteria.md §16.3`
 - **Insert:** Fourth item under Design-Extension Reviewer.
+
+### Check 062 — Phase-1 Scope-Expansion Approval Reference Required
+
+- **Severity / Role / Source / Type:** BLOCKER | Design-Extension Reviewer | `references/session-execution-protocol.md` §1.2 + `templates/recovery.md` + `templates/summary-template.md` | NEW
+- **What:** When a Recovery file's `Scope-Expansion Decisions` section contains a row (or when the session diff shows changes outside the literal task scope declared in the Orchestration), the row MUST cite a Phase-1 approval reference (AskUserQuestion turn or timestamp), AND the Summary file's Context Notes MUST mirror the row. Recovery without Summary mirror, or Summary without Recovery row, or a Recovery row missing the approval reference → BLOCKER.
+- **Detection:**
+  1. Open the session Recovery file; grep `^## Scope-Expansion Decisions` and read the table rows.
+  2. For each row, verify the `Phase-1 Approval Ref` column is populated with a non-`-` value (AskUserQuestion turn or timestamp).
+  3. Open the session Summary file; grep `^### Scope-Expansion Decisions` under Context Notes. Verify a mirroring row exists for each Recovery row (same Step number).
+  4. If the Orchestration task scope and the session diff show file/heading/line changes outside the literal scope AND Recovery has no `Scope-Expansion Decisions` row → BLOCKER (silent expansion).
+  5. If a Recovery row exists but Summary mirror is absent → BLOCKER (audit-trail gap).
+  6. If a Recovery row exists but `Phase-1 Approval Ref` is `-` or empty → BLOCKER (untraceable expansion).
+- **Finding template:**
+```
+[BLOCKER] Phase-1 scope-expansion approval reference missing
+File: {Recovery file path | Summary file path | session diff}
+Location: {Recovery Scope-Expansion Decisions row N | Summary Context Notes | diff hunks outside literal scope}
+Issue: {silent expansion (no Recovery row) | missing Summary mirror | empty Phase-1 Approval Ref}
+Fix: Add the Phase-1 approval reference + mirror per references/session-execution-protocol.md §1.2 (and templates/recovery.md + templates/summary-template.md) | Confidence: HIGH
+```
+- **Insert:** Fifth item under Design-Extension Reviewer.
 
 ---
 

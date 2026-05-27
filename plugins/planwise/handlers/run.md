@@ -105,6 +105,8 @@ Read these files completely (not skim):
 2. Recovery file -- check for resumption state
 3. All task files listed in the Task Files table (read file headers, objectives, agents)
 
+While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [session-execution-protocol.md §1.2](../references/session-execution-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
+
 ### Step 1.2: CONFIRM
 
 Output the confirmation block:
@@ -116,14 +118,23 @@ Output the confirmation block:
 > Current State: {Session Status from Recovery -- NOT_STARTED | IN_PROGRESS | COMPLETE}
 > Last Completed: {last COMPLETE task from Recovery, or "None" if NOT_STARTED}
 > Next Action: {first PENDING task description, or "Resume from Task {N}" if resuming}
+> Structural Finding: {none, OR a one-line summary + see Step 1.2a below}
 > ```
+
+#### Step 1.2a: Structural Finding (when READ reveals one)
+
+If Step 1.1 surfaced a structural defect that makes the literal task scope produce a self-inconsistent artifact, the CONFIRM block MUST include a `Structural finding` paragraph AND an explicit Option A (Coherent) / Option B (Literal) block before proceeding. The executor MUST NOT pick a path before the user answers -- see [session-execution-protocol.md §1.2](../references/session-execution-protocol.md#12-structural-findings-beyond-literal-scope) for the template and rationale.
+
+If the user approves Option A (or any expansion beyond the literal scope), the Phase-1 approval reference (the AskUserQuestion turn or timestamp) MUST be recorded in:
+- Recovery's `Scope-Expansion Decisions` section (see [templates/recovery.md](../templates/recovery.md))
+- Summary's `Scope-Expansion Decisions` block in Context Notes (see [templates/summary-template.md](../templates/summary-template.md))
 
 ### Step 1.3: ACT
 
 <!-- AUTO-MODE: critical -->
 Use `AskUserQuestion`: "Ready to proceed with {next action}?"
 
-Only proceed after user approval.
+Only proceed after user approval. If Step 1.2a surfaced a structural finding, the AskUserQuestion options are the A (Coherent) / B (Literal) pair, not a generic "proceed?" -- the user's choice IS the Phase-1 approval reference recorded in Recovery and Summary.
 
 ---
 

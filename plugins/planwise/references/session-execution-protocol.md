@@ -10,9 +10,12 @@ description: Mandatory execution protocol - READ-CONFIRM-ACT, recovery, git work
 ## Table of Contents
 
 - [1. READ-CONFIRM-ACT Pattern](#1-read-confirm-act-pattern)
+  - [1.1 Confirmation Block](#11-confirmation-block)
+  - [1.2 Structural Findings Beyond Literal Scope](#12-structural-findings-beyond-literal-scope)
 - [2. MUST READ References](#2-must-read-references)
 - [3. Settings Modification Protocol](#3-settings-modification-protocol)
 - [4. Session Rules](#4-session-rules)
+- [4.5 Discovery / Meta-Plan Status with User-Action Gates](#45-discovery--meta-plan-status-with-user-action-gates)
 - [5. Task Tracking](#5-task-tracking)
 - [6. Refactoring Safety](#6-refactoring-safety)
 - [7. Git Workflow](#7-git-workflow)
@@ -26,7 +29,7 @@ description: Mandatory execution protocol - READ-CONFIRM-ACT, recovery, git work
 2. **CONFIRM** understanding with a confirmation block (see format below)
 3. **ACT** only after user approval
 
-### Confirmation Block
+### 1.1 Confirmation Block
 
 > [!template] Context Confirmation
 > ```
@@ -35,6 +38,7 @@ description: Mandatory execution protocol - READ-CONFIRM-ACT, recovery, git work
 > Current State: {status from document}
 > Last Completed: {step/task from Recovery file}
 > Next Action: {what the document says to do}
+> Structural Finding: {none, or one-line summary — see §1.2}
 > ```
 
 After outputting, use `AskUserQuestion` tool: "Ready to proceed with [next action]?"
@@ -69,6 +73,91 @@ After outputting, use `AskUserQuestion` tool: "Ready to proceed with [next actio
 > → AskUserQuestion("Ready to proceed with scaffolding Sprint-01?")
 > → (user approves) → (writes Sprint-01/Session-01/Orchestration.md)
 > ```
+
+### 1.2 Structural Findings Beyond Literal Scope
+
+> [!binding] Phase-1 Scope-Expansion Gate
+> When the READ step uncovers a structural defect that makes the literal scope produce a self-inconsistent artifact, the CONFIRM block MUST surface it BEFORE asking the user to proceed. Executing the literal scope silently — when the executor knows it publishes a defective artifact — is a protocol violation. Executing an expanded coherent scope silently — without an explicit user choice — is also a protocol violation.
+
+Apply this rule whenever a single, narrowly-scoped task (typically from an audit punch-list, a backlog item, or a remediation directive) references a defect inside a larger artifact, AND the READ step reveals that the minimum *coherent* fix requires touching adjacent latent defects the task did not name. Typical patterns:
+
+- Table-of-contents ↔ body ordering mismatches (literal "add §X to ToC" leaves §X anchoring into a mid-section H3, or leaves adjacent §Y/§Z still absent)
+- Anchor ↔ heading-level mismatches (literal "add cross-reference to §X" requires promoting §X's heading first)
+- Partial enumerations (literal "fix item 3 in the list" requires renumbering 4-7)
+- Schema-pin ↔ deployed-schema drift discovered during a narrow column change
+
+When the READ surfaces such a finding, the CONFIRM block MUST add a `Structural finding` paragraph and offer the user TWO explicit options:
+
+> [!template] Structural Finding + Option Block
+> ```
+> Structural finding: {one-paragraph description of the latent adjacent defect
+>                       and why the literal scope produces a self-inconsistent
+>                       artifact}.
+>
+> Option A (Coherent): {describe the expanded scope, the structural rationale,
+>                       and the expected line / heading-level / file-touch impact}.
+> Option B (Literal):  {acknowledge that the literal scope produces a known-
+>                       defective artifact and the original directive's intent
+>                       is not satisfied; name the residual defect class}.
+> ```
+
+Then call `AskUserQuestion` with both options. The executor MUST NOT pick a path before the user answers; the option block is not a recommendation paragraph.
+
+> [!constraint] Structural Finding Must Surface, Not Disappear
+> WRONG — executor reads, notices the literal scope is incoherent, silently expands and writes:
+> ```
+> (reads target file)
+> → notices §11 is H3 inside §9, and §12/§13 are absent from ToC
+> → silently promotes §11→H2, relocates after §10, adds §11/§12/§13 to ToC
+> → writes the file
+> ```
+> Result: ~270 lines moved and 15 heading levels changed during what the
+> directive called a "ToC fix." User has no record of the expansion.
+>
+> WRONG — executor reads, notices the incoherence, executes the literal scope anyway:
+> ```
+> (reads target file)
+> → notices §11 H3-inside-H2 misplacement and §12/§13 ToC absence
+> → adds only the literal §11 ToC entry; leaves §11 anchoring into §9 mid-section,
+>   leaves §12/§13 absent
+> → writes the file
+> ```
+> Result: ToC lists §11 but skips §12/§13; §11 anchor points into §9; body order
+> remains non-monotonic. The "fix" publishes an internally inconsistent document.
+>
+> CORRECT — executor surfaces the finding in CONFIRM with two options and gates on `AskUserQuestion`:
+> ```
+> CONTEXT LOADED
+> File: {target file}
+> Current State: directive scope = "add §11 to ToC"
+> Last Completed: prior task complete
+> Next Action: gated on user choice below
+> Structural Finding: §11 is currently H3 inside §9, and §12/§13 are absent from
+>                     the ToC. Adding only §11 produces a ToC that lists §11 but
+>                     skips §12/§13 and anchors §11 into a mid-section H3.
+>
+> Option A (Coherent): promote §11→H2, relocate after §10, promote 15 H4
+>                       children→H3, add §11/§12/§13 to ToC (~270 lines moved,
+>                       15 heading-level changes).
+> Option B (Literal):  add only the literal §11 ToC entry; leave §11 anchored
+>                       inside §9 and §12/§13 absent from ToC. Residual defect:
+>                       internally inconsistent ToC vs body ordering.
+> → AskUserQuestion("Choose Option A (coherent expansion) or Option B (literal scope)")
+> ```
+
+#### Audit-Trail Requirement When Expansion Is Approved
+
+When the user picks Option A (or any expansion beyond the literal directive), the session MUST record the decision in two places:
+
+| File | What to Record | See |
+|------|----------------|-----|
+| Recovery file | A row in the `Scope-Expansion Decisions` section naming: directive scope (literal), expanded scope, structural rationale, line / heading / file-touch impact, Phase-1 approval reference (timestamp or AskUserQuestion turn) | [templates/recovery.md](../templates/recovery.md) |
+| Summary file | A `Scope-Expansion Decisions` block in Context Notes linking back to the Phase-1 approval reference (so later reviewers can reconcile "why did you also touch X?") | [templates/summary-template.md](../templates/summary-template.md) |
+
+The audit trail is NOT optional when the expansion is approved. A scope-expanded execution without a Recovery + Summary trail looks indistinguishable from a silent expansion to any later reviewer.
+
+> [!practice] When in Doubt, Surface It
+> If the executor is uncertain whether a finding is "structural" enough to warrant Option A/B, surface it anyway. The cost of asking is a single `AskUserQuestion` round-trip; the cost of NOT asking is either a defective artifact or an undocumented scope expansion. Bias toward surfacing.
 
 ---
 

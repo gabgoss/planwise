@@ -21,6 +21,7 @@ description: EI fidelity across scaffolding tiers — source preservation, thres
 - [7. §-Citation Discipline — Cite, Do Not Restate](#7--citation-discipline--cite-do-not-restate)
 - [8. Token Reconciliation Gate — Arithmetic Beats Summary](#8-token-reconciliation-gate--arithmetic-beats-summary)
   - [8.1 Recompute Prose-Stated Numerical Exemplars at Design Review](#81-recompute-prose-stated-numerical-exemplars-at-design-review)
+  - [8.2 Verbatim-Copy Task Line-Count Estimates Exclude EI Scaffolding Metadata](#82-verbatim-copy-task-line-count-estimates-exclude-ei-scaffolding-metadata)
 - [9. EI Completeness — Three-Axis Scope Coverage](#9-ei-completeness--three-axis-scope-coverage)
   - [9.1 Multi-Sprint Cumulative File-Touch Reconciliation](#91-multi-sprint-cumulative-file-touch-reconciliation)
   - [9.2 Cluster Enumeration in EI Repoint Maps](#92-cluster-enumeration-in-ei-repoint-maps)
@@ -498,6 +499,73 @@ NOT applicable when there is only one token-estimate layer (no divergence possib
 > numerical exemplar; flag mismatches > 1e-9 as a [BLOCKING] open question."
 
 This recompute step is the algorithm-sprint extension of the §8 reconciliation gate: §8 reconciles token-estimate arithmetic; §8.1 reconciles every other prose-stated numerical exemplar an algorithm-sprint EI carries.
+
+---
+
+### 8.2 Verbatim-Copy Task Line-Count Estimates Exclude EI Scaffolding Metadata
+
+> [!constraint] When a task copies verbatim content from an EI section, the success-criteria line-count range MUST be computed from the marked body block, NOT from the surrounding EI section
+> When the task instruction is "copy verbatim from EI Section N", the EI section
+> typically embeds scaffolding metadata (Substitution Log, EI-only headers,
+> EI-only Notes, source-vocabulary glossaries) that the task instructions
+> explicitly strip from the written file. A line-count range computed against
+> the full EI section overcounts by the metadata length, and the agent's `wc -l`
+> smoke check fires false positives on fidelity-correct work.
+>
+> A 10%+ `wc -l` delta is meant to signal one of two conditions — content
+> fidelity loss (real bug, executor MUST HALT) or an estimate defect (this
+> rule) — and cannot do both jobs reliably when estimates routinely include
+> metadata the task strips.
+>
+> WRONG — task success criteria pegged to the EI section length:
+>
+> ```markdown
+> ## Success Criteria
+> - [ ] File line count is ~415-445 lines  ← matches EI §X
+>       (verbatim body + Substitution Log + EI Note + EI-only header ≈ 430)
+> ```
+>
+> Cost: agent writes the verbatim body correctly (~367 lines, body only); `wc -l`
+> reports -48 vs the documented range; agent flags the content-fidelity gate
+> and burns investigation cycles before concluding the estimate was stale.
+>
+> CORRECT — estimate computed against the marked body block only:
+>
+> 1. **Mark the verbatim body in the EI.** The EI section authoring the
+>    verbatim block MUST mark its body precisely — explicit start- and end-line
+>    delimiters (e.g., "Body Content runs from `# {Heading}` through
+>    `*{Closing italic line}*`") or an unambiguous callout demarcating the
+>    block.
+> 2. **Count the marked body, not the EI section.** When writing the task's
+>    success-criteria line-count range, count ONLY the marked body lines (plus
+>    any YAML frontmatter the task adds), NOT the EI metadata surrounding it
+>    (Substitution Log, EI-only Notes, glossaries, source-vocabulary tables).
+> 3. **Tolerance band.** ±3-5 lines for renderer differences (LF vs CRLF,
+>    trailing newline). A 10%+ delta is NOT acceptable as a smoke pass — it
+>    indicates either an EI-metadata leak (real bug; executor MUST HALT and
+>    investigate) or a stale estimate (this rule; fix the EI's body markers
+>    and recompute the range).
+>
+> ```markdown
+> ## Success Criteria
+> - [ ] File line count is ~360-380 lines  ← marked body block only
+>       (matches the content the task instructions actually require)
+> ```
+
+How to apply during EI authoring:
+
+1. For every "copy verbatim from §X" task, the EI's §X MUST contain explicit body delimiters (start-line + end-line markers, or a callout demarcating the verbatim block).
+2. The task-scaffolding step counts the delimited body block — not the §X section length — when emitting the task's `wc -l` smoke-check range.
+3. If §X embeds Substitution Logs, EI-only Notes, or EI-only headers, those lines are excluded from the count by construction (they fall outside the marked body).
+4. The Token Reconciliation Gate (§8) and this rule combine: §8 reconciles totals across the planning tiers; §8.2 reconciles per-task verbatim line-counts against the body-only scope the task actually writes.
+
+Red flags during review:
+
+- Task success-criteria `wc -l` range matches the EI section line count rather than the marked body-block length.
+- EI section authoring a verbatim block has no explicit body delimiters — body and metadata are visually intermixed.
+- Task-runner Status Block reports a 10%+ negative line-count delta on a verbatim-copy task whose downstream content-fidelity verification PASSes.
+
+NOT applicable when the task is producing transformed content (extraction + restructure), where line counts are expected to diverge from any single source section.
 
 ---
 

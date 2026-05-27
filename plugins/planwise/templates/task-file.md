@@ -164,6 +164,16 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 - [ ] {Measurable criterion 1}
 - [ ] {Measurable criterion 2}
 
+### Verbatim-Copy Line-Count Range (Required when task copies verbatim content from an EI section)
+
+When the task instruction is "copy verbatim from EI §X" (or equivalent), the `wc -l` smoke-check range MUST be computed against the EI's marked verbatim body block only — NOT the surrounding EI section, which typically embeds scaffolding metadata (Substitution Log, EI-only headers, EI-only Notes) the task instructions strip from the written file. Tolerance band ±3-5 lines for renderer differences; a 10%+ delta is NOT a smoke pass. See `references/ei-fidelity.md` §8.2.
+
+Example success-criteria phrasing:
+
+- [ ] File line count is ~{body-block-min}-{body-block-max} lines (marked body block only — excludes EI Substitution Log, EI-only Notes, EI-only headers)
+
+EI-section-length estimates for verbatim-copy tasks (instead of body-block estimates) = BLOCKER at `/planwise review`.
+
 ---
 
 ## Notes for Agent
