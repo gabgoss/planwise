@@ -66,6 +66,16 @@
 
 Each row MUST link to the corresponding Recovery row (same Step number) so later reviewers can reconcile the post-session diff against the user-approved scope without re-deriving the rationale.
 
+### Cross-Task Coordination Flags
+
+*Mirror every row from the Recovery file's `Cross-Task Coordination Flags` section here, alongside the file path where the flag was propagated at closeout. Omit this subsection entirely if no flags were surfaced. See [references/session-execution-protocol.md §1.3](../references/session-execution-protocol.md#13-cross-task-coordination-flags).*
+
+| Flag # | Source Task | Downstream Consumer | Observation | Propagated To |
+|--------|-------------|---------------------|-------------|---------------|
+| - | - | - | - | - |
+
+The `Propagated To` column MUST name the destination file (task / orchestration / sprint plan / master plan) where the flag was added at closeout. A flag with no propagation destination is a closeout error — it means the constraint stayed buried in upstream Recovery.
+
 ---
 
 ## Next Session

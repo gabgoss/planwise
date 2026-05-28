@@ -12,6 +12,7 @@ description: Mandatory execution protocol - READ-CONFIRM-ACT, recovery, git work
 - [1. READ-CONFIRM-ACT Pattern](#1-read-confirm-act-pattern)
   - [1.1 Confirmation Block](#11-confirmation-block)
   - [1.2 Structural Findings Beyond Literal Scope](#12-structural-findings-beyond-literal-scope)
+  - [1.3 Cross-Task Coordination Flags](#13-cross-task-coordination-flags)
 - [2. MUST READ References](#2-must-read-references)
 - [3. Settings Modification Protocol](#3-settings-modification-protocol)
 - [4. Session Rules](#4-session-rules)
@@ -158,6 +159,104 @@ The audit trail is NOT optional when the expansion is approved. A scope-expanded
 
 > [!practice] When in Doubt, Surface It
 > If the executor is uncertain whether a finding is "structural" enough to warrant Option A/B, surface it anyway. The cost of asking is a single `AskUserQuestion` round-trip; the cost of NOT asking is either a defective artifact or an undocumented scope expansion. Bias toward surfacing.
+
+### 1.3 Cross-Task Coordination Flags
+
+> [!binding] Downstream-Propagation Gate
+> When a task surfaces an observation that constrains, sequences, or unlocks work in a DIFFERENT session, sprint, or plan, the orchestrator MUST (a) record the observation as a Cross-Task Coordination Flag in this session's Recovery file at the moment it is surfaced, AND (b) propagate every flag into the downstream consumer's task or orchestration file as part of session closeout. Closeout without propagation leaves the downstream agent to re-derive context the orchestrator already validated — wasting tokens at best, dropping a constraint on the floor at worst.
+
+Apply this rule whenever an upstream task's output names a sequencing constraint, a content-routing dependency, a cluster-classification ambiguity, a release-quality tradeoff, or any other observation whose CONSUMER is a downstream task the upstream orchestrator can name. Typical patterns:
+
+- **Sequencing constraints:** "Task X's SPLIT must land before Task Y's MOVE-IN, otherwise Y has nowhere correct to route its additions."
+- **Content-routing dependencies:** "After the SPLIT, references to §A go to Part-1, references to §B go to Part-2 — downstream link updates must respect this routing."
+- **Cluster-classification ambiguity:** "After the SPLIT, Part-2's topical cluster membership is unresolved; downstream themeing must pick a home."
+- **Release-quality wins beyond scope:** "Doing this restructure also unlocks a base-context token reduction — flag as a candidate even though it wasn't the proximate goal."
+- **Cross-plan flow-through:** an upstream plan's findings constrain the scope or sequencing of a follow-up plan that hasn't been written yet.
+
+A flag is NOT a scope-expansion (§1.2 governs that — work done outside the literal scope) and is NOT a generic finding (those go in `Key Findings`). A flag specifically names a DOWNSTREAM consumer who needs to ACT on the observation.
+
+#### Recording the Flag (At Surface Time)
+
+When a task surfaces a coordination flag during execution, the orchestrator adds a row to the Recovery file's `Cross-Task Coordination Flags` section IMMEDIATELY — not at closeout. The same context-compaction risk that motivates per-task Recovery updates applies here: a flag held only in conversation context dies on the next compaction.
+
+> [!template] Coordination Flag Row
+> ```
+> | Flag # | Source Task | Downstream Consumer | Observation | Recommended Action |
+> |--------|-------------|---------------------|-------------|---------------------|
+> | 1      | {abbrev}-S{XX}-{YY}-{##} | {abbrev}-S{XX}-{YY}-{##} or {sprint} or {plan} | {one-paragraph description of the constraint / dependency / opportunity} | {what the downstream agent should do — sequence, route, resolve, evaluate} |
+> ```
+
+#### Propagating the Flag (At Closeout)
+
+At Phase 4 closeout, the orchestrator MUST add each flag to the downstream consumer's task file (preferred) or orchestration file. The destination depends on who the consumer is:
+
+| Downstream Consumer | Propagate To |
+|---------------------|--------------|
+| A specific named task in a later session | That task's file under a `## Pre-Known Cross-Task Coordination Flags` section |
+| A whole session (consumer task unclear) | That session's orchestration file under a `## Pre-Known Cross-Task Coordination Flags` section |
+| A future sprint (consumer task not yet authored) | The sprint plan's `## Carried-Forward Coordination Flags` section, to be re-propagated when tasks are scaffolded |
+| A follow-up plan not yet written | The current Master Plan's `## Carried-Forward Coordination Flags` section + the rollup/handoff task file |
+
+Each propagated entry MUST be tagged with the source session ID and the surface date so the downstream agent recognizes it as orchestrator-validated context (do NOT re-derive) and can age it for staleness.
+
+> [!template] Propagated Flag Block
+> ```markdown
+> ## Pre-Known Cross-Task Coordination Flags
+>
+> These flags were surfaced and reconciled by upstream session orchestrators. Treat them as orchestrator-validated context — do NOT re-derive.
+>
+> ### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}
+>
+> 1. **{Short flag headline}.** {Paragraph describing the constraint / dependency / opportunity and the recommended action.}
+> 2. **{Short flag headline}.** {...}
+>
+> ### From {next-source-session-id} — to be appended when session completes
+>
+> *(none yet)*
+> ```
+
+The reserved placeholder for later sources is intentional — it tells future closeout orchestrators where to append without re-deriving the section structure.
+
+#### Audit-Trail Requirement
+
+| File | What to Record | See |
+|------|----------------|-----|
+| Recovery file | A row in the `Cross-Task Coordination Flags` section per flag | [templates/recovery.md](../templates/recovery.md) |
+| Summary file | A `Cross-Task Coordination Flags` block in Context Notes mirroring the Recovery rows (so later reviewers see what was handed off without opening Recovery) | [templates/summary-template.md](../templates/summary-template.md) |
+| Downstream task / orchestration / sprint plan | A `Pre-Known Cross-Task Coordination Flags` section per the propagation table above | — |
+
+Mirror requirement is the same as §1.2: a flag recorded only in Recovery and never propagated looks indistinguishable from a dropped constraint to any later reviewer.
+
+> [!constraint] Flag Lifecycle Discipline
+> WRONG — task surfaces a coordination flag in conversation, orchestrator notes it mentally, never writes it down:
+> ```
+> (task 03 completes, reports "by the way, this SPLIT has to precede task 04's MOVE-IN")
+> → orchestrator: "noted, I'll remember"
+> → continues to task 04
+> → next session orchestrator never sees the flag
+> ```
+> Result: downstream agent either re-discovers the constraint (cost: tokens + risk of missing it) or executes in the wrong order and breaks the artifact.
+>
+> WRONG — orchestrator writes flag to Recovery but never propagates at closeout:
+> ```
+> (records flag in Recovery `Cross-Task Coordination Flags` section)
+> → closeout runs through summary, lessons, git commit
+> → flag stays buried in upstream Recovery; downstream task file never updated
+> → downstream agent reads only its own task file → flag is invisible
+> ```
+> Result: a recorded-but-stranded flag is functionally identical to a dropped one.
+>
+> CORRECT — surface-time recording in Recovery, closeout-time propagation to downstream:
+> ```
+> (task surfaces flag)
+> → orchestrator writes Recovery row immediately
+> → Phase 4 closeout reads every Recovery flag row
+> → for each row, propagates to the downstream consumer per the destination table
+> → tagged with source session + date so the downstream agent treats as validated context
+> ```
+
+> [!practice] Default to Propagation
+> If the consumer is ambiguous between a specific task and a whole session, propagate to BOTH — the task file for the agent that will act on it, the orchestration file for the orchestrator who will dispatch. Cost of duplication is two short paragraphs; cost of misrouting is a missed constraint.
 
 ---
 

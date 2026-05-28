@@ -351,7 +351,28 @@ Ask the user: "Were any lessons learned during this session?"
    - Set **Status** to match the Master Plan status (e.g., IN_PROGRESS or COMPLETE)
    - Set **Last Updated** to today's date
 
-### Step 4.4: Git Commit
+### Step 4.4: Propagate Cross-Task Coordination Flags
+
+> [!binding] Downstream-Propagation Gate
+> Every row in the Recovery file's `Cross-Task Coordination Flags` section MUST be propagated into the downstream consumer's plan file BEFORE the Git Commit step. A flag recorded only in upstream Recovery and never propagated is functionally a dropped constraint. See [references/session-execution-protocol.md §1.3](../references/session-execution-protocol.md#13-cross-task-coordination-flags) for the full lifecycle and destination matrix.
+
+1. Read the Recovery file's `Cross-Task Coordination Flags` section. If the section is empty or absent, skip to Step 4.5.
+2. For each flag row, route per the destination table in §1.3:
+
+   | Downstream Consumer | Propagate To |
+   |---------------------|--------------|
+   | A specific named task in a later session | That task's file under `## Pre-Known Cross-Task Coordination Flags` |
+   | A whole session (consumer task unclear) | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` |
+   | A future sprint (consumer task not yet authored) | That sprint plan's `## Carried-Forward Coordination Flags` section |
+   | A follow-up plan not yet written | The current Master Plan's `## Carried-Forward Coordination Flags` section + the rollup/handoff task file |
+
+3. Use the Propagated Flag Block format from §1.3 — group flags under `### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}` and reserve a `### From {next-source-session-id} — to be appended when session completes` placeholder so later closeouts know where to append.
+4. If the destination file does not yet have a `## Pre-Known Cross-Task Coordination Flags` (or `## Carried-Forward Coordination Flags`) section, create it; if it does, append under it.
+5. Update the orchestration file at the destination (if propagating to a task file) with a one-line pointer to the new section, so the destination orchestrator surfaces the flags to its dispatcher.
+6. Update the Summary file's `Cross-Task Coordination Flags` block (in Context Notes) to fill the `Propagated To` column with the destination path for every flag.
+7. Verify: every Recovery flag row now has a non-empty `Propagated To` entry in the Summary. A flag with no destination is a closeout error — return to step 2 and route it.
+
+### Step 4.5: Git Commit
 
 ```bash
 git add {specific files changed during session}
@@ -361,10 +382,10 @@ git push
 
 **Rules:**
 - Stage specific files -- never use `git add .` or `git add -A`
-- Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), plans index (if updated)
+- Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), plans index (if updated), **any downstream plan files that received propagated coordination flags in Step 4.4**
 - Commit types: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
 
-### Step 4.5: Output Completion
+### Step 4.6: Output Completion
 
 Output a summary to the user:
 
@@ -393,6 +414,7 @@ Next: {next session from summary, or "Sprint complete"}
 | Task completed | YES | Mark COMPLETE, add timestamp, add findings |
 | Error encountered | YES | Add to Issues section with severity |
 | Partial progress | YES | Add to Key Findings what was done |
+| **Cross-task coordination flag surfaced** | **YES** | **Add row to `Cross-Task Coordination Flags` section IMMEDIATELY (not at closeout) — see [references/session-execution-protocol.md §1.3](../references/session-execution-protocol.md#13-cross-task-coordination-flags)** |
 | Session complete | YES | Final status, completion timestamp |
 | Before any break | YES | Ensure current state is saved |
 
