@@ -247,7 +247,7 @@ Task(
 > [!binding] Recovery Update After EVERY Task
 > Update the recovery file AFTER EACH TASK completes -- never batch updates.
 >
-> **Parallel-dispatch exception:** When dispatching 3+ task-runners in parallel within a DELEGATED session, the runners do NOT write Recovery — the orchestrator (you) reconciles Recovery centrally after the parallel batch returns. See [Parallel Dispatch Branch](#parallel-dispatch-branch-delegated) below and `references/agent-orchestration.md` §11.13 Recovery-file subsection. The "after EVERY task" rule still holds at batch granularity: reconcile Recovery once before dispatching the next dependency layer.
+> **Parallel-dispatch exception:** When dispatching 3+ task-runners in parallel within a DELEGATED session, the runners do NOT write Recovery — the orchestrator (you) reconciles Recovery centrally after the parallel batch returns. See [Parallel Dispatch Branch](#parallel-dispatch-branch-delegated) below and `references/agent-orchestration-delegated.md` §1.13 Recovery-file subsection. The "after EVERY task" rule still holds at batch granularity: reconcile Recovery once before dispatching the next dependency layer.
 
 After each task completes (DIRECT or DELEGATED, sequential):
 
@@ -568,7 +568,7 @@ f. Advance to the next dependency layer.
 
 > [!pitfall] Mixed-Mode Layer
 > **Problem:** A dependency layer with 4 tasks where two write the same output file. Dispatching all 4 in parallel races on the shared output file (separate from the Recovery-file question). Splitting into "3 parallel + 1 sequential" is awkward and error-prone.
-> **Solution:** Apply `references/agent-orchestration.md` §11.13 to the *output files*: if any two tasks in the layer share an output target, the layer is NOT parallel-eligible — fall back to the Sequential Branch for the whole layer, or split the offending task pair into a separate sub-layer.
+> **Solution:** Apply `references/agent-orchestration-delegated.md` §1.13 to the *output files*: if any two tasks in the layer share an output target, the layer is NOT parallel-eligible — fall back to the Sequential Branch for the whole layer, or split the offending task pair into a separate sub-layer.
 
 ### Anti-Patterns
 

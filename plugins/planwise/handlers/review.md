@@ -629,14 +629,14 @@ Quick reference for common patterns and their correct classification.
 | 14 | Token estimate uses `~?` placeholder (`task-content-fidelity.md` §9.A.2) | BLOCKER | Task file Estimated Tokens |
 | 15 | Cross-sprint Required Context not mirrored in Depends On (`session-plan-requirements.md` §9 cross-sprint) | BLOCKER | Task file Depends On |
 | 16 | EI bidirectional consistency violation (every Spec in `Extracted from:` MUST appear in ≥ 1 Cross-References row and vice versa) | WARNING (HIGH confidence) | EI header + Cross-References |
-| 17 | DELEGATED inter-dispatch lint/precheck diagnostics missing on shared file (PLG-020 sub-check / `agent-orchestration.md` §11.4) | BLOCKER | Orchestration between dispatches |
-| 18 | DELEGATED output `wc -l` verification missing after dispatch (PLG-020 sub-check / `agent-orchestration.md` §11.4 PLG-020 extension) | BLOCKER | Orchestration between dispatches |
-| 19 | DELEGATED spawn prompt missing HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause (PLG-020 sub-check / `agent-orchestration.md` §11.8) | BLOCKER | Orchestration spawn prompts |
-| 20 | DELEGATED follow-up fixes not tier-ranked by invasiveness (PLG-020 sub-check / `agent-orchestration.md` §11.9) | BLOCKER | Orchestration follow-up dispatches |
-| 21 | DELEGATED forward-looking-verb detection + SendMessage resume protocol missing (PLG-020 sub-check / `agent-orchestration.md` §11.10) | BLOCKER | Orchestration post-dispatch scan |
-| 22 | DELEGATED spawn prompt missing operational-ceiling disclaimer (PLG-020 sub-check / `agent-orchestration.md` §11.11) | BLOCKER | Orchestration spawn prompts |
-| 23 | DELEGATED edit-heavy task missing N>25 resume protocol + tool-use budget estimation (PLG-020 sub-check / `agent-orchestration.md` §11.12) | BLOCKER | Orchestration spawn prompts |
-| 24 | DELEGATED shared-edit-target dispatches missing parallelism cap/shard/delta strategy (PLG-020 sub-check / `agent-orchestration.md` §11.13) | BLOCKER | Orchestration dispatch matrix |
+| 17 | DELEGATED inter-dispatch lint/precheck diagnostics missing on shared file (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.4) | BLOCKER | Orchestration between dispatches |
+| 18 | DELEGATED output `wc -l` verification missing after dispatch (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.4 PLG-020 extension) | BLOCKER | Orchestration between dispatches |
+| 19 | DELEGATED spawn prompt missing HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.8) | BLOCKER | Orchestration spawn prompts |
+| 20 | DELEGATED follow-up fixes not tier-ranked by invasiveness (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.9) | BLOCKER | Orchestration follow-up dispatches |
+| 21 | DELEGATED forward-looking-verb detection + SendMessage resume protocol missing (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.10) | BLOCKER | Orchestration post-dispatch scan |
+| 22 | DELEGATED spawn prompt missing operational-ceiling disclaimer (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.11) | BLOCKER | Orchestration spawn prompts |
+| 23 | DELEGATED edit-heavy task missing N>25 resume protocol + tool-use budget estimation (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.12) | BLOCKER | Orchestration spawn prompts |
+| 24 | DELEGATED shared-edit-target dispatches missing parallelism cap/shard/delta strategy (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.13) | BLOCKER | Orchestration dispatch matrix |
 | 25 | Verify-before-cite round-2 (`task-content-fidelity.md` §9.B.6..§9.B.9) | BLOCKER (varies by sub-rule) | Task file SQL/MERGE briefs |
 | 26 | Sprint exit-gate verdict not reflecting gate-defining step (`verification-gates.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
 | 27 | Sprint Overview row encoding session-count fraction instead of gate verdict (`verification-gates.md` §4) | ERROR | Master Plan Sprint Overview |

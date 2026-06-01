@@ -955,11 +955,11 @@ Fix: Re-verify per references/discovery-and-exit-criteria.md §16.3 (PLG-019) | 
 - **Finding template:** `[WARNING] Undocumented design extension during execution | Fix per references/discovery-and-exit-criteria.md §17 (inline What/Why/Source comment)`
 - **Insert:** First item under Design-Extension Reviewer.
 
-### Check 052 — PLG-020 §11.4-§11.13 DELEGATED Round-2 Compliance
+### Check 052 — PLG-020 §1.4-§1.13 DELEGATED Round-2 Compliance
 
-- **Severity / Role / Source:** BLOCKER (bundled 8 sub-checks) | Design-Extension Reviewer | PLG-020 §11.4-§11.13 | NEW
+- **Severity / Role / Source:** BLOCKER (bundled 8 sub-checks) | Design-Extension Reviewer | PLG-020 §1.4-§1.13 | NEW
 - **Detection:** For each DELEGATED Orchestration spawn prompt verify: (a) orchestrator `wc -l` between dispatches; (b) HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause; (c) tier-rank-by-invasiveness ordering; (d) forward-looking-verb detection; (e) operational-ceiling disclaimers; (f) N>25 Edit-task resume protocol with tool-use budget estimation; (g) shared-edit-target parallelism cap; (h) inter-dispatch diagnostics verification.
-- **Finding template:** `[BLOCKER] DELEGATED dispatch round-2 sub-rule {N} violated | Fix per references/agent-orchestration.md §11.{N}`
+- **Finding template:** `[BLOCKER] DELEGATED dispatch round-2 sub-rule {N} violated | Fix per references/agent-orchestration-delegated.md §1.{N}`
 - **Insert:** Second item (with 8 sub-bullets) under Design-Extension Reviewer.
 
 ### Check 053 — Cross-Tier Audit Triage Table Presence

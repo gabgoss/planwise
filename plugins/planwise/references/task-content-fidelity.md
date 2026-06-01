@@ -642,4 +642,4 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 
 ---
 
-*Companion files: [session-plan-requirements.md](session-plan-requirements.md), [schema-pin-requirement.md](schema-pin-requirement.md), [agent-orchestration.md](agent-orchestration.md) §11 (DELEGATED dispatch discipline).*
+*Companion files: [session-plan-requirements.md](session-plan-requirements.md), [schema-pin-requirement.md](schema-pin-requirement.md), [agent-orchestration.md](agent-orchestration.md) §11 (DELEGATED triggers, task-file error recovery, orchestration context boundary) and [agent-orchestration-delegated.md](agent-orchestration-delegated.md) (§1.4–§1.15 DELEGATED dispatch protocols).*
