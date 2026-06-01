@@ -87,7 +87,7 @@ Keep SKILL.md under 500 lines. Move detailed content to supporting files:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | directory name | Display name. Lowercase, hyphens, max 64 chars |
-| `description` | string | 1st paragraph | **RECOMMENDED** — drives auto-triggering and delegation |
+| `description` | string | 1st paragraph | **REQUIRED** — drives auto-triggering and delegation (without it, the skill cannot be auto-invoked). |
 | `argument-hint` | string | none | Autocomplete hint shown after `/`. Example: `[issue-number]` |
 | `disable-model-invocation` | boolean | `false` | `true` = only user can invoke; Claude cannot invoke autonomously |
 | `user-invocable` | boolean | `true` | `false` = hidden from `/` menu; only Claude can invoke |
@@ -520,6 +520,8 @@ hooks:
 |-------|------|
 | `PreToolUse` | Before any tool matching the matcher pattern |
 | `PostToolUse` | After any tool matching the matcher pattern |
+
+> **Note:** Skill-scoped hooks support `PreToolUse` and `PostToolUse` only. The `Stop` event does **not** propagate to skill-frontmatter hooks (v1.0.2). For Stop-event behavior, use a project-scoped hook (`.claude/settings.json` `"hooks": { "Stop": ... }` + a script in `.claude/hooks/`) or an agent-scoped hook (see `agent-authoring.md §2`). **Empirically confirmed:** a skill-scoped `Stop` hook did not fire on skill-context exit, while an identically-structured project-scoped `Stop` hook fired normally on the same machine.
 
 Hooks are scoped to this skill — they do not affect the parent session or other skills.
 

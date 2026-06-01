@@ -124,6 +124,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 1. Get the item's file paths from the JSON data (the `files` array)
 2. Read each backlog item file (files have YAML frontmatter with `created`, `blocks`, and `status` fields)
 3. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
+   - If the BLI's motivating driver is a runtime symptom (keywords: collision, race, hang, missing endpoint, intermittent), run a `grep -rn` for the symptom in `src/` and cross-check against recent session summaries in `Plans/**/Sessions/**/Outputs/`. If the driver is no longer active (no recent matches, fix landed), mark the BLI as STALE per `verify-against-shipped-artifact.md §3h` and skip routing. Include §3h.untested-axes and §3h.cluster signal checks per the same reference.
 
 4. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
 

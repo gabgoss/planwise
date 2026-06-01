@@ -250,6 +250,8 @@ The cost is one Read + one Grep per cited artifact. The savings are at minimum o
 
 §9.B.1-§9.B.3 and §9.B.6-§9.B.9 are stated generically for all contract types. §9.B.4 and §9.B.5 are the **database-schema instances** of the general rule and remain stated in DB terms.
 
+For third-party SDK identifiers and shipped artifacts, see `verify-against-shipped-artifact.md`.
+
 ### 9.B.1 Verify user-prompt-cited artifacts during scaffolding
 
 > [!constraint] User-cited artifacts MUST be verified at scaffold time, not deferred to the executing subagent
@@ -288,6 +290,8 @@ The cost is one Read + one Grep per cited artifact. The savings are at minimum o
 A complementary `/planwise plan` enhancement: insert a Step 1.5 ("Verify cited artifacts") between Gather Information and Validate.
 
 ### 9.B.2 Identifier reconciliation against the live contract
+
+**Note:** Both scaffold-time (§9.B.1) AND dispatch-time verification are mandatory for DELEGATED tasks. This rule extends §9.B.1, it does not replace it.
 
 > [!constraint] DELEGATED task briefs that reference concrete identifiers from another module MUST be reconciled against the live source at dispatch time
 > For DELEGATED task prompts that reference concrete code artifacts (config
