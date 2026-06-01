@@ -25,21 +25,16 @@
 
 ---
 
-## Config Gate
+## Config Gate (Auto-Init Fallback)
 
-Locate `config.yaml` by checking:
-1. `planwise/config.yaml` (default planwise root)
-2. If not found, search one level down from the project root for `*/config.yaml`
-3. If not found: "Project not initialized. Run `/planwise init` first."
+1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
+2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.index_files.plans` (as `{plans_index}`), `project.lessons_dir`, and `project.index_files.lessons` (as `{lessons_index}`).
+3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "run"`, RE-RESOLVE, fail loud if still missing.
 
-Extract from `config.yaml`:
-- `plugin_root` -- the plugin installation path
-- `project.planwise_root` -- the planwise root folder (default: `planwise`)
-- `project.plans_dir` -- the Plans directory name (relative to planwise_root)
-- `project.lessons_dir` -- the Lessons directory name (relative to planwise_root)
-- `project.index_files.lessons` -- the lessons index filename
+> [!gate] Config Malformed → FAIL LOUD
+> If `config.yaml` is present but malformed, DO NOT auto-init. FAIL LOUD and STOP.
 
-All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Plans`).
+All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 ---
 
@@ -56,6 +51,19 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
 - If a task creates or modifies skills: Read `references/skill-authoring.md`
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
+- If a task involves DB writes or MERGE/upsert briefs: Read `references/task-content-fidelity.md`, `references/schema-pin-requirement.md`
+- If a session is IPC/protocol/codec: Read `references/verification-gates.md`
+
+---
+
+## AUTO-MODE Annotations
+
+`<!-- AUTO-MODE: critical|convenience -->` HTML comments classify the `AskUserQuestion` call site that immediately follows them, per `references/skill-authoring.md` §4b (Auto Mode Policy):
+
+- **`critical`** — the gate MUST always prompt the user; never auto-infer (e.g., scope decisions, destructive actions, a missing required argument).
+- **`convenience`** — in Auto Mode the handler MAY skip the prompt and proceed with the documented default; in normal interactive use it still prompts as written.
+
+The annotations are inert during ordinary interactive runs — they guide Auto Mode behavior only.
 
 ---
 
@@ -66,6 +74,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 Parse `$ARGUMENTS` to identify the orchestration file:
 - `$1` or `@file` syntax -- path to orchestration file or Master Plan
 
+<!-- AUTO-MODE: critical -->
 If no argument provided, ask the user:
 ```
 Which session should I execute? Provide the orchestration file path.
@@ -90,6 +99,7 @@ Example: /planwise run @Plans/MyPlan/Sprint-01/APM-S01-01-Orchestration.md
 
 Read the Master Plan. Check the `Status:` field.
 - If `READY_TO_EXECUTE` or `REVIEWED` or `APPROVED` -- proceed
+<!-- AUTO-MODE: critical -->
 - Otherwise -- warn the user: "Master Plan status is `{status}`. Run `/planwise plan` or `/planwise review` first. Proceed anyway?" Use `AskUserQuestion`.
 
 ---
@@ -106,6 +116,8 @@ Read these files completely (not skim):
 2. Recovery file -- check for resumption state
 3. All task files listed in the Task Files table (read file headers, objectives, agents)
 
+While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [session-execution-protocol.md §1.2](../references/session-execution-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
+
 ### Step 1.2: CONFIRM
 
 Output the confirmation block:
@@ -117,13 +129,23 @@ Output the confirmation block:
 > Current State: {Session Status from Recovery -- NOT_STARTED | IN_PROGRESS | COMPLETE}
 > Last Completed: {last COMPLETE task from Recovery, or "None" if NOT_STARTED}
 > Next Action: {first PENDING task description, or "Resume from Task {N}" if resuming}
+> Structural Finding: {none, or one-line summary — see §1.2}
 > ```
+
+#### Step 1.2a: Structural Finding (when READ reveals one)
+
+If Step 1.1 surfaced a structural defect that makes the literal task scope produce a self-inconsistent artifact, the CONFIRM block MUST include a `Structural finding` paragraph AND an explicit Option A (Coherent) / Option B (Literal) block before proceeding. The executor MUST NOT pick a path before the user answers -- see [session-execution-protocol.md §1.2](../references/session-execution-protocol.md#12-structural-findings-beyond-literal-scope) for the template and rationale.
+
+If the user approves Option A (or any expansion beyond the literal scope), the Phase-1 approval reference (the AskUserQuestion turn or timestamp) MUST be recorded in:
+- Recovery's `Scope-Expansion Decisions` section (see [templates/recovery.md](../templates/recovery.md))
+- Summary's `Scope-Expansion Decisions` block in Context Notes (see [templates/summary-template.md](../templates/summary-template.md))
 
 ### Step 1.3: ACT
 
+<!-- AUTO-MODE: critical -->
 Use `AskUserQuestion`: "Ready to proceed with {next action}?"
 
-Only proceed after user approval.
+Only proceed after user approval. If Step 1.2a surfaced a structural finding, the AskUserQuestion options are the A (Coherent) / B (Literal) pair, not a generic "proceed?" -- the user's choice IS the Phase-1 approval reference recorded in Recovery and Summary.
 
 ---
 
@@ -204,7 +226,7 @@ Launch the `task-runner` agent via Task tool. See [Delegated Execution Protocol]
 
 ```
 Task(
-  subagent_type: "task-runner",
+  subagent_type: "planwise:task-runner",
   description: "Execute task {task-num}: {task-name}",
   model: "{model-override-from-task-file-Agent-field}",
   prompt: |
@@ -224,8 +246,10 @@ Task(
 
 > [!binding] Recovery Update After EVERY Task
 > Update the recovery file AFTER EACH TASK completes -- never batch updates.
+>
+> **Parallel-dispatch exception:** When dispatching 3+ task-runners in parallel within a DELEGATED session, the runners do NOT write Recovery — the orchestrator (you) reconciles Recovery centrally after the parallel batch returns. See [Parallel Dispatch Branch](#parallel-dispatch-branch-delegated) below and `references/agent-orchestration-delegated.md` §1.13 Recovery-file subsection. The "after EVERY task" rule still holds at batch granularity: reconcile Recovery once before dispatching the next dependency layer.
 
-After each task completes (DIRECT or DELEGATED):
+After each task completes (DIRECT or DELEGATED, sequential):
 
 1. **Recovery file** -- update immediately:
    - Mark task COMPLETE with timestamp
@@ -236,6 +260,19 @@ After each task completes (DIRECT or DELEGATED):
 2. **TaskList** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
 3. **Verify output** -- confirm expected output files were written (if applicable)
 4. **THEN** proceed to next task
+
+After a **parallel batch** of 3+ task-runners returns:
+
+1. Parse the status block from each runner's final message (schema: `TASK_STATUS / TASK_ID / OUTPUT_FILES / LINES_PRODUCED / KEY_FINDINGS / ISSUES`)
+2. Verify referenced OUTPUT_FILES exist on disk for every COMPLETE row
+3. **Recovery file** -- write ONCE for the entire batch:
+   - One Step Completion row per task in the batch, all with the reconciliation timestamp
+   - Append every runner's KEY_FINDINGS to the "Key Findings" section
+   - Append every runner's OUTPUT_FILES to the "Files Modified" section
+   - One Change Log row per task (or one batch row noting the parallel group)
+   - Update "Current Step" to the next dependency layer
+4. **TaskList** -- mark every batch task `completed`
+5. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch)
 
 ### Step 3.4: Handle Task Failure
 
@@ -273,6 +310,8 @@ Write to: `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` in the sprint folder.
 
 ### Step 4.2: Lesson Capture
 
+<!-- AUTO-MODE: convenience -->
+<!-- Default: No (proceed without confirmation; user can invoke /planwise lessons capture separately). -->
 Ask the user: "Were any lessons learned during this session?"
 
 **If yes, for each lesson:**
@@ -312,12 +351,41 @@ Ask the user: "Were any lessons learned during this session?"
 1. Mark recovery file Session Status: COMPLETE
 2. Update orchestration: Status -> COMPLETE
 3. Update Sprint Plan session status (if sprint plan exists)
-4. Update Master Plan Status field (e.g., COMPLETE if all sprints done, or IN_PROGRESS with notes on completed sprint)
+4. Update Master Plan Status field:
+   - If all sprints COMPLETE AND no user-action gates pending → `Status: COMPLETE`
+   - If all sprints COMPLETE BUT user-action gates pending (per Master Plan "Project Complete When" section) → `Status: IN_PROGRESS — awaiting {user action}` (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
+   - If not all sprints COMPLETE → `Status: IN_PROGRESS`
+
+   > [!practice] User-Action-Gate Check (BLI-031 P3)
+   > When all sprints COMPLETE, check Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain, set IN_PROGRESS with note — NOT COMPLETE.
 5. Update plans index row for this plan in `{plans_dir}/{plans_index}`:
    - Set **Status** to match the Master Plan status (e.g., IN_PROGRESS or COMPLETE)
    - Set **Last Updated** to today's date
 
-### Step 4.4: Git Commit
+### Step 4.4: Propagate Cross-Task Coordination Flags
+
+> [!binding] Downstream-Propagation Gate
+> Every row in the Recovery file's `Cross-Task Coordination Flags` section MUST be propagated into the downstream consumer's plan file BEFORE the Git Commit step. A flag recorded only in upstream Recovery and never propagated is functionally a dropped constraint. See [references/session-execution-protocol.md §1.3](../references/session-execution-protocol.md#13-cross-task-coordination-flags) for the full lifecycle and destination matrix.
+
+1. Read the Recovery file's `Cross-Task Coordination Flags` section. If the section is empty or absent, skip to Step 4.5.
+2. For each flag row, route per the destination table in §1.3:
+
+   | Downstream Consumer | Propagate To |
+   |---------------------|--------------|
+   | A specific named task in a later session | That task's file under `## Pre-Known Cross-Task Coordination Flags` |
+   | A whole session (consumer task unclear) | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` |
+   | A future sprint (consumer task not yet authored) | That sprint plan's `## Carried-Forward Coordination Flags` section |
+   | A follow-up plan not yet written | The current Master Plan's `## Carried-Forward Coordination Flags` section + the rollup/handoff task file |
+
+3. Use the Propagated Flag Block format from §1.3 — group flags under `### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}` and reserve a `### From {next-source-session-id} — to be appended when session completes` placeholder so later closeouts know where to append.
+4. If the destination file does not yet have a `## Pre-Known Cross-Task Coordination Flags` (or `## Carried-Forward Coordination Flags`) section, create it; if it does, append under it.
+5. Update the orchestration file at the destination (if propagating to a task file) with a one-line pointer to the new section, so the destination orchestrator surfaces the flags to its dispatcher.
+6. Update the Summary file's `Cross-Task Coordination Flags` block (in Context Notes) to fill the `Propagated To` column with the destination path for every flag.
+7. Verify: every Recovery flag row now has a non-empty `Propagated To` entry in the Summary. A flag with no destination is a closeout error — return to step 2 and route it.
+
+### Step 4.5: Git Commit
+
+If the session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before staging. Per `references/session-execution-protocol.md` §7 Git Workflow.
 
 ```bash
 git add {specific files changed during session}
@@ -327,10 +395,10 @@ git push
 
 **Rules:**
 - Stage specific files -- never use `git add .` or `git add -A`
-- Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), plans index (if updated)
+- Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), plans index (if updated), **any downstream plan files that received propagated coordination flags in Step 4.4**
 - Commit types: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
 
-### Step 4.5: Output Completion
+### Step 4.6: Output Completion
 
 Output a summary to the user:
 
@@ -359,6 +427,7 @@ Next: {next session from summary, or "Sprint complete"}
 | Task completed | YES | Mark COMPLETE, add timestamp, add findings |
 | Error encountered | YES | Add to Issues section with severity |
 | Partial progress | YES | Add to Key Findings what was done |
+| **Cross-task coordination flag surfaced** | **YES** | **Add row to `Cross-Task Coordination Flags` section IMMEDIATELY (not at closeout) — see [references/session-execution-protocol.md §1.3](../references/session-execution-protocol.md#13-cross-task-coordination-flags)** |
 | Session complete | YES | Final status, completion timestamp |
 | Before any break | YES | Ensure current state is saved |
 
@@ -388,7 +457,7 @@ When the orchestration's Execution Strategy section declares DELEGATED mode, you
 > WRONG: Launch task-runner in background when it writes output files:
 > ```
 > Task(
->   subagent_type: "task-runner",
+>   subagent_type: "planwise:task-runner",
 >   run_in_background: true,
 >   prompt: "Execute task 01..."
 > )
@@ -396,7 +465,7 @@ When the orchestration's Execution Strategy section declares DELEGATED mode, you
 > CORRECT: Launch task-runner in foreground (default) — background is only safe for read-only agents:
 > ```
 > Task(
->   subagent_type: "task-runner",
+>   subagent_type: "planwise:task-runner",
 >   prompt: "Execute task 01..."
 > )
 > ```
@@ -415,44 +484,101 @@ When the orchestration's Execution Strategy section declares DELEGATED mode, you
 | Actor | Reads | Never Reads |
 |-------|-------|-------------|
 | Orchestrator (you) | Orchestration, Recovery, task files | Consolidated Context parts, Execution Inputs, reference docs, source code |
-| Task-runner agent | Task Required Context files, task file | Other tasks' context, Recovery file (except for its own update) |
+| Task-runner agent (sequential dispatch) | Task Required Context files, task file | Other tasks' context, Recovery file (except for its own update) |
+| Task-runner agent (parallel dispatch, 3+ runners) | Task Required Context files, task file | Other tasks' context, **the Recovery file (do NOT read or write — return a status block instead)** |
 
 ### Step-by-Step (DELEGATED)
 
 1. Read plan files only: Orchestration + Recovery + all task files
 2. Output CONTEXT LOADED confirmation block
 3. Ask user to proceed (standard READ-CONFIRM-ACT)
-4. For each task (sequential, respecting dependencies):
-   a. Build spawn prompt with all task parameters (see Phase 3, Step 3.2)
-   b. Launch `task-runner` agent:
-      ```
-      Task(
-        subagent_type: "task-runner",
-        description: "Execute task {task-num}: {task-name}",
-        model: "{agent-from-task-file}",
-        prompt: |
-          Execute the following task:
+4. Identify the next dependency layer (group of tasks whose `Depends On` are all COMPLETE)
+5. Choose dispatch mode for that layer:
+   - **Sequential** — 1 or 2 tasks in the layer, OR any layer task targets a file another layer task also targets (output-file collision)
+   - **Parallel** — 3+ tasks in the layer with no inter-dependencies and disjoint output files (see [Parallel Dispatch Branch](#parallel-dispatch-branch-delegated))
+6. Dispatch the layer per the chosen mode (see subsections below)
+7. After the layer completes, return to step 4 for the next layer
+8. Cleanup: generate summary, prompt for lessons, git commit (Phase 4)
 
-          Task file: {task-file-absolute-path}
-          Session ID: {session-id}
-          Abbreviation: {abbrev}
-          Recovery file: {recovery-file-absolute-path}
-          Output directory: {output-dir-absolute-path}
-      )
-      ```
-   c. Wait for task-runner to return
-   d. Read updated recovery file -- check task status
-   e. If BLOCKED: decide proceed or halt based on dependencies
-   f. If COMPLETE: update TaskList, proceed to next task
-5. Cleanup: generate summary, prompt for lessons, git commit (Phase 4)
+#### Sequential Branch (DELEGATED)
+
+For each task in the layer (respecting any intra-layer dependencies):
+
+a. Build spawn prompt with all task parameters (see Phase 3, Step 3.2)
+b. Launch `task-runner` agent:
+   ```
+   Task(
+     subagent_type: "planwise:task-runner",
+     description: "Execute task {task-num}: {task-name}",
+     model: "{agent-from-task-file}",
+     prompt: |
+       Execute the following task:
+
+       Task file: {task-file-absolute-path}
+       Session ID: {session-id}
+       Abbreviation: {abbrev}
+       Recovery file: {recovery-file-absolute-path}
+       Output directory: {output-dir-absolute-path}
+   )
+   ```
+c. Wait for task-runner to return
+d. Read updated recovery file -- check task status
+e. If BLOCKED: decide proceed or halt based on dependencies
+f. If COMPLETE: update TaskList, proceed to next task
+
+#### Parallel Dispatch Branch (DELEGATED)
+
+Trigger: a dependency layer has 3+ tasks with no inter-dependencies and disjoint output files. (For 1-2 tasks, use the Sequential Branch — coordination overhead outweighs the gain.)
+
+a. For each task in the layer, build a spawn prompt that includes the **PARALLEL DISPATCH addendum** below in addition to the standard parameters.
+b. Launch all task-runners in the layer in a single message (multiple Task tool calls in one assistant turn — they run concurrently):
+   ```
+   Task(
+     subagent_type: "planwise:task-runner",
+     description: "Execute task {task-num} (parallel batch): {task-name}",
+     model: "{agent-from-task-file}",
+     prompt: |
+       Execute the following task:
+
+       Task file: {task-file-absolute-path}
+       Session ID: {session-id}
+       Abbreviation: {abbrev}
+       Output directory: {output-dir-absolute-path}
+
+       ## PARALLEL DISPATCH — Recovery Handling
+       Do NOT read, edit, or write the Recovery file during this task.
+       Return your completion as the structured status block below in your FINAL message.
+       The orchestrator reconciles Recovery centrally after all parallel runners return.
+
+       ## Status Block (required final-message format)
+       TASK_STATUS:    COMPLETE | BLOCKED | PARTIAL
+       TASK_ID:        {task-id}
+       OUTPUT_FILES:   {comma-separated absolute paths actually written}
+       LINES_PRODUCED: {sum of lines across output files}
+       KEY_FINDINGS:   {2-5 short bullets — preserved across compaction}
+       ISSUES:         {one line per issue, or "none"}
+   )
+   ```
+
+   Note that the spawn prompt for parallel-mode runners OMITS the `Recovery file:` parameter — the runner must not touch it.
+c. Wait for ALL parallel runners to return their status blocks.
+d. Reconcile Recovery centrally per Step 3.3 "After a parallel batch" instructions: parse each status block, verify OUTPUT_FILES on disk, write Recovery ONCE for the whole batch.
+e. If any task returned BLOCKED or PARTIAL: decide proceed or halt based on downstream dependencies. Mark BLOCKED tasks IN_PROGRESS in TaskList (do NOT mark `completed`).
+f. Advance to the next dependency layer.
+
+> [!pitfall] Mixed-Mode Layer
+> **Problem:** A dependency layer with 4 tasks where two write the same output file. Dispatching all 4 in parallel races on the shared output file (separate from the Recovery-file question). Splitting into "3 parallel + 1 sequential" is awkward and error-prone.
+> **Solution:** Apply `references/agent-orchestration-delegated.md` §1.13 to the *output files*: if any two tasks in the layer share an output target, the layer is NOT parallel-eligible — fall back to the Sequential Branch for the whole layer, or split the offending task pair into a separate sub-layer.
 
 ### Anti-Patterns
 
 > [!antipattern] Delegated Mode Anti-Patterns
 > - **Orchestrator reads Consolidated Context:** Blows context budget; task-runners duplicate the read
-> - **Skip Recovery between tasks:** Context compaction loses progress
+> - **Skip Recovery between tasks (sequential dispatch):** Context compaction loses progress
+> - **Skip Recovery reconciliation after a parallel batch:** Context compaction loses the entire batch; status blocks were returned but never persisted
 > - **Combine tasks in one task-runner:** Defeats fresh-context purpose
-> - **Launch Task N+1 before Recovery updated:** Compaction loses Task N completion
+> - **Launch sequential Task N+1 before Recovery updated:** Compaction loses Task N completion
+> - **Allow parallel task-runners to write Recovery:** Last-write-wins races silently drop completion rows
 > - **Orchestrator produces task outputs:** Context accumulates; no fresh budget benefit
 > - **Infer DELEGATED at runtime:** Planning should have set this; warn user and re-plan if needed
 

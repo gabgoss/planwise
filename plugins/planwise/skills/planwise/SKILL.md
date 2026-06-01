@@ -4,7 +4,7 @@ description: >
   Agentic project management — plan, execute, review, and track projects
   with structured workflows. Use when user wants to create plans, run sessions,
   review plans, manage backlog items, or search lessons learned.
-argument-hint: "<init|plan|review|run|backlog|list|lessons|help> [args]"
+argument-hint: "<init|plan|review|run|upgrade|backlog|list|lessons|help> [args]"
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -23,6 +23,7 @@ Parse `$ARGUMENTS`:
 | `plan` | Read [handlers/plan.md](../../handlers/plan.md) |
 | `review` | Read [handlers/review.md](../../handlers/review.md) |
 | `run` | Read [handlers/run.md](../../handlers/run.md) |
+| `upgrade` | Read [handlers/upgrade.md](../../handlers/upgrade.md) |
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
 | `list` | Read [handlers/list.md](../../handlers/list.md) |
 | `lessons` | Read [handlers/lessons.md](../../handlers/lessons.md) |
@@ -42,11 +43,14 @@ Available subcommands:
   plan --scaffold [abbrev]     Scaffold from Discovery phase
   review [plan-path]           Review plan before execution
   run [@orchestration-file]    Execute a planned session
-  backlog [item-id]            Triage backlog items
+  upgrade                      Refresh installed rules/agents after a plugin update
+  backlog [item-id]            Triage backlog items; capture follow-up BLIs from resolution outputs
   list                         List all plans with status
   lessons [search-terms]       Search lessons learned
   lessons capture              Capture a lesson mid-session
   lessons promote <id>         Promote lesson to artifact
+  lessons curate [--phase=X]   Categorise lessons and track promotions
+  lessons promote-batch <scope>  Batch-draft promotion BBs
   help                         Show this help message
 ```
 
@@ -68,3 +72,11 @@ ARGUMENTS: $ARGUMENTS
 - [Markdown conventions](../../references/markdown-conventions.md)
 - [Callout conventions](../../references/callout-conventions.md)
 - [Agent orchestration](../../references/agent-orchestration.md)
+- [Scaffolding hygiene](../../references/scaffolding-hygiene.md)
+- [Discovery and exit criteria](../../references/discovery-and-exit-criteria.md)
+- [EI fidelity](../../references/ei-fidelity.md)
+- [Schema pin requirement](../../references/schema-pin-requirement.md)
+- [Task content fidelity](../../references/task-content-fidelity.md)
+- [Verification gates](../../references/verification-gates.md)
+- [Verify against shipped artifact](../../references/verify-against-shipped-artifact.md)
+- [Artifact self-containment](../../references/artifact-self-containment.md)

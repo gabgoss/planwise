@@ -28,6 +28,11 @@ description: Plan hierarchy, naming conventions, agent delegation, recovery prot
 **Companion files:**
 - [session-context-budget.md](session-context-budget.md) — Token budget, context loading strategy, conservation (Sections 5-7)
 - [session-plan-requirements.md](session-plan-requirements.md) — Required files per level, task file template, completion tracking (Sections 8-9)
+- [scaffolding-hygiene.md](scaffolding-hygiene.md) — Scaffolding hygiene rules: Meta-Plan source detection, folder naming, abbreviation validation, sprint status defaults, Outputs/ creation, sequential-sprint prerequisites, parallel-scaffold deviation classes, plan-sizing expansion ratio, cohort token-uplift (PLG-001/PLG-011/PLG-022)
+- [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) — Discovery scope rigor and cross-layer enforcement: count by execution, persist IDs, binding-refinement echo, enforceable-surface checks, verbatim-quote exit criteria, design-extension traceability, cross-tier audit triage (PLG-006/PLG-015/PLG-019/PLG-022)
+- [ei-fidelity.md](ei-fidelity.md) — Execution Input fidelity: EI-as-archival transform, severity vocabulary, threshold alignment, UNCONFIRMED caveat enforcement, cross-tier preservation, citation propagation, token reconciliation gate (PLG-005/PLG-014)
+- [task-content-fidelity.md](task-content-fidelity.md) — Task file content fidelity: Required Context freshness, no `~?` placeholders, token rate bands, verify-before-cite discipline (14 rules including Schema Pin, env vars, Field Mapping) (PLG-004/PLG-013/PLG-021)
+- [schema-pin-requirement.md](schema-pin-requirement.md) — Schema Pin requirement: pin construction recipe, pin format template, plan-review enforcement (D-005)
 
 ---
 
@@ -278,35 +283,7 @@ Parallel groups:
 
 ## 4. Recovery Protocol (BINDING)
 
-> [!binding] Recovery Update
-> Update Recovery file AFTER EVERY TASK. If context compacts, the Recovery file is the ONLY way to resume without repeating work.
-
-### After Completing Each Task
-
-```
-1. Mark task as COMPLETE in Recovery (with timestamp)
-2. Add findings to Key Findings section
-3. Save outputs to Outputs/ folder
-4. Update Current Step to next task
-5. THEN proceed to next task
-```
-
-### Recovery File Minimum Content
-
-```markdown
-**Last Updated:** {timestamp}
-**Current Step:** {number or COMPLETE}
-**Session Status:** NOT_STARTED | IN_PROGRESS | COMPLETE
-
-## Step Completion Status
-| Step | Task | Status | Completed |
-
-## Key Findings
-- {findings that must survive compaction}
-
-## Files Modified
-- {path} - {what changed}
-```
+Recovery Protocol — full specification and binding update discipline live in [session-execution-protocol.md §4](session-execution-protocol.md#4-session-rules). Read that section for the WRONG/CORRECT minimum-content example and the update-after-every-task gate.
 
 ---
 
@@ -337,6 +314,12 @@ Before starting ANY session, verify:
 > - [ ] If DELEGATED: Orchestration Required Context lists ONLY plan files
 > - [ ] If DELEGATED: Heavy context files appear ONLY in task file Required Context
 > - [ ] If DELEGATED: Context Boundary subsection present in Execution Strategy
+> - [ ] If plan uses Meta-Plan: `Exec-{Abbrev}/` folder exists (not writing into Meta parent)
+> - [ ] If plan uses Meta-Plan: `Scaffold-{Abbrev}/` folder exists (scaffolding phase was run)
+> - [ ] If the plan is a Discovery / Meta-Plan workflow, verify user-action gates per `session-execution-protocol.md §4.5` BEFORE setting Master Plan status to COMPLETE (gates may legitimately hold status at IN_PROGRESS even when all sprints are done)
+> - [ ] All prerequisite sprints marked COMPLETE before starting this sprint
+> - [ ] Outputs/ folder for this session exists (with `.gitkeep` if empty)
+> - [ ] If any task reads cross-sprint files: `Depends On` field uses `cross-sprint:` prefix
 
 ---
 
@@ -346,45 +329,54 @@ After completing a session:
 
 > [!checklist] Post-Session Validation
 > - [ ] All tasks marked COMPLETE in Recovery
-> - [ ] If session produced code changes and `/simplify` has not already been run on all changed files, run `/simplify` to review for reuse, quality, and efficiency
+> - [ ] If session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` to review for reuse, quality, and efficiency
 > - [ ] Summary file created in Outputs/
 > - [ ] Orchestration status updated to COMPLETE
 > - [ ] Sprint Plan tracking table updated
 > - [ ] Master Plan tracking table updated
 > - [ ] Lessons learned documented in LessonsLearned/LL-{NNN}-{Domain}-{Name}.md (YAML frontmatter + 3 sections)
 > - [ ] 00-Index-LessonsLearned.md master table updated with new entries
+> - [ ] If any session lesson is HIGH-severity or recurs (2+ instances across sessions), evaluate promotion to `.claude/rules/` per `session-plan-requirements.md §9` step 6. Record the promotion decision in the lesson frontmatter (`applied-as:` path) and the Rule Promotion Log.
 > - [ ] Git commit with changes (lessons included before final commit)
 
 ---
 
 ## 12. Git Workflow
 
-**BINDING:** Commit at the end of each session. If session produced code changes, run `/simplify` before the final commit.
-
-```bash
-git add {specific files}  # Never use git add . or -A
-git commit -m "{type}: {description}"
-git push
-```
-
-**Commit Types:** `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
+Git Workflow — full binding rules live in [session-execution-protocol.md §7](session-execution-protocol.md#7-git-workflow). Commit at session end; run `/code-review` before commit when the session produced code; stage specific files (never `git add .`).
 
 ---
 
 ## 13. READ-CONFIRM-ACT Protocol
 
-Before ANY planning work:
+The full READ-CONFIRM-ACT specification — including the 5-field Confirmation Block template (File, Current State, Last Completed, Next Action, Structural Finding) and the binding "Cannot Be Waived" callout — lives in [session-execution-protocol.md §1](session-execution-protocol.md#1-read-confirm-act-pattern). Read that section before every planning task.
 
-1. **READ** all referenced documents completely
-2. **CONFIRM** with confirmation block:
-   ```
-   CONTEXT LOADED
-   File: {filename}
-   Current State: {status}
-   Last Completed: {step}
-   Next Action: {action}
-   ```
-3. **ACT** only after user approval
+---
+
+## 14. Scaffolding Hygiene
+
+See [scaffolding-hygiene.md](scaffolding-hygiene.md) for the complete set of binding rules governing multi-sprint scaffolded plans:
+- §1-§7: Six foundational hygiene rules (Meta-Plan source detection, folder naming, abbreviation validation, sprint status defaults, Outputs/ creation, sequential-sprint prerequisites)
+- §8: Parallel-Scaffold Deviation Classes
+- §9: Multi-Shape Integration Plan-Sizing Expansion Ratio
+- §10: Pre-Allocate Tokens for Known High-Divergence Cohorts
+
+---
+
+## 15. Discovery Scope Rigor
+
+See [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) §15 for binding rules governing Discovery and Meta-Plan scope:
+- §15.1: Count by execution (not estimation)
+- §15.2: Persist IDs, not just counts
+
+---
+
+## 16. Cross-Layer Enforcement & Exit-Criteria Fidelity
+
+See [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) §16 for cross-layer enforcement rules:
+- §16.1: Binding refinements echo across all plan layers
+- §16.2: "Surfaces" claims require enforceable checks
+- §16.3: Verbatim-quote EI exit criteria with mechanical anchors
 
 ---
 

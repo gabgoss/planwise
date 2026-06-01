@@ -38,12 +38,64 @@ maxTurns: 50
 
 ## 4. RECOVERY — Update State
 
+> [!gate] Dispatch Mode Gate — Read the Spawn Prompt First
+> Before touching Recovery, scan the spawn prompt for a `## PARALLEL DISPATCH` heading.
+>
+> | Spawn prompt contains | Mode | Recovery handling |
+> |-----------------------|------|-------------------|
+> | A `Recovery file:` parameter AND no `## PARALLEL DISPATCH` heading | **Sequential** | Follow §4.A below — incremental Recovery writes |
+> | A `## PARALLEL DISPATCH — Recovery Handling` heading (no `Recovery file:` parameter) | **Parallel** | Follow §4.B below — return a status block; do NOT touch Recovery |
+>
+> When in doubt: if the spawn prompt explicitly forbids Recovery writes, that prohibition WINS. Never write Recovery in parallel mode "just to be safe" — concurrent writes from sibling runners will race and silently clobber each other.
+
+### 4.A Sequential Dispatch — Incremental Recovery Writes
+
+> [!constraint] Checkpoint Recovery After Each Major Step
+> Update Recovery incrementally — after EACH major Execution Step completes — not just once at the end of the task. If the dispatch is cut short (early stop, context-window pressure, timeout, upstream Claude Code subagent-stop bug), an incremental Recovery preserves which steps actually finished and lets the orchestrator resume cleanly. A single end-of-task write loses all progress if the runner stops mid-step.
+
 1. Read the recovery file
 2. Update the task row: set Status to COMPLETE and add Completed timestamp
 3. Add any Key Findings discovered during execution
 4. Add all Files Modified during this task
-5. Add a Change Log row with date, step number, status, and notes
+5. Add a Change Log row with date, step number, status, and notes — write a new row after each major step, not one batched row at task end
 6. Update Current Step to the next task number
+
+### 4.B Parallel Dispatch — Return a Status Block
+
+In parallel mode you share the Recovery file with sibling runners dispatched in the same batch. Concurrent writes race; one runner's update silently overwrites another's. To stay safe, do NOT read, edit, or write Recovery in any form. Instead, emit the status block specified in the spawn prompt as your final message — the orchestrator reconciles Recovery centrally once the whole batch returns.
+
+1. Skip Recovery entirely — do NOT open it, do NOT Read it, do NOT Edit it
+2. As the final action of your turn, emit the status block in the exact schema below:
+
+   ```
+   TASK_STATUS:    COMPLETE | BLOCKED | PARTIAL
+   TASK_ID:        {task-id from spawn prompt}
+   OUTPUT_FILES:   {comma-separated absolute paths of files you actually wrote}
+   LINES_PRODUCED: {sum of lines across OUTPUT_FILES}
+   KEY_FINDINGS:   {2-5 short bullets, one per line, prefixed with "- "}
+   ISSUES:         {one line per issue, or "none"}
+   ```
+
+3. The status block MUST be the last content in your response — no trailing prose, no follow-up paragraphs. The orchestrator parses it by reading your final message.
+4. If you hit a partial-completion ceiling (early stop, edit ceiling, context pressure): emit `TASK_STATUS: PARTIAL` with OUTPUT_FILES listing what was written so far and ISSUES describing what remains. Do NOT write a recovery-style partial-progress note to Recovery — the orchestrator handles partials by re-dispatching from your status block.
+
+> [!constraint] No Sneaky Recovery Writes in Parallel Mode
+> WRONG — runner "helpfully" appends its own row to Recovery before returning:
+> ```
+> Edit(file: "Recovery.md", ...)   # races against 2-4 sibling runners doing the same thing
+> ```
+> CORRECT — runner returns the status block; orchestrator writes Recovery once for the whole batch:
+> ```
+> (no Recovery edit at all)
+> TASK_STATUS:    COMPLETE
+> TASK_ID:        ABC-S02-03-04
+> OUTPUT_FILES:   /abs/path/Outputs/foo.md
+> LINES_PRODUCED: 142
+> KEY_FINDINGS:
+> - Schema field X is nullable in 12% of rows
+> - Migration path is idempotent on second run
+> ISSUES:         none
+> ```
 
 ---
 

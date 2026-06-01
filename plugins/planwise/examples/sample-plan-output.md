@@ -64,7 +64,7 @@ PLAN CREATED: UserAuthentication
 **Next Steps:**
 1. Review and refine the Master Plan
 2. Review task files for completeness
-3. Execute Session-01 using `/execute` or manually following READ-CONFIRM-ACT
+3. Execute Session-01 using `/planwise run` or manually following READ-CONFIRM-ACT
 ```
 
 ---

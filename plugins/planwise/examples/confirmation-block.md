@@ -12,6 +12,7 @@ File: MyPlan-S01-02-Orchestration.md
 Current State: IN_PROGRESS
 Last Completed: Task 2 - Design automation approach
 Next Action: Execute Task 3 - Create service layer
+Structural Finding: none
 ```
 
 ---
@@ -24,6 +25,7 @@ File: multiple files (Master-Plan.md, S03-02-Orchestration.md, S03-02-Recovery.m
 Current State: IN_PROGRESS
 Last Completed: Task 0 - Aggregate execution context
 Next Action: Task 1 - Create entity models
+Structural Finding: Master-Plan Sprint Overview table omits Sprint-03; surfaced to planner before proceeding
 ```
 
 ---
@@ -36,6 +38,7 @@ File: PI-S01-01-Orchestration.md
 Current State: NOT_STARTED
 Last Completed: None (new session)
 Next Action: Task 1 - Read schema (5 tables)
+Structural Finding: none
 ```
 
 ---
@@ -48,6 +51,7 @@ File: S02-03-Recovery.md
 Current State: IN_PROGRESS (recovered)
 Last Completed: Task 4 - Generate entities
 Next Action: Resume Task 5 - Write migration
+Structural Finding: Task 4 produced 2 entity files but Recovery lists 1; reconciled before resuming
 ```
 
 ---

@@ -21,19 +21,41 @@
 
 ---
 
-## Config Gate
+## Config Gate (Auto-Init Fallback)
 
-Locate `config.yaml` by checking:
-1. `planwise/config.yaml` (default planwise root)
-2. If not found, search one level down from the project root for `*/config.yaml`
-3. If not found: "Project not initialized. Run `/planwise init` first."
+1. Resolve config.yaml:
+   a. Check `planwise/config.yaml` (default planwise root)
+   b. If not found, search one level down from project root for `*/config.yaml`
 
-Extract from `config.yaml`:
-- `plugin_root` — the plugin installation path
-- `project.planwise_root` — the planwise root folder (default: `planwise`)
-- `project.plans_dir` — the Plans directory name (relative to planwise_root)
-- `project.lessons_dir` — the Lessons directory name (relative to planwise_root)
-- `project.index_files.lessons` — the lessons index filename
+2. If found → continue to Required References (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.lessons_dir`, `project.index_files.lessons`).
+
+3. If NOT found:
+   a. Announce: "Planwise not initialized in this project. Running /planwise init first…"
+   b. Resolve `{plugin_root}` from the handler's own known location (SKILL.md plugin base path).
+   c. Invoke init subroutine:
+      - **If Auto Mode active:**
+        ```bash
+        python "{plugin_root}/scripts/init_project.py" \
+          --name "{inferred_project_name}" \
+          --root "planwise" \
+          --plans-dir "Plans" \
+          --backlog-dir "Backlog" \
+          --lessons-dir "LessonsLearned" \
+          --scope "project" \
+          --auto-from "plan"
+        ```
+      - **If Auto Mode NOT active (interactive):**
+        Use `AskUserQuestion` to collect project info (project name, scope, dirs),
+        then run `init_project.py` with those values + `--auto-from "plan"`.
+   d. After init completes, RE-RESOLVE `config.yaml` (loop to step 1).
+   e. If still NOT found after init:
+      FAIL LOUD: "Init did not produce config.yaml. See output above."
+      STOP — do not continue.
+
+Where `{inferred_project_name}` = current git repo name or `cwd` basename (strip trailing `-`, `_`, `.git` suffix).
+
+> [!gate] Config Malformed → FAIL LOUD
+> If `config.yaml` is present but malformed (YAMLError), DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise plan." STOP.
 
 All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Plans`).
 
@@ -49,11 +71,14 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 1. Read `references/session-planning-protocol.md`
 2. Read `references/session-plan-requirements.md`
 3. Read `references/session-context-budget.md`
+4. Read `references/session-execution-protocol.md` — source for READ-CONFIRM-ACT, the structural-findings gate, session invariants, and the post-step checklist (cited in this handler's checklists)
 
 **Conditional references:**
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
+- If planning a scaffolded multi-sprint plan (Discovery → Scaffolding workflow): Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md`
+- If planning a task with DB writes (SQL INSERT/UPDATE/MERGE): Read `references/schema-pin-requirement.md`
 
 ---
 
@@ -79,7 +104,7 @@ Before gathering information, check the user's prompt for **Discovery Mode** and
 |-----------|--------|
 | `--meta` flag present in arguments | **Discovery** |
 | User says "meta-plan", "discovery phase", or "consolidated context" | **Discovery** |
-| User says the context is "too large" or "> 100K" | **Discovery** |
+| User says the context is "too large" or above `meta_plan_threshold` (100K on Pro / 500K on Max — see `references/session-context-budget.md` §5 Threshold Formulas) | **Discovery** |
 
 **Implicit indicators** (recommend Discovery via `AskUserQuestion`):
 
@@ -87,12 +112,13 @@ Before gathering information, check the user's prompt for **Discovery Mode** and
 |-----------|--------|
 | User describes needing to read many source files across multiple domains | **Recommend Discovery** |
 | User says there's "too much to read in one session" or "too much context" | **Recommend Discovery** |
-| Source material spans multiple large files (estimated total > 100K tokens) | **Recommend Discovery** |
+| Source material spans multiple large files (estimated total > `meta_plan_threshold` — 100K on Pro, 500K on Max) | **Recommend Discovery** |
 | User asks to "organize", "consolidate", or "cross-reference" source material | **Recommend Discovery** |
 
-If **any Discovery implicit indicator** is detected without an explicit indicator, use `AskUserQuestion`:
+<!-- AUTO-MODE: critical -->
+If **any Discovery implicit indicator** is detected without an explicit indicator, use `AskUserQuestion`. Resolve `meta_plan_threshold` first by reading `context.context_window` from `config.yaml` (100K on Pro, 500K on Max). Substitute that value into the prompt:
 
-> "Your project appears to require more context than fits in a single session (~100K tokens). The **Meta-Plan Discovery** workflow reads source material across multiple sessions, consolidates findings into structured Consolidated Context Parts, and then scaffolds an Execution Plan from those parts. **Recommended: use Discovery (Meta-Plan).** Proceed with Discovery, Scaffolding (if you already have Consolidated Context parts), or Standard?"
+> "Your project appears to require more context than fits in a single session (above ~{meta_plan_threshold} tokens for this plan tier). The **Meta-Plan Discovery** workflow reads source material across multiple sessions, consolidates findings into structured Consolidated Context Parts, and then scaffolds an Execution Plan from those parts. **Recommended: use Discovery (Meta-Plan).** Proceed with Discovery, Scaffolding (if you already have Consolidated Context parts), or Standard?"
 
 - If user chooses **Discovery** → follow the [Discovery Workflow](#discovery-workflow) below
 - If user chooses **Scaffolding** → follow the [Scaffolding Workflow](#scaffolding-workflow) below
@@ -109,6 +135,22 @@ If **any Discovery implicit indicator** is detected without an explicit indicato
 | `--scaffold` flag present in arguments | **Scaffolding** |
 | User says "scaffold", "scaffolding phase", or "from Discovery" | **Scaffolding** |
 
+**Optional Scaffolding flag — `--scaffold-per-sprint`:**
+
+When `--scaffold-per-sprint` is present, scaffold ONE sprint at a time, pausing after each for user confirmation. This allows user-action gates between sprints (e.g., user reviews Sprint-01 scaffold before scaffolding Sprint-02).
+
+Behavior:
+1. Scaffold Sprint-01 completely (EI + plan files + task files)
+2. Set Master Plan Status: `IN_PROGRESS — Sprint-01 scaffolded; awaiting user review`
+3. <!-- AUTO-MODE: critical -->
+   Use `AskUserQuestion`: "Sprint-01 scaffold complete. Proceed with Sprint-02 scaffolding?"
+4. Repeat for each sprint
+
+Without the flag (default), scaffold all sprints in one pass.
+
+> [!practice] Scope — Pause-Between-Sprints, Not Per-Sprint Scaffold Sessions
+> The `--scaffold-per-sprint` flag is an **in-conversation pause-and-confirm** mechanism — it does NOT create per-Exec-sprint `Scaffold-{Abbrev}-S{XX}/` sessions with their own Orchestration/Recovery files (which the source PLG-008 spec envisioned for compaction-resume capability). The simpler pause-only mechanism shipped intentionally as a documented design decision: the full per-sprint Scaffold-session resume mechanism is treated as a new feature, deliberately out of scope for the current contract. Future maintainers — do NOT treat the absence of per-sprint Scaffold sessions as a regression; it is the documented design. If compaction during multi-sprint scaffolding becomes a real problem, file a NEW backlog item (do not silently expand this flag's contract).
+
 **Implicit indicators** (recommend Scaffolding via `AskUserQuestion`):
 
 | Indicator | Action |
@@ -118,6 +160,7 @@ If **any Discovery implicit indicator** is detected without an explicit indicato
 | User mentions "Consolidated Context parts" or "spec parts" | **Recommend Scaffolding** |
 | Existing `Meta-{Abbrev}/Outputs/` folder contains `Consolidated-Context-Part-*` files | **Recommend Scaffolding** |
 
+<!-- AUTO-MODE: critical -->
 If **any Scaffolding implicit indicator** is detected without an explicit indicator, use `AskUserQuestion`:
 
 > "Your source material references Meta-Plan Discovery outputs. The Scaffolding workflow creates focused per-sprint Execution Inputs from this research, preventing subagents from reading entire Discovery docs. **Recommended: use Scaffolding.** Proceed with Scaffolding or Standard?"
@@ -135,6 +178,7 @@ If **no indicators** are detected → proceed to Step 1 (Standard).
 
 Parse `$1` for the plan name. If `$1` is empty, use `AskUserQuestion` to collect it.
 
+<!-- AUTO-MODE: critical -->
 Use `AskUserQuestion` to collect:
 
 **Question 1: Plan Details**
@@ -166,6 +210,7 @@ If validation fails, ask user to correct.
 >
 > CORRECT: User provides `HBS-VBD` → handler prompts with `AskUserQuestion` showing the constraint, what they provided, and alternatives.
 
+<!-- AUTO-MODE: critical -->
 > [!protocol] Abbreviation Validation Protocol
 > 1. Check if the user-provided abbreviation is 2-4 characters
 > 2. If valid (2-4 chars) → proceed to uniqueness check
@@ -198,9 +243,21 @@ Create the following structure under the configured `{plans_dir}`:
 │       ├── {Abbrev}-S01-01-Recovery.md
 │       ├── {Abbrev}-S01-01-{##}-{Agent}-{Task}.md   # One file per task
 │       └── Outputs/
+│           └── .gitkeep                              # Required so Outputs/ is tracked by git
 ```
 
 **Task File Naming:** `{##}` = two-digit task number (01, 02, 03...) matching the task list.
+
+> [!constraint] Emit `Outputs/.gitkeep` for Every Session Folder
+> WRONG — Outputs/ folder created empty; git does not track empty directories, so the folder disappears on clone:
+> ```
+> mkdir Session-01-{Name}/Outputs    # ← empty dir, not committed
+> ```
+> CORRECT — write an `Outputs/.gitkeep` placeholder file inside every session's Outputs/ folder so the directory is preserved in version control:
+> ```
+> Write {plans_dir}/{PlanName}/Sprint-01-{Name}/Session-01-{Name}/Outputs/.gitkeep
+> ```
+> Apply this to EVERY session folder created during planning (standard mode here, Scaffolding Step 5 for scaffolded plans). The `.gitkeep` file is an empty placeholder — its purpose is solely to make git track the otherwise-empty `Outputs/` directory.
 
 ### Steps 4-7: Generate Files
 
@@ -246,7 +303,7 @@ For each task in the session, compute a bottom-up token estimate:
 2. **Convert to tokens:** Apply ~13 tokens/line (see [Token Estimation Reference](#token-estimation-reference))
 3. **Add output cost:** Estimate output generation tokens from the operation-level table
 4. **Compare:** If the bottom-up estimate exceeds the qualitative category estimate, use the higher number
-5. **DELEGATED check:** For DELEGATED tasks, verify (task estimate + 54K subagent overhead) < 200K
+5. **DELEGATED check:** For DELEGATED tasks, verify `(task estimate + 54K subagent overhead) < context_window` per subagent. Subagents inherit the parent session's tier, so `context_window` comes from `config.yaml` `context.context_window` (defaults to 200,000 when the block is missing). See `references/session-context-budget.md` §5 Threshold Formulas.
 
 Update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates.
 
@@ -263,6 +320,77 @@ Add a row to the plans index so `/planwise list` reflects the new plan:
    - **Last Updated:** `{today's date}`
    - **Path:** `{plans_dir}/{PlanName}/`
 3. Write the updated index back to disk
+
+### Step 8e: Populate Verification Commands (Per-File-Type Map)
+
+For every task file generated in Step 8 whose task touches code, tests, or schemas, populate
+the **Verification Commands** section using a per-file-type command map — never leave the
+section's `{placeholder}` tokens unfilled. The plan-reviewer treats blank, vague, or single-type
+Verification Commands as a finding (`references/session-plan-requirements.md` §Verification
+Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type Commands).
+
+**Procedure:**
+
+1. **Inspect** the task's Expected Output and Execution Steps to identify the set of file
+   extensions the task creates or modifies (e.g., `.py`, `.ipynb`, `.sql`, `.cs`, `.cshtml`,
+   `.ts`, `.tsx`, `.md`).
+2. **Look up** the verification command(s) for each extension in the per-file-type command
+   map below (resolve `{lint-cmd}`, `{format-cmd}`, `{exec-cmd}`, `{notebook-exec-cmd}` from
+   `config.yaml.build_commands` or project convention).
+3. **Emit** a `Verification Commands` section in the task file using the
+   `templates/task-file.md` `> [!verify] Before / After Commands` block + Per-File-Type
+   Commands table — substitute every `{placeholder}` with a concrete shell invocation.
+4. **Ensure all three command types appear** (connectivity / pre-condition, lint or format,
+   exec or smoke test). A task missing one of these types is downgraded to a `> [!verify]`
+   block with a `<!-- NEEDS-COMMAND -->` comment so the gap is visible at review time, NOT
+   silently left blank.
+
+**Per-File-Type Command Map** (mirrors `templates/task-file.md` §Per-File-Type Commands):
+
+| File Type | Lint / Format | Exec / Smoke | Notes |
+|-----------|--------------|--------------|-------|
+| `.{src-ext}` (compiled or scripted source) | `{lint-cmd} {path}` / `{format-cmd} {path}` | `{test-cmd} {path}` | Consumer fills `{lint-cmd}` / `{test-cmd}` from `config.yaml.build_commands` |
+| `.{notebook-ext}` (runnable-notebook artifact) | `{lint-cmd} {path}` (if applicable) | `{exec-cmd} {path}` | `{exec-cmd}` is the consumer's notebook runner / execute-in-place command |
+| `.sql` | `{sql-lint-cmd} {path}` (if applicable) | `{driver-cli} -f {path}` | DB writes also pin schema per `references/schema-pin-requirement.md` |
+| `.{build-system-ext}` (e.g., compiled-language sources) | `{format-cmd} {project} --verify-no-changes` | `{build-cmd} {project}` then `{test-cmd} {project}` | Connectivity precheck if integration test |
+| `.{view-template-ext}` | `{format-cmd} {project} --verify-no-changes` | `{build-cmd} {project}` | Smoke render if applicable |
+| `.{ts-ext}` / `.{tsx-ext}` | `{lint-cmd} {path}` | `{build-cmd}` then `{test-cmd}` | Plus `{type-check-cmd}` if the language supports it |
+| `.md` (reference / rule edits) | `{md-lint-cmd} {path}` (if configured) | `{line-count-cmd} {path}` (file ≤ 500 lines per soft limit) | Per `references/markdown-conventions.md` §2 |
+| `.{ext}` (other) | `{lint-cmd} {path}` | `{exec-cmd}` | Consumer-project supplies the binding from `config.yaml.build_commands` |
+
+> [!constraint] Verification Commands MUST Be Populated, Not Templated
+> WRONG — task file ships with the literal `{cmd_before_1}` / `{cmd_after_1}` placeholders, or
+> with vague prose like "run lint and tests":
+> ```markdown
+> ## Verification Commands
+> > [!verify] Before / After Commands
+> > **Before:** {cmd_before_1}
+> > **After:**  {cmd_after_1}
+> ```
+> CORRECT — placeholders resolved to explicit shell invocations from the per-file-type map,
+> covering all three command types (precheck + lint/format + exec):
+> ```markdown
+> ## Verification Commands
+> > [!verify] Before / After Commands
+> > **Before:**
+> > ```
+> > {lint-cmd} src/{module}/        # lint baseline
+> > {test-cmd} src/{module}/        # test baseline
+> > ```
+> > **After:**
+> > ```
+> > {lint-cmd} src/{module}/        # expect: pass
+> > {test-cmd} src/{module}/        # expect: green
+> > ```
+> ```
+>
+> A blank or vague Verification Commands section is a `/planwise review` finding (per the
+> `Verification Commands Plan-Review Enforcement` table in `session-plan-requirements.md`).
+
+**If the task creates no code/test/schema files** (pure documentation, decision-only, or
+research): the Verification Commands section MAY be omitted, but the task file MUST then
+include a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment in its `## Notes for
+Agent` section so the reviewer can confirm the omission was intentional.
 
 ---
 
@@ -297,13 +425,33 @@ PLAN CREATED: {PlanName}
 
 After outputting the Step 9 confirmation, offer plan review options.
 
+**Mega-Scaffold Gate — count sprints authored this pass.**
+
+Before presenting the review options, count `n_sprints_scaffolded_this_pass` — the number of distinct Sprint Plan files this `/planwise plan` invocation authored. For a standard single-sprint plan, this is 1. For an inline mega-scaffold (`/planwise plan --scaffold` against Meta-Plan output, or a multi-sprint `/planwise plan` session that authored 2+ Sprint Plan files in one pass), this can be 2 or more.
+
+If `n_sprints_scaffolded_this_pass ≥ 2`, the "Skip to /planwise run" option is REMOVED from Question 1 below — `/planwise review` becomes mandatory. The rationale and full rule live at `references/scaffolding-hygiene.md` §11 (Mega-Scaffold Review-Gate); the short version is that inline mega-scaffolds trade per-sprint authoring-time self-review for speed, and the post-scaffold review gate is what catches the EI header⇄Cross-References hygiene defects that otherwise ride into execution.
+
+<!-- AUTO-MODE: convenience -->
+<!-- Default: auto-review in this session. -->
 Use `AskUserQuestion` with:
 
 **Question 1: Plan Review Approach**
+
+*If `n_sprints_scaffolded_this_pass == 1` (standard single-sprint plan):*
+
 - "Auto-review with /planwise review" (Recommended) -- Spawn a subagent to validate the plan and return findings
 - "Review manually first" -- User will review plan files before executing
 - "Skip to /planwise run" -- Proceed directly to execution
 
+*If `n_sprints_scaffolded_this_pass ≥ 2` (mega-scaffold — review is MANDATORY per `references/scaffolding-hygiene.md` §11):*
+
+- "Auto-review with /planwise review" (Recommended) -- Spawn a subagent to validate the plan and return findings
+- "Review manually first" -- User will review plan files before executing
+
+(The "Skip to /planwise run" option is intentionally omitted for multi-sprint scaffolds. If review must legitimately be deferred — e.g., a follow-up session is scheduled — record the deferral in the Master Plan's Status note rather than skipping the gate.)
+
+<!-- AUTO-MODE: convenience -->
+<!-- Default: this session; switch to new session if > 3 sprints or > 10 task files. -->
 **Question 2: Review Context** (show only if Question 1 = auto-review)
 - "Run in this session" (Recommended for standard plans) -- Subagent gets fresh context; no token budget concern
 - "Run in a new session" -- Output the command for user to run separately; recommended if this was a large scaffolding session
@@ -353,13 +501,17 @@ Before completing `/planwise plan`, verify:
 [ ] Outputs/ folder created
 [ ] All files follow naming conventions
 [ ] Plans index updated with new row (Abbrev, Name, Status, Created, Last Updated, Path)
-[ ] Session token estimates validated (< 100K per session)
+[ ] Session token estimates validated (< `practical_session_limit` per session — 100K on Pro, 400K on Max; see `references/session-context-budget.md` §5)
 [ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
-[ ] If DELEGATED: each task estimate + 54K overhead < 200K
+[ ] If DELEGATED: each task estimate + 54K overhead < `context_window` (200K on Pro, 1M on Max)
 [ ] Execution Strategy declared in Orchestration (DIRECT or DELEGATED)
 [ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED
 [ ] If DELEGATED: Orchestration Required Context = plan files only
 [ ] If DELEGATED: Context Boundary subsection lists what orchestrator never reads
+[ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
+[ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
+[ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
+[ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
 ```
 
 ---
@@ -377,6 +529,27 @@ Before completing `/planwise plan`, verify:
 
 ### Discovery Step 1: Gather Source Inventory
 
+**CONFIRM block (per `references/scaffolding-hygiene.md` §1):**
+
+Before gathering source inventory, output the Discovery context confirmation:
+
+> [!template] Discovery Context Confirmation
+> ```
+> CONTEXT LOADED — DISCOVERY MODE
+> Workflow: Discovery (Meta-Plan creation)
+> Trigger: {indicator that triggered Discovery mode}
+> Plugin references loaded: {list of loaded conditional refs}
+> Next Action: Gather source inventory for {abbreviation}
+> ```
+
+<!-- AUTO-MODE: critical -->
+Use `AskUserQuestion`: "Confirm Discovery mode for this plan?"
+(Auto-default: proceed; user can switch to Standard or Scaffolding.)
+
+Then proceed with the source inventory questions below.
+
+<!-- AUTO-MODE: critical -->
+<!-- All Discovery Step 1 questions (Project name, Abbreviation, Vision, Source files, Domains, Expected output) are CRITICAL per S03-03 audit table — no safe inference. -->
 Use `AskUserQuestion` to collect:
 
 **Question 1: Project Details**
@@ -522,9 +695,30 @@ After the confirmation, proceed to [Step 10: Plan Review Gate](#step-10-plan-rev
 
 ### Scaffolding Step 1: Read Consolidated Context Parts
 
+**CONFIRM block (per `references/scaffolding-hygiene.md` §1):**
+
+Before reading Consolidated Context parts, output the Scaffolding context confirmation:
+
+> [!template] Scaffolding Context Confirmation
+> ```
+> CONTEXT LOADED — SCAFFOLDING MODE
+> Workflow: Scaffolding (Execution Plan from Discovery outputs)
+> Source Meta-Plan: Meta-{Abbrev}/
+> Plugin references loaded: {list of loaded conditional refs}
+> Consolidated Context Parts detected: {list of part filenames}
+> Next Action: Read all parts and design sprints from Scope: fields
+> ```
+
+<!-- AUTO-MODE: critical -->
+Use `AskUserQuestion`: "Confirm Scaffolding mode for this plan?"
+(Auto-default: proceed.)
+
+Then proceed with the original steps below.
+
 1. Find all `{Abbrev}-Consolidated-Context-Part-*.md` files in `Meta-{Abbrev}/Outputs/`
 2. Read EVERY part completely -- each part's header has `Scope:` (the sprint it feeds) and a `What This Enables` section
 3. Note: Part headers contain cross-references between parts
+4. Read Tier 1 raw task outputs from `Meta-{Abbrev}/Sprint-XX-Discovery/Session-YY-*/Outputs/` and Tier 3 final consolidated layer (if produced). Tier 2 Consolidated Context Parts (above) are the primary input; Tier 1 + Tier 3 supply detail that Tier 2 shed. See Step 4.5 for the binding extraction rules.
 
 ### Scaffolding Step 2: Determine Plan Details
 
@@ -567,6 +761,53 @@ For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extracti
 - **Cross-sprint reference parts** (e.g., DesignDecisions with `Scope: Cross-sprint reference`): Extract relevant portions into each sprint's EI
 - **Sprint-scoped sources with cross-relevant sections**: If Sprint 02 needs content from a source primarily assigned to Sprint 01, list that source in the EI's `Extracted from:` header like any other source. The Global Source Map in the Master Plan tracks which sources are shared
 
+### Scaffolding Step 4.5: Multi-Tier Discovery Extraction
+
+When extracting from Meta-Plan Discovery outputs, scaffolding agent MUST consume THREE tiers of source material — Tier 1 raw outputs carry detail that Tier 2/3 consolidated parts shed; skipping any tier is BLOCKER at `/planwise review`:
+
+| Tier | Location | Content |
+|------|----------|---------|
+| **Tier 1** | `Meta-{Abbrev}/Sprint-XX-Discovery/Session-YY-*/Outputs/{Abbrev}-META-S{XX}-{YY}-{TaskOutput}*.md` | Raw task outputs (per-task detail) |
+| **Tier 2** | `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md` | Per-sprint consolidated context parts |
+| **Tier 3** | `Meta-{Abbrev}/Outputs/{Abbrev}-Triage-*.md` or `*-Cross-Reference-*.md` (if produced) | Final consolidated layer |
+
+**Extraction rules** (cross-reference `references/session-plan-requirements.md` §8 Multi-Tier extension):
+
+1. The EI's `Extracted from:` header MUST list all three tiers when applicable.
+2. Tier 1 raw outputs carry detail that Tier 2/3 consolidated parts shed; skipping Tier 1 is BLOCKER.
+3. Every sprint's EI MUST include a **Deferred / Out-of-Scope Log** at `{Abbrev}-S{XX}-Deferred-OutOfScope-Log.md` enumerating:
+   - Content from Tier 1/2/3 NOT extracted into this sprint's EI
+   - Rationale for deferral (e.g., "covered by Sprint-03", "out of scope per Master Plan §X")
+   - Target sprint or "Out of scope"
+
+**Deferred / Out-of-Scope Log template:**
+
+```markdown
+# {Abbrev}-S{XX}-Deferred-OutOfScope-Log
+
+**Sprint:** {XX} - {SprintName}
+**Generated:** {ISO date during scaffolding}
+
+## Deferred (covered elsewhere)
+
+| Source | Tier | Content | Target |
+|--------|------|---------|--------|
+| {Spec #N (filename.md)} | T{1,2,3} | {1-line description} | {Sprint-YY \| Out of scope} |
+
+## Out-of-Scope (no future coverage planned)
+
+| Source | Tier | Content | Rationale |
+|--------|------|---------|-----------|
+| {Spec #N (filename.md)} | T{1,2,3} | {1-line description} | {why excluded} |
+```
+
+**Reviewer retention threshold** (enforced by `agents/plan-reviewer.md` Coverage Reviewer role):
+- < 80 % retention → auto-reject
+- 80 – 95 % retention → warn
+- ≥ 95 % retention → pass
+
+Retention = `(sum of EI section tokens + Deferred/OOS log tokens) / (sum of Tier 1+2+3 source tokens)`.
+
 ### Scaffolding Step 5: Generate Plan Files
 
 Use the [scaffolding master plan template](../templates/scaffolding-master-plan.md) for the Master Plan.
@@ -576,6 +817,10 @@ Use standard templates for all other files (sprint plans, orchestrations, recove
 **Critical difference from standard planning:** Every task file's `Required Context` table MUST reference the sprint's **Execution Input** file (with section numbers), NOT the original Consolidated Context parts. The Execution Input replaces the parts for execution purposes.
 
 **Status rule:** Set ALL Sprint Plan files to `**Status:** PLANNED`. Only the Master Plan gets `READY_TO_EXECUTE`. Do NOT copy the Master Plan's status into Sprint Plans — each Sprint Plan starts as PLANNED and transitions to IN_PROGRESS → COMPLETE during execution.
+
+**`.gitkeep` emission (mirrors standard [Step 3](#step-3-create-folder-structure)):** For EVERY session folder created during scaffolding, write an empty `Outputs/.gitkeep` placeholder file inside the session's `Outputs/` directory. Empty directories are not tracked by git, so a missing `.gitkeep` means the `Outputs/` folder disappears on clone and downstream `/planwise run` cannot write summary or task-output files into the expected path. Apply to every sprint × every session — same per-session `.gitkeep` rule as the standard Step 3 constraint. Also populate each task file's Verification Commands per the [Step 8e per-file-type command map](#step-8e-populate-verification-commands-per-file-type-map) — scaffolded plans must NOT ship with blank verification placeholders any more than standard plans do.
+
+**Sprint-signoff scaffold (multi-session sprints):** For each sprint with multi-session work, add a sprint-signoff scaffold using the [sprint-signoff.md](../templates/sprint-signoff.md) template per `references/discovery-and-exit-criteria.md` §16.3. Place the signoff file at `{plans_dir}/{PlanName}/Sprint-{XX}-{Name}/Sprint-Signoff.md`. The signoff quotes the sprint's EI exit-criteria verbatim — one row per criterion, one mechanical anchor per row — giving a multi-session sprint a single closeout checkpoint before it is marked COMPLETE. Single-session sprints MAY omit it.
 
 > [!constraint] Agent Prompts Must Include Exact Headers
 > Subagents start with fresh context (no inherited file reads). Saying "follow the template" forces a subagent to discover and read the template — an extra hop that may be skipped or interpreted loosely.
@@ -612,6 +857,10 @@ Same checklist as standard mode, plus:
 [ ] Task file Required Context enumerates individual section numbers with purpose (no ranges)
 [ ] Cross-sprint task references use full Task ID format ({Abbrev}-S{XX}-{YY}-{##})
 [ ] If global numbering used, Global Source Map exists in Master Plan
+[ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
+[ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
+[ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
+[ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
 ```
 
 ### Scaffolding Step 7: Output Confirmation
@@ -678,27 +927,31 @@ Orchestration and Recovery files inside `Meta-{Abbrev}/` use the standard naming
 
 ### Session Limits
 
-**Available for work:** ~100K (after system overhead)
+**Available for work:** scales by tier. On Pro: ~100K. On Max: ~900K (with a 400K practical session cap). See `references/session-context-budget.md` §5 Tier-Specific Budget Table.
 
-| Pattern | Initial Load | Growth | Total | Guideline |
-|---------|--------------|--------|-------|-----------|
+The pattern thresholds below are expressed for the Pro tier (the backward-compatible default). On Max, multiply by `available_for_work / 100_000` and cap "Too Large" at `meta_plan_threshold` (500K, not 9×).
+
+| Pattern | Initial Load (Pro) | Growth | Total (Pro) | Guideline |
+|---------|--------------------|--------|-------------|-----------|
 | Discovery | < 30K | +40-50K | ~70-80K | Don't know files upfront |
 | Planned | 30-70K | +10-20K | ~80-90K | Know most files upfront |
 | Front-loaded | 70-90K | +5-10K | ~95-100K | Know all files upfront |
-| **Too Large** | > 100K | - | - | **MUST use Meta-Plan** |
+| **Too Large** | > `meta_plan_threshold` | - | - | **MUST use Meta-Plan** |
 
 ### Task Sizing Categories
 
-| Task Size | Token Estimate | Guideline |
-|-----------|----------------|-----------|
+The task-size thresholds below are expressed for the Pro tier. On Max, scale by the same ratio used for session limits — a "Too Large" task on Pro is ~80% of `practical_session_limit`. The "always split a task above 80% of one session" principle is tier-invariant.
+
+| Task Size | Token Estimate (Pro) | Guideline |
+|-----------|---------------------|-----------|
 | Small | < 20K | Single file, simple lookup |
 | Medium | 20-50K | Multi-file, code generation |
 | Large | 50-80K | Complex analysis, multiple entities |
-| Too Large | > 80K | **MUST SPLIT** |
+| Too Large | > 80K (Pro) / > 320K (Max practical) | **MUST SPLIT** |
 
 **These categories are a cross-check, not the primary estimate.** Always compute the bottom-up estimate first, then compare against the category. Use the HIGHER of the two.
 
-**Note:** Session limits (~100K) apply to DIRECT mode in the main conversation. In DELEGATED mode, each task-runner subagent gets a fresh context budget. Verify: (task estimate + 54K overhead) < 200K per subagent.
+**Note:** Session limits apply to DIRECT mode in the main conversation. In DELEGATED mode, each task-runner subagent gets a fresh context budget at the parent's tier. Verify: `(task estimate + 54K overhead) < context_window` per subagent (200K on Pro, 1M on Max).
 
 ### Token Estimation Reference
 
@@ -739,8 +992,11 @@ Use this table to compute bottom-up token estimates for each task.
 
 ```
 Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)
-DELEGATED check: Task Estimate + 54K overhead < 200K per subagent (standard context)
+DELEGATED check: Task Estimate + 54K overhead < context_window per subagent
+                 (read from config.yaml: context.context_window — defaults to 200000)
 ```
+
+Subagents inherit the parent session's tier. On Pro, `context_window = 200000`; on Max, `1000000`. See `references/session-context-budget.md` §5 Threshold Formulas.
 
 ---
 

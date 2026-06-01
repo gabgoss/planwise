@@ -56,10 +56,19 @@ your-project/
     LessonsLearned/      <-- where insights are saved
   .claude/
     rules/
-      planwise/          <-- 10 rules that help Claude work with your plans
+      planwise/          <-- 17 path-scoped rules that help Claude work with your plans
 ```
 
 > **You only need to run `init` once per project.** After that, planwise remembers your setup.
+
+#### How `init` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Answer a few<br/>questions]
+    B --> C[planwise creates<br/>folders &amp; config]
+    C --> D([Ready to use])
+```
 
 ---
 
@@ -92,6 +101,13 @@ Your plan gets saved as organized markdown files you can review anytime.
 
 This takes a Discovery plan you've already written and automatically builds out all the sprints and tasks from it.
 
+#### How `plan` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Describe your<br/>plan &amp; sprints] --> C[Plan files<br/>created] --> D([Ready to run])
+```
+
 ---
 
 ### Review a plan before executing it
@@ -109,6 +125,13 @@ You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict.
 
 > **Why review?** Catching problems in a plan is much cheaper than catching them mid-execution. Think of it like proofreading before you hit send.
 
+#### How `review` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[AI checks<br/>structure] --> C[AI checks<br/>content] --> D([Get verdict])
+```
+
 ---
 
 ### Execute a plan
@@ -123,6 +146,13 @@ This starts working through your planned tasks in order. You get two modes:
 - **DELEGATED mode** — Claude works through tasks automatically using a task-runner agent
 
 If you need to stop mid-session, don't worry — planwise saves a recovery file so you can pick up exactly where you left off.
+
+#### How `run` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Confirm to start] --> C[Work through<br/>tasks] --> D[Get summary] --> E([Done])
+```
 
 ---
 
@@ -148,6 +178,13 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 /planwise backlog BUG-042
 ```
 
+#### How `backlog` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[See prioritized<br/>items] --> C[Pick an item] --> D[AI works on it] --> E([Approve &amp; close])
+```
+
 ---
 
 ### List all your plans
@@ -157,6 +194,13 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 ```
 
 Shows a table of every plan in your project with its status, sprint count, and when it was created.
+
+#### How `list` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[See table of<br/>all your plans]
+```
 
 ---
 
@@ -177,7 +221,35 @@ Shows a table of every plan in your project with its status, sprint count, and w
 /planwise lessons promote LL-003
 ```
 
+**Curate lessons — categorise new ones and track promotions:**
+```
+/planwise lessons curate
+/planwise lessons curate --phase=categorize
+/planwise lessons curate --phase=promote
+```
+
+Curate runs two phases against your lesson set. Phase 1 sorts uncategorised lessons into the domain buckets defined in `config.yaml` (Database, Application Code, Process, Tooling — customisable). Phase 2 finds lessons you've already promoted to rules or applied to code, verifies the destination artifact exists, and logs each one in the Rule Promotion Log inside your lessons index. Run `--phase=both` (the default) to do both at once, or scope to just one phase.
+
+**Batch-draft promotion plans for a whole bucket:**
+```
+/planwise lessons promote-batch --category=A
+/planwise lessons promote-batch LL-001,LL-002,LL-003
+/planwise lessons promote-batch --all-documented
+/planwise lessons promote-batch --category=A --dry-run
+```
+
+Where `/planwise lessons promote LL-003` promotes one lesson immediately, `promote-batch` plans the promotion of many lessons at once — grouping them by domain bucket and drafting backlog items (BBs) that describe the rules to be created, with the WRONG/CORRECT examples from each lesson inlined. Execution happens later via `/planwise backlog`. Add `--dry-run` to see the grouping plan without writing any files.
+
 > **What are lessons learned?** When something goes wrong (or right!), planwise can capture that insight so you don't repeat mistakes or forget what worked.
+
+> **Curate before you batch-promote.** `promote-batch` will refuse to run if any lessons in the master index aren't yet categorised. Run `/planwise lessons curate --phase=categorize` first to keep the bucketing file in sync.
+
+#### How `lessons` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Search, capture,<br/>promote, curate,<br/>or batch-draft] --> C([Done])
+```
 
 ---
 
@@ -188,6 +260,13 @@ Shows a table of every plan in your project with its status, sprint count, and w
 ```
 
 Shows all available commands at a glance and links to this full user guide.
+
+#### How `help` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[See command list<br/>&amp; docs link]
+```
 
 ---
 
@@ -202,7 +281,11 @@ Shows all available commands at a glance and links to this full user guide.
 | `/planwise run` | Execute a planned session |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
-| `/planwise lessons` | Search, capture, or promote lessons |
+| `/planwise lessons` | Search the lessons learned index |
+| `/planwise lessons capture` | Capture a lesson mid-session |
+| `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
+| `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
+| `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
 | `/planwise help` | Show available commands and link to user guide |
 
 ---
@@ -243,31 +326,175 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 7 subcommand handlers
-  agents/                           # 4 custom AI agents
-  references/                       # 10 knowledge base documents
-  templates/                        # 11 markdown templates
+  handlers/                         # 9 subcommand handlers (init, plan, review, run, upgrade, backlog, list, lessons, help)
+  agents/                           # 4 custom AI agents (auto-mirrored into project .claude/agents/ on init)
+  references/                       # 23 knowledge base documents (17 installed as path-scoped rules + 6 consumed inline: 3 lessons-workflow helpers, 2 authoring/verification helpers, 1 DELEGATED-dispatch extract)
+  templates/                        # 12 markdown templates
   seed/                             # Index file seeds for init
-  scripts/                          # 7 Python backlog utilities
+  scripts/                          # 8 Python scripts (7 backlog utilities + init_project.py)
   examples/                         # Sample outputs
   config.yaml.template              # Config template
 ```
 
 ---
 
-## Updating planwise
+## Changelog
 
-To get the latest version, run:
+### 1.0.2
 
-```
-/plugin marketplace update
-```
+This release closes the gaps surfaced by the 2026-05-22 external-feedback audit and completes the enforcement system on top of the 1.0.1 baseline. The enforcement layer (reviewer checks, role wiring) was built first, ahead of the rule prose it referenced; this release authors the missing rule prose, repoints every dangling reviewer citation, ships the two reserved project-agnostic references, and applies the two divergence decisions. The earlier "all 16 Consolidated Context parts implemented" over-claim (audit C1) is closed here.
 
-Then reinstall:
+**Release-readiness fixes (closing the v1.0.2 tag-blockers):**
 
-```
-/plugin install planwise@planwise-marketplace
-```
+A pre-release review pass surfaced a set of release-blocking defects across the subcommand handlers, the `SKILL.md` dispatcher contract, the reviewer severity gates, and packaging metadata. v1.0.2 closes all of them:
+
+- **Backlog pipeline scripts** — `parse_backlog.py` gained `--next-id` (prints the next zero-padded backlog-item id) and `update_backlog.py` gained a `--create` mode (`--feature` / `--priority` / `--abbrev` / `--files`), so the follow-up-capture pipeline in `handlers/backlog.md` is backed by real CLI flags instead of phantom ones; `score_backlog.py` gained a discoverable `--config` flag.
+- **Dispatcher contract** — `handlers/review.md` Phase 0 now reads the plan path from `$1` (was `$0`); reviewer Checks 013/014/015 declare **BLOCKER**, matching the `review.md` error-pattern catalog.
+- **Packaging** — `marketplace.json` and `plugin.json` both declare `1.0.2`; the sample output uses `/planwise run` (was the retired `/execute`).
+- **Cross-document coherence** — `references/session-planning-protocol.md §13` is now a single pointer to the canonical 5-field confirmation block in `references/session-execution-protocol.md §1`; `references/skill-authoring.md` marks the skill `description` field **REQUIRED**.
+- **Templates & callouts** — `templates/summary-template.md` gained a `## 8. Lessons Learned` section; a new `> [!followup]` callout type joined the callout catalog (catalog count 18 → 19).
+- **Cleanup** — two zero-citer orphan files removed (`templates/triage-prompt.md`, `seed/SAMPLE-Summary.md`); project-internal plan identifiers scrubbed from handler/reference prose; `manifests/artifacts.yaml` reconciled.
+- **Base-context reduction** — the DELEGATED-dispatch half of `references/agent-orchestration.md §11` was extracted into the new `references/agent-orchestration-delegated.md`, trimming ~3.8K tokens of base context per `/planwise` invocation; all `§11.*` citers were re-anchored.
+
+**Missing rule-body sections authored:**
+
+- `references/task-content-fidelity.md` §9.A.4-7 + §9.B.6-9 — §9.B reframed for generic external contracts per PLG-004; 2 missing §9.A.3 rate rows added per P5-2
+- `references/ei-fidelity.md` §3.1 (`paths_consume_first` schema) + §8.1 (bidirectional consistency)
+- `references/scaffolding-hygiene.md` §8 + §9 + §10 — parallel-scaffold deviation classes (PLG-011)
+- `references/schema-pin-requirement.md` §3.1
+- `references/discovery-and-exit-criteria.md` §17 (design-extension) + §18 (audit-triage) + §16.3 (BLI-cited-anchor re-verification — PLG-019)
+- `references/callout-conventions.md` — PLG-007 S4 Sequential Chain pattern + new `> [!chain-halt]` callout type
+- `references/session-plan-requirements.md` — §B Selective Helper Enumeration (PLG-010)
+- `references/agent-orchestration.md` §11.13 PLG-020 shared-target matrix restored (Option A cap-at-4 / Option B shards / Option C orchestrator-reconciled — PREFERRED); §11.14 Orchestrator-Only Review Commands + §11.15 Delegated Code Task-Runners Build LAST (project-agnostic); §11 hierarchy normalised (ToC entries; H3 promotions; §7→§11.7 cross-link added)
+
+**Dangling-reference defect closed (audit §0):**
+
+Every `§N.M` citation across `agents/plan-reviewer.md`, `handlers/review.md`, `templates/task-file.md`, and `references/session-plan-requirements.md` now resolves to an authored section. 49/49 `plan-reviewer.md` citations verified resolved. The C2 / C5 "Sprint-03 COMPLETE-by-count-not-enforceability" defect is closed.
+
+**New references:**
+
+- `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement (122 lines, project-agnostic)
+- `references/verify-against-shipped-artifact.md` — cross-sprint + cross-version symbol verification; §6 Discovery-phase citation + SDK-premise verification (532 lines, project-agnostic)
+- `references/webfetch-registry-fallbacks.md` — recorded **JUSTIFIED-SKIP *low-value*** (kernel too thin + wrong-domain + no enforcement layer). Stub removed from `scripts/init_project.py` / `handlers/init.md` / README. Slot permanently retired (not deferred).
+
+**Divergence decisions:**
+
+- **PLG-003 enforcement severity** — raised WARNING → BLOCKING for runnable-artifact tasks. Source PLG-003 §3C called BLOCKING; the v1.0.2 population infrastructure (`templates/task-file.md` Per-File-Type table + `handlers/plan.md` Step 8e Populate Verification Commands) makes the constraint coherent; the `<!-- VERIFICATION: not-applicable (reason) -->` HTML-comment escape hatch covers legitimate doc/decision-only exemptions. Applied to `references/session-plan-requirements.md` enforcement table + `handlers/review.md` rows 34/35/36.
+- **`--scaffold-per-sprint`** — recorded **JUSTIFIED-SKIP *out-of-remediation-scope***. The full per-Exec-sprint Scaffold-session resume mechanism is a new feature beyond remediation scope; the shipped pause-between-sprints behavior is accurately documented in `handlers/plan.md` (no over-claim, no README correction required). Added `> [!practice] Scope — Pause-Between-Sprints, Not Per-Sprint Scaffold Sessions` block to `handlers/plan.md` so the intentional simplification is visible to future maintainers.
+
+**Wiring gaps closed:**
+
+- `templates/orchestration.md` — `**Prerequisite:**` field added under `Status:` (PLG-001 §14.6)
+- `templates/task-file.md` — DELEGATED retry-limited error-recovery line under "Notes for Agent"
+- `skills/planwise/SKILL.md` — Base Context list extended with the 7 new references (3 → 10 entries; all resolve)
+- `skills/planwise/SKILL.md` + `handlers/help.md` — follow-up-BLI-capture help line for `backlog` (PLG-018 §18.3)
+- `handlers/plan.md` — `Outputs/.gitkeep` emitted for every session folder (Scaffolding Step 5); new Step 8e Populate Verification Commands from per-file-type command map (PLG-003 §3C)
+- `handlers/review.md` — Error Pattern Catalog completed; collapsed PLG-020 row 17 expanded into 8 checks
+- `scripts/init_project.py` — `install_rules()` reconciled; "pending user confirmation" comment removed; all 17 tuples map to existing files; `init_project.py --name SmokeTest` runs warning-free
+- `handlers/init.md` — Step 6 header count reconciled to 17; Step 10 banner hedges removed for `verification-gates.md` and `verify-against-shipped-artifact.md`
+
+**Lessons folded in:**
+
+- A `> [!practice]` in `references/verification-gates.md` establishes round-trip evidence as a sprint exit-gate.
+- A `> [!constraint]` in `references/verify-against-shipped-artifact.md` §6 (WRONG: silent laundering of stale `file:line` + a verified-false delegate-only premise → CORRECT: verified position + prominent task-brief premise correction), plus an operational rule for multi-task Discovery sessions and a `> [!practice]` enforcing prominent (non-silent) corrections.
+- Two `> [!constraint]` blocks in `references/agent-orchestration.md` §11.14 (Orchestrator-Only Review Commands) + §11.15 (Delegated Code Task-Runners Build LAST), both project-agnostic (`{build-cmd}` placeholder + generic "review lenses" phrasing).
+
+**Reconciliation (no over-claims):**
+
+- "Pending user confirmation" hedges on `verification-gates.md` and `verify-against-shipped-artifact.md` removed from README and `handlers/init.md` — both files ship.
+- Reference count reconciled: `references/` holds 23 files (17 installed as path-scoped rules + 6 consumed inline). The earlier "18 (10 baseline + 5 confirmed + 3 pending)" count is corrected here — the remediation reconciliation landed 22; the §11 DELEGATED-dispatch extract listed above added the 23rd.
+- The disposition ledger was marked **RESOLVED** — every recommendation in the source corpus carries an explicit verdict (IMPLEMENT, ALREADY COMPLETE, or JUSTIFIED-SKIP with a fixed-taxonomy reason).
+
+**Foundational enforcement layer & new artifacts:**
+
+These landed first — the enforcement scaffolding and new files that the rule-body authoring above completes. The "pending user confirmation" hedges have since been removed (those references now ship), and the `webfetch-registry-fallbacks.md` slot was retired (JUSTIFIED-SKIP *low-value*).
+
+**New reference files** (7 shipped — `webfetch-registry-fallbacks.md` retired):
+
+- `references/ei-fidelity.md` — Execution Input fidelity (§3.1 + §8 authored in v1.0.2)
+- `references/task-content-fidelity.md` — Task content fidelity §9.A + §9.B (§9.A.4-7 + §9.B.6-9 authored in v1.0.2)
+- `references/schema-pin-requirement.md` — Schema Pin requirement for SQL-emitting tasks (§3.1 authored in v1.0.2)
+- `references/discovery-and-exit-criteria.md` — Discovery scope rigor + cross-layer exit-criteria fidelity (§17 + §18 authored in v1.0.2)
+- `references/scaffolding-hygiene.md` — Six binding rules for plan scaffolding (§8 + §9 + §10 authored in v1.0.2)
+- `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement (file authored in v1.0.2)
+- `references/verify-against-shipped-artifact.md` — Cross-sprint + cross-version symbol verification (file authored in v1.0.2)
+
+**New template:**
+
+- `templates/sprint-signoff.md` — Sprint signoff template with EI exit-criteria verbatim quote + mechanical anchors + gate verdict + round-trip evidence
+
+**Handler enhancements:**
+
+- `handlers/plan.md` — Pre-Scaffold CONFIRM blocks at Discovery Step 1 + Scaffolding Step 1; multi-tier Discovery extraction (Tier 1 + Tier 2 + Tier 3); new `--scaffold-per-sprint` flag; Deferred / Out-of-Scope log per sprint; Auto-Init Fallback Config Gate; Auto-Mode tags at 14 critical + 2 convenience AskUserQuestion sites
+- `handlers/review.md` — Namespaced agent spawns (`planwise:plan-reviewer`, `planwise:structural-reviewer`) at 7 spawn sites; ~12 new Error Pattern Catalog entries; Required References extended with 4 new conditional loads; Auto-Init Fallback Config Gate
+- `handlers/run.md` — Namespaced `task-runner` spawns at 4 sites; Phase 4.3 user-action-gate check; Auto-Init Fallback Config Gate; Auto-Mode tags at 3 critical + 1 convenience sites
+- `handlers/backlog.md` — Namespaced `fix-agent` spawn at 1 site; new Phase 7 FOLLOW-UP BLI CAPTURE (auto-files actionable recommendations from resolution Outputs); existing Phase 7 renumbered to Phase 8; Auto-Init Fallback Config Gate; Auto-Mode tags at 2 critical + 3 convenience sites
+- `handlers/init.md` — Step 6 Rules table extended with 7 new reference rows (count reconciled to 17 in v1.0.2); NEW Step 6b agent mirroring; NEW `## Called As Subroutine` section documenting `--auto-from` subroutine contract; Step 10 banner updated to include Agents mirrored section
+- `handlers/list.md` — Auto-Init Fallback Config Gate (no other substantive changes)
+- `handlers/lessons.md` — Auto-Init Fallback Config Gate + Auto-Mode tags at 4 critical sites *(applied AFTER LCP-S03 merges)*
+
+**Agent enhancements** (covered in separate consolidation parts):
+
+- `agents/plan-reviewer.md` — Role checklists extended with ~50+ new BLOCKING / ERROR / WARNING checks (PLG-001..022)
+- `agents/structural-reviewer.md` — Folder-count check; Outputs/.gitkeep presence check; sequential-sprint prerequisite check
+
+**Template enhancements:**
+
+- `templates/task-file.md` — `Cross-Sprint Refs:` header field; Schema Pin subsection; Field Mapping subsection (MERGE/upsert); USED-Helper Enumeration subsection; Verification Commands section; `~?` placeholder prohibition constraint
+- `templates/orchestration.md` — Scaffolding CONFIRM block placeholder; NEW DELEGATED Mandatory Triggers Reminder; updated Context Boundary callout (`> [!constraint]` form)
+
+**Reference enhancements** (covered in separate consolidation parts):
+
+- `references/agent-orchestration.md` — New §5 plugin-handler-spawn pitfall callout (PLG-017); §10 background-write hazard row; new §11 DELEGATED Dispatch Discipline (13 subsections); LSP-diagnostic-verification subsection; Large-File Read Tactics subsection
+- `references/session-execution-protocol.md` — Discovery / Meta-Plan Status with user-action gates
+- `references/session-plan-requirements.md` — Multi-tier Discovery extraction; EI bidirectional consistency; cross-sprint dependency mirroring; post-scaffold back-propagation; module split threshold; declarative follow-up block convention
+- `references/callout-conventions.md` — New `> [!chain-halt]` callout type (PLG-007 S4)
+
+**Auto-Init Fallback & Auto Mode Policy:**
+
+- All 7 handlers receive Config Gate fallback subroutines (`plan`, `review`, `run`, `backlog`, `list`, `init`; `lessons` deferred to LCP merge)
+- Per-handler AskUserQuestion call sites tagged with `<!-- AUTO-MODE: critical -->` or `<!-- AUTO-MODE: convenience -->` comments (24 critical + 13 convenience tags total)
+- New `## 4b. Auto Mode Policy` section in `references/skill-authoring.md` documenting critical/convenience taxonomy + inference defaults
+- New `install_agents()` function in `scripts/init_project.py` mirrors plugin agents into `.claude/agents/` (companion to PLG-017 namespacing)
+- New `--auto-from {caller}` flag in `init_project.py` for subroutine-mode invocation
+
+(The plugin's current file layout and counts are documented in the [Plugin file structure](#plugin-file-structure) section above.)
+
+### 1.0.1
+
+Baseline release. Existing 10 reference rules + 12 templates + 7 handlers + 4 agents.
+
+---
+
+## Upgrading
+
+When a new plugin version is published:
+
+1. **Refresh the plugin source**
+
+   ```
+   /plugin marketplace update
+   /plugin install planwise@planwise-marketplace
+   ```
+
+   This updates the plugin's handlers, references, templates, and scripts to the latest version. Files Claude reads directly from the plugin directory are now current.
+
+2. **Propagate updates into your project's `.claude/` directory**
+
+   ```
+   /planwise upgrade
+   ```
+
+   `/plugin install` does not refresh the rules in `.claude/rules/planwise/` or the agents in `.claude/agents/` — those were installed once during `/planwise init` and are skip-if-exists thereafter. `/planwise upgrade`:
+
+   - Bumps the pinned `plugin_version:` in your `config.yaml`
+   - Adds any new top-level config keys (the additive merge previously available via `--migrate`)
+   - Refreshes installed rules/agents whose local body still matches the previously-shipped body
+   - Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any file whose body has diverged from the shipped version, so your customisations are preserved
+
+   See `handlers/upgrade.md` for the full workflow.
+
+> Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
 
 ---
 
@@ -302,8 +529,8 @@ To remove the marketplace:
 - Check that Python 3.8+ is installed: `python --version`
 - If you see YAML-related warnings, install PyYAML: `pip install pyyaml` (optional but silences warnings)
 
-**Plans or backlog seem out of date**
-- Run `/plugin marketplace update` then reinstall to get the latest plugin version
+**Plans or backlog seem out of date after a plugin update**
+- Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules and agents into your project
 
 **Not sure which command to use?**
 - Run `/planwise help` to see all available commands and a link to the full user guide

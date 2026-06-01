@@ -1,5 +1,5 @@
 ---
-description: 18 project-specific callout types for semantic markup in markdown files — syntax, usage rules, and decision matrix
+description: 19 project-specific callout types for semantic markup in markdown files — syntax, usage rules, and decision matrix
 paths: .claude/rules/**, .claude/skills/**, .claude/hooks/**, .claude/agents/**, Docs/**
 ---
 
@@ -214,6 +214,70 @@ WRAP content in `> [!tooldoc]` when it documents a specific tool with Purpose, W
 
 DO NOT use for: tool selection decisions (`> [!decide]`), anti-patterns about tool misuse (`> [!antipattern]`), or tool configuration details (leave as code blocks).
 
+### `> [!followup]` — Follow-Up BLI Recommendation
+
+WRAP content in `> [!followup]` when encoding an actionable recommendation that should auto-surface as a backlog item during `/planwise backlog` Phase 7. Fields: Recommendation, Target file, Severity, Originating item.
+
+DO NOT use for: general notes or commentary (leave as prose), lessons-learned candidates (use lesson capture instead).
+
+### `> [!binding]` — Sequential Chain (Halt-on-Failure) PATTERN
+
+This is a named **PATTERN**, not a new callout type — it uses the existing `> [!binding]` type. It is catalogued here so plans with serial chains do not re-derive the halt rule per plan.
+
+When a sprint contains a sequential chain of N tasks where each task's correctness gates the next (refactor pipelines, multi-step migrations, schema-evolution chains, dependency-tree builds), the orchestration MUST carry a `> [!binding]` callout in its Critical Path section AND each task in the chain MUST carry a matching halt Success Criterion.
+
+**Orchestration template (paste into the Critical Path section, fill in the `{N}`-task chain identifier):**
+
+> [!binding] Halt-on-{verification-name}-Failure (Tasks {first}–{last})
+> If any per-stage task's {verification check} fails, **HALT** the session chain. Do NOT proceed to the next task.
+>
+> 1. Mark the failing task `BLOCKED` in `{Recovery file path}`.
+> 2. Record the {verification} delta + suspected root cause in Recovery Issues Identified.
+> 3. Mark Session Status `BLOCKED` until the failure is resolved (triage + fix shipped + {verification} re-run green).
+>
+> **Why:** {one-sentence cascade explanation — what silently breaks downstream if the chain proceeds against a broken stage}.
+
+**Task-file template (paste into each chain-task's Success Criteria — one per task in the chain):**
+
+```markdown
+- [ ] {Verification check} passes on {input window}
+- [ ] If {verification} fails: this task is NOT complete. HALT the chain. Record the failure in `{Recovery file path}` Issues Identified, mark this task `BLOCKED`, mark Session Status `BLOCKED`. Do NOT proceed to Task {next-task-id} — {one-sentence cascade explanation}. (See {Orchestration path} Critical Path > Halt-on-{verification-name}-Failure binding callout.)
+```
+
+WRONG — sequential chain with parity tests but no halt rule:
+
+```markdown
+## Success Criteria
+
+- [ ] Module under 500 lines
+- [ ] Parity tests pass
+- [ ] `{lint}` clean
+```
+
+The agent could ship a task with failing parity tests, mark it complete (all code written, lint clean), and the next agent in the chain would refactor against the broken pattern.
+
+CORRECT — halt rule encoded as a dedicated SC backed by an orchestration-level binding callout:
+
+```markdown
+## Success Criteria
+
+- [ ] Module under 500 lines
+- [ ] Parity tests pass
+- [ ] If parity tests fail: this task is NOT complete. HALT the chain. {full halt instruction}. (See {Orchestration} Critical Path > Halt-on-Parity-Failure binding callout.)
+- [ ] `{lint}` clean
+```
+
+Applies to:
+- Refactor pipelines where each stage depends on conventions established by prior stages
+- Multi-step data migrations where a partial failure leaves the data store in an inconsistent state
+- Schema evolution chains (Layer N → N+1 → N+2)
+- Build dependency trees where each artifact is consumed by the next
+
+NOT applicable to:
+- Parallel task groups (they are explicitly independent by construction)
+- Discovery-phase fan-out (each subagent reads sources independently)
+- Single-task sessions (no chain to halt)
+
 ---
 
 ## 2. Decision Matrix
@@ -240,6 +304,7 @@ When writing content and unsure which callout to use, follow this matrix:
 | Work document structure template | MUST | No | `> [!taskspec]` |
 | Rule-to-consequence mapping | MUST | Yes (rule/impact) | `> [!consequences]` |
 | Tool reference documentation | None | No | `> [!tooldoc]` |
+| Actionable backlog recommendation (target + severity) | Advisory | No | `> [!followup]` |
 
 ## 3. Quick Disambiguation
 
@@ -284,6 +349,7 @@ When writing content and unsure which callout to use, follow this matrix:
 | `> [!practice]` | SHOULD/PREFER language |
 | `> [!escalation]` | Ordered fallback priority |
 | `> [!delegate]` | Agent assignment (overlaps Group A) |
+| `> [!followup]` | Actionable backlog recommendation (auto-surfaces in `/planwise backlog`) |
 
 ### Group C: Verification
 
@@ -331,4 +397,4 @@ LIMIT nesting to 2 levels maximum. If deeper nesting is needed, split into separ
 
 ---
 
-*18 callout types designed from the 108-type unified content taxonomy. Apply these when writing or editing markdown to make content type explicit.*
+*19 callout types designed from the 108-type unified content taxonomy. Apply these when writing or editing markdown to make content type explicit.*

@@ -231,6 +231,7 @@ def main():
     parser.add_argument("--include-closed", action="store_true", help="Include COMPLETE and CLOSED items")
     parser.add_argument("--show-blocked", action="store_true", help="Include items blocked by open dependencies")
     parser.add_argument("--sort", choices=["score", "id"], default="score", help="Sort order (default: score descending)")
+    parser.add_argument("--next-id", action="store_true", help="Print the next available BLI ID (NNN form, zero-padded) and exit.")
 
     args, _ = parser.parse_known_args()
 
@@ -244,6 +245,12 @@ def main():
 
     content = index_path.read_text(encoding="utf-8")
     all_items = parse_backlog_table(content)
+
+    if args.next_id:
+        max_id = max((int(item["id"]) for item in all_items if item["id"].isdigit()), default=0)
+        print(f"{max_id + 1:03d}")
+        return
+
     dependencies = parse_dependencies_table(content)
     blocked_by_map = build_blocked_by_map(dependencies, all_items)
 

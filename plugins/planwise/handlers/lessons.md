@@ -6,26 +6,22 @@
 ```
 /planwise lessons
 /planwise lessons python regex
-/planwise lessons promote LL-022
+/planwise lessons promote LL-003
 /planwise lessons capture
 ```
 
 ---
 
-## Config Gate
+## Config Gate (Auto-Init Fallback)
 
-Locate `config.yaml` by checking:
-1. `planwise/config.yaml` (default planwise root)
-2. If not found, search one level down from the project root for `*/config.yaml`
-3. If not found: "Project not initialized. Run `/planwise init` first."
+1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
+2. If found → continue (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.lessons_dir`, `project.index_files.lessons`).
+3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "lessons"`, RE-RESOLVE, fail loud if still missing.
 
-Extract from `config.yaml`:
-- `plugin_root` — the plugin installation path
-- `project.planwise_root` — the planwise root folder (default: `planwise`)
-- `project.lessons_dir` — the LessonsLearned directory name (relative to planwise_root)
-- `project.index_files.lessons` — the lessons index filename (e.g., `00-Index-LessonsLearned.md`)
+> [!gate] Config Malformed → FAIL LOUD
+> If `config.yaml` is present but malformed, DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise lessons." STOP.
 
-All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/LessonsLearned`).
+All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 ---
 
@@ -36,6 +32,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
 
 **Conditional references:**
+- If running curate mode: Read `references/lessons-curate-workflow.md`
+- If running promote-batch mode: Read `references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md` and `references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md`
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
 - If a task creates or modifies skills: Read `references/skill-authoring.md`
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
@@ -47,11 +45,13 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 | Input | Mode | Action |
 |-------|------|--------|
 | No arguments | **list** | Display lessons index table |
-| `<terms>` (not `promote` or `capture`) | **search** | Search by keyword across lesson files |
+| `<terms>` (not `promote`, `promote-batch`, `capture`, or `curate`) | **search** | Search by keyword across lesson files |
+| `curate [--phase=categorize|promote|both]` | **curate** | Run the two-phase curation workflow (see references/lessons-curate-workflow.md) |
+| `promote-batch [--category=X | LL-NNN,LL-NNN | --all-documented] [--dry-run]` | **batch** | Draft promotion BB items bundling related documented lessons (see references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md) |
 | `promote <lesson-id>` | **promote** | Promote a lesson to a Claude Code artifact |
 | `capture` | **capture** | Create a new lesson mid-session |
 
-Parse `$1` to determine the mode. If `$1` is `promote`, parse `$2` as the lesson ID. If `$1` is `capture`, enter capture mode. If `$1` is absent, enter list mode. Otherwise, treat all arguments as search terms.
+Parse `$1` to determine the mode. If `$1` is `curate`, enter curate mode and parse `$2` for an optional `--phase=categorize|promote|both` flag (default `both`). If `$1` is `promote-batch`, enter batch mode and parse the remaining arguments for scope (one of `--category=X`, comma-separated LL IDs, or `--all-documented`) plus an optional `--dry-run` flag. If `$1` is `promote`, parse `$2` as the lesson ID (single-lesson mode — preserved verbatim from the pre-batch handler). If `$1` is `capture`, enter capture mode. If `$1` is absent, enter list mode. Otherwise, treat all arguments as search terms.
 
 ---
 
@@ -103,6 +103,94 @@ If no lessons match, respond with:
 
 ---
 
+## Curate Mode (`/planwise lessons curate [--phase=categorize|promote|both]`)
+
+**Purpose:** Sync `{lessons_dir}/00-Categorization-By-Domain.md` with the master index and track lessons promoted to permanent artifacts. Does NOT author new `LL-*` files.
+
+### Pre-condition Gate
+
+Verify `{lessons_dir}/00-Categorization-By-Domain.md` exists. If it does not, error:
+
+```
+Categorisation file not found at {path}. Run /planwise init to create it, or copy {plugin_root}/templates/categorization-by-domain.md and populate it from config.yaml.
+```
+
+Halt without modifying any files.
+
+### Workflow
+
+Curate runs two phases against the lesson set. **Phase 1** diffs the master index against the categorisation file, reads uncategorised `LL-*` files in full, applies the config-driven decision tree, and appends rows to the matching bucket tables. **Phase 2** greps for `status: applied` / `status: rule`, verifies each `applied-as` artifact exists, and appends rows to the Rule Promotion Log in the master index. Optional file moves to `Archive/` require explicit user approval.
+
+See `references/lessons-curate-workflow.md` for the binding step-by-step protocol (bucket selection algorithm, reporting format, anomaly detection, and constraint set).
+
+### Argument Parsing
+
+Parse `$2` for the `--phase=` flag:
+
+| Value | Behaviour |
+|-------|-----------|
+| `--phase=categorize` | Run Phase 1 only |
+| `--phase=promote` | Run Phase 2 only |
+| `--phase=both` (default) | Run both phases sequentially |
+
+If `$2` is absent or not a recognised `--phase=` value, default to `both`.
+
+### Output
+
+Chat report only (markdown summary with Phase 1 / Phase 2 / Anomalies sections per the reference doc's §6). File writes are limited to: appending rows to `00-Categorization-By-Domain.md` and bumping its top-of-file `Last Updated:` line to the current date when Phase 1 appends new rows (Phase 1); appending rows to the Rule Promotion Log in `{lessons_dir}/{lessons_index}` (Phase 2); updating the Status column in the Master Table (Phase 2). No new `LL-*` files are created.
+
+---
+
+## Batch-Promote Mode (`/planwise lessons promote-batch <scope> [--dry-run]`)
+
+**Purpose:** Draft promotion **backlog items (BBs)** that bundle related `documented` lessons into self-contained promotion artifacts. Each BB plans the work of authoring one or more rules, code applications, or settings entries; rule creation happens later at BB execution time via `/planwise backlog`. This mode is the batched, deferred complement to the single-lesson `promote` mode below — the two are not duplicates.
+
+### Pre-condition Gates
+
+Both gates are binding. Halt without modifying any files if either fails.
+
+**Gate 1 — Categorisation file must exist.** Verify `{lessons_dir}/00-Categorization-By-Domain.md` exists. If it does not, error with the same message used by Curate Mode:
+
+```
+Categorisation file not found at {path}. Run /planwise init to create it, or copy {plugin_root}/templates/categorization-by-domain.md and populate it from config.yaml.
+```
+
+**Gate 2 — Categorisation must be up to date.** Diff `{lessons_dir}/{lessons_index}` against `{lessons_dir}/00-Categorization-By-Domain.md`. If any `LL-NNN` appears in the master table but NOT in any bucket table of the categorisation file, error with:
+
+```
+Lessons missing from categorisation file: {list of LL IDs}. Run /planwise lessons curate --phase=categorize first.
+```
+
+### Workflow
+
+The four-phase workflow (Resolve scope / Group lessons / Draft BBs / Write files) is specified in [references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md](../references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md) (Phases 1-2) and [references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md](../references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md) (Phases 3-4, BB structure spec, self-containment grep, decomposition mechanics, constraints). Do NOT duplicate Phase 1-4 content here — read the reference doc when entering batch mode.
+
+### Argument Parsing
+
+Parse the arguments after `promote-batch` for one scope argument and an optional `--dry-run` flag:
+
+| Argument form | Resolves to |
+|---------------|-------------|
+| `--category=X` (X is a top-level `bucket.id` or sub-bucket id from `config.yaml: categorization`) | All `documented` lessons currently listed under that bucket or sub-bucket. Sub-buckets are first-class scope targets. |
+| `LL-NNN,LL-NNN,...` (comma-separated) | Exactly those lessons |
+| `--all-documented` | Every `documented` lesson across all buckets — likely produces multiple BBs |
+| (no scope argument) | Prompt the user via `AskUserQuestion`; do NOT assume `--all-documented` | <!-- AUTO-MODE: critical -->
+
+The `--dry-run` flag is orthogonal to scope. When present, the workflow short-circuits after Phase 2 — Phase 1 lesson-body reads STILL happen (full-body reads are required for grouping decisions), but Phases 3 and 4 are skipped. The grouping plan is reported to chat without writing any BB files.
+
+### Output
+
+| Surface | Change |
+|---------|--------|
+| `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md` | One new BB file per planned grouping |
+| `{backlog_dir}/{backlog_index}` | Appended row per new BB; `Last Updated` bumped |
+| Scoring | `python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml` is invoked after writes to compute Score columns |
+| Lesson files | NOT modified — status flips happen at BB execution time, not BB drafting time |
+
+The single-lesson `promote <id>` mode below is preserved verbatim. Batch promotion is a parallel path, not a replacement.
+
+---
+
 ## Promote Mode (`/planwise lessons promote <lesson-id>`)
 
 **Purpose:** Promote a lesson to a Claude Code artifact (rule, skill, hook, or agent).
@@ -142,7 +230,7 @@ Read the lesson content and determine the appropriate artifact type based on the
 
 Most lessons describe patterns or anti-patterns that map to **Rule** type. Lessons about workflows may map to **Skill**. Hook and agent types are rare.
 
-### Stage 3: Confirm (REQUIRED — never skip)
+### Stage 3: Confirm (REQUIRED — never skip) <!-- AUTO-MODE: critical -->
 
 Present to the user:
 - Lesson ID and title
@@ -150,6 +238,7 @@ Present to the user:
 - Proposed artifact name (kebab-case)
 - Proposed file path
 - Brief rationale for the classification
+- **On approval, the lesson file will also be moved to `{lessons_dir}/Archive/`** (Stage 6). Approving this prompt covers the artifact generation, the frontmatter flip, the archive move, and the Rule Promotion Log row.
 
 Wait for user approval before proceeding.
 
@@ -166,7 +255,16 @@ Create the artifact file at the approved location:
 | Hook | `.claude/hooks/{name}.sh` |
 | Agent | `.claude/agents/{name}.md` |
 
-Check if the file already exists before writing. If it exists, ask the user to rename or merge.
+Check if the file already exists before writing. If it exists, ask the user to rename or merge. <!-- AUTO-MODE: critical -->
+
+**Self-containment verification (BINDING — do not skip):** After writing the artifact, run the grep from [`references/artifact-self-containment.md` §4](../references/artifact-self-containment.md#4-mechanical-verification) against the produced file. The artifact body MUST inline every WRONG/CORRECT example, recipe, and verification command from the source lesson — no `see LL-NNN` / `per BB-NNN` cross-references in the rule body, agent definition, skill body, or hook script.
+
+```bash
+grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' {generated-artifact-path}
+# MUST return zero matches.
+```
+
+If grep returns matches, revise the artifact to inline the cited content and re-run the grep. Do NOT proceed to Stage 5 (Update Frontmatter) until the grep returns zero. The `applied-as:` and Rule Promotion Log entries written in Stage 5 and Stage 7 ARE permitted to carry the `LL-NNN` reference — those are bookkeeping artifacts whose purpose is traceability.
 
 ### Stage 5: Update Frontmatter
 
@@ -260,7 +358,7 @@ applied-as: null
 
 Present the draft to the user:
 - Show pre-filled frontmatter and draft Context/Lesson/Applies To sections
-- Ask: "Capture this lesson? (approve / edit / skip)"
+- Ask: "Capture this lesson? (approve / edit / skip)" <!-- AUTO-MODE: critical -->
 
 ### Step 4: Write
 

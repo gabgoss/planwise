@@ -27,17 +27,23 @@
 
 ---
 
-## Config Gate
+## Config Gate (Auto-Init Fallback)
 
-Locate `config.yaml` by checking:
-1. `planwise/config.yaml` (default planwise root)
-2. If not found, search one level down from the project root for `*/config.yaml`
-3. If not found: "Project not initialized. Run `/planwise init` first."
+1. Resolve config.yaml:
+   a. Check `planwise/config.yaml` (default planwise root)
+   b. If not found, search one level down from project root for `*/config.yaml`
 
-Extract from `config.yaml`:
-- `plugin_root` -- the plugin installation path
-- `project.planwise_root` -- the planwise root folder (default: `planwise`)
-- `project.plans_dir` -- the Plans directory name (relative to planwise_root)
+2. If found → continue to Required References (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`).
+
+3. If NOT found:
+   a. Announce: "Planwise not initialized in this project. Running /planwise init first…"
+   b. Resolve `{plugin_root}` from the handler's own known location.
+   c. Invoke init subroutine with `--auto-from "review"` (interactive or auto per Auto Mode).
+   d. After init completes, RE-RESOLVE config.yaml (loop to step 1).
+   e. If still NOT found: FAIL LOUD and STOP.
+
+> [!gate] Config Malformed → FAIL LOUD
+> If `config.yaml` is present but malformed (YAMLError), DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise review." STOP.
 
 All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Plans`).
 
@@ -57,13 +63,17 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
+- If reviewing a scaffolded multi-sprint plan: Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md`
+- If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
+- If reviewing IPC/protocol/codec sessions: Read `references/verification-gates.md`
+- If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
 
 ---
 
 ## Phase 0: Plan Discovery
 
-1. Parse `$ARGUMENTS` -- `$0` is the plan folder path or name; check for `--sprint NN`
-2. Locate plan in `{plans_dir}` (resolve `$0` as subfolder name or direct path)
+1. Parse `$ARGUMENTS` -- `$1` is the plan folder path or name; check for `--sprint NN`
+2. Locate plan in `{plans_dir}` (resolve `$1` as subfolder name or direct path)
 3. Read Master Plan -- extract abbreviation and plan type (Standard vs Meta-Plan)
 4. Detect plan type:
    - Meta-Plan: has `Meta-{Abbrev}/` subfolder and `Exec-{Abbrev}/` subfolder. For Meta-Plan reviews, write the report to the top-level plan folder (`{PlanPath}/Reviews/`), not inside `Exec-{Abbrev}/`.
@@ -79,10 +89,13 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 > | EIs | Sprints | Scale | Path |
 > |-----|---------|-------|------|
 > | 0 | 1 | TRIVIAL | No-Team Path |
+> | 0 | 2+ | MEDIUM | Team Path (standard) |
 > | 1 | 1-2 | SMALL | No-Team Path |
 > | 2-3 | any | MEDIUM | Team Path (standard) |
 > | 4-5 | any | LARGE | Team Path (full) |
 > | 6+ | any | VERY LARGE | Team Path (batched) |
+
+**Sprint-count crossover:** 2+ sprints alone triggers Team Path even with 0 EIs — per `agent-orchestration.md` §8, "Teams become worthwhile at 2+ EIs **or** 2+ sprints." Only a 0-EI single-sprint plan is TRIVIAL (No-Team Path).
 
 ---
 
@@ -96,7 +109,7 @@ Spawn `structural-reviewer` agent via Task tool:
 
 ```
 Task(
-  subagent_type: "structural-reviewer",
+  subagent_type: "planwise:structural-reviewer",
   description: "Structural review for {Abbrev}",
   prompt: |
     You are reviewing plan {Abbrev} for structural integrity.
@@ -122,7 +135,7 @@ If no blockers, spawn `plan-reviewer` agent via Task tool:
 
 ```
 Task(
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   description: "Content review for {Abbrev}",
   prompt: |
     You are reviewing plan {Abbrev} for content quality.
@@ -142,6 +155,8 @@ Task(
     - Cross-sprint spec references that appear orphaned to a single-sprint scope are valid
 
     Execute BOTH the EI Reviewer and Task Reviewer checklists from your protocol.
+    If the plan is a Meta-Plan, ALSO execute the Scaffolding Hygiene Reviewer
+    checklist (Checks 046-050) in addition to the EI Reviewer + Task Reviewer checks.
 
     Report findings using the finding format in your protocol.
     Prefix uncertain findings (MEDIUM/LOW confidence) with [UNCERTAIN].
@@ -175,8 +190,10 @@ For plans with 2+ EIs, use full team with phase gating.
 Task(
   team_name: "plan-review-{abbrev}",
   name: "structural-reviewer",
-  subagent_type: "structural-reviewer",
+  subagent_type: "planwise:structural-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     You are reviewing plan {Abbrev} for structural integrity.
 
     Plan type: {Standard | Meta-Plan}
@@ -210,9 +227,9 @@ Task(
 > [!decide] Team Composition
 > | Scale | Plan Reviewers | Roles |
 > |-------|---------------|-------|
-> | MEDIUM (2-3 EIs) | 2 | ei-reviewer, task-reviewer |
-> | LARGE (4-5 EIs) | 3 | ei-reviewer, task-reviewer, dependency-reviewer |
-> | VERY LARGE (6+ EIs) | 4 | ei-reviewer (batched), task-reviewer, dependency-reviewer, coverage-reviewer |
+> | MEDIUM (2-3 EIs) | 2 (+1 optional) | ei-reviewer, task-reviewer (+ scaffolding-hygiene-reviewer if Meta-Plan) |
+> | LARGE (4-5 EIs) | 3 (+2 optional) | ei-reviewer, task-reviewer, dependency-reviewer (+ scaffolding-hygiene-reviewer, design-extension-reviewer) |
+> | VERY LARGE (6+ EIs) | 4 (+2 optional) | ei-reviewer (batched), task-reviewer, dependency-reviewer, coverage-reviewer (+ both sub-role reviewers) |
 
 6. Spawn ALL Phase 2 reviewers in parallel -- issue all Task calls together in a single batch (do not wait between spawns):
 
@@ -223,8 +240,10 @@ Task(
 Task(
   team_name: "plan-review-{abbrev}",
   name: "ei-reviewer-{N}",
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     You are reviewing plan {Abbrev} for EI content integrity.
     Your assigned role: EI Reviewer
 
@@ -255,8 +274,10 @@ For VERY LARGE plans, batch 2 EIs per ei-reviewer (max 3 ei-reviewers). If a rev
 Task(
   team_name: "plan-review-{abbrev}",
   name: "task-reviewer",
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     You are reviewing plan {Abbrev} for task quality.
     Your assigned role: Task Reviewer
 
@@ -279,8 +300,10 @@ Task(
 Task(
   team_name: "plan-review-{abbrev}",
   name: "dependency-reviewer",
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     You are reviewing plan {Abbrev} for dependency accuracy.
     Your assigned role: Dependency Reviewer
 
@@ -301,8 +324,10 @@ Task(
 Task(
   team_name: "plan-review-{abbrev}",
   name: "coverage-reviewer",
-  subagent_type: "plan-reviewer",
+  subagent_type: "planwise:plan-reviewer",
   prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
     You are reviewing plan {Abbrev} for requirement coverage.
     Your assigned role: Coverage Reviewer
 
@@ -316,6 +341,36 @@ Task(
     Report each finding as a separate DM to the team lead.
     Prefix uncertain findings (MEDIUM/LOW confidence) with [UNCERTAIN].
     End with DM: "Phase 2 complete, {N} findings reported"
+)
+```
+
+**Scaffolding Hygiene Reviewer** (MEDIUM/LARGE/VERY LARGE — Meta-Plan only):
+```
+Task(
+  team_name: "plan-review-{abbrev}",
+  name: "scaffolding-hygiene-reviewer",
+  subagent_type: "planwise:plan-reviewer",
+  prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
+    Your assigned role: Scaffolding Hygiene Reviewer
+    Execute Checks 046-050 from your protocol.
+    ...
+)
+```
+
+**Design-Extension Reviewer** (LARGE/VERY LARGE — when audit/design-extension findings expected):
+```
+Task(
+  team_name: "plan-review-{abbrev}",
+  name: "design-extension-reviewer",
+  subagent_type: "planwise:plan-reviewer",
+  prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
+    Your assigned role: Design-Extension Reviewer
+    Execute Checks 051-054 and 062 from your protocol.
+    ...
 )
 ```
 
@@ -364,7 +419,7 @@ Task(
 
 ## Reviewer Prompt Template
 
-Every reviewer spawn prompt MUST include these six elements:
+Every reviewer spawn prompt MUST include these seven elements:
 
 1. **Plan context:** abbreviation, type (Standard / Meta-Plan), global numbering scheme note
 2. **Scope:** explicit file paths to read (never assume inherited context)
@@ -380,6 +435,12 @@ Every reviewer spawn prompt MUST include these six elements:
    ```
 5. **Uncertainty protocol:** flag `[UNCERTAIN]` for MEDIUM or LOW confidence; check Known Patterns Whitelist first before flagging
 6. **Completion signal:** "Phase {N} complete, {M} findings reported"
+7. **Tool pre-load (BINDING for team-mode spawns):** the first instruction line in the spawn prompt MUST be `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` `SendMessage` is a deferred tool; without the schema loaded, the reviewer's findings cannot be delivered. The reviewer's agent definition already carries this rule in its own `## Startup` section — the spawn-prompt instruction is the belt-and-braces gate.
+
+> [!constraint] Spawn prompts MUST front-load the SendMessage schema load
+> WRONG — spawn prompt opens with `You are reviewing plan {Abbrev} ...` and the reviewer attempts `SendMessage(finding)` after its first read. The deferred-tool schema was never fetched; the call raises `InputValidationError` and the entire review (40-70K tokens of work for an EI reviewer) is silently lost — the lead never receives a "Phase complete" DM.
+>
+> CORRECT — spawn prompt opens with `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` followed by the role/scope/checklist content. Schema lands before any reporting attempt; the reviewer's DMs are delivered.
 
 > [!pitfall] Context Not Inherited
 > **Problem:** Subagents and teammates start with fresh context -- they do NOT inherit the lead's file reads, research, or analysis.
@@ -562,3 +623,55 @@ Quick reference for common patterns and their correct classification.
 | 8 | Orphaned spec section (appears in no EI) | WARNING | EI completeness check |
 | 9 | Reviewer prompt missing plan context | ERROR | Reviewer spawn prompt |
 | 10 | Idle teammate treated as error | INFO | Normal behavior -- not a failure |
+| 11 | DELEGATED dispatch mandatory trigger violated (`agent-orchestration.md` §11.1) | BLOCKER | Orchestration Execution Strategy |
+| 12 | Task-file error recovery semantics missing (`agent-orchestration.md` §11.2) | BLOCKER | Task file Notes for Agent |
+| 13 | Schema Pin pre-execution form missing (`schema-pin-requirement.md` §4) | BLOCKER | Task file Required Context |
+| 14 | Token estimate uses `~?` placeholder (`task-content-fidelity.md` §9.A.2) | BLOCKER | Task file Estimated Tokens |
+| 15 | Cross-sprint Required Context not mirrored in Depends On (`session-plan-requirements.md` §9 cross-sprint) | BLOCKER | Task file Depends On |
+| 16 | EI bidirectional consistency violation (every Spec in `Extracted from:` MUST appear in ≥ 1 Cross-References row and vice versa) | WARNING (HIGH confidence) | EI header + Cross-References |
+| 17 | DELEGATED inter-dispatch lint/precheck diagnostics missing on shared file (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.4) | BLOCKER | Orchestration between dispatches |
+| 18 | DELEGATED output `wc -l` verification missing after dispatch (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.4 PLG-020 extension) | BLOCKER | Orchestration between dispatches |
+| 19 | DELEGATED spawn prompt missing HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.8) | BLOCKER | Orchestration spawn prompts |
+| 20 | DELEGATED follow-up fixes not tier-ranked by invasiveness (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.9) | BLOCKER | Orchestration follow-up dispatches |
+| 21 | DELEGATED forward-looking-verb detection + SendMessage resume protocol missing (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.10) | BLOCKER | Orchestration post-dispatch scan |
+| 22 | DELEGATED spawn prompt missing operational-ceiling disclaimer (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.11) | BLOCKER | Orchestration spawn prompts |
+| 23 | DELEGATED edit-heavy task missing N>25 resume protocol + tool-use budget estimation (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.12) | BLOCKER | Orchestration spawn prompts |
+| 24 | DELEGATED shared-edit-target dispatches missing parallelism cap/shard/delta strategy (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.13) | BLOCKER | Orchestration dispatch matrix |
+| 25 | Verify-before-cite round-2 (`task-content-fidelity.md` §9.B.6..§9.B.9) | BLOCKER (varies by sub-rule) | Task file SQL/MERGE briefs |
+| 26 | Sprint exit-gate verdict not reflecting gate-defining step (`verification-gates.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
+| 27 | Sprint Overview row encoding session-count fraction instead of gate verdict (`verification-gates.md` §4) | ERROR | Master Plan Sprint Overview |
+| 28 | EI Cross-References §-citation format violated (`ei-fidelity.md` §7) | BLOCKER | EI Cross-References table |
+| 29 | UNCONFIRMED claim missing four-site enforcement (`ei-fidelity.md` §4) | BLOCKER | EI body |
+| 30 | Sprint Plan has `READY_TO_EXECUTE` at scaffolding time (PLG-001 / `scaffolding-hygiene.md` §4) | WARNING | Sprint Plan Status field |
+| 31 | Per-session `Outputs/` directory missing (PLG-001 / `scaffolding-hygiene.md` §5) | BLOCKER | Session folder |
+| 32 | Orchestration `**Prerequisite:**` declaration missing for sequential session (PLG-001 / `scaffolding-hygiene.md` §6) | ERROR | Orchestration Prerequisites |
+| 33 | Orchestration Context Boundary callout missing (PLG-002 / `agent-orchestration.md` §11.3) | BLOCKER | Orchestration Execution Strategy |
+| 34 | Verification Commands section missing for runnable-artifact task (PLG-003 / `verification-gates.md` §3) — exempt if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in task's Notes for Agent | BLOCKER | Task file Verification Commands |
+| 35 | Per-file-type Verification Commands table empty (PLG-003 / `verification-gates.md` §3) — applies to runnable-artifact tasks per `templates/task-file.md` §Per-File-Type Commands | BLOCKER | Task file Verification Commands |
+| 36 | Verify Before/After callout missing for runnable artifact (PLG-003 / `verification-gates.md` §4) | BLOCKER | Task file Verification Commands |
+| 37 | Required Context not updated when a prior task changed file structure (PLG-004 / `task-content-fidelity.md` §9.A.1) | ERROR | Task Required Context |
+| 38 | Per-file-type token rate band violation (PLG-004 / `task-content-fidelity.md` §9.A.3) | WARNING | Task Required Context |
+| 39 | User-prompt-cited artifact unverified at scaffolding (PLG-004 / `task-content-fidelity.md` §9.B.1) | BLOCKER | Task file cited paths |
+| 40 | Identifier not reconciled with live contract (PLG-004 / `task-content-fidelity.md` §9.B.2) | BLOCKER | Task Execution Steps |
+| 41 | Helper-function design not categorized in column-presence check (PLG-004 / `task-content-fidelity.md` §9.B.4) | WARNING | Task helper refs |
+| 42 | EI archival fidelity violated — transform happens at EI not Task layer (PLG-005 / `ei-fidelity.md` §1) | ERROR | EI body |
+| 43 | EI source severity vocabulary not preserved (PLG-005 / `ei-fidelity.md` §2) | ERROR | EI body |
+| 44 | EI threshold misaligned with operational dispatch contract (PLG-005 / `ei-fidelity.md` §3) | BLOCKER | EI vs Sprint Plan |
+| 45 | EI cross-tier duplicate not preserved (PLG-005 / `ei-fidelity.md` §5) | ERROR | EI Cross-References |
+| 46 | EI cross-tier citation not propagated to implementation surface (PLG-005 / `ei-fidelity.md` §6) | ERROR | EI Cross-References |
+| 47 | EI token reconciliation gate failed (PLG-005 / `ei-fidelity.md` §8) | BLOCKER | EI token totals |
+| 48 | Discovery count missing execution citation (PLG-006 / `discovery-and-exit-criteria.md` §15.1) | BLOCKER | Discovery outputs |
+| 49 | Binding refinement not echoed across plan layers (PLG-006 / `discovery-and-exit-criteria.md` §16.1) | BLOCKER | Multi-layer files |
+| 50 | "Surfaces" used as non-enforceable mention not enforcement claim (PLG-006 / `discovery-and-exit-criteria.md` §16.2) | ERROR | EI / Sprint Plan |
+| 51 | Sprint signoff row-count mismatch with EI exit criteria (PLG-006 / `discovery-and-exit-criteria.md` §16.3) | BLOCKER | Sprint signoff |
+| 52 | Cross-session dependency not mirrored in task `Depends On` (PLG-007 D2 / `session-plan-requirements.md` §9 cross-session) | BLOCKER | Task Depends On |
+| 53 | Post-scaffold back-propagation missed after task edit (PLG-007 D3 / `session-plan-requirements.md` §9 post-scaffold sync) | ERROR | Task file + EI section |
+| 54 | BLI-cited audit anchor not re-verified before execution (PLG-019 / `verify-against-shipped-artifact.md` §6) | BLOCKER | Orchestration BLI refs |
+| 55 | Cohort token-uplift missing for known high-divergence cohort (PLG-022 / `scaffolding-hygiene.md` §10) | WARNING | Master Plan Sprint Overview Notes |
+| 56 | Cross-tier audit-finding triage table missing (PLG-022 / `discovery-and-exit-criteria.md` §18) | WARNING | Discovery/audit sessions |
+| 57 | EI multi-sprint cumulative state not reconciled (`ei-fidelity.md` §9.1) | BLOCKER | Later-sprint EI Current state block + Sprint Plan Cross-Sprint File Touches + task-file Step-1 prerequisite grep gate |
+| 58 | EI repoint map cluster incomplete — fewer enumerated rows than audit cluster cites (`ei-fidelity.md` §9.2) | BLOCKER | EI repoint map vs audit cluster |
+| 59 | EI audit-grep-table coverage gap — verification scope wider than upstream repair scope (`ei-fidelity.md` §9.3) | BLOCKER | EI verification task vs repair task Required Context |
+| 60 | Consolidated Context body⇄citation promise broken — header names a finding as a Driving Finding (or Cross-References row lists it) but body lacks the prose AND no `[source-doc-only]` marker (`ei-fidelity.md` §10.1) | ERROR | Consolidated Context part body |
+| 61 | Task verbatim-extraction targets a section that does not physically carry the cited prose — pre-extraction verification missing AND no fallback-hierarchy step (`ei-fidelity.md` §10.2 + §10.3) | ERROR | Task file Execution Steps |
+| 62 | Mega-scaffold skipped review gate — `n_sprints_scaffolded_this_pass ≥ 2` AND Master Plan Status is `READY_TO_EXECUTE` AND no `/planwise review` report referenced (`scaffolding-hygiene.md` §11) | BLOCKER | Master Plan / scaffold-session transcript |

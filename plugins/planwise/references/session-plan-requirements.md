@@ -15,14 +15,16 @@ description: Required file specifications per plan level, task file templates, a
 
 | Context Needed | Plan Type | Structure |
 |----------------|-----------|-----------|
-| < 100K | Standard (Execution Plan only) | Single plan with standard hierarchy |
-| > 100K | Meta-Plan + Execution Plan | Two-phase: Discovery → Execution |
+| < `meta_plan_threshold` | Standard (Execution Plan only) | Single plan with standard hierarchy |
+| > `meta_plan_threshold` | Meta-Plan + Execution Plan | Two-phase: Discovery → Execution |
+
+`meta_plan_threshold` is tier-aware: 100K on Pro, 500K on Max. Read `context.context_window` from `config.yaml` and resolve per `references/session-context-budget.md` §5 Threshold Formulas.
 
 ---
 
 ### Meta-Plan Requirements (Discovery Phase)
 
-*Only needed when total context > 100K*
+*Only needed when total context > `meta_plan_threshold` (100K on Pro, 500K on Max)*
 
 **Meta-Plan Master Plan MUST Have:**
 - Purpose: Context discovery and consolidation (not implementation)
@@ -78,6 +80,85 @@ description: Required file specifications per plan level, task file templates, a
 - Cross-sprint sources (used by multiple sprints) are listed in each EI's header like any other source
 
 **Global Source Map:** When using global numbering for spec outputs (recommended for multi-sprint plans), the Master Plan MUST include a Global Source Map table assigning each spec output a number, its primary sprint, and any additional sprints that use it.
+
+**Multi-Tier Discovery Extraction (PLG-008):**
+
+When the source material is a Meta-Plan Discovery output, EI extraction MUST consume THREE tiers:
+
+- **Tier 1:** Raw task outputs (per-task Outputs/ files in `Meta-{Abbrev}/Sprint-{XX}-Discovery/Session-{YY}-*/Outputs/`)
+- **Tier 2:** Per-sprint consolidated context parts (`Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md`)
+- **Tier 3:** Final consolidated layer (if produced — typically a Triage or Cross-Reference part)
+
+Extraction MUST cite all three tiers in the EI's `Extracted from:` header when applicable. Skipping Tier 1 is BLOCKER — raw outputs carry detail that consolidated parts shed during compression passes.
+
+> [!constraint] Multi-Tier EI Extraction
+> WRONG — EI cites only the final consolidated layer (Tier 2/3); Tier 1 raw outputs ignored:
+> ```
+> **Extracted from:** Spec #1 (PPU-Consolidated-Context-Part-1.md), Spec #2 (PPU-Consolidated-Context-Part-2.md)
+> ```
+> CORRECT — EI cites all tiers with Tier 1 raw outputs explicitly:
+> ```
+> **Extracted from:** Spec #1 (PPU-META-S01-01-PlanwiseRulesInventory.md) [Tier 1 raw],
+>   Spec #2 (PPU-META-S01-02-PLGPromotionsInventory.md) [Tier 1 raw],
+>   Spec #3 (PPU-Consolidated-Context-Part-1.md) [Tier 2 consolidated],
+>   Spec #4 (PPU-Consolidated-Context-Part-3-EnforcementLayer.md) [Tier 2 consolidated]
+> ```
+
+**Deferred/Out-of-Scope Log Requirement:**
+
+Every scaffolded sprint MUST include a `{Abbrev}-S{XX}-Deferred-OutOfScope-Log.md` in the sprint folder enumerating:
+- Content from Tier 1/2/3 NOT extracted into this sprint's EI
+- Rationale for deferral (out of sprint scope, belongs to a different sprint, truly out of scope)
+- Target sprint or "Out of scope" designation
+
+**EI Bidirectional Consistency (BB-031 P4):**
+
+Every Spec listed in the EI's `Extracted from:` header MUST appear in at least one Cross-References row. And conversely: every Cross-References row's source citation MUST appear in the `Extracted from:` header. Bidirectional inconsistency is WARNING with HIGH confidence at `/planwise review` Phase 2.
+
+> [!constraint] EI Header ↔ Cross-References Table Consistency
+> WRONG — `Extracted from:` cites Spec #2 but Cross-References table has no row citing Spec #2:
+> ```markdown
+> **Extracted from:** Spec #1, Spec #2 ({filename.md}), Spec #5
+>
+> | Section | Source | ... |
+> | §1 Auth design | Spec #1 §3 | ... |
+> | §2 API routes  | Spec #5 §1 | ... |
+> ```
+> (Spec #2 is listed in header but never appears in the table — where was it used?)
+>
+> CORRECT — every header entry appears in at least one table row, and vice versa:
+> ```markdown
+> **Extracted from:** Spec #1, Spec #2 ({filename.md}), Spec #5
+>
+> | Section | Source | ... |
+> | §1 Auth design | Spec #1 §3 | ... |
+> | §2 API routes  | Spec #2 §4 ({filename.md}) | ... |
+> | §3 Data model  | Spec #5 §1 | ... |
+> ```
+
+> WRONG — Cross-References table cites Spec #7 but `Extracted from:` header does not list Spec #7:
+> ```markdown
+> **Extracted from:** Spec #1, Spec #2, Spec #5
+> | §4 Legacy compat | Spec #7 §2 | ... |   ← Spec #7 not in header
+> ```
+> CORRECT — add Spec #7 to header OR remove from table:
+> ```markdown
+> **Extracted from:** Spec #1, Spec #2, Spec #5, Spec #7 ({filename.md})
+> | §4 Legacy compat | Spec #7 §2 | ... |
+> ```
+
+> When a Spec is referenced ONLY for background context (not as the source of any extracted section), it MAY be omitted from `Extracted from:` IF the table row carries an `(informational-only)` annotation:
+> ```markdown
+> | §4 Legacy compat | Spec #7 §2 (informational-only) | Background reference, not extracted |
+> ```
+
+**Three-Step Scaffolding Procedure for EI Consistency (BB-031 P6):**
+
+1. Author EI sections with full content
+2. Build Cross-References table mapping each section to its source citation
+3. Reconcile `Extracted from:` header: list every source cited in the table (exact filename); annotate informational-only rows where applicable
+
+**Reviewer note (BB-031 P7):** `/planwise review` Phase 2 reports EI header ↔ Cross-References inconsistency as WARNING with HIGH confidence.
 
 **Execution Input ≠ Summary.** Extraction means: select, reorganize, and scope. If source content is needed by the sprint, it MUST appear in the Execution Input verbatim. Only omit content irrelevant to that sprint's tasks.
 
@@ -224,10 +305,69 @@ Never leave many-to-many mappings for the agent to infer.
 
 ---
 
+## Verification Commands
+
+> [!verify] Pre- and Post-Task Verification
+> Run these commands before and after this task to confirm no regression:
+>
+> | Command | Type | When |
+> |---------|------|------|
+> | `{precheck-cmd}` | Connectivity / pre-condition | Before task begins |
+> | `{lint-cmd} {src/module/file.ext}` | Lint check | After each modified file |
+> | `{format-cmd} {src/module/file.ext}` | Format check | After each modified file |
+> | `{exec-cmd}` | Execute / smoke test | After all files modified |
+>
+> Consumer fills in commands from project config or convention.
+
+---
+
 ## Notes for Agent
 
 {Special instructions, edge cases, or context the agent needs}
 ```
+
+> [!constraint] Verification Commands MUST Be Explicit Shell Invocations
+> WRONG — verification commands are vague or absent:
+> ```markdown
+> ## Verification Commands
+> Run your project's tests and lint.
+> ```
+> CORRECT — verification commands are explicit, parameterized shell invocations:
+> ```markdown
+> ## Verification Commands
+>
+> | Command | Type | When |
+> |---------|------|------|
+> | `{precheck-cmd}` | Connectivity / pre-condition | Before task begins |
+> | `{lint-cmd} {src/module/file.ext}` | Lint | After each modified file |
+> | `{exec-cmd}` | Execute / smoke test | After all files modified |
+> ```
+>
+> Vague verification commands are treated as absent by `/planwise review`.
+
+**Verification Commands Plan-Review Enforcement:**
+
+| Check | Severity | Reviewer Action |
+|-------|----------|-----------------|
+| Task file has `## Verification Commands` section | **BLOCKING** if absent for any task with Write steps that touch code, tests, or schemas (runnable-artifact tasks) | Block plan approval until populated, OR until a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment in the task's `## Notes for Agent` explicitly justifies the omission |
+| Commands are explicit shell invocations (not vague prose) | **BLOCKING** if vague (e.g., "run lint and tests") on a runnable-artifact task | Block plan approval; require the planner to resolve `{lint-cmd}` / `{test-cmd}` / `{exec-cmd}` placeholders from `config.yaml.build_commands` or project convention |
+| All command types present (connectivity / pre-condition + lint or format + exec or smoke test) | **BLOCKING** if only 1 type present on a runnable-artifact task | Block plan approval; require the planner to emit all three command types per `templates/task-file.md` §Per-File-Type Commands |
+| Verification Commands omitted (pure-doc / decision-only / research task) | INFO if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in Notes for Agent | Pass (intentional omission); flag as ERROR if comment absent but task produces no runnable artifact (planner forgot the escape hatch) |
+
+**Scope of BLOCKING enforcement:** The BLOCKING severity applies ONLY to tasks that touch code, tests, or schemas (i.e., tasks whose Expected Output or Execution Steps create or modify files with extensions in the `templates/task-file.md` §Per-File-Type Commands table — `.py` / `.ipynb` / `.sql` / `.cs` / `.cshtml` / `.ts` / `.tsx` / `.{ext}` and equivalents). For purely documentary tasks (markdown edits, decision-only Opus tasks, research-and-report Sonnet tasks), Verification Commands MAY be omitted entirely — but the omission MUST be marked with a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment so the reviewer can confirm the choice was intentional rather than an oversight. The `handlers/plan.md` Step 8e (Populate Verification Commands) populates the section for runnable-artifact tasks; the `handlers/review.md` Error Pattern Catalog rows 34/35/36 enforce this at review time.
+
+> [!constraint] BLOCKING Severity — Source PLG-003 Discipline
+> WRONG — Verification Commands enforcement left at WARNING, allowing plans to ship with blank `{cmd_before_1}` / `{cmd_after_1}` placeholders:
+> ```
+> | Severity | Reviewer Action       |
+> | WARNING  | Flag as missing       |
+> ```
+> CORRECT — BLOCKING for runnable-artifact tasks (source PLG-003 §3C), with explicit `<!-- VERIFICATION: not-applicable -->` escape hatch for documentation/decision-only tasks:
+> ```
+> | Severity   | Reviewer Action                                           |
+> | BLOCKING   | Block plan approval until populated or explicitly exempted |
+> ```
+> The escape hatch keeps the rule humane (pure-doc tasks aren't penalized) without weakening enforcement on tasks that actually produce runnable artifacts. This check is BLOCKING rather than a warning: the source PLG-003 spec called for BLOCKING enforcement, the task-file template has per-file-type infrastructure, the plan-handler Step 8e populates it, and the escape hatch covers legitimate exemptions.
 
 > [!constraint] One Task File Per Task — Never Combined
 > WRONG — multiple tasks combined into one file, tasks numbered inline rather than as separate files:
@@ -266,6 +406,118 @@ The Orchestration file MUST include a Task Files table:
 | 2 | [{Abbrev}-S{XX}-{YY}-02-Sonnet-{Task}.md]({filename}) | Sonnet |
 ```
 
+### Task Content Fidelity (cross-reference)
+
+Task file Required Context sections and Execution Steps are subject to the rules in [`task-content-fidelity.md`](task-content-fidelity.md). The critical fidelity rules for task file authoring are:
+
+**§9.A Required Context Fidelity (summary — see full rules in task-content-fidelity.md):**
+- §9.A.1: Update Required Context when project file structure changes
+- §9.A.2: No `~?` placeholders — token estimates MUST be concrete integers
+- §9.A.3: Use per-file-type token rate bands (markdown ~10-14 tok/line; code ~11-16 tok/line; use `~13 tokens/line` as universal fallback; denser file types may run higher — measure if uncertain)
+- §9.A.4: Re-glob live file counts before authoring (counts >1 hour old are stale)
+- §9.A.5: Budget 1.5-2× for multi-source consolidation tasks (dedup overhead)
+- §9.A.6: Use generator-script pattern for tasks walking ≥100 files
+- §9.A.7: Declare per-artifact shape (line budget, topic) for multi-artifact outputs
+
+**§9.B Verify-Before-Cite (summary — see full rules in task-content-fidelity.md):**
+- §9.B.2: Reconcile field/column/parameter names against live source (DDL, function signatures) — use `{long_form_identifier}` vs `{abbreviated_identifier}` pair to illustrate drift
+- §9.B.5: SQL column names MUST be verified against pinned schema before encoding in task brief
+- §9.B.7: USED-helper enumeration: when copying helpers, enumerate USED and NOT-USED explicitly
+- Schema Pin: at planning time MUST be reconciled against deployed-tier schema at execution time (see `schema-pin-requirement.md` §3)
+- §9.B.2 (extended): Env vars, function signatures, and config keys verified against live source (extends `task-content-fidelity.md` §9.B.2 identifier reconciliation)
+- §9.B.8: MERGE/upsert task briefs MUST include Field Mapping subsection (Source Field | DDL Column | Type Cast | Default)
+
+**Cross-sprint dependency mirroring (PLG-007 S2):**
+
+When a task's Required Context cites files from another sprint or session, the task's `Depends On` field MUST mirror those reads with `cross-sprint:` or `cross-session:` prefixes:
+
+| Required Context references... | Depends On entry |
+|--------------------------------|------------------|
+| File in same session | Task number only (e.g., `01`) |
+| File from earlier session in same sprint | `cross-session: {Abbrev}-S{XX}-{YY}-{##}` |
+| File from earlier sprint | `cross-sprint: {Abbrev}-S{XX}-{YY}-{##}` |
+
+> [!constraint] Cross-Sprint Dependency Mirroring
+> WRONG — `Depends On` shows `-` but Required Context cites a cross-sprint file:
+> ```markdown
+> **Depends On:** -
+> ## Required Context
+> | 2 | Plans/{PlanName}/Sprint-01/Session-02/Outputs/{Abbrev}-S01-02-ResearchOutput.md | ... |
+> ```
+> CORRECT — `Depends On` mirrors the cross-sprint read:
+> ```markdown
+> **Depends On:** cross-sprint: {Abbrev}-S01-02-03
+> ## Required Context
+> | 2 | Plans/{PlanName}/Sprint-01/Session-02/Outputs/{Abbrev}-S01-02-ResearchOutput.md | ... |
+> ```
+
+**Post-scaffold back-propagation rule (PLG-007 S5):**
+
+When a task file is edited AFTER scaffolding (adding a Required Context entry, extending Execution Steps, or changing Expected Output), the corresponding EI section MUST be back-propagated:
+
+1. Update task file
+2. Update the EI section that maps to this task
+3. Update the EI's Cross-References table if a new source is added
+4. Update the EI's `Extracted from:` header if a new file is cited
+
+Skipping any of these 4 sites is ERROR with HIGH confidence at `/planwise review` Phase 2.
+
+**Declarative follow-up block convention (PLG-018):**
+
+Task files MAY include a Declarative Follow-Up block enumerating actionable recommendations that auto-surface during backlog Phase 7 (FOLLOW-UP BLI CAPTURE):
+
+```markdown
+## Follow-Up Recommendations
+
+> [!followup] Actionable Recommendations (auto-surfaced during backlog Phase 7)
+> - Recommendation A: {description} (target: {file_path}; severity: {high|medium|low})
+> - Recommendation B: {description} (target: {file_path}; severity: {high|medium|low})
+```
+
+The `> [!followup]` callout type signals to `handlers/backlog.md` Phase 7 that these recommendations should be surfaced for auto-creation as backlog items.
+
+### Selective Helper Enumeration in Spawn Prompts
+
+When a task brief instructs a subagent to copy helpers from a reference or template module, "verbatim from reference" is ambiguous — the subagent typically copies ALL helpers, triggering unused-symbol diagnostics and pushing borderline files past the line limit. The fix is in the spawn prompt, not the lint rule. This subsection is the canonical anchor for reviewer Check 030 (USED-helper enumeration); it elaborates the spawn-prompt discipline summarized as `task-content-fidelity.md §9.B.7`.
+
+> [!constraint] Spawn prompts MUST enumerate USED helpers explicitly rather than instruct "verbatim from reference"
+> WRONG — "Helpers — copy verbatim from {reference module}." The subagent copies
+> ALL helpers; unused ones trigger LSP `unused-function`-class diagnostics and
+> inflate file size past project limits.
+>
+> CORRECT — enumerate the USED and NOT-used sets explicitly:
+>
+> ```
+> Helpers — copy ONLY what your module uses, not all N. For Task X:
+>   USED     = _to_int, _to_decimal, _to_date, _split_localized
+>   NOT used = _to_bigint, _to_str, _to_str_64, _to_datetime, _to_raw_text
+> Do NOT embed unused helpers.
+> ```
+
+> [!practice] Indirect-dependency audit
+> Some helpers call other helpers internally (e.g., `_split_localized` may call
+> `_to_str` or `_to_raw_text`). When trimming, grep for each candidate-deletion
+> helper inside the file body. Indirectly-called helpers MUST be retained even
+> when not used directly. Verification:
+>
+> ```bash
+> # For each helper considered for removal:
+> grep -nE "<helper>\(" <file>
+> # If matches > 0 inside another retained helper's body → keep.
+> ```
+
+A related code-generation discipline applies when the LSP reports a diagnostic the agent suspects is stale:
+
+> [!practice] Do not silence a stale linter diagnostic with an inline suppression
+> Suppressing a diagnostic instead of resolving it is an anti-pattern: a stale
+> diagnostic clears on the next LSP refresh, and the suppression then becomes
+> permanent dead weight that also hides any future real defect on the same line.
+> When a diagnostic is stale, wait for the refresh; when it is real, fix the
+> underlying cause. Inline suppression directives — illustratively, an
+> ignore-comment or an allow-attribute in whatever language is in use — are not a
+> substitute for either. (Verify stale-vs-real per the verify-before-acting LSP
+> discipline in `agent-orchestration.md`.)
+
 ### Completion Tracking (BINDING)
 
 **After each Session completes:**
@@ -285,6 +537,20 @@ The Orchestration file MUST include a Task Files table:
 1. Update Master Plan status to COMPLETE
 2. Final git commit with "Complete {PlanName} project"
 3. *If Meta-Plan was used:* Meta, Scaffold, and Exec Master Plans marked COMPLETE
+
+### Module Split Threshold (PLG-016 Fragment B)
+
+> [!practice] Module Split for Wide Dataclasses
+> Adapter/client modules whose row dataclass exceeds 75-80 fields SHOULD be split into:
+> - **Public module:** thin facade exposing only the fields downstream tasks consume
+> - **Private companion module (`_{module}_full.{ext}`):** complete dataclass with all 75-80+ fields
+
+When task briefs reference adapter modules, verify the field count before authoring. Modules exceeding the threshold that have NOT been split yet should be noted as candidates for splitting before the task encodes field-access patterns.
+
+> [!hazard] Format-Restore Overhead Warning
+> When splitting a wide dataclass module, verify the consumer count is >1 before splitting. Format-restore overhead (reconstituting the full dataclass for serialization from the companion module) can exceed the token savings from the split in single-consumer cases.
+
+**Cross-reference:** `references/agent-orchestration.md §13 Large-File Read Tactics` — apply large-file tactics when reading the wide companion module at task execution time.
 
 ---
 

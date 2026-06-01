@@ -2,6 +2,7 @@
 
 **Purpose:** Central index and taxonomy reference for all lessons learned.
 **Last Updated:** YYYY-MM-DD
+**Companion:** [00-Categorization-By-Domain.md](00-Categorization-By-Domain.md) — domain bucketing view, sync'd by `/planwise lessons curate`.
 
 ---
 

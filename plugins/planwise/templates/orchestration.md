@@ -10,6 +10,12 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 **Session ID:** {ABBREV}-S{XX}-{YY}
 **Sprint:** {XX} - {SprintName}
 **Status:** PLANNED
+**Prerequisite:** {previous session or sprint that must be COMPLETE before this session can run, or "None" if first session of a plan}
+
+<!-- Scaffolding CONFIRM block placeholder:
+     When this orchestration is part of a scaffolded plan, ensure the handler emits the CONFIRM block
+     before reading Consolidated Context parts. See handlers/plan.md Scaffolding Step 1
+     and references/scaffolding-hygiene.md §1. -->
 
 ---
 
@@ -40,13 +46,41 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 **Mode:** {DIRECT | DELEGATED} <!-- REQUIRED -->
 **Reason:** {Why this mode — e.g., "3 sequential Opus tasks each needing fresh context"}
 
+### DELEGATED Mandatory Triggers Reminder
+
+> [!checklist] When DELEGATED is Mandatory
+> Set `Mode: DELEGATED` if ANY of these triggers apply:
+> - [ ] Session has 2 or more Opus tasks
+> - [ ] Session is part of a META Discovery phase
+> - [ ] Any single task estimates > 50 K token context load
+> - [ ] Sequential tasks where one task's output is the next task's input (output-chaining)
+>
+> See `references/agent-orchestration.md` §11.1 Mandatory Triggers for the binding rule.
+
 ### Context Boundary (DELEGATED mode only)
+
+> [!constraint] Mandatory Context Boundary
+> In DELEGATED mode, the orchestrator reads ONLY plan files (Orchestration, Recovery, task files). Heavy context files (Consolidated Context parts, reference docs, source code) are read by subagents only.
+>
+> WRONG (orchestrator reads heavy context):
+> ```
+> Orchestrator reads:
+> - Orchestration, Recovery, task files
+> - Consolidated Context Part 4 (large file)   ← blows budget; defeats DELEGATED
+> ```
+> CORRECT (orchestrator reads only plan files):
+> ```
+> Orchestrator reads:
+> - Orchestration, Recovery, task files
+> Orchestrator NEVER reads:
+> - Consolidated Context parts, reference docs, source code
+> ```
 
 **Orchestrator reads:** Orchestration, Recovery, task files (plan files only)
 **Orchestrator NEVER reads:** {list the heavy files — Consolidated Context parts, reference docs, source code}
-**Subagents read:** Per-task Required Context (each subagent gets fresh ~100K)
+**Subagents read:** Per-task Required Context (each subagent gets a fresh `available_for_work` budget at the parent's tier — ~100K on Pro, ~900K on Max; see `references/session-context-budget.md` §5)
 
-> **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + 54K < 200K. See [Token Estimation Reference](../reference.md#token-estimation-reference) for per-operation costs.
+> **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + 54K < `context_window` (read from `config.yaml` `context.context_window` — 200K on Pro, 1M on Max; defaults to 200K when the block is missing). See [Task-Level Estimation](../references/session-context-budget.md#task-level-estimation-binding) for the bottom-up estimation formula and conversion factor.
 
 ---
 

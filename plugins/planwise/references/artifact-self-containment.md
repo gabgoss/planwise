@@ -1,0 +1,217 @@
+---
+description: Binding rule — content-bearing artifacts (rules, agents, skills, handlers, CLAUDE.md callouts, BB rule-design sections) MUST inline content from source lessons and backlog items, never cite them. Bookkeeping artifacts (indexes, promotion logs, frontmatter pointers, BB Notes) MAY carry cross-references for traceability.
+---
+
+# Artifact Self-Containment
+
+When a lesson (`LL-NNN`) is promoted into a rule, agent, skill, handler, or CLAUDE.md callout, the destination artifact MUST inline the lesson's content — every WRONG/CORRECT example, recipe, and verification command — verbatim or in faithful paraphrase. The same holds when a backlog item (`BB-NNN`) is executed and produces rule/agent/skill/handler/CLAUDE.md content. The destination becomes the canonical source of the rule; the originating lesson or BB becomes archival.
+
+This rule applies in BOTH directions:
+
+1. Rules, agents, skills, handlers, and CLAUDE.md callouts NEVER cite `LL-NNN` or `BB-NNN`.
+2. The §1-§N "rule design" deliverables inside a promotion BB NEVER lazy-cite the source lessons — the content is restated. The grep gate in §4 catches drift back into cross-references during execution.
+
+---
+
+## Table of Contents
+
+- [1. Why](#1-why)
+- [2. The Asymmetry — Inlined vs Cross-Refs-Allowed](#2-the-asymmetry--inlined-vs-cross-refs-allowed)
+- [3. WRONG / CORRECT Examples](#3-wrong--correct-examples)
+- [4. Mechanical Verification](#4-mechanical-verification)
+- [5. Single-Lesson Promotion Integration](#5-single-lesson-promotion-integration)
+- [6. Backlog Item Execution Integration](#6-backlog-item-execution-integration)
+- [7. Exemptions](#7-exemptions)
+
+---
+
+## 1. Why
+
+A rule that says *"per LL-NNN, every task must include a Schema Pin (see LL-NNN for examples)"* forces every reader — and every future consumer of the installed plugin — to chase a separate file to recover the actual rule content. When that lesson is renumbered, archived, moved between projects, or simply never existed for the consumer (because the citation came from another repo entirely), the reference dangles and the rule loses its meaning.
+
+The same logic applies to backlog citations. A rule that says *"see BB-NNN P4 for the bidirectional consistency check"* is project bookkeeping leaking into shipped rule prose. The rule must stand alone.
+
+A rule that inlines its source content survives copy-paste, plugin re-distribution, lesson re-numbering, and project-to-project migration. A rule that cites does not.
+
+---
+
+## 2. The Asymmetry — Inlined vs Cross-Refs-Allowed
+
+Not every artifact is a content-bearing artifact. The rule above forbids `LL-NNN` / `BB-NNN` citations in the content body of rule-like artifacts; it explicitly ALLOWS cross-references in artifacts whose entire purpose is traceability.
+
+> [!constraint] Artifact Class Determines Allowed Citations
+> WRONG — citing `LL-NNN` or `BB-NNN` inside the content body of these artifact classes:
+>
+> | Artifact Class | Examples |
+> |----------------|----------|
+> | Rules | `.claude/rules/**/*.md` |
+> | Agents | `.claude/agents/**/*.md` |
+> | Skills | `.claude/skills/**/*.md`, `.claude/skills/**/SKILL.md` |
+> | Handlers / Commands | `.claude/commands/**/*.md`, plugin `handlers/**/*.md` |
+> | CLAUDE.md callouts | `> [!binding]`, `> [!constraint]`, and other callouts anywhere in `CLAUDE.md` |
+> | BB rule-design / Deliverables sections | the §1-§N sections of a promotion BB that specify the rule body to write |
+>
+> CORRECT — cross-references for traceability ARE allowed (and expected) in:
+>
+> | Artifact Class | Examples |
+> |----------------|----------|
+> | LessonsLearned index | `{lessons_dir}/00-Index-LessonsLearned.md` — Master Table title/description, Rule Promotion Log |
+> | Backlog index | `{backlog_dir}/00-Index-Backlog.md` — Feature/Title column, Dependencies notes |
+> | Lesson frontmatter | `applied-as:`, `rule-as:`, `promoted-date:`, related-lesson links |
+> | BB header metadata | `Closes: LL-NNN`, `Related: BB-NNN`, `Source: LL-X + LL-Y` lines ABOVE the Deliverables section |
+> | BB Notes section | "Out of scope: LL-X, LL-Y …", "Decomposed across: BB-{P}, BB-{Q}" |
+> | Project changelog / release notes | the "Lessons folded in" / "BBs shipped this release" block at the bottom of `README.md` or `CHANGELOG.md` |
+
+The asymmetry is deliberate. Content-bearing artifacts must read as standalone rules that survive being copied into any project, any plugin install, any documentation viewer. Bookkeeping artifacts exist BECAUSE the cross-refs serve traceability — strip those refs and the audit trail vanishes.
+
+---
+
+## 3. WRONG / CORRECT Examples
+
+### 3.1 Rule body must inline, not cite the source lesson
+
+> [!constraint] Rule Body Self-Containment
+> WRONG — rule body cites the source lesson, leaving the lesson as a load-bearing reference:
+> ```markdown
+> ## §1. Schema Pin requirement
+> Per LL-X, every task file must include a Schema Pin (see LL-X for the
+> WRONG/CORRECT examples and the construction recipe).
+> ```
+> CORRECT — rule body inlines every WRONG/CORRECT example, recipe, and command from the source lesson(s). The lesson file becomes archival and is NOT cited from the rule body:
+> ```markdown
+> ## §1. Schema Pin requirement
+> Every task file whose Required Context references a DB table MUST include
+> a Schema Pin section.
+> WRONG: the brief asserts column shapes from the author's mental model.
+>     {full WRONG SQL example inlined verbatim from the lesson body}
+> CORRECT: the brief includes a Schema Pin section quoting actual columns.
+>     {full CORRECT example inlined verbatim from the lesson body}
+> ```
+
+### 3.2 CLAUDE.md callouts describe the reason, not the source ID
+
+> [!constraint] CLAUDE.md Callout Reasoning
+> WRONG — callout reasons by lesson ID, leaving the reader to chase the citation:
+> ```markdown
+> > [!binding] Verbatim Extraction
+> > Reason: LL-X (verbatim-extraction failure) — see lesson for examples.
+> ```
+> CORRECT — callout states the reason in plain language and points at the RULE that encodes it:
+> ```markdown
+> > [!binding] Verbatim Extraction
+> > Reason: an Execution Input that cites a "Consolidated Context part" as
+> > authoritative MUST carry the full prose, not just a Cross-References row.
+> > See `.claude/rules/{path}/verbatim-extraction.md` §2.
+> ```
+
+### 3.3 Rules / agents / handlers must not cite backlog items either
+
+> [!constraint] No BB Citations in Content Artifacts
+> WRONG — an agent check definition cites a project backlog item as its source:
+> ```markdown
+> ### Check 042 — Bidirectional EI Consistency
+> - **Source:** BB-NNN P4
+> - **What:** every Spec in `Extracted from:` MUST appear in Cross-References.
+> ```
+> CORRECT — agent check definition stands on its own, sourced (if anywhere) from a plugin-internal design label or the rule it enforces:
+> ```markdown
+> ### Check 042 — Bidirectional EI Consistency
+> - **Source:** `references/ei-fidelity.md` §8.1
+> - **What:** every Spec in `Extracted from:` MUST appear in Cross-References.
+> ```
+> Plugin-internal design IDs (`PLG-NNN` and similar that ship inside the plugin's own design docs) are allowed as `Source:` values because they refer to documents that travel with the plugin. Consumer-project `BB-NNN` and `LL-NNN` do not.
+
+### 3.4 Bookkeeping artifacts SHOULD carry cross-refs
+
+> [!practice] Bookkeeping Cross-Refs Are Encouraged
+> The Rule Promotion Log, the lessons Master Table, the backlog Master Table, the lesson `applied-as:` field, and the BB "Closes:" header all SHOULD carry cross-refs:
+> ```markdown
+> | Date       | Lesson ID | Artifact Created                         | File                                      |
+> |------------|-----------|------------------------------------------|-------------------------------------------|
+> | YYYY-MM-DD | LL-NNN    | `.claude/rules/{name}.md` §1            | `[link]({lessons_dir}/Archive/LL-NNN…md)` |
+> ```
+> These citations exist to answer "where did this rule come from?" — strip them and traceability is lost. The constraints in §3.1-§3.3 cover rule prose, not the audit trail.
+
+---
+
+## 4. Mechanical Verification
+
+Every BB that produces content-bearing artifacts MUST include a self-containment grep in its Acceptance Criteria. The grep covers BOTH `LL-NNN` and `BB-NNN` patterns across ALL content-bearing artifact paths the BB touched.
+
+> [!verify] Self-Containment Grep
+> ```bash
+> # Bash / POSIX — replace {paths-touched} with the actual files this BB wrote:
+> grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' \
+>   .claude/rules/{paths-touched} \
+>   .claude/agents/{paths-touched} \
+>   .claude/skills/{paths-touched} \
+>   .claude/commands/{paths-touched} \
+>   CLAUDE.md
+> # MUST return zero matches.
+> ```
+>
+> ```powershell
+> # PowerShell (Windows shells):
+> Get-ChildItem -Path .claude/rules, .claude/agents, .claude/skills, .claude/commands, CLAUDE.md `
+>   -Recurse -Include *.md `
+>   | Select-String -Pattern '(LL-\d{3}|BB-\d{3})'
+> # MUST return zero matches.
+> ```
+
+If grep returns matches, the BB executor MUST inline the cited content into the rule body or remove the reference. The check is binary — any `LL-NNN` or `BB-NNN` reference in any content-bearing artifact is a fail.
+
+### 4.1 What the grep deliberately does NOT cover
+
+The grep scans content-bearing artifact zones only. It deliberately does NOT scan:
+
+| Zone | Why exempt |
+|------|-----------|
+| `{lessons_dir}/**` | The Master Table, Rule Promotion Log, and lesson frontmatter all carry cross-refs by design. |
+| `{backlog_dir}/**` | BB Notes, BB header metadata, and the backlog index Dependencies notes all carry cross-refs by design. |
+| `README.md` Changelog / "Lessons folded in" / "BBs shipped" sections | Historical traceability at the document bottom. The user can read it and decide if it is still useful; it does not load-bear the rule prose. |
+| Plugin-internal `PLG-NNN`, `BB-NNN`-style design labels | These are the plugin's OWN bookkeeping (e.g., `BB-031` as a design item inside the plugin's authoring repo), distinct from a consumer project's backlog. They travel with the plugin and never dangle. |
+
+---
+
+## 5. Single-Lesson Promotion Integration
+
+The single-lesson promote flow (`handlers/lessons.md` Stage 4 Generate) writes one artifact file from one lesson. The same self-containment rule applies:
+
+1. **Generate** the artifact with all WRONG/CORRECT examples, recipes, and verification commands from the source lesson inlined verbatim or in faithful paraphrase.
+2. **Run the §4 grep** against the new artifact before completing Stage 4.
+3. If matches → revise the artifact body to inline the cited content; do not proceed to Stage 5 (Update Frontmatter) until the grep returns zero.
+
+This is the canonical version of the Stage 4 verification. The lesson frontmatter `applied-as:` pointer written at Stage 5 and the Rule Promotion Log row appended at Stage 7 are bookkeeping artifacts — they carry the `LL-NNN` reference, and that is correct.
+
+---
+
+## 6. Backlog Item Execution Integration
+
+When a BB executes (via `/planwise backlog` Route A direct-fix, Route B task list, or Route C session plan) and the produced changes include edits under `.claude/rules/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/commands/**`, or `CLAUDE.md`, the Phase 5 VERIFY step MUST run the §4 grep on the produced diff before the BB can be marked COMPLETE.
+
+If the grep finds matches:
+
+- **Route A (fix-agent direct fix):** mark VERIFY as failing, return the grep output to fix-agent, ask for an inlining pass.
+- **Route B (task list):** open a follow-up task to inline the cited content; do not mark the BB COMPLETE until the follow-up passes.
+- **Route C (session plan):** the produced plan SHOULD include a self-containment grep step in its own acceptance criteria; if the plan is already complete and the grep fails, file a follow-up BB.
+
+A BB whose changes touch ONLY bookkeeping zones (the lessons index, the backlog index, lesson frontmatter, BB Notes) does NOT need the §4 grep gate.
+
+---
+
+## 7. Exemptions
+
+A small set of cases need exemption from the §4 grep. When a BB needs one of these, declare it explicitly in the BB's Acceptance Criteria so the grep call is scoped or grep-excluded:
+
+| Exemption | Pattern | Where it shows up |
+|-----------|---------|-------------------|
+| Command-syntax usage examples | `/planwise lessons promote LL-NNN` shown as a literal sample | `handlers/lessons.md`, `README.md` usage examples, skill `examples:` blocks |
+| Seed template starting state | `Next available ID: LL-001` in a fresh project's lessons index | `seed/00-Index-LessonsLearned.md` and equivalents |
+| Sample data rows in template docs | `| LL-NNN | Example Lesson Title | … |` in a "here is the index format" reference table | `handlers/lessons.md` template examples |
+| Plugin-internal design labels | `PLG-NNN`, `BB-031`-style labels referring to the plugin's own design docs | agent definitions, plan-reviewer checks |
+
+Each exemption MUST be a sample/placeholder pattern, NOT a load-bearing cross-reference to recover content from a specific lesson or backlog item. If you find yourself adding an exemption to silence a grep hit that IS actually a citation, the fix is to inline the content — not to widen the exemption list.
+
+---
+
+*Cross-references: [lessons-promote-batch-workflow-Part-2-DraftAndWrite.md §5.2](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md) (specialises this rule for the batch-promotion workflow), [callout-conventions.md](callout-conventions.md), [rule-authoring.md](rule-authoring.md).*
