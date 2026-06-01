@@ -77,7 +77,7 @@ If the user only wants Phase 1+2 (a grouping plan without draft BBs), accept `--
 |---------------|-------------|
 | `--category=X` (X is a top-level `bucket.id` from `config.yaml: categorization.buckets`) | All `documented` lessons currently listed under bucket X in the categorisation file |
 | `--category=Cn` (a sub-bucket id from `bucket.sub_buckets[]`) | All `documented` lessons under that specific sub-bucket. Sub-buckets are first-class scope targets — they are addressed identically to top-level buckets. |
-| `LL-052,LL-053,LL-054` (comma-separated) | Exactly those lessons |
+| `LL-001,LL-002,LL-003` (comma-separated) | Exactly those lessons |
 | `--all-documented` | Every `documented` lesson across all buckets — likely produces multiple BBs |
 | (no arguments) | Ask the user what scope to use via `AskUserQuestion`; do NOT assume `--all-documented` |
 

@@ -240,21 +240,25 @@ artifacts:
       loop ignores it; this row exists so contributors don't invent a
       duplicate install path.
 
-  - id: artifact_self_containment_reference
-    on_disk: "plugin in-place (references/artifact-self-containment.md)"
+  - id: artifact_self_containment_rule
+    on_disk: ".claude/rules/planwise/artifact-self-containment.md"
     config_keys: []
-    producer: "(not produced — read in-place from the plugin)"
+    producer: "install_rules()"
     consumers:
       - "/planwise lessons promote (Stage 4 self-containment grep)"
       - "/planwise lessons promote-batch"
       - "/planwise backlog"
     missing_key_behavior: warn_loud
-    upgrade_behavior: not_installed
+    upgrade_behavior: refresh_or_sidecar
     notes: >
-      Read in-place when promoting a lesson or backlog item to an artifact, to
-      verify the produced artifact inlines all source content. Never copied to
-      the project and not path-scoped — the rule applies at promotion time, not
-      via file-activity triggers. Row exists for contributor visibility.
+      Binding rule — promoted content-bearing artifacts (rules, agents, skills,
+      handlers, CLAUDE.md callouts) MUST inline source-lesson/BB content, never
+      cite it. Installed as a path-scoped rule covering the content-bearing
+      artifact zones (.claude/rules|agents|skills|commands/**, CLAUDE.md) so the
+      discipline injects when those artifacts are authored, and also read
+      in-place by the promote/backlog self-containment grep gate. Covered by the
+      planwise_rules glob row for refresh; listed individually because it has
+      cross-handler consumers worth documenting.
 
   - id: lessons_curate_workflow_reference
     on_disk: "plugin in-place (references/lessons-curate-workflow.md)"
@@ -297,19 +301,23 @@ artifacts:
       promote-batch mode runs; never copied to the project and not path-scoped.
       Row exists for contributor visibility.
 
-  - id: verification_task_authoring_reference
-    on_disk: "plugin in-place (references/verification-task-authoring.md)"
+  - id: verification_task_authoring_rule
+    on_disk: ".claude/rules/planwise/verification-task-authoring.md"
     config_keys: []
-    producer: "(not produced — read in-place from the plugin)"
+    producer: "install_rules()"
     consumers:
       - "/planwise review (plan-reviewer)"
     missing_key_behavior: warn_loud
-    upgrade_behavior: not_installed
+    upgrade_behavior: refresh_or_sidecar
     notes: >
-      Reference for authoring and validating verification-command sections in
-      task files. Read in-place by the plan-reviewer agent; never copied to the
-      project and not path-scoped — the rule applies at authoring/review time,
-      not via file-activity triggers. Row exists for contributor visibility.
+      Match-pattern authoring discipline for verification tasks (per-unit
+      existence assertions over aggregate counts, denominator scoping, PASS/FAIL
+      contract, orchestrator adjudication of BLOCKER-from-heuristic). Ships with
+      a `paths:` frontmatter line and is installed as a path-scoped rule over
+      {planwise_root}/{plans_dir}/**; also read in-place by the plan-reviewer
+      agent at review time. Covered by the planwise_rules glob row for refresh;
+      listed individually because it has a named consumer worth documenting.
+
 
 # Skills register their config dependencies here so the gap-detection rule
 # stays mechanical. To extend:

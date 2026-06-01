@@ -233,7 +233,7 @@ Curate runs two phases against your lesson set. Phase 1 sorts uncategorised less
 **Batch-draft promotion plans for a whole bucket:**
 ```
 /planwise lessons promote-batch --category=A
-/planwise lessons promote-batch LL-052,LL-053,LL-054
+/planwise lessons promote-batch LL-001,LL-002,LL-003
 /planwise lessons promote-batch --all-documented
 /planwise lessons promote-batch --category=A --dry-run
 ```
@@ -328,8 +328,8 @@ planwise/                           # Plugin root
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 9 subcommand handlers (init, plan, review, run, upgrade, backlog, list, lessons, help)
   agents/                           # 4 custom AI agents (auto-mirrored into project .claude/agents/ on init)
-  references/                       # 22 knowledge base documents (17 installed as path-scoped rules + 3 lessons-workflow helpers + 2 authoring/verification helpers, consumed inline)
-  templates/                        # 13 markdown templates
+  references/                       # 23 knowledge base documents (17 installed as path-scoped rules + 6 consumed inline: 3 lessons-workflow helpers, 2 authoring/verification helpers, 1 DELEGATED-dispatch extract)
+  templates/                        # 12 markdown templates
   seed/                             # Index file seeds for init
   scripts/                          # 8 Python scripts (7 backlog utilities + init_project.py)
   examples/                         # Sample outputs
@@ -340,9 +340,21 @@ planwise/                           # Plugin root
 
 ## Changelog
 
-### 1.0.2 (PPU remediation)
+### 1.0.2
 
-This release closes the gaps surfaced by the 2026-05-22 external-feedback audit. The 1.1.0 release shipped the enforcement layer (reviewer checks, role wiring) ahead of the rule prose it referenced; v1.2.0 authors the missing rule prose, repoints every dangling reviewer citation, ships the two reserved project-agnostic references, and applies the two divergence decisions. The "all 16 Consolidated Context parts implemented" criterion that 1.1.0 over-claimed (audit C1) is closed only with this release.
+This release closes the gaps surfaced by the 2026-05-22 external-feedback audit and completes the enforcement system on top of the 1.0.1 baseline. The enforcement layer (reviewer checks, role wiring) was built first, ahead of the rule prose it referenced; this release authors the missing rule prose, repoints every dangling reviewer citation, ships the two reserved project-agnostic references, and applies the two divergence decisions. The earlier "all 16 Consolidated Context parts implemented" over-claim (audit C1) is closed here.
+
+**Release-readiness fixes (closing the v1.0.2 tag-blockers):**
+
+A pre-release review pass surfaced a set of release-blocking defects across the subcommand handlers, the `SKILL.md` dispatcher contract, the reviewer severity gates, and packaging metadata. v1.0.2 closes all of them:
+
+- **Backlog pipeline scripts** — `parse_backlog.py` gained `--next-id` (prints the next zero-padded backlog-item id) and `update_backlog.py` gained a `--create` mode (`--feature` / `--priority` / `--abbrev` / `--files`), so the follow-up-capture pipeline in `handlers/backlog.md` is backed by real CLI flags instead of phantom ones; `score_backlog.py` gained a discoverable `--config` flag.
+- **Dispatcher contract** — `handlers/review.md` Phase 0 now reads the plan path from `$1` (was `$0`); reviewer Checks 013/014/015 declare **BLOCKER**, matching the `review.md` error-pattern catalog.
+- **Packaging** — `marketplace.json` and `plugin.json` both declare `1.0.2`; the sample output uses `/planwise run` (was the retired `/execute`).
+- **Cross-document coherence** — `references/session-planning-protocol.md §13` is now a single pointer to the canonical 5-field confirmation block in `references/session-execution-protocol.md §1`; `references/skill-authoring.md` marks the skill `description` field **REQUIRED**.
+- **Templates & callouts** — `templates/summary-template.md` gained a `## 8. Lessons Learned` section; a new `> [!followup]` callout type joined the callout catalog (catalog count 18 → 19).
+- **Cleanup** — two zero-citer orphan files removed (`templates/triage-prompt.md`, `seed/SAMPLE-Summary.md`); project-internal plan identifiers scrubbed from handler/reference prose; `manifests/artifacts.yaml` reconciled.
+- **Base-context reduction** — the DELEGATED-dispatch half of `references/agent-orchestration.md §11` was extracted into the new `references/agent-orchestration-delegated.md`, trimming ~3.8K tokens of base context per `/planwise` invocation; all `§11.*` citers were re-anchored.
 
 **Missing rule-body sections authored:**
 
@@ -353,7 +365,7 @@ This release closes the gaps surfaced by the 2026-05-22 external-feedback audit.
 - `references/discovery-and-exit-criteria.md` §17 (design-extension) + §18 (audit-triage) + §16.3 (BLI-cited-anchor re-verification — PLG-019)
 - `references/callout-conventions.md` — PLG-007 S4 Sequential Chain pattern + new `> [!chain-halt]` callout type
 - `references/session-plan-requirements.md` — §B Selective Helper Enumeration (PLG-010)
-- `references/agent-orchestration.md` §11.13 PLG-020 shared-target matrix restored (Option A cap-at-4 / Option B shards / Option C orchestrator-reconciled — PREFERRED); §11.14 Orchestrator-Only Review Commands + §11.15 Delegated Code Task-Runners Build LAST (LL-057, project-agnostic); §11 hierarchy normalised (ToC entries; H3 promotions; §7→§11.7 cross-link added)
+- `references/agent-orchestration.md` §11.13 PLG-020 shared-target matrix restored (Option A cap-at-4 / Option B shards / Option C orchestrator-reconciled — PREFERRED); §11.14 Orchestrator-Only Review Commands + §11.15 Delegated Code Task-Runners Build LAST (project-agnostic); §11 hierarchy normalised (ToC entries; H3 promotions; §7→§11.7 cross-link added)
 
 **Dangling-reference defect closed (audit §0):**
 
@@ -361,13 +373,13 @@ Every `§N.M` citation across `agents/plan-reviewer.md`, `handlers/review.md`, `
 
 **New references:**
 
-- `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement (generalised from RevitWise round-trip-gate + LL-052; 122 lines, project-agnostic)
-- `references/verify-against-shipped-artifact.md` — cross-sprint + cross-version symbol verification; §6 Discovery-phase citation + SDK-premise verification (LL-054 folded in; 532 lines, project-agnostic)
+- `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement (122 lines, project-agnostic)
+- `references/verify-against-shipped-artifact.md` — cross-sprint + cross-version symbol verification; §6 Discovery-phase citation + SDK-premise verification (532 lines, project-agnostic)
 - `references/webfetch-registry-fallbacks.md` — recorded **JUSTIFIED-SKIP *low-value*** (kernel too thin + wrong-domain + no enforcement layer). Stub removed from `scripts/init_project.py` / `handlers/init.md` / README. Slot permanently retired (not deferred).
 
 **Divergence decisions:**
 
-- **PLG-003 enforcement severity** — raised WARNING → BLOCKING for runnable-artifact tasks. Source PLG-003 §3C called BLOCKING; the v1.2.0 population infrastructure (`templates/task-file.md` Per-File-Type table + `handlers/plan.md` Step 8e Populate Verification Commands) makes the constraint coherent; the `<!-- VERIFICATION: not-applicable (reason) -->` HTML-comment escape hatch covers legitimate doc/decision-only exemptions. Applied to `references/session-plan-requirements.md` enforcement table + `handlers/review.md` rows 34/35/36.
+- **PLG-003 enforcement severity** — raised WARNING → BLOCKING for runnable-artifact tasks. Source PLG-003 §3C called BLOCKING; the v1.0.2 population infrastructure (`templates/task-file.md` Per-File-Type table + `handlers/plan.md` Step 8e Populate Verification Commands) makes the constraint coherent; the `<!-- VERIFICATION: not-applicable (reason) -->` HTML-comment escape hatch covers legitimate doc/decision-only exemptions. Applied to `references/session-plan-requirements.md` enforcement table + `handlers/review.md` rows 34/35/36.
 - **`--scaffold-per-sprint`** — recorded **JUSTIFIED-SKIP *out-of-remediation-scope***. The full per-Exec-sprint Scaffold-session resume mechanism is a new feature beyond remediation scope; the shipped pause-between-sprints behavior is accurately documented in `handlers/plan.md` (no over-claim, no README correction required). Added `> [!practice] Scope — Pause-Between-Sprints, Not Per-Sprint Scaffold Sessions` block to `handlers/plan.md` so the intentional simplification is visible to future maintainers.
 
 **Wiring gaps closed:**
@@ -383,29 +395,29 @@ Every `§N.M` citation across `agents/plan-reviewer.md`, `handlers/review.md`, `
 
 **Lessons folded in:**
 
-- **LL-052** — folded into `references/verification-gates.md` as `> [!practice]` (round-trip evidence as sprint exit-gate)
-- **LL-054** — folded into `references/verify-against-shipped-artifact.md` §6 with `> [!constraint]` (WRONG: silent laundering of stale `file:line` + verified-false delegate-only premise → CORRECT: verified position + prominent task-brief premise correction) + operational rule for multi-task Discovery sessions + `> [!practice]` enforcing prominent (non-silent) corrections
-- **LL-057** — folded into `references/agent-orchestration.md` §11.14 (Orchestrator-Only Review Commands) + §11.15 (Delegated Code Task-Runners Build LAST); both `> [!constraint]`, project-agnostic (`{build-cmd}` placeholder + "review lenses" generic phrasing)
+- A `> [!practice]` in `references/verification-gates.md` establishes round-trip evidence as a sprint exit-gate.
+- A `> [!constraint]` in `references/verify-against-shipped-artifact.md` §6 (WRONG: silent laundering of stale `file:line` + a verified-false delegate-only premise → CORRECT: verified position + prominent task-brief premise correction), plus an operational rule for multi-task Discovery sessions and a `> [!practice]` enforcing prominent (non-silent) corrections.
+- Two `> [!constraint]` blocks in `references/agent-orchestration.md` §11.14 (Orchestrator-Only Review Commands) + §11.15 (Delegated Code Task-Runners Build LAST), both project-agnostic (`{build-cmd}` placeholder + generic "review lenses" phrasing).
 
-**1.1.0 reconciliation (no over-claims):**
+**Reconciliation (no over-claims):**
 
 - "Pending user confirmation" hedges on `verification-gates.md` and `verify-against-shipped-artifact.md` removed from README and `handlers/init.md` — both files ship.
-- Reference count reconciled: `references/` holds 22 files (17 installed as path-scoped rules + 3 lessons-workflow helpers + 2 authoring/verification helpers consumed inline). The 1.1.0 "18 (10 baseline + 5 confirmed + 3 pending)" count is corrected here.
-- PPU Disposition Ledger marked **RESOLVED** — every recommendation in the source corpus carries an explicit verdict (IMPLEMENT, ALREADY COMPLETE, or JUSTIFIED-SKIP with a fixed-taxonomy reason).
+- Reference count reconciled: `references/` holds 23 files (17 installed as path-scoped rules + 6 consumed inline). The earlier "18 (10 baseline + 5 confirmed + 3 pending)" count is corrected here — the remediation reconciliation landed 22; the §11 DELEGATED-dispatch extract listed above added the 23rd.
+- The disposition ledger was marked **RESOLVED** — every recommendation in the source corpus carries an explicit verdict (IMPLEMENT, ALREADY COMPLETE, or JUSTIFIED-SKIP with a fixed-taxonomy reason).
 
-### 1.1.0 (PPU initial release)
+**Foundational enforcement layer & new artifacts:**
 
-> **Note (added in 1.2.0):** The 1.1.0 release shipped the enforcement layer (reviewer checks, role wiring) ahead of the rule prose it referenced. The 2026-05-22 external-feedback audit identified the gap; v1.2.0 closes it. The original 1.1.0 entries are preserved below; the "pending user confirmation" hedges have been removed (those references now ship), and the `webfetch-registry-fallbacks.md` slot was retired in v1.2.0 (JUSTIFIED-SKIP *low-value*).
+These landed first — the enforcement scaffolding and new files that the rule-body authoring above completes. The "pending user confirmation" hedges have since been removed (those references now ship), and the `webfetch-registry-fallbacks.md` slot was retired (JUSTIFIED-SKIP *low-value*).
 
-**New reference files** (7 shipped — `webfetch-registry-fallbacks.md` retired in v1.2.0):
+**New reference files** (7 shipped — `webfetch-registry-fallbacks.md` retired):
 
-- `references/ei-fidelity.md` — Execution Input fidelity (§3.1 + §8 authored in v1.2.0)
-- `references/task-content-fidelity.md` — Task content fidelity §9.A + §9.B (§9.A.4-7 + §9.B.6-9 authored in v1.2.0)
-- `references/schema-pin-requirement.md` — Schema Pin requirement for SQL-emitting tasks (§3.1 authored in v1.2.0)
-- `references/discovery-and-exit-criteria.md` — Discovery scope rigor + cross-layer exit-criteria fidelity (§17 + §18 authored in v1.2.0)
-- `references/scaffolding-hygiene.md` — Six binding rules for plan scaffolding (§8 + §9 + §10 authored in v1.2.0)
-- `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement (file authored in v1.2.0)
-- `references/verify-against-shipped-artifact.md` — Cross-sprint + cross-version symbol verification (file authored in v1.2.0)
+- `references/ei-fidelity.md` — Execution Input fidelity (§3.1 + §8 authored in v1.0.2)
+- `references/task-content-fidelity.md` — Task content fidelity §9.A + §9.B (§9.A.4-7 + §9.B.6-9 authored in v1.0.2)
+- `references/schema-pin-requirement.md` — Schema Pin requirement for SQL-emitting tasks (§3.1 authored in v1.0.2)
+- `references/discovery-and-exit-criteria.md` — Discovery scope rigor + cross-layer exit-criteria fidelity (§17 + §18 authored in v1.0.2)
+- `references/scaffolding-hygiene.md` — Six binding rules for plan scaffolding (§8 + §9 + §10 authored in v1.0.2)
+- `references/verification-gates.md` — IPC / protocol / codec round-trip evidence requirement (file authored in v1.0.2)
+- `references/verify-against-shipped-artifact.md` — Cross-sprint + cross-version symbol verification (file authored in v1.0.2)
 
 **New template:**
 
@@ -417,13 +429,13 @@ Every `§N.M` citation across `agents/plan-reviewer.md`, `handlers/review.md`, `
 - `handlers/review.md` — Namespaced agent spawns (`planwise:plan-reviewer`, `planwise:structural-reviewer`) at 7 spawn sites; ~12 new Error Pattern Catalog entries; Required References extended with 4 new conditional loads; Auto-Init Fallback Config Gate
 - `handlers/run.md` — Namespaced `task-runner` spawns at 4 sites; Phase 4.3 user-action-gate check; Auto-Init Fallback Config Gate; Auto-Mode tags at 3 critical + 1 convenience sites
 - `handlers/backlog.md` — Namespaced `fix-agent` spawn at 1 site; new Phase 7 FOLLOW-UP BLI CAPTURE (auto-files actionable recommendations from resolution Outputs); existing Phase 7 renumbered to Phase 8; Auto-Init Fallback Config Gate; Auto-Mode tags at 2 critical + 3 convenience sites
-- `handlers/init.md` — Step 6 Rules table extended with 7 new reference rows (count reconciled to 17 in v1.2.0); NEW Step 6b agent mirroring; NEW `## Called As Subroutine` section documenting `--auto-from` subroutine contract; Step 10 banner updated to include Agents mirrored section
+- `handlers/init.md` — Step 6 Rules table extended with 7 new reference rows (count reconciled to 17 in v1.0.2); NEW Step 6b agent mirroring; NEW `## Called As Subroutine` section documenting `--auto-from` subroutine contract; Step 10 banner updated to include Agents mirrored section
 - `handlers/list.md` — Auto-Init Fallback Config Gate (no other substantive changes)
 - `handlers/lessons.md` — Auto-Init Fallback Config Gate + Auto-Mode tags at 4 critical sites *(applied AFTER LCP-S03 merges)*
 
 **Agent enhancements** (covered in separate consolidation parts):
 
-- `agents/plan-reviewer.md` — Role checklists extended with ~50+ new BLOCKING / ERROR / WARNING checks (PLG-001..022 + Markuup + BB-028/031/032)
+- `agents/plan-reviewer.md` — Role checklists extended with ~50+ new BLOCKING / ERROR / WARNING checks (PLG-001..022)
 - `agents/structural-reviewer.md` — Folder-count check; Outputs/.gitkeep presence check; sequential-sprint prerequisite check
 
 **Template enhancements:**
@@ -446,14 +458,7 @@ Every `§N.M` citation across `agents/plan-reviewer.md`, `handlers/review.md`, `
 - New `install_agents()` function in `scripts/init_project.py` mirrors plugin agents into `.claude/agents/` (companion to PLG-017 namespacing)
 - New `--auto-from {caller}` flag in `init_project.py` for subroutine-mode invocation
 
-**Plugin file structure** (updated counts):
-
-```
-planwise/
-  handlers/      # 8 subcommand handlers (init, plan, review, run, backlog, list, lessons, help)
-  references/   # 20 knowledge base documents (17 path-scoped rules + 3 lessons-workflow helpers); count reconciled in v1.2.0
-  templates/    # 13 markdown templates (12 baseline + sprint-signoff.md)
-```
+(The plugin's current file layout and counts are documented in the [Plugin file structure](#plugin-file-structure) section above.)
 
 ### 1.0.1
 

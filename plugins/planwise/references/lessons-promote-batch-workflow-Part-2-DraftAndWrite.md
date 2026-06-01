@@ -359,7 +359,7 @@ The source-skill version of this workflow introduced a transient `partial-promot
 |-----------|-----------------|
 | `/planwise lessons promote-batch --category=A` | Drafts one BB for top-level bucket A's documented lessons |
 | `/planwise lessons promote-batch --category=C1` | Drafts one BB for sub-bucket C1's documented lessons |
-| `/planwise lessons promote-batch LL-052,LL-053,LL-054` | Drafts one BB containing exactly those three lessons (asks user how to group if they span buckets) |
+| `/planwise lessons promote-batch LL-001,LL-002,LL-003` | Drafts one BB containing exactly those three lessons (asks user how to group if they span buckets) |
 | `/planwise lessons promote-batch --all-documented` | Drafts one BB per top-level bucket; reports total count to chat first for confirmation |
 | `/planwise lessons promote-batch --category=C3 --dry-run` | Phases 1+2 only — reports the grouping plan without writing BB files. Phase 1 full-body lesson reads still happen. |
 | `/planwise lessons promote-batch` (no args) | Asks the user what scope to use via `AskUserQuestion`; does NOT assume a default |

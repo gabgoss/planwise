@@ -79,6 +79,7 @@ INSTALLED_RULES: list[tuple[str, str]] = [
     ("agent-authoring.md", ".claude/agents/**"),
     ("skill-authoring.md", ".claude/skills/**"),
     ("rule-authoring.md", ".claude/rules/**"),
+    ("artifact-self-containment.md", ".claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md"),
     ("session-planning-protocol.md", "{plans_path}"),
     ("session-plan-requirements.md", "{plans_path}"),
     ("session-context-budget.md", "{plans_path}"),
@@ -89,10 +90,12 @@ INSTALLED_RULES: list[tuple[str, str]] = [
     ("schema-pin-requirement.md", "{plans_path}"),
     ("task-content-fidelity.md", "{plans_path}"),
     ("agent-orchestration.md", "{all_paths}"),
+    ("agent-orchestration-delegated.md", "{all_paths}"),
     ("callout-conventions.md", "{all_paths}"),
     ("markdown-conventions.md", "{all_paths}"),
     ("verification-gates.md", "{plans_path}"),
     ("verify-against-shipped-artifact.md", "{plans_path}"),
+    ("verification-task-authoring.md", "{plans_path}"),
 ]
 
 # Filenames copied verbatim from agents/ into .claude/agents/ on init.

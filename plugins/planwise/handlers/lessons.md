@@ -6,7 +6,7 @@
 ```
 /planwise lessons
 /planwise lessons python regex
-/planwise lessons promote LL-022
+/planwise lessons promote LL-003
 /planwise lessons capture
 ```
 
