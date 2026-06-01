@@ -83,3 +83,9 @@ The `Propagated To` column MUST name the destination file (task / orchestration 
 **Ready for:** Session-{YY+1}-{NextSessionName}
 **Dependencies satisfied:** Yes / No (explain if No)
 **Blocking issues:** None / {list if any}
+
+---
+
+## 8. Lessons Learned
+
+{Bullet list of LL-{NNN} entries created this session, OR the literal text "No lessons captured this session." if none captured.}

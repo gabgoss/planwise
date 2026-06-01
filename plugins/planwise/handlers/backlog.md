@@ -543,6 +543,7 @@ python {plugin_root}/scripts/parse_backlog.py [OPTIONS]
 | `--id ID` | No | Filter by specific item ID |
 | `--include-closed` | No | Include COMPLETE/CLOSED items |
 | `--show-blocked` | No | Include items blocked by open dependencies (hidden by default) |
+| `--next-id` | No | Print the next available BLI ID (NNN form, zero-padded) and exit |
 
 **Output:** Formatted table of selectable items + blocked items summary + `JSON: /tmp/backlog-XXXXX/items.json` path on last line.
 
@@ -565,14 +566,26 @@ python {plugin_root}/scripts/parse_backlog.py [OPTIONS]
 
 ### update_backlog.py
 
+Two modes: **status update** (default) and **create** (`--create`).
+
 ```bash
+# Update an existing item's status
 python {plugin_root}/scripts/update_backlog.py --id ID --status STATUS
+
+# Create a new backlog item (writes the BLI file from the template + appends an index row)
+python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATURE \
+  --priority PRIORITY --abbrev ABBREV --files FILES [--status STATUS]
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `--id ID` | Yes | Item ID (e.g., 002) |
-| `--status STATUS` | Yes | New status (NOT_STARTED, PLANNING, IN_PROGRESS, BLOCKED, COMPLETE, CLOSED) |
+| `--id ID` | Yes | Item ID (e.g., 002); in create mode, the new item's ID |
+| `--status STATUS` | Update: Yes — Create: No | New status (NOT_STARTED, PLANNING, IN_PROGRESS, BLOCKED, COMPLETE, CLOSED). In `--create` mode it is optional and defaults to NOT_STARTED |
+| `--create` | No | Create a new backlog item instead of updating an existing item's status |
+| `--feature FEATURE` | Create only | Feature / recommendation summary (required with `--create`) |
+| `--priority PRIORITY` | Create only | Priority — High, Medium, or Low (required with `--create`) |
+| `--abbrev ABBREV` | Create only | Domain abbreviation (required with `--create`) |
+| `--files FILES` | Create only | Affected files, semicolon-separated; the first is written as the new BLI file from `templates/backlog-item.md` (required with `--create`) |
 
 **Automatic archival (COMPLETE/CLOSED):** Moves item files to `{backlog_dir}/Archive/` and updates index links.
 

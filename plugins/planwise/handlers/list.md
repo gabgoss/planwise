@@ -13,7 +13,7 @@
 ## Config Gate (Auto-Init Fallback)
 
 1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
-2. If found → continue (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`).
+2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, and `project.index_files.plans` (as `{plans_index}`).
 3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "list"`, RE-RESOLVE, fail loud if still missing.
 
 > [!gate] Config Malformed → FAIL LOUD

@@ -71,6 +71,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 1. Read `references/session-planning-protocol.md`
 2. Read `references/session-plan-requirements.md`
 3. Read `references/session-context-budget.md`
+4. Read `references/session-execution-protocol.md` — source for READ-CONFIRM-ACT, the structural-findings gate, session invariants, and the post-step checklist (cited in this handler's checklists)
 
 **Conditional references:**
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`

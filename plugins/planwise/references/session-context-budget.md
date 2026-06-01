@@ -86,6 +86,8 @@ delegated_cap           = context_window
 | `practical_session_limit` | 100,000 | 400,000 |
 | `delegated_cap` | 200,000 | 1,000,000 |
 
+> **Note (threshold precedence):** Where the formula above and these per-tier tables disagree, the **tables are canonical**. On Pro the formula's `0.80 × available_for_work` yields 80K, but the Tier-Specific Budget Table and the per-tier table above both set `meta_plan_threshold = 100K` on Pro (500K on Max) — use the table value. The formula is a derivation aid for non-standard tiers; the tables are the binding decision boundary. `handlers/plan.md` branches on 100K/500K, matching the tables.
+
 Handlers that branch on a hardcoded number (e.g., "if total > 100K → Meta-Plan") MUST instead read the relevant variable from this table.
 
 ### Session Limits
@@ -201,7 +203,7 @@ Task token estimates MUST be computed bottom-up from measured or estimated file 
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
 **DELEGATED check:** `Task Estimate + 54K overhead < context_window per subagent` (subagents inherit the parent tier; read `context.context_window` from `config.yaml` — defaults to 200,000)
 
-For detailed per-operation costs, see the [Token Estimation Reference](reference.md#token-estimation-reference) in the planwise plugin.
+For detailed per-operation costs, see the [Token Estimation Reference](../handlers/plan.md#token-estimation-reference) in the planwise plugin.
 
 ### Token Estimate Reconciliation (BINDING)
 

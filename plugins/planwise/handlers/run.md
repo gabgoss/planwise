@@ -28,7 +28,7 @@
 ## Config Gate (Auto-Init Fallback)
 
 1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
-2. If found → continue (extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.lessons_dir`, `project.index_files.lessons`).
+2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.index_files.plans` (as `{plans_index}`), `project.lessons_dir`, and `project.index_files.lessons` (as `{lessons_index}`).
 3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "run"`, RE-RESOLVE, fail loud if still missing.
 
 > [!gate] Config Malformed → FAIL LOUD
@@ -53,6 +53,17 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
 - If a task involves DB writes or MERGE/upsert briefs: Read `references/task-content-fidelity.md`, `references/schema-pin-requirement.md`
 - If a session is IPC/protocol/codec: Read `references/verification-gates.md`
+
+---
+
+## AUTO-MODE Annotations
+
+`<!-- AUTO-MODE: critical|convenience -->` HTML comments classify the `AskUserQuestion` call site that immediately follows them, per `references/skill-authoring.md` §4b (Auto Mode Policy):
+
+- **`critical`** — the gate MUST always prompt the user; never auto-infer (e.g., scope decisions, destructive actions, a missing required argument).
+- **`convenience`** — in Auto Mode the handler MAY skip the prompt and proceed with the documented default; in normal interactive use it still prompts as written.
+
+The annotations are inert during ordinary interactive runs — they guide Auto Mode behavior only.
 
 ---
 
@@ -118,7 +129,7 @@ Output the confirmation block:
 > Current State: {Session Status from Recovery -- NOT_STARTED | IN_PROGRESS | COMPLETE}
 > Last Completed: {last COMPLETE task from Recovery, or "None" if NOT_STARTED}
 > Next Action: {first PENDING task description, or "Resume from Task {N}" if resuming}
-> Structural Finding: {none, OR a one-line summary + see Step 1.2a below}
+> Structural Finding: {none, or one-line summary — see §1.2}
 > ```
 
 #### Step 1.2a: Structural Finding (when READ reveals one)
@@ -373,6 +384,8 @@ Ask the user: "Were any lessons learned during this session?"
 7. Verify: every Recovery flag row now has a non-empty `Propagated To` entry in the Summary. A flag with no destination is a closeout error — return to step 2 and route it.
 
 ### Step 4.5: Git Commit
+
+If the session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before staging. Per `references/session-execution-protocol.md` §7 Git Workflow.
 
 ```bash
 git add {specific files changed during session}

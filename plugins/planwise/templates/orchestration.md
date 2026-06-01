@@ -80,7 +80,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 **Orchestrator NEVER reads:** {list the heavy files — Consolidated Context parts, reference docs, source code}
 **Subagents read:** Per-task Required Context (each subagent gets a fresh `available_for_work` budget at the parent's tier — ~100K on Pro, ~900K on Max; see `references/session-context-budget.md` §5)
 
-> **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + 54K < `context_window` (read from `config.yaml` `context.context_window` — 200K on Pro, 1M on Max; defaults to 200K when the block is missing). See [Token Estimation Reference](../reference.md#token-estimation-reference) for per-operation costs.
+> **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + 54K < `context_window` (read from `config.yaml` `context.context_window` — 200K on Pro, 1M on Max; defaults to 200K when the block is missing). See [Task-Level Estimation](../references/session-context-budget.md#task-level-estimation-binding) for the bottom-up estimation formula and conversion factor.
 
 ---
 
