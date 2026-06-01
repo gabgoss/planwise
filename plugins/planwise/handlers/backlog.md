@@ -187,7 +187,6 @@ Task {
     Description: {item-description}
     Affected files: {file-list}
     Build command: {build-command-from-config}
-    Backlog index: {backlog-dir}/{backlog-index}
 }
 ```
 

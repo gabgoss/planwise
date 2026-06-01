@@ -72,8 +72,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 ## Phase 0: Plan Discovery
 
-1. Parse `$ARGUMENTS` -- `$0` is the plan folder path or name; check for `--sprint NN`
-2. Locate plan in `{plans_dir}` (resolve `$0` as subfolder name or direct path)
+1. Parse `$ARGUMENTS` -- `$1` is the plan folder path or name; check for `--sprint NN`
+2. Locate plan in `{plans_dir}` (resolve `$1` as subfolder name or direct path)
 3. Read Master Plan -- extract abbreviation and plan type (Standard vs Meta-Plan)
 4. Detect plan type:
    - Meta-Plan: has `Meta-{Abbrev}/` subfolder and `Exec-{Abbrev}/` subfolder. For Meta-Plan reviews, write the report to the top-level plan folder (`{PlanPath}/Reviews/`), not inside `Exec-{Abbrev}/`.
@@ -89,10 +89,13 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 > | EIs | Sprints | Scale | Path |
 > |-----|---------|-------|------|
 > | 0 | 1 | TRIVIAL | No-Team Path |
+> | 0 | 2+ | MEDIUM | Team Path (standard) |
 > | 1 | 1-2 | SMALL | No-Team Path |
 > | 2-3 | any | MEDIUM | Team Path (standard) |
 > | 4-5 | any | LARGE | Team Path (full) |
 > | 6+ | any | VERY LARGE | Team Path (batched) |
+
+**Sprint-count crossover:** 2+ sprints alone triggers Team Path even with 0 EIs — per `agent-orchestration.md` §8, "Teams become worthwhile at 2+ EIs **or** 2+ sprints." Only a 0-EI single-sprint plan is TRIVIAL (No-Team Path).
 
 ---
 
@@ -152,6 +155,8 @@ Task(
     - Cross-sprint spec references that appear orphaned to a single-sprint scope are valid
 
     Execute BOTH the EI Reviewer and Task Reviewer checklists from your protocol.
+    If the plan is a Meta-Plan, ALSO execute the Scaffolding Hygiene Reviewer
+    checklist (Checks 046-050) in addition to the EI Reviewer + Task Reviewer checks.
 
     Report findings using the finding format in your protocol.
     Prefix uncertain findings (MEDIUM/LOW confidence) with [UNCERTAIN].
@@ -364,7 +369,7 @@ Task(
     First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
 
     Your assigned role: Design-Extension Reviewer
-    Execute Checks 051-054 from your protocol.
+    Execute Checks 051-054 and 062 from your protocol.
     ...
 )
 ```
@@ -620,7 +625,7 @@ Quick reference for common patterns and their correct classification.
 | 10 | Idle teammate treated as error | INFO | Normal behavior -- not a failure |
 | 11 | DELEGATED dispatch mandatory trigger violated (`agent-orchestration.md` §11.1) | BLOCKER | Orchestration Execution Strategy |
 | 12 | Task-file error recovery semantics missing (`agent-orchestration.md` §11.2) | BLOCKER | Task file Notes for Agent |
-| 13 | Schema Pin pre-execution form missing (`schema-pin-requirement.md` §3) | BLOCKER | Task file Required Context |
+| 13 | Schema Pin pre-execution form missing (`schema-pin-requirement.md` §4) | BLOCKER | Task file Required Context |
 | 14 | Token estimate uses `~?` placeholder (`task-content-fidelity.md` §9.A.2) | BLOCKER | Task file Estimated Tokens |
 | 15 | Cross-sprint Required Context not mirrored in Depends On (`session-plan-requirements.md` §9 cross-sprint) | BLOCKER | Task file Depends On |
 | 16 | EI bidirectional consistency violation (every Spec in `Extracted from:` MUST appear in ≥ 1 Cross-References row and vice versa) | WARNING (HIGH confidence) | EI header + Cross-References |

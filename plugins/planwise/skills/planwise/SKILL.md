@@ -4,7 +4,7 @@ description: >
   Agentic project management — plan, execute, review, and track projects
   with structured workflows. Use when user wants to create plans, run sessions,
   review plans, manage backlog items, or search lessons learned.
-argument-hint: "<init|plan|review|run|backlog|list|lessons|help> [args]"
+argument-hint: "<init|plan|review|run|upgrade|backlog|list|lessons|help> [args]"
 user-invocable: true
 disable-model-invocation: false
 ---

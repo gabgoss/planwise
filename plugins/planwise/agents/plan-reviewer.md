@@ -350,12 +350,12 @@ Fix: Add > [!constraint] Context Boundary per references/agent-orchestration.md 
 
 ### Check 013 — Task Verification Commands Section Present
 
-- **Severity / Role / Source / Type:** ERROR | Task Reviewer | PLG-003 (D-003) | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | PLG-003 (D-003) | NEW
 - **What:** Tasks touching code/tests/schemas MUST include `## Verification Commands` section using placeholder vocabulary.
-- **Detection:** Open task; grep `^## Verification Commands` heading. If task touches `{code, test, schema, migration, notebook}` AND section absent → ERROR.
+- **Detection:** Open task; grep `^## Verification Commands` heading. If task touches `{code, test, schema, migration, notebook}` AND section absent → BLOCKER.
 - **Finding template:**
 ```
-[ERROR] Task Verification Commands section missing
+[BLOCKER] Task Verification Commands section missing
 File: {task file path} | Location: Expected after Execution Steps
 Issue: Task touches {code|tests|schemas} but lacks Verification Commands
 Fix: Append ## Verification Commands per templates/task-file.md | Confidence: HIGH
@@ -364,12 +364,12 @@ Fix: Append ## Verification Commands per templates/task-file.md | Confidence: HI
 
 ### Check 014 — Per-File-Type Verification Table Populated
 
-- **Severity / Role / Source / Type:** WARNING | Task Reviewer | PLG-003 (D-003) | EXTEND
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | PLG-003 (D-003) | EXTEND
 - **What:** Verification Commands section MUST include per-file-type table with placeholder command rows (`{lint-cmd}`, `{format-cmd}`, `{test-cmd}`, `{exec-cmd}`).
-- **Detection:** Open Verification Commands section; count rows matching `{[a-z-]+-cmd}`. Zero → WARNING.
+- **Detection:** Open Verification Commands section; count rows matching `{[a-z-]+-cmd}`. Zero → BLOCKER.
 - **Finding template:**
 ```
-[WARNING] Per-file-type Verification Commands table not populated
+[BLOCKER] Per-file-type Verification Commands table not populated
 File: {task file path} | Location: Verification Commands section
 Issue: Table has no placeholder-command rows
 Fix: Add rows per templates/task-file.md Per-File-Type Commands | Confidence: MEDIUM
@@ -378,12 +378,12 @@ Fix: Add rows per templates/task-file.md Per-File-Type Commands | Confidence: ME
 
 ### Check 015 — Verification `> [!verify]` Before/After Block Present
 
-- **Severity / Role / Source / Type:** WARNING | Task Reviewer | PLG-003 (D-003) | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | PLG-003 (D-003) | NEW
 - **What:** Task files producing executable artifacts MUST include `> [!verify]` callout with Before/After bash commands.
-- **Detection:** Grep `> \[!verify\]` callout (multiline). Task Expected Output declares runnable artifact (notebook, script, binary) AND callout absent → WARNING.
+- **Detection:** Grep `> \[!verify\]` callout (multiline). Task Expected Output declares runnable artifact (notebook, script, binary) AND callout absent → BLOCKER.
 - **Finding template:**
 ```
-[WARNING] Verification > [!verify] Before/After block missing
+[BLOCKER] Verification > [!verify] Before/After block missing
 File: {task file path} | Location: Verification Commands section
 Issue: Task produces runnable artifact but lacks verify callout
 Fix: Add > [!verify] callout per references/callout-conventions.md | Confidence: MEDIUM
@@ -480,15 +480,15 @@ Fix: Categorize per references/task-content-fidelity.md §9.B.4 | Confidence: ME
 
 ### Check 022 — Task Schema Pin Pre-Execution Form
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | PLG-009 check 2 + `schema-pin-requirement.md` §3 (D-005, D-010) | NEW
-- **What:** DB-write tasks MUST include Schema Pin section in pre-execution form per `references/schema-pin-requirement.md` §3.
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | PLG-009 check 2 + `schema-pin-requirement.md` §4 (D-005, D-010) | NEW
+- **What:** DB-write tasks MUST include Schema Pin section in pre-execution form per `references/schema-pin-requirement.md` §4.
 - **Detection:** Grep task for `^### Schema Pin`. If Execution Steps mention `INSERT|UPDATE|MERGE|UPSERT|ALTER` AND Schema Pin absent → BLOCKER.
 - **Finding template:**
 ```
 [BLOCKER] Schema Pin pre-execution form missing
 File: {task file path} | Location: Expected ### Schema Pin section
 Issue: DB-write task lacks Schema Pin section
-Fix: Add Schema Pin per references/schema-pin-requirement.md §3 | Confidence: HIGH
+Fix: Add Schema Pin per references/schema-pin-requirement.md §4 | Confidence: HIGH
 ```
 - **Insert:** First item under `**New checks (PLG-009):**`.
 
