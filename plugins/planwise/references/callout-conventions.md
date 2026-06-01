@@ -1,5 +1,5 @@
 ---
-description: 18 project-specific callout types for semantic markup in markdown files — syntax, usage rules, and decision matrix
+description: 19 project-specific callout types for semantic markup in markdown files — syntax, usage rules, and decision matrix
 paths: .claude/rules/**, .claude/skills/**, .claude/hooks/**, .claude/agents/**, Docs/**
 ---
 
@@ -214,6 +214,12 @@ WRAP content in `> [!tooldoc]` when it documents a specific tool with Purpose, W
 
 DO NOT use for: tool selection decisions (`> [!decide]`), anti-patterns about tool misuse (`> [!antipattern]`), or tool configuration details (leave as code blocks).
 
+### `> [!followup]` — Follow-Up BLI Recommendation
+
+WRAP content in `> [!followup]` when encoding an actionable recommendation that should auto-surface as a backlog item during `/planwise backlog` Phase 7. Fields: Recommendation, Target file, Severity, Originating item.
+
+DO NOT use for: general notes or commentary (leave as prose), lessons-learned candidates (use lesson capture instead).
+
 ### `> [!binding]` — Sequential Chain (Halt-on-Failure) PATTERN
 
 This is a named **PATTERN**, not a new callout type — it uses the existing `> [!binding]` type. It is catalogued here so plans with serial chains do not re-derive the halt rule per plan.
@@ -298,6 +304,7 @@ When writing content and unsure which callout to use, follow this matrix:
 | Work document structure template | MUST | No | `> [!taskspec]` |
 | Rule-to-consequence mapping | MUST | Yes (rule/impact) | `> [!consequences]` |
 | Tool reference documentation | None | No | `> [!tooldoc]` |
+| Actionable backlog recommendation (target + severity) | Advisory | No | `> [!followup]` |
 
 ## 3. Quick Disambiguation
 
@@ -342,6 +349,7 @@ When writing content and unsure which callout to use, follow this matrix:
 | `> [!practice]` | SHOULD/PREFER language |
 | `> [!escalation]` | Ordered fallback priority |
 | `> [!delegate]` | Agent assignment (overlaps Group A) |
+| `> [!followup]` | Actionable backlog recommendation (auto-surfaces in `/planwise backlog`) |
 
 ### Group C: Verification
 
@@ -389,4 +397,4 @@ LIMIT nesting to 2 levels maximum. If deeper nesting is needed, split into separ
 
 ---
 
-*18 callout types designed from the 108-type unified content taxonomy. Apply these when writing or editing markdown to make content type explicit.*
+*19 callout types designed from the 108-type unified content taxonomy. Apply these when writing or editing markdown to make content type explicit.*

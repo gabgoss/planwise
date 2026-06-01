@@ -137,7 +137,7 @@ If `$2` is absent or not a recognised `--phase=` value, default to `both`.
 
 ### Output
 
-Chat report only (markdown summary with Phase 1 / Phase 2 / Anomalies sections per the reference doc's §6). File writes are limited to: appending rows to `00-Categorization-By-Domain.md` (Phase 1), appending rows to the Rule Promotion Log in `{lessons_dir}/{lessons_index}` (Phase 2), updating the Status column in the Master Table (Phase 2). No new `LL-*` files are created.
+Chat report only (markdown summary with Phase 1 / Phase 2 / Anomalies sections per the reference doc's §6). File writes are limited to: appending rows to `00-Categorization-By-Domain.md` and bumping its top-of-file `Last Updated:` line to the current date when Phase 1 appends new rows (Phase 1); appending rows to the Rule Promotion Log in `{lessons_dir}/{lessons_index}` (Phase 2); updating the Status column in the Master Table (Phase 2). No new `LL-*` files are created.
 
 ---
 

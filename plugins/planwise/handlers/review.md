@@ -646,7 +646,7 @@ Quick reference for common patterns and their correct classification.
 | 31 | Per-session `Outputs/` directory missing (PLG-001 / `scaffolding-hygiene.md` §5) | BLOCKER | Session folder |
 | 32 | Orchestration `**Prerequisite:**` declaration missing for sequential session (PLG-001 / `scaffolding-hygiene.md` §6) | ERROR | Orchestration Prerequisites |
 | 33 | Orchestration Context Boundary callout missing (PLG-002 / `agent-orchestration.md` §11.3) | BLOCKER | Orchestration Execution Strategy |
-| 34 | Verification Commands section missing for runnable-artifact task (PLG-003 / `verification-gates.md` §3) — exempt if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in task's Notes for Agent (per PPU-S08-02 Ledger P5-3) | BLOCKER | Task file Verification Commands |
+| 34 | Verification Commands section missing for runnable-artifact task (PLG-003 / `verification-gates.md` §3) — exempt if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in task's Notes for Agent | BLOCKER | Task file Verification Commands |
 | 35 | Per-file-type Verification Commands table empty (PLG-003 / `verification-gates.md` §3) — applies to runnable-artifact tasks per `templates/task-file.md` §Per-File-Type Commands | BLOCKER | Task file Verification Commands |
 | 36 | Verify Before/After callout missing for runnable artifact (PLG-003 / `verification-gates.md` §4) | BLOCKER | Task file Verification Commands |
 | 37 | Required Context not updated when a prior task changed file structure (PLG-004 / `task-content-fidelity.md` §9.A.1) | ERROR | Task Required Context |

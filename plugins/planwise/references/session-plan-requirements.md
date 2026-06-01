@@ -367,7 +367,7 @@ Never leave many-to-many mappings for the agent to infer.
 > | Severity   | Reviewer Action                                           |
 > | BLOCKING   | Block plan approval until populated or explicitly exempted |
 > ```
-> The escape hatch keeps the rule humane (pure-doc tasks aren't penalized) without weakening enforcement on tasks that actually produce runnable artifacts. Per PPU-S08-02 Disposition Ledger row P5-3 (Verdict: BLOCKING — raise from WARNING; rationale: source PLG-003 spec called BLOCKING, task-file template has per-file-type infrastructure, plan-handler Step 8e populates it, escape hatch covers legitimate exemptions).
+> The escape hatch keeps the rule humane (pure-doc tasks aren't penalized) without weakening enforcement on tasks that actually produce runnable artifacts. This check is BLOCKING rather than a warning: the source PLG-003 spec called for BLOCKING enforcement, the task-file template has per-file-type infrastructure, the plan-handler Step 8e populates it, and the escape hatch covers legitimate exemptions.
 
 > [!constraint] One Task File Per Task — Never Combined
 > WRONG — multiple tasks combined into one file, tasks numbered inline rather than as separate files:

@@ -240,6 +240,77 @@ artifacts:
       loop ignores it; this row exists so contributors don't invent a
       duplicate install path.
 
+  - id: artifact_self_containment_reference
+    on_disk: "plugin in-place (references/artifact-self-containment.md)"
+    config_keys: []
+    producer: "(not produced — read in-place from the plugin)"
+    consumers:
+      - "/planwise lessons promote (Stage 4 self-containment grep)"
+      - "/planwise lessons promote-batch"
+      - "/planwise backlog"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: not_installed
+    notes: >
+      Read in-place when promoting a lesson or backlog item to an artifact, to
+      verify the produced artifact inlines all source content. Never copied to
+      the project and not path-scoped — the rule applies at promotion time, not
+      via file-activity triggers. Row exists for contributor visibility.
+
+  - id: lessons_curate_workflow_reference
+    on_disk: "plugin in-place (references/lessons-curate-workflow.md)"
+    config_keys: []
+    producer: "(not produced — read in-place from the plugin)"
+    consumers:
+      - "/planwise lessons curate"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: not_installed
+    notes: >
+      Binding step-by-step protocol for curate mode (bucket selection,
+      reporting format, anomaly detection). Read in-place when curate mode runs;
+      never copied to the project and not path-scoped. Row exists for
+      contributor visibility.
+
+  - id: lessons_promote_batch_workflow_part1_reference
+    on_disk: "plugin in-place (references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md)"
+    config_keys: []
+    producer: "(not produced — read in-place from the plugin)"
+    consumers:
+      - "/planwise lessons promote-batch"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: not_installed
+    notes: >
+      Phases 1-2 (resolve scope, group lessons) of the batch-promote workflow.
+      Read in-place when promote-batch mode runs; never copied to the project
+      and not path-scoped. Row exists for contributor visibility.
+
+  - id: lessons_promote_batch_workflow_part2_reference
+    on_disk: "plugin in-place (references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md)"
+    config_keys: []
+    producer: "(not produced — read in-place from the plugin)"
+    consumers:
+      - "/planwise lessons promote-batch"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: not_installed
+    notes: >
+      Phases 3-4 (draft BBs, write files), BB structure spec, self-containment
+      grep, and constraints of the batch-promote workflow. Read in-place when
+      promote-batch mode runs; never copied to the project and not path-scoped.
+      Row exists for contributor visibility.
+
+  - id: verification_task_authoring_reference
+    on_disk: "plugin in-place (references/verification-task-authoring.md)"
+    config_keys: []
+    producer: "(not produced — read in-place from the plugin)"
+    consumers:
+      - "/planwise review (plan-reviewer)"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: not_installed
+    notes: >
+      Reference for authoring and validating verification-command sections in
+      task files. Read in-place by the plan-reviewer agent; never copied to the
+      project and not path-scoped — the rule applies at authoring/review time,
+      not via file-activity triggers. Row exists for contributor visibility.
+
 # Skills register their config dependencies here so the gap-detection rule
 # stays mechanical. To extend:
 #   1. Add a row above with id, on_disk, config_keys, producer, consumers,
