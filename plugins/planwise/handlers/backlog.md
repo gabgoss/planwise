@@ -128,7 +128,19 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
 4. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
 
-5. Present the scope assessment to the user:
+5. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
+
+   ```bash
+   grep -rn "paths:" .claude/rules/
+   ```
+
+   Compare each `paths:` value against the BLI's destination paths. If a match is found, present a warning:
+
+   > **Scoped-rule conflict detected:** destination `{path}` is covered by a scoped rule in `{rule-file}`. Verify the fix targets the correct file before delegating.
+
+   This gate applies regardless of route (Route A or Route B) — do not skip it.
+
+6. Present the scope assessment to the user:
 
 > [!template] Scope Assessment Block
 > ```
@@ -174,6 +186,8 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
 For bugs and targeted fixes with clear scope:
 
+**Pre-spawn: extract cross-cutting audit candidates (§3i):** Before building the spawn prompt, read the BLI file and look for sections named `Cross-cutting check`, `Cross-cutting consideration`, or `Notes`. Extract any cross-cutting items listed there to include in the spawn prompt. If none are found, use `"none identified"`.
+
 Delegate to the `fix-agent` via the Task tool:
 
 ```
@@ -188,6 +202,7 @@ Task {
     Description: {item-description}
     Affected files: {file-list}
     Build command: {build-command-from-config}
+    Cross-cutting audit candidates (in-scope by default): {list extracted from BLI cross-cutting sections, or "none identified" if absent}
 }
 ```
 
@@ -312,6 +327,23 @@ output_mode: content
 ```
 
 Identify candidate recommendations. Also check task files of recently-closed items for inline `> [!followup]` callouts (per `references/session-plan-requirements.md` Declarative Follow-Up Block Convention).
+
+**Field extraction:** For each `> [!followup]` callout found, parse the body lines for fields in the form:
+
+```
+- {Recommendation}: {description} (target: {file_path}; severity: {high|medium|low})
+```
+
+Extract structured fields using these patterns:
+
+```
+target pattern:   /target:\s*([^\s;)]+)/    →  Target file (in Follow-Up Candidate Block)
+severity pattern: /severity:\s*(high|medium|low)/i  →  Severity (in Follow-Up Candidate Block)
+```
+
+Fallback values when fields are absent or malformed:
+- `target:` absent → default `Target file` to the session's source file path
+- `severity:` absent → default `Severity` to `medium`
 
 ### Step 7.2: Surface Candidates to User
 

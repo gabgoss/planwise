@@ -357,6 +357,8 @@ def main():
     )
     parser.add_argument("--dry-run", action="store_true", help="Compute and print scores without writing to the index.")
     parser.add_argument("--review", action="store_true", help="Output a priority review report (no index writes).")
+    parser.add_argument("--config", type=str, default=None,
+                        help="Path to config.yaml; overrides default config search and scoring thresholds.")
 
     args, _ = parser.parse_known_args()
 

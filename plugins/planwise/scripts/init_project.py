@@ -331,6 +331,7 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
     config_present = config_path.exists()
     cat: dict | None = None
     used_default = False
+    lessons_index = "00-Index-LessonsLearned.md"
 
     if config_present:
         try:
@@ -342,6 +343,11 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
                     buckets_candidate = candidate.get("buckets") or []
                     if [b for b in buckets_candidate if isinstance(b, dict)]:
                         cat = candidate
+                lessons_index = (
+                    full.get("project", {})
+                    .get("index_files", {})
+                    .get("lessons", "00-Index-LessonsLearned.md")
+                )
         except yaml.YAMLError:
             # Bad config — fall through to default, surface via banner.
             pass
@@ -368,7 +374,6 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
         bucket_blocks.append("\n".join(_render_bucket_section(b)))
 
     today = date.today().isoformat()
-    lessons_index = "00-Index-LessonsLearned.md"
     scope_paragraph = f"Lessons captured during {cfg.project_name} sessions."
 
     rendered = (
