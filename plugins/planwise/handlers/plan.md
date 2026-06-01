@@ -820,6 +820,8 @@ Use standard templates for all other files (sprint plans, orchestrations, recove
 
 **`.gitkeep` emission (mirrors standard [Step 3](#step-3-create-folder-structure)):** For EVERY session folder created during scaffolding, write an empty `Outputs/.gitkeep` placeholder file inside the session's `Outputs/` directory. Empty directories are not tracked by git, so a missing `.gitkeep` means the `Outputs/` folder disappears on clone and downstream `/planwise run` cannot write summary or task-output files into the expected path. Apply to every sprint × every session — same per-session `.gitkeep` rule as the standard Step 3 constraint. Also populate each task file's Verification Commands per the [Step 8e per-file-type command map](#step-8e-populate-verification-commands-per-file-type-map) — scaffolded plans must NOT ship with blank verification placeholders any more than standard plans do.
 
+**Sprint-signoff scaffold (multi-session sprints):** For each sprint with multi-session work, add a sprint-signoff scaffold using the [sprint-signoff.md](../templates/sprint-signoff.md) template per `references/discovery-and-exit-criteria.md` §16.3. Place the signoff file at `{plans_dir}/{PlanName}/Sprint-{XX}-{Name}/Sprint-Signoff.md`. The signoff quotes the sprint's EI exit-criteria verbatim — one row per criterion, one mechanical anchor per row — giving a multi-session sprint a single closeout checkpoint before it is marked COMPLETE. Single-session sprints MAY omit it.
+
 > [!constraint] Agent Prompts Must Include Exact Headers
 > Subagents start with fresh context (no inherited file reads). Saying "follow the template" forces a subagent to discover and read the template — an extra hop that may be skipped or interpreted loosely.
 >

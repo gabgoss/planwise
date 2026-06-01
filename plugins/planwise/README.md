@@ -326,12 +326,12 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 8 subcommand handlers (init, plan, review, run, backlog, list, lessons, help)
+  handlers/                         # 9 subcommand handlers (init, plan, review, run, upgrade, backlog, list, lessons, help)
   agents/                           # 4 custom AI agents (auto-mirrored into project .claude/agents/ on init)
-  references/                       # 20 knowledge base documents (17 installed as path-scoped rules + 3 lessons-workflow helpers consumed inline)
+  references/                       # 22 knowledge base documents (17 installed as path-scoped rules + 3 lessons-workflow helpers + 2 authoring/verification helpers, consumed inline)
   templates/                        # 13 markdown templates
   seed/                             # Index file seeds for init
-  scripts/                          # 7 Python backlog utilities
+  scripts/                          # 8 Python scripts (7 backlog utilities + init_project.py)
   examples/                         # Sample outputs
   config.yaml.template              # Config template
 ```
@@ -340,7 +340,7 @@ planwise/                           # Plugin root
 
 ## Changelog
 
-### 1.2.0 (PPU remediation)
+### 1.0.2 (PPU remediation)
 
 This release closes the gaps surfaced by the 2026-05-22 external-feedback audit. The 1.1.0 release shipped the enforcement layer (reviewer checks, role wiring) ahead of the rule prose it referenced; v1.2.0 authors the missing rule prose, repoints every dangling reviewer citation, ships the two reserved project-agnostic references, and applies the two divergence decisions. The "all 16 Consolidated Context parts implemented" criterion that 1.1.0 over-claimed (audit C1) is closed only with this release.
 
@@ -390,7 +390,7 @@ Every `§N.M` citation across `agents/plan-reviewer.md`, `handlers/review.md`, `
 **1.1.0 reconciliation (no over-claims):**
 
 - "Pending user confirmation" hedges on `verification-gates.md` and `verify-against-shipped-artifact.md` removed from README and `handlers/init.md` — both files ship.
-- Reference count reconciled: `references/` holds 20 files (17 installed as path-scoped rules + 3 lessons-workflow helpers consumed inline by lessons handlers). The 1.1.0 "18 (10 baseline + 5 confirmed + 3 pending)" count is corrected here.
+- Reference count reconciled: `references/` holds 22 files (17 installed as path-scoped rules + 3 lessons-workflow helpers + 2 authoring/verification helpers consumed inline). The 1.1.0 "18 (10 baseline + 5 confirmed + 3 pending)" count is corrected here.
 - PPU Disposition Ledger marked **RESOLVED** — every recommendation in the source corpus carries an explicit verdict (IMPLEMENT, ALREADY COMPLETE, or JUSTIFIED-SKIP with a fixed-taxonomy reason).
 
 ### 1.1.0 (PPU initial release)

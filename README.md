@@ -122,6 +122,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | Command | What it does |
 |---------|-------------|
 | `/planwise init` | Set up planwise in your project (once) |
+| `/planwise upgrade` | Refresh installed rules/agents after a plugin update |
 | `/planwise plan [name]` | Create a new session plan |
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
@@ -184,8 +185,8 @@ To remove the marketplace:
 - Check that Python 3.8+ is installed: `python --version`
 - If you see YAML-related warnings, install PyYAML: `pip install pyyaml` (optional but silences warnings)
 
-**Plans or backlog seem out of date**
-- Run `/plugin marketplace update` then reinstall to get the latest plugin version
+**Plans or backlog seem out of date after a plugin update**
+- Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules and agents into your project
 
 **Not sure which command to use?**
 - Run `/planwise help` to see all available commands and a link to the full user guide
