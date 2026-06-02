@@ -21,9 +21,9 @@ Ever had Claude Code forget what you were working on? Started a new session and 
   - [Step 2 — Install the plugin](#step-2--install-the-plugin)
   - [Step 3 — Activate the plugin](#step-3--activate-the-plugin)
   - [Step 4 — Initialize planwise in your project](#step-4--initialize-planwise-in-your-project)
+  - [Step 5 — Upgrade planwise when a new version ships](#step-5--upgrade-planwise-when-a-new-version-ships)
 - [Full user guide](#full-user-guide)
 - [Quick reference](#quick-reference)
-- [Updating planwise](#updating-planwise)
 - [Uninstalling](#uninstalling)
 - [Troubleshooting](#troubleshooting)
 
@@ -111,6 +111,36 @@ Once done, you'll have a `planwise/` folder with your config and three subdirect
 
 ---
 
+### Step 5 — Upgrade planwise when a new version ships
+
+You won't need this on day one, but when a new version of planwise is published, upgrading happens in **two stages**: first refresh the plugin itself, then push those updates into your project.
+
+**Stage 1 — Refresh the plugin source**
+
+```
+/plugin marketplace update
+/plugin install planwise@planwise-marketplace
+```
+
+This pulls the latest catalog and reinstalls planwise, updating the handlers, references, templates, and scripts that Claude reads directly from the plugin.
+
+**Stage 2 — Propagate updates into your project**
+
+```
+/planwise upgrade
+```
+
+Reinstalling the plugin does **not** refresh the rules in `.claude/rules/planwise/` or the agents in `.claude/agents/` — those were installed once during `init` and are left untouched on reinstall. `/planwise upgrade` finishes the job:
+
+- Bumps the pinned `plugin_version:` in your `config.yaml`
+- Adds any new top-level config keys
+- Refreshes installed rules and agents whose local copy still matches the previously-shipped version
+- Saves `.new` sidecars under `{planwise_root}/upgrade-conflicts/` for any file you've customized, so your edits are never overwritten
+
+> **Run Stage 2 once per upgrade.** If you skip it, the next time you run `/planwise init` planwise will notice the version drift and remind you to run `/planwise upgrade`.
+
+---
+
 ## Full user guide
 
 For detailed documentation on every command, agents, configuration options, and how planwise works under the hood, see the **[planwise user guide](plugins/planwise/)**.
@@ -135,22 +165,6 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
 | `/planwise help` | Show available commands and link to user guide |
-
----
-
-## Updating planwise
-
-To get the latest version, run:
-
-```
-/plugin marketplace update
-```
-
-Then reinstall:
-
-```
-/plugin install planwise@planwise-marketplace
-```
 
 ---
 
