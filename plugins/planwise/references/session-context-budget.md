@@ -55,10 +55,29 @@ The same fixed overhead applies on both tiers; only the available-for-work budge
 | **Available for work** | **~100K** | **~900K** | Window − overhead |
 | Practical session limit | ~100K | ~400K | Soft target — above this, recovery + review get harder even if it fits |
 | Meta-Plan threshold | > 100K | > 500K | `min(80% × available, 500K)` |
-| Subagent context window | 200K | 1M | Subagents inherit the parent session's tier |
-| DELEGATED check (per subagent) | `task + 54K < 200K` | `task + 54K < 1,000K` | Use `context_window` from config |
+| Subagent window (by model) | Sonnet/Haiku → 200K | Opus → 1M | **Set by the DISPATCHED model, NOT the parent tier.** See [§ Subagent Context Window](#subagent-context-window). |
+| DELEGATED check (per subagent) | `task + rules + 54K < 200K` (Sonnet/Haiku) | `task + rules + 54K < 1M` (Opus) | Check the **dispatched model's** window — not the parent `context_window`. |
 
 The Max practical session limit (400K) is intentionally below the available budget (900K). Sessions beyond ~400K become harder to review, recover, and reason about even when they technically fit — Meta-Plan is preferred for sustained work above this point.
+
+### Subagent Context Window
+
+> [!constraint] A subagent's window is the DISPATCHED MODEL's window — NOT the parent tier
+> A spawned subagent (e.g., a DELEGATED `task-runner`) gets a fresh context window sized by **the model it runs on**, independent of the orchestrator's account tier:
+>
+> | Dispatched model | Window |
+> |------------------|--------|
+> | Haiku | 200K |
+> | Sonnet | 200K |
+> | Opus | 1M |
+>
+> A Sonnet runner has a **200K** window even when the orchestrator is on Max (1M) — the parent's tier does NOT raise the child's window. The per-subagent DELEGATED budget check is therefore:
+>
+> ```
+> task estimate + injected path-rule tokens + ~54K overhead  <  the DISPATCHED MODEL's window
+> ```
+>
+> NOT the parent `context_window`. When a project's plan-path rule surface is large enough to overflow a 200K-window model on its first plan-brief read, either raise the dispatch to a 1M-window model (see [`handlers/run.md`](../handlers/run.md) Model-Floor Bridge) or shrink the surface (`/planwise doctor`).
 
 ### Threshold Formulas
 
@@ -201,7 +220,7 @@ Task token estimates MUST be computed bottom-up from measured or estimated file 
 **Conversion factor:** ~13 tokens/line (midpoint for mixed code/prose content).
 
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
-**DELEGATED check:** `Task Estimate + 54K overhead < context_window per subagent` (subagents inherit the parent tier; read `context.context_window` from `config.yaml` — defaults to 200,000)
+**DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Sonnet/Haiku 200K, Opus 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
 
 For detailed per-operation costs, see the [Token Estimation Reference](../handlers/plan.md#token-estimation-reference) in the planwise plugin.
 
@@ -285,7 +304,7 @@ Each part MUST:
 | Back-and-forth messages | **+adds** each turn |
 | Subagent runs | **Fresh context** (doesn't inherit your accumulation) |
 
-**Key insight:** Subagents don't inherit your context accumulation. Each gets a fresh `available_for_work` budget at the parent's tier (~100K on Pro, ~900K on Max). Use this to your advantage.
+**Key insight:** Subagents don't inherit your context accumulation. Each gets a fresh context window sized by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M — see [§ Subagent Context Window](#subagent-context-window)), NOT the parent's tier. Use this to your advantage.
 
 ### When to Use Meta-Plan
 
@@ -301,7 +320,7 @@ Each part MUST:
 
 ### Meta-Plan Purpose
 
-1. **Fresh context per agent** - Each subagent gets its own `available_for_work` budget at the parent's tier
+1. **Fresh context per agent** - Each subagent gets its own fresh context window, sized by its dispatched model (Sonnet/Haiku 200K, Opus 1M — not the parent's tier)
 2. **Persistent artifacts** - File outputs survive session boundaries
 3. **Recovery points** - Written documents survive context compaction
 4. **Fan-out, not compression** - More detail = more execution units, not fewer

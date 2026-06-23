@@ -303,7 +303,7 @@ For each task in the session, compute a bottom-up token estimate:
 2. **Convert to tokens:** Apply ~13 tokens/line (see [Token Estimation Reference](#token-estimation-reference))
 3. **Add output cost:** Estimate output generation tokens from the operation-level table
 4. **Compare:** If the bottom-up estimate exceeds the qualitative category estimate, use the higher number
-5. **DELEGATED check:** For DELEGATED tasks, verify `(task estimate + 54K subagent overhead) < context_window` per subagent. Subagents inherit the parent session's tier, so `context_window` comes from `config.yaml` `context.context_window` (defaults to 200,000 when the block is missing). See `references/session-context-budget.md` §5 Threshold Formulas.
+5. **DELEGATED check:** For DELEGATED tasks, verify `(task estimate + injected path-rule tokens + 54K overhead) < the dispatched model's window` per subagent. A subagent's window is set by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M), NOT the parent tier — a Sonnet runner is 200K even when the orchestrator is on Max. See `references/session-context-budget.md` [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window).
 
 Update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates.
 
@@ -951,7 +951,7 @@ The task-size thresholds below are expressed for the Pro tier. On Max, scale by 
 
 **These categories are a cross-check, not the primary estimate.** Always compute the bottom-up estimate first, then compare against the category. Use the HIGHER of the two.
 
-**Note:** Session limits apply to DIRECT mode in the main conversation. In DELEGATED mode, each task-runner subagent gets a fresh context budget at the parent's tier. Verify: `(task estimate + 54K overhead) < context_window` per subagent (200K on Pro, 1M on Max).
+**Note:** Session limits apply to DIRECT mode in the main conversation. In DELEGATED mode, each task-runner subagent gets a fresh context window sized by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M — NOT the parent tier; a Sonnet runner is 200K even when the orchestrator is on Max). Verify: `(task estimate + injected path-rule tokens + 54K overhead) < the dispatched model's window` per subagent.
 
 ### Token Estimation Reference
 
@@ -992,11 +992,11 @@ Use this table to compute bottom-up token estimates for each task.
 
 ```
 Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)
-DELEGATED check: Task Estimate + 54K overhead < context_window per subagent
-                 (read from config.yaml: context.context_window — defaults to 200000)
+DELEGATED check: Task Estimate + injected path-rule tokens + 54K overhead
+                 < the DISPATCHED model's window (Sonnet/Haiku 200K, Opus 1M)
 ```
 
-Subagents inherit the parent session's tier. On Pro, `context_window = 200000`; on Max, `1000000`. See `references/session-context-budget.md` §5 Threshold Formulas.
+A subagent's window is set by its **dispatched model** — Sonnet/Haiku 200K, Opus 1M — NOT the parent tier (a Sonnet runner is 200K even when the orchestrator is on Max). See `references/session-context-budget.md` [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window).
 
 ---
 

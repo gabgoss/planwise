@@ -36,6 +36,69 @@ maxTurns: 50
 2. Follow the format specified in Expected Output exactly
 3. Do not add extra content beyond what is specified
 
+## Output Formatting Expectations
+
+Full conventions live in the plugin's `references/callout-conventions.md` and `references/markdown-conventions.md` (loaded by handlers for authoring). This is the SUBSET a runtime task-runner needs when WRITING output — apply it to every file you produce; do NOT pull the full reference files into a delegated run.
+
+Mark content whose **type** would otherwise be ambiguous with a `> [!type]` callout, then follow the structure rules below. Do NOT over-mark: tables, numbered lists, and code blocks in obvious context need no callout — only mark content that would otherwise confuse a reader (or classifier) about its purpose.
+
+### Output Callout Types
+
+Pick the callout by what the content IS. These five cover almost everything a task-runner writes:
+
+| Content you are writing | Callout | Defining signal |
+|-------------------------|---------|-----------------|
+| Rule with paired WRONG/CORRECT (MUST/NEVER) | `> [!constraint]` | Paired comparison + enforcement |
+| Output format with `{placeholder}` variables | `> [!template]` | Fill-in-the-blank deliverable shape |
+| Executable before/after verification commands | `> [!verify]` | Actual bash/CLI commands |
+| Binary go/no-go checkpoint before proceeding | `> [!gate]` | Single pass/fail condition |
+| `[ ]` checkbox "did-you-do-this" list | `> [!checklist]` | Checkbox verification items |
+
+A `constraint` shows BOTH the wrong and the right way, with enforcement language:
+
+> [!constraint] Example — Paired Comparison
+> WRONG — one-sided "don't"; no corrected form shown:
+> ```
+> Never write the output anywhere but the output directory.
+> ```
+> CORRECT — paired WRONG/CORRECT with the fix made concrete:
+> ```
+> WRONG: write to /tmp/out.md   CORRECT: write to {output-dir}/out.md
+> ```
+
+A `template` shows WHAT to produce, using `{placeholder}` variables:
+
+> [!template] Example — Output Shape
+> ```
+> STATUS: {COMPLETE|BLOCKED}
+> FILES:  {comma-separated paths}
+> ```
+
+Disambiguation when unsure:
+- Paired WRONG/CORRECT → `constraint`; one-sided "don't do this" → `antipattern`.
+- Problem + Solution pairing → `pitfall` (not `constraint`).
+- Has `{placeholders}` → `template`; has bash commands → `verify`.
+- Limit callout nesting to **2 levels**; if deeper is needed, split into separate sections.
+
+### Markdown Structure
+
+- **One H1** as the document title (line 1, or right after YAML frontmatter). Never skip heading levels — H2 follows H1, H3 follows H2. Separate major H2 sections with `---`.
+- **Section length:** keep each section 50–150 lines; split anything over 150 into H3 subsections. Keep whole output files under the **500-line** soft limit (split into `{Abbrev}-{Name}-Part-N-{Topic}.md` files when larger).
+- **Structural signal strength** — reach for the strongest that fits, in order: Headers (boundary/hierarchy) > Code blocks (mode switch) > Tables (parallel/lookup data) > Numbered lists (ordered steps) > Callouts (type disambiguation) > Horizontal rules (visual only).
+- **Most important information first** — content near a header gets the strongest attention; do not bury anything critical in the middle of a long section.
+
+### Emphasis
+
+- Use a single enforcement keyword: **BINDING**. Do NOT alternate between CRITICAL / REQUIRED / MANDATORY / NON-NEGOTIABLE.
+- Open self-describing sections with the `**Purpose:**` bold-colon pattern; use `**bold**` for a key term on first use.
+- PREFER descriptive headings over bolded labels — headings are addressable via links, bold text is not.
+
+### Cross-References
+
+- Use relative markdown links that include the extension: `[display text](relative/path.md)`.
+- Deep-link large targets with an anchor: `[Section Name](file.md#section-name)`.
+- Reference code locations as `file_path:line_number` in prose.
+
 ## 4. RECOVERY — Update State
 
 > [!gate] Dispatch Mode Gate — Read the Spawn Prompt First

@@ -56,7 +56,7 @@ your-project/
     LessonsLearned/      <-- where insights are saved
   .claude/
     rules/
-      planwise/          <-- 17 path-scoped rules that help Claude work with your plans
+      planwise/          <-- 4 path-scoped rules installed (the rest load on demand from the plugin)
 ```
 
 > **You only need to run `init` once per project.** After that, planwise remembers your setup.
@@ -328,7 +328,7 @@ planwise/                           # Plugin root
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 9 subcommand handlers (init, plan, review, run, upgrade, backlog, list, lessons, help)
   agents/                           # 4 custom AI agents (auto-mirrored into project .claude/agents/ on init)
-  references/                       # 23 knowledge base documents (17 installed as path-scoped rules + 6 consumed inline: 3 lessons-workflow helpers, 2 authoring/verification helpers, 1 DELEGATED-dispatch extract)
+  references/                       # 23 knowledge base documents (4 installed as path-scoped rules + 19 handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # 12 markdown templates
   seed/                             # Index file seeds for init
   scripts/                          # 8 Python scripts (7 backlog utilities + init_project.py)
@@ -363,6 +363,8 @@ When a new plugin version is published:
    - Adds any new top-level config keys (the additive merge previously available via `--migrate`)
    - Refreshes installed rules/agents whose local body still matches the previously-shipped body
    - Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any file whose body has diverged from the shipped version, so your customisations are preserved
+   - **Retires de-scoped rules:** author-time rules that are now loaded on demand from the plugin's `references/` are removed from `.claude/rules/planwise/` **only when your installed copy is untouched** (body and `paths:` both match the original default). Any copy you customised is **preserved byte-for-byte with an action-required notice** — re-home it as a project-local rule, re-scope its `paths:` to the code dirs it governs, or upstream the change. It is never auto-deleted.
+   - **Over-scope advisory:** after upgrading, the script lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths (these inject into every plan-brief read and can overflow a 200K-window task-runner). Run `/planwise doctor` any time for the full read-only report.
 
    See `handlers/upgrade.md` for the full workflow.
 

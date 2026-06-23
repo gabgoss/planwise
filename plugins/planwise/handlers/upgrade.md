@@ -58,7 +58,9 @@ The script:
 2. Iterates `manifests/artifacts.yaml` rows where `upgrade_behavior == "refresh_or_sidecar"`
 3. Refreshes installed copies whose normalised body matches the shipped body
 4. Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any installed copy that has diverged
-5. Bumps `plugin_version:` in `config.yaml` LAST, as the commit point
+5. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy ONLY when its body AND its `paths:` both match the original shipped default (i.e., untouched); it **preserves** byte-for-byte any copy whose body OR `paths:` were customised, emitting an action-required re-home notice (never a default delete)
+6. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size
+7. Bumps `plugin_version:` in `config.yaml` LAST, as the commit point
 
 Capture stdout — the banner is rendered from it.
 
@@ -81,11 +83,22 @@ Untracked preserved: {N}
   = {file}
   …
 
+De-scoped rules removed: {N} (now handler-loaded; installed copy was untouched)
+  - {file}
+  …
+De-scoped rules preserved (action required): {N} (customised — re-home, NOT auto-deleted)
+  ! {file}
+      reason: body or paths customised — not safe to auto-remove
+      action: re-home as a project-local rule, OR re-scope paths: to the code dirs it governs, OR upstream the change
+
 Conflicts (action required):
   ! {file}
       reason:      installed body diverged from plugin-shipped version
       sidecar:     {sidecar path}
       remediation: diff the sidecar against the installed file, merge manually, then delete the .new
+
+Over-scope advisory: {N} rule(s) still scoped to plan/backlog paths (~{X}K injected per task-runner)
+  run `/planwise doctor` for the full report
 
 Plugin version pinned: {to}
 
@@ -101,14 +114,17 @@ Config keys added:       {N}        ({list, or "(none)"})
 Artifacts refreshed:     {N}
 Artifacts unchanged:     {N}        (installed body already matched shipped)
 Untracked preserved:     {N}        ({list of files outside the manifest allowlist})
+De-scoped removed:       {N}        (now handler-loaded; installed copy was untouched)
+De-scoped preserved:     {N}        (customised — action required, re-home not delete)
 Conflicts:               {N}        (see Step 4 if > 0)
+Over-scope advisory:     {N}        (rules still plan/backlog-scoped — run `/planwise doctor`)
 
 Plugin version pinned:   {to}
 
 Upgrade complete.
 ```
 
-If conflicts > 0, append the conflict list verbatim from the script's stdout and direct the user to Step 4.
+If conflicts > 0, append the conflict list verbatim from the script's stdout and direct the user to Step 4. If de-scoped-preserved > 0, surface the re-home notice for each (the action choices: project-local rule / re-scope `paths:` / upstream). If the over-scope advisory is > 0, point the user at `/planwise doctor`.
 
 ---
 
@@ -136,6 +152,8 @@ The `upgrade-conflicts/` directory and its `INDEX.md` can be cleaned up once all
 | Installed body diverged | Writes `.new` sidecar | Diff, merge, delete `.new` |
 | Installed file absent | Writes shipped body fresh | Nothing — file just appeared |
 | File present, not in manifest allowlist | Reports as Untracked | Nothing — file is the user's own |
+| De-scoped rule, installed body **and** `paths:` untouched | Removes the redundant installed copy (rule is now handler-loaded from `references/`) | Nothing — the rule still applies, loaded on demand |
+| De-scoped rule, body **or** `paths:` customised | Preserves byte-for-byte + emits an action-required re-home notice (never auto-deletes) | Re-home: keep as a project-local rule, re-scope `paths:` to the code dirs it governs, or upstream the change |
 
 ---
 
