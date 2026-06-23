@@ -10,6 +10,7 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 **Plan Abbreviation:** {ABBREV}
 **Status:** READY_TO_EXECUTE
 **Created:** {today's date}
+**Token Saver:** inherit   <!-- optional; "inherit" (or omit) = use config.yaml context.token_saver; "on"/"off" overrides Token Saver for THIS plan only. Overhead numbers are always project-level. -->
 
 ---
 

@@ -295,3 +295,28 @@ def get_token_saver_config(config: dict) -> dict:
             "token_saver_overhead_measured_on", ""
         ),
     }
+
+
+def get_effective_token_saver_config(config: dict, plan_override=None) -> dict:
+    """Overlay an optional per-plan on/off decision onto the project surface.
+
+    The project config carries exactly ONE Token Saver calibration — there is a
+    single `/context` measurement per project because the installed plugin+rules
+    surface is identical for every plan. A plan may only flip the on/off boolean;
+    the measured overheads (runner_overhead, orchestrator_overhead,
+    session_target, breakdown, measured_on) ALWAYS come from the project config.
+
+    Args:
+        config: the loaded project config dict.
+        plan_override: the parsed per-plan decision — True/False when a plan sets
+                       one, None when the plan has no override (inherit project).
+
+    Returns:
+        The same shape as get_token_saver_config(config), with `token_saver`
+        replaced by bool(plan_override) when plan_override is not None and every
+        other key left exactly as the project config produced it.
+    """
+    base = get_token_saver_config(config)
+    if plan_override is not None:
+        base["token_saver"] = bool(plan_override)
+    return base

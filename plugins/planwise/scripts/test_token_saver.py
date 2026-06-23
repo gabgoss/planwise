@@ -39,6 +39,7 @@ branch rather than aborting collection on a single ImportError.
 
 import importlib
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -612,6 +613,213 @@ class TestReadLimits(unittest.TestCase):
         # The result must carry the real byte size and a token estimate.
         self.assertEqual(result["bytes"], os.path.getsize(path))
         self.assertGreater(result["tokens"], 0)
+
+
+# ---------------------------------------------------------------------------
+# Resolver — get_effective_token_saver_config overlays a per-plan boolean
+# ---------------------------------------------------------------------------
+class TestEffectiveTokenSaverResolver(unittest.TestCase):
+    """get_effective_token_saver_config flips ONLY the on/off boolean.
+
+    The measured overheads (runner_overhead, orchestrator_overhead,
+    session_target, breakdown, measured_on) ALWAYS come from the project config —
+    there is exactly one /context calibration per project — so the resolver must
+    leave them byte-for-byte identical in every override case.
+    """
+
+    # A fully-measured project config: token_saver flag + the five measured keys.
+    def _config(self, flag: bool) -> dict:
+        return {
+            "context": {
+                "token_saver": flag,
+                "token_saver_session_target": 150000,
+                "token_saver_runner_overhead": 26000,
+                "token_saver_orchestrator_overhead": 24000,
+                "token_saver_context_breakdown": {"system_prompt": 2600},
+                "token_saver_overhead_measured_on": "2026-06-23",
+            }
+        }
+
+    # The five measured keys whose values must never change under override.
+    MEASURED_KEYS = (
+        "token_saver_session_target",
+        "token_saver_runner_overhead",
+        "token_saver_orchestrator_overhead",
+        "token_saver_context_breakdown",
+        "token_saver_overhead_measured_on",
+    )
+
+    def _assert_measured_match_project(self, project_flag: bool, override):
+        project = self._config(project_flag)
+        base = config_loader.get_token_saver_config(project)
+        effective = config_loader.get_effective_token_saver_config(
+            project, plan_override=override
+        )
+        for key in self.MEASURED_KEYS:
+            self.assertEqual(
+                effective[key],
+                base[key],
+                f"measured key {key} must equal the project value for "
+                f"(project={project_flag}, override={override})",
+            )
+
+    def test_matrix_false_none_inherits_false(self):
+        # (project False, override None) -> False (inherit project).
+        effective = config_loader.get_effective_token_saver_config(
+            self._config(False), plan_override=None
+        )
+        self.assertEqual(effective["token_saver"], False)
+        self._assert_measured_match_project(False, None)
+
+    def test_matrix_true_none_inherits_true(self):
+        # (project True, override None) -> True (inherit project).
+        effective = config_loader.get_effective_token_saver_config(
+            self._config(True), plan_override=None
+        )
+        self.assertEqual(effective["token_saver"], True)
+        self._assert_measured_match_project(True, None)
+
+    def test_matrix_false_true_overrides_to_true(self):
+        # (project False, override True) -> True (plan opts in).
+        effective = config_loader.get_effective_token_saver_config(
+            self._config(False), plan_override=True
+        )
+        self.assertEqual(effective["token_saver"], True)
+        self._assert_measured_match_project(False, True)
+
+    def test_matrix_true_false_overrides_to_false(self):
+        # (project True, override False) -> False (plan opts out).
+        effective = config_loader.get_effective_token_saver_config(
+            self._config(True), plan_override=False
+        )
+        self.assertEqual(effective["token_saver"], False)
+        self._assert_measured_match_project(True, False)
+
+    def test_missing_context_block_defaults_to_false(self):
+        # A config with NO context block: override None -> False with the
+        # documented default overheads (never assume ON, never assume calibrated).
+        effective = config_loader.get_effective_token_saver_config(
+            {}, plan_override=None
+        )
+        self.assertEqual(effective["token_saver"], False)
+        self.assertEqual(effective["token_saver_session_target"], 150000)
+        self.assertEqual(effective["token_saver_runner_overhead"], 0)
+        self.assertEqual(effective["token_saver_orchestrator_overhead"], 0)
+        self.assertEqual(effective["token_saver_context_breakdown"], {})
+        self.assertEqual(effective["token_saver_overhead_measured_on"], "")
+
+
+# ---------------------------------------------------------------------------
+# Writer — set_token_saver flips the bare toggle, never the measured lines
+# ---------------------------------------------------------------------------
+class TestSetTokenSaverWriter(unittest.TestCase):
+    """set_token_saver flips the bare `token_saver:` line in place.
+
+    It must use the comment-preserving in-place editor (NOT a yaml.safe_dump
+    round-trip): the five `token_saver_*` measured lines and inline comments must
+    survive untouched, and an absent `token_saver:` line is appended.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="rso_set_token_saver_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _write(self, text: str) -> Path:
+        path = self.tmp / "config.yaml"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    # A config carrying the toggle + the five measured keys + inline comments.
+    FULL_CONFIG = (
+        "project:\n"
+        "  name: WriterTest\n"
+        "context:\n"
+        "  plan_tier: pro\n"
+        "  context_window: 200000\n"
+        "  token_saver: false  # engine off until enabled\n"
+        "  token_saver_session_target: 150000  # keeps a runner < 200K\n"
+        "  token_saver_runner_overhead: 26000  # measured\n"
+        "  token_saver_orchestrator_overhead: 24000  # measured\n"
+        "  token_saver_context_breakdown: {system_prompt: 2600}  # diagnostic\n"
+        '  token_saver_overhead_measured_on: "2026-06-23"  # calibration date\n'
+    )
+
+    def _line_value(self, text: str, key: str) -> str:
+        """Return the raw value (post-colon, pre-comment, stripped) for `key:`.
+
+        Anchors on a literal colon after the key so `token_saver` does not match
+        a `token_saver_*` line.
+        """
+        m = re.search(rf"(?m)^\s*{re.escape(key)}:\s*([^\n#]*)", text)
+        return m.group(1).strip() if m else None
+
+    def test_round_trip_tracks_toggle_and_preserves_measured(self):
+        ts = _engine()
+        path = self._write(self.FULL_CONFIG)
+
+        # Capture the five measured lines verbatim BEFORE any write.
+        before = path.read_text(encoding="utf-8")
+        measured_lines = {
+            key: self._line_value(before, key)
+            for key in (
+                "token_saver_session_target",
+                "token_saver_runner_overhead",
+                "token_saver_orchestrator_overhead",
+                "token_saver_context_breakdown",
+                "token_saver_overhead_measured_on",
+            )
+        }
+
+        for flip in (True, False, True):
+            result = ts.set_token_saver(path, flip)
+            self.assertEqual(result.get("token_saver"), flip)
+            text = path.read_text(encoding="utf-8")
+            # The bare toggle tracks the requested boolean.
+            self.assertEqual(
+                self._line_value(text, "token_saver"),
+                "true" if flip else "false",
+                f"toggle line must read {flip}",
+            )
+            # The five measured lines are byte-for-byte untouched.
+            for key, val in measured_lines.items():
+                self.assertEqual(
+                    self._line_value(text, key),
+                    val,
+                    f"measured line {key} must not change when toggling",
+                )
+
+        # Inline comments survive the round-trip.
+        final = path.read_text(encoding="utf-8")
+        self.assertIn("# engine off until enabled", final)
+        self.assertIn("# keeps a runner < 200K", final)
+        self.assertIn("# calibration date", final)
+
+    def test_append_when_toggle_absent(self):
+        ts = _engine()
+        # A config with a context: block but NO token_saver: line.
+        no_toggle = (
+            "project:\n"
+            "  name: NoToggle\n"
+            "context:\n"
+            "  plan_tier: pro\n"
+            "  context_window: 200000\n"
+            "  token_saver_runner_overhead: 26000  # measured\n"
+        )
+        path = self._write(no_toggle)
+        result = ts.set_token_saver(path, True)
+        self.assertEqual(result.get("token_saver"), True)
+
+        text = path.read_text(encoding="utf-8")
+        # The bare toggle was appended and reads true.
+        self.assertEqual(self._line_value(text, "token_saver"), "true")
+        # The pre-existing measured key + comment survive untouched.
+        self.assertEqual(
+            self._line_value(text, "token_saver_runner_overhead"), "26000"
+        )
+        self.assertIn("# measured", text)
+        # Other keys in the block survive.
+        self.assertEqual(self._line_value(text, "plan_tier"), "pro")
+        self.assertEqual(self._line_value(text, "context_window"), "200000")
 
 
 if __name__ == "__main__":

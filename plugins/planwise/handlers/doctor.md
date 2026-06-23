@@ -69,6 +69,8 @@ Briefly note: a rule scoped to `planwise/Plans/**` is injected into EVERY contex
 
 When Token Saver is on, append the three audits below to the doctor report. All three are **read-only** — `doctor` reports and recommends a one-command re-capture; it NEVER mutates `config.yaml` itself.
 
+> The `token_saver` value reported here is the **project default** (`config.yaml context.token_saver`). Individual plans MAY override it on/off via their Master-Plan `Token Saver:` field (resolved by `get_effective_token_saver_config` at plan/run/review time); the measured overheads remain project-level and are never overridden per-plan. `doctor` itself stays project-scoped — it audits the project default, not any single plan's effective value.
+
 ### Step 4: Overhead audit + staleness check
 
 1. Report the stored measured overheads and the date they were captured:

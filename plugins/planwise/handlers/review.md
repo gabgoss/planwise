@@ -68,7 +68,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
 - If reviewing IPC/protocol/codec sessions: Read `references/verification-gates.md`
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
-- If `context.token_saver: true` in `config.yaml`: Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](#token-saver-compliance-check))
+- If the **effective** Token Saver value is `true` for the plan under review (its Master-Plan `Token Saver:` field over the project `context.token_saver` default — `get_effective_token_saver_config(config, plan_override)`): Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](#token-saver-compliance-check))
 
 ---
 
@@ -612,7 +612,7 @@ Systemic findings appear in the review report's Systemic Findings section:
 
 ## Token Saver Compliance Check
 
-**Gated on `context.token_saver: true`.** When `config.yaml` has Token Saver **off**, this entire check is a **no-op** — skip it; zero behavior change versus a pre-Token-Saver review. When **on**, the lead (No-Team Path) or the Task Reviewer (Team Path) runs the check below over every task in scope and reports findings using the standard finding format. It validates that the planner actually applied the per-task large-file ladder anchored in `references/task-content-fidelity.md` §9.A.8 — read that subsection for the level definitions, the `reason=cost|read` contract, and the FIXED Read-tool gates the ladder folds in.
+**Gated on the effective Token Saver value for the plan under review.** Resolve it once: read the plan's Master-Plan `Token Saver:` field (`on`→True, `off`→False, `inherit`/absent→None) and overlay it on the project default via `config_loader.get_effective_token_saver_config(config, plan_override)` — the per-plan override wins, the project `context.token_saver` key is the fallback (overheads stay project-level). When the effective value is **off**, this entire check is a **no-op** — skip it; zero behavior change versus a pre-Token-Saver review. When **on**, the lead (No-Team Path) or the Task Reviewer (Team Path) runs the check below over every task in scope and reports findings using the standard finding format. It validates that the planner actually applied the per-task large-file ladder anchored in `references/task-content-fidelity.md` §9.A.8 — read that subsection for the level definitions, the `reason=cost|read` contract, and the FIXED Read-tool gates the ladder folds in.
 
 ### Derive the ceilings from config (never hardcode)
 

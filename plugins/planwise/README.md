@@ -280,6 +280,7 @@ flowchart LR
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
 | `/planwise doctor` | Audit rule scope + (Token Saver) overhead staleness, read-gate scan, read-limit drift |
+| `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
 | `/planwise lessons` | Search the lessons learned index |
@@ -331,8 +332,34 @@ Token Saver is an optional budget mode that keeps each task session lean — und
 
 - **At init** — `/planwise init` asks "Enable Token Saver mode?" (recommended: yes).
 - **At upgrade** — `/planwise upgrade` offers to turn it on if it is off, and re-captures the measured overheads (which go stale when the plugin's always-on rule/agent surface changes).
+- **Anytime** — `/planwise token-saver on|off|status` flips the mode mid-project, without waiting for an init or upgrade (see [Toggling the mode anytime](#toggling-the-mode-anytime) below).
 
 **Thresholds are measured, not guessed.** The budget is keyed to your install's real footprint: `/planwise init` and `/planwise upgrade` capture a live `/context` report and write the measured overheads into `config.yaml`, and the per-task ceilings are derived from those numbers. Run `/planwise doctor` any time for a read-only audit — it reports the stored overheads and flags them stale (after a plugin upgrade or an agent/skill count change), scans your active plan's files against the Read-tool gates, and flags the fixed read-limit constants if your CLI build has moved past the version they were measured on.
+
+### Toggling the mode anytime
+
+You don't have to wait for an init or upgrade to flip Token Saver — `/planwise token-saver` switches it on or off mid-project and reports the current state:
+
+```
+/planwise token-saver on        # enable + re-measure overheads
+/planwise token-saver off        # disable (verified no-op — no scan, no ladder)
+/planwise token-saver status     # report the default, when it was measured, and staleness
+```
+
+- **`on` re-calibrates.** Enabling re-captures a live `/context` report so the measured overheads reflect your current install — the same calibration `/planwise upgrade` runs. (If the capture can't run, it falls back to conservative defaults and tells you to re-run from an interactive session.)
+- **`off` is a verified no-op.** Disabling turns the budget engine off cleanly — no read-gate scan, no task-budget ladder, no exceptions — and leaves the measured overheads in place for a future re-enable.
+- **`status` is read-only.** It prints the project default, the date it was measured, and whether that measurement is stale (after a plugin upgrade or an agent/skill count change), recommending a one-command re-measure.
+
+**The project key is the default; a plan can override it.** `context.token_saver` in `config.yaml` is the project-wide default. A single plan can opt in or out independently via a `Token Saver:` field in its Master Plan — without changing `config.yaml` and without recalibrating (the measured overheads are project-level, since there is one `/context` calibration per install):
+
+```
+/planwise token-saver on --plan MyFeature        # override one plan ON
+/planwise token-saver off --plan MyFeature        # override one plan OFF
+/planwise token-saver --plan MyFeature inherit    # drop the override → re-inherit the default
+/planwise token-saver status --plan MyFeature     # show the plan's effective value
+```
+
+As with the rest of Token Saver, **thresholds are `/context`-measured, not hardcoded** — toggling only flips enforcement on or off; the budget numbers always come from a real measurement.
 
 ### Plugin file structure
 

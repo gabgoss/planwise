@@ -4,7 +4,7 @@ description: >
   Agentic project management — plan, execute, review, and track projects
   with structured workflows. Use when user wants to create plans, run sessions,
   review plans, manage backlog items, or search lessons learned.
-argument-hint: "<init|plan|review|run|upgrade|doctor|backlog|list|lessons|help> [args]"
+argument-hint: "<init|plan|review|run|upgrade|doctor|token-saver|backlog|list|lessons|help> [args]"
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -25,6 +25,7 @@ Parse `$ARGUMENTS`:
 | `run` | Read [handlers/run.md](../../handlers/run.md) |
 | `upgrade` | Read [handlers/upgrade.md](../../handlers/upgrade.md) |
 | `doctor` | Read [handlers/doctor.md](../../handlers/doctor.md) |
+| `token-saver` | Read [handlers/token-saver.md](../../handlers/token-saver.md) |
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
 | `list` | Read [handlers/list.md](../../handlers/list.md) |
 | `lessons` | Read [handlers/lessons.md](../../handlers/lessons.md) |
@@ -46,6 +47,7 @@ Available subcommands:
   run [@orchestration-file]    Execute a planned session
   upgrade                      Refresh installed rules/agents after a plugin update
   doctor                       Report rules over-scoped to plan/backlog paths (injection-budget risks)
+  token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
   backlog [item-id]            Triage backlog items; capture follow-up BLIs from resolution outputs
   list                         List all plans with status
   lessons [search-terms]       Search lessons learned

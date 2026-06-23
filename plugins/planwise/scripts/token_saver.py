@@ -478,6 +478,31 @@ def _write_back(config_path, values: dict) -> None:
     config_path.write_text(text, encoding="utf-8")
 
 
+def set_token_saver(config_path, enabled: bool) -> dict:
+    """Flip the project-level `token_saver` toggle in config.yaml in place.
+
+    Reuses the same comment-preserving, targeted in-place editor `calibrate`
+    uses (`_write_back`) rather than a `yaml.safe_dump` round-trip, so key order,
+    comments, and unrelated lines are preserved.
+
+    The bare `token_saver:` key is anchored distinctly from the measured
+    `token_saver_*` lines: `_write_back`'s per-key pattern requires a literal
+    colon immediately after the key name, so writing `token_saver` matches ONLY
+    the toggle line (`token_saver:`) and never `token_saver_session_target`,
+    `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`,
+    `token_saver_context_breakdown`, or `token_saver_overhead_measured_on`.
+
+    If the `token_saver:` line is absent (a config predating the surface), it is
+    appended under the `context:` block via the same append path `_write_back`
+    already uses for the measured keys.
+
+    Returns the written boolean as `{"token_saver": enabled}` so callers can
+    confirm the flip.
+    """
+    _write_back(config_path, {"token_saver": "true" if enabled else "false"})
+    return {"token_saver": bool(enabled)}
+
+
 def calibrate(
     config_path=None,
     plugin_root=None,
