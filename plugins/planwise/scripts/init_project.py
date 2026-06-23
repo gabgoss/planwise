@@ -17,6 +17,27 @@ Options:
     --plan-tier     Claude plan tier: pro (200K) or max (1M). Default: pro.
 """
 
+import argparse
+import dataclasses
+import json
+import re
+import sys
+from datetime import date
+from enum import Enum
+from pathlib import Path
+
+from constants import InstallScope
+
+try:
+    import yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+
+
 PLAN_TIER_WINDOWS = {
     "pro": 200000,
     "max": 1000000,
@@ -75,11 +96,27 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
 # {plans_path} / {all_paths} placeholders resolved at install/upgrade time
 # from cfg.planwise_root + cfg.plans_dir / cfg.backlog_dir / cfg.lessons_dir.
 # The upgrade flow consults this list as the authoritative refresh allowlist.
+#
+# Only the four `.claude/**`-scoped authoring rules are installed as
+# path-scoped rules. They guide agents/skills/rules authoring, trigger on
+# `.claude/**` file activity, and stay small. The sixteen plan/backlog/lessons
+# rules that used to be installed here are now handler-loaded on demand from
+# references/ — see DESCOPED_RULES below and migrate_installed_rules().
 INSTALLED_RULES: list[tuple[str, str]] = [
     ("agent-authoring.md", ".claude/agents/**"),
     ("skill-authoring.md", ".claude/skills/**"),
     ("rule-authoring.md", ".claude/rules/**"),
     ("artifact-self-containment.md", ".claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md"),
+]
+
+# Rules removed from the install set during the rule de-scope. Each tuple is
+# (source_filename, old_paths_template) where old_paths_template is the
+# {plans_path} / {all_paths} placeholder the rule carried BEFORE de-scoping.
+# migrate_installed_rules() resolves each template back to the pre-migration
+# default paths: value to recognise an untouched installed copy and remove it;
+# the orchestrator now loads these rules on demand from references/ instead of
+# injecting them as always-on path-scoped rules.
+DESCOPED_RULES: list[tuple[str, str]] = [
     ("session-planning-protocol.md", "{plans_path}"),
     ("session-plan-requirements.md", "{plans_path}"),
     ("session-context-budget.md", "{plans_path}"),
@@ -89,14 +126,21 @@ INSTALLED_RULES: list[tuple[str, str]] = [
     ("ei-fidelity.md", "{plans_path}"),
     ("schema-pin-requirement.md", "{plans_path}"),
     ("task-content-fidelity.md", "{plans_path}"),
+    ("verification-gates.md", "{plans_path}"),
+    ("verify-against-shipped-artifact.md", "{plans_path}"),
+    ("verification-task-authoring.md", "{plans_path}"),
     ("agent-orchestration.md", "{all_paths}"),
     ("agent-orchestration-delegated.md", "{all_paths}"),
     ("callout-conventions.md", "{all_paths}"),
     ("markdown-conventions.md", "{all_paths}"),
-    ("verification-gates.md", "{plans_path}"),
-    ("verify-against-shipped-artifact.md", "{plans_path}"),
-    ("verification-task-authoring.md", "{plans_path}"),
 ]
+
+# Version this de-scope migration ships in. migrate_installed_rules() only
+# acts when from_version < RESCOPE_MIGRATION_VERSION <= to_version, so the
+# removal runs exactly once on the upgrade that crosses this boundary. This
+# MUST equal the `version` field in .claude-plugin/plugin.json so the three
+# surfaces (this constant, plugin.json, the upgrade gate) stay in agreement.
+RESCOPE_MIGRATION_VERSION = "1.0.3"
 
 # Filenames copied verbatim from agents/ into .claude/agents/ on init.
 INSTALLED_AGENTS: list[str] = [
@@ -105,26 +149,6 @@ INSTALLED_AGENTS: list[str] = [
     "structural-reviewer.md",
     "task-runner.md",
 ]
-
-import argparse
-import dataclasses
-import json
-import re
-import sys
-from datetime import date
-from enum import Enum
-from pathlib import Path
-
-from constants import InstallScope
-
-if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
-    sys.stdout.reconfigure(encoding="utf-8")
-
-try:
-    import yaml
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
 
 
 class ConfigResult(Enum):
@@ -713,6 +737,171 @@ def normalize_rule_for_diff(content: str) -> str:
     return f"---\n{cleaned_frontmatter}\n---\n{body}"
 
 
+def _version_tuple(version: str) -> tuple[int, ...]:
+    """Parse a dotted version string into a comparable integer tuple.
+
+    Non-numeric / missing components degrade to 0 so a malformed or sentinel
+    value ("0.0.0", "", or a partial "1.1") still orders sensibly against a
+    well-formed version. Used by the de-scope migration version gate.
+    """
+    parts: list[int] = []
+    for component in str(version).split("."):
+        digits = re.match(r"\d+", component.strip())
+        parts.append(int(digits.group()) if digits else 0)
+    return tuple(parts)
+
+
+def _extract_paths_value(content: str) -> str | None:
+    """Return the `paths:` frontmatter value from a rule file, or None.
+
+    Reads only the leading `---` frontmatter block; returns the verbatim value
+    after `paths:` (stripped of surrounding whitespace). Returns None when the
+    file has no frontmatter or no paths: key.
+    """
+    if not content.startswith("---\n"):
+        return None
+    end = content.find("\n---\n", 4)
+    if end == -1:
+        return None
+    frontmatter_text = content[4:end]
+    match = re.search(r"^paths:(.*)$", frontmatter_text, re.MULTILINE)
+    if not match:
+        return None
+    return match.group(1).strip()
+
+
+def migrate_installed_rules(
+    cfg: "InitConfig",
+    from_version: str,
+    to_version: str,
+) -> dict:
+    """Remove install-set rules that the de-scope moved to handler-loading.
+
+    Version-gated: acts only when
+    ``from_version < RESCOPE_MIGRATION_VERSION <= to_version`` (the single
+    upgrade that crosses the de-scope boundary). Outside that window it is a
+    pure no-op and touches nothing.
+
+    For each (filename, old_template) in DESCOPED_RULES, the installed copy at
+    ``.claude/rules/planwise/{filename}`` is removed ONLY when it is provably
+    untouched by the user — its normalized body matches the shipped reference
+    AND its paths: line equals the resolved OLD default. ANY divergence (body
+    OR paths) leaves the file byte-for-byte unchanged and records a preserve
+    notice; the migration never deletes a customized copy and never defaults a
+    notice to recommending deletion. Rules outside DESCOPED_RULES are never
+    inspected or modified.
+
+    Returns ``{"removed": [...], "preserved": [...], "skipped": [...]}`` where
+    each list holds human-readable strings (filename + reason). The shape is
+    intentionally loose so the upgrade banner can fold it in directly.
+    """
+    report: dict[str, list[str]] = {"removed": [], "preserved": [], "skipped": []}
+
+    # Version gate — run exactly once, on the upgrade that crosses the boundary.
+    gate = _version_tuple(RESCOPE_MIGRATION_VERSION)
+    if not (_version_tuple(from_version) < gate <= _version_tuple(to_version)):
+        return report
+
+    refs_dir = cfg.plugin_root / "references"
+    rules_dir = cfg.project_root / ".claude" / "rules" / "planwise"
+
+    for filename, old_template in DESCOPED_RULES:
+        dst = rules_dir / filename
+        if not dst.exists():
+            # Already absent (fresh install on the new version, or a prior
+            # migration run already removed it) — nothing to do, stay idempotent.
+            report["skipped"].append(f"{filename}: not installed — nothing to migrate")
+            continue
+
+        installed_raw = dst.read_text(encoding="utf-8")
+        src = refs_dir / filename
+        try:
+            shipped_raw = src.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            # Cannot prove the body is untouched without the shipped reference —
+            # preserve the installed copy rather than risk deleting a custom one.
+            report["preserved"].append(
+                f"{filename}: kept — shipped reference unavailable to compare; "
+                "re-home to a project-local rule or upstream the edit if it is custom"
+            )
+            continue
+
+        body_matches = (
+            normalize_rule_for_diff(installed_raw) == normalize_rule_for_diff(shipped_raw)
+        )
+        installed_paths = _extract_paths_value(installed_raw)
+        old_default_paths = resolve_rule_paths_value(cfg, old_template)
+        paths_match = installed_paths == old_default_paths
+
+        if body_matches and paths_match:
+            dst.unlink()
+            report["removed"].append(
+                f"{filename}: removed — untouched de-scoped rule "
+                "(now handler-loaded from references/)"
+            )
+        else:
+            if not body_matches:
+                reason = "body-customized"
+            else:
+                reason = "paths-customized"
+            # Preserve byte-for-byte; the orchestrator now loads this rule from
+            # references/, so a user edit needs re-homing. Offer non-destructive
+            # options — never lead with a removal verdict for a customized file.
+            report["preserved"].append(
+                f"{filename}: kept ({reason}) — post-de-scope the orchestrator loads "
+                "this rule from references/, so re-home your edit: port it to a "
+                "project-local rule, keep it and re-scope to code paths, or upstream "
+                "the change. The installed copy was left unchanged."
+            )
+
+    return report
+
+
+def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
+    """Flag installed rules scoped to plan/backlog/lessons globs. Read-only.
+
+    Walks every ``.claude/rules/**/*.md`` file (recursive, including
+    project-authored rules), parses its paths: frontmatter, and records a flag
+    when the value references the plans, backlog, or lessons globs derived from
+    cfg. Each flagged entry carries the path, a line count, an approximate
+    injected-token estimate (~13 tokens/line), and the matched glob so the
+    caller can render a re-scope hint.
+
+    Never writes or deletes anything — purely diagnostic.
+    """
+    rules_root = cfg.project_root / ".claude" / "rules"
+    if not rules_root.exists():
+        return []
+
+    plans_glob = f"{cfg.planwise_root}/{cfg.plans_dir}/**"
+    backlog_glob = f"{cfg.planwise_root}/{cfg.backlog_dir}/**"
+    lessons_glob = f"{cfg.planwise_root}/{cfg.lessons_dir}/**"
+    watched_globs = (plans_glob, backlog_glob, lessons_glob)
+
+    flagged: list[dict] = []
+    for md_file in sorted(rules_root.rglob("*.md")):
+        if not md_file.is_file():
+            continue
+        try:
+            content = md_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        paths_value = _extract_paths_value(content)
+        if not paths_value:
+            continue
+        matched = next((g for g in watched_globs if g in paths_value), None)
+        if matched is None:
+            continue
+        line_count = content.count("\n") + (0 if content.endswith("\n") else 1)
+        flagged.append({
+            "path": str(md_file),
+            "line_count": line_count,
+            "approx_tokens": line_count * 13,
+            "matched_glob": matched,
+        })
+    return flagged
+
+
 def upgrade_artifacts(
     cfg: "InitConfig",
     manifest: dict,
@@ -920,9 +1109,9 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         print("Conflicts (action required):")
         for dst, sidecar in conflicts:
             print(f"  ! {dst}")
-            print(f"      reason:      installed body diverged from plugin-shipped version")
+            print("      reason:      installed body diverged from plugin-shipped version")
             print(f"      sidecar:     {sidecar}")
-            print(f"      remediation: diff the sidecar against the installed file, merge manually, then delete the .new")
+            print("      remediation: diff the sidecar against the installed file, merge manually, then delete the .new")
         index_path = (
             cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
             / f"{pinned_version}-to-{target_version}" / "INDEX.md"
@@ -930,7 +1119,38 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         print(f"  See {index_path} for the full conflict list.")
         print()
 
-    # 4. Commit point: bump plugin_version: in config.yaml LAST.
+    # 4. De-scope migration — remove install-set rules that are now
+    # handler-loaded, but only the untouched copies. Runs AFTER artifact
+    # refresh and BEFORE the version bump so it executes exactly once, on the
+    # upgrade that crosses RESCOPE_MIGRATION_VERSION.
+    migration = migrate_installed_rules(cfg, pinned_version, target_version)
+    if migration["removed"]:
+        print("De-scoped rules removed (now handler-loaded from references/):")
+        for entry in migration["removed"]:
+            print(f"  - {entry}")
+        print()
+    if migration["preserved"]:
+        print("De-scoped rules preserved (customized — action recommended):")
+        for entry in migration["preserved"]:
+            print(f"  ! {entry}")
+        print()
+
+    # 5. Post-upgrade advisory: flag any installed rule still scoped to
+    # plan/backlog/lessons globs (read-only — never mutates).
+    overscoped = lint_rule_overscope(cfg)
+    if overscoped:
+        total_tokens = sum(item["approx_tokens"] for item in overscoped)
+        print("Advisory — rules scoped to plan/backlog/lessons globs:")
+        for item in overscoped:
+            print(
+                f"  ~ {item['path']} ({item['line_count']} lines, "
+                f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
+            )
+            print("      hint: re-scope to code paths or convert to a handler-loaded reference")
+        print(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
+        print()
+
+    # 6. Commit point: bump plugin_version: in config.yaml LAST.
     _bump_plugin_version(config_path, target_version)
     print(f"Plugin version pinned: {target_version}")
     print()
@@ -965,9 +1185,41 @@ def _run_migrate(cfg: InitConfig) -> int:
     return 0
 
 
+def _run_doctor(cfg: "InitConfig") -> int:
+    """Run the read-only overscope linter and print a report. Returns exit code.
+
+    Standalone diagnostic — does not require or perform an upgrade. Walks the
+    installed rules, flags any scoped to plan/backlog/lessons globs, and prints
+    one row per flagged rule with its size, a re-scope hint, and a total
+    always-on injected-budget line. Always exits 0 (diagnostic, not a gate).
+    """
+    overscoped = lint_rule_overscope(cfg)
+    print("planwise doctor — rule overscope report")
+    print()
+    if not overscoped:
+        print("No overscoped rules found.")
+        print("All installed rules are scoped to code paths (.claude/** or narrower).")
+        return 0
+
+    total_tokens = sum(item["approx_tokens"] for item in overscoped)
+    print(f"Flagged {len(overscoped)} rule(s) scoped to plan/backlog/lessons globs:")
+    print()
+    for item in overscoped:
+        print(
+            f"  ~ {item['path']} ({item['line_count']} lines, "
+            f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
+        )
+        print("      hint: re-scope to code paths or convert to a handler-loaded reference")
+    print()
+    print(f"Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="Initialize planwise project structure")
-    parser.add_argument("--name", required=True, help="Project name")
+    parser.add_argument("--name", default=None,
+                        help="Project name. Required for init/--migrate/--upgrade; "
+                             "optional for the read-only --doctor diagnostic.")
     parser.add_argument("--root", default="planwise", help="Planwise root directory")
     parser.add_argument("--plans-dir", default="Plans", help="Plans subdirectory name")
     parser.add_argument("--backlog-dir", default="Backlog", help="Backlog subdirectory name")
@@ -993,11 +1245,21 @@ def main():
     parser.add_argument("--upgrade", action="store_true",
                         help="Refresh installed rules/agents and bump plugin_version: in "
                              "config.yaml after a plugin update.")
+    parser.add_argument("--doctor", action="store_true",
+                        help="Read-only diagnostic: scan installed rules and report any "
+                             "still scoped to plan/backlog/lessons globs (always-on context "
+                             "overscope), with size and a re-scope hint. Does not modify "
+                             "anything and does not require --upgrade.")
     args = parser.parse_args()
+
+    # --doctor is a read-only diagnostic and does not use the project name;
+    # every other mode (init / --migrate / --upgrade) requires it.
+    if not args.doctor and not args.name:
+        parser.error("--name is required (omit it only for the read-only --doctor diagnostic)")
 
     _plugin_root = get_plugin_root()
     cfg = InitConfig(
-        project_name=args.name,
+        project_name=args.name or "planwise",
         project_root=Path(args.project_root).resolve() if args.project_root else Path.cwd(),
         plugin_root=_plugin_root,
         planwise_root=args.root,
@@ -1008,6 +1270,9 @@ def main():
         plan_tier=args.plan_tier,
         plugin_version=read_plugin_version(_plugin_root),
     )
+
+    if args.doctor:
+        sys.exit(_run_doctor(cfg))
 
     if args.upgrade:
         if args.migrate:

@@ -175,6 +175,17 @@ artifacts:
       - "all handlers (path-scoped rule injection)"
     missing_key_behavior: warn_loud
     upgrade_behavior: refresh_or_sidecar
+    notes: >
+      install_rules() installs ONLY the four `.claude/**`-scoped author-time
+      rules (agent-authoring, skill-authoring, rule-authoring,
+      artifact-self-containment) — see INSTALLED_RULES in init_project.py. The
+      plan/backlog/lessons reference files that previously installed here are
+      now handler-loaded in-place from references/ (upgrade_behavior:
+      not_installed; see DESCOPED_RULES and the de-scoped rows below). On
+      upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
+      removes the untouched installed copies of those de-scoped rules and
+      preserves any the user customized byte-for-byte; this glob row covers
+      only the four still-installed rules for refresh_or_sidecar.
 
   - id: planwise_agents
     on_disk: ".claude/agents/*.md"
@@ -302,21 +313,24 @@ artifacts:
       Row exists for contributor visibility.
 
   - id: verification_task_authoring_rule
-    on_disk: ".claude/rules/planwise/verification-task-authoring.md"
+    on_disk: "plugin in-place (references/verification-task-authoring.md)"
     config_keys: []
-    producer: "install_rules()"
+    producer: "(not produced — read in-place from the plugin)"
     consumers:
       - "/planwise review (plan-reviewer)"
     missing_key_behavior: warn_loud
-    upgrade_behavior: refresh_or_sidecar
+    upgrade_behavior: not_installed
     notes: >
       Match-pattern authoring discipline for verification tasks (per-unit
       existence assertions over aggregate counts, denominator scoping, PASS/FAIL
-      contract, orchestrator adjudication of BLOCKER-from-heuristic). Ships with
-      a `paths:` frontmatter line and is installed as a path-scoped rule over
-      {planwise_root}/{plans_dir}/**; also read in-place by the plan-reviewer
-      agent at review time. Covered by the planwise_rules glob row for refresh;
-      listed individually because it has a named consumer worth documenting.
+      contract, orchestrator adjudication of BLOCKER-from-heuristic). De-scoped
+      from the install set — no longer installed as a path-scoped rule under
+      {planwise_root}/{plans_dir}/**; the plan-reviewer agent loads it in-place
+      from references/ at review time (see DESCOPED_RULES in init_project.py).
+      On upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
+      removes the untouched previously-installed copy and preserves any the
+      user customized. Listed individually because it has a named consumer
+      worth documenting.
 
 
 # Skills register their config dependencies here so the gap-detection rule

@@ -179,7 +179,7 @@ Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` from the p
 
 ### Step 6 — Install rules to `.claude/rules/planwise/` (fallback)
 
-The plugin ships 20 reference files that are installed as path-scoped rules. For each rule:
+The plugin installs 4 author-time reference files as path-scoped rules. These are the only rules copied into `.claude/rules/planwise/` — they trigger on `.claude/**` file activity and stay small. For each rule:
 
 1. Use **Glob** to check if the destination already exists — **skip if it does**
 2. Use **Read** to read the source file from the plugin (links below)
@@ -197,24 +197,11 @@ The plugin ships 20 reference files that are installed as path-scoped rules. For
 | 2 | [../references/skill-authoring.md](../references/skill-authoring.md) | `.claude/rules/planwise/skill-authoring.md` | `.claude/skills/**` |
 | 3 | [../references/rule-authoring.md](../references/rule-authoring.md) | `.claude/rules/planwise/rule-authoring.md` | `.claude/rules/**` |
 | 4 | [../references/artifact-self-containment.md](../references/artifact-self-containment.md) | `.claude/rules/planwise/artifact-self-containment.md` | `.claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md` |
-| 5 | [../references/session-planning-protocol.md](../references/session-planning-protocol.md) | `.claude/rules/planwise/session-planning-protocol.md` | `{planwise_root}/{plans_dir}/**` |
-| 6 | [../references/session-plan-requirements.md](../references/session-plan-requirements.md) | `.claude/rules/planwise/session-plan-requirements.md` | `{planwise_root}/{plans_dir}/**` |
-| 7 | [../references/session-context-budget.md](../references/session-context-budget.md) | `.claude/rules/planwise/session-context-budget.md` | `{planwise_root}/{plans_dir}/**` |
-| 8 | [../references/session-execution-protocol.md](../references/session-execution-protocol.md) | `.claude/rules/planwise/session-execution-protocol.md` | `{planwise_root}/{plans_dir}/**` |
-| 9 | [../references/scaffolding-hygiene.md](../references/scaffolding-hygiene.md) | `.claude/rules/planwise/scaffolding-hygiene.md` | `{planwise_root}/{plans_dir}/**` |
-| 10 | [../references/discovery-and-exit-criteria.md](../references/discovery-and-exit-criteria.md) | `.claude/rules/planwise/discovery-and-exit-criteria.md` | `{planwise_root}/{plans_dir}/**` |
-| 11 | [../references/ei-fidelity.md](../references/ei-fidelity.md) | `.claude/rules/planwise/ei-fidelity.md` | `{planwise_root}/{plans_dir}/**` |
-| 12 | [../references/schema-pin-requirement.md](../references/schema-pin-requirement.md) | `.claude/rules/planwise/schema-pin-requirement.md` | `{planwise_root}/{plans_dir}/**` |
-| 13 | [../references/task-content-fidelity.md](../references/task-content-fidelity.md) | `.claude/rules/planwise/task-content-fidelity.md` | `{planwise_root}/{plans_dir}/**` |
-| 14 | [../references/agent-orchestration.md](../references/agent-orchestration.md) | `.claude/rules/planwise/agent-orchestration.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-| 15 | [../references/agent-orchestration-delegated.md](../references/agent-orchestration-delegated.md) | `.claude/rules/planwise/agent-orchestration-delegated.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-| 16 | [../references/callout-conventions.md](../references/callout-conventions.md) | `.claude/rules/planwise/callout-conventions.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-| 17 | [../references/markdown-conventions.md](../references/markdown-conventions.md) | `.claude/rules/planwise/markdown-conventions.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-| 18 | [../references/verification-gates.md](../references/verification-gates.md) | `.claude/rules/planwise/verification-gates.md` | `{planwise_root}/{plans_dir}/**` |
-| 19 | [../references/verify-against-shipped-artifact.md](../references/verify-against-shipped-artifact.md) | `.claude/rules/planwise/verify-against-shipped-artifact.md` | `{planwise_root}/{plans_dir}/**` |
-| 20 | [../references/verification-task-authoring.md](../references/verification-task-authoring.md) | `.claude/rules/planwise/verification-task-authoring.md` | `{planwise_root}/{plans_dir}/**` |
 
-Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with actual values from Step 1.
+Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with actual values from Step 1 where they appear in `paths:` values.
+
+> [!practice] Plan/Backlog/Lessons Rules Are Handler-Loaded, Not Installed
+> The plan-, backlog-, and lessons-scoped reference files (session protocols, scaffolding hygiene, orchestration, conventions, verification rules, and similar) are **no longer installed as path-scoped rules**. Handlers load them on demand from the plugin's `references/` directory when a workflow needs them, instead of injecting them as always-on path-scoped rules. This keeps the always-on context budget small while preserving the guidance. When upgrading a project that previously installed these rules, the upgrade flow removes the untouched installed copies (and preserves any the user customized) — see the de-scope migration in `scripts/init_project.py`.
 
 ---
 
@@ -350,23 +337,13 @@ Agents mirrored to .claude/agents/:
   ✓ fix-agent.md
 
 Rules installed to .claude/rules/planwise/:
-  ✓ agent-authoring.md         (paths: .claude/agents/**)
-  ✓ skill-authoring.md         (paths: .claude/skills/**)
-  ✓ rule-authoring.md          (paths: .claude/rules/**)
-  ✓ session-planning-protocol.md
-  ✓ session-plan-requirements.md
-  ✓ session-context-budget.md
-  ✓ session-execution-protocol.md
-  ✓ agent-orchestration.md
-  ✓ callout-conventions.md
-  ✓ markdown-conventions.md
-  ✓ scaffolding-hygiene.md
-  ✓ discovery-and-exit-criteria.md
-  ✓ ei-fidelity.md
-  ✓ schema-pin-requirement.md
-  ✓ task-content-fidelity.md
-  ✓ verification-gates.md
-  ✓ verify-against-shipped-artifact.md
+  ✓ agent-authoring.md              (paths: .claude/agents/**)
+  ✓ skill-authoring.md              (paths: .claude/skills/**)
+  ✓ rule-authoring.md               (paths: .claude/rules/**)
+  ✓ artifact-self-containment.md    (paths: .claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md)
+
+  (Plan/backlog/lessons reference rules are handler-loaded on demand from the
+   plugin's references/ directory — not installed as path-scoped rules.)
 
 Skipped (action required):
   ! {planwise_root}/config.yaml (key: context)
