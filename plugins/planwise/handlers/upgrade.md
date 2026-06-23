@@ -7,7 +7,9 @@
 - [Config Gate](#config-gate)
 - [Workflow](#workflow)
   - [Step 1 — Detect drift](#step-1--detect-drift)
+  - [Step 1.5 — Offer Token Saver mode](#step-15--offer-token-saver-mode)
   - [Step 2 — Invoke the upgrade script](#step-2--invoke-the-upgrade-script)
+  - [Step 2.5 — Refresh Token Saver calibration](#step-25--refresh-token-saver-calibration)
   - [Step 3 — Render the banner](#step-3--render-the-banner)
   - [Step 4 — Resolve conflicts](#step-4--resolve-conflicts)
 - [Conflict Resolution Reference](#conflict-resolution-reference)
@@ -43,11 +45,29 @@ Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version`. Compare t
 
 ---
 
+### Step 1.5 — Offer Token Saver mode
+
+Token Saver is a budget mode that keeps task sessions under ~150K and warns when a file is too large to fit a lean task (see `references/session-context-budget.md` "Token Saver Profile"). Read `context.token_saver` from the user's `config.yaml` (treat absent as `false`).
+
+> [!gate] Token Saver Upgrade Prompt
+> If `context.token_saver` is already `true` → skip this prompt; Token Saver stays enabled, store `{token_saver} = yes`.
+> If `context.token_saver` is `false` or absent → use `AskUserQuestion`:
+>
+> > "A new Token Saver mode is available — enable it? It keeps task sessions under ~150K (avoids the linear carrying-cost of big sessions) and warns when a file is too large to fit a lean task. (Yes / No)"
+>
+> Store the choice as `{token_saver}` (`yes` / `no`). When `yes`, pass `--token-saver` to the upgrade script in Step 2.
+
+---
+
 ### Step 2 — Invoke the upgrade script
 
+Append `--token-saver` only when `{token_saver}` (from Step 1.5) is `yes`:
+
 ```bash
-python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --upgrade
+python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --upgrade --token-saver
 ```
+
+Omit the trailing `--token-saver` when `{token_saver}` is `no` — the upgrade leaves the existing `context.token_saver` value untouched (migration is non-destructive; it never flips a user-set toggle off).
 
 `{project_root}` is the absolute path of the project root (the directory containing `{planwise_root}/`). Pass it explicitly so the upgrade writes to the correct tree even when the user invokes `/planwise upgrade` from a subdirectory — the script's default of `Path.cwd()` is incorrect in that case.
 
@@ -63,6 +83,33 @@ The script:
 7. Bumps `plugin_version:` in `config.yaml` LAST, as the commit point
 
 Capture stdout — the banner is rendered from it.
+
+---
+
+### Step 2.5 — Refresh Token Saver calibration
+
+Run only when `{token_saver}` (from Step 1.5) resolves to `yes` — i.e., Token Saver is enabled after the upgrade (either pre-existing or just turned on). Skip silently when Token Saver is off.
+
+The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update changes the always-on rule/agent surface a fresh `/context` loads, so `token_saver_runner_overhead` captured against the old version no longer reflects this install. Re-capture so plans size against the new footprint.
+
+1. Re-run the calibration capture against the upgraded install:
+
+   ```bash
+   python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{planwise_root}/config.yaml'), plugin_root=r'{plugin_root}'); print(r)"
+   ```
+
+   `token_saver.calibrate()` overwrites the six `token_saver_*` keys in place (targeted edit — comments and key order preserved) and degrades to the conservative fallback if the `/context` capture fails.
+
+2. Report the refreshed numbers in the chat summary (append to the Step 3 banner):
+
+   ```
+   Token Saver recalibrated:
+     Runner overhead:       {old} → {token_saver_runner_overhead}
+     Orchestrator overhead: {old} → {token_saver_orchestrator_overhead}
+     Calibrated on:         {token_saver_overhead_measured_on}
+   ```
+
+   If the result's `uncalibrated` flag is `true`, note that the conservative fallback was written and suggest running `/planwise calibrate` from an interactive session.
 
 ---
 

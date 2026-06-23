@@ -250,3 +250,48 @@ def get_scoring_weights(config: dict) -> dict:
         "age_bonus_per_week": scoring.get("age_bonus_per_week", 1),
         "age_cap": scoring.get("age_cap", 12),
     }
+
+
+def get_token_saver_config(config: dict) -> dict:
+    """Extract the Token Saver budget surface from config, with defaults.
+
+    Mirrors get_scoring_weights: reads the six `context.token_saver*` keys and
+    falls back to documented backward-compatible defaults when a key is absent
+    (a config that predates the Token Saver surface). The defaults are
+    deliberately conservative — never assume the engine is ON and never assume
+    a calibrated (non-zero) overhead:
+
+      * token_saver                       -> False  (engine off until enabled)
+      * token_saver_session_target        -> 150000 (keeps a Sonnet runner < 200K)
+      * token_saver_runner_overhead       -> 0      (0 == not yet calibrated)
+      * token_saver_orchestrator_overhead -> 0      (0 == not yet calibrated)
+      * token_saver_context_breakdown     -> {}     (no measured breakdown yet)
+      * token_saver_overhead_measured_on  -> ""     (never calibrated)
+
+    The no-PyYAML loader may parse the inline-flow breakdown mapping as an
+    opaque string; that is harmless because the breakdown is diagnostic only.
+    """
+    context = config.get("context", {})
+    if not isinstance(context, dict):
+        context = {}
+
+    breakdown = context.get("token_saver_context_breakdown", {})
+    if not isinstance(breakdown, dict):
+        breakdown = {}
+
+    return {
+        "token_saver": bool(context.get("token_saver", False)),
+        "token_saver_session_target": context.get(
+            "token_saver_session_target", 150000
+        ),
+        "token_saver_runner_overhead": context.get(
+            "token_saver_runner_overhead", 0
+        ),
+        "token_saver_orchestrator_overhead": context.get(
+            "token_saver_orchestrator_overhead", 0
+        ),
+        "token_saver_context_breakdown": breakdown,
+        "token_saver_overhead_measured_on": context.get(
+            "token_saver_overhead_measured_on", ""
+        ),
+    }

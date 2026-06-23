@@ -571,23 +571,35 @@ When Execution Strategy is DELEGATED:
 
 ## 13. Large-File Read Tactics
 
-> [!practice] 4-Step Ladder for Files Exceeding Read Tool Token Limit
-> When a file exceeds the Read tool's effective token budget (~13K tokens / ~1000 lines at `~13 tokens/line`), apply this ladder in order — stop at the first step that succeeds:
+> [!practice] Ladder for Files Exceeding a Read-Tool Gate
+> The Read tool has **two** mechanical gates (NOT a single ~13K/~1000-line budget):
+> - **Token page-cap gate (model-dependent):** above **~25,000 tokens** a single Read returns only the first page (truncates). Tokens use the runner model's tokenizer — `~13 tok/line` Sonnet/Haiku, `~19 tok/line` Opus, so Opus trips at **~1,340 lines** vs Sonnet/Haiku's **~1,920**.
+> - **Byte gate (model-independent):** a file ≥ **262,144 bytes (256 KiB)** is refused outright unless `offset`/`limit` is passed.
+>
+> When a file crosses either gate, apply this ladder in order — stop at the first step that succeeds. These gates and their constants are documented in [`references/session-context-budget.md` § Read-Tool Hard Limits](session-context-budget.md#read-tool-hard-limits); they are FIXED harness facts (defined in `scripts/token_saver.py`), not `/context`-measured budgets, and a `read`-reason Critical is NOT resolvable by routing to a 1M-window model.
 
-**Step 1 — Output-clear pre-step:** Clear conversation output buffer before reading. Freed budget enables a larger Read call. Effective when the conversation history is large but the file itself is borderline.
+**Step 1 — Paged Read (`offset`/`limit`):** Read the file in pages that each stay under the gate, then stitch them. After each page, **check the returned content for the `PARTIAL view` truncation header** — its presence means the Read was truncated and more pages remain; do NOT assume one Read returned the whole file.
 
-**Step 2 — Substitution:** Read a smaller substitute:
+```bash
+# Example: page a 2,400-line file in ~900-line windows (safe for both models)
+Read(path: "{src/module/file.ext}", offset: 1, limit: 900)     # check for "PARTIAL view" header
+Read(path: "{src/module/file.ext}", offset: 901, limit: 900)   # continue until the file is fully covered
+```
+
+**Step 2 — Output-clear pre-step:** Clear conversation output buffer before reading. Freed budget enables a larger Read call. Effective when the conversation history is large but the file itself is borderline.
+
+**Step 3 — Substitution:** Read a smaller substitute:
 - Adjacent `*.md` documentation next to the `{src/module/file.ext}` source file
 - A smaller version-compatible equivalent (e.g., a config file that describes the large source file's structure)
 
-**Step 3 — Grep-based scanning:** Use Grep with `output_mode: "content"` and context lines to extract the needed sections without a full Read. Effective when you know which section or function you need.
+**Step 4 — Grep-based scanning:** Use Grep with `output_mode: "content"` and context lines to extract the needed sections without a full Read. Effective when you know which section or function you need.
 
 ```bash
 # Example: extract a specific function from a large file
 Grep(pattern: "def {symbol}", path: "{src/module/file.ext}", output_mode: "content", context: 30)
 ```
 
-**Step 4 — Script-based extraction:** For structured files (JSON/YAML), use a Bash command via `jq`/`yq` to project only relevant fields:
+**Step 5 — Script-based extraction:** For structured files (JSON/YAML), use a Bash command via `jq`/`yq` to project only relevant fields:
 
 ```bash
 # Example: extract a specific key from a large YAML config

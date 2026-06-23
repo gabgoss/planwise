@@ -283,6 +283,109 @@ Each part MUST:
 
 **Not limited to one file.** Tasks produce full-detail outputs. If a task needs 3 files of 400 lines each to capture the full specification, that is correct — do NOT compress into one 500-line file.
 
+### File Size Limits — Generated Artifacts (BINDING when Token Saver is on)
+
+The 500-line soft limit above is advisory. When `context.token_saver: true`, **generated planwise artifacts that a runner MUST read** — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, and task Output files — carry a **HARD** ceiling: each MUST stay under **both** Read-tool gates (see [Read-Tool Hard Limits](#read-tool-hard-limits) below), not just the line limit. A generated artifact that trips either gate cannot be read in a single Read and MUST be split into multi-parts.
+
+> [!constraint] Generated-Artifact Split — Hard, Not Advisory
+> WRONG — a planwise-generated Consolidated Context part is checked against the line limit alone, passes at 480 lines, but is 9,200 bytes-per-100-lines of dense tables → exceeds the 256 KiB byte gate / 25K-token page-cap and a Sonnet runner can only read its first page:
+> ```
+> wc -l RSO-Consolidated-Context-Part-1.md   # 480 → "under 500, fine"  ← INSUFFICIENT
+> ```
+> CORRECT — check the line gate, the byte gate, AND the token gate; split on whichever trips first:
+> ```
+> wc -l RSO-Consolidated-Context-Part-1.md   # line gate
+> wc -c RSO-Consolidated-Context-Part-1.md   # byte gate: must stay < 245,760 (warn) / 262,144 (hard)
+> # token gate: lines × per-model rate must stay < 22,000 (warn) / 25,000 (hard)
+> # → split into Part-1a / Part-1b if line OR byte OR token gate trips
+> ```
+
+The trigger is **line OR byte OR token** — whichever fires first forces the split. External source/context files a runner reads but does NOT generate (codebase modules, third-party docs) keep the advisory treatment: warn, apply the [Large-File Read Tactics](agent-orchestration.md#13-large-file-read-tactics) ladder, and file a refactor backlog item — they are not hard-split because the runner does not own them.
+
+---
+
+## Token Saver Profile
+
+This section activates when `context.token_saver: true` in `config.yaml`. It layers a carrying-cost budget on top of the tier budgets in §5 and is keyed to the **measured** overheads captured by `/planwise calibrate` (the `token_saver.calibrate()` engine in `scripts/token_saver.py`). When `token_saver: false`, ignore this section and use the §5 tier budgets alone.
+
+> [!constraint] Numbers Are Measured, Never Hardcoded
+> Every threshold below is **derived** from `token_saver_runner_overhead` (and `token_saver_orchestrator_overhead`) — the overheads `/planwise calibrate` writes back into `config.yaml` from a real `/context` report. NEVER hardcode a runner overhead or a per-task ceiling in a plan: read the calibrated value and run the formulas. Until a live capture runs, the engine writes a conservative fallback (`runner_overhead ≈ 54,000`, `orchestrator_overhead ≈ 60,000`, flagged `uncalibrated`); a plan authored against the fallback is intentionally pessimistic and should be re-checked after calibration.
+
+### Token Saver Two-Tier Policy
+
+Token Saver sizes sessions by **carrying cost**, not by "does it fit". A task-runner subagent is held to a HARD ceiling; the orchestrator is held to a SOFT advisory. Both are keyed to `token_saver_session_target` (default 150,000) minus the actor's measured overhead.
+
+| Actor | Target | Enforcement |
+|-------|--------|-------------|
+| Task-runner subagent | **HARD ~150K total** | `task_estimate + token_saver_runner_overhead ≤ token_saver_session_target`. The plan-time per-task ceiling is `available_per_task = token_saver_session_target − token_saver_runner_overhead − growth_margin` (the engine's `derive_thresholds`). A task projected above its `critical` threshold MUST be split or its Required Context trimmed. |
+| Orchestrator session | **SOFT ~150K** (may grow toward the tier window) | Advisory, not a split trigger. Keep the DELEGATED Context Boundary (§11.3 of [agent-orchestration.md](agent-orchestration.md)) so the orchestrator reads only plan files. Emit a carrying-cost advisory when a DIRECT or consolidation session is projected above `token_saver_session_target − token_saver_orchestrator_overhead`. |
+
+### Token Saver Carrying-Cost Rationale
+
+A session's billed cost is not just its peak size — it is roughly `carried_context × 0.1 × turns`: every cached turn re-bills the carried context at the **cache-read rate (0.1× base input)**, so a large session pays its whole footprint again on every turn. Two practical consequences:
+
+- **Size by `context × turns`, not by "does it fit".** A 180K session that technically fits the window still costs far more per turn than a lean 120K one — and it iterates worse (recovery, review, and re-reading all get harder). The 150K target is a *usage-pattern* ceiling that keeps per-turn carrying cost low, not a hard window limit.
+- **Cache writes cost more than reads.** Writing context into the cache bills **1.25× base input (5-minute TTL)** or **2× (1-hour TTL)**; subsequent reads are 0.1×. Front-load reads once (one cache write) rather than dribbling context in across turns (repeated writes).
+- **No long-context premium on Opus 4.8.** Opus 4.8 bills its full 1M window at standard pricing — there is no surcharge past 200K. So **150K is a usage-pattern target, not a billing cliff**; the motivation is per-turn carrying cost and iteration quality, not a step in the price curve.
+
+Operationally: `/clear` between sessions (drop the carried context entirely) and `/compact` at task boundaries within a session (shrink the carried context before the next turn re-bills it).
+
+### Token Saver Threshold Derivation
+
+Thresholds are computed by `token_saver.derive_thresholds(session_target, runner_overhead)` — never hardcoded:
+
+```
+available_per_task = token_saver_session_target − token_saver_runner_overhead − growth_margin(6000)
+critical           = available_per_task − output_reserve(10000)
+warn               = min(40000, round(0.5 × available_per_task))   # 40K = guaranteed-warn ceiling; lower on heavy installs
+```
+
+- `available_per_task` is the working budget a single runner has for its Required Context after subtracting the measured overhead and a 6,000-token growth margin.
+- `critical` reserves 10,000 tokens for the runner's own output; a task estimated at or above `critical` overflows and MUST be split.
+- `warn` is the lighter caution band: **40,000 is the guaranteed-warn ceiling** (every install warns by at least 40K), but on a heavy install where `0.5 × available_per_task < 40,000`, the lower derived value wins. A task at or above `warn` should be reviewed for trimming.
+
+> [!constraint] Subagent Window = Dispatched MODEL, Not Parent Tier
+> A Token Saver runner's window is set by the **model it runs on**, NOT the orchestrator's tier (see [§ Subagent Context Window](#subagent-context-window)): Haiku/Sonnet = **200K**, Opus = **1M**. The `~150K` Token Saver target is a carrying-cost ceiling that sits *below* even a Sonnet runner's 200K window — it is about per-turn cost and iteration quality, not about fitting the window. Do NOT raise the Token Saver target to a runner's window size; the target is deliberately tighter than the window.
+
+### Read-Tool Hard Limits
+
+The Read tool has two mechanical limits, SEPARATE from the carrying-cost budget — a file can fit the session budget yet be unreadable in one Read. These constants are **FIXED harness facts** (measured 2026-06-23; re-validate via headless `claude -p --model X`), defined as module-level constants in `scripts/token_saver.py` — they are **NOT** `/context`-measured and are **NOT** written by `calibrate()`.
+
+- **Byte gate (model-independent):** a file ≥ **262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused unless `offset`/`limit` is passed. Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
+- **Token page-cap gate (model-dependent):** a file above **~25,000 tokens** (`READ_PAGE_CAP_TOKENS`) returns only its first page (truncates). Tokens use the **runner model's** tokenizer — `~13 tok/line` Sonnet/Haiku, `~19 tok/line` Opus (`TOKENS_PER_LINE`). Opus tokenizes ≈1.44× heavier, so it trips the gate at **~1,340 lines** vs Sonnet/Haiku's **~1,920**. Warn at **~22,000 tokens** (`READ_TOKEN_WARN`).
+
+These FOLD into the per-file warning ladder. `token_saver.classify_file()` computes `level = max(cost_level, read_level)` and tags `reason = cost | read` naming whichever gate drove the level:
+
+> [!constraint] A `read`-reason Critical Is NOT 1M-Exception-Resolvable
+> WRONG — a runner hits a `read`-reason Critical and escalates the dispatch to Opus (1M window) expecting the larger window to absorb it:
+> ```
+> classify_file(...) → {level: Critical, reason: read}   → "route to Opus, the 1M window fixes it"  ← FALSE
+> ```
+> CORRECT — routing to Opus does NOT raise the per-Read page cap, and Opus's heavier tokenizer trips the gate *sooner* (~1,340 lines vs ~1,920). The remedy is **paged reads** (`offset`/`limit`/Grep), and for a core or to-be-edited dependency, **refactor + backlog**:
+> ```
+> classify_file(...) → {level: Critical, reason: read}
+>   → page it: Read(offset/limit) or Grep the needed section
+>   → if it is a core/edited dependency: split/refactor the file + file a backlog item
+> ```
+> A `cost`-reason Critical is a budget overflow (split the task / trim Required Context). A `read`-reason Critical is a mechanical Read failure (page it / refactor). The 1M exception addresses neither.
+
+### Reading Discipline With Read Gates (BINDING)
+
+The [Read Files Fully](#reading-discipline-binding) rule still holds — read all relevant content, never skim or infer. Token Saver adds one refinement: when a single Read **cannot** deliver a whole file (≥ 256 KiB, or above the runner model's token page-cap), reading "fully" means **paging** it, not trusting one Read returned everything.
+
+> [!constraint] Page Large Files — Do Not Trust One Read
+> WRONG — runner issues one Read on a 2,400-line file, gets the first page back, and proceeds as if it read the whole file:
+> ```
+> Read(path)   → returns first ~1,920 lines (Sonnet) silently truncated → runner acts on partial context
+> ```
+> CORRECT — when a file exceeds a gate, page it with `offset`/`limit` (or Grep the needed sections) AND check the returned content for the `PARTIAL view` truncation header before assuming completeness:
+> ```
+> Read(path, offset=1, limit=900) → check for "PARTIAL view" header
+> Read(path, offset=901, limit=900) → … continue until the whole file is covered
+> # or: Grep(pattern, path, output_mode: "content", context: 30) for a known section
+> ```
+> "Read fully" is satisfied by paged reads that together cover the file — NOT by one Read that silently returned only the first page.
+
 ---
 
 ## 6. Context Loading Strategy

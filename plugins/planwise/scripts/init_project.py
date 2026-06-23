@@ -91,6 +91,21 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
     "categorization",
 ]
 
+# Sub-keys under `context:` that `--migrate` adds to an EXISTING context block.
+# The top-level merge above skips `context` whenever the user's config already
+# has it (every installed config does), so the six Token Saver sub-keys would
+# never reach an existing install without this nested merge. Each tuple is
+# (sub_key, default_value_literal) where the literal is rendered verbatim into
+# the YAML line. Existing sub-keys are NEVER overwritten — purely additive.
+MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
+    ("token_saver", "false"),
+    ("token_saver_session_target", "150000"),
+    ("token_saver_runner_overhead", "0"),
+    ("token_saver_orchestrator_overhead", "0"),
+    ("token_saver_context_breakdown", "{}"),
+    ("token_saver_overhead_measured_on", '""'),
+]
+
 # Files copied from references/ into .claude/rules/planwise/ on init.
 # Each tuple is (source_filename, paths_template). paths_template uses
 # {plans_path} / {all_paths} placeholders resolved at install/upgrade time
@@ -151,6 +166,125 @@ INSTALLED_AGENTS: list[str] = [
 ]
 
 
+def _find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
+    """Locate the top-level `context:` block in a list of YAML lines.
+
+    Returns (header_index, block_end_exclusive, subkey_indent) where:
+      * header_index is the index of the `context:` line,
+      * block_end_exclusive is the index of the first line AFTER the block
+        (the next top-level key, or len(lines) at EOF),
+      * subkey_indent is the leading whitespace string used for the block's
+        sub-keys (taken from the first indented member, or "  " if none).
+
+    Returns None when no top-level `context:` block exists.
+    """
+    header_idx = None
+    for i, line in enumerate(lines):
+        if re.match(r"^context:\s*$", line):
+            header_idx = i
+            break
+    if header_idx is None:
+        return None
+
+    subkey_indent = "  "
+    found_indent = False
+    end = len(lines)
+    for j in range(header_idx + 1, len(lines)):
+        line = lines[j]
+        if line.strip() == "" or line.lstrip().startswith("#"):
+            # Blank/comment lines belong to the block only if more content
+            # follows at sub-key indent; tentatively include and keep scanning.
+            continue
+        indent_match = re.match(r"^(\s+)\S", line)
+        if indent_match:
+            if not found_indent:
+                subkey_indent = indent_match.group(1)
+                found_indent = True
+            continue
+        # A non-indented, non-blank, non-comment line ends the block.
+        end = j
+        break
+
+    # Trim trailing blank/comment lines back out of the block so insertions
+    # land directly after the last real sub-key.
+    while end - 1 > header_idx:
+        prev = lines[end - 1]
+        if prev.strip() == "" or prev.lstrip().startswith("#"):
+            end -= 1
+        else:
+            break
+
+    return header_idx, end, subkey_indent
+
+
+def _existing_context_subkeys(lines: list[str], start: int, end: int) -> set[str]:
+    """Return the set of sub-key names already present in a context block."""
+    keys: set[str] = set()
+    for k in range(start, end):
+        m = re.match(r"^\s+([a-zA-Z_]\w*):", lines[k])
+        if m:
+            keys.add(m.group(1))
+    return keys
+
+
+def _context_subkeys_delta(before: str, after: str) -> list[str]:
+    """Return the context sub-keys present in `after` but not in `before`.
+
+    Used for migrate reporting (which Token Saver sub-keys the nested merge
+    added). Order follows MIGRATABLE_CONTEXT_SUBKEYS.
+    """
+    before_lines = before.split("\n")
+    after_lines = after.split("\n")
+    before_block = _find_context_block(before_lines)
+    after_block = _find_context_block(after_lines)
+    before_keys: set[str] = set()
+    after_keys: set[str] = set()
+    if before_block is not None:
+        h, e, _ = before_block
+        before_keys = _existing_context_subkeys(before_lines, h + 1, e)
+    if after_block is not None:
+        h, e, _ = after_block
+        after_keys = _existing_context_subkeys(after_lines, h + 1, e)
+    gained = after_keys - before_keys
+    return [
+        f"context.{k}" for k, _ in MIGRATABLE_CONTEXT_SUBKEYS if k in gained
+    ]
+
+
+def merge_context_subkeys(text: str, token_saver_value: str = "false") -> str:
+    """Add any missing Token Saver sub-keys to an existing `context:` block.
+
+    Targeted, comment-preserving, in-place text edit — NOT a yaml round-trip.
+    Existing sub-keys are left byte-for-byte untouched (never overwritten), so
+    re-running this is idempotent and non-destructive. Returns the text
+    unchanged when there is no top-level `context:` block (the caller handles
+    the whole-block-add path).
+
+    `token_saver_value` overrides the literal written for the `token_saver`
+    toggle (so generation can honour --token-saver while migration defaults to
+    "false").
+    """
+    lines = text.split("\n")
+    block = _find_context_block(lines)
+    if block is None:
+        return text
+    header_idx, end, subkey_indent = block
+    existing = _existing_context_subkeys(lines, header_idx + 1, end)
+
+    additions: list[str] = []
+    for sub_key, default in MIGRATABLE_CONTEXT_SUBKEYS:
+        if sub_key in existing:
+            continue
+        value = token_saver_value if sub_key == "token_saver" else default
+        additions.append(f"{subkey_indent}{sub_key}: {value}")
+
+    if not additions:
+        return text
+
+    new_lines = lines[:end] + additions + lines[end:]
+    return "\n".join(new_lines)
+
+
 class ConfigResult(Enum):
     CREATED = "created"
     SKIPPED_EXISTS = "skipped_exists"
@@ -186,6 +320,7 @@ class InitConfig:
     install_scope: str = "project"
     plan_tier: str = "pro"
     plugin_version: str = "0.0.0"
+    token_saver: bool = False
 
     @property
     def context_window(self) -> int:
@@ -285,6 +420,14 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
     content = content.replace("{plan-tier}", cfg.plan_tier)
     content = content.replace("{context-window}", str(cfg.context_window))
     content = content.replace("{plugin-version}", cfg.plugin_version)
+    content = content.replace("{token-saver}", "true" if cfg.token_saver else "false")
+
+    # Ensure the six Token Saver sub-keys are present even if the shipped
+    # template predates them (older template, or a fixture without them) —
+    # the nested merge is additive and respects the --token-saver toggle.
+    content = merge_context_subkeys(
+        content, token_saver_value="true" if cfg.token_saver else "false"
+    )
 
     try:
         with open(dst, "x", encoding="utf-8") as f:
@@ -616,7 +759,16 @@ def migrate_config(cfg: InitConfig) -> tuple[str, list[str], list[str]]:
             present.append(key)
 
     if not added:
-        return str(config_path), [], present
+        # No top-level keys to add — but an existing `context:` block may still
+        # be missing the Token Saver sub-keys. Do a targeted, comment-preserving
+        # nested merge directly on the user's file text (NO yaml round-trip, so
+        # comments/order survive and re-running stays byte-for-byte idempotent).
+        merged_text = merge_context_subkeys(user_text)
+        if merged_text != user_text:
+            config_path.write_text(merged_text, encoding="utf-8")
+            sub_added = _context_subkeys_delta(user_text, merged_text)
+            added.extend(sub_added)
+        return str(config_path), added, present
 
     # Re-emit the file. PyYAML's default dump is acceptable here; the user
     # can reflow manually if needed. Block style + indent 2 keeps the result
@@ -641,6 +793,12 @@ def migrate_config(cfg: InitConfig) -> tuple[str, list[str], list[str]]:
     header = "\n".join(header_lines)
     if header:
         merged_yaml = header + "\n" + merged_yaml
+
+    # The whole-block-add path (context copied from the template) may still
+    # lack the Token Saver sub-keys when the shipped template predates them —
+    # backfill them into the freshly-written block so every migrate target
+    # ends up with the full surface.
+    merged_yaml = merge_context_subkeys(merged_yaml)
 
     config_path.write_text(merged_yaml, encoding="utf-8")
     return str(config_path), added, present
@@ -1230,6 +1388,10 @@ def main():
     parser.add_argument("--plan-tier", default="pro",
                         choices=sorted(PLAN_TIER_WINDOWS.keys()),
                         help="Claude plan tier: pro (200K context) or max (1M context). Default: pro.")
+    parser.add_argument("--token-saver", action="store_true",
+                        help="Enable the Token Saver budget engine in the generated "
+                             "config (sets context.token_saver: true). Default off — the "
+                             "engine ships dormant and is calibrated via /planwise calibrate.")
     parser.add_argument("--project-root", default=None, help="Project root (default: cwd)")
     parser.add_argument("--auto-from", default=None,
                         help="Subroutine mode: caller handler name (e.g., 'plan', 'review'). "
@@ -1269,6 +1431,7 @@ def main():
         install_scope=args.scope,
         plan_tier=args.plan_tier,
         plugin_version=read_plugin_version(_plugin_root),
+        token_saver=args.token_saver,
     )
 
     if args.doctor:

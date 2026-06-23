@@ -47,9 +47,10 @@ Do NOT use `cat`, `cp`, `sed`, `awk`, or other bash commands for file operations
 ### Step 1 — Gather project information
 
 <!-- AUTO-MODE: convenience -->
-<!-- All 7 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
+<!-- All 8 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
      install_scope = project; planwise_root = planwise; plans_dir = Plans;
-     backlog_dir = Backlog; lessons_dir = LessonsLearned; plan_tier = pro. -->
+     backlog_dir = Backlog; lessons_dir = LessonsLearned; plan_tier = pro;
+     token_saver = yes (recommended). -->
 Use `AskUserQuestion` to collect:
 
 1. **Project name** — The name of this project (e.g., "MyApp", "DataPipeline")
@@ -59,6 +60,7 @@ Use `AskUserQuestion` to collect:
 5. **Backlog directory** — Subdirectory name for backlog items within the root (default: `Backlog`)
 6. **Lessons directory** — Subdirectory name for lessons learned within the root (default: `LessonsLearned`)
 7. **Claude plan tier** — Which Claude plan you're on: `pro` (200K context window) or `max` (1M context window). This scales all token budgets, Meta-Plan thresholds, and DELEGATED checks. Default: `pro`. See `references/session-context-budget.md` §4 for tier-specific budget tables.
+8. **Enable Token Saver mode?** — Keeps task sessions under ~150K (avoids the linear carrying-cost of big sessions) and warns when a file is too large to fit a lean task. Recommended: `yes`. See `references/session-context-budget.md` "Token Saver Profile" for the two-tier policy and derivation formulas.
 
 Store responses as:
 - `{project_name}` — from question 1
@@ -68,6 +70,7 @@ Store responses as:
 - `{backlog_dir}` — from question 5 (use `Backlog` if blank)
 - `{lessons_dir}` — from question 6 (use `LessonsLearned` if blank)
 - `{plan_tier}` — from question 7 (use `pro` if blank; must be one of: `pro`, `max`). The companion `{context_window}` is derived: `pro` → 200000, `max` → 1000000.
+- `{token_saver}` — from question 8 (use `yes` if blank; must be one of: `yes`, `no`). When `yes`, pass `--token-saver` to `init_project.py` (Step 2 / Step 5) so the generated `config.yaml` sets `context.token_saver: true`.
 
 ---
 
@@ -77,15 +80,17 @@ Try running the Python init script first. It handles directory creation, seed fi
 
 **Resolve `{plugin_root}`:** For first-time init, resolve the plugin root from this handler's known location (the plugin base directory provided by SKILL.md). For re-init, read `plugin_root` from the existing `config.yaml`.
 
-Run the script:
+Run the script (append `--token-saver` only when `{token_saver}` is `yes`):
 
 ```bash
-python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}"
+python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}" --token-saver
 ```
+
+Omit the trailing `--token-saver` flag when `{token_saver}` is `no` — the generated config then sets `context.token_saver: false`.
 
 If `python` is not found, try `python3`.
 
-**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML) and skip to **Step 9** (team sharing).
+**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML), run **Step 8.5** (Token Saver calibration capture), and skip to **Step 9** (team sharing).
 
 **If the script fails** (Python not available or any error): Fall through to Steps 3-8 below.
 
@@ -132,6 +137,7 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 | `{lessons-dir}` | `{lessons_dir}` from Step 1 |
 | `{plan-tier}` | `{plan_tier}` from Step 1 |
 | `{context-window}` | `200000` if `{plan_tier}` is `pro`, `1000000` if `max` |
+| `{token-saver}` | `true` if `{token_saver}` is `yes`, `false` if `no` |
 
 3. **Write** the result to `{planwise_root}/config.yaml`
 
@@ -275,6 +281,37 @@ Add the plugin cache directory to `permissions.additionalDirectories` so Claude 
 
 ---
 
+### Step 8.5 — Capture Token Saver calibration
+
+Run only when `{token_saver}` is `yes` (skip silently when Token Saver is off). This captures a real `/context` footprint and writes the **measured** overheads back into `config.yaml` so plans size sessions against this install's actual carrying cost — not a hardcoded guess. See `references/session-context-budget.md` "Token Saver Profile" for how the derived thresholds are consumed.
+
+1. Run the calibration capture via the Token Saver engine:
+
+   ```bash
+   python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{planwise_root}/config.yaml'), plugin_root=r'{plugin_root}'); print(r)"
+   ```
+
+   `token_saver.calibrate()` shells out to `claude -p "/context"`, parses the report, derives `token_saver_runner_overhead` / `token_saver_orchestrator_overhead`, and writes the six `token_saver_*` keys back into `config.yaml` in place (it never crashes init — a failed capture degrades to the conservative fallback).
+
+2. Surface the result. Report the measured footprint and flag uncalibrated installs loudly:
+
+   ```
+   Token Saver: ON
+     Measured runner overhead:       {token_saver_runner_overhead}  tokens
+     Measured orchestrator overhead: {token_saver_orchestrator_overhead}  tokens
+     Per-task budget (derived):      ~{available_per_task}  tokens  (session_target − runner_overhead − growth_margin)
+     Calibrated on:                  {token_saver_overhead_measured_on}
+   ```
+
+   If the result's `uncalibrated` flag is `true` (the `/context` capture failed — e.g., the `claude` binary was unavailable in this environment), add:
+
+   ```
+     ! Uncalibrated — used conservative fallback (runner ~54K / orchestrator ~60K).
+       Run `/planwise calibrate` from an interactive session to capture real numbers.
+   ```
+
+---
+
 ### Step 9 — (Optional) Configure team sharing
 
 <!-- AUTO-MODE: convenience -->
@@ -323,6 +360,9 @@ Seed files installed:
 
 Configuration:
   ✓ {planwise_root}/config.yaml (scope: {install_scope}, plan tier: {plan_tier} → {context_window} context window)
+
+Token Saver:
+  ✓ {token_saver} (when ON: runner overhead {token_saver_runner_overhead}, derived per-task budget ~{available_per_task} — from Step 8.5 calibration)
 
 Agent Teams:
   ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}
