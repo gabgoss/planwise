@@ -10,6 +10,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 **Task ID:** {Abbrev}-S{XX}-{YY}-{##}
 **Agent:** {Haiku|Sonnet|Opus}
 **Estimated Tokens:** ~{X}K
+**Token Budget:** ~{X}K (exception: {none | 1M (cost) | paged-read (read) | refactor-pending})  <!-- OPTIONAL — Token Saver only. Add only when the warning engine flags this task. `1M (cost)` raises the dispatch to Opus/1M (cost-reason Critical, oversized indivisible file); `paged-read (read)` means a Required Context file trips a Read gate and the runner pages it (read-reason Critical — NOT 1M-resolvable); `refactor-pending` means a core/edited file must be split before this task is safe. -->
 **Depends On:** {task numbers, or "cross-sprint: {Abbrev}-S{XX}-{YY}-{##}", or "-"}
 **Cross-Sprint Refs:** {list of cross-sprint files in Required Context, or "None"}  <!-- Add only when Required Context cites cross-sprint files (per session-plan-requirements.md cross-sprint dependency convention) -->
 **Output:** {path where deliverable should be saved, e.g., Outputs/{Abbrev}-{description}.md}
@@ -26,12 +27,18 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 
 | Priority | File | Est. Lines | Est. Tokens | Purpose |
 |----------|------|-----------|-------------|---------|
-| 1 | {file path} | ~{N} | ~{X}K | {why needed} |
+| 1 | {file path} | ~{N} | ~{X}K | {why needed} {⚠ PAGED ≥25K {model}-tok / ⚠ REFACTOR ≥256 KiB — OPTIONAL read-handling annotation, Token Saver only} |
 | 2 | {file path} | ~{N} | ~{X}K | {why needed} |
+
+<!-- OPTIONAL read-handling annotation (Token Saver only): append to a row's Purpose for any file the doctor read-gate scan flagged.
+     `⚠ PAGED ≥25K {model}-tok` — file is above the per-assigned-model 25K-token page cap; the runner MUST page it (offset/limit/Grep), it does NOT all arrive in one Read.
+     `⚠ REFACTOR ≥256 KiB` — file is at/over the 256 KiB byte gate; Read refuses it without offset/limit — page it, and refactor + backlog if it is a core/edited dependency.
+     Both are read-reason flags — NOT resolved by the 1M-exception (Opus trips the page cap sooner). -->
 
 **Context subtotal:** ~{X}K tokens (reads) + ~{X}K (output) = ~{X}K total
 <!-- Reconciliation: this total MUST match the Estimated Tokens in this task's header. -->
 <!-- Use ~13 tokens/line for reads. See reference.md Token Estimation Reference for output costs. -->
+<!-- Read-gate note (Token Saver): the read-gate token count uses the task's ASSIGNED-MODEL rate (Sonnet/Haiku 13, Opus 19 tok/line) — a separate per-model check, NOT a change to this reconciliation. The budget Est. Tokens / reconciliation above stay on the existing ~13/line convention. -->
 
 **Section Reference Rule (scaffolded plans):** When referencing Execution Inputs, enumerate INDIVIDUAL section numbers with purpose — never ranges.
 

@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners). Read-only — mutates nothing.
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing.
 
 **Invocation examples:**
 ```
@@ -12,7 +12,7 @@
 ## Config Gate (Auto-Init Fallback)
 
 1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
-2. If found → continue. Extract `plugin_root` and `project.planwise_root`.
+2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, and the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`) plus the pinned `plugin_version`.
 3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "doctor"`, RE-RESOLVE, fail loud if still missing.
 
 > [!gate] Config Malformed → FAIL LOUD
@@ -62,4 +62,94 @@ Briefly note: a rule scoped to `planwise/Plans/**` is injected into EVERY contex
 
 ---
 
-*Cross-reference: [run.md](run.md) (Model-Floor Bridge), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory), [lint logic in scripts/init_project.py](../scripts/init_project.py).*
+## Token Saver Audit
+
+> [!gate] Run only when `context.token_saver` is `true`
+> If `token_saver` is `false` or absent in `config.yaml`, skip this entire section — the project does not run the Token Saver budget engine, so there are no measured overheads to audit and no plan-file read-gate scan to perform. Report "Token Saver: OFF — audit skipped" and stop after the over-scope report above.
+
+When Token Saver is on, append the three audits below to the doctor report. All three are **read-only** — `doctor` reports and recommends a one-command re-capture; it NEVER mutates `config.yaml` itself.
+
+### Step 4: Overhead audit + staleness check
+
+1. Report the stored measured overheads and the date they were captured:
+
+   ```
+   Token Saver overheads (config.yaml):
+     Runner overhead:       {token_saver_runner_overhead}  tokens
+     Orchestrator overhead: {token_saver_orchestrator_overhead}  tokens
+     Session target:        {token_saver_session_target}  tokens
+     Measured on:           {token_saver_overhead_measured_on}
+     Derived per-task ceiling (critical): ~{available_per_task − 10000} tokens
+   ```
+
+   Derive `available_per_task = token_saver_session_target − token_saver_runner_overhead − 6000` (the engine's `derive_thresholds`); never hardcode the ceiling.
+
+2. **Flag staleness** when EITHER signal fires (the measured overheads no longer reflect this install's real `/context` footprint):
+
+   | Staleness signal | How to detect |
+   |------------------|---------------|
+   | Plugin upgraded since calibration | The pinned `plugin_version` in `config.yaml` differs from the plugin's current shipped version (the overheads were measured against the old rule/agent surface) |
+   | Agent/Skill count changed | The Custom Agents / Skills count in a fresh `/context` differs from the captured `token_saver_context_breakdown` (added/removed agents or skills shift the always-on surface) |
+   | Overheads uncalibrated | `token_saver_runner_overhead` is `0`/empty, or equals the conservative fallback (`~54000` runner / `~60000` orchestrator) with no live capture recorded |
+
+3. When stale, offer the one-command re-capture (never auto-mutate config without surfacing it):
+
+   ```
+   ! Token Saver overheads may be STALE ({reason}).
+     Re-capture with: /planwise calibrate
+     (runs token_saver.calibrate(...) → claude -p "/context" → writes measured overheads back into config.yaml)
+   ```
+
+4. List the plan's largest Required-Context files and any tasks over the derived ceiling or flagged `1M-exception`:
+   - Scan the active plan's task files under `{plans_dir}`; for each, sum its Required Context `Est. Tokens` and compare against `critical`.
+   - Report any task at or above `critical` (cost overflow → split / trim) and any task already carrying a `Token Budget:` exception marker of `1M (cost)`.
+
+### Step 5: Read-gate scan
+
+Run `token_saver.classify_file(path, model, projected_added_lines, thresholds)` (from `scripts/token_saver.py`) across BOTH (a) the active plan's Required-Context files AND (b) the plan's own generated artifacts (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files). Use each file's **assigned-model** rate for the token estimate (`TOKENS_PER_LINE`: Sonnet/Haiku `13`, Opus `19` tok/line). Report:
+
+| Finding | Gate | Recommendation |
+|---------|------|----------------|
+| File ≥ 256 KiB (`READ_FILE_BYTE_CAP`) | byte gate (model-independent) | **read-Critical** → paged read (`offset`/`limit`/Grep); refactor + backlog if it is a core/edited dependency |
+| File above the per-assigned-model 25K-token page cap (`READ_PAGE_CAP_TOKENS`) | token gate (model-dependent) | **read-Critical** → paged read; refactor if core/edited |
+| File that WILL cross a gate once its task's edits land | byte/token gate (projected) | pass `projected_added_lines` so the will-exceed case is flagged pre-emptively; same remedy as above |
+| Task estimate ≥ `critical` (cost) | cost gate | **cost-Critical** → `1M-exception` (raise dispatch to Opus/1M) OR split the task |
+
+> [!constraint] read-Critical → paged-read/refactor, NOT `1M-exception`
+> The read gates apply on EVERY model — Opus's heavier tokenizer trips the page cap *sooner* (~1,340 lines vs ~1,920). A `read`-reason Critical (`classify_file` → `reason: read`) is NOT resolved by routing to Opus; recommend paged reads / refactor. Reserve the `1M-exception` recommendation for a `cost`-reason Critical only (`reason: cost`), where the larger window genuinely absorbs the carrying cost. See [run.md](run.md) 1M-Exception Dispatch.
+
+### Step 6: Read-constant drift tripwire
+
+Report the FIXED Read-tool constants and flag them stale when the harness CLI has moved past the measured version — the analogue of the overhead-staleness check, but for the hardcoded read limits (the harness may have changed the caps):
+
+1. Report the constants and their provenance from `scripts/token_saver.py`:
+
+   ```
+   Fixed Read-tool limits (token_saver.py):
+     READ_FILE_BYTE_CAP:   262144 bytes (256 KiB)   [warn 245760]
+     READ_PAGE_CAP_TOKENS: 25000 tokens             [warn 22000]
+     TOKENS_PER_LINE:      haiku 13, sonnet 13, opus 19
+     Measured on:          {READ_LIMITS_MEASURED_ON}
+     Measured CLI:         {READ_LIMITS_MEASURED_CLI}
+   ```
+
+2. Compare the live CLI version against the measured one:
+
+   ```bash
+   claude --version   # → live CLI build
+   ```
+
+   When the live `claude --version` differs from `READ_LIMITS_MEASURED_CLI`, flag drift — the constants were validated against a different harness build and the caps may have changed:
+
+   ```
+   ! Read-limit constants measured on CLI {READ_LIMITS_MEASURED_CLI}; live CLI is {live-version}.
+     The hardcoded Read-tool caps may be stale. Re-probe with the read-limit re-validation
+     procedure (headless `claude -p --model X` probes against synthetic files) and update the
+     constants + READ_LIMITS_MEASURED_ON / READ_LIMITS_MEASURED_CLI in scripts/token_saver.py.
+   ```
+
+   This is the drift tripwire for the hardcoded read constants. It is advisory — `doctor` never edits the constants; it surfaces the mismatch so the one-shot live re-probe can be run.
+
+---
+
+*Cross-reference: [run.md](run.md) (Model-Floor Bridge, 1M-Exception Dispatch), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py).*

@@ -301,6 +301,7 @@ Fix: Add a pre-extraction verification step + fallback hierarchy per references/
 - Verify Success Criteria are measurable and specific (not vague)
 - Confirm agent assignment is appropriate (Haiku for lookups, Sonnet for code, Opus for decisions)
 - Check Execution Steps are ordered correctly and complete
+- [Token Saver on only] Each task's Required Context obeys the §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split
 
 **New checks (PLG-002):**
 
@@ -649,6 +650,35 @@ Issue: Task performs MERGE/upsert without Field Mapping
 Fix: Add Field Mapping per templates/task-file.md | Confidence: HIGH
 ```
 - **Insert:** Third item under `**New checks (PLG-021):**`.
+
+**New checks (Token Saver large-file ladder):**
+
+### Check 065 — Task Token Saver Large-File Ladder Applied
+
+- **Severity / Role / Source / Type:** ERROR / WARNING (tiered) | Task Reviewer | `references/task-content-fidelity.md` §9.A.8 | NEW
+- **Gate:** Runs ONLY when `context.token_saver: true` in `config.yaml`. When Token Saver is off this check is a **no-op** — skip it (zero behavior change). Read §9.A.8 for level definitions, the `reason=cost|read` contract, and the FIXED Read-tool gates before authoring findings.
+- **What:** When Token Saver is on, every task's Required Context MUST obey the folded cost + read ladder. Six failure modes, each tiered:
+  1. **Over-ceiling without exception** (ERROR) — `task_estimate + context.token_saver_runner_overhead > context.token_saver_session_target` AND the task is not flagged `1M-exception`.
+  2. **Warn+ file with no backlog item** (WARNING) — a Required Context file classifies Warn or Critical (cost or read) but the task records no large-file recommendation / backlog item.
+  3. **`1M-exception` on a 200K-window agent** (ERROR) — a `1M-exception` task is declared `Agent: Sonnet`/`Haiku` without the run-time override note (the flag dispatches on Opus/1M).
+  4. **Uncovered read-gate crossing** (WARNING) — a Required Context file crosses a FIXED read gate (`wc -c` bytes ≥ 256 KiB OR `lines × {assigned-model tok/line}` ≥ 25K) and the task records neither a paged-read note (`offset`/`limit`/Grep) nor a refactor+backlog item.
+  5. **Read-reason Critical mis-flagged `1M-exception`** (ERROR) — a file classifying Critical with `reason=read` is flagged `1M-exception`. The 1M window does not raise the per-Read page cap / byte refusal, and Opus (19 tok/line) trips the token gate *sooner* than Sonnet/Haiku — read-Critical is paged or refactored, never `1M-exception`'d. Only `reason=cost` Critical earns the flag.
+  6. **Oversized generated artifact not split** (ERROR) — a plan-generated artifact a runner MUST read (task file, Orchestration, Recovery, Consolidated Context part, Execution Input, task Output file) exceeds the HARD read ceiling (`wc -c` ≥ 256 KiB OR `lines × {reading-model tok/line}` ≥ 25K) without a Multi-Part split. External source files the runner reads but does not generate stay advisory (sub-checks 2 and 4).
+- **Detection:**
+  1. Read `context.token_saver` from `config.yaml`. If false → emit no findings (no-op).
+  2. Derive ceilings (never hardcode): `available_per_task = token_saver_session_target − token_saver_runner_overhead − 6000`; `critical = available_per_task − 10000`; `warn = min(40000, round(0.5 × available_per_task))`. Read gates are FIXED: byte ≥ 262144 (warn 245760, via `wc -c`); page-cap ≥ 25000 model-tok (warn 22000), `tokens = lines × {haiku 13, sonnet 13, opus 19}`.
+  3. For each task: recompute the bottom-up estimate and apply sub-check 1.
+  4. For each Required Context file: classify against the task's assigned-Agent tokenizer (`level = max(cost_level, read_level)`, with `reason`); apply sub-checks 2, 4, 5.
+  5. Apply sub-check 3 to any task flagged `1M-exception`.
+  6. For each generated artifact the plan authors and a runner reads: apply sub-check 6 against the HARD read ceiling.
+- **Finding template:**
+```
+[{ERROR|WARNING}] Token Saver large-file ladder not applied
+File: {task file path} | Location: Required Context row {N} / Notes for Agent / Estimated Tokens
+Issue: {over-ceiling task lacks 1M-exception | Warn+ file {cited_file} has no backlog item | 1M-exception task on {Sonnet|Haiku} without override note | {cited_file} crosses read gate ({bytes}B / {tokens}tok) with no paged-read or refactor+backlog | read-reason Critical {cited_file} wrongly flagged 1M-exception | generated artifact {artifact} past HARD read gate without Multi-Part split}
+Fix: Apply the §9.A.8 remedy — flag 1M-exception (cost-Critical) / file a backlog item (Warn+) / page or refactor (read-Critical) / Multi-Part split (generated artifact) per references/task-content-fidelity.md §9.A.8 | Confidence: HIGH
+```
+- **Insert:** First item under `**New checks (Token Saver large-file ladder):**`.
 
 **New checks (Verification Commands enforcement):**
 

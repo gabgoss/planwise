@@ -24,6 +24,7 @@
 - [Severity Classification](#severity-classification)
 - [Verdict and Report](#verdict-and-report)
 - [Systemic Finding Classification](#systemic-finding-classification)
+- [Token Saver Compliance Check](#token-saver-compliance-check)
 
 ---
 
@@ -67,6 +68,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
 - If reviewing IPC/protocol/codec sessions: Read `references/verification-gates.md`
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
+- If `context.token_saver: true` in `config.yaml`: Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](#token-saver-compliance-check))
 
 ---
 
@@ -476,6 +478,7 @@ The custom agents (`structural-reviewer` and `plan-reviewer`) carry their own ch
 - Success criteria are measurable checkboxes
 - Declared dependencies match actual data flow between tasks
 - Agent assignment is appropriate: Haiku for lookups, Sonnet for code, Opus for decisions
+- [Token Saver on] Each task's Required Context obeys the §9.A.8 large-file ladder: no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split (see [Token Saver Compliance Check](#token-saver-compliance-check))
 
 ### Dependency Reviewer (Phase 2, LARGE/VERY LARGE)
 
@@ -607,6 +610,49 @@ Systemic findings appear in the review report's Systemic Findings section:
 
 ---
 
+## Token Saver Compliance Check
+
+**Gated on `context.token_saver: true`.** When `config.yaml` has Token Saver **off**, this entire check is a **no-op** — skip it; zero behavior change versus a pre-Token-Saver review. When **on**, the lead (No-Team Path) or the Task Reviewer (Team Path) runs the check below over every task in scope and reports findings using the standard finding format. It validates that the planner actually applied the per-task large-file ladder anchored in `references/task-content-fidelity.md` §9.A.8 — read that subsection for the level definitions, the `reason=cost|read` contract, and the FIXED Read-tool gates the ladder folds in.
+
+### Derive the ceilings from config (never hardcode)
+
+Read the thresholds from `config.yaml`, exactly as the `/planwise plan` Step 8c scan does — the review re-derives them so it measures against the same numbers the planner used:
+
+```
+available_per_task = context.token_saver_session_target − context.token_saver_runner_overhead − 6000
+critical           = available_per_task − 10000
+warn               = min(40000, round(0.5 × available_per_task))
+over_ceiling(task) = task_estimate + context.token_saver_runner_overhead > context.token_saver_session_target
+```
+
+**Read gates (FIXED constants, evaluated per the file's assigned-model tokenizer):** byte ≥ `262144` (256 KiB), warn ≥ `245760` (240 KiB), measured with `wc -c`; OR `lines × {haiku 13, sonnet 13, opus 19}` ≥ `25000` (page cap), warn ≥ `22000`. A file's level is `max(cost_level, read_level)`; `reason` records which gate drove it.
+
+### Findings
+
+Run each check below over every task in scope. Each is HIGH confidence (mechanical):
+
+1. **Over-ceiling without exception** — recompute the task's bottom-up estimate. If `over_ceiling(task)` is true AND the task is **not** flagged `1M-exception` → **finding** (severity ERROR — the runner overflows its budget mid-task).
+2. **Warn+ Required Context file with no backlog item** — if a Required Context file classifies **Warn or Critical** (cost or read) but the task records no large-file recommendation / backlog item → **finding** (WARNING).
+3. **`1M-exception` task on a 200K-window agent** — if a `1M-exception` task is declared `Agent: Sonnet` or `Agent: Haiku` without the run-time override note (the flag dispatches on Opus / 1M; a 200K-window agent would still overflow) → **finding** (ERROR).
+4. **Uncovered read-gate crossing** — if a Required Context file crosses a FIXED read gate (`wc -c` bytes ≥ 256 KiB, OR `lines × {assigned-model tok/line}` ≥ 25K) and the task records **neither** a paged-read note (`offset`/`limit`/Grep) **nor** a refactor+backlog item → **finding** (WARNING; the runner gets a truncated or refused Read mid-task).
+5. **Read-reason Critical mis-flagged `1M-exception`** — if a file that classifies **Critical with `reason=read`** is flagged `1M-exception` → **finding** (ERROR). The 1M window does not raise the per-Read page cap or the byte refusal, and Opus (19 tok/line) trips the token gate *sooner* than Sonnet/Haiku — a read-Critical is paged or refactored, never `1M-exception`'d. Only a `reason=cost` Critical earns the flag.
+6. **Oversized generated artifact not split** — if a plan-generated artifact a runner MUST read (task file, Orchestration, Recovery, Consolidated Context part, Execution Input, task Output file) exceeds the **HARD** read ceiling (`wc -c` ≥ 256 KiB, OR `lines × {reading-model tok/line}` ≥ 25K) without a Multi-Part split → **finding** (ERROR). For generated artifacts the read-gate ceiling is hard, not advisory (external source files the runner reads but does not generate stay advisory under findings 2 and 4).
+
+> [!constraint] Read-Reason Critical Is NOT `1M-Exception`-Resolvable (review mirror)
+> WRONG — flag a finding only when an over-ceiling task lacks `1M-exception`, and treat every Critical the same:
+> ```
+> if over_ceiling(task) and not task.flagged("1M-exception"): finding   # misses read-Critical mis-flagging
+> ```
+> CORRECT — split on `reason`: a `cost`-Critical MUST be `1M-exception`'d; a `read`-Critical MUST NOT be (it is paged/refactored), and flagging it `1M-exception` is itself a finding:
+> ```
+> if verdict.level == Critical and verdict.reason == "cost" and not task.flagged("1M-exception"): finding
+> if verdict.level == Critical and verdict.reason == "read" and task.flagged("1M-exception"):     finding
+> ```
+
+When Token Saver is off, none of the above runs — the §9.A token-estimation checks (Error Pattern Catalog #14, #37, #38) stand alone, unchanged.
+
+---
+
 ## Error Pattern Catalog
 
 Quick reference for common patterns and their correct classification.
@@ -675,3 +721,4 @@ Quick reference for common patterns and their correct classification.
 | 60 | Consolidated Context body⇄citation promise broken — header names a finding as a Driving Finding (or Cross-References row lists it) but body lacks the prose AND no `[source-doc-only]` marker (`ei-fidelity.md` §10.1) | ERROR | Consolidated Context part body |
 | 61 | Task verbatim-extraction targets a section that does not physically carry the cited prose — pre-extraction verification missing AND no fallback-hierarchy step (`ei-fidelity.md` §10.2 + §10.3) | ERROR | Task file Execution Steps |
 | 62 | Mega-scaffold skipped review gate — `n_sprints_scaffolded_this_pass ≥ 2` AND Master Plan Status is `READY_TO_EXECUTE` AND no `/planwise review` report referenced (`scaffolding-hygiene.md` §11) | BLOCKER | Master Plan / scaffold-session transcript |
+| 63 | Token Saver large-file ladder not applied — `context.token_saver: true` AND (over-ceiling task without `1M-exception`; OR Warn+ Required Context file with no backlog item; OR a `read`-reason Critical wrongly flagged `1M-exception`; OR a `1M-exception` task on a Sonnet/Haiku agent without override note; OR a runner-read generated artifact past the line/byte/token read gate without a Multi-Part split) (`task-content-fidelity.md` §9.A.8) — no-op when Token Saver is off | ERROR (read-Critical mis-flag / over-ceiling / artifact split) · WARNING (missing backlog item / uncovered read gate) | Task Required Context + Notes for Agent ([Token Saver Compliance Check](#token-saver-compliance-check)) |

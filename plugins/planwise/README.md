@@ -279,6 +279,7 @@ flowchart LR
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
+| `/planwise doctor` | Audit rule scope + (Token Saver) overhead staleness, read-gate scan, read-limit drift |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
 | `/planwise lessons` | Search the lessons learned index |
@@ -317,6 +318,21 @@ After running `/planwise init`, your settings live in `planwise/config.yaml`. He
 | `abbreviations` | Category prefixes for plans (APP, BUG, etc.) | 4 defaults |
 | `scoring` | How backlog items are scored and ranked | Sensible defaults |
 | `build_commands.default` | Command to verify builds after changes | `echo '...'` |
+
+### Token Saver mode
+
+Token Saver is an optional budget mode that keeps each task session lean — under a ~150K carrying-cost target — instead of letting context balloon across turns. When it is on, planwise:
+
+- **Sizes tasks by carrying cost**, warning (or splitting) a task whose Required Context would push a runner past its measured budget.
+- **Flags files that are too large to read in one pass** — a file at or over the Read tool's 256 KiB byte cap or ~25K-token page cap is marked for paged reads (`offset`/`limit`/Grep) or refactor. (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
+- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (Opus hits the page cap sooner); it is paged or refactored instead.
+
+**Toggling it:**
+
+- **At init** — `/planwise init` asks "Enable Token Saver mode?" (recommended: yes).
+- **At upgrade** — `/planwise upgrade` offers to turn it on if it is off, and re-captures the measured overheads (which go stale when the plugin's always-on rule/agent surface changes).
+
+**Thresholds are measured, not guessed.** The budget is keyed to your install's real footprint: `/planwise init` and `/planwise upgrade` capture a live `/context` report and write the measured overheads into `config.yaml`, and the per-task ceilings are derived from those numbers. Run `/planwise doctor` any time for a read-only audit — it reports the stored overheads and flags them stale (after a plugin upgrade or an agent/skill count change), scans your active plan's files against the Read-tool gates, and flags the fixed read-limit constants if your CLI build has moved past the version they were measured on.
 
 ### Plugin file structure
 

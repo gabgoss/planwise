@@ -307,6 +307,57 @@ For each task in the session, compute a bottom-up token estimate:
 
 Update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates.
 
+#### Token Saver Large-File Scan (gated on `context.token_saver: true`)
+
+When `context.token_saver: true` in `config.yaml`, after the bottom-up estimate above, run a per-file large-file scan over **every** Required Context file in **every** task. This is the plan-author-time instance of the per-file warning ladder anchored in `references/task-content-fidelity.md` §9.A.8 (levels, formulas, and the `reason=cost|read` contract live there — read it before authoring the scan output). The scan folds the carrying-cost ladder and the two FIXED Read-tool gates into one verdict, so it also catches files that are unreadable in a single Read — including files a task will push past a gate once it edits them.
+
+1. **Derive the cost thresholds** from the measured overhead (never hardcode):
+
+   ```
+   thresholds = token_saver.derive_thresholds(
+       session_target = context.token_saver_session_target,   # default 150000
+       runner_overhead = context.token_saver_runner_overhead)  # measured by /planwise calibrate
+   # → {available_per_task, critical, warn}
+   ```
+
+2. **Classify each Required Context file** against the runner that will read it (the task's assigned **Agent** — Haiku/Sonnet 13 tok/line, Opus 19; the byte cap is model-independent). For a file the **same task will modify**, pass the projected output delta so a file that *will* cross a gate post-edit is flagged pre-emptively:
+
+   ```
+   verdict = token_saver.classify_file(
+       path,
+       model = <task's Agent, lowercased>,
+       projected_added_lines = <lines this task adds to this file, else 0>,
+       thresholds = thresholds)
+   # → {level, reason, bytes, tokens}; level = max(cost_level, read_level)
+   ```
+
+3. **Emit a recommendation block per file** at **Notice / Warn / Critical** (Green files are silent), naming the driving `reason`:
+   - **Notice** — advisory only. Docs/specs → note a Multi-Part split is advisable; code → note for awareness. No backlog item.
+   - **Warn** (`reason=cost` ≥ `warn`, or `reason=read` ≥ 240 KiB / ≥ 22K model-tok) — recommend the remedy by file type (below) **and file a backlog item** via the consumer project's backlog mechanism (`handlers/backlog.md` Phase 7 create flow — generic, no project identifiers).
+   - **Critical / `reason=cost`** (≥ `critical`) — warn + file a backlog item + flag the task **`1M-exception`** (dispatch on Opus / 1M) so the plan still completes; the file won't fit a lean task even alone.
+   - **Critical / `reason=read`** (≥ 256 KiB byte cap OR ≥ 25K model-tok page cap) — warn + file a backlog item + recommend a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. Do **NOT** flag `1M-exception`: the 1M window does not raise the per-Read page cap, and Opus's tokenizer (19 tok/line) trips it *sooner* than Sonnet/Haiku.
+   - The scan is **never a hard stop** — a source-file Critical advises and files an item; it does not abort planning.
+
+4. **Differentiate the remedy by file type** in the recommendation:
+   - **Code** → refactor into smaller modules.
+   - **Doc / spec / Execution Input** → Multi-Part split (existing [Multi-Part Output Convention](../references/session-context-budget.md#file-size-limits)).
+   - **Dense (notebook / minified / compressed JSON)** → measure precisely (`wc -c` alongside `wc -l`) and extract only the needed sections.
+
+5. **Generated artifacts the plan itself authors** that a runner MUST read — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files — carry a **HARD** read-gate ceiling (MUST Multi-Part split to stay readable), NOT advisory, per `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](../references/session-context-budget.md#file-size-limits--generated-artifacts-binding-when-token-saver-is-on). External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics).
+
+> [!constraint] Read-Reason Critical Is NOT `1M-Exception`-Resolvable
+> WRONG — a Required Context file scans Critical with `reason=read`; the planner flags the task `1M-exception` and dispatches it to Opus, expecting the 1M window to absorb the file:
+> ```
+> # 280 KiB external doc → classify_file → {level: Critical, reason: read}
+> Task flagged: 1M-exception   ← WRONG: the per-Read page cap is unchanged by the window,
+>                                and Opus (19 tok/line) trips the token gate SOONER than Sonnet
+> ```
+> CORRECT — `reason=read` Critical recommends a paged read / refactor and files a backlog item; only `reason=cost` Critical earns `1M-exception`:
+> ```
+> # reason=read  → paged read (offset/limit/Grep) for read-only; refactor+backlog for a to-be-edited dep
+> # reason=cost  → flag 1M-exception (Opus/1M); plan still completes
+> ```
+
 ### Step 8d: Update Plans Index
 
 Add a row to the plans index so `/planwise list` reflects the new plan:
@@ -508,6 +559,7 @@ Before completing `/planwise plan`, verify:
 [ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED
 [ ] If DELEGATED: Orchestration Required Context = plan files only
 [ ] If DELEGATED: Context Boundary subsection lists what orchestrator never reads
+[ ] If token_saver: true — Token Saver large-file scan run over every task's Required Context (Step 8c); Warn+ files have a backlog item; cost-reason Critical tasks flagged 1M-exception (read-reason → paged-read/refactor, never 1M-exception); generated artifacts a runner reads are under the line/byte/token read gates
 [ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
 [ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
 [ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
@@ -820,6 +872,8 @@ Use standard templates for all other files (sprint plans, orchestrations, recove
 
 **`.gitkeep` emission (mirrors standard [Step 3](#step-3-create-folder-structure)):** For EVERY session folder created during scaffolding, write an empty `Outputs/.gitkeep` placeholder file inside the session's `Outputs/` directory. Empty directories are not tracked by git, so a missing `.gitkeep` means the `Outputs/` folder disappears on clone and downstream `/planwise run` cannot write summary or task-output files into the expected path. Apply to every sprint × every session — same per-session `.gitkeep` rule as the standard Step 3 constraint. Also populate each task file's Verification Commands per the [Step 8e per-file-type command map](#step-8e-populate-verification-commands-per-file-type-map) — scaffolded plans must NOT ship with blank verification placeholders any more than standard plans do.
 
+**Token Saver large-file scan (mirrors standard [Step 8c](#step-8c-validate-token-estimates-bottom-up)):** When `context.token_saver: true`, run the same per-file warning ladder over every scaffolded task file's Required Context, with one scaffolding-specific addition — a scaffolded task's Required Context references the sprint's **Execution Input** (per the Critical-difference rule above), so scan the **EI-section sizes** the task cites (not the original Consolidated Context parts) plus any direct code references in the task. Derive thresholds via `token_saver.derive_thresholds(...)` and classify each cited file/section with `token_saver.classify_file(path, model=<task's Agent>, projected_added_lines=<delta if the task edits it>, thresholds=...)`, then emit the graduated ladder (Notice/Warn/Critical), file a backlog item at Warn+, and flag the task `1M-exception` only for a **cost-reason** Critical — identical contract to Step 8c (`reason=read` Critical → paged read / refactor, never `1M-exception`). The Execution Input itself is a **generated artifact a runner reads**, so its read-gate ceiling is HARD: if a sprint's EI trips the line, byte, OR token gate, split it into `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md` parts at scaffold time rather than letting a runner hit a truncated read.
+
 **Sprint-signoff scaffold (multi-session sprints):** For each sprint with multi-session work, add a sprint-signoff scaffold using the [sprint-signoff.md](../templates/sprint-signoff.md) template per `references/discovery-and-exit-criteria.md` §16.3. Place the signoff file at `{plans_dir}/{PlanName}/Sprint-{XX}-{Name}/Sprint-Signoff.md`. The signoff quotes the sprint's EI exit-criteria verbatim — one row per criterion, one mechanical anchor per row — giving a multi-session sprint a single closeout checkpoint before it is marked COMPLETE. Single-session sprints MAY omit it.
 
 > [!constraint] Agent Prompts Must Include Exact Headers
@@ -861,6 +915,7 @@ Same checklist as standard mode, plus:
 [ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
 [ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
 [ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
+[ ] If token_saver: true — Token Saver large-file scan run over each task's cited EI sections + code refs; Warn+ files have a backlog item; cost-reason Critical tasks flagged 1M-exception (read-reason → paged-read/refactor, never 1M-exception); each sprint EI under the line/byte/token read gates (split into Parts if not)
 ```
 
 ### Scaffolding Step 7: Output Confirmation

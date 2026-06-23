@@ -18,7 +18,7 @@ Available commands:
   /planwise review [plan-path]           Review plan before execution
   /planwise run [@orchestration-file]    Execute a planned session
   /planwise upgrade                      Refresh installed rules/agents after a plugin update
-  /planwise doctor                       Report rules over-scoped to plan/backlog paths (injection-budget risks)
+  /planwise doctor                       Audit rule scope + (Token Saver) overhead staleness, read-gate scan, read-limit drift
   /planwise backlog [item-id]            Triage backlog items; capture follow-up BLIs from resolution outputs
   /planwise list                         List all plans with status
   /planwise lessons [search-terms]       Search lessons learned
