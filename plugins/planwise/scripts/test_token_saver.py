@@ -822,5 +822,97 @@ class TestSetTokenSaverWriter(unittest.TestCase):
         self.assertEqual(self._line_value(text, "context_window"), "200000")
 
 
+# ---------------------------------------------------------------------------
+# Windows shim resolution + parse guard for headless non-report reply
+# ---------------------------------------------------------------------------
+class TestCaptureContextWindowsInvocation(unittest.TestCase):
+    """capture_context() resolves the claude binary via shutil.which and passes
+    shell=True on Windows so .cmd/.ps1 shims run without FileNotFoundError.
+    """
+
+    def test_windows_uses_shell_true_and_resolved_binary(self):
+        import token_saver
+        from unittest.mock import MagicMock, patch
+
+        fake_bin = r"C:\tools\bin\claude.cmd"
+        fake_proc = MagicMock()
+        fake_proc.returncode = 0
+        fake_proc.stdout = CONTEXT_REPORT_FIXTURE
+
+        with patch.object(token_saver.os, "name", "nt"), \
+             patch.object(token_saver.shutil, "which", return_value=fake_bin) as mock_which, \
+             patch.object(token_saver.subprocess, "run", return_value=fake_proc) as mock_run:
+            result = token_saver.capture_context("/some/plugin", "/some/cwd")
+
+        mock_which.assert_called_once_with("claude")
+        call_args = mock_run.call_args
+        # First positional arg is the command list; first element is the resolved bin.
+        self.assertEqual(call_args[0][0][0], fake_bin,
+                         "capture_context must use the resolved binary path, not bare 'claude'")
+        self.assertTrue(call_args[1].get("shell"),
+                        "capture_context must pass shell=True on Windows")
+        # The resolved-binary + shell path must still return the captured text.
+        self.assertIsNotNone(result)
+
+    def test_posix_uses_shell_false(self):
+        import token_saver
+        from unittest.mock import MagicMock, patch
+
+        fake_bin = "/usr/local/bin/claude"
+        fake_proc = MagicMock()
+        fake_proc.returncode = 0
+        fake_proc.stdout = CONTEXT_REPORT_FIXTURE
+
+        with patch.object(token_saver.os, "name", "posix"), \
+             patch.object(token_saver.shutil, "which", return_value=fake_bin), \
+             patch.object(token_saver.subprocess, "run", return_value=fake_proc) as mock_run:
+            result = token_saver.capture_context("/some/plugin", "/some/cwd")
+
+        call_args = mock_run.call_args
+        self.assertFalse(call_args[1].get("shell"),
+                         "capture_context must pass shell=False on POSIX")
+        self.assertIsNotNone(result)
+
+
+class TestCalibrateParseGuard(unittest.TestCase):
+    """calibrate() treats a non-report (conversational) reply as a failed capture.
+
+    headless `claude -p "/context"` may return plain prose instead of the
+    structured `/context` report.  Such a reply has no `**Tokens:**` header and
+    no category table.  calibrate() must fall back to the conservative overheads
+    (runner=54000 / orchestrator=60000, calibrated=False) — NOT write
+    runner_overhead=0 flagged calibrated:True.
+    """
+
+    CONVERSATIONAL_REPLY = (
+        "Sure! The /context command shows your current context usage. "
+        "It displays how many tokens are in use across different categories "
+        "such as system prompt, tools, memory files, and messages."
+    )
+
+    def test_conversational_reply_falls_back_to_conservative(self):
+        ts = _engine()
+
+        def _stub_conversational(*_args, **_kwargs):
+            return self.CONVERSATIONAL_REPLY
+
+        result = ts.calibrate(capture=_stub_conversational)
+        self.assertEqual(
+            result.get("token_saver_runner_overhead"),
+            54000,
+            "A conversational reply (no Tokens: header, no categories) must fall "
+            "back to runner_overhead=54000",
+        )
+        self.assertEqual(
+            result.get("token_saver_orchestrator_overhead"),
+            60000,
+            "A conversational reply must fall back to orchestrator_overhead=60000",
+        )
+        self.assertFalse(
+            result.get("calibrated", True),
+            "A conversational reply must mark the result uncalibrated",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

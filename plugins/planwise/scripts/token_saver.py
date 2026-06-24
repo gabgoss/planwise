@@ -24,6 +24,7 @@ datetime) — this is a script, not a workflow.
 
 import os
 import re
+import shutil
 import subprocess
 from datetime import date
 
@@ -186,6 +187,7 @@ def parse_context_report(text: str) -> dict:
         "categories": categories,
         "agents": agents,
         "skills": skills,
+        "has_tokens_header": header_total is not None,
     }
 
 
@@ -355,14 +357,21 @@ def capture_context(plugin_root, cwd) -> str | None:
 
     Returns None on any failure (missing binary, non-zero exit, timeout). Never
     raises — calibration degrades gracefully to the conservative fallback.
+
+    On Windows, `claude` is a `.cmd`/`.ps1` shim that `CreateProcess` cannot
+    run directly by bare name without `shell=True`.  `shutil.which` resolves the
+    shim path so the binary string is explicit, and `shell=(os.name == "nt")`
+    lets the Windows shell expand it correctly.  On POSIX `shell` stays False.
     """
+    claude_bin = shutil.which("claude") or "claude"
     try:
         proc = subprocess.run(
-            ["claude", "-p", "/context", "--plugin-dir", str(plugin_root)],
+            [claude_bin, "-p", "/context", "--plugin-dir", str(plugin_root)],
             cwd=str(cwd) if cwd is not None else None,
             capture_output=True,
             text=True,
             timeout=120,
+            shell=(os.name == "nt"),
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -542,16 +551,8 @@ def calibrate(
 
     measured_on = date.today().isoformat()
 
-    if not report_text:
-        # Conservative fallback — degrade gracefully, do not crash init/upgrade.
-        result = {
-            "token_saver_runner_overhead": FALLBACK_RUNNER_OVERHEAD,
-            "token_saver_orchestrator_overhead": FALLBACK_ORCHESTRATOR_OVERHEAD,
-            "token_saver_context_breakdown": {},
-            "token_saver_overhead_measured_on": measured_on,
-            "calibrated": False,
-            "uncalibrated": True,
-        }
+    def _write_fallback():
+        """Write the conservative fallback overheads back into config.yaml."""
         if config_path is not None:
             _write_back(
                 config_path,
@@ -562,9 +563,31 @@ def calibrate(
                     "token_saver_overhead_measured_on": f'"{measured_on}"',
                 },
             )
-        return result
+        return {
+            "token_saver_runner_overhead": FALLBACK_RUNNER_OVERHEAD,
+            "token_saver_orchestrator_overhead": FALLBACK_ORCHESTRATOR_OVERHEAD,
+            "token_saver_context_breakdown": {},
+            "token_saver_overhead_measured_on": measured_on,
+            "calibrated": False,
+            "uncalibrated": True,
+        }
+
+    if not report_text:
+        # Conservative fallback — degrade gracefully, do not crash init/upgrade.
+        return _write_fallback()
 
     report = parse_context_report(report_text)
+
+    # F2 parse guard: headless `claude -p "/context"` may return conversational
+    # text instead of the structured `/context` report (the CLI treats the
+    # prompt as a user message, not a slash-command).  A reply with no
+    # `**Tokens:**` header and no category table is NOT a valid capture — treat
+    # it the same as a None return from capture_fn and fall back to the
+    # conservative overheads rather than writing runner_overhead=0 flagged
+    # calibrated:True.
+    if not report.get("has_tokens_header") and not report.get("categories"):
+        return _write_fallback()
+
     overheads = derive_overheads(report)
     breakdown = report.get("categories", {})
 

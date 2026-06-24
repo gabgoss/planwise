@@ -97,7 +97,9 @@ Flip the project default to enabled, then re-measure so plans size against the c
    python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{config_path}'), plugin_root=r'{plugin_root}'); print(r)"
    ```
 
-   `token_saver.calibrate()` overwrites the six `token_saver_*` keys in place and degrades to the conservative fallback if the `/context` capture fails.
+   `token_saver.calibrate()` overwrites the six `token_saver_*` keys in place and degrades to the conservative fallback if the `/context` capture fails or returns non-report text.
+
+   > **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. If `calibrate()` is invoked from a non-interactive context, the CLI may return conversational text instead of the structured report; calibration then degrades to the conservative fallback (runner ~54K / orchestrator ~60K, `calibrated:False`). This is expected on some platforms. Running `/planwise token-saver on` from an interactive session is the intended recapture path.
 
 3. Report the result. Derive `available_per_task = token_saver_session_target − token_saver_runner_overhead − 6000` (the engine's `derive_thresholds`; never hardcode the ceiling):
 
@@ -109,7 +111,7 @@ Flip the project default to enabled, then re-measure so plans size against the c
      Calibrated on:                  {token_saver_overhead_measured_on}
    ```
 
-   If the result's `uncalibrated` flag is `true` (the `/context` capture failed — e.g., the `claude` binary was unavailable), add:
+   If the result's `uncalibrated` flag is `true` (the `/context` capture failed or returned non-report text — expected on some platforms), add:
 
    ```
      ! Uncalibrated — used conservative fallback (runner ~54K / orchestrator ~60K).

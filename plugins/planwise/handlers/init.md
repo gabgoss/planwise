@@ -283,7 +283,9 @@ Add the plugin cache directory to `permissions.additionalDirectories` so Claude 
 
 ### Step 8.5 — Capture Token Saver calibration
 
-Run only when `{token_saver}` is `yes` (skip silently when Token Saver is off). This captures a real `/context` footprint and writes the **measured** overheads back into `config.yaml` so plans size sessions against this install's actual carrying cost — not a hardcoded guess. See `references/session-context-budget.md` "Token Saver Profile" for how the derived thresholds are consumed.
+Run only when `{token_saver}` is `yes` (skip silently when Token Saver is off). This attempts to capture a real `/context` footprint and writes the **measured** overheads back into `config.yaml` so plans size sessions against this install's actual carrying cost — not a hardcoded guess. See `references/session-context-budget.md` "Token Saver Profile" for how the derived thresholds are consumed.
+
+> **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. When `token_saver.calibrate()` is invoked via headless `claude -p "/context"` (as this step does), the CLI may return conversational text instead of the structured report, and calibration degrades to the conservative fallback (runner ~54K / orchestrator ~60K). This is expected on some platforms — notably Windows, where the `claude` shim may not be reachable from a subprocess without a live shell. The conservative fallback is safe: it is deliberately over-estimated so tasks never exceed the session budget. You can recapture real numbers at any time from an interactive session with `/planwise token-saver on`.
 
 1. Run the calibration capture via the Token Saver engine:
 
@@ -291,7 +293,7 @@ Run only when `{token_saver}` is `yes` (skip silently when Token Saver is off). 
    python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{planwise_root}/config.yaml'), plugin_root=r'{plugin_root}'); print(r)"
    ```
 
-   `token_saver.calibrate()` shells out to `claude -p "/context"`, parses the report, derives `token_saver_runner_overhead` / `token_saver_orchestrator_overhead`, and writes the six `token_saver_*` keys back into `config.yaml` in place (it never crashes init — a failed capture degrades to the conservative fallback).
+   `token_saver.calibrate()` shells out to `claude -p "/context"`, parses the report, derives `token_saver_runner_overhead` / `token_saver_orchestrator_overhead`, and writes the six `token_saver_*` keys back into `config.yaml` in place. If the capture fails or returns non-report text, it degrades to the conservative fallback — it never crashes init.
 
 2. Surface the result. Report the measured footprint and flag uncalibrated installs loudly:
 
@@ -303,11 +305,11 @@ Run only when `{token_saver}` is `yes` (skip silently when Token Saver is off). 
      Calibrated on:                  {token_saver_overhead_measured_on}
    ```
 
-   If the result's `uncalibrated` flag is `true` (the `/context` capture failed — e.g., the `claude` binary was unavailable in this environment), add:
+   If the result's `uncalibrated` flag is `true` (the `/context` capture failed or returned non-report text — expected on some platforms, notably Windows), add:
 
    ```
      ! Uncalibrated — used conservative fallback (runner ~54K / orchestrator ~60K).
-       Run `/planwise calibrate` from an interactive session to capture real numbers.
+       Run `/planwise token-saver on` from an interactive session to capture real numbers.
    ```
 
 ---

@@ -92,13 +92,15 @@ Run only when `{token_saver}` (from Step 1.5) resolves to `yes` — i.e., Token 
 
 The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update changes the always-on rule/agent surface a fresh `/context` loads, so `token_saver_runner_overhead` captured against the old version no longer reflects this install. Re-capture so plans size against the new footprint.
 
+> **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. When `token_saver.calibrate()` is invoked from upgrade (headless), the CLI may return conversational text instead of the structured report, and calibration degrades to the conservative fallback (runner ~54K / orchestrator ~60K). This is expected on some platforms — notably Windows. The conservative fallback is safe; recapture from an interactive session with `/planwise token-saver on`.
+
 1. Re-run the calibration capture against the upgraded install:
 
    ```bash
    python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{planwise_root}/config.yaml'), plugin_root=r'{plugin_root}'); print(r)"
    ```
 
-   `token_saver.calibrate()` overwrites the six `token_saver_*` keys in place (targeted edit — comments and key order preserved) and degrades to the conservative fallback if the `/context` capture fails.
+   `token_saver.calibrate()` overwrites the six `token_saver_*` keys in place (targeted edit — comments and key order preserved) and degrades to the conservative fallback if the `/context` capture fails or returns non-report text.
 
 2. Report the refreshed numbers in the chat summary (append to the Step 3 banner):
 
@@ -109,7 +111,7 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
      Calibrated on:         {token_saver_overhead_measured_on}
    ```
 
-   If the result's `uncalibrated` flag is `true`, note that the conservative fallback was written and suggest running `/planwise calibrate` from an interactive session.
+   If the result's `uncalibrated` flag is `true`, note that the conservative fallback was written (capture failed or returned non-report text — expected on some platforms) and suggest running `/planwise token-saver on` from an interactive session to capture real numbers.
 
 ---
 

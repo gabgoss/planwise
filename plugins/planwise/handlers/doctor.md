@@ -92,14 +92,15 @@ When Token Saver is on, append the three audits below to the doctor report. All 
    |------------------|---------------|
    | Plugin upgraded since calibration | The pinned `plugin_version` in `config.yaml` differs from the plugin's current shipped version (the overheads were measured against the old rule/agent surface) |
    | Agent/Skill count changed | The Custom Agents / Skills count in a fresh `/context` differs from the captured `token_saver_context_breakdown` (added/removed agents or skills shift the always-on surface) |
-   | Overheads uncalibrated | `token_saver_runner_overhead` is `0`/empty, or equals the conservative fallback (`~54000` runner / `~60000` orchestrator) with no live capture recorded |
+   | Overheads uncalibrated | `token_saver_runner_overhead` is `0`/empty, or equals the conservative fallback (`~54000` runner / `~60000` orchestrator) with no live capture recorded. **Note:** on some platforms (notably Windows and any headless invocation), the calibration capture always degrades to the conservative fallback because the CLI returns conversational text instead of the structured `/context` report when called non-interactively. This is a platform/capture limitation, not a configuration error — the conservative fallback is safe (over-estimated). To capture real measured numbers, run `/planwise token-saver on` from an **interactive** Claude Code session. |
 
 3. When stale, offer the one-command re-capture (never auto-mutate config without surfacing it):
 
    ```
    ! Token Saver overheads may be STALE ({reason}).
-     Re-capture with: /planwise calibrate
+     Re-capture with: /planwise token-saver on
      (runs token_saver.calibrate(...) → claude -p "/context" → writes measured overheads back into config.yaml)
+     Note: re-capture requires an interactive session; headless invocations may degrade to the conservative fallback.
    ```
 
 4. List the plan's largest Required-Context files and any tasks over the derived ceiling or flagged `1M-exception`:
