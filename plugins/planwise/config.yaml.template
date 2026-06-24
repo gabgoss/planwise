@@ -22,6 +22,16 @@ project:
 context:
   plan_tier: "{plan-tier}"
   context_window: {context-window}
+  # Token Saver budget surface. token_saver toggles the budget engine on/off
+  # (default off). The overheads and breakdown below are MEASURED, not
+  # hardcoded — `/planwise calibrate` captures a real /context report and
+  # writes them in place; a zero/empty value means "not yet calibrated".
+  token_saver: {token-saver}
+  token_saver_session_target: 150000
+  token_saver_runner_overhead: 0      # measured subagent footprint (calibrated)
+  token_saver_orchestrator_overhead: 0  # measured orchestrator footprint (calibrated)
+  token_saver_context_breakdown: {}   # measured per-category /context breakdown
+  token_saver_overhead_measured_on: ""  # ISO date of the last calibration
 
 abbreviations:
   APP: "Application features"

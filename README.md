@@ -157,6 +157,8 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
+| `/planwise doctor` | Audit rule scope + Token Saver overhead staleness, read-gate scan, read-limit drift |
+| `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
 | `/planwise lessons` | Search the lessons learned index |

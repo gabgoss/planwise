@@ -17,6 +17,27 @@ Options:
     --plan-tier     Claude plan tier: pro (200K) or max (1M). Default: pro.
 """
 
+import argparse
+import dataclasses
+import json
+import re
+import sys
+from datetime import date
+from enum import Enum
+from pathlib import Path
+
+from constants import InstallScope
+
+try:
+    import yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+
+
 PLAN_TIER_WINDOWS = {
     "pro": 200000,
     "max": 1000000,
@@ -70,16 +91,47 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
     "categorization",
 ]
 
+# Sub-keys under `context:` that `--migrate` adds to an EXISTING context block.
+# The top-level merge above skips `context` whenever the user's config already
+# has it (every installed config does), so the six Token Saver sub-keys would
+# never reach an existing install without this nested merge. Each tuple is
+# (sub_key, default_value_literal) where the literal is rendered verbatim into
+# the YAML line. Existing sub-keys are NEVER overwritten — purely additive.
+MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
+    ("token_saver", "false"),
+    ("token_saver_session_target", "150000"),
+    ("token_saver_runner_overhead", "0"),
+    ("token_saver_orchestrator_overhead", "0"),
+    ("token_saver_context_breakdown", "{}"),
+    ("token_saver_overhead_measured_on", '""'),
+]
+
 # Files copied from references/ into .claude/rules/planwise/ on init.
 # Each tuple is (source_filename, paths_template). paths_template uses
 # {plans_path} / {all_paths} placeholders resolved at install/upgrade time
 # from cfg.planwise_root + cfg.plans_dir / cfg.backlog_dir / cfg.lessons_dir.
 # The upgrade flow consults this list as the authoritative refresh allowlist.
+#
+# Only the four `.claude/**`-scoped authoring rules are installed as
+# path-scoped rules. They guide agents/skills/rules authoring, trigger on
+# `.claude/**` file activity, and stay small. The sixteen plan/backlog/lessons
+# rules that used to be installed here are now handler-loaded on demand from
+# references/ — see DESCOPED_RULES below and migrate_installed_rules().
 INSTALLED_RULES: list[tuple[str, str]] = [
     ("agent-authoring.md", ".claude/agents/**"),
     ("skill-authoring.md", ".claude/skills/**"),
     ("rule-authoring.md", ".claude/rules/**"),
     ("artifact-self-containment.md", ".claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md"),
+]
+
+# Rules removed from the install set during the rule de-scope. Each tuple is
+# (source_filename, old_paths_template) where old_paths_template is the
+# {plans_path} / {all_paths} placeholder the rule carried BEFORE de-scoping.
+# migrate_installed_rules() resolves each template back to the pre-migration
+# default paths: value to recognise an untouched installed copy and remove it;
+# the orchestrator now loads these rules on demand from references/ instead of
+# injecting them as always-on path-scoped rules.
+DESCOPED_RULES: list[tuple[str, str]] = [
     ("session-planning-protocol.md", "{plans_path}"),
     ("session-plan-requirements.md", "{plans_path}"),
     ("session-context-budget.md", "{plans_path}"),
@@ -89,14 +141,21 @@ INSTALLED_RULES: list[tuple[str, str]] = [
     ("ei-fidelity.md", "{plans_path}"),
     ("schema-pin-requirement.md", "{plans_path}"),
     ("task-content-fidelity.md", "{plans_path}"),
+    ("verification-gates.md", "{plans_path}"),
+    ("verify-against-shipped-artifact.md", "{plans_path}"),
+    ("verification-task-authoring.md", "{plans_path}"),
     ("agent-orchestration.md", "{all_paths}"),
     ("agent-orchestration-delegated.md", "{all_paths}"),
     ("callout-conventions.md", "{all_paths}"),
     ("markdown-conventions.md", "{all_paths}"),
-    ("verification-gates.md", "{plans_path}"),
-    ("verify-against-shipped-artifact.md", "{plans_path}"),
-    ("verification-task-authoring.md", "{plans_path}"),
 ]
+
+# Version this de-scope migration ships in. migrate_installed_rules() only
+# acts when from_version < RESCOPE_MIGRATION_VERSION <= to_version, so the
+# removal runs exactly once on the upgrade that crosses this boundary. This
+# MUST equal the `version` field in .claude-plugin/plugin.json so the three
+# surfaces (this constant, plugin.json, the upgrade gate) stay in agreement.
+RESCOPE_MIGRATION_VERSION = "1.0.3"
 
 # Filenames copied verbatim from agents/ into .claude/agents/ on init.
 INSTALLED_AGENTS: list[str] = [
@@ -106,25 +165,124 @@ INSTALLED_AGENTS: list[str] = [
     "task-runner.md",
 ]
 
-import argparse
-import dataclasses
-import json
-import re
-import sys
-from datetime import date
-from enum import Enum
-from pathlib import Path
 
-from constants import InstallScope
+def _find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
+    """Locate the top-level `context:` block in a list of YAML lines.
 
-if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
-    sys.stdout.reconfigure(encoding="utf-8")
+    Returns (header_index, block_end_exclusive, subkey_indent) where:
+      * header_index is the index of the `context:` line,
+      * block_end_exclusive is the index of the first line AFTER the block
+        (the next top-level key, or len(lines) at EOF),
+      * subkey_indent is the leading whitespace string used for the block's
+        sub-keys (taken from the first indented member, or "  " if none).
 
-try:
-    import yaml
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
+    Returns None when no top-level `context:` block exists.
+    """
+    header_idx = None
+    for i, line in enumerate(lines):
+        if re.match(r"^context:\s*$", line):
+            header_idx = i
+            break
+    if header_idx is None:
+        return None
+
+    subkey_indent = "  "
+    found_indent = False
+    end = len(lines)
+    for j in range(header_idx + 1, len(lines)):
+        line = lines[j]
+        if line.strip() == "" or line.lstrip().startswith("#"):
+            # Blank/comment lines belong to the block only if more content
+            # follows at sub-key indent; tentatively include and keep scanning.
+            continue
+        indent_match = re.match(r"^(\s+)\S", line)
+        if indent_match:
+            if not found_indent:
+                subkey_indent = indent_match.group(1)
+                found_indent = True
+            continue
+        # A non-indented, non-blank, non-comment line ends the block.
+        end = j
+        break
+
+    # Trim trailing blank/comment lines back out of the block so insertions
+    # land directly after the last real sub-key.
+    while end - 1 > header_idx:
+        prev = lines[end - 1]
+        if prev.strip() == "" or prev.lstrip().startswith("#"):
+            end -= 1
+        else:
+            break
+
+    return header_idx, end, subkey_indent
+
+
+def _existing_context_subkeys(lines: list[str], start: int, end: int) -> set[str]:
+    """Return the set of sub-key names already present in a context block."""
+    keys: set[str] = set()
+    for k in range(start, end):
+        m = re.match(r"^\s+([a-zA-Z_]\w*):", lines[k])
+        if m:
+            keys.add(m.group(1))
+    return keys
+
+
+def _context_subkeys_delta(before: str, after: str) -> list[str]:
+    """Return the context sub-keys present in `after` but not in `before`.
+
+    Used for migrate reporting (which Token Saver sub-keys the nested merge
+    added). Order follows MIGRATABLE_CONTEXT_SUBKEYS.
+    """
+    before_lines = before.split("\n")
+    after_lines = after.split("\n")
+    before_block = _find_context_block(before_lines)
+    after_block = _find_context_block(after_lines)
+    before_keys: set[str] = set()
+    after_keys: set[str] = set()
+    if before_block is not None:
+        h, e, _ = before_block
+        before_keys = _existing_context_subkeys(before_lines, h + 1, e)
+    if after_block is not None:
+        h, e, _ = after_block
+        after_keys = _existing_context_subkeys(after_lines, h + 1, e)
+    gained = after_keys - before_keys
+    return [
+        f"context.{k}" for k, _ in MIGRATABLE_CONTEXT_SUBKEYS if k in gained
+    ]
+
+
+def merge_context_subkeys(text: str, token_saver_value: str = "false") -> str:
+    """Add any missing Token Saver sub-keys to an existing `context:` block.
+
+    Targeted, comment-preserving, in-place text edit — NOT a yaml round-trip.
+    Existing sub-keys are left byte-for-byte untouched (never overwritten), so
+    re-running this is idempotent and non-destructive. Returns the text
+    unchanged when there is no top-level `context:` block (the caller handles
+    the whole-block-add path).
+
+    `token_saver_value` overrides the literal written for the `token_saver`
+    toggle (so generation can honour --token-saver while migration defaults to
+    "false").
+    """
+    lines = text.split("\n")
+    block = _find_context_block(lines)
+    if block is None:
+        return text
+    header_idx, end, subkey_indent = block
+    existing = _existing_context_subkeys(lines, header_idx + 1, end)
+
+    additions: list[str] = []
+    for sub_key, default in MIGRATABLE_CONTEXT_SUBKEYS:
+        if sub_key in existing:
+            continue
+        value = token_saver_value if sub_key == "token_saver" else default
+        additions.append(f"{subkey_indent}{sub_key}: {value}")
+
+    if not additions:
+        return text
+
+    new_lines = lines[:end] + additions + lines[end:]
+    return "\n".join(new_lines)
 
 
 class ConfigResult(Enum):
@@ -162,6 +320,7 @@ class InitConfig:
     install_scope: str = "project"
     plan_tier: str = "pro"
     plugin_version: str = "0.0.0"
+    token_saver: bool = False
 
     @property
     def context_window(self) -> int:
@@ -261,6 +420,14 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
     content = content.replace("{plan-tier}", cfg.plan_tier)
     content = content.replace("{context-window}", str(cfg.context_window))
     content = content.replace("{plugin-version}", cfg.plugin_version)
+    content = content.replace("{token-saver}", "true" if cfg.token_saver else "false")
+
+    # Ensure the six Token Saver sub-keys are present even if the shipped
+    # template predates them (older template, or a fixture without them) —
+    # the nested merge is additive and respects the --token-saver toggle.
+    content = merge_context_subkeys(
+        content, token_saver_value="true" if cfg.token_saver else "false"
+    )
 
     try:
         with open(dst, "x", encoding="utf-8") as f:
@@ -592,7 +759,16 @@ def migrate_config(cfg: InitConfig) -> tuple[str, list[str], list[str]]:
             present.append(key)
 
     if not added:
-        return str(config_path), [], present
+        # No top-level keys to add — but an existing `context:` block may still
+        # be missing the Token Saver sub-keys. Do a targeted, comment-preserving
+        # nested merge directly on the user's file text (NO yaml round-trip, so
+        # comments/order survive and re-running stays byte-for-byte idempotent).
+        merged_text = merge_context_subkeys(user_text)
+        if merged_text != user_text:
+            config_path.write_text(merged_text, encoding="utf-8")
+            sub_added = _context_subkeys_delta(user_text, merged_text)
+            added.extend(sub_added)
+        return str(config_path), added, present
 
     # Re-emit the file. PyYAML's default dump is acceptable here; the user
     # can reflow manually if needed. Block style + indent 2 keeps the result
@@ -617,6 +793,12 @@ def migrate_config(cfg: InitConfig) -> tuple[str, list[str], list[str]]:
     header = "\n".join(header_lines)
     if header:
         merged_yaml = header + "\n" + merged_yaml
+
+    # The whole-block-add path (context copied from the template) may still
+    # lack the Token Saver sub-keys when the shipped template predates them —
+    # backfill them into the freshly-written block so every migrate target
+    # ends up with the full surface.
+    merged_yaml = merge_context_subkeys(merged_yaml)
 
     config_path.write_text(merged_yaml, encoding="utf-8")
     return str(config_path), added, present
@@ -711,6 +893,171 @@ def normalize_rule_for_diff(content: str) -> str:
     if not cleaned_frontmatter:
         return body
     return f"---\n{cleaned_frontmatter}\n---\n{body}"
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    """Parse a dotted version string into a comparable integer tuple.
+
+    Non-numeric / missing components degrade to 0 so a malformed or sentinel
+    value ("0.0.0", "", or a partial "1.1") still orders sensibly against a
+    well-formed version. Used by the de-scope migration version gate.
+    """
+    parts: list[int] = []
+    for component in str(version).split("."):
+        digits = re.match(r"\d+", component.strip())
+        parts.append(int(digits.group()) if digits else 0)
+    return tuple(parts)
+
+
+def _extract_paths_value(content: str) -> str | None:
+    """Return the `paths:` frontmatter value from a rule file, or None.
+
+    Reads only the leading `---` frontmatter block; returns the verbatim value
+    after `paths:` (stripped of surrounding whitespace). Returns None when the
+    file has no frontmatter or no paths: key.
+    """
+    if not content.startswith("---\n"):
+        return None
+    end = content.find("\n---\n", 4)
+    if end == -1:
+        return None
+    frontmatter_text = content[4:end]
+    match = re.search(r"^paths:(.*)$", frontmatter_text, re.MULTILINE)
+    if not match:
+        return None
+    return match.group(1).strip()
+
+
+def migrate_installed_rules(
+    cfg: "InitConfig",
+    from_version: str,
+    to_version: str,
+) -> dict:
+    """Remove install-set rules that the de-scope moved to handler-loading.
+
+    Version-gated: acts only when
+    ``from_version < RESCOPE_MIGRATION_VERSION <= to_version`` (the single
+    upgrade that crosses the de-scope boundary). Outside that window it is a
+    pure no-op and touches nothing.
+
+    For each (filename, old_template) in DESCOPED_RULES, the installed copy at
+    ``.claude/rules/planwise/{filename}`` is removed ONLY when it is provably
+    untouched by the user — its normalized body matches the shipped reference
+    AND its paths: line equals the resolved OLD default. ANY divergence (body
+    OR paths) leaves the file byte-for-byte unchanged and records a preserve
+    notice; the migration never deletes a customized copy and never defaults a
+    notice to recommending deletion. Rules outside DESCOPED_RULES are never
+    inspected or modified.
+
+    Returns ``{"removed": [...], "preserved": [...], "skipped": [...]}`` where
+    each list holds human-readable strings (filename + reason). The shape is
+    intentionally loose so the upgrade banner can fold it in directly.
+    """
+    report: dict[str, list[str]] = {"removed": [], "preserved": [], "skipped": []}
+
+    # Version gate — run exactly once, on the upgrade that crosses the boundary.
+    gate = _version_tuple(RESCOPE_MIGRATION_VERSION)
+    if not (_version_tuple(from_version) < gate <= _version_tuple(to_version)):
+        return report
+
+    refs_dir = cfg.plugin_root / "references"
+    rules_dir = cfg.project_root / ".claude" / "rules" / "planwise"
+
+    for filename, old_template in DESCOPED_RULES:
+        dst = rules_dir / filename
+        if not dst.exists():
+            # Already absent (fresh install on the new version, or a prior
+            # migration run already removed it) — nothing to do, stay idempotent.
+            report["skipped"].append(f"{filename}: not installed — nothing to migrate")
+            continue
+
+        installed_raw = dst.read_text(encoding="utf-8")
+        src = refs_dir / filename
+        try:
+            shipped_raw = src.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            # Cannot prove the body is untouched without the shipped reference —
+            # preserve the installed copy rather than risk deleting a custom one.
+            report["preserved"].append(
+                f"{filename}: kept — shipped reference unavailable to compare; "
+                "re-home to a project-local rule or upstream the edit if it is custom"
+            )
+            continue
+
+        body_matches = (
+            normalize_rule_for_diff(installed_raw) == normalize_rule_for_diff(shipped_raw)
+        )
+        installed_paths = _extract_paths_value(installed_raw)
+        old_default_paths = resolve_rule_paths_value(cfg, old_template)
+        paths_match = installed_paths == old_default_paths
+
+        if body_matches and paths_match:
+            dst.unlink()
+            report["removed"].append(
+                f"{filename}: removed — untouched de-scoped rule "
+                "(now handler-loaded from references/)"
+            )
+        else:
+            if not body_matches:
+                reason = "body-customized"
+            else:
+                reason = "paths-customized"
+            # Preserve byte-for-byte; the orchestrator now loads this rule from
+            # references/, so a user edit needs re-homing. Offer non-destructive
+            # options — never lead with a removal verdict for a customized file.
+            report["preserved"].append(
+                f"{filename}: kept ({reason}) — post-de-scope the orchestrator loads "
+                "this rule from references/, so re-home your edit: port it to a "
+                "project-local rule, keep it and re-scope to code paths, or upstream "
+                "the change. The installed copy was left unchanged."
+            )
+
+    return report
+
+
+def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
+    """Flag installed rules scoped to plan/backlog/lessons globs. Read-only.
+
+    Walks every ``.claude/rules/**/*.md`` file (recursive, including
+    project-authored rules), parses its paths: frontmatter, and records a flag
+    when the value references the plans, backlog, or lessons globs derived from
+    cfg. Each flagged entry carries the path, a line count, an approximate
+    injected-token estimate (~13 tokens/line), and the matched glob so the
+    caller can render a re-scope hint.
+
+    Never writes or deletes anything — purely diagnostic.
+    """
+    rules_root = cfg.project_root / ".claude" / "rules"
+    if not rules_root.exists():
+        return []
+
+    plans_glob = f"{cfg.planwise_root}/{cfg.plans_dir}/**"
+    backlog_glob = f"{cfg.planwise_root}/{cfg.backlog_dir}/**"
+    lessons_glob = f"{cfg.planwise_root}/{cfg.lessons_dir}/**"
+    watched_globs = (plans_glob, backlog_glob, lessons_glob)
+
+    flagged: list[dict] = []
+    for md_file in sorted(rules_root.rglob("*.md")):
+        if not md_file.is_file():
+            continue
+        try:
+            content = md_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        paths_value = _extract_paths_value(content)
+        if not paths_value:
+            continue
+        matched = next((g for g in watched_globs if g in paths_value), None)
+        if matched is None:
+            continue
+        line_count = content.count("\n") + (0 if content.endswith("\n") else 1)
+        flagged.append({
+            "path": str(md_file),
+            "line_count": line_count,
+            "approx_tokens": line_count * 13,
+            "matched_glob": matched,
+        })
+    return flagged
 
 
 def upgrade_artifacts(
@@ -920,9 +1267,9 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         print("Conflicts (action required):")
         for dst, sidecar in conflicts:
             print(f"  ! {dst}")
-            print(f"      reason:      installed body diverged from plugin-shipped version")
+            print("      reason:      installed body diverged from plugin-shipped version")
             print(f"      sidecar:     {sidecar}")
-            print(f"      remediation: diff the sidecar against the installed file, merge manually, then delete the .new")
+            print("      remediation: diff the sidecar against the installed file, merge manually, then delete the .new")
         index_path = (
             cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
             / f"{pinned_version}-to-{target_version}" / "INDEX.md"
@@ -930,7 +1277,38 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         print(f"  See {index_path} for the full conflict list.")
         print()
 
-    # 4. Commit point: bump plugin_version: in config.yaml LAST.
+    # 4. De-scope migration — remove install-set rules that are now
+    # handler-loaded, but only the untouched copies. Runs AFTER artifact
+    # refresh and BEFORE the version bump so it executes exactly once, on the
+    # upgrade that crosses RESCOPE_MIGRATION_VERSION.
+    migration = migrate_installed_rules(cfg, pinned_version, target_version)
+    if migration["removed"]:
+        print("De-scoped rules removed (now handler-loaded from references/):")
+        for entry in migration["removed"]:
+            print(f"  - {entry}")
+        print()
+    if migration["preserved"]:
+        print("De-scoped rules preserved (customized — action recommended):")
+        for entry in migration["preserved"]:
+            print(f"  ! {entry}")
+        print()
+
+    # 5. Post-upgrade advisory: flag any installed rule still scoped to
+    # plan/backlog/lessons globs (read-only — never mutates).
+    overscoped = lint_rule_overscope(cfg)
+    if overscoped:
+        total_tokens = sum(item["approx_tokens"] for item in overscoped)
+        print("Advisory — rules scoped to plan/backlog/lessons globs:")
+        for item in overscoped:
+            print(
+                f"  ~ {item['path']} ({item['line_count']} lines, "
+                f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
+            )
+            print("      hint: re-scope to code paths or convert to a handler-loaded reference")
+        print(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
+        print()
+
+    # 6. Commit point: bump plugin_version: in config.yaml LAST.
     _bump_plugin_version(config_path, target_version)
     print(f"Plugin version pinned: {target_version}")
     print()
@@ -965,9 +1343,41 @@ def _run_migrate(cfg: InitConfig) -> int:
     return 0
 
 
+def _run_doctor(cfg: "InitConfig") -> int:
+    """Run the read-only overscope linter and print a report. Returns exit code.
+
+    Standalone diagnostic — does not require or perform an upgrade. Walks the
+    installed rules, flags any scoped to plan/backlog/lessons globs, and prints
+    one row per flagged rule with its size, a re-scope hint, and a total
+    always-on injected-budget line. Always exits 0 (diagnostic, not a gate).
+    """
+    overscoped = lint_rule_overscope(cfg)
+    print("planwise doctor — rule overscope report")
+    print()
+    if not overscoped:
+        print("No overscoped rules found.")
+        print("All installed rules are scoped to code paths (.claude/** or narrower).")
+        return 0
+
+    total_tokens = sum(item["approx_tokens"] for item in overscoped)
+    print(f"Flagged {len(overscoped)} rule(s) scoped to plan/backlog/lessons globs:")
+    print()
+    for item in overscoped:
+        print(
+            f"  ~ {item['path']} ({item['line_count']} lines, "
+            f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
+        )
+        print("      hint: re-scope to code paths or convert to a handler-loaded reference")
+    print()
+    print(f"Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="Initialize planwise project structure")
-    parser.add_argument("--name", required=True, help="Project name")
+    parser.add_argument("--name", default=None,
+                        help="Project name. Required for init/--migrate/--upgrade; "
+                             "optional for the read-only --doctor diagnostic.")
     parser.add_argument("--root", default="planwise", help="Planwise root directory")
     parser.add_argument("--plans-dir", default="Plans", help="Plans subdirectory name")
     parser.add_argument("--backlog-dir", default="Backlog", help="Backlog subdirectory name")
@@ -978,6 +1388,10 @@ def main():
     parser.add_argument("--plan-tier", default="pro",
                         choices=sorted(PLAN_TIER_WINDOWS.keys()),
                         help="Claude plan tier: pro (200K context) or max (1M context). Default: pro.")
+    parser.add_argument("--token-saver", action="store_true",
+                        help="Enable the Token Saver budget engine in the generated "
+                             "config (sets context.token_saver: true). Default off — the "
+                             "engine ships dormant and is calibrated via /planwise calibrate.")
     parser.add_argument("--project-root", default=None, help="Project root (default: cwd)")
     parser.add_argument("--auto-from", default=None,
                         help="Subroutine mode: caller handler name (e.g., 'plan', 'review'). "
@@ -993,11 +1407,21 @@ def main():
     parser.add_argument("--upgrade", action="store_true",
                         help="Refresh installed rules/agents and bump plugin_version: in "
                              "config.yaml after a plugin update.")
+    parser.add_argument("--doctor", action="store_true",
+                        help="Read-only diagnostic: scan installed rules and report any "
+                             "still scoped to plan/backlog/lessons globs (always-on context "
+                             "overscope), with size and a re-scope hint. Does not modify "
+                             "anything and does not require --upgrade.")
     args = parser.parse_args()
+
+    # --doctor is a read-only diagnostic and does not use the project name;
+    # every other mode (init / --migrate / --upgrade) requires it.
+    if not args.doctor and not args.name:
+        parser.error("--name is required (omit it only for the read-only --doctor diagnostic)")
 
     _plugin_root = get_plugin_root()
     cfg = InitConfig(
-        project_name=args.name,
+        project_name=args.name or "planwise",
         project_root=Path(args.project_root).resolve() if args.project_root else Path.cwd(),
         plugin_root=_plugin_root,
         planwise_root=args.root,
@@ -1007,7 +1431,11 @@ def main():
         install_scope=args.scope,
         plan_tier=args.plan_tier,
         plugin_version=read_plugin_version(_plugin_root),
+        token_saver=args.token_saver,
     )
+
+    if args.doctor:
+        sys.exit(_run_doctor(cfg))
 
     if args.upgrade:
         if args.migrate:

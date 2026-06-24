@@ -47,9 +47,10 @@ Do NOT use `cat`, `cp`, `sed`, `awk`, or other bash commands for file operations
 ### Step 1 — Gather project information
 
 <!-- AUTO-MODE: convenience -->
-<!-- All 7 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
+<!-- All 8 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
      install_scope = project; planwise_root = planwise; plans_dir = Plans;
-     backlog_dir = Backlog; lessons_dir = LessonsLearned; plan_tier = pro. -->
+     backlog_dir = Backlog; lessons_dir = LessonsLearned; plan_tier = pro;
+     token_saver = yes (recommended). -->
 Use `AskUserQuestion` to collect:
 
 1. **Project name** — The name of this project (e.g., "MyApp", "DataPipeline")
@@ -59,6 +60,7 @@ Use `AskUserQuestion` to collect:
 5. **Backlog directory** — Subdirectory name for backlog items within the root (default: `Backlog`)
 6. **Lessons directory** — Subdirectory name for lessons learned within the root (default: `LessonsLearned`)
 7. **Claude plan tier** — Which Claude plan you're on: `pro` (200K context window) or `max` (1M context window). This scales all token budgets, Meta-Plan thresholds, and DELEGATED checks. Default: `pro`. See `references/session-context-budget.md` §4 for tier-specific budget tables.
+8. **Enable Token Saver mode?** — Keeps task sessions under ~150K (avoids the linear carrying-cost of big sessions) and warns when a file is too large to fit a lean task. Recommended: `yes`. See `references/session-context-budget.md` "Token Saver Profile" for the two-tier policy and derivation formulas.
 
 Store responses as:
 - `{project_name}` — from question 1
@@ -68,6 +70,7 @@ Store responses as:
 - `{backlog_dir}` — from question 5 (use `Backlog` if blank)
 - `{lessons_dir}` — from question 6 (use `LessonsLearned` if blank)
 - `{plan_tier}` — from question 7 (use `pro` if blank; must be one of: `pro`, `max`). The companion `{context_window}` is derived: `pro` → 200000, `max` → 1000000.
+- `{token_saver}` — from question 8 (use `yes` if blank; must be one of: `yes`, `no`). When `yes`, pass `--token-saver` to `init_project.py` (Step 2 / Step 5) so the generated `config.yaml` sets `context.token_saver: true`.
 
 ---
 
@@ -77,15 +80,17 @@ Try running the Python init script first. It handles directory creation, seed fi
 
 **Resolve `{plugin_root}`:** For first-time init, resolve the plugin root from this handler's known location (the plugin base directory provided by SKILL.md). For re-init, read `plugin_root` from the existing `config.yaml`.
 
-Run the script:
+Run the script (append `--token-saver` only when `{token_saver}` is `yes`):
 
 ```bash
-python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}"
+python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}" --token-saver
 ```
+
+Omit the trailing `--token-saver` flag when `{token_saver}` is `no` — the generated config then sets `context.token_saver: false`.
 
 If `python` is not found, try `python3`.
 
-**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML) and skip to **Step 9** (team sharing).
+**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML), run **Step 8.5** (Token Saver calibration capture), and skip to **Step 9** (team sharing).
 
 **If the script fails** (Python not available or any error): Fall through to Steps 3-8 below.
 
@@ -132,6 +137,7 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 | `{lessons-dir}` | `{lessons_dir}` from Step 1 |
 | `{plan-tier}` | `{plan_tier}` from Step 1 |
 | `{context-window}` | `200000` if `{plan_tier}` is `pro`, `1000000` if `max` |
+| `{token-saver}` | `true` if `{token_saver}` is `yes`, `false` if `no` |
 
 3. **Write** the result to `{planwise_root}/config.yaml`
 
@@ -179,7 +185,7 @@ Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` from the p
 
 ### Step 6 — Install rules to `.claude/rules/planwise/` (fallback)
 
-The plugin ships 20 reference files that are installed as path-scoped rules. For each rule:
+The plugin installs 4 author-time reference files as path-scoped rules. These are the only rules copied into `.claude/rules/planwise/` — they trigger on `.claude/**` file activity and stay small. For each rule:
 
 1. Use **Glob** to check if the destination already exists — **skip if it does**
 2. Use **Read** to read the source file from the plugin (links below)
@@ -197,24 +203,11 @@ The plugin ships 20 reference files that are installed as path-scoped rules. For
 | 2 | [../references/skill-authoring.md](../references/skill-authoring.md) | `.claude/rules/planwise/skill-authoring.md` | `.claude/skills/**` |
 | 3 | [../references/rule-authoring.md](../references/rule-authoring.md) | `.claude/rules/planwise/rule-authoring.md` | `.claude/rules/**` |
 | 4 | [../references/artifact-self-containment.md](../references/artifact-self-containment.md) | `.claude/rules/planwise/artifact-self-containment.md` | `.claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md` |
-| 5 | [../references/session-planning-protocol.md](../references/session-planning-protocol.md) | `.claude/rules/planwise/session-planning-protocol.md` | `{planwise_root}/{plans_dir}/**` |
-| 6 | [../references/session-plan-requirements.md](../references/session-plan-requirements.md) | `.claude/rules/planwise/session-plan-requirements.md` | `{planwise_root}/{plans_dir}/**` |
-| 7 | [../references/session-context-budget.md](../references/session-context-budget.md) | `.claude/rules/planwise/session-context-budget.md` | `{planwise_root}/{plans_dir}/**` |
-| 8 | [../references/session-execution-protocol.md](../references/session-execution-protocol.md) | `.claude/rules/planwise/session-execution-protocol.md` | `{planwise_root}/{plans_dir}/**` |
-| 9 | [../references/scaffolding-hygiene.md](../references/scaffolding-hygiene.md) | `.claude/rules/planwise/scaffolding-hygiene.md` | `{planwise_root}/{plans_dir}/**` |
-| 10 | [../references/discovery-and-exit-criteria.md](../references/discovery-and-exit-criteria.md) | `.claude/rules/planwise/discovery-and-exit-criteria.md` | `{planwise_root}/{plans_dir}/**` |
-| 11 | [../references/ei-fidelity.md](../references/ei-fidelity.md) | `.claude/rules/planwise/ei-fidelity.md` | `{planwise_root}/{plans_dir}/**` |
-| 12 | [../references/schema-pin-requirement.md](../references/schema-pin-requirement.md) | `.claude/rules/planwise/schema-pin-requirement.md` | `{planwise_root}/{plans_dir}/**` |
-| 13 | [../references/task-content-fidelity.md](../references/task-content-fidelity.md) | `.claude/rules/planwise/task-content-fidelity.md` | `{planwise_root}/{plans_dir}/**` |
-| 14 | [../references/agent-orchestration.md](../references/agent-orchestration.md) | `.claude/rules/planwise/agent-orchestration.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-| 15 | [../references/agent-orchestration-delegated.md](../references/agent-orchestration-delegated.md) | `.claude/rules/planwise/agent-orchestration-delegated.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-| 16 | [../references/callout-conventions.md](../references/callout-conventions.md) | `.claude/rules/planwise/callout-conventions.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-| 17 | [../references/markdown-conventions.md](../references/markdown-conventions.md) | `.claude/rules/planwise/markdown-conventions.md` | `{planwise_root}/{plans_dir}/**, {planwise_root}/{backlog_dir}/**, {planwise_root}/{lessons_dir}/**` |
-| 18 | [../references/verification-gates.md](../references/verification-gates.md) | `.claude/rules/planwise/verification-gates.md` | `{planwise_root}/{plans_dir}/**` |
-| 19 | [../references/verify-against-shipped-artifact.md](../references/verify-against-shipped-artifact.md) | `.claude/rules/planwise/verify-against-shipped-artifact.md` | `{planwise_root}/{plans_dir}/**` |
-| 20 | [../references/verification-task-authoring.md](../references/verification-task-authoring.md) | `.claude/rules/planwise/verification-task-authoring.md` | `{planwise_root}/{plans_dir}/**` |
 
-Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with actual values from Step 1.
+Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with actual values from Step 1 where they appear in `paths:` values.
+
+> [!practice] Plan/Backlog/Lessons Rules Are Handler-Loaded, Not Installed
+> The plan-, backlog-, and lessons-scoped reference files (session protocols, scaffolding hygiene, orchestration, conventions, verification rules, and similar) are **no longer installed as path-scoped rules**. Handlers load them on demand from the plugin's `references/` directory when a workflow needs them, instead of injecting them as always-on path-scoped rules. This keeps the always-on context budget small while preserving the guidance. When upgrading a project that previously installed these rules, the upgrade flow removes the untouched installed copies (and preserves any the user customized) — see the de-scope migration in `scripts/init_project.py`.
 
 ---
 
@@ -288,6 +281,39 @@ Add the plugin cache directory to `permissions.additionalDirectories` so Claude 
 
 ---
 
+### Step 8.5 — Capture Token Saver calibration
+
+Run only when `{token_saver}` is `yes` (skip silently when Token Saver is off). This attempts to capture a real `/context` footprint and writes the **measured** overheads back into `config.yaml` so plans size sessions against this install's actual carrying cost — not a hardcoded guess. See `references/session-context-budget.md` "Token Saver Profile" for how the derived thresholds are consumed.
+
+> **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. When `token_saver.calibrate()` is invoked via headless `claude -p "/context"` (as this step does), the CLI may return conversational text instead of the structured report, and calibration degrades to the conservative fallback (runner ~54K / orchestrator ~60K). This is expected on some platforms — notably Windows, where the `claude` shim may not be reachable from a subprocess without a live shell. The conservative fallback is safe: it is deliberately over-estimated so tasks never exceed the session budget. You can recapture real numbers at any time from an interactive session with `/planwise token-saver on`.
+
+1. Run the calibration capture via the Token Saver engine:
+
+   ```bash
+   python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{planwise_root}/config.yaml'), plugin_root=r'{plugin_root}'); print(r)"
+   ```
+
+   `token_saver.calibrate()` shells out to `claude -p "/context"`, parses the report, derives `token_saver_runner_overhead` / `token_saver_orchestrator_overhead`, and writes the six `token_saver_*` keys back into `config.yaml` in place. If the capture fails or returns non-report text, it degrades to the conservative fallback — it never crashes init.
+
+2. Surface the result. Report the measured footprint and flag uncalibrated installs loudly:
+
+   ```
+   Token Saver: ON
+     Measured runner overhead:       {token_saver_runner_overhead}  tokens
+     Measured orchestrator overhead: {token_saver_orchestrator_overhead}  tokens
+     Per-task budget (derived):      ~{available_per_task}  tokens  (session_target − runner_overhead − growth_margin)
+     Calibrated on:                  {token_saver_overhead_measured_on}
+   ```
+
+   If the result's `uncalibrated` flag is `true` (the `/context` capture failed or returned non-report text — expected on some platforms, notably Windows), add:
+
+   ```
+     ! Uncalibrated — used conservative fallback (runner ~54K / orchestrator ~60K).
+       Run `/planwise token-saver on` from an interactive session to capture real numbers.
+   ```
+
+---
+
 ### Step 9 — (Optional) Configure team sharing
 
 <!-- AUTO-MODE: convenience -->
@@ -337,6 +363,9 @@ Seed files installed:
 Configuration:
   ✓ {planwise_root}/config.yaml (scope: {install_scope}, plan tier: {plan_tier} → {context_window} context window)
 
+Token Saver:
+  ✓ {token_saver} (when ON: runner overhead {token_saver_runner_overhead}, derived per-task budget ~{available_per_task} — from Step 8.5 calibration)
+
 Agent Teams:
   ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}
 
@@ -350,23 +379,13 @@ Agents mirrored to .claude/agents/:
   ✓ fix-agent.md
 
 Rules installed to .claude/rules/planwise/:
-  ✓ agent-authoring.md         (paths: .claude/agents/**)
-  ✓ skill-authoring.md         (paths: .claude/skills/**)
-  ✓ rule-authoring.md          (paths: .claude/rules/**)
-  ✓ session-planning-protocol.md
-  ✓ session-plan-requirements.md
-  ✓ session-context-budget.md
-  ✓ session-execution-protocol.md
-  ✓ agent-orchestration.md
-  ✓ callout-conventions.md
-  ✓ markdown-conventions.md
-  ✓ scaffolding-hygiene.md
-  ✓ discovery-and-exit-criteria.md
-  ✓ ei-fidelity.md
-  ✓ schema-pin-requirement.md
-  ✓ task-content-fidelity.md
-  ✓ verification-gates.md
-  ✓ verify-against-shipped-artifact.md
+  ✓ agent-authoring.md              (paths: .claude/agents/**)
+  ✓ skill-authoring.md              (paths: .claude/skills/**)
+  ✓ rule-authoring.md               (paths: .claude/rules/**)
+  ✓ artifact-self-containment.md    (paths: .claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md)
+
+  (Plan/backlog/lessons reference rules are handler-loaded on demand from the
+   plugin's references/ directory — not installed as path-scoped rules.)
 
 Skipped (action required):
   ! {planwise_root}/config.yaml (key: context)

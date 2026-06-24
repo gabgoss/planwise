@@ -78,9 +78,9 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 **Orchestrator reads:** Orchestration, Recovery, task files (plan files only)
 **Orchestrator NEVER reads:** {list the heavy files — Consolidated Context parts, reference docs, source code}
-**Subagents read:** Per-task Required Context (each subagent gets a fresh `available_for_work` budget at the parent's tier — ~100K on Pro, ~900K on Max; see `references/session-context-budget.md` §5)
+**Subagents read:** Per-task Required Context (each subagent gets a fresh window sized by the **dispatched model** — 200K for Sonnet/Haiku, 1M for Opus — regardless of the parent tier; see [`references/session-context-budget.md` § Subagent Context Window](../references/session-context-budget.md#subagent-context-window))
 
-> **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + 54K < `context_window` (read from `config.yaml` `context.context_window` — 200K on Pro, 1M on Max; defaults to 200K when the block is missing). See [Task-Level Estimation](../references/session-context-budget.md#task-level-estimation-binding) for the bottom-up estimation formula and conversion factor.
+> **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + injected path-rule tokens + ~54K < the **dispatched model's** window (Sonnet/Haiku 200K, Opus 1M — NOT the parent `context_window`; see [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window)). See [Task-Level Estimation](../references/session-context-budget.md#task-level-estimation-binding) for the bottom-up estimation formula and conversion factor.
 
 ---
 

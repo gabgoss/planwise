@@ -230,6 +230,54 @@ Applies to tasks fed by codebase-scan scripts, doc-index generators, manifest bu
 
 Applies to any task — spec authoring, consolidation, large code generation — whose Expected Output is projected past the 500-line soft limit.
 
+### 9.A.8 Token Saver Large-File Ladder
+
+This subsection is the **per-task-file enforcement anchor** the `handlers/plan.md` Step 8c scan (and its Scaffolding Step 5 mirror) implement and that `/planwise review` checks against. It documents the graduated warning ladder, the threshold-derivation formulas, the two FIXED Read-tool gates the ladder folds in, and the `reason=cost|read` distinction. Active only when `context.token_saver: true`; when false, the §9.A token-estimation rules above stand alone.
+
+> [!constraint] Every Required Context file MUST be classified against the folded cost + read ladder when Token Saver is on
+> When `context.token_saver: true`, each task's Required Context file MUST be classified by `token_saver.classify_file(path, model, projected_added_lines, thresholds)`, which returns `{level, reason}` where `level = max(cost_level, read_level)`. A file the same task will modify MUST be classified on `current + projected delta` (pass `projected_added_lines`) so a file that *will* cross a gate post-edit is flagged pre-emptively — not after the runner overflows mid-task.
+>
+> WRONG — a 1,900-line module is classified at its current size only; the task adds ~250 lines, pushing it past the per-model token page-cap, but the scan passes it Green and the runner gets a truncated Read mid-edit:
+> ```
+> classify_file(path, model="opus")                       # projected_added_lines defaults to 0 → Green
+> ```
+> CORRECT — classify on current + projected delta so the will-exceed case is caught at plan-author time:
+> ```
+> classify_file(path, model="opus", projected_added_lines=250, thresholds=th)   # → {level: Critical, reason: read}
+> ```
+
+**Cost thresholds (derived, never hardcoded)** — from `token_saver.derive_thresholds(session_target, runner_overhead)`:
+
+```
+available_per_task = token_saver_session_target − runner_overhead − growth_margin(6000)
+critical           = available_per_task − output_reserve(10000)   # file won't fit a lean task even alone
+warn               = min(40000, round(0.5 × available_per_task))   # 40K = guaranteed-warn ceiling
+```
+
+`40,000` is the **guaranteed-warn ceiling**: every install warns by at least 40K, but on a heavy install where `0.5 × available_per_task < 40,000` the lower derived value wins. Token counts use the runner model's tokenizer — **13 tok/line** Haiku/Sonnet, **19 tok/line** Opus.
+
+**Read gates (FIXED, per-file readability)** — module-level constants in `scripts/token_saver.py`, NOT `/context`-measured:
+
+```
+READ_FILE_BYTE_CAP   = 262144 (256 KiB)  warn 245760 (240 KiB)   # model-independent — measure with `wc -c`
+READ_PAGE_CAP_TOKENS = 25000             warn 22000              # tokens = lines × {haiku/sonnet 13, opus 19}
+```
+
+The byte gate is measured with **`wc -c`** alongside the line-count `wc -l`; a file can pass `wc -l ≤ 500` yet trip the byte gate when it is dense (tables, JSON). `level = max(cost_level, read_level)`; `reason` records the driver:
+
+| Level | Cost threshold | Read threshold (per assigned model) | Action |
+|-------|---------------|-------------------------------------|--------|
+| Green | < `warn` AND ≤ ~6.5K tok | < 240 KiB AND < 22K tok | none |
+| Notice | > 500 lines or > ~6.5K, < `warn` | — | advisory; docs → Multi-Part split; code → note |
+| Warn | ≥ `warn` | ≥ 240 KiB OR ≥ 22K tok | warn + refactor recommendation + file a backlog item |
+| Critical / `cost` | ≥ `critical` | — | warn + backlog + flag task **`1M-exception`** (Opus/1M); plan still completes |
+| Critical / `read` | — | ≥ 256 KiB OR ≥ 25K model-tok | warn + backlog + **paged read / refactor**; **NOT** `1M-exception` |
+
+> [!constraint] A `read`-reason Critical Is NOT `1M-Exception`-Resolvable
+> A **cost-reason** Critical earns the `1M-exception` flag — the file is simply too big for a lean per-task budget, and the 1M window absorbs it. A **read-reason** Critical does NOT: the per-Read page cap is unchanged by the window, and Opus's tokenizer (19 tok/line) trips the token gate *sooner* than Sonnet/Haiku (13 tok/line). The remedy is a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. A source-file Critical is never a hard stop — it advises and files an item.
+
+**Generated-artifact hard-split (§9.A.7 trigger extension).** §9.A.7 declares multi-part splits when output exceeds the 500-line soft limit. When Token Saver is on, the split trigger for **generated artifacts a runner MUST read** (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files) is **line OR byte OR token gate** — whichever fires first forces a Multi-Part split, and the read-gate ceiling is **HARD**, not advisory. External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics). See `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](session-context-budget.md#file-size-limits--generated-artifacts-binding-when-token-saver-is-on).
+
 ---
 
 ## 9.B Verify-Before-Cite (BINDING)
@@ -639,6 +687,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 6 | Facade re-export gap | A plan enforces a facade architecture rule but the facade module does not re-export every type referenced in downstream task briefs | §9.B.3 |
 | 7 | Vacuous column-presence check | A task says "verify column X is in INSERT/UPDATE" against an upsert helper that uses dynamic column mapping | §9.B.4 |
 | 8 | Missing Schema Pin OR Pre-SQL Schema Verification on SQL-emitting task | A task file's Execution Steps include SQL-emitting verbs against project tables AND the file has neither a Schema Pin section nor a `Pre-SQL Schema Verification` block in Notes for Agent | §9.B.5 |
+| 9 | Token Saver large-file ladder not applied | `context.token_saver: true` AND a Required Context file classifies Warn+ (cost or read) but the task carries no recommendation/backlog item; OR a read-reason Critical task is wrongly flagged `1M-exception`; OR a runner-read generated artifact trips the line/byte/token gate without a Multi-Part split | §9.A.8 |
 
 ---
 

@@ -7,7 +7,9 @@
 - [Config Gate](#config-gate)
 - [Workflow](#workflow)
   - [Step 1 — Detect drift](#step-1--detect-drift)
+  - [Step 1.5 — Offer Token Saver mode](#step-15--offer-token-saver-mode)
   - [Step 2 — Invoke the upgrade script](#step-2--invoke-the-upgrade-script)
+  - [Step 2.5 — Refresh Token Saver calibration](#step-25--refresh-token-saver-calibration)
   - [Step 3 — Render the banner](#step-3--render-the-banner)
   - [Step 4 — Resolve conflicts](#step-4--resolve-conflicts)
 - [Conflict Resolution Reference](#conflict-resolution-reference)
@@ -43,11 +45,29 @@ Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version`. Compare t
 
 ---
 
+### Step 1.5 — Offer Token Saver mode
+
+Token Saver is a budget mode that keeps task sessions under ~150K and warns when a file is too large to fit a lean task (see `references/session-context-budget.md` "Token Saver Profile"). Read `context.token_saver` from the user's `config.yaml` (treat absent as `false`).
+
+> [!gate] Token Saver Upgrade Prompt
+> If `context.token_saver` is already `true` → skip this prompt; Token Saver stays enabled, store `{token_saver} = yes`.
+> If `context.token_saver` is `false` or absent → use `AskUserQuestion`:
+>
+> > "A new Token Saver mode is available — enable it? It keeps task sessions under ~150K (avoids the linear carrying-cost of big sessions) and warns when a file is too large to fit a lean task. (Yes / No)"
+>
+> Store the choice as `{token_saver}` (`yes` / `no`). When `yes`, pass `--token-saver` to the upgrade script in Step 2.
+
+---
+
 ### Step 2 — Invoke the upgrade script
 
+Append `--token-saver` only when `{token_saver}` (from Step 1.5) is `yes`:
+
 ```bash
-python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --upgrade
+python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --upgrade --token-saver
 ```
+
+Omit the trailing `--token-saver` when `{token_saver}` is `no` — the upgrade leaves the existing `context.token_saver` value untouched (migration is non-destructive; it never flips a user-set toggle off).
 
 `{project_root}` is the absolute path of the project root (the directory containing `{planwise_root}/`). Pass it explicitly so the upgrade writes to the correct tree even when the user invokes `/planwise upgrade` from a subdirectory — the script's default of `Path.cwd()` is incorrect in that case.
 
@@ -58,9 +78,40 @@ The script:
 2. Iterates `manifests/artifacts.yaml` rows where `upgrade_behavior == "refresh_or_sidecar"`
 3. Refreshes installed copies whose normalised body matches the shipped body
 4. Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any installed copy that has diverged
-5. Bumps `plugin_version:` in `config.yaml` LAST, as the commit point
+5. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy ONLY when its body AND its `paths:` both match the original shipped default (i.e., untouched); it **preserves** byte-for-byte any copy whose body OR `paths:` were customised, emitting an action-required re-home notice (never a default delete)
+6. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size
+7. Bumps `plugin_version:` in `config.yaml` LAST, as the commit point
 
 Capture stdout — the banner is rendered from it.
+
+---
+
+### Step 2.5 — Refresh Token Saver calibration
+
+Run only when `{token_saver}` (from Step 1.5) resolves to `yes` — i.e., Token Saver is enabled after the upgrade (either pre-existing or just turned on). Skip silently when Token Saver is off.
+
+The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update changes the always-on rule/agent surface a fresh `/context` loads, so `token_saver_runner_overhead` captured against the old version no longer reflects this install. Re-capture so plans size against the new footprint.
+
+> **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. When `token_saver.calibrate()` is invoked from upgrade (headless), the CLI may return conversational text instead of the structured report, and calibration degrades to the conservative fallback (runner ~54K / orchestrator ~60K). This is expected on some platforms — notably Windows. The conservative fallback is safe; recapture from an interactive session with `/planwise token-saver on`.
+
+1. Re-run the calibration capture against the upgraded install:
+
+   ```bash
+   python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{planwise_root}/config.yaml'), plugin_root=r'{plugin_root}'); print(r)"
+   ```
+
+   `token_saver.calibrate()` overwrites the six `token_saver_*` keys in place (targeted edit — comments and key order preserved) and degrades to the conservative fallback if the `/context` capture fails or returns non-report text.
+
+2. Report the refreshed numbers in the chat summary (append to the Step 3 banner):
+
+   ```
+   Token Saver recalibrated:
+     Runner overhead:       {old} → {token_saver_runner_overhead}
+     Orchestrator overhead: {old} → {token_saver_orchestrator_overhead}
+     Calibrated on:         {token_saver_overhead_measured_on}
+   ```
+
+   If the result's `uncalibrated` flag is `true`, note that the conservative fallback was written (capture failed or returned non-report text — expected on some platforms) and suggest running `/planwise token-saver on` from an interactive session to capture real numbers.
 
 ---
 
@@ -81,11 +132,22 @@ Untracked preserved: {N}
   = {file}
   …
 
+De-scoped rules removed: {N} (now handler-loaded; installed copy was untouched)
+  - {file}
+  …
+De-scoped rules preserved (action required): {N} (customised — re-home, NOT auto-deleted)
+  ! {file}
+      reason: body or paths customised — not safe to auto-remove
+      action: re-home as a project-local rule, OR re-scope paths: to the code dirs it governs, OR upstream the change
+
 Conflicts (action required):
   ! {file}
       reason:      installed body diverged from plugin-shipped version
       sidecar:     {sidecar path}
       remediation: diff the sidecar against the installed file, merge manually, then delete the .new
+
+Over-scope advisory: {N} rule(s) still scoped to plan/backlog paths (~{X}K injected per task-runner)
+  run `/planwise doctor` for the full report
 
 Plugin version pinned: {to}
 
@@ -101,14 +163,17 @@ Config keys added:       {N}        ({list, or "(none)"})
 Artifacts refreshed:     {N}
 Artifacts unchanged:     {N}        (installed body already matched shipped)
 Untracked preserved:     {N}        ({list of files outside the manifest allowlist})
+De-scoped removed:       {N}        (now handler-loaded; installed copy was untouched)
+De-scoped preserved:     {N}        (customised — action required, re-home not delete)
 Conflicts:               {N}        (see Step 4 if > 0)
+Over-scope advisory:     {N}        (rules still plan/backlog-scoped — run `/planwise doctor`)
 
 Plugin version pinned:   {to}
 
 Upgrade complete.
 ```
 
-If conflicts > 0, append the conflict list verbatim from the script's stdout and direct the user to Step 4.
+If conflicts > 0, append the conflict list verbatim from the script's stdout and direct the user to Step 4. If de-scoped-preserved > 0, surface the re-home notice for each (the action choices: project-local rule / re-scope `paths:` / upstream). If the over-scope advisory is > 0, point the user at `/planwise doctor`.
 
 ---
 
@@ -136,6 +201,8 @@ The `upgrade-conflicts/` directory and its `INDEX.md` can be cleaned up once all
 | Installed body diverged | Writes `.new` sidecar | Diff, merge, delete `.new` |
 | Installed file absent | Writes shipped body fresh | Nothing — file just appeared |
 | File present, not in manifest allowlist | Reports as Untracked | Nothing — file is the user's own |
+| De-scoped rule, installed body **and** `paths:` untouched | Removes the redundant installed copy (rule is now handler-loaded from `references/`) | Nothing — the rule still applies, loaded on demand |
+| De-scoped rule, body **or** `paths:` customised | Preserves byte-for-byte + emits an action-required re-home notice (never auto-deletes) | Re-home: keep as a project-local rule, re-scope `paths:` to the code dirs it governs, or upstream the change |
 
 ---
 
