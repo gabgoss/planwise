@@ -821,6 +821,39 @@ class TestSetTokenSaverWriter(unittest.TestCase):
         self.assertEqual(self._line_value(text, "plan_tier"), "pro")
         self.assertEqual(self._line_value(text, "context_window"), "200000")
 
+    def test_value_rewrite_preserves_inline_comment(self):
+        """A VALUE REWRITE (not just a boolean flip) must keep the inline comment.
+
+        A toggle round-trip never moves a numeric value next to its comment, so it
+        cannot prove the splice survives a real value change — a naive `re.sub` on
+        the value could eat the trailing comment only in the rewrite case. This
+        mirrors what `calibrate` does when it rewrites the measured overheads.
+        """
+        ts = _engine()
+        path = self._write(self.FULL_CONFIG)
+
+        # Rewrite the measured value 26000 -> 54000 in place (as calibrate would).
+        ts._write_back(path, {"token_saver_runner_overhead": 54000})
+
+        text = path.read_text(encoding="utf-8")
+        # The value changed ...
+        self.assertEqual(
+            self._line_value(text, "token_saver_runner_overhead"),
+            "54000",
+            "the measured value must be rewritten in place",
+        )
+        # ... and the inline comment survived the rewrite (the core gate).
+        line = re.search(r"(?m)^.*token_saver_runner_overhead:.*$", text).group(0)
+        self.assertTrue(
+            line.rstrip().endswith("# measured"),
+            "the inline `# measured` comment must survive the value rewrite",
+        )
+        # A sibling measured line that was NOT rewritten stays byte-for-byte.
+        self.assertEqual(
+            self._line_value(text, "token_saver_orchestrator_overhead"), "24000"
+        )
+        self.assertIn("# keeps a runner < 200K", text)
+
 
 # ---------------------------------------------------------------------------
 # Windows shim resolution + parse guard for headless non-report reply
