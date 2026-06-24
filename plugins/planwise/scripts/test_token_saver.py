@@ -826,32 +826,40 @@ class TestSetTokenSaverWriter(unittest.TestCase):
 # Windows shim resolution + parse guard for headless non-report reply
 # ---------------------------------------------------------------------------
 class TestCaptureContextWindowsInvocation(unittest.TestCase):
-    """capture_context() resolves the claude binary via shutil.which and passes
-    shell=True on Windows so .cmd/.ps1 shims run without FileNotFoundError.
+    """capture_context() routes through powershell.exe on Windows.
+
+    `/context` only renders when a real console is attached; launched directly
+    from pipe stdio (Git Bash / MSYS / a console-less parent) it falls through as
+    a prompt and returns conversational text.  powershell.exe attaches a console,
+    so the report renders — it also resolves the `claude` shim itself, so no
+    shutil.which / shell=True is needed on Windows.
     """
 
-    def test_windows_uses_shell_true_and_resolved_binary(self):
+    def test_windows_routes_through_powershell(self):
         import token_saver
         from unittest.mock import MagicMock, patch
 
-        fake_bin = r"C:\tools\bin\claude.cmd"
         fake_proc = MagicMock()
         fake_proc.returncode = 0
         fake_proc.stdout = CONTEXT_REPORT_FIXTURE
 
         with patch.object(token_saver.os, "name", "nt"), \
-             patch.object(token_saver.shutil, "which", return_value=fake_bin) as mock_which, \
              patch.object(token_saver.subprocess, "run", return_value=fake_proc) as mock_run:
-            result = token_saver.capture_context("/some/plugin", "/some/cwd")
+            result = token_saver.capture_context(r"C:\plugins\planwise", "/some/cwd")
 
-        mock_which.assert_called_once_with("claude")
         call_args = mock_run.call_args
-        # First positional arg is the command list; first element is the resolved bin.
-        self.assertEqual(call_args[0][0][0], fake_bin,
-                         "capture_context must use the resolved binary path, not bare 'claude'")
-        self.assertTrue(call_args[1].get("shell"),
-                        "capture_context must pass shell=True on Windows")
-        # The resolved-binary + shell path must still return the captured text.
+        cmd = call_args[0][0]
+        self.assertEqual(cmd[0], "powershell.exe",
+                         "capture_context must launch via powershell.exe on Windows")
+        self.assertIn("-NoProfile", cmd)
+        self.assertIn("-Command", cmd)
+        inner = cmd[-1]
+        self.assertIn("/context", inner,
+                      "the powershell -Command must invoke claude -p /context")
+        self.assertIn(r"C:\plugins\planwise", inner,
+                      "the powershell -Command must pass the plugin dir")
+        self.assertFalse(call_args[1].get("shell"),
+                         "powershell.exe is launched directly; shell must be False")
         self.assertIsNotNone(result)
 
     def test_posix_uses_shell_false(self):
@@ -911,6 +919,47 @@ class TestCalibrateParseGuard(unittest.TestCase):
         self.assertFalse(
             result.get("calibrated", True),
             "A conversational reply must mark the result uncalibrated",
+        )
+
+    # A partial/garbled report: a `### category` table with ONLY the excluded
+    # rows (deferred tools + free space) and NO `**Tokens:**` header.  It parses
+    # to non-empty categories but total_active=0, so a guard keyed only on
+    # "no header AND no categories" would let it through and write
+    # runner_overhead=0 (== total_active) flagged calibrated:True — exactly the
+    # edge the acceptance criterion says to prevent.
+    DEGENERATE_REPORT = (
+        "## Context Usage\n"
+        "### Estimated usage by category\n"
+        "| Category | Tokens | Percentage |\n"
+        "| System tools (deferred) | 16.4k | 1.6% |\n"
+        "| Free space | 974.3k | 97.4% |\n"
+    )
+
+    def test_zero_active_total_falls_back_not_calibrated(self):
+        ts = _engine()
+
+        # Sanity: the fixture parses to non-empty categories but total_active 0.
+        report = ts.parse_context_report(self.DEGENERATE_REPORT)
+        self.assertTrue(report["categories"], "fixture must have category rows")
+        self.assertEqual(
+            report["total_active"],
+            0,
+            "fixture must yield total_active=0 (only deferred/free-space rows)",
+        )
+
+        def _stub_degenerate(*_args, **_kwargs):
+            return self.DEGENERATE_REPORT
+
+        result = ts.calibrate(capture=_stub_degenerate)
+        self.assertEqual(
+            result.get("token_saver_runner_overhead"),
+            54000,
+            "A report yielding total_active=0 must fall back — never write "
+            "runner_overhead=0 flagged calibrated:True",
+        )
+        self.assertFalse(
+            result.get("calibrated", True),
+            "A zero-active-total report must be marked uncalibrated",
         )
 
 

@@ -358,20 +358,36 @@ def capture_context(plugin_root, cwd) -> str | None:
     Returns None on any failure (missing binary, non-zero exit, timeout). Never
     raises — calibration degrades gracefully to the conservative fallback.
 
-    On Windows, `claude` is a `.cmd`/`.ps1` shim that `CreateProcess` cannot
-    run directly by bare name without `shell=True`.  `shutil.which` resolves the
-    shim path so the binary string is explicit, and `shell=(os.name == "nt")`
-    lets the Windows shell expand it correctly.  On POSIX `shell` stays False.
+    Console-attachment gotcha (Windows): `/context` is an interactive
+    slash-command the CLI only executes when a real console is attached.  Run
+    directly from pipe stdio / a console-less context (Git Bash, MSYS, or a
+    parent that itself has no console), `claude -p "/context"` falls through to a
+    plain prompt and returns a conversational reply instead of the token
+    breakdown report.  Routing the call through `powershell.exe` attaches a real
+    console, so the CLI renders the report — `cmd.exe` and `conhost.exe` do NOT,
+    and `winpty` would only if installed.  On POSIX the direct binary invocation
+    works, so `shutil.which` resolves the binary and it is launched directly.
+
+    `stdin` is `DEVNULL` so the child never blocks waiting on input; console
+    attachment — not stdin — governs whether `/context` renders.
     """
-    claude_bin = shutil.which("claude") or "claude"
+    if os.name == "nt":
+        # PowerShell attaches a console so `/context` renders (not a prompt). It
+        # resolves the `claude` shim itself, so no shutil.which / shell=True here.
+        inner = f'claude -p "/context" --plugin-dir "{plugin_root}"'
+        cmd = ["powershell.exe", "-NoProfile", "-Command", inner]
+    else:
+        claude_bin = shutil.which("claude") or "claude"
+        cmd = [claude_bin, "-p", "/context", "--plugin-dir", str(plugin_root)]
     try:
         proc = subprocess.run(
-            [claude_bin, "-p", "/context", "--plugin-dir", str(plugin_root)],
+            cmd,
             cwd=str(cwd) if cwd is not None else None,
             capture_output=True,
             text=True,
             timeout=120,
-            shell=(os.name == "nt"),
+            shell=False,
+            stdin=subprocess.DEVNULL,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -580,12 +596,14 @@ def calibrate(
 
     # F2 parse guard: headless `claude -p "/context"` may return conversational
     # text instead of the structured `/context` report (the CLI treats the
-    # prompt as a user message, not a slash-command).  A reply with no
-    # `**Tokens:**` header and no category table is NOT a valid capture — treat
-    # it the same as a None return from capture_fn and fall back to the
-    # conservative overheads rather than writing runner_overhead=0 flagged
-    # calibrated:True.
-    if not report.get("has_tokens_header") and not report.get("categories"):
+    # prompt as a user message, not a slash-command).  Such a reply has no usable
+    # category table; a partial/garbled report can also parse to a non-positive
+    # active total (e.g. only the excluded deferred/free-space rows).  Either case
+    # is NOT a valid capture — treat it like a None return and fall back to the
+    # conservative overheads rather than writing runner_overhead=0 (== the active
+    # total) flagged calibrated:True.  A header-absent reply whose category sum is
+    # still positive remains valid (the parser's documented sum fallback).
+    if not report.get("categories") or report.get("total_active", 0) <= 0:
         return _write_fallback()
 
     overheads = derive_overheads(report)
