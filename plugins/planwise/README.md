@@ -6,32 +6,41 @@ planwise is a plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude
 
 ## Table of contents
 
-- [Initialize planwise](#step-1--initialize-planwise-in-your-project)
-- [Start using planwise](#step-2--start-using-planwise)
-  - [Create a plan](#create-a-plan)
-  - [Review a plan](#review-a-plan-before-executing-it)
-  - [Execute a plan](#execute-a-plan)
-  - [Manage your backlog](#manage-your-backlog)
-  - [List all plans](#list-all-your-plans)
-  - [Lessons learned](#work-with-lessons-learned)
-  - [Get help](#get-help)
+- [The problem](#the-problem)
+- [1. `init` — set up planwise in your project](#1-planwise-init)
+- [2. `plan` — create a plan](#2-planwise-plan)
+- [3. `review` — review a plan before executing](#3-planwise-review)
+- [4. `run` — execute a plan](#4-planwise-run)
+- [5. `backlog` — triage and work your backlog](#5-planwise-backlog)
+- [6. `list` — list all your plans](#6-planwise-list)
+- [7. `lessons` — search and manage lessons learned](#7-planwise-lessons)
+- [8. `doctor` — audit project health](#8-planwise-doctor)
+- [9. `token-saver` — toggle Token Saver mode](#9-planwise-token-saver)
+- [10. `upgrade` — update planwise](#10-planwise-upgrade)
+- [11. `help` — show all commands](#11-planwise-help)
 - [Quick reference](#quick-reference)
 - [How it works under the hood](#how-it-works-under-the-hood)
-- [Updating planwise](#updating-planwise)
 - [Uninstalling](#uninstalling)
 - [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ---
 
-### The problem
+## The problem
 
 Ever had Claude Code forget what you were working on? Started a new session and had to re-explain everything? Watched tasks pile up with no way to prioritize them?
 
 **planwise fixes that.** It gives your projects a persistent memory — structured plans, scored backlogs, and lessons learned that survive across every session.
 
+Every command starts with `/planwise` followed by a subcommand. The sections below cover each one in order.
+
+> **Not installed yet?** Add the marketplace and install the plugin first (see the repository's top-level README), then come back and start with `init`.
+
 ---
 
-## Step 1 — Initialize planwise in your project
+## 1. `/planwise init`
+
+**Set up planwise in your project — run once per project.**
 
 Navigate to the project you want to manage, open Claude Code there, and run:
 
@@ -59,7 +68,7 @@ your-project/
       planwise/          <-- 4 path-scoped rules installed (the rest load on demand from the plugin)
 ```
 
-> **You only need to run `init` once per project.** After that, planwise remembers your setup.
+> **You only need to run `init` once per project.** After that, planwise remembers your setup. `init` also offers to enable [Token Saver mode](#9-planwise-token-saver).
 
 #### How `init` works
 
@@ -72,13 +81,9 @@ flowchart LR
 
 ---
 
-## Step 2 — Start using planwise
+## 2. `/planwise plan`
 
-Here's what you can do now. Each command starts with `/planwise` followed by a subcommand.
-
----
-
-### Create a plan
+**Create a structured session plan.**
 
 ```
 /planwise plan my-new-feature
@@ -110,7 +115,9 @@ flowchart LR
 
 ---
 
-### Review a plan before executing it
+## 3. `/planwise review`
+
+**Review a plan before you execute it.**
 
 ```
 /planwise review
@@ -134,7 +141,9 @@ flowchart LR
 
 ---
 
-### Execute a plan
+## 4. `/planwise run`
+
+**Execute a planned session.**
 
 ```
 /planwise run
@@ -156,7 +165,9 @@ flowchart LR
 
 ---
 
-### Manage your backlog
+## 5. `/planwise backlog`
+
+**Triage and work your tracked items.**
 
 ```
 /planwise backlog
@@ -187,7 +198,9 @@ flowchart LR
 
 ---
 
-### List all your plans
+## 6. `/planwise list`
+
+**List all your plans and their status.**
 
 ```
 /planwise list
@@ -204,7 +217,9 @@ flowchart LR
 
 ---
 
-### Work with lessons learned
+## 7. `/planwise lessons`
+
+**Search and manage lessons learned.**
 
 **Search your lessons:**
 ```
@@ -253,13 +268,120 @@ flowchart LR
 
 ---
 
-### Get help
+## 8. `/planwise doctor`
+
+**Audit your project's planwise health — read-only, changes nothing.**
+
+```
+/planwise doctor
+```
+
+`doctor` runs a set of read-only checks and prints a report; it never writes a file and exits cleanly even when it flags something:
+
+- **Rule scope** — lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. These inject into every plan-brief read and can overflow a 200K-window task-runner, so `doctor` flags them with their size.
+- **Token Saver overhead staleness** — reports the stored `/context`-measured overheads and flags them stale after a plugin upgrade or a change in your agent/skill count.
+- **Read-gate scan** — checks your active plan's files against the Read-tool limits (256 KiB byte cap, ~25K-token page cap) and flags any that can't be read in one pass.
+- **Read-limit drift** — flags the fixed read constants if your CLI build has moved past the version they were measured on.
+
+Run it any time for a quick health check — especially right after a [`/planwise upgrade`](#10-planwise-upgrade).
+
+#### How `doctor` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Read-only checks:<br/>rule scope, overheads,<br/>read gates] --> C([Get report])
+```
+
+---
+
+## 9. `/planwise token-saver`
+
+**Toggle Token Saver mode and manage per-plan overrides.**
+
+Token Saver is an optional budget mode that keeps each task session lean — under a ~150K carrying-cost target — instead of letting context balloon across turns. When it's on, planwise:
+
+- **Sizes tasks by carrying cost**, warning (or splitting) a task whose Required Context would push a runner past its measured budget.
+- **Flags files that are too large to read in one pass** — a file at or over the Read tool's 256 KiB byte cap or ~25K-token page cap is marked for paged reads (`offset`/`limit`/Grep) or refactor. (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
+- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (Opus hits the page cap sooner); it is paged or refactored instead.
+
+**Toggle it anytime** — you don't have to wait for an init or upgrade:
+
+```
+/planwise token-saver on        # enable + re-measure overheads
+/planwise token-saver off        # disable (verified no-op — no scan, no ladder)
+/planwise token-saver status     # report the default, when it was measured, and staleness
+```
+
+- **`on` re-calibrates.** Enabling re-captures a live `/context` report so the measured overheads reflect your current install — the same calibration `/planwise upgrade` runs. (If the capture can't run, it falls back to conservative defaults and tells you to re-run from an interactive session.)
+- **`off` is a verified no-op.** Disabling turns the budget engine off cleanly — no read-gate scan, no task-budget ladder, no exceptions — and leaves the measured overheads in place for a future re-enable.
+- **`status` is read-only.** It prints the project default, the date it was measured, and whether that measurement is stale (after a plugin upgrade or an agent/skill count change), recommending a one-command re-measure.
+
+**Override it for a single plan.** `context.token_saver` in `config.yaml` is the project-wide default. A single plan can opt in or out independently via a `Token Saver:` field in its Master Plan — without changing `config.yaml` and without recalibrating (the measured overheads are project-level, since there is one `/context` calibration per install):
+
+```
+/planwise token-saver on --plan MyFeature        # override one plan ON
+/planwise token-saver off --plan MyFeature        # override one plan OFF
+/planwise token-saver --plan MyFeature inherit    # drop the override → re-inherit the default
+/planwise token-saver status --plan MyFeature     # show the plan's effective value
+```
+
+**Thresholds are measured, not guessed.** The budget is keyed to your install's real footprint: `/planwise init` and `/planwise upgrade` capture a live `/context` report and write the measured overheads into `config.yaml`, and the per-task ceilings are derived from those numbers. Toggling only flips enforcement on or off; the budget numbers always come from a real measurement. Run [`/planwise doctor`](#8-planwise-doctor) any time for a read-only audit of those numbers.
+
+#### How `token-saver` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[on / off / status<br/>± --plan] --> C[Flip + re-measure,<br/>or just report] --> D([Done])
+```
+
+---
+
+## 10. `/planwise upgrade`
+
+**Refresh installed rules and agents after a plugin update.**
+
+When a new plugin version is published, upgrading happens in two stages:
+
+1. **Refresh the plugin source**
+
+   ```
+   /plugin marketplace update
+   /plugin install planwise@planwise-marketplace
+   ```
+
+   This updates the plugin's handlers, references, templates, and scripts to the latest version. Files Claude reads directly from the plugin directory are now current.
+
+2. **Propagate updates into your project's `.claude/` directory**
+
+   ```
+   /planwise upgrade
+   ```
+
+   `/plugin install` does not refresh the rules in `.claude/rules/planwise/` or the agents in `.claude/agents/` — those were installed once during `/planwise init` and are skip-if-exists thereafter. `/planwise upgrade`:
+
+   - Bumps the pinned `plugin_version:` in your `config.yaml`
+   - Adds any new top-level config keys (the additive merge previously available via `--migrate`)
+   - Refreshes installed rules/agents whose local body still matches the previously-shipped body
+   - Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any file whose body has diverged from the shipped version, so your customisations are preserved
+   - **Retires de-scoped rules:** author-time rules that are now loaded on demand from the plugin's `references/` are removed from `.claude/rules/planwise/` **only when your installed copy is untouched** (body and `paths:` both match the original default). Any copy you customised is **preserved byte-for-byte with an action-required notice** — re-home it as a project-local rule, re-scope its `paths:` to the code dirs it governs, or upstream the change. It is never auto-deleted.
+   - **Re-calibrates Token Saver** overheads (the same `/context` capture `token-saver on` runs) so the budget tracks your current install.
+   - **Over-scope advisory:** after upgrading, the script lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. Run [`/planwise doctor`](#8-planwise-doctor) any time for the full read-only report.
+
+   See `handlers/upgrade.md` for the full workflow.
+
+> Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
+
+---
+
+## 11. `/planwise help`
+
+**Show all available commands at a glance.**
 
 ```
 /planwise help
 ```
 
-Shows all available commands at a glance and links to this full user guide.
+Shows all available commands and links to this full user guide.
 
 #### How `help` works
 
@@ -279,8 +401,6 @@ flowchart LR
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
-| `/planwise doctor` | Audit rule scope + (Token Saver) overhead staleness, read-gate scan, read-limit drift |
-| `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
 | `/planwise lessons` | Search the lessons learned index |
@@ -288,6 +408,9 @@ flowchart LR
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
+| `/planwise doctor` | Audit rule scope + (Token Saver) overhead staleness, read-gate scan, read-limit drift |
+| `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
+| `/planwise upgrade` | Refresh installed rules/agents after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
 
 ---
@@ -319,47 +442,7 @@ After running `/planwise init`, your settings live in `planwise/config.yaml`. He
 | `abbreviations` | Category prefixes for plans (APP, BUG, etc.) | 4 defaults |
 | `scoring` | How backlog items are scored and ranked | Sensible defaults |
 | `build_commands.default` | Command to verify builds after changes | `echo '...'` |
-
-### Token Saver mode
-
-Token Saver is an optional budget mode that keeps each task session lean — under a ~150K carrying-cost target — instead of letting context balloon across turns. When it is on, planwise:
-
-- **Sizes tasks by carrying cost**, warning (or splitting) a task whose Required Context would push a runner past its measured budget.
-- **Flags files that are too large to read in one pass** — a file at or over the Read tool's 256 KiB byte cap or ~25K-token page cap is marked for paged reads (`offset`/`limit`/Grep) or refactor. (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
-- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (Opus hits the page cap sooner); it is paged or refactored instead.
-
-**Toggling it:**
-
-- **At init** — `/planwise init` asks "Enable Token Saver mode?" (recommended: yes).
-- **At upgrade** — `/planwise upgrade` offers to turn it on if it is off, and re-captures the measured overheads (which go stale when the plugin's always-on rule/agent surface changes).
-- **Anytime** — `/planwise token-saver on|off|status` flips the mode mid-project, without waiting for an init or upgrade (see [Toggling the mode anytime](#toggling-the-mode-anytime) below).
-
-**Thresholds are measured, not guessed.** The budget is keyed to your install's real footprint: `/planwise init` and `/planwise upgrade` capture a live `/context` report and write the measured overheads into `config.yaml`, and the per-task ceilings are derived from those numbers. Run `/planwise doctor` any time for a read-only audit — it reports the stored overheads and flags them stale (after a plugin upgrade or an agent/skill count change), scans your active plan's files against the Read-tool gates, and flags the fixed read-limit constants if your CLI build has moved past the version they were measured on.
-
-### Toggling the mode anytime
-
-You don't have to wait for an init or upgrade to flip Token Saver — `/planwise token-saver` switches it on or off mid-project and reports the current state:
-
-```
-/planwise token-saver on        # enable + re-measure overheads
-/planwise token-saver off        # disable (verified no-op — no scan, no ladder)
-/planwise token-saver status     # report the default, when it was measured, and staleness
-```
-
-- **`on` re-calibrates.** Enabling re-captures a live `/context` report so the measured overheads reflect your current install — the same calibration `/planwise upgrade` runs. (If the capture can't run, it falls back to conservative defaults and tells you to re-run from an interactive session.)
-- **`off` is a verified no-op.** Disabling turns the budget engine off cleanly — no read-gate scan, no task-budget ladder, no exceptions — and leaves the measured overheads in place for a future re-enable.
-- **`status` is read-only.** It prints the project default, the date it was measured, and whether that measurement is stale (after a plugin upgrade or an agent/skill count change), recommending a one-command re-measure.
-
-**The project key is the default; a plan can override it.** `context.token_saver` in `config.yaml` is the project-wide default. A single plan can opt in or out independently via a `Token Saver:` field in its Master Plan — without changing `config.yaml` and without recalibrating (the measured overheads are project-level, since there is one `/context` calibration per install):
-
-```
-/planwise token-saver on --plan MyFeature        # override one plan ON
-/planwise token-saver off --plan MyFeature        # override one plan OFF
-/planwise token-saver --plan MyFeature inherit    # drop the override → re-inherit the default
-/planwise token-saver status --plan MyFeature     # show the plan's effective value
-```
-
-As with the rest of Token Saver, **thresholds are `/context`-measured, not hardcoded** — toggling only flips enforcement on or off; the budget numbers always come from a real measurement.
+| `context.token_saver` | Token Saver mode default (see [§9](#9-planwise-token-saver)) | `false` |
 
 ### Plugin file structure
 
@@ -369,49 +452,15 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 9 subcommand handlers (init, plan, review, run, upgrade, backlog, list, lessons, help)
+  handlers/                         # 11 subcommand handlers (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, help)
   agents/                           # 4 custom AI agents (auto-mirrored into project .claude/agents/ on init)
-  references/                       # 23 knowledge base documents (4 installed as path-scoped rules + 19 handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
-  templates/                        # 12 markdown templates
+  references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
+  templates/                        # Markdown templates
   seed/                             # Index file seeds for init
-  scripts/                          # 8 Python scripts (7 backlog utilities + init_project.py)
+  scripts/                          # Python scripts (backlog utilities + init_project.py + token_saver.py)
   examples/                         # Sample outputs
   config.yaml.template              # Config template
 ```
-
----
-
-## Upgrading
-
-When a new plugin version is published:
-
-1. **Refresh the plugin source**
-
-   ```
-   /plugin marketplace update
-   /plugin install planwise@planwise-marketplace
-   ```
-
-   This updates the plugin's handlers, references, templates, and scripts to the latest version. Files Claude reads directly from the plugin directory are now current.
-
-2. **Propagate updates into your project's `.claude/` directory**
-
-   ```
-   /planwise upgrade
-   ```
-
-   `/plugin install` does not refresh the rules in `.claude/rules/planwise/` or the agents in `.claude/agents/` — those were installed once during `/planwise init` and are skip-if-exists thereafter. `/planwise upgrade`:
-
-   - Bumps the pinned `plugin_version:` in your `config.yaml`
-   - Adds any new top-level config keys (the additive merge previously available via `--migrate`)
-   - Refreshes installed rules/agents whose local body still matches the previously-shipped body
-   - Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any file whose body has diverged from the shipped version, so your customisations are preserved
-   - **Retires de-scoped rules:** author-time rules that are now loaded on demand from the plugin's `references/` are removed from `.claude/rules/planwise/` **only when your installed copy is untouched** (body and `paths:` both match the original default). Any copy you customised is **preserved byte-for-byte with an action-required notice** — re-home it as a project-local rule, re-scope its `paths:` to the code dirs it governs, or upstream the change. It is never auto-deleted.
-   - **Over-scope advisory:** after upgrading, the script lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths (these inject into every plan-brief read and can overflow a 200K-window task-runner). Run `/planwise doctor` any time for the full read-only report.
-
-   See `handlers/upgrade.md` for the full workflow.
-
-> Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
 
 ---
 
@@ -448,6 +497,9 @@ To remove the marketplace:
 
 **Plans or backlog seem out of date after a plugin update**
 - Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules and agents into your project
+
+**Token Saver always shows "uncalibrated" on Windows**
+- The `/context` capture needs a real console; run `/planwise token-saver on` from an interactive Claude Code session so the measured overheads can be captured
 
 **Not sure which command to use?**
 - Run `/planwise help` to see all available commands and a link to the full user guide
