@@ -53,6 +53,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
 - If a task involves DB writes or MERGE/upsert briefs: Read `references/task-content-fidelity.md`, `references/schema-pin-requirement.md`
 - If a session is IPC/protocol/codec: Read `references/verification-gates.md`
+- If executing in DELEGATED mode (orchestrator dispatches task-runner subagents): Read `references/agent-orchestration-delegated.md`
 
 ---
 

@@ -439,7 +439,8 @@ Use this logic to determine the recommended route in Phase 3.
 | Signal | How to Detect | Weight |
 |--------|---------------|--------|
 | "Bug" in feature name | Case-insensitive check on Feature column | Strong → Direct Fix |
-| Item file < 50 lines | Line count on read | Strong → Direct Fix |
+| Item file < 50 lines | Line count on read | Moderate → Direct Fix (a *proxy* for a small fix — a file that is long only because it is thoroughly documented is NOT large scope) |
+| Exact fix evidence: named files + line anchors + before/after content + scope-confinement bound | BB body supplies concrete, bounded edit targets | Strong → Direct Fix — sets `HAS_CLEAR_FIX` regardless of file length |
 | Specific file paths mentioned | Regex for code file extensions | Moderate → Direct Fix |
 | "multi-sprint" / "phased" keywords | Case-insensitive content search | Strong → Session Planning |
 | "refactor" / "redesign" / "architecture" / "migration" | Content keywords | Strong → Session Planning |
@@ -451,10 +452,15 @@ Use this logic to determine the recommended route in Phase 3.
 
 ```
 1. Read item file(s)
-2. Compute signals
+2. Compute signals.
+   HAS_CLEAR_FIX is true when EITHER the item is short (< 50 lines) OR the BB
+   supplies exact fix evidence — named files, line anchors, before/after content,
+   and an explicit scope-confinement bound ("do NOT touch X"). Route on the
+   *measured* edit scope, never on file length alone: a BB that is long only
+   because it is thoroughly documented still has a clear, surgical fix.
 
-IF (IS_BUG AND IS_SHORT) OR (IS_SHORT AND HAS_CLEAR_FIX):
-    -> DIRECT FIX (Route A)
+IF HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6):
+    -> DIRECT FIX (Route A)          # IS_BUG strengthens this signal but is not required
 
 ELIF HAS_MULTI_SPRINT OR IS_ARCHITECTURAL OR (SUB_ITEMS >= 6):
     -> SESSION PLANNING (Route C)

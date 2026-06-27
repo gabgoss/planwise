@@ -68,6 +68,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
 - If reviewing IPC/protocol/codec sessions: Read `references/verification-gates.md`
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
+- If reviewing a plan with verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
+- If reviewing a DELEGATED-orchestration plan: Read `references/agent-orchestration-delegated.md`
 - If the **effective** Token Saver value is `true` for the plan under review (its Master-Plan `Token Saver:` field over the project `context.token_saver` default — `get_effective_token_saver_config(config, plan_override)`): Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](#token-saver-compliance-check))
 
 ---
