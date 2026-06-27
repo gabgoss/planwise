@@ -781,6 +781,26 @@ Fix: Constrain verdict per references/verification-task-authoring.md §5 (FAIL o
 ```
 - **Insert:** Third item under `**New checks (Verification-task authoring discipline):**`.
 
+**New checks (Cross-repo execution-time fidelity):**
+
+### Check 066 — Fix-Task Execution-Time Fidelity (§7.3a–§7.3d)
+
+- **Severity / Role / Source / Type:** BLOCKER/WARNING (tiered) | Task Reviewer | `references/verify-against-shipped-artifact.md` §7.3a–§7.3d | NEW
+- **What:** For any fix task whose target file lives cross-repo (a Required Context row annotated `BINDING SOURCE — full read required`), the Execution Steps MUST exhibit execution-time fidelity discipline: (a) a Step-1 canonical-file full-read gate (also enforced by the §7.5 compliance grep); (b) re-locate-by-content language — later steps locate edits by heading text / function name / unique anchor string, with no naked recipe line/step number presented as the authoritative edit target; (c) for any YAML/JSON/TOML edit, a parser-load success criterion (e.g. a `yaml.safe_load` / `json.load` gate) in Success Criteria, not just a content grep. Non-cross-repo fix tasks are out of scope (§7.6 exemptions).
+- **Detection:**
+  1. Identify fix tasks with a Required Context row annotated `BINDING SOURCE` (cross-repo canonical target). If none, the check is a no-op for that task.
+  2. (a) Grep Execution Step 1 for the full-read gate (`Read .* in full before any fix reasoning`). Absent → BLOCKER.
+  3. (b) Grep later Execution Steps for a naked recipe line/step reference (`line \d+`, `Step \d+\.\d+`, `L\d+`) used as the edit target without an accompanying content anchor (heading text / function name / unique string). Present without anchor → WARNING.
+  4. (c) If Expected Output or Execution Steps touch a `.yaml`/`.yml`/`.json`/`.toml` file, grep Success Criteria for a parser-load gate (`safe_load`, `json.load`, `tomllib`, or equivalent). Absent → WARNING.
+- **Finding template:**
+```
+[{BLOCKER|WARNING}] Fix-task execution-time fidelity gap
+File: {task file path} | Location: Execution Steps / Success Criteria
+Issue: {Step-1 full-read gate missing on BINDING SOURCE task | naked recipe line/step reference used as edit target without content anchor | structured-data edit lacks parser-load success criterion}
+Fix: Apply the §7.3a–§7.3d execution-time discipline per references/verify-against-shipped-artifact.md (Step-1 full read / re-locate by content / verify data shapes / system-consistent value / parser-load before close) | Confidence: HIGH
+```
+- **Insert:** First item under `**New checks (Cross-repo execution-time fidelity):**`.
+
 ### Dependency Reviewer
 
 - Verify task dependency DAG has no cycles
