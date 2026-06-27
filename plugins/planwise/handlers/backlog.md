@@ -371,6 +371,14 @@ Use `AskUserQuestion`: "Create backlog item from this candidate?"
 
 ### Step 7.3: Auto-Create BLI Files
 
+> [!important] Inline the content the capture depends on
+> When a backlog item's value rests on specific content — a block to promote, the evidence behind a finding, an exact spec or recipe — **paste that content into the item verbatim**. A pointer (another repo, a path, a session-only artifact) is welcome *alongside* the inlined content for context or provenance, but it must NOT be the *sole* carrier of the substance: the item must stay fully executable if that source becomes unavailable.
+> - **Inline:** the verbatim text to promote, the failing command + its output, the exact before/after, the spec.
+> - **Reference-only is acceptable** for: large, stable in-repo files that will still exist at execution time AND are not the unique carrier of the item's substance.
+> - **Durability test:** "If the originating session or repo vanished tomorrow, could someone execute this item from the file alone?" If no, inline more.
+>
+> This is a different concern from shipped-artifact self-containment (`references/artifact-self-containment.md`, which strips internal identifiers out of distributed artifacts) — here the goal is that the capture itself carries its own substance.
+
 For each accepted candidate:
 
 1. **Get next BLI ID:**
@@ -383,6 +391,7 @@ For each accepted candidate:
    - `created:` today's date
    - `status: NOT_STARTED`
    - Body from candidate description + target file + severity
+   - **Self-containment check:** the body inlines every block, spec, or piece of evidence the item depends on — a reference may add context, but the substantive content required to act is pasted in, not only linked. (Apply the durability test above.)
 
 3. **Append row to backlog index:**
    ```bash

@@ -336,6 +336,14 @@ Read domain abbreviations from `config.yaml` (`abbreviations` and `lesson_abbrev
 
 ### Step 2: Draft
 
+> [!important] Inline the content the capture depends on
+> When a lesson's value rests on specific content — the block it will later promote, the evidence behind the finding, an exact spec, the failing command and its output — **paste that content into the lesson verbatim**. A pointer (a session reference, a scratch file, a path) is welcome *alongside* the inlined content for context or provenance, but it must NOT be the *sole* carrier of the substance: the lesson must stay promotable and usable if that source becomes unavailable.
+> - **Inline:** the verbatim WRONG/CORRECT example, the failing command + its output, the exact before/after, the spec to promote.
+> - **Reference-only is acceptable** for: large, stable in-repo files that will still exist later AND are not the unique carrier of the lesson's substance.
+> - **Durability test:** "If this session's scratch and the originating repo vanished tomorrow, could someone promote this lesson from the file alone?" If no, inline more.
+>
+> This is a different concern from shipped-artifact self-containment (`references/artifact-self-containment.md`, which strips internal identifiers out of a promoted artifact) — here the goal is that the lesson itself carries its own substance so it survives to be promoted.
+
 Create a candidate lesson with pre-filled YAML frontmatter:
 
 ```yaml
@@ -358,6 +366,7 @@ applied-as: null
 
 Present the draft to the user:
 - Show pre-filled frontmatter and draft Context/Lesson/Applies To sections
+- **Self-containment check:** confirm the draft inlines every block, example, or command output the lesson depends on — a reference may add context, but the substance required to promote it later is pasted in, not only linked. (Apply the durability test in Step 2.)
 - Ask: "Capture this lesson? (approve / edit / skip)" <!-- AUTO-MODE: critical -->
 
 ### Step 4: Write

@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing.
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing.
 
 **Invocation examples:**
 ```
@@ -152,6 +152,44 @@ Report the FIXED Read-tool constants and flag them stale when the harness CLI ha
    ```
 
    This is the drift tripwire for the hardcoded read constants. It is advisory — `doctor` never edits the constants; it surfaces the mismatch so the one-shot live re-probe can be run.
+
+---
+
+## Capture Self-Containment Scan
+
+> [!constraint] Read-Only — Always Runs
+> This scan is independent of Token Saver; it runs on every `/planwise doctor`. It only READS backlog and lesson files and prints advisory flags — it writes nothing.
+
+A backlog item or lesson whose substantive content is only a pointer to an external or transient source (another repo, an absolute path outside this project, a session-only scratch file, "see the diff in session X") becomes non-executable the moment that source is unavailable. The capture handlers inline this content at capture time ([backlog.md](backlog.md) Step 7.3, [lessons.md](lessons.md) Step 2 / Step 3); this scan is the after-the-fact backstop for captures that predate the discipline or slipped through.
+
+### Step 7: Flag pointer-only captures (advisory)
+
+1. Scan the working-set capture files (exclude `Archive/` — closed items):
+   - Backlog: `{planwise_root}/{backlog_dir}/BB-*.md` and `BLI-*.md`
+   - Lessons: `{planwise_root}/{lessons_dir}/LL-*.md`
+
+2. For each file, compute two signals (both greps case-insensitive, body only — ignore YAML frontmatter):
+
+   | Signal | How to detect |
+   |--------|---------------|
+   | **Has an external/transient pointer** | A line referencing an absolute path outside this project (`[A-Za-z]:\\…`, `/Users/`, `/home/`, `/repos/`), another-repo reference, or a transient-source phrase (`see (the )?(session\|diff\|scratch)`, `session-only`, `in scratch`) |
+   | **Lacks inlined substance** | The body contains NO fenced code block (```` ``` ````) AND no inlined verbatim example, spec, or command output — i.e., nothing the pointer could be standing in for |
+
+3. Soft-flag any file where the pointer signal fires AND the inlined-substance signal is absent:
+
+   ```
+   Capture self-containment (advisory):
+     ~ {backlog_dir}/BB-{NNN}-...md
+         pointer:  {the matched external/transient reference}
+         risk:     substance may live only at that pointer — capture could be
+                   non-executable if it vanishes
+         remedy:   inline the block/spec/evidence the item depends on
+                   (durability test: "executable from this file alone if the origin vanished?")
+   ```
+
+   If nothing fires, report: `Capture self-containment: all scanned captures inline their substance.`
+
+This is advisory only — a pointer that merely *supplements* inlined content is fine; the flag is a prompt to verify, not a failure. It complements the capture-time discipline in the handlers rather than gating anything.
 
 ---
 
