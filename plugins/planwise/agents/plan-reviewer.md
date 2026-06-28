@@ -801,6 +801,22 @@ Fix: Apply the §7.3a–§7.3d execution-time discipline per references/verify-a
 ```
 - **Insert:** First item under `**New checks (Cross-repo execution-time fidelity):**`.
 
+**New checks (PLG-031 — delegated verdict integrity):**
+
+### Check 067 — Orchestration Delegated Verdict Recompute Gate
+
+- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/agent-orchestration-delegated.md` §1.16 | NEW
+- **What:** When a DELEGATED session's Orchestration file synthesizes sub-agent verdicts (GREEN/YELLOW/RED, MUST_FIX/SHOULD_FIX/DEFER, READY/READY-WITH-NOTES, or equivalent), the synthesis step or rollup table MUST declare a recompute-from-counts gate — i.e. explicitly state that the orchestrator will recompute each verdict from the agent's reported finding counts rather than consuming the verdict label verbatim. The gate covers both directions: under-classification (the agent softens the verdict against its own counts) and over-classification (a cross-file control-flow claim accepted without tracing the full consumer call path).
+- **Detection:** In DELEGATED Orchestration files, grep the synthesis steps for `recompute|canonical.*verdict|verdict.*count|count.*verdict`. If absent AND the session dispatches sub-agents that produce verdict labels → ERROR.
+- **Finding template:**
+```
+[ERROR] Orchestration delegated verdict recompute gate missing
+File: {Orchestration file path} | Location: Synthesis / rollup section
+Issue: DELEGATED session synthesizes sub-agent verdicts but lacks recompute-from-counts gate
+Fix: Add recompute gate per references/agent-orchestration-delegated.md §1.16 | Confidence: MEDIUM
+```
+- **Insert:** First item under `**New checks (PLG-031 — delegated verdict integrity):**`.
+
 ### Dependency Reviewer
 
 - Verify task dependency DAG has no cycles

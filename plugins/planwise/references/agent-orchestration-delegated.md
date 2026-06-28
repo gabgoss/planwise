@@ -22,6 +22,7 @@ This file continues the DELEGATED contract begun in [`agent-orchestration.md`](a
 - [1.13 Shared-Edit-Target Strategy Matrix](#113-shared-edit-target-strategy-matrix-plg-020-supplemental)
 - [1.14 Orchestrator-Only Review Commands](#114-orchestrator-only-review-commands)
 - [1.15 Delegated Code Task-Runners Build LAST](#115-delegated-code-task-runners-build-last)
+- [1.16 Recompute Delegated Verdicts from Primary Evidence — Both Directions](#116-recompute-delegated-verdicts-from-primary-evidence--both-directions)
 
 ---
 
@@ -319,6 +320,57 @@ If the task-runner edits after building (whether by accident or because the spaw
 > # If the agent edits after building despite the prompt, the orchestrator re-runs {build-cmd} on the
 > # final on-disk code before trusting the gate.
 > ```
+
+## 1.16 Recompute Delegated Verdicts from Primary Evidence — Both Directions
+
+Any session that delegates structured classification — a verdict label, a severity tag, a readiness state — to a sub-agent MUST recompute that classification from the agent's reported raw evidence before consuming the label. Two failure modes bound the gap symmetrically: **under-classification** (the sub-agent softens the verdict against its own enumerated counts) and **over-classification** (the sub-agent manufactures a finding on incomplete cross-file evidence). Capability does not prevent either — a smaller-tier agent (e.g. Sonnet) systematically under-classifies, and a frontier-tier agent (e.g. Opus) can over-classify on cross-file control-flow claims; the rule applies to ALL agent tiers and must not be scoped to one model. The orchestrator, holding the full evidence set, is the only reliable recompute site.
+
+### 1.16.1 Under-classification — recompute verdict from finding counts
+
+In one observed 13-way parallel dispatch, 8 of 13 sub-agents wrote a final verdict line that did not match the classification rule applied to their own enumerated counts; every error softened severity (e.g. BROKEN=2 reported as `YELLOW` instead of `RED`). The aggregate as-reported severity mix understated the canonical mix enough to mis-classify release-blocking findings as negotiable. The orchestrator must recompute the label from the counts, never read it off the agent's summary line.
+
+> [!constraint] Recompute the Verdict from the Reported Counts
+> WRONG — orchestrator trusts the verdict line:
+> ```
+> verdict = read_verdict_line(findings_file)  # may be wrong
+> roll_up_to_release_blocker_table(verdict)
+> ```
+> CORRECT — orchestrator recomputes from counts:
+> ```
+> counts = read_finding_counts(findings_file)
+> verdict = "RED" if counts.broken + counts.contradiction > 0 \
+>      else "YELLOW" if counts.drift + counts.missing > 0 \
+>      else "GREEN"
+> roll_up_to_release_blocker_table(verdict)
+> reported = read_verdict_line(findings_file)
+> if reported != verdict:
+>     log_meta_finding(f"sub-agent verdict mis-classification: reported={reported}, canonical={verdict}")
+> ```
+
+Scope note: this applies to any structured-classification dispatch — GREEN/YELLOW/RED verdicts, MUST_FIX/SHOULD_FIX/DEFER labels, BLOCKER/ERROR tags, or readiness states.
+
+### 1.16.2 Over-classification — cross-file control-flow claims require full call-path trace
+
+The mirror failure: a capable task-runner reviewing a cumulative diff returned READY-WITH-NOTES on the strength of a new finding — "`args.config` is never referenced in the script, therefore `--config` is a no-op." The orchestrator read the code and found the claim false: the script calls a loader, which calls a helper in a sibling module that runs its own `argparse.parse_known_args()` over `sys.argv` and returns the `--config` value. The flag is consumed end-to-end through a second file. Capability did not prevent the error — the agent over-classified.
+
+> [!constraint] Trace the Full Call Path Before Accepting a Cross-File Non-Use Claim
+> WRONG — accept the agent's new-issue finding because local evidence looks conclusive:
+> ```
+> # Agent: "args.config never referenced in {script}.py → --{flag} is a no-op → READY-WITH-NOTES"
+> # Orchestrator: records READY-WITH-NOTES, files the seed.   # propagates a false positive
+> ```
+> CORRECT — trace the full call path before accepting a cross-file non-use claim:
+> ```
+> # Agent: "args.config never referenced → --{flag} inert"
+> # Orchestrator: reads {load_fn}() → finds {helper}() re-parses {argv-source}
+> #               → confirms --{flag} IS consumed end-to-end → withdraws finding → verdict READY
+> ```
+
+A claim of the form "symbol X is declared but never used in this file, therefore feature Y is broken" is only safe to accept after tracing every consumer of X — including consumers in other files that may read the same input independently (e.g. a second argparse over `sys.argv`). Single-file grep proves local non-use, not global inertness.
+
+Highest false-positive risk patterns — any of these warrants an independent code-read before accepting the verdict: "declared-but-unused," "never called," "dead code," "flag has no effect," "interface mismatch," "unreferenced in this file."
+
+Cost note: a false positive in a release-signoff verdict either blocks a shippable tag or spawns phantom backlog work; the verification is a few targeted reads of the disputed call path — NOT a full re-review.
 
 ---
 

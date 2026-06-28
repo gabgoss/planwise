@@ -172,11 +172,12 @@ Task(
 
 1. Collect findings from both subagent outputs
 2. Deduplicate: same file + same issue = merge; keep higher severity
-3. Cross-check `[UNCERTAIN]` findings against Known Patterns Whitelist
-4. Assign finding IDs: BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
-5. Classify systemic findings (see [Systemic Finding Classification](#systemic-finding-classification))
-6. Compute verdict (see [Verdict and Report](#verdict-and-report))
-7. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md`
+3. Recompute delegated verdicts: for each subagent that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated.md` §1.16)
+4. Cross-check `[UNCERTAIN]` findings against Known Patterns Whitelist
+5. Assign finding IDs: BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
+6. Classify systemic findings (see [Systemic Finding Classification](#systemic-finding-classification))
+7. Compute verdict (see [Verdict and Report](#verdict-and-report))
+8. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md`
 
 ---
 
@@ -384,21 +385,22 @@ Task(
 ### Phase 3: Synthesis
 
 9. **Deduplicate:** same file + same issue = merge; keep higher severity.
-10. **Cross-check [UNCERTAIN] findings:**
+10. **Recompute delegated verdicts:** For each reviewer that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated.md` §1.16).
+11. **Cross-check [UNCERTAIN] findings:**
     - Check against [Known Patterns Whitelist](#known-patterns-whitelist)
     - Cross-check against other reviewers' findings
     - Confirmed -> promote to stated severity; contradicted -> discard as false positive
-11. **Assign finding IDs:** BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
-12. **Classify systemic findings:** For each confirmed finding (BLOCKER, ERROR, WARNING), determine one-off vs systemic (see [Systemic Finding Classification](#systemic-finding-classification)).
-13. **Compute verdict** (see [Verdict and Report](#verdict-and-report)).
+12. **Assign finding IDs:** BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
+13. **Classify systemic findings:** For each confirmed finding (BLOCKER, ERROR, WARNING), determine one-off vs systemic (see [Systemic Finding Classification](#systemic-finding-classification)).
+14. **Compute verdict** (see [Verdict and Report](#verdict-and-report)).
 
 ### Phase 4: Report and Cleanup
 
-14. Create `{PlanPath}/Reviews/` directory if it does not exist.
-15. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md` using [templates/review-report.md](../templates/review-report.md).
-16. Send `shutdown_request` to each teammate; wait for `shutdown_response` approvals.
-17. `TeamDelete`.
-18. Output summary to user: verdict, finding counts by severity, systemic finding count, report path.
+15. Create `{PlanPath}/Reviews/` directory if it does not exist.
+16. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md` using [templates/review-report.md](../templates/review-report.md).
+17. Send `shutdown_request` to each teammate; wait for `shutdown_response` approvals.
+18. `TeamDelete`.
+19. Output summary to user: verdict, finding counts by severity, systemic finding count, report path.
 
 ### Communication Protocol
 
@@ -724,3 +726,5 @@ Quick reference for common patterns and their correct classification.
 | 61 | Task verbatim-extraction targets a section that does not physically carry the cited prose — pre-extraction verification missing AND no fallback-hierarchy step (`ei-fidelity.md` §10.2 + §10.3) | ERROR | Task file Execution Steps |
 | 62 | Mega-scaffold skipped review gate — `n_sprints_scaffolded_this_pass ≥ 2` AND Master Plan Status is `READY_TO_EXECUTE` AND no `/planwise review` report referenced (`scaffolding-hygiene.md` §11) | BLOCKER | Master Plan / scaffold-session transcript |
 | 63 | Token Saver large-file ladder not applied — `context.token_saver: true` AND (over-ceiling task without `1M-exception`; OR Warn+ Required Context file with no backlog item; OR a `read`-reason Critical wrongly flagged `1M-exception`; OR a `1M-exception` task on a Sonnet/Haiku agent without override note; OR a runner-read generated artifact past the line/byte/token read gate without a Multi-Part split) (`task-content-fidelity.md` §9.A.8) — no-op when Token Saver is off | ERROR (read-Critical mis-flag / over-ceiling / artifact split) · WARNING (missing backlog item / uncovered read gate) | Task Required Context + Notes for Agent ([Token Saver Compliance Check](#token-saver-compliance-check)) |
+| 64 | Orchestrator consumes sub-agent verdict label without recomputing from reported finding counts — systematic under-classification risk (`agent-orchestration-delegated.md` §1.16.1) | ERROR | Orchestration synthesis step; rollup tables |
+| 65 | Orchestrator accepts cross-file control-flow claim ("symbol X never used → feature Y is broken") without tracing the full consumer call path — false-positive over-classification risk (`agent-orchestration-delegated.md` §1.16.2) | WARNING | Orchestration finding acceptance; release-signoff verdicts |
