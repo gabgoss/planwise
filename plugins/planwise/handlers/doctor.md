@@ -9,11 +9,11 @@
 
 ---
 
-## Config Gate (Auto-Init Fallback)
+## Config Gate
 
 1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
 2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, and the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`) plus the pinned `plugin_version`.
-3. If NOT found: announce, resolve `{plugin_root}` from handler location, invoke `init_project.py` with `--auto-from "doctor"`, RE-RESOLVE, fail loud if still missing.
+3. If NOT found: this install is **not initialized**. Recommend `/planwise init` and **STOP** — `doctor` is read-only and never initializes on the user's behalf. (This is the same "not initialized" outcome the Preflight version-state gate reports; do not auto-init.)
 
 > [!gate] Config Malformed → FAIL LOUD
 > If `config.yaml` is present but malformed, DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise doctor." STOP.
@@ -24,6 +24,18 @@
 
 ## Workflow
 
+### Preflight: Plugin version-state gate
+
+Before any diagnostics, `--doctor` emits an **always-on** version-state gate (independent of Token Saver) — the cheap "is this install even in a sane state to be doctored?" check that precedes everything else. It is read-only: it only *recommends* `init`/`upgrade`; those commands remain the only writers (they bump the `plugin_version` pin). The same `init_project.py --doctor` invocation shown in Step 1 prints the gate verdict **first**, then either stops or proceeds:
+
+| Gate state | Condition | doctor output | Action |
+|------------|-----------|---------------|--------|
+| Not initialized | no `config.yaml` resolved | `! Not initialized …` | Recommend `/planwise init` and **STOP** — no diagnostics run |
+| Version drift | pinned `plugin_version` ≠ installed plugin (absent / `0.0.0` counts as drift) | `! Version drift — pinned {X} != installed {Y}` | Recommend `/planwise upgrade`, showing both versions, and **STOP** |
+| Up to date | pinned == installed | `plugin version {X} — up to date` | Proceed with the over-scope linter (and the Token-Saver audit when enabled) |
+
+The pinned version is read from `config.yaml` (`plugin_version:`; absent → `0.0.0`); the installed version via `read_plugin_version(plugin_root)` from `.claude-plugin/plugin.json`. The gate stops on any non-`up to date` state, so **everything below (over-scope lint, Token-Saver audit) runs only when pinned == installed.**
+
 ### Step 1: Run the over-scope linter
 
 ```bash
@@ -33,7 +45,7 @@ python "{plugin_root}/scripts/init_project.py" --doctor --project-root "{project
 If `python` is not found, try `python3`.
 
 > [!constraint] Read-Only — Never Mutates
-> `--doctor` runs `lint_rule_overscope()` standalone (no `--upgrade`, no `--migrate`). It only READS `.claude/rules/**` and prints a report; it writes nothing and changes no files. It exits 0 even when rules are flagged.
+> `--doctor` runs the version-state gate followed by `lint_rule_overscope()` standalone (no `--upgrade`, no `--migrate`). It only READS `config.yaml`, `.claude-plugin/plugin.json`, and `.claude/rules/**`, then prints a report; it writes nothing and changes no files. It exits 0 in every state — version drift and flagged rules are reported, not failed.
 
 The linter flags any `.claude/rules/**` file whose `paths:` target plan/backlog/lessons directories (e.g., `planwise/Plans/**`) rather than code paths. For each flagged rule it reports the path, line count, approximate token cost (~13 tokens/line), and the matched glob.
 
@@ -90,7 +102,7 @@ When Token Saver is on, append the three audits below to the doctor report. All 
 
    | Staleness signal | How to detect |
    |------------------|---------------|
-   | Plugin upgraded since calibration | The pinned `plugin_version` in `config.yaml` differs from the plugin's current shipped version (the overheads were measured against the old rule/agent surface) |
+   | Plugin upgraded since calibration | Folded into the **Preflight version-state gate** — `doctor` stops on `pinned ≠ installed` before this audit runs, so reaching Step 4 guarantees pinned == installed. Do not re-compare versions here. (A version-bumping `/planwise upgrade` may shift the rule/agent surface; re-capture overheads with `/planwise token-saver on` after upgrading.) |
    | Agent/Skill count changed | The Custom Agents / Skills count in a fresh `/context` differs from the captured `token_saver_context_breakdown` (added/removed agents or skills shift the always-on surface) |
    | Overheads uncalibrated | `token_saver_runner_overhead` is `0`/empty, or equals the conservative fallback (`~54000` runner / `~60000` orchestrator) with no live capture recorded. **Note:** on some platforms (notably Windows and any headless invocation), the calibration capture always degrades to the conservative fallback because the CLI returns conversational text instead of the structured `/context` report when called non-interactively. This is a platform/capture limitation, not a configuration error — the conservative fallback is safe (over-estimated). To capture real measured numbers, run `/planwise token-saver on` from an **interactive** Claude Code session. |
 

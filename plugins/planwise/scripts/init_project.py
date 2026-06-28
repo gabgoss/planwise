@@ -1343,6 +1343,64 @@ def _run_migrate(cfg: InitConfig) -> int:
     return 0
 
 
+def _resolve_doctor_config_path(cfg: "InitConfig") -> "Path | None":
+    """Locate config.yaml for the version-state gate, mirroring the doctor
+    Config Gate resolution: the default planwise root first, then any
+    `*/config.yaml` one level down from the project root. Returns None when no
+    config is found (uninitialized install). Read-only."""
+    primary = cfg.project_root / cfg.planwise_root / "config.yaml"
+    if primary.exists():
+        return primary
+    for candidate in sorted(cfg.project_root.glob("*/config.yaml")):
+        return candidate
+    return None
+
+
+def _read_pinned_plugin_version(config_path: "Path") -> str:
+    """Read the pinned top-level plugin_version from config.yaml WITHOUT
+    requiring PyYAML, so the read-only doctor gate works even when yaml is
+    unavailable. Returns "0.0.0" (the never-pinned sentinel, matching
+    read_plugin_version) when the key is absent or the file can't be read."""
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return "0.0.0"
+    m = re.search(r'^\s*plugin_version:\s*("([^"]*)"|(\S+))\s*$', text, re.MULTILINE)
+    if not m:
+        return "0.0.0"
+    return (m.group(2) if m.group(2) is not None else m.group(3)).strip()
+
+
+def _doctor_version_gate(cfg: "InitConfig") -> dict:
+    """Read-only plugin version-state preflight for /planwise doctor.
+
+    Compares the project's pinned plugin_version against the installed plugin
+    (cfg.plugin_version, from read_plugin_version()). Returns a dict with:
+      state:  "uninitialized" (no config.yaml)     -> recommend /planwise init
+              "drift"         (pinned != installed) -> recommend /planwise upgrade
+              "ok"            (pinned == installed)  -> proceed with diagnostics
+      report: the lines to print verbatim.
+    Never mutates anything — doctor only recommends; init/upgrade are the only
+    writers (they bump the pin)."""
+    installed = cfg.plugin_version
+    config_path = _resolve_doctor_config_path(cfg)
+
+    lines = ["Plugin version-state gate"]
+    if config_path is None:
+        lines.append(f"  ! Not initialized — no config.yaml under {cfg.project_root}.")
+        lines.append("    Recommend: /planwise init")
+        return {"state": "uninitialized", "report": "\n".join(lines)}
+
+    pinned = _read_pinned_plugin_version(config_path)
+    if pinned != installed:
+        lines.append(f"  ! Version drift — pinned {pinned} != installed {installed}.")
+        lines.append("    Recommend: /planwise upgrade")
+        return {"state": "drift", "report": "\n".join(lines)}
+
+    lines.append(f"  plugin version {installed} — up to date")
+    return {"state": "ok", "report": "\n".join(lines)}
+
+
 def _run_doctor(cfg: "InitConfig") -> int:
     """Run the read-only overscope linter and print a report. Returns exit code.
 
@@ -1350,7 +1408,19 @@ def _run_doctor(cfg: "InitConfig") -> int:
     installed rules, flags any scoped to plan/backlog/lessons globs, and prints
     one row per flagged rule with its size, a re-scope hint, and a total
     always-on injected-budget line. Always exits 0 (diagnostic, not a gate).
+
+    Runs the plugin version-state gate FIRST (always-on, independent of Token
+    Saver): an uninitialized or version-drifted install is surfaced with a
+    remediation (init / upgrade) and the function returns before linting — no
+    point auditing a stale rule surface. Read-only throughout; init/upgrade are
+    the only writers.
     """
+    gate = _doctor_version_gate(cfg)
+    print(gate["report"])
+    print()
+    if gate["state"] != "ok":
+        return 0
+
     overscoped = lint_rule_overscope(cfg)
     print("planwise doctor — rule overscope report")
     print()
