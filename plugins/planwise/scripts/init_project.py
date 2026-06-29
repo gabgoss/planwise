@@ -1199,6 +1199,34 @@ def _bump_plugin_version(config_path: Path, new_version: str) -> None:
     )
 
 
+def _flip_token_saver_on(config_path: Path) -> bool:
+    """Flip `token_saver: false` to `true` in the config, comment-preserving.
+
+    Targets the bare `token_saver:` key only — never touches `token_saver_*`
+    measured lines (they have a different key suffix before the colon).
+    Only flips false -> true; an existing `true` is a no-op and is never
+    reverted to false. Idempotent: re-running on an already-true config
+    returns False without writing the file.
+
+    Returns True when the value was changed, False when it was already true
+    or the key was absent (so the caller can decide whether to print a banner).
+    """
+    text = config_path.read_text(encoding="utf-8")
+    # The pattern anchors on line boundaries (MULTILINE) and matches exactly
+    # `token_saver:` followed by optional whitespace, the literal `false`, and
+    # an optional trailing inline comment. `token_saver_session_target:` etc.
+    # cannot match because the underscore separator comes before the colon.
+    pattern = re.compile(
+        r'^(\s*token_saver:[ \t]*)false([ \t]*(?:#[^\n]*)?)$',
+        re.MULTILINE,
+    )
+    if not pattern.search(text):
+        return False
+    new_text = pattern.sub(r'\g<1>true\g<2>', text)
+    config_path.write_text(new_text, encoding="utf-8")
+    return True
+
+
 def _run_upgrade(cfg: "InitConfig") -> int:
     """Execute the --upgrade flow and print a banner. Returns exit code."""
     if not HAS_YAML:
@@ -1243,6 +1271,14 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         print("Config keys added:")
         for key in added:
             print(f"  + {key}")
+        print()
+
+    # 2a. Honor --token-saver: flip context.token_saver false->true when the
+    # user opts in this run. Runs AFTER migrate so the key is guaranteed to be
+    # present (migrate seeds it as "false" when absent). Never flips true->false;
+    # idempotent when the config already reads true.
+    if cfg.token_saver and _flip_token_saver_on(config_path):
+        print("Token Saver enabled.")
         print()
 
     # 3. Refresh artifacts.
@@ -1459,9 +1495,10 @@ def main():
                         choices=sorted(PLAN_TIER_WINDOWS.keys()),
                         help="Claude plan tier: pro (200K context) or max (1M context). Default: pro.")
     parser.add_argument("--token-saver", action="store_true",
-                        help="Enable the Token Saver budget engine in the generated "
-                             "config (sets context.token_saver: true). Default off — the "
-                             "engine ships dormant and is calibrated via /planwise calibrate.")
+                        help="Enable the Token Saver budget engine in the project config "
+                             "(sets context.token_saver: true). Applies to both init and "
+                             "upgrade. Default off — the engine ships dormant and is "
+                             "calibrated via /planwise calibrate.")
     parser.add_argument("--project-root", default=None, help="Project root (default: cwd)")
     parser.add_argument("--auto-from", default=None,
                         help="Subroutine mode: caller handler name (e.g., 'plan', 'review'). "

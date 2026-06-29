@@ -996,5 +996,146 @@ class TestCalibrateParseGuard(unittest.TestCase):
         )
 
 
+# ---------------------------------------------------------------------------
+# _run_upgrade token-saver toggle regression
+# ---------------------------------------------------------------------------
+class TestRunUpgradeTokenSaverToggle(_ProjectFixtureBase):
+    """_run_upgrade honors cfg.token_saver: flips false->true when opted in.
+
+    Covers four contracts:
+      (a) key absent before upgrade + cfg.token_saver=True  -> token_saver: true
+      (b) key= false before upgrade + cfg.token_saver=True  -> token_saver: true
+      (c) cfg.token_saver=False -> existing false left unchanged
+      (d) existing true is never reverted (never true->false)
+    """
+
+    _PINNED_VERSION = "1.0.3"
+    _TARGET_VERSION = "1.0.4"
+
+    def setUp(self):
+        super().setUp()
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML required for _run_upgrade tests")
+        # Create an empty rules dir so upgrade_artifacts' glob doesn't fail on
+        # Python 3.12+ when the path doesn't exist yet.
+        rules_dir = self.project_root / ".claude" / "rules" / "planwise"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+
+    def _make_cfg(self, token_saver: bool) -> ip.InitConfig:
+        return ip.InitConfig(
+            project_name="FixtureProject",
+            project_root=self.project_root,
+            plugin_root=self.plugin_root,
+            plugin_version=self._TARGET_VERSION,
+            token_saver=token_saver,
+        )
+
+    def _write_upgrade_config(self, extra_context_lines: str = "") -> None:
+        """Write a minimal config.yaml with the pinned version.
+
+        extra_context_lines: zero or more indented YAML lines to append inside
+        the `context:` block (e.g., "  token_saver: false").
+        """
+        text = (
+            f'plugin_version: "{self._PINNED_VERSION}"\n'
+            "project:\n"
+            "  name: FixtureProject\n"
+            "context:\n"
+            "  plan_tier: pro\n"
+            "  context_window: 200000\n"
+        )
+        if extra_context_lines:
+            text += extra_context_lines + "\n"
+        self.write_config(text)
+
+    def _read_token_saver_raw(self) -> str | None:
+        """Return the raw `token_saver:` value, or None if the key is absent."""
+        text = self.config_path().read_text(encoding="utf-8")
+        import re
+        m = re.search(r"(?m)^\s*token_saver:\s*(\S+)", text)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _run_upgrade_silently(cfg: ip.InitConfig) -> int:
+        """Invoke _run_upgrade suppressing stdout/stderr to keep test output clean."""
+        import io
+        old_out, old_err = sys.stdout, sys.stderr
+        sys.stdout = sys.stderr = io.StringIO()
+        try:
+            return ip._run_upgrade(cfg)
+        finally:
+            sys.stdout, sys.stderr = old_out, old_err
+
+    # -- case (a) ----------------------------------------------------------
+
+    def test_key_absent_with_token_saver_flag_yields_true(self):
+        """Key absent before upgrade + cfg.token_saver=True -> token_saver: true."""
+        self._write_upgrade_config()  # no token_saver line
+        cfg = self._make_cfg(token_saver=True)
+        rc = self._run_upgrade_silently(cfg)
+        self.assertEqual(rc, 0, "_run_upgrade must return 0 on success")
+        self.assertEqual(
+            self._read_token_saver_raw(),
+            "true",
+            "Absent key + --token-saver: must seed token_saver: true after upgrade",
+        )
+
+    # -- case (b) ----------------------------------------------------------
+
+    def test_key_false_with_token_saver_flag_yields_true(self):
+        """Existing token_saver: false + cfg.token_saver=True -> token_saver: true."""
+        self._write_upgrade_config("  token_saver: false")
+        cfg = self._make_cfg(token_saver=True)
+        rc = self._run_upgrade_silently(cfg)
+        self.assertEqual(rc, 0, "_run_upgrade must return 0 on success")
+        self.assertEqual(
+            self._read_token_saver_raw(),
+            "true",
+            "Existing false + --token-saver: must flip token_saver: false -> true",
+        )
+
+    # -- case (c) ----------------------------------------------------------
+
+    def test_no_flag_leaves_existing_false_unchanged(self):
+        """Omitting --token-saver on upgrade leaves an existing false unchanged."""
+        self._write_upgrade_config("  token_saver: false")
+        cfg = self._make_cfg(token_saver=False)
+        rc = self._run_upgrade_silently(cfg)
+        self.assertEqual(rc, 0, "_run_upgrade must return 0 on success")
+        self.assertEqual(
+            self._read_token_saver_raw(),
+            "false",
+            "Upgrade without --token-saver must leave token_saver: false untouched",
+        )
+
+    # -- case (d) ----------------------------------------------------------
+
+    def test_existing_true_never_reverted_when_flag_omitted(self):
+        """An existing token_saver: true is never flipped back to false."""
+        self._write_upgrade_config("  token_saver: true")
+        cfg = self._make_cfg(token_saver=False)  # no --token-saver flag
+        rc = self._run_upgrade_silently(cfg)
+        self.assertEqual(rc, 0, "_run_upgrade must return 0 on success")
+        self.assertEqual(
+            self._read_token_saver_raw(),
+            "true",
+            "_run_upgrade must NEVER revert an existing token_saver: true to false",
+        )
+
+    def test_idempotent_already_true_with_flag_stays_true(self):
+        """Re-running upgrade with --token-saver on an already-true config is a no-op."""
+        self._write_upgrade_config("  token_saver: true")
+        cfg = self._make_cfg(token_saver=True)
+        rc = self._run_upgrade_silently(cfg)
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            self._read_token_saver_raw(),
+            "true",
+            "Upgrade with --token-saver on an already-true config must stay true",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
