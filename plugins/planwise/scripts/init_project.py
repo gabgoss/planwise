@@ -733,7 +733,7 @@ def install_agents(cfg: InitConfig) -> list[str]:
     """Copy plugin's agents/ files into project's .claude/agents/ directory.
 
     This enables bare-name agent resolution in consumer projects for handlers
-    that spawn agents by name (per PLG-017). Companion to the handler-side
+    that spawn agents by name. Companion to the handler-side
     namespaced-spawn updates (`subagent_type: "planwise:plan-reviewer"`).
 
     Only the filenames declared in INSTALLED_AGENTS are copied — this is

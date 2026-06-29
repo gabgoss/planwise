@@ -33,7 +33,7 @@ Only after the `<functions>` block for `SendMessage` appears in the tool result 
 - [ ] Outputs/ directories exist at session level
 - [ ] Recovery files exist for each session
 - [ ] Folder-count check: planned folder count matches actual scaffold folder count
-- [ ] Per-session Outputs/.gitkeep presence (PLG-001 rule 5)
+- [ ] Per-session Outputs/.gitkeep presence (per references/scaffolding-hygiene.md §5)
 
 ## Cross-References
 
@@ -94,7 +94,7 @@ Confidence: HIGH | MEDIUM | LOW
 ### Check S01 — Folder-Count Consistency
 
 - **Severity:** BLOCKER
-- **Source:** PLG-001
+- **Source:** `references/scaffolding-hygiene.md` §5
 - **Type:** NEW
 - **What:** Sum of physical `Sprint-XX-*/Session-YY-*/` folders MUST equal sum of Sessions-table row counts across all Sprint Plans AND equal Master Plan Sprint Overview row count summed across sprints.
 - **Detection:** Glob `Sprint-*/Session-*/`; sum rows in each Sprint Plan Sessions table; cross-check Master Plan. Mismatch → BLOCKER.
@@ -103,13 +103,13 @@ Confidence: HIGH | MEDIUM | LOW
 [BLOCKER] Folder-count inconsistency
 File: {Plan root path} | Location: Sprint Plan Sessions tables vs disk folders
 Issue: Disk has {N_disk} sessions; Sprint Plans declare {N_declared}
-Fix: Reconcile per references/scaffolding-hygiene.md §6 | Confidence: HIGH
+Fix: Reconcile per references/scaffolding-hygiene.md §5 | Confidence: HIGH
 ```
 
 ### Check S02 — Per-Session Outputs/ with .gitkeep
 
 - **Severity:** BLOCKER
-- **Source:** PLG-001 rule 5
+- **Source:** `references/scaffolding-hygiene.md` §5
 - **Type:** NEW
 - **What:** Every session folder MUST contain `Outputs/.gitkeep`.
 - **Detection:** Glob `Sprint-*/Session-*/Outputs/.gitkeep`; compare count to session count. Mismatch → BLOCKER.
@@ -118,13 +118,13 @@ Fix: Reconcile per references/scaffolding-hygiene.md §6 | Confidence: HIGH
 [BLOCKER] Session Outputs/.gitkeep missing
 File: {session folder path} | Location: Outputs/ directory
 Issue: Outputs/.gitkeep absent
-Fix: Create Outputs/.gitkeep per references/scaffolding-hygiene.md §6 | Confidence: HIGH
+Fix: Create Outputs/.gitkeep per references/scaffolding-hygiene.md §5 | Confidence: HIGH
 ```
 
 ### Check S03 — Sequential-Sprint Prerequisite Declaration
 
 - **Severity:** ERROR
-- **Source:** PLG-001 rule 6
+- **Source:** `references/scaffolding-hygiene.md` §6
 - **Type:** NEW
 - **What:** Each Sprint Plan where sprint number > 01 MUST declare prior-sprint prerequisite in Prerequisites section.
 - **Detection:** For each Sprint-NN Sprint Plan where NN > 01, grep `Prerequisite:\s*Sprint\s+(\d+)\s+COMPLETE`. Absent → ERROR.
@@ -133,13 +133,13 @@ Fix: Create Outputs/.gitkeep per references/scaffolding-hygiene.md §6 | Confide
 [ERROR] Sequential-sprint prerequisite declaration missing
 File: {Sprint Plan path} | Location: Prerequisites section
 Issue: Sprint {NN} > 01 lacks "Prerequisite: Sprint {NN-1} COMPLETE"
-Fix: Add prerequisite per references/scaffolding-hygiene.md §7 | Confidence: HIGH
+Fix: Add prerequisite per references/scaffolding-hygiene.md §6 | Confidence: HIGH
 ```
 
 ### Check S04 — Master Plan Sole READY_TO_EXECUTE Status
 
 - **Severity:** WARNING
-- **Source:** Extension of existing PLG-001 rule 4
+- **Source:** Extension of `references/scaffolding-hygiene.md` §4
 - **Type:** EXTEND
 - **What:** At scaffolding time, ONLY Master Plan has `Status: READY_TO_EXECUTE`. All Sprint Plans have `Status: PLANNED`. (Current rule already partial in structural-reviewer; extends coverage.)
 - **Detection:** Glob all Sprint Plans; grep `Status: READY_TO_EXECUTE`. Any Sprint Plan with this status at scaffolding time → WARNING.
@@ -148,5 +148,5 @@ Fix: Add prerequisite per references/scaffolding-hygiene.md §7 | Confidence: HI
 [WARNING] Sprint Plan has READY_TO_EXECUTE at scaffolding time
 File: {Sprint Plan path}
 Issue: Only Master Plan should have READY_TO_EXECUTE at scaffolding time
-Fix: Set Sprint Plan Status: PLANNED per references/scaffolding-hygiene.md §5 | Confidence: HIGH
+Fix: Set Sprint Plan Status: PLANNED per references/scaffolding-hygiene.md §4 | Confidence: HIGH
 ```

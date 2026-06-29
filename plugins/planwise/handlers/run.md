@@ -399,7 +399,7 @@ Ask the user: "Were any lessons learned during this session?"
    - If all sprints COMPLETE BUT user-action gates pending (per Master Plan "Project Complete When" section) → `Status: IN_PROGRESS — awaiting {user action}` (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
    - If not all sprints COMPLETE → `Status: IN_PROGRESS`
 
-   > [!practice] User-Action-Gate Check (BLI-031 P3)
+   > [!practice] User-Action-Gate Check
    > When all sprints COMPLETE, check Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain, set IN_PROGRESS with note — NOT COMPLETE.
 5. Update plans index row for this plan in `{plans_dir}/{plans_index}`:
    - Set **Status** to match the Master Plan status (e.g., IN_PROGRESS or COMPLETE)

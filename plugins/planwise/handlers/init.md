@@ -228,7 +228,7 @@ The plugin ships 4 custom agents that handlers spawn by name. To enable bare-nam
 | `{plugin_root}/agents/task-runner.md` | `.claude/agents/task-runner.md` |
 | `{plugin_root}/agents/fix-agent.md` | `.claude/agents/fix-agent.md` |
 
-> **Note:** Step 6b is a companion fix for PLG-017 (plugin-handler spawn name resolution). Handlers also work with namespaced spawns alone (`subagent_type: "planwise:plan-reviewer"`) — Step 6b additionally enables consumer-project agent overrides. Without Step 6b the consumer cannot customize plan-reviewer or task-runner. The fast-path script (Step 2) also calls `install_agents()` to perform the same mirroring; this fallback runs only when the Python script is unavailable.
+> **Note:** Step 6b is a companion fix for plugin-handler spawn name resolution. Handlers also work with namespaced spawns alone (`subagent_type: "planwise:plan-reviewer"`) — Step 6b additionally enables consumer-project agent overrides. Without Step 6b the consumer cannot customize plan-reviewer or task-runner. The fast-path script (Step 2) also calls `install_agents()` to perform the same mirroring; this fallback runs only when the Python script is unavailable.
 
 ---
 

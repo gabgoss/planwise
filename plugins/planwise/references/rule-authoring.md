@@ -40,7 +40,7 @@ paths: Controllers/**, Views/**
 >   - "Controllers/**"
 >   - "Views/**"
 > ```
-> This format does **NOT** work. The YAML frontmatter parser fails on 2+ array items — the rule silently does not load. (Tested 3 times, reproduced consistently — RPT test D1.)
+> This format does **NOT** work. The YAML frontmatter parser fails on 2+ array items — the rule silently does not load. (Tested 3 times, reproduced consistently.)
 >
 > **Solution:** Use comma-separated format instead:
 > ```yaml
@@ -68,7 +68,7 @@ paths: .claude/rules/**, .claude/skills/**, Docs/**
 **Why:** Extension globs like `**/*.md` load the rule for files that don't need it (LICENSE files, archive content, external documents, build artifacts). Explicit paths keep context budgets tight and rules relevant.
 
 > [!pitfall] `*.md` Is NOT Root-Only
-> **Problem:** Official Anthropic docs claim `*.md` matches "Markdown files in the project root." This is **wrong**. Claude Code's glob treats `*` as matching across path separators, so `*.md` is functionally identical to `**/*.md` — it matches `.md` files at any depth. (Tested and verified in 2 independent runs — RPT tests B2b, V2.)
+> **Problem:** Official Anthropic docs claim `*.md` matches "Markdown files in the project root." This is **wrong**. Claude Code's glob treats `*` as matching across path separators, so `*.md` is functionally identical to `**/*.md` — it matches `.md` files at any depth. (Tested and verified in 2 independent runs.)
 >
 > **Solution:** There is no way to create a root-only glob. Use explicit directory paths instead.
 
@@ -200,7 +200,7 @@ See [session-planning-protocol.md](session-planning-protocol.md) for planning ru
 See [callout-conventions.md](callout-conventions.md) for callout syntax.
 ```
 
-## 6. Empirically Verified Behavior (RPT Tests, 2026-02-25)
+## 6. Empirically Verified Behavior
 
 These patterns were empirically tested in Claude Code CLI on 2026-02-25. Results supersede prior guidance for listed patterns.
 
@@ -235,11 +235,11 @@ Path-specific rules **DO** load in subagents (Task tool spawns). Behavior:
 - **At startup:** Only global rules load (no inherited path triggers from parent session)
 - **After file activity:** Path rules trigger dynamically based on the subagent's own file reads
 
-This means path scoping works in all contexts, not just the main session. (RPT test Q8, confirmed with 7 rules loading dynamically.)
+This means path scoping works in all contexts, not just the main session. (confirmed with 7 rules loading dynamically.)
 
 ### Context Budget Observation
 
-When total rule content is large, rules may silently fail to load due to context budget competition. The mechanism is unclear, but having many rules increases the risk of individual rules being dropped. Keep rule count and size minimal. (Observed during RPT testing — MEDIUM confidence, mechanism not fully understood.)
+When total rule content is large, rules may silently fail to load due to context budget competition. The mechanism is unclear, but having many rules increases the risk of individual rules being dropped. Keep rule count and size minimal. (Observed during testing — MEDIUM confidence, mechanism not fully understood.)
 
 ---
 

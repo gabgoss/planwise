@@ -81,7 +81,7 @@ description: Required file specifications per plan level, task file templates, a
 
 **Global Source Map:** When using global numbering for spec outputs (recommended for multi-sprint plans), the Master Plan MUST include a Global Source Map table assigning each spec output a number, its primary sprint, and any additional sprints that use it.
 
-**Multi-Tier Discovery Extraction (PLG-008):**
+**Multi-Tier Discovery Extraction:**
 
 When the source material is a Meta-Plan Discovery output, EI extraction MUST consume THREE tiers:
 
@@ -111,7 +111,7 @@ Every scaffolded sprint MUST include a `{Abbrev}-S{XX}-Deferred-OutOfScope-Log.m
 - Rationale for deferral (out of sprint scope, belongs to a different sprint, truly out of scope)
 - Target sprint or "Out of scope" designation
 
-**EI Bidirectional Consistency (BB-031 P4):**
+**EI Bidirectional Consistency:**
 
 Every Spec listed in the EI's `Extracted from:` header MUST appear in at least one Cross-References row. And conversely: every Cross-References row's source citation MUST appear in the `Extracted from:` header. Bidirectional inconsistency is WARNING with HIGH confidence at `/planwise review` Phase 2.
 
@@ -152,13 +152,13 @@ Every Spec listed in the EI's `Extracted from:` header MUST appear in at least o
 > | §4 Legacy compat | Spec #7 §2 (informational-only) | Background reference, not extracted |
 > ```
 
-**Three-Step Scaffolding Procedure for EI Consistency (BB-031 P6):**
+**Three-Step Scaffolding Procedure for EI Consistency:**
 
 1. Author EI sections with full content
 2. Build Cross-References table mapping each section to its source citation
 3. Reconcile `Extracted from:` header: list every source cited in the table (exact filename); annotate informational-only rows where applicable
 
-**Reviewer note (BB-031 P7):** `/planwise review` Phase 2 reports EI header ↔ Cross-References inconsistency as WARNING with HIGH confidence.
+**Reviewer note:** `/planwise review` Phase 2 reports EI header ↔ Cross-References inconsistency as WARNING with HIGH confidence.
 
 **Execution Input ≠ Summary.** Extraction means: select, reorganize, and scope. If source content is needed by the sprint, it MUST appear in the Execution Input verbatim. Only omit content irrelevant to that sprint's tasks.
 
@@ -356,18 +356,18 @@ Never leave many-to-many mappings for the agent to infer.
 
 **Scope of BLOCKING enforcement:** The BLOCKING severity applies ONLY to tasks that touch code, tests, or schemas (i.e., tasks whose Expected Output or Execution Steps create or modify files with extensions in the `templates/task-file.md` §Per-File-Type Commands table — `.py` / `.ipynb` / `.sql` / `.cs` / `.cshtml` / `.ts` / `.tsx` / `.{ext}` and equivalents). For purely documentary tasks (markdown edits, decision-only Opus tasks, research-and-report Sonnet tasks), Verification Commands MAY be omitted entirely — but the omission MUST be marked with a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment so the reviewer can confirm the choice was intentional rather than an oversight. The `handlers/plan.md` Step 8e (Populate Verification Commands) populates the section for runnable-artifact tasks; the `handlers/review.md` Error Pattern Catalog rows 34/35/36 enforce this at review time.
 
-> [!constraint] BLOCKING Severity — Source PLG-003 Discipline
+> [!constraint] BLOCKING Severity Discipline
 > WRONG — Verification Commands enforcement left at WARNING, allowing plans to ship with blank `{cmd_before_1}` / `{cmd_after_1}` placeholders:
 > ```
 > | Severity | Reviewer Action       |
 > | WARNING  | Flag as missing       |
 > ```
-> CORRECT — BLOCKING for runnable-artifact tasks (source PLG-003 §3C), with explicit `<!-- VERIFICATION: not-applicable -->` escape hatch for documentation/decision-only tasks:
+> CORRECT — BLOCKING for runnable-artifact tasks, with explicit `<!-- VERIFICATION: not-applicable -->` escape hatch for documentation/decision-only tasks:
 > ```
 > | Severity   | Reviewer Action                                           |
 > | BLOCKING   | Block plan approval until populated or explicitly exempted |
 > ```
-> The escape hatch keeps the rule humane (pure-doc tasks aren't penalized) without weakening enforcement on tasks that actually produce runnable artifacts. This check is BLOCKING rather than a warning: the source PLG-003 spec called for BLOCKING enforcement, the task-file template has per-file-type infrastructure, the plan-handler Step 8e populates it, and the escape hatch covers legitimate exemptions.
+> The escape hatch keeps the rule humane (pure-doc tasks aren't penalized) without weakening enforcement on tasks that actually produce runnable artifacts. This check is BLOCKING rather than a warning: BLOCKING enforcement is warranted here, the task-file template has per-file-type infrastructure, the plan-handler Step 8e populates it, and the escape hatch covers legitimate exemptions.
 
 > [!constraint] One Task File Per Task — Never Combined
 > WRONG — multiple tasks combined into one file, tasks numbered inline rather than as separate files:
@@ -427,7 +427,7 @@ Task file Required Context sections and Execution Steps are subject to the rules
 - §9.B.2 (extended): Env vars, function signatures, and config keys verified against live source (extends `task-content-fidelity.md` §9.B.2 identifier reconciliation)
 - §9.B.8: MERGE/upsert task briefs MUST include Field Mapping subsection (Source Field | DDL Column | Type Cast | Default)
 
-**Cross-sprint dependency mirroring (PLG-007 S2):**
+**Cross-sprint dependency mirroring:**
 
 When a task's Required Context cites files from another sprint or session, the task's `Depends On` field MUST mirror those reads with `cross-sprint:` or `cross-session:` prefixes:
 
@@ -451,7 +451,7 @@ When a task's Required Context cites files from another sprint or session, the t
 > | 2 | Plans/{PlanName}/Sprint-01/Session-02/Outputs/{Abbrev}-S01-02-ResearchOutput.md | ... |
 > ```
 
-**Post-scaffold back-propagation rule (PLG-007 S5):**
+**Post-scaffold back-propagation rule:**
 
 When a task file is edited AFTER scaffolding (adding a Required Context entry, extending Execution Steps, or changing Expected Output), the corresponding EI section MUST be back-propagated:
 
@@ -462,7 +462,7 @@ When a task file is edited AFTER scaffolding (adding a Required Context entry, e
 
 Skipping any of these 4 sites is ERROR with HIGH confidence at `/planwise review` Phase 2.
 
-**Declarative follow-up block convention (PLG-018):**
+**Declarative follow-up block convention:**
 
 Task files MAY include a Declarative Follow-Up block enumerating actionable recommendations that auto-surface during backlog Phase 7 (FOLLOW-UP BLI CAPTURE):
 
@@ -538,7 +538,7 @@ A related code-generation discipline applies when the LSP reports a diagnostic t
 2. Final git commit with "Complete {PlanName} project"
 3. *If Meta-Plan was used:* Meta, Scaffold, and Exec Master Plans marked COMPLETE
 
-### Module Split Threshold (PLG-016 Fragment B)
+### Module Split Threshold
 
 > [!practice] Module Split for Wide Dataclasses
 > Adapter/client modules whose row dataclass exceeds 75-80 fields SHOULD be split into:

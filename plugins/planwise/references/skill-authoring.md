@@ -307,19 +307,19 @@ Research $ARGUMENTS:
 
 ### ATD Empirical Findings — Forked Context Behavior
 
-> [!practice] Empirically Verified (ATD Sprint 04, LoadTest-01)
-> **Forked contexts receive the full Claude Code CLI system prompt** — NOT "a custom prompt only" as some documentation suggests. The `SKILL.md` content is ADDITIONAL to the system prompt. [LoadTest-01]
+> [!practice] Empirically Verified
+> **Forked contexts receive the full Claude Code CLI system prompt** — NOT "a custom prompt only" as some documentation suggests. The `SKILL.md` content is ADDITIONAL to the system prompt.
 
-> [!practice] Empirically Verified (ATD Sprint 04, NestTest-08)
-> **Forked context tool set is identical to a `general-purpose` subagent** (18 tools). Includes TeamCreate/Delete, SendMessage, all file and web tools. Excludes Task, AskUserQuestion, PlanMode. No nesting — a forked skill cannot spawn further subagents. [NestTest-08]
+> [!practice] Empirically Verified
+> **Forked context tool set is identical to a `general-purpose` subagent** (18 tools). Includes TeamCreate/Delete, SendMessage, all file and web tools. Excludes Task, AskUserQuestion, PlanMode. No nesting — a forked skill cannot spawn further subagents.
 
-> [!practice] Empirically Verified (ATD Sprint 04, LoadTest-03)
-> **All forked contexts discover project skills via file system access** regardless of `skills:` preload. The `skills:` field in agent frontmatter is **context injection** (injects SKILL.md content at startup), not an access restriction. File system discovery always works for all contexts. [LoadTest-03]
+> [!practice] Empirically Verified
+> **All forked contexts discover project skills via file system access** regardless of `skills:` preload. The `skills:` field in agent frontmatter is **context injection** (injects SKILL.md content at startup), not an access restriction. File system discovery always works for all contexts.
 
-> [!practice] Empirically Verified (ATD Sprint 04, LoadTest-07)
-> **Path-specific rules do NOT load in forked contexts.** Only the global rules active in the parent session are visible. If a forked skill needs domain-specific rule content, embed it in SKILL.md directly. [LoadTest-07]
+> [!practice] Empirically Verified
+> **Path-specific rules do NOT load in forked contexts.** Only the global rules active in the parent session are visible. If a forked skill needs domain-specific rule content, embed it in SKILL.md directly.
 
-> [!practice] [UNVERIFIED — U5] MCP availability in forked context
+> [!practice] [UNVERIFIED] MCP availability in forked context
 > No MCP servers were configured in the test environment; all MCP loading tests were skipped. Theoretical mechanism equivalence between forked skills and general-purpose subagents (confirmed for all other tool access) suggests MCP SHOULD be available for foreground-executed forked skills if configured. Empirical confirmation pending. [ATD-EmpiricalResults §7]
 
 ### Forked Skill vs Subagent — Comparison

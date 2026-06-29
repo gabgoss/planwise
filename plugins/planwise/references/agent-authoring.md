@@ -287,7 +287,7 @@ An agent definition file maps to runtime behavior in two modes:
 1. **`claude --agent <name>`** — Agent definition configures a **Main Session**: full context, all tools, can spawn subagents.
 2. **`subagent_type: "<name>"` in Task tool** — Agent definition configures a **Subagent**: fresh context, 18 tools, Task tool absent (no further spawning).
 
-> [!practice] Empirically Verified (ATD Sprint 04, LoadTest-03)
+> [!practice] Empirically Verified
 > **Custom agents created mid-session are NOT dynamically registered.** If you write a new agent definition to `.claude/agents/` during an active session, it will NOT be discoverable as a `subagent_type` value in that session. Agent discovery happens at session startup only.
 
 ### Built-in Subagent Types
@@ -299,9 +299,9 @@ An agent definition file maps to runtime behavior in two modes:
 | `general-purpose` | Inherit | All tools | Complex autonomous tasks |
 | `Bash` | Inherit | Bash only | Terminal commands |
 | `statusline-setup` | Sonnet | Read, Edit | Status line configuration |
-| Claude Code Guide | Haiku | Limited | Claude Code feature questions — **[UNVERIFIED: exact `subagent_type` string — U6]** |
+| Claude Code Guide | Haiku | Limited | Claude Code feature questions — **[UNVERIFIED: exact `subagent_type` string]** |
 
-> [!practice] [UNVERIFIED — U6] Claude Code Guide subagent_type
+> [!practice] [UNVERIFIED] Claude Code Guide subagent_type
 > The exact `subagent_type` parameter string for the Claude Code Guide agent (e.g., `claude-code-guide` vs `Claude Code Guide`) has not been empirically verified. Flag usage as unverified until confirmed.
 
 ---

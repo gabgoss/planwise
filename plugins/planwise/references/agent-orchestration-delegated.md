@@ -10,23 +10,23 @@ This file continues the DELEGATED contract begun in [`agent-orchestration.md`](a
 
 ## Table of Contents
 
-- [1.4 Inter-Dispatch Diagnostics Verification](#14-inter-dispatch-diagnostics-verification-plg-002--plg-020-extension)
-- [1.5 Live-HTTP-Probing Tool-Use Budget Reservation](#15-live-http-probing-tool-use-budget-reservation-plg-012)
-- [1.6 Path-Scoped Rule Injection in Spawn Prompts](#16-path-scoped-rule-injection-in-spawn-prompts-plg-012)
-- [1.7 Idle-Mid-Step Wake-Up via SendMessage](#17-idle-mid-step-wake-up-via-sendmessage-plg-012)
-- [1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause](#18-hard-constraints-spawn-prompt-skeleton--scope-boundary-clause-plg-020-115--18)
-- [1.9 Tier-Rank Fixes by Invasiveness](#19-tier-rank-fixes-by-invasiveness-plg-020-116--19)
-- [1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol](#110-forward-looking-verb-detection--sendmessage-resume-protocol-plg-020-117--110)
-- [1.11 Operational-Ceiling Disclaimers in Spawn Prompts](#111-operational-ceiling-disclaimers-in-spawn-prompts-plg-020-118--111)
-- [1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation](#112-n25-edit-task-resume-protocol-with-tool-use-budget-estimation-plg-020-119--112)
-- [1.13 Shared-Edit-Target Strategy Matrix](#113-shared-edit-target-strategy-matrix-plg-020-supplemental)
+- [1.4 Inter-Dispatch Diagnostics Verification](#14-inter-dispatch-diagnostics-verification)
+- [1.5 Live-HTTP-Probing Tool-Use Budget Reservation](#15-live-http-probing-tool-use-budget-reservation)
+- [1.6 Path-Scoped Rule Injection in Spawn Prompts](#16-path-scoped-rule-injection-in-spawn-prompts)
+- [1.7 Idle-Mid-Step Wake-Up via SendMessage](#17-idle-mid-step-wake-up-via-sendmessage)
+- [1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause](#18-hard-constraints-spawn-prompt-skeleton--scope-boundary-clause)
+- [1.9 Tier-Rank Fixes by Invasiveness](#19-tier-rank-fixes-by-invasiveness)
+- [1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol](#110-forward-looking-verb-detection--sendmessage-resume-protocol)
+- [1.11 Operational-Ceiling Disclaimers in Spawn Prompts](#111-operational-ceiling-disclaimers-in-spawn-prompts)
+- [1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation](#112-n25-edit-task-resume-protocol-with-tool-use-budget-estimation)
+- [1.13 Shared-Edit-Target Strategy Matrix](#113-shared-edit-target-strategy-matrix)
 - [1.14 Orchestrator-Only Review Commands](#114-orchestrator-only-review-commands)
 - [1.15 Delegated Code Task-Runners Build LAST](#115-delegated-code-task-runners-build-last)
 - [1.16 Recompute Delegated Verdicts from Primary Evidence — Both Directions](#116-recompute-delegated-verdicts-from-primary-evidence--both-directions)
 
 ---
 
-## 1.4 Inter-Dispatch Diagnostics Verification (PLG-002 + PLG-020 extension)
+## 1.4 Inter-Dispatch Diagnostics Verification
 
 When DELEGATED dispatches modify shared files (e.g., a shared algorithm module or schema file), the orchestrator MUST independently run the project's primary diagnostic command between dispatches to verify no regression:
 
@@ -34,7 +34,7 @@ When DELEGATED dispatches modify shared files (e.g., a shared algorithm module o
 - Run `{precheck-cmd}` if the shared file is a data-layer contract (schema, config)
 - If diagnostics fail: halt subsequent dispatches; surface the failure in Recovery before retrying
 
-**PLG-020 extension — orchestrator `wc -l` verification:**
+**Orchestrator `wc -l` verification:**
 
 After each dispatch that produces output files, the orchestrator MUST run `wc -l` on every output file and compare against the Expected Output line budget declared in the task file. Deviations >20% from the declared budget are a signal to review before proceeding to the next dispatch.
 
@@ -50,7 +50,7 @@ After each dispatch that produces output files, the orchestrator MUST run `wc -l
 > Dispatch Task 02 → run {lint-cmd} {src/module/file.ext} → 2 errors → HALT → fix before Task 03
 > ```
 
-## 1.5 Live-HTTP-Probing Tool-Use Budget Reservation (PLG-012)
+## 1.5 Live-HTTP-Probing Tool-Use Budget Reservation
 
 When a DELEGATED subagent performs live HTTP probing (WebFetch/WebSearch calls in a loop), the orchestrator MUST reserve tool-use budget for this activity:
 
@@ -67,7 +67,7 @@ When a DELEGATED subagent performs live HTTP probing (WebFetch/WebSearch calls i
 > what was fetched and what remains.
 > ```
 
-## 1.6 Path-Scoped Rule Injection in Spawn Prompts (PLG-012)
+## 1.6 Path-Scoped Rule Injection in Spawn Prompts
 
 Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatically load for spawned subagents — spawned contexts start with zero file activity and inherit no path triggers from the parent. When a DELEGATED task requires path-specific rules, the orchestrator MUST inject those rule contents explicitly into the spawn prompt.
 
@@ -89,7 +89,7 @@ Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatica
 > )
 > ```
 
-## 1.7 Idle-Mid-Step Wake-Up via SendMessage (PLG-012)
+## 1.7 Idle-Mid-Step Wake-Up via SendMessage
 
 Teammates (in agent team mode) go idle after every turn. This is NORMAL — idle does not mean stopped. When a teammate is idle mid-step (has more work to do but has not been prompted for the next step), the orchestrator sends a wake-up message:
 
@@ -106,7 +106,7 @@ SendMessage(
 > **Problem:** Teammate completes step N and goes idle, waiting for acknowledgment before proceeding to step N+1. Lead session treats idle as "done" and marks task complete.
 > **Solution:** After receiving partial results from a teammate, check whether the task file has more steps. If yes, send a continuation message. Only treat idle as "done" when the task file's final step is confirmed complete.
 
-## 1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause (PLG-020 §11.5 → §1.8)
+## 1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause
 
 Every DELEGATED spawn prompt MUST include a HARD CONSTRAINTS section and a SCOPE BOUNDARY clause:
 
@@ -137,7 +137,7 @@ This task operates within:
 > [full HARD CONSTRAINTS + SCOPE BOUNDARY block]"
 > ```
 
-## 1.9 Tier-Rank Fixes by Invasiveness (PLG-020 §11.6 → §1.9)
+## 1.9 Tier-Rank Fixes by Invasiveness
 
 When a DELEGATED task produces results requiring fixes, rank the fixes by invasiveness before dispatching a follow-up:
 
@@ -149,7 +149,7 @@ When a DELEGATED task produces results requiring fixes, rank the fixes by invasi
 
 Start with Tier 1 fixes before escalating; do not over-dispatch high-invasiveness fixes when lower-tier corrections suffice.
 
-## 1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol (PLG-020 §11.7 → §1.10)
+## 1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol
 
 When reviewing a dispatch's output, scan for forward-looking verbs in the last paragraph ("will", "next I will", "the following step will", "planned"). These signal the subagent stopped mid-task and intends to continue but has gone idle.
 
@@ -167,7 +167,7 @@ SendMessage(
 > **Problem:** Subagent ends its turn with "I will next write the schema pin" but goes idle. Orchestrator reads output and marks task complete without checking for completion.
 > **Solution:** Grep the last 3 paragraphs of every dispatch output for `\b(will|next I will|the following step will|planned to)\b`. If found, send a resume message rather than marking COMPLETE.
 
-## 1.11 Operational-Ceiling Disclaimers in Spawn Prompts (PLG-020 §11.8 → §1.11)
+## 1.11 Operational-Ceiling Disclaimers in Spawn Prompts
 
 Spawn prompts for tasks approaching operational ceilings (>25 file edits, >30 HTTP probes, >100K expected context) MUST include an operational ceiling disclaimer:
 
@@ -180,7 +180,7 @@ If you reach a ceiling before completing all steps, STOP, write a partial output
 what was completed and what remains, then signal completion via your final response.
 ```
 
-## 1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation (PLG-020 §11.9 → §1.12)
+## 1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation
 
 When a task requires >25 file edits and cannot be split further, use the N>25 Edit-Task Resume Protocol:
 
@@ -192,13 +192,13 @@ When a task requires >25 file edits and cannot be split further, use the N>25 Ed
 > [!practice] Tool-Use Budget Estimation for Edit-Heavy Tasks
 > Before dispatching >25-edit tasks, estimate: `(edits × 2) + reads + overhead`. If total exceeds 80% of model tool-budget ceiling, split the task. Example: 30 edits = 60 edit calls + 20 reads + 10 overhead = 90 tool calls — review against model ceiling before dispatching.
 
-## 1.13 Shared-Edit-Target Strategy Matrix (PLG-020 supplemental)
+## 1.13 Shared-Edit-Target Strategy Matrix
 
 When N DELEGATED dispatches in a single session must write the same target (a shared content file, or the shared Recovery file all task-runners update), three strategies are available. Choose by the count of concurrent dispatches sharing the target; **Option C (orchestrator-reconciled delta) is the preferred default** because it remains safe at every band and aligns with the recorded parallel-task-runner Recovery practice.
 
 | Concurrent dispatches sharing the target | Strategy | Mechanism |
 |------------------------------------------|----------|-----------|
-| ≤ 4 | **Option A — Parallelism cap at 4** | Allow up to 4 parallel dispatches on the same target. PLG-020 found 4-way parallelism converges when edits are to disjoint regions. Beyond 4, escalate to Option B or C. |
+| ≤ 4 | **Option A — Parallelism cap at 4** | Allow up to 4 parallel dispatches on the same target. Empirically, 4-way parallelism converges when edits are to disjoint regions. Beyond 4, escalate to Option B or C. |
 | 5 – 6 | **Option B — Recovery / target shards** | Each dispatch writes to its own per-dispatch shard (e.g., `…-Recovery-shard-{N}.md` or a per-dispatch output file). Orchestrator merges shards after all dispatches return. Avoids last-write-wins clobbering at the cost of a merge step. |
 | 7 + | **Option C — Orchestrator-reconciled delta (PREFERRED)** | Each dispatch returns its changes as a status block / delta in its final message instead of writing the shared target directly. The orchestrator applies the deltas centrally — single writer, no clobbering, fully auditable. Also valid (and recommended) at lower bands. |
 
@@ -225,7 +225,7 @@ When N DELEGATED dispatches in a single session must write the same target (a sh
 > Dispatch Task 04 → returns "delta: +rows 15-19" → orchestrator writes
 > ```
 
-### Recovery File in Parallel DELEGATED Dispatch (PLG-020 supplemental)
+### Recovery File in Parallel DELEGATED Dispatch
 
 The §1.13 cap (≤4 parallel for shared targets) addresses **task output files**, not the Recovery file. The Recovery file is a structurally shared edit target for every DELEGATED task-runner in a session — applying the cap to it would wrongly serialize all parallelizable independent tasks.
 

@@ -113,13 +113,13 @@ The asymmetry is deliberate. Content-bearing artifacts must read as standalone r
 > - **Source:** BB-NNN P4
 > - **What:** every Spec in `Extracted from:` MUST appear in Cross-References.
 > ```
-> CORRECT — agent check definition stands on its own, sourced (if anywhere) from a plugin-internal design label or the rule it enforces:
+> CORRECT — agent check definition stands on its own, sourced (if anywhere) from a sibling plugin reference file (`references/*.md §`) or the rule it enforces:
 > ```markdown
 > ### Check 042 — Bidirectional EI Consistency
 > - **Source:** `references/ei-fidelity.md` §8.1
 > - **What:** every Spec in `Extracted from:` MUST appear in Cross-References.
 > ```
-> Plugin-internal design IDs (`PLG-NNN` and similar that ship inside the plugin's own design docs) are allowed as `Source:` values because they refer to documents that travel with the plugin. Consumer-project `BB-NNN` and `LL-NNN` do not.
+> A `Source:` value must be a plugin-internal anchor that ships with the plugin — a sibling `references/*.md §` section, or the rule the check enforces. Do NOT use an external bookkeeping ID (`LL-NNN`, `BB-NNN`, `BLI-NNN`, `PLG-NNN`, `D-NNN`): these point at lessons / backlog items / decisions in this or another project's authoring repo that a downstream consumer cannot resolve.
 
 ### 3.4 Bookkeeping artifacts SHOULD carry cross-refs
 
@@ -136,12 +136,12 @@ The asymmetry is deliberate. Content-bearing artifacts must read as standalone r
 
 ## 4. Mechanical Verification
 
-Every BB that produces content-bearing artifacts MUST include a self-containment grep in its Acceptance Criteria. The grep covers BOTH `LL-NNN` and `BB-NNN` patterns across ALL content-bearing artifact paths the BB touched.
+Every BB that produces content-bearing artifacts MUST include a self-containment grep in its Acceptance Criteria. The grep covers ALL external-bookkeeping ID families — `LL-`, `BB-`, `BLI-`, `PLG-`, `D-` — across ALL content-bearing artifact paths the BB touched.
 
 > [!verify] Self-Containment Grep
 > ```bash
 > # Bash / POSIX — replace {paths-touched} with the actual files this BB wrote:
-> grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' \
+> grep -rnE '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9])' \
 >   .claude/rules/{paths-touched} \
 >   .claude/agents/{paths-touched} \
 >   .claude/skills/{paths-touched} \
@@ -154,11 +154,11 @@ Every BB that produces content-bearing artifacts MUST include a self-containment
 > # PowerShell (Windows shells):
 > Get-ChildItem -Path .claude/rules, .claude/agents, .claude/skills, .claude/commands, CLAUDE.md `
 >   -Recurse -Include *.md `
->   | Select-String -Pattern '(LL-\d{3}|BB-\d{3})'
+>   | Select-String -Pattern '(LL-\d|BB-\d|BLI-\d|PLG-\d|\bD-\d)'
 > # MUST return zero matches.
 > ```
 
-If grep returns matches, the BB executor MUST inline the cited content into the rule body or remove the reference. The check is binary — any `LL-NNN` or `BB-NNN` reference in any content-bearing artifact is a fail.
+If grep returns matches, the BB executor MUST inline the cited content into the rule body or remove the reference. The check is binary — any `LL-`, `BB-`, `BLI-`, `PLG-`, or `D-` reference in any content-bearing artifact is a fail.
 
 ### 4.1 What the grep deliberately does NOT cover
 
@@ -169,7 +169,6 @@ The grep scans content-bearing artifact zones only. It deliberately does NOT sca
 | `{lessons_dir}/**` | The Master Table, Rule Promotion Log, and lesson frontmatter all carry cross-refs by design. |
 | `{backlog_dir}/**` | BB Notes, BB header metadata, and the backlog index Dependencies notes all carry cross-refs by design. |
 | `README.md` Changelog / "Lessons folded in" / "BBs shipped" sections | Historical traceability at the document bottom. The user can read it and decide if it is still useful; it does not load-bear the rule prose. |
-| Plugin-internal `PLG-NNN`, `BB-NNN`-style design labels | These are the plugin's OWN bookkeeping (e.g., `BB-031` as a design item inside the plugin's authoring repo), distinct from a consumer project's backlog. They travel with the plugin and never dangle. |
 
 ---
 
@@ -208,7 +207,6 @@ A small set of cases need exemption from the §4 grep. When a BB needs one of th
 | Command-syntax usage examples | `/planwise lessons promote LL-NNN` shown as a literal sample | `handlers/lessons.md`, `README.md` usage examples, skill `examples:` blocks |
 | Seed template starting state | `Next available ID: LL-001` in a fresh project's lessons index | `seed/00-Index-LessonsLearned.md` and equivalents |
 | Sample data rows in template docs | `| LL-NNN | Example Lesson Title | … |` in a "here is the index format" reference table | `handlers/lessons.md` template examples |
-| Plugin-internal design labels | `PLG-NNN`, `BB-031`-style labels referring to the plugin's own design docs | agent definitions, plan-reviewer checks |
 
 Each exemption MUST be a sample/placeholder pattern, NOT a load-bearing cross-reference to recover content from a specific lesson or backlog item. If you find yourself adding an exemption to silence a grep hit that IS actually a citation, the fix is to inline the content — not to widen the exemption list.
 
