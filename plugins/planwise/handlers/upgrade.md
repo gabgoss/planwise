@@ -10,6 +10,7 @@
   - [Step 1.5 — Offer Token Saver mode](#step-15--offer-token-saver-mode)
   - [Step 2 — Invoke the upgrade script](#step-2--invoke-the-upgrade-script)
   - [Step 2.5 — Refresh Token Saver calibration](#step-25--refresh-token-saver-calibration)
+  - [Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)](#step-26--lessons-scaffolding-backfill-pyyaml-missing-fallback)
   - [Step 3 — Render the banner](#step-3--render-the-banner)
   - [Step 4 — Resolve conflicts](#step-4--resolve-conflicts)
 - [Conflict Resolution Reference](#conflict-resolution-reference)
@@ -75,12 +76,13 @@ If `python` is not found, try `python3`.
 
 The script:
 1. Runs `migrate_config()` to merge any new top-level keys into `config.yaml`
-2. Iterates `manifests/artifacts.yaml` rows where `upgrade_behavior == "refresh_or_sidecar"`
-3. Refreshes installed copies whose normalised body matches the shipped body
-4. Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any installed copy that has diverged
-5. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy ONLY when its body AND its `paths:` both match the original shipped default (i.e., untouched); it **preserves** byte-for-byte any copy whose body OR `paths:` were customised, emitting an action-required re-home notice (never a default delete)
-6. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size
-7. Bumps `plugin_version:` in `config.yaml` LAST, as the commit point
+2. Calls `bootstrap_lessons_artifacts()` to backfill the lessons scaffolding — seeds `{lessons_dir}/00-Index-LessonsLearned.md` and renders `{lessons_dir}/00-Categorization-By-Domain.md` — whenever either is missing. Idempotent and non-destructive: a no-op when both already exist, and an existing (possibly user-customised) file is preserved verbatim. This recovers the categorization file that gates `/planwise lessons curate` and `promote-batch` on projects adopted via `/planwise upgrade` rather than a fresh `/planwise init` (the render used to be fresh-init-only). Runs after `migrate_config()` so a freshly-migrated `categorization:` block is picked up; falls back to the built-in default buckets (and flags it in the banner) when the block is absent
+3. Iterates `manifests/artifacts.yaml` rows where `upgrade_behavior == "refresh_or_sidecar"`
+4. Refreshes installed copies whose normalised body matches the shipped body
+5. Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any installed copy that has diverged
+6. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy ONLY when its body AND its `paths:` both match the original shipped default (i.e., untouched); it **preserves** byte-for-byte any copy whose body OR `paths:` were customised, emitting an action-required re-home notice (never a default delete)
+7. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size
+8. Bumps `plugin_version:` in `config.yaml` LAST, as the commit point
 
 Capture stdout — the banner is rendered from it.
 
@@ -115,6 +117,20 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
 
 ---
 
+### Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)
+
+`_run_upgrade()` performs the lessons-scaffolding backfill itself (numbered item 2 in [Step 2](#step-2--invoke-the-upgrade-script)) whenever PyYAML is available — the normal case, since `--upgrade` hard-requires PyYAML and otherwise exits with `Upgrade failed: PyYAML is required for --upgrade`. Run this handler-side fallback **only** when the upgrade script aborted for that reason, so the categorization gate that protects `/planwise lessons curate` and `promote-batch` is still unblocked. Mirrors [init.md](init.md) Step 5 / 5.1 — the same render, reached from the upgrade path.
+
+1. Use **Glob** to check whether `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` already exists — **skip this step if it does** (idempotent; never overwrite a populated file).
+2. **Read** the template: [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md).
+3. Populate it from the user's `config.yaml: categorization:` block, one section per bucket in `decision_tree_order`.
+   > [!practice] Missing `categorization:` Block — Render From Defaults
+   > When the block is absent or empty, use the 4-bucket default from [../config.yaml.template](../config.yaml.template) (database / code / process / tooling) and add a banner line noting defaults were used. Suggest `python init_project.py --migrate` to seed the block into `config.yaml` for full customisation.
+4. If `{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md` is missing, also copy it from [../seed/00-Index-LessonsLearned.md](../seed/00-Index-LessonsLearned.md).
+5. Use **Write** to create the categorization file with the rendered result, and surface it under the banner's `Lessons scaffolding backfilled:` heading.
+
+---
+
 ### Step 3 — Render the banner
 
 The script emits a structured report. Pass it through verbatim to the user. The output follows this shape:
@@ -123,6 +139,11 @@ The script emits a structured report. Pass it through verbatim to the user. The 
 Plugin upgrade: {from} -> {to}
 
 Config keys added:    {N}  ({list, or "(none)"})
+
+Lessons scaffolding backfilled:           ({omitted entirely when both already exist})
+  + {planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md
+  + {planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md
+  …
 
 Refreshed: {N}
   + {file}
@@ -160,6 +181,7 @@ Then summarise in the chat with this template:
 Plugin upgrade: {from} -> {to}
 
 Config keys added:       {N}        ({list, or "(none)"})
+Lessons backfilled:      {N}        (categorization file / index seed — gates lessons curate; "(none)" when both present)
 Artifacts refreshed:     {N}
 Artifacts unchanged:     {N}        (installed body already matched shipped)
 Untracked preserved:     {N}        ({list of files outside the manifest allowlist})

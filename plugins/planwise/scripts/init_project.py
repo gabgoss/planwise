@@ -592,6 +592,92 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
     )
 
 
+def _seed_lessons_index(cfg: "InitConfig") -> tuple[ConfigResult, str]:
+    """Seed the lessons index from the plugin seed dir if missing. Idempotent.
+
+    Mirrors copy_seed_files for the lessons index alone, so the upgrade-side
+    backfill can recreate it without re-seeding backlog/plans. Returns
+    SKIPPED_EXISTS when the file is already present (never overwrites a
+    populated index) and SKIPPED_NO_TEMPLATE when the plugin seed file is
+    absent.
+    """
+    src_name = "00-Index-LessonsLearned.md"
+    dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/{src_name}"
+    dst = cfg.project_root / dst_rel
+    if dst.exists():
+        return ConfigResult.SKIPPED_EXISTS, dst_rel
+    src = cfg.plugin_root / "seed" / src_name
+    try:
+        src_content = src.read_bytes()
+    except FileNotFoundError:
+        return ConfigResult.SKIPPED_NO_TEMPLATE, dst_rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(dst, "xb") as f:
+            f.write(src_content)
+    except FileExistsError:
+        return ConfigResult.SKIPPED_EXISTS, dst_rel
+    return ConfigResult.CREATED, dst_rel
+
+
+@dataclasses.dataclass
+class LessonsBootstrap:
+    """Outcome of bootstrap_lessons_artifacts, with banner-ready fields.
+
+    Carries the per-artifact ConfigResult so each caller (fresh init / upgrade)
+    can render its own banner from the same routine.
+    """
+    index_result: ConfigResult
+    index_rel: str
+    cat_result: ConfigResult
+    cat_rel: str
+
+    @property
+    def created_any(self) -> bool:
+        created = {ConfigResult.CREATED, ConfigResult.CREATED_FROM_DEFAULT}
+        return self.index_result in created or self.cat_result in created
+
+
+def bootstrap_lessons_artifacts(cfg: "InitConfig") -> LessonsBootstrap:
+    """Ensure the lessons scaffolding (index seed + categorization file) exists.
+
+    The single idempotent, non-destructive routine wired into BOTH fresh init
+    and _run_upgrade(): each sub-step is a no-op when its file is already
+    present (SKIPPED_EXISTS), so an already-complete project is left untouched
+    and a user-customised file is preserved verbatim. On an upgrade-adopted
+    project this backfills 00-Categorization-By-Domain.md — the file that
+    gates /planwise lessons curate and promote-batch — which the legacy
+    fresh-init-only render never created.
+    """
+    index_result, index_rel = _seed_lessons_index(cfg)
+    cat_result, cat_rel = render_categorization_file(cfg)
+    return LessonsBootstrap(index_result, index_rel, cat_result, cat_rel)
+
+
+def _emit_lessons_bootstrap_banner(boot: "LessonsBootstrap") -> None:
+    """Print the upgrade-side banner for any backfilled lessons scaffolding.
+
+    Names only what was actually created (CREATED / CREATED_FROM_DEFAULT),
+    reusing the same lines the fresh-init Step 5 banner prints; stays silent
+    when both artifacts already existed so an up-to-date project reports
+    nothing.
+    """
+    if not boot.created_any:
+        return
+    print("Lessons scaffolding backfilled:")
+    if boot.index_result == ConfigResult.CREATED:
+        print(f"  + {boot.index_rel}")
+    if boot.cat_result == ConfigResult.CREATED:
+        print(f"  + {boot.cat_rel}")
+    elif boot.cat_result == ConfigResult.CREATED_FROM_DEFAULT:
+        print(
+            f"  + {boot.cat_rel} (rendered with default buckets — "
+            "config.yaml `categorization:` block missing)"
+        )
+        print("                  Add the block to customise buckets, or run --migrate to seed it from the template.")
+    print()
+
+
 def update_frontmatter(content: str, paths_value: str) -> str:
     """Update or add paths: field in YAML frontmatter."""
     if content.startswith("---\n"):
@@ -1281,6 +1367,16 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         print("Token Saver enabled.")
         print()
 
+    # 2b. Backfill lessons scaffolding (index seed + categorization file).
+    # Fresh init renders these, but the legacy fresh-init-only path meant an
+    # upgrade-adopted project never got 00-Categorization-By-Domain.md — the
+    # file that hard-gates /planwise lessons curate and promote-batch. Runs
+    # AFTER migrate_config so a freshly-migrated `categorization:` block is
+    # picked up; idempotent and non-destructive — a no-op (silent) when both
+    # files already exist, preserving any user-customised content verbatim.
+    lessons_boot = bootstrap_lessons_artifacts(cfg)
+    _emit_lessons_bootstrap_banner(lessons_boot)
+
     # 3. Refresh artifacts.
     manifest = load_artifact_manifest(cfg.plugin_root)
     refreshed, unchanged, conflicts, untracked = upgrade_artifacts(
@@ -1588,7 +1684,12 @@ def main():
         ))
     print()
 
-    cat_result, cat_rel = render_categorization_file(cfg)
+    # Lessons scaffolding (index seed + categorization file) via the shared
+    # idempotent routine — the SAME entry point _run_upgrade() backfills from.
+    # copy_seed_files() above already seeded the lessons index, so that
+    # sub-step is a no-op here; the categorization banner below is unchanged.
+    _lessons = bootstrap_lessons_artifacts(cfg)
+    cat_result, cat_rel = _lessons.cat_result, _lessons.cat_rel
     if cat_result == ConfigResult.CREATED:
         print(f"Categorization: + {cat_rel}")
     elif cat_result == ConfigResult.CREATED_FROM_DEFAULT:
