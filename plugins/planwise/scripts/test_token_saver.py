@@ -534,6 +534,31 @@ class TestReadLimits(unittest.TestCase):
             {"haiku": 13, "sonnet": 13, "opus": 19},
         )
 
+    def test_cross_model_ratio_band(self):
+        """Opus token count must be 1.4–1.55× Sonnet for the same file.
+
+        The 13/19 TOKENS_PER_LINE constants are a *mixed code/prose average* —
+        they are NOT expected to match any dense or sparse single fixture.
+        This ratio band (measured 1.51×; hardcoded 19/13 = 1.46) is the correct
+        drift signal: assert direction + band, not absolute per-line rate.
+        """
+        ts = _engine()
+        # Use a moderately long mixed-content file to reduce noise.
+        path = self._write_lines("ratio_probe.txt", 500)
+        sonnet_result = ts.classify_file(path, "sonnet")
+        opus_result = ts.classify_file(path, "opus")
+        sonnet_tokens = sonnet_result["tokens"]
+        opus_tokens = opus_result["tokens"]
+        ratio = opus_tokens / sonnet_tokens
+        self.assertGreaterEqual(
+            ratio, 1.4,
+            f"Opus/Sonnet token ratio must be ≥ 1.4 (got {ratio:.3f})"
+        )
+        self.assertLessEqual(
+            ratio, 1.55,
+            f"Opus/Sonnet token ratio must be ≤ 1.55 (got {ratio:.3f})"
+        )
+
     def test_byte_gate_critical_for_every_model(self):
         ts = _engine()
         # ~300 KB straddles the 262144-byte cap.

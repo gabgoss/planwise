@@ -552,6 +552,28 @@ When task briefs reference adapter modules, verify the field count before author
 
 **Cross-reference:** `references/agent-orchestration.md §13 Large-File Read Tactics` — apply large-file tactics when reading the wide companion module at task execution time.
 
+### Cross-Sprint Deferred-Finding Ownership
+
+> [!constraint] A deferred finding MUST have a forward owning action in the gate-opening sprint, not a backward cross-reference to a CLOSED task
+>
+> When a sprint defers a finding because its gate (a prerequisite task in another sprint) has not yet opened, the deferring sprint's closeout MUST create a **forward owning action** in the gate-opening sprint — a success-criterion checkbox or a backlog item — so the finding has a live owner regardless of execution order.
+>
+> WRONG — backward-only cross-reference; the deferred finding has no live owner after the deferring sprint closes:
+> ```
+> Sprint-B Task 1 note: "land this BEFORE Sprint-A Task 2's finding update."
+> Master Plan dependency: Sprint-B Task 1 → Sprint-A Task 2 (finding) | ⏳ Pending
+> # Sprint-A ran first, deferred the finding, and CLOSED. Nothing now applies it.
+> ```
+>
+> CORRECT — the deferring sprint records the deferral AND assigns a forward owning action in the gate-opening sprint's closeout (a success-criterion checkbox or a backlog item), so the finding has a live owner regardless of execution order:
+> ```
+> Sprint-A Summary: "Finding DEFERRED — gate is Sprint-B Task 1. Owner: Sprint-B closeout."
+> Sprint-B Sprint-Plan Success Criteria: "[ ] After Task 1 lands, apply the deferred finding."
+> Master Plan dependency row: Sprint-B Task 1 → deferred finding follow-up (owned by Sprint-B closeout).
+> ```
+>
+> Two reinforcing safeguards: (1) a deferral note that names a CLOSED task as the future owner is a red flag — reassign to a live, not-yet-run sprint/session; (2) verify the artifact's live state before trusting "deferred" bookkeeping (a grep that returns 0 confirms the finding is genuinely unapplied, not just mis-tracked).
+
 ---
 
 *Companion files: [session-planning-protocol.md](session-planning-protocol.md), [session-context-budget.md](session-context-budget.md)*

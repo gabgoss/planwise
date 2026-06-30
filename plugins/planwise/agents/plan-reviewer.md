@@ -868,6 +868,20 @@ Fix: Expand per references/session-planning-protocol.md §2 | Confidence: HIGH
 ```
 - **Insert:** Third item under `**New checks (dependency mirroring):**`.
 
+### Check 068 — Deferred Finding Owner Is a CLOSED Task
+
+- **Severity / Role / Source / Type:** BLOCKER | Dependency Reviewer | `references/session-plan-requirements.md` §9 Cross-Sprint Deferred-Finding Ownership | NEW
+- **What:** A dependency or sequencing row that names a COMPLETE/CLOSED task as the owner of still-pending deferred work is stale and MUST be flagged.
+- **Detection:** In the Master Plan and Sprint Plans, find rows whose status is ⏳ Pending and whose owner task is marked COMPLETE/CLOSED. Any such row → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Deferred-finding owner is CLOSED
+File: {plan file path} | Location: {dependency/sequencing row}
+Issue: Dependency row names {closed_task_id} (CLOSED) as owner of still-pending work
+Fix: Reassign ownership to a live not-yet-run sprint/session per references/session-plan-requirements.md §9 | Confidence: HIGH
+```
+- **Insert:** Fourth item under `**New checks (dependency mirroring):**`.
+
 ### Coverage Reviewer
 
 - Verify all requirements from Master Plan vision are covered by tasks

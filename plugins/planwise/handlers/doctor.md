@@ -165,6 +165,8 @@ Report the FIXED Read-tool constants and flag them stale when the harness CLI ha
 
    This is the drift tripwire for the hardcoded read constants. It is advisory — `doctor` never edits the constants; it surfaces the mismatch so the one-shot live re-probe can be run.
 
+The read-constant tripwire is paired with a cross-model ratio-band assertion: `scripts/test_token_saver.py::TestReadLimits::test_cross_model_ratio_band` asserts `1.4 ≤ opus_tokens / sonnet_tokens ≤ 1.55` for the same file. A ratio drift outside this band signals a tokenizer-weight change in the `TOKENS_PER_LINE` constants.
+
 ---
 
 ## Capture Self-Containment Scan

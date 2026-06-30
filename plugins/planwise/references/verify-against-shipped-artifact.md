@@ -755,4 +755,34 @@ The §3g internal-placement check (the project's own scoped-rules registry) is t
 
 ---
 
+## 8. Verifying Source Edits When the Installed Plugin Is Older Than the Source
+
+When editing the plugin **source** while an older version is **installed and running**, verification signals split into two categories that MUST be treated differently.
+
+> [!constraint] Separate deterministic source-level evidence from live-behavior signals; defer live checks to post-install
+>
+> WRONG — treat a successful dispatched-subagent run, or live path-rule injection showing ~0 rules, as proof that source edits are correct. Those checks run the *installed* artifacts, not the edited source.
+>
+> CORRECT — prove source behavior deterministically: run the unit test suite, call edited functions directly against a temp copy, and run a read-only linter (`--doctor`) for before/after measurement. Explicitly mark live-behavior checks (dispatched agent definitions, live injection probes) as **DEFERRED-to-post-install** and record the exact post-`upgrade` re-test to run.
+
+**Deterministic source-level evidence (reliable under version split):**
+- Unit test suite run against the source directory directly
+- Direct function / script calls against a temp copy of the edited file
+- Read-only `--doctor` output (before/after line count, section presence)
+- Static grep checks on the edited source text
+
+**Live-behavior signals (unreliable under version split — defer):**
+- Dispatched subagent runs (spawn a `{plugin}:task-runner` or equivalent) — these load the *installed* agent definition, not the edited source
+- Live path-rule injection probes ("does a brief-read inject N rules?") — these reflect the *installed* handler, not the edited handler
+- Any check that depends on the running harness loading the edited artifact
+
+**Model override weakens live signals further:** if a live acceptance check is forced to a model tier different from the fix's target (e.g., Opus 1M for a 200K-window overflow fix), name it a weakened signal and make the deterministic measurement primary.
+
+**Recording deferred checks:** For each live-behavior signal deferred, record:
+1. What the check would prove (the exact claim it tests)
+2. The post-`upgrade` command to re-run it
+3. That the deferred check is NOT a pass — it is explicitly unresolved until post-install
+
+---
+
 *Cross-references: [verification-gates.md](verification-gates.md), [scaffolding-hygiene.md](scaffolding-hygiene.md), [ei-fidelity.md](ei-fidelity.md), [task-content-fidelity.md](task-content-fidelity.md), [agent-orchestration.md](agent-orchestration.md).*
