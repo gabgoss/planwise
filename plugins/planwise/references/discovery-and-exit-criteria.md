@@ -1,12 +1,12 @@
 ---
-description: Discovery scope rigor (deterministic-bug counts, ID persistence), cross-layer enforcement of exit-criteria fidelity (binding callout echo, "surfaces" enforceability, signoff verbatim quoting, BLI-cited anchor re-verification), design-extension traceability, and cross-tier audit-finding triage
+description: Discovery scope rigor (deterministic-bug counts, ID persistence), cross-layer enforcement of exit-criteria fidelity (binding callout echo, "surfaces" enforceability, signoff verbatim quoting, BLI-cited anchor re-verification), design-extension traceability, cross-tier audit-finding triage, metric-definition verification before reproduction, the bounded-temp-fix that seeds a deferred Discovery, and spike-instrument synthetic-fixture verdict partitioning
 ---
 
 # Discovery Scope Rigor & Exit-Criteria Fidelity
 
-**Purpose:** Binding rules covering related plan-fidelity concerns — Discovery scope rigor (§15), cross-layer enforcement of exit-criteria fidelity (§16), design-extension traceability (§17), and cross-tier audit-finding triage (§18). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
+**Purpose:** Binding rules covering related plan-fidelity concerns — Discovery scope rigor (§15), cross-layer enforcement of exit-criteria fidelity (§16), design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), and spike-instrument verdict discipline (§20). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
-This file is the §15 + §16 expansion of [session-planning-protocol.md](session-planning-protocol.md). It was extracted into a sibling file to keep both rule files under the project's 500-line limit. Read it before authoring Discovery-phase Consolidated Context, Execution Inputs that name affected records, multi-layer binding refinements, BLOCKING-coverage task files, or sprint signoff checklists.
+This file is the §15 + §16 expansion of [session-planning-protocol.md](session-planning-protocol.md). It was extracted into a sibling file to keep both rule files under the project's 500-line limit. Read it before authoring Discovery-phase Consolidated Context, Execution Inputs that name affected records, multi-layer binding refinements, BLOCKING-coverage task files, sprint signoff checklists, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
 
 ## Table of Contents
 
@@ -17,8 +17,12 @@ This file is the §15 + §16 expansion of [session-planning-protocol.md](session
   - [16.1 Binding refinements MUST be echoed as `> [!binding]` callouts across plan layers](#161-binding-refinements-must-be-echoed-as--binding-callouts-across-plan-layers)
   - [16.2 "Surfaces" is an enforcement claim, not a mention](#162-surfaces-is-an-enforcement-claim-not-a-mention)
   - [16.3 Sprint signoff MUST quote EI exit criteria verbatim with one mechanical anchor per row](#163-sprint-signoff-must-quote-ei-exit-criteria-verbatim-with-one-mechanical-anchor-per-row)
+  - [16.4 Verify the Metric Definition Before Reproduction](#164-verify-the-metric-definition-before-reproduction)
 - [17. Design Extensions Introduced During Execution](#17-design-extensions-introduced-during-execution-binding)
 - [18. Cross-Tier Audit-Finding Triage](#18-cross-tier-audit-finding-triage-binding)
+- [19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery](#19-narrow-fix-reveals-a-systemic-gap--bounded-temp-fix-that-seeds-the-deferred-discovery-binding)
+- [20. Spike Instrument Verdict Discipline](#20-spike-instrument-verdict-discipline-binding)
+  - [20.1 Synthetic-Fixture Verdict Partitioning](#201-synthetic-fixture-verdict-partitioning)
 
 ---
 
@@ -375,6 +379,43 @@ Binding rule for all sprint signoff tasks:
 > orchestrator decides; the task's error-recovery clause defaults to "report
 > stale, continue" unless the Sprint Plan binds it to HALT.
 
+### 16.4 Verify the Metric Definition Before Reproduction
+
+> [!constraint] Confirm what N counts before asserting "reproduce N" — metric labelling differences are not data divergences
+> When an exit criterion asserts "reproduce N", confirm **what N counts** before
+> declaring pass/fail — especially when the baseline and the probe compute the
+> value via different code paths.
+>
+> A single mislabelled metric ("curves" vs "runs") produces a false FAIL that can
+> trigger a HALT or a wasted reconciliation cycle. The cheap disconfirming move is
+> arithmetic on the columns you already have: if `paired + fallback == baseline`
+> exactly, the extraction path is faithful and the divergent column is simply a
+> different, additional metric — not a failure.
+>
+> WRONG — compare the first numeric column that resembles the baseline and HALT on
+> mismatch:
+> ```
+> probe reports totalCurveCount = 82 / 958 / 248
+> baseline asserts 82 / 499 / 176
+> → HALT: counts don't match
+> [The baseline numbers were wall-RUN counts (pairedRunCount + fallbackRunCount),
+>  mislabelled "curves"; totalCurveCount is a different, raw metric.]
+> ```
+>
+> CORRECT — enumerate every count the probe emits, find which combination
+> reproduces the baseline exactly, and label both metrics explicitly in the
+> findings. Reserve HALT for a genuine extraction or data divergence, not a
+> labelling difference:
+> ```
+> probe: totalCurveCount = 82 / 958 / 248
+>        pairedRunCount  =  0 / 263 /  60
+>        fallbackRunCount= 82 / 236 / 116
+> arithmetic check: paired + fallback = 82 / 499 / 176  ← matches baseline exactly
+> → Finding: baseline counts were wall-RUN counts; totalCurveCount is the raw
+>   exploded-segment census — a distinct, additional metric. Extraction is faithful.
+>   Label both metrics explicitly; do NOT HALT.
+> ```
+
 ---
 
 ## 17. Design Extensions Introduced During Execution (BINDING)
@@ -461,6 +502,91 @@ A cross-tier audit with a Discovery → Audit gap longer than one sprint produce
 
 ---
 
+## 19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery (BINDING)
+
+A narrowly-scoped bug fix sometimes surfaces a *recurring defect class* — a failure that is one of a family, where the proper solution is a cross-cutting framework (a policy registry, a shared preprocessor, a result-surface change) spanning many call sites. Resolving that framework inline, mid-bug-fix, explodes the session's scope and blast radius before the verification gate even re-runs. Pinning only the observed instances recurs the moment a sibling appears. The discipline is to split the work — and to make the cheap fix pay for the expensive plan.
+
+This rule cross-links the count-by-execution discipline in [§15.1](#151-deterministic-bug-scope-must-be-counted-by-execution-not-estimated): the seeding tactic below is how a bug-fix session hands the deferred Discovery the count-by-execution evidence §15.1 requires.
+
+> [!decide] Narrow Fix Reveals a Systemic Gap
+> When a narrowly-scoped fix surfaces a *recurring defect class* you intend to generalize later, SPLIT it:
+> - Ship a **bounded temp fix** that closes the gate now (one file, no cross-cutting framework change), AND
+> - Spin a **separate discovery/framework plan** (a planwise Meta-Plan) for the principled solution.
+>
+> Do NOT resolve the systemic design inline in the bug-fix session, and do NOT under-fix by enumerating only the observed instances.
+
+> [!constraint] Two Failure Modes to Avoid — Over-Build and Under-Fix
+> WRONG — **over-build**: implement the whole framework (registry + policy preprocessor + result-surface change + migrate callers) inline mid-bug-fix → scope explosion + large blast radius before the verification gate even re-runs.
+>
+> WRONG — **under-fix**: pin only the observed instances (e.g. the two observed identifiers) → recurs the moment a sibling instance appears (the failure family had dozens of variants across two severity groups).
+>
+> CORRECT — **bounded temp fix**: close the gate with the *robust-but-bounded* option (severity-class handling beats instance enumeration when the failure is one of a family) + bound it (an iteration cap) + stay one file (no cross-cutting framework change). Pair it with a separate discovery/framework plan for the principled solution.
+>
+> Concretely, a bounded temp fix:
+> - **Closes the gate with the bounded-robust option, not the narrow one.** Handling the entire sibling family by severity class (e.g. dismiss-all-`Warning` + an iteration cap), bounded to the non-blocking cases, resolves every sibling at once; pinning the observed instances would recur on the next one. *Severity classification beats instance enumeration when the failure is one of a family.*
+> - **Stays one file.** No result-surface change, no registry, no caller migration — those are the framework plan's scope, explicitly deferred.
+
+> [!practice] Make the Temp Fix Seed the Deferred Discovery
+> Make the bounded temp fix EMIT the diagnostic data the deferred plan will need — a structured count-by-execution catalog (one record per distinct failure: identifier, severity, action, description), written via the project's diagnostic logging pattern (a durable, append-only, machine-readable log). The future Discovery then starts from count-by-execution evidence ([§15.1](#151-deterministic-bug-scope-must-be-counted-by-execution-not-estimated)) instead of forward-estimating which of thousands of candidate cases actually matter. The deferred work becomes a planwise Meta-Plan (Discovery), not an inline build — letting the systemic design (ordering conflicts, placement, new dispositions, caller migration) be explored and reviewed before any framework code is written.
+
+Applies to:
+- Any session where a narrow fix (a single failing tool, a one-instance patch) reveals a repo-wide / recurring defect class the team wants to generalize.
+- Especially when the proper solution is a cross-cutting framework (a policy registry, a shared preprocessor, a result-surface change) that would explode a bug-fix session's scope and blast radius.
+- The seeding tactic applies whenever the deferred plan needs empirical scope data: emit a structured catalog (via the project's diagnostic logging pattern) in the temp fix so Discovery counts-by-execution instead of estimating.
+
+NOT applicable when the surfaced gap is a one-off (no sibling family, no recurrence risk) — then the in-line fix IS the principled fix and there is nothing to defer.
+
+---
+
+## 20. Spike Instrument Verdict Discipline (BINDING)
+
+A spike instrument fed synthetic input can confirm that the instrument is correct and structurally sound. It cannot confirm that tolerance or threshold *magnitudes* are production-appropriate.
+
+### 20.1 Synthetic-Fixture Verdict Partitioning
+
+> [!constraint] Partition spike verdicts by what synthetic input can actually decide — do not over-claim
+> When a spike instrument runs on synthetic (non-production) input because the real
+> artifact is gated behind a later live step, the verdict must be partitioned by
+> what the input is capable of stressing:
+>
+> | Verdict class | Synthetic fixture can resolve? |
+> |---------------|-------------------------------|
+> | Instrument correctness (compiles/runs, stages fire, no-throw on edge inputs) | YES |
+> | Structural behaviour (dedup-before-pairing, input normalization, NaN/Inf dropped) | YES |
+> | Perf *scaling shape* + an upper-bound timing anchor | YES |
+> | Tolerance/threshold *magnitudes* (production default values) | **NO — defer to real-input data** |
+>
+> WRONG — report "the defaults are confirmed" because the tolerance sweep ran clean
+> on synthetic data:
+> ```
+> Synthetic-fixture sweep: 5 of 6 defaults show zero sensitivity to ±50% perturbation.
+> Finding: the six defaults are confirmed.
+> ```
+> A synthetic fixture is pathologically clean (exact, degenerate-free, near-total
+> overlap), so slack tolerances are never the deciding constraint. A real "dirty"
+> input is precisely what exercises them.
+>
+> CORRECT — report the magnitude verdict as DEFERRED to the real artifact; name
+> the single most outcome-sensitive parameter for priority confirmation; ship a
+> re-runnable instrument so the magnitude pass is a re-run, not a rebuild:
+> ```
+> Instrument correctness: CONFIRMED (all pipeline stages fire, no-throw on edge inputs)
+> Structural behaviour: CONFIRMED (dedup-before-pairing, NaN/Inf dropped)
+> Perf scaling shape: CONFIRMED O(n²); upper-bound anchor: 32,610 ms @ 5,000 items
+> Tolerance magnitudes: DEFERRED to live real-input data
+>   Priority parameter for confirmation: TOL_PRIMARY (the only default that moved
+>   output under ±50% perturbation; the other five showed zero sensitivity on synthetic).
+> ```
+
+Corollary for guessed perf budgets: a plan-mode budget constant (e.g. `< 500 ms`) is a placeholder until measured. Anchor it against measured scaling and a stated language-speedup extrapolation; surface the algorithmic risk (whether the approach can meet the budget at the stress-n) rather than inheriting the guess into a test assertion.
+
+Applies to:
+- Discovery / de-risk spikes whose probe instrument runs on synthetic or stand-in input because the real artifact is gated behind a later live step.
+- Any tolerance / threshold-sweep finding: separate "instrument validated + structural behaviour confirmed" from "magnitude confirmed" and defer the latter to real-input data.
+- Perf-budget constants written as plan-mode placeholders: anchor against measured scaling before pinning them into a test assertion.
+
+---
+
 ## Scaffolding Templates (canonical paste-ready blocks)
 
 > [!practice] Canonical Scaffolding Templates Live Inline in This Rule
@@ -524,6 +650,9 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 6 | BLI-cited audit anchor without re-verification or with bare-column grep | A Sprint Plan / Orchestration encodes BLI-cited bugs as mechanical-grep success criteria AND does NOT include a pre-flight re-verification step at session start, OR uses bare-column grep anchors when ≥2 tables in the audit scope share the column name | §16.3 |
 | 7 | Undocumented design extension | A sprint signoff cites a parameter / threshold that does not appear in the original design spec AND has no inline What/Why/Source comment AND is not in the project's config catalog | §17 |
 | 8 | Audit Findings doc lacks a pre-emptive flags table | A cross-tier audit's Findings doc enumerates HIGH/MEDIUM findings on items whose downstream artifacts are NOT all in deployed code AND lacks a pre-emptive flags table sectioning those findings into the Sprint-M Authoring bucket | §18 |
+| 9 | Systemic gap resolved inline or under-fixed | A bug-fix session whose fix surfaces a recurring defect class either builds the whole framework inline (scope explosion) OR pins only the observed instances (no severity-class handling, no seeding catalog, no separate Discovery/Meta-Plan) | §19 |
+| 10 | Metric HALT on labelling difference | A signoff or consolidation agent declares FAIL / HALT because a probe column does not match the baseline, without first doing the cheap arithmetic check to confirm whether a different probe column (or combination) reproduces the baseline exactly | §16.4 |
+| 11 | Synthetic-fixture magnitude claim | A spike reports tolerance or threshold magnitudes as "confirmed" based on synthetic-fixture sweep results alone, without deferring the magnitude verdict to real-input data | §20.1 |
 
 ---
 

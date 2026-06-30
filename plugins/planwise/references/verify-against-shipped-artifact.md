@@ -25,6 +25,7 @@ paths: {planwise_root}/{plans_dir}/**
   - [3h.untested-axes Un-Tested Axes — Lead Phase 1 With the BLI's Blind Spots](#3huntested-axes-un-tested-axes--lead-phase-1-with-the-blis-blind-spots)
   - [3h.cluster Cluster Batching](#3hcluster-cluster-batching)
   - [3i. BLI Cross-Cutting Check Coverage at Fix-Agent Delegation Time](#3i-bli-cross-cutting-check-coverage-at-fix-agent-delegation-time)
+  - [3j. Live-Verify Spawn-Prompt Tool-Name Drift](#3j-live-verify-spawn-prompt-tool-name-drift)
 - [4. Plan-Authoring Pre-Flight Checklist](#4-plan-authoring-pre-flight-checklist)
 - [5. Applies To](#5-applies-to)
 - [6. Discovery-Phase Consolidation — Verify Citations and SDK Premises Against Live Source](#6-discovery-phase-consolidation--verify-citations-and-sdk-premises-against-live-source)
@@ -464,6 +465,43 @@ When the BLI is routed to DIRECT_FIX, the fix-agent spawn prompt MUST include th
 | Acceptance criterion includes "Cross-cutting audit of all {category}" | Audit is part of the BLI's contract, not separate follow-up work |
 | BLI Notes mentions "may surface latent defects in N other {DTOs / files / call sites}" | Author hedged on count but expects co-discovery during the fix |
 | Defect signature is a missing attribute, missing import / using, or missing helper call (mechanical, repo-wide-pattern defects) | A repo-wide grep almost always reveals additional sites |
+
+### 3j. Live-Verify Spawn-Prompt Tool-Name Drift
+
+A live-verify spawn prompt or task spec is a spec-like artifact. Any tool NAME it pins is an in-repo identifier subject to the same verify-against-shipped-artifact discipline as a third-party SDK type name or cross-sprint codebase symbol.
+
+> [!constraint] Tool names in a live-verify spawn prompt or task spec MUST be verified against the deployed tool surface before authoring
+> WRONG — name ID-lookup tools (or any tools) from convention or memory in the
+> spawn prompt; the runner discovers the tools are absent at runtime:
+> ```text
+> Before acting, obtain ids:
+>   --call list_widgets        (widget id)
+>   --call list_categories     (category id)
+> # Neither tool exists in the live tool surface — the runner discovers this at
+> # runtime, mid-gate, costing a discovery cycle and a deviation note.
+> ```
+> Common failure mode: `list_*` is a plausible-sounding convention that is not
+> actually the naming pattern used in the shipped tool surface.
+>
+> CORRECT — verify names against the deployed surface at authoring time, OR
+> underspecify and instruct the runner to enumerate via the runtime's
+> tool-discovery command and pick the closest equivalent; do not assume a
+> `list_*` convention:
+> ```text
+> Before acting, obtain ids from the LIVE tool surface:
+>   - widget id:   read_widgets       (verified present in the live tool surface)
+>   - category id: ensure_categories (Matched outcome) or read_all_categories
+> If a named tool is absent, enumerate via the runtime's tool-discovery command
+> and pick the closest equivalent — do not assume list_*.
+> ```
+>
+> Either verification approach costs under a minute:
+> - The runtime's tool-enumeration / discovery command lists the registered tools
+>   (the canonical runtime source of truth).
+> - A grep of the tool-registration declarations in the server's source tree
+>   confirms the shipped name set statically, without a live launch.
+
+This extends §3d (tool / framework already wired in the project) from build-time framework drift to **runtime tool-name drift** in live-verify orchestration.
 
 ---
 
