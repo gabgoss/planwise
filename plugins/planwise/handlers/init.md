@@ -262,22 +262,30 @@ Enable Agent Teams by adding the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environm
 
 Add the plugin cache directory to `permissions.additionalDirectories` so Claude Code can read plugin files (handlers, references, scripts) without prompting.
 
+The grant uses the **version-agnostic plugin-family root** — the parent of the versioned plugin directory (e.g., `~/.claude/plugins/cache/planwise-marketplace/planwise`) rather than the version-pinned leaf (e.g., `…/planwise/1.0.0`). This keeps the grant stable across upgrades without needing a settings refresh on every version bump.
+
 1. **Read** the same settings file used in Step 7
 2. Parse as JSON
-3. Add or merge the `permissions.additionalDirectories` key — do NOT overwrite existing entries:
+3. Determine the grant directory: `{plugin_family_root}` = the parent of `{plugin_root}` (e.g., `~/.claude/plugins/cache/planwise-marketplace/planwise`).
+4. Apply **parent-aware, normalized dedup** before modifying `additionalDirectories`:
+   - Normalize all paths (collapse separators and canonicalize case) before comparing.
+   - If any existing entry is equal to or an ancestor of `{plugin_family_root}` (i.e. it already covers the grant), skip the append entirely — idempotent no-op.
+   - Otherwise, first remove any existing entries that are descendants of `{plugin_family_root}` (stale version-pinned entries this grant now subsumes), then append `{plugin_family_root}`.
+   - Never remove or alter entries that are unrelated to this plugin's family root.
+
+   Result in settings after a fresh grant:
    ```json
    {
      "permissions": {
        "additionalDirectories": [
-         "{plugin_root}"
+         "{plugin_family_root}"
        ]
      }
    }
    ```
-   Where `{plugin_root}` is the resolved plugin path from Step 2 (e.g., `~/.claude/plugins/cache/planwise-marketplace/planwise/1.0.0`).
-4. **Write** the updated JSON back
+5. **Write** the updated JSON back
 
-**Important:** Preserve all existing settings and any existing entries in `additionalDirectories`. Only append the plugin root if it is not already present.
+**Important:** Preserve all existing settings and any existing entries in `additionalDirectories` that are not descendants of `{plugin_family_root}`. Only append the family root when no existing entry already covers it.
 
 ---
 

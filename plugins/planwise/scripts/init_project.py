@@ -20,6 +20,7 @@ Options:
 import argparse
 import dataclasses
 import json
+import os
 import re
 import sys
 from datetime import date
@@ -923,11 +924,32 @@ def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None]:
     env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
 
     # Plugin permissions
+    # Grant the version-agnostic plugin-family root (cfg.plugin_root.parent) rather
+    # than the version-pinned leaf (cfg.plugin_root). The family root is stable across
+    # upgrades, so _run_upgrade() intentionally stays settings-free — there is nothing
+    # to refresh. Dedup is parent-aware and normalized for Windows separator/case
+    # differences so a broader existing grant is recognized and honoured.
     permissions = settings.setdefault("permissions", {})
     additional_dirs = permissions.setdefault("additionalDirectories", [])
-    plugin_dir = str(cfg.plugin_root)
-    if plugin_dir not in additional_dirs:
-        additional_dirs.append(plugin_dir)
+    grant_dir = str(cfg.plugin_root.parent)  # version-agnostic plugin-family root
+
+    def _norm(p):
+        return os.path.normcase(os.path.normpath(p))
+
+    def _covers(existing, target):
+        """True when existing equals target or is an ancestor directory of target."""
+        e, t = _norm(existing), _norm(target)
+        return e == t or t.startswith(e + os.sep)
+
+    if any(_covers(d, grant_dir) for d in additional_dirs):
+        plugin_dir = None  # already covered by an equal or broader entry → idempotent no-op
+    else:
+        # Prune version-pinned sibling entries now subsumed by the family-root grant.
+        # Only removes entries that are strict descendants of grant_dir (i.e. stale
+        # per-version pins for this plugin); unrelated user entries are never touched.
+        additional_dirs[:] = [d for d in additional_dirs if not _covers(grant_dir, d)]
+        additional_dirs.append(grant_dir)
+        plugin_dir = grant_dir
 
     settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     return str(settings_path), plugin_dir
