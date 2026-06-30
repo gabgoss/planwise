@@ -170,6 +170,18 @@ The grep scans content-bearing artifact zones only. It deliberately does NOT sca
 | `{backlog_dir}/**` | BB Notes, BB header metadata, and the backlog index Dependencies notes all carry cross-refs by design. |
 | `README.md` Changelog / "Lessons folded in" / "BBs shipped" sections | Historical traceability at the document bottom. The user can read it and decide if it is still useful; it does not load-bear the rule prose. |
 
+### 4.2 Scope the grep to the promoted content; classify pre-existing whole-file hits
+
+A promotion BB's self-containment grep verifies that **the content the BB promotes** is self-contained. It does NOT automatically mean "every pre-existing cite in the destination file must be removed." A destination rule may already carry a §References section, and `CLAUDE.md` may carry a routing/index table whose provenance column is intentional (§3.4/§4.1). Taken as a literal whole-file zero-match check, the §4 grep can be **impossible to satisfy as written** — not because of any defect in the promoted content, but because the destination already contained exempt or pre-existing hits the BB neither authored nor scoped for removal.
+
+> [!protocol] Scope the Grep to the Promoted Content; Classify Pre-Existing Hits
+> 1. **Scope the grep mentally to the promoted sections.** Confirm the *new* §/checklist/callout content carries zero `LL-`/`BB-` cites (a sibling-rule relative link like `[some-rule.md](some-rule.md)` is allowed; an `LL-NNN`/`BB-NNN` ID in the body is not). That is the binding pass.
+> 2. **Classify every remaining whole-file hit** into: (a) exempt `lessons:` / `closes:` frontmatter provenance; (b) pre-existing content the BB did not touch; (c) intentional bookkeeping/routing tables (e.g. the `CLAUDE.md` rules routing index) that §3.4/§4.1 treat as encouraged traceability.
+> 3. **Decide pre-existing cleanup EXPLICITLY — don't silently gut it.** Removing a pre-existing References section or a routing table destroys intentional traceability and is usually outside the BB's scope. Surface the discrepancy at the VERIFY gate and let the human choose between "promoted content is self-contained, leave pre-existing as-is" vs. "also clean the pre-existing cites in this file."
+
+> [!practice] Write the Promotion BB's Grep Criterion to Match Reality
+> When authoring a promotion BB's grep Acceptance Criterion, write it so it can actually pass: scope its file list/paths to exclude zones that legitimately carry cross-refs, OR annotate the criterion with the expected exempt/pre-existing hits. Otherwise the executor is forced to choose between an impossible literal pass and an unscoped destructive cleanup.
+
 ---
 
 ## 5. Single-Lesson Promotion Integration
@@ -188,7 +200,9 @@ This is the canonical version of the Stage 4 verification. The lesson frontmatte
 
 When a BB executes (via `/planwise backlog` Route A direct-fix, Route B task list, or Route C session plan) and the produced changes include edits under `.claude/rules/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/commands/**`, or `CLAUDE.md`, the Phase 5 VERIFY step MUST run the §4 grep on the produced diff before the BB can be marked COMPLETE.
 
-If the grep finds matches:
+Before treating any grep hit as a failure, classify it per §4.2: hits inside the BB's **promoted** content are blockers (inline the cited content or remove the reference); hits in exempt frontmatter, pre-existing untouched content, or intentional bookkeeping/routing tables are a human decision at the VERIFY gate, not an automatic revert.
+
+If the grep finds (promoted-content) matches:
 
 - **Route A (fix-agent direct fix):** mark VERIFY as failing, return the grep output to fix-agent, ask for an inlining pass.
 - **Route B (task list):** open a follow-up task to inline the cited content; do not mark the BB COMPLETE until the follow-up passes.
