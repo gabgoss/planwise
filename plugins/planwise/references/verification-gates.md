@@ -1,11 +1,11 @@
 ---
-description: Sessions delivering IPC/protocol/codec layers MUST include round-trip evidence before COMPLETE; Sprint exit-gate verdicts reflect the gate-defining step's status, not a step-count percentage
+description: Sessions delivering IPC/protocol/codec layers MUST include round-trip evidence before COMPLETE; Sprint exit-gate verdicts reflect the gate-defining step's status, not a step-count percentage; build-clean ≠ computation-correct, build-fresh ≠ deploy-fresh, and runtime-correct-on-one-target ≠ all-targets for in-process numeric/codec and multi-target code
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Verification Gates — Build-Clean Is Not Runtime-Correct
 
-**Purpose:** Gate-discipline rules for planwise sessions whose deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec). Codifies the two failure modes (build-clean ≠ runtime-correct; partial-PASS ≠ gate progress), the round-trip evidence requirement, the gate-is-the-gate Sprint Overview discipline, and the Recovery-vs-task-spec drift practice surfaced at closeout.
+**Purpose:** Gate-discipline rules for planwise sessions whose deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec). Codifies the two failure modes (build-clean ≠ runtime-correct; partial-PASS ≠ gate progress), the round-trip evidence requirement, the gate-is-the-gate Sprint Overview discipline, and the Recovery-vs-task-spec drift practice surfaced at closeout. Sections 5–7 extend the build-clean-is-not-enough principle past cross-process boundaries into in-process numeric/codec computation (§5), build-vs-deploy freshness (§6), and multi-target runtime parity (§7).
 
 ## Table of Contents
 
@@ -13,6 +13,9 @@ paths: {planwise_root}/{plans_dir}/**
 - [2. Round-Trip Evidence for Cross-Process Boundaries](#2-round-trip-evidence-for-cross-process-boundaries)
 - [3. The Gate Is the Gate](#3-the-gate-is-the-gate)
 - [4. Operational Rules for Smoke Reports](#4-operational-rules-for-smoke-reports)
+- [5. Build-Clean ≠ Computation-Correct](#5-build-clean--computation-correct)
+- [6. Build-Fresh ≠ Deploy-Fresh](#6-build-fresh--deploy-fresh)
+- [7. Runtime-Correct on One Target ≠ Correct on All Targets](#7-runtime-correct-on-one-target--correct-on-all-targets)
 
 ---
 
@@ -116,6 +119,45 @@ Both failures collapse a multi-signal verification surface into a single "looks 
 > - [ ] Follow-up bug priority reflects the un-cleared gate, not the count of newly-passing steps
 > - [ ] The Master Plan's Sprint Overview row makes the gate state explicit
 > - [ ] The Recovery file's "deferred" claims are cross-checked against the originating task spec's in-scope list (see §3 practice)
+
+---
+
+## 5. Build-Clean ≠ Computation-Correct
+
+§2 covers cross-process boundaries; this section extends the same principle into in-process numeric / codec / computational code, where the failure surface is even further from the compiler.
+
+> [!constraint] For numeric/codec/computational code, a clean build proves compilation, never computation
+> For any numeric, codec, or computational module, `{build-cmd}` reporting 0 W / 0 E proves the code **compiles** — never that it **computes the right answer**. Sign inversions, off-by-tolerance errors, and wrong-branch reconstructions all pass every static check and every type test.
+> - **Author behavioral tests with independently hand-derived expected values, asserted to tight tolerance** (an exact or near-exact bound, not `± slack`). A test loosened to accommodate the implementation's current output cannot catch the implementation being wrong — it launders the bug into "passing." When a test bound is widened to make a test pass, that is a signal to inspect the **implementation**, not the test.
+>
+>   WRONG — bound loosened to the acceptance tolerance so an out-of-range result still passes:
+>   ```text
+>   slack = acceptance_tolerance
+>   assert result_min >= 200.0 - slack - 0.1   # "close enough" — launders the error into a PASS
+>   ```
+>   CORRECT — exact expected bound; the wrong result now fails the test and forces the fix:
+>   ```text
+>   assert abs(result_min - 200.0) < 1e-6
+>   assert abs(result_max - 800.0) < 1e-6
+>   ```
+> - **Slack/tolerance belongs to acceptance gates, not emitted values.** A tolerance that decides *whether two candidates pair/match* must not leak into the *values* the computation emits. Keep the candidate-acceptance interval (with slack) separate from the value-derivation interval (raw, un-slackened).
+
+---
+
+## 6. Build-Fresh ≠ Deploy-Fresh
+
+> [!constraint] A current build with a stale deploy silently tests pre-change code
+> `{build-cmd}` updates the **build-output location**; it does **NOT** touch the **deployed copy** a live gate actually reads. A current build with a stale deploy silently exercises pre-change code — surfacing as a false "artifact not found", or worse, a stale artifact body masquerading as a PASS (a build-clean session marked COMPLETE on runtime evidence that never touched the new code — the §2 failure mode displaced from build→runtime to build→deploy→runtime).
+> Before any live gate, confirm the deployed artifact's timestamp is **≥** the latest build's; redeploy if older or absent. Don't infer "a build exists" ⇒ "the live artifact is current."
+
+---
+
+## 7. Runtime-Correct on One Target ≠ Correct on All Targets
+
+> [!constraint] Runtime-correct on one target does not generalize to all targets
+> For any code that runs against multiple platform / runtime / version targets, **runtime-correct on one target ≠ correct on all targets**. Platform APIs and their tolerances behave differently across versions: an input accepted by one target's API can throw on another — before any result ceiling or budget engages. No static check surfaces this; only a live per-target round-trip against the real heavy input does.
+> - **Run all per-target live gates even when some agree.** The extra data point isolates a version-specific failure from a code defect — two targets agreeing proves a third's throw is a version divergence, not a feature bug. Stopping at the first PASS ships the divergence invisibly.
+> - **Distinguish a thrown-exception FAIL from a near-timeout FAIL — the remediation differs.** The §2/§3 near-timeout remedy ("lower the budget/ceiling") does **NOT** apply to an exception thrown *before* the budget engages; the ceiling may already be proven well within budget on the passing targets. The fix is a **source guard** (skip/clamp the offending input), applied **identically across all target adapters** (parity), not a budget recalibration. Read the failure class before reaching for the near-timeout lever.
 
 ---
 
