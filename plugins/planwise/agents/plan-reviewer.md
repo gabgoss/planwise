@@ -817,6 +817,41 @@ Fix: Add recompute gate per references/agent-orchestration-delegated.md §1.16 |
 ```
 - **Insert:** First item under `**New checks (delegated verdict integrity):**`.
 
+**New checks (empirical-verification discipline):**
+
+### Check 069 — File Line-Count Finding Requires `wc -l`
+
+- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/verification-gates.md` §8.1 | NEW
+- **What:** Any reviewer finding that claims a file's line count is overstated or understated MUST be backed by a `wc -l` measurement, NOT by the last line number observed in a `Read` tool output. A finding citing a Read-output line number as its evidence is a false-positive candidate — `Read` paginates and partial reads always produce a number smaller than the true count.
+- **Detection:**
+  1. For each line-count finding in the reviewer's own draft output, verify the evidence method: was `Bash wc -l <path>` run? If the evidence is "Read output showed last line N" or "file appears to be N lines" without a `wc -l` invocation → ERROR (promote to FALSE POSITIVE candidate, discard with note).
+  2. Applies to any plan check that compares a task's `Required Context` `Est. Lines` value against the cited file's actual length.
+- **Finding template:**
+```
+[ERROR] Line-count finding sourced from Read output, not wc -l
+File: {reviewed file path} | Location: {task Required Context row / reviewer draft finding}
+Issue: Claimed line count {N} derived from last Read-output line, not wc -l — false positive candidate
+Fix: Run `wc -l {file_path}` and compare against the plan's declared value before promoting the finding | Confidence: HIGH
+```
+- **Insert:** First item under `**New checks (empirical-verification discipline):**`.
+
+### Check 070 — Plan Headline Metric vs Fixed Extraction Scope Reconciliation
+
+- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `references/verification-gates.md` §8.3 | NEW
+- **What:** When a task's Success Criteria carry a derived numeric target (post-edit line count, token savings, retention ratio) AND the same task spec fixes an extraction scope, the two MUST be arithmetically consistent (`original − extracted_block ?= projected_remainder`). A plan that states both a fixed scope and an incompatible headline metric will either produce spec-violating scope creep or a misleading savings report.
+- **Detection:**
+  1. For each task with Success Criteria containing `~{N} lines` or `~{N}K tokens` AND an extraction scope that names specific sections (keep §X, extract §Y, leave §Z): compute `original_lines − extracted_section_lines` and compare against the stated remainder target.
+  2. If the implied remainder differs from the target by >10% → WARNING.
+  3. If the task spec also includes language like "if actual differs significantly from target, use the actual" — downgrade to INFO (task already acknowledges the gap).
+- **Finding template:**
+```
+[WARNING] Plan headline metric incompatible with fixed extraction scope
+File: {task file path} | Location: Success Criteria + extraction scope
+Issue: Fixed scope implies ~{computed} lines remainder; plan targets ~{declared} — {pct}% gap
+Fix: Sanity-check up front per references/verification-gates.md §8.3; execute fixed scope, measure wc -l, report actual delta as Issue | Confidence: MEDIUM
+```
+- **Insert:** Second item under `**New checks (empirical-verification discipline):**`.
+
 ### Dependency Reviewer
 
 - Verify task dependency DAG has no cycles

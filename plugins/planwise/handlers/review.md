@@ -508,6 +508,8 @@ These patterns look like errors but are intentional. Discard findings that match
 |---------|----------------------|
 | Global numbering appearing non-sequential within a single EI | Spec numbers are assigned globally across all sprints. A sprint's EI may reference Spec #1, #3, #7 -- the gaps are other sprints' specs. |
 | Cross-sprint spec reference that appears orphaned to a single-sprint reviewer | An EI reviewer given only one sprint's scope may flag a valid cross-sprint reference as unresolved. EI reviewers must receive ALL spec outputs to avoid this. |
+| Line-count finding where the evidence is a Read-output last line number (not `wc -l`) | `Read` paginates; the last visible line is structurally smaller than the file's true line count. This is a false-positive candidate — verify via `wc -l <path>` before promoting it from `[UNCERTAIN]`. |
+| Doctrinal correction that edits only one named file while sibling files still carry the same claim | Scope was deliberately bounded; the executor surfaced the out-of-scope instances as structural findings per `references/session-execution-protocol.md` §1.2. A non-empty doctrinal grep that returns only classified legitimate-pattern rows is intentional. |
 
 > [!practice] Check Whitelist Before Reporting
 > Reviewers should verify each finding against the Known Patterns Whitelist before sending it to the team lead. If the pattern matches, discard it. If uncertain, send with `[UNCERTAIN]` prefix rather than discarding outright.

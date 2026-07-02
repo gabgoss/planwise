@@ -90,6 +90,7 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
     "plugin_version",   # paired with plugin_root: version pin set on init, bumped by upgrade
     "context",
     "categorization",
+    "upgrade",          # HAS_UNIQUE handoff routing + de-scope paths-only-edit policy
 ]
 
 # Sub-keys under `context:` that `--migrate` adds to an EXISTING context block.
@@ -153,9 +154,11 @@ DESCOPED_RULES: list[tuple[str, str]] = [
 
 # Version this de-scope migration ships in. migrate_installed_rules() only
 # acts when from_version < RESCOPE_MIGRATION_VERSION <= to_version, so the
-# removal runs exactly once on the upgrade that crosses this boundary. This
-# MUST equal the `version` field in .claude-plugin/plugin.json so the three
-# surfaces (this constant, plugin.json, the upgrade gate) stay in agreement.
+# removal runs exactly once on the upgrade that crosses this boundary. This is
+# PINNED to the version the de-scope first shipped in and MUST NOT be bumped to
+# track plugin.json. Once plugin.json moves past it, the one-shot migration is
+# spent for those installs; `/planwise doctor`'s stale sweep (Stage 8 +
+# --prune-stale) is then the only remaining reach.
 RESCOPE_MIGRATION_VERSION = "1.0.3"
 
 # Filenames copied verbatim from agents/ into .claude/agents/ on init.
@@ -164,6 +167,7 @@ INSTALLED_AGENTS: list[str] = [
     "plan-reviewer.md",
     "structural-reviewer.md",
     "task-runner.md",
+    "rule-comparator.md",
 ]
 
 

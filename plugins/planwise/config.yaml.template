@@ -92,6 +92,11 @@ categorization:
   default_bucket: D  # Catch-all when no bucket's triggers match.
   edge_cases_section: true
 
+upgrade:
+  customization_handoff: report        # report | report+relocate | report+issue
+  github_issue: false                  # opt-in gh issue for "upstream" entries (interactive only)
+  descope_preserve_paths_edits: false  # true = keep today's preserve-on-paths-only-edit behavior
+
 scoring:
   priority_high: 30
   priority_medium: 20

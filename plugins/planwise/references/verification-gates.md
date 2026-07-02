@@ -16,6 +16,7 @@ paths: {planwise_root}/{plans_dir}/**
 - [5. Build-Clean ≠ Computation-Correct](#5-build-clean--computation-correct)
 - [6. Build-Fresh ≠ Deploy-Fresh](#6-build-fresh--deploy-fresh)
 - [7. Runtime-Correct on One Target ≠ Correct on All Targets](#7-runtime-correct-on-one-target--correct-on-all-targets)
+- [8. Empirical Verification Discipline](#8-empirical-verification-discipline)
 
 ---
 
@@ -158,6 +159,98 @@ Both failures collapse a multi-signal verification surface into a single "looks 
 > For any code that runs against multiple platform / runtime / version targets, **runtime-correct on one target ≠ correct on all targets**. Platform APIs and their tolerances behave differently across versions: an input accepted by one target's API can throw on another — before any result ceiling or budget engages. No static check surfaces this; only a live per-target round-trip against the real heavy input does.
 > - **Run all per-target live gates even when some agree.** The extra data point isolates a version-specific failure from a code defect — two targets agreeing proves a third's throw is a version divergence, not a feature bug. Stopping at the first PASS ships the divergence invisibly.
 > - **Distinguish a thrown-exception FAIL from a near-timeout FAIL — the remediation differs.** The §2/§3 near-timeout remedy ("lower the budget/ceiling") does **NOT** apply to an exception thrown *before* the budget engages; the ceiling may already be proven well within budget on the passing targets. The fix is a **source guard** (skip/clamp the offending input), applied **identically across all target adapters** (parity), not a budget recalibration. Read the failure class before reaching for the near-timeout lever.
+
+---
+
+## 8. Empirical Verification Discipline
+
+§2–§7 each guard a specific "necessary-but-not-sufficient signal treated as the gate" failure. This section generalizes the same discipline to four cross-cutting cases where an agent or planner trusted a **secondary, stale, or projected** representation of reality instead of measuring the live, whole-surface truth. The common cure: **measure it, don't infer it.**
+
+### 8.1 Line-count measurements MUST use `wc -l`, not Read-output line numbers
+
+> [!constraint] Use `wc -l` for any file line-count finding — never the last line number from a Read
+> A file's line count for a review finding MUST come from `Bash` running `wc -l <path>` against the actual file. Do NOT treat the last line number observed in a `Read` tool output as the file's length: `Read` may paginate (default cap ~2000 lines), or the reviewer may stop early to manage budget, and a partial read always produces a number structurally smaller than the true count.
+>
+> WRONG — reviewer Read partway through the file; the last visible line was 766; reported the file as 766 lines:
+> ```
+> [WARNING] ei-fidelity.md line count overstated
+> File: cloned-repos/planwise/plugins/planwise/references/ei-fidelity.md
+> Issue: Task declares 903 lines; actual file is 766 (~15% overstatement).
+> ```
+> (False positive — actual `wc -l` is 903. The 766 was the last line visible in a paginated read.)
+>
+> CORRECT — reviewer ran `wc -l` and compared against the plan's declaration:
+> ```
+> [bash] wc -l cloned-repos/planwise/plugins/planwise/references/ei-fidelity.md
+>        903 cloned-repos/planwise/plugins/planwise/references/ei-fidelity.md
+> [reviewer] Plan declares 903 — matches. No finding.
+> ```
+>
+> Four danger signals make this false-positive class easy to fire repeatedly:
+> 1. The finding looks plausible — line-count drift is a common, legitimate review signal.
+> 2. Reviewer confidence reads MEDIUM–HIGH because it "read the file."
+> 3. Accepting it directs fix-work that was never needed (false rework).
+> 4. Every file ends in `\n` and partial reads always produce a smaller number than `wc -l`, so the error is systematically biased toward "overstated."
+>
+> This rule also governs the line-count input to the `task-content-fidelity.md` §9.A.3 per-file-type token rate bands: the `Est. Lines` value fed to a band MUST come from `wc -l`, not from a Read-output last line number. Read-output line numbers are decorative, not authoritative.
+
+### 8.2 A broad verification gate is authoritative over an audit's enumerated file list
+
+> [!constraint] Run the full gate; classify every residual match — do NOT trust the audit's file enumeration as the boundary
+> When a remediation is scoped by an audit that names specific files, the audit's file list is a starting hypothesis, not the boundary of "clean." Run the full verification gate (grep/lint/diff) and triage every residual match by classification. The gate is the authoritative definition of clean; a broad gate routinely finds sibling instances the audit never named.
+>
+> WRONG — fix only the audit-named site, then declare done on the audit's word:
+> ```
+> Audit finding: leak in handlers/plan.md.
+> → fix plan.md, mark task complete.   # two sibling leaks in other files survive
+> ```
+> WRONG — run the gate, see non-empty output, and either fail the task or blindly "fix" every match:
+> ```
+> grep gate → 50+ matches → treat all as leaks → mangle legitimate naming-convention examples
+> ```
+> CORRECT — run the full gate, classify every residual match into genuine-citation vs legitimate-illustration, fix the genuine ones, and record the classified residue so a non-empty gate is provably accounted for:
+> ```
+> grep gate → classify:
+>   • a specific project-artifact citation (opaque to any consumer) → genuine leak → SCRUB (3 sites)
+>   • an abstract filename pattern under an "Example:" label         → naming illustration → KEEP, document
+> → pass criterion = "no genuine citations remain after classification",
+>   NOT "grep returns zero lines".
+> ```
+>
+> The distinguishing test: a **citation** references a specific real project artifact (opaque to any downstream consumer) and is a genuine violation; an **illustration** is an abstract filename/identifier pattern under an "Example:" label and is intended documentation. Classify by that test, not by the regex alone. This is the same classification principle §2 applies to round-trip runtime evidence — never silently accept a non-empty gate, and never expect literal-empty output when the repo documents the very pattern being scanned.
+
+### 8.3 Sanity-check a projected headline metric against the fixed extraction scope before starting
+
+> [!constraint] An audit-projected metric is an estimate — reconcile it against the fixed scope up front; execute, measure, log the delta; never expand scope to chase the number
+> When a plan carries a derived numeric target (post-edit line count, token savings, retention ratio, file-size delta) that originated from an upstream audit or projection, treat it as an estimate subject to measured reconciliation — not a pass/fail gate — especially when the same spec also fixes the scope that determines the number.
+>
+> WRONG — treat "~460 lines / ~5.6K savings" as a hard gate; on measuring 603, expand the extraction beyond the fixed scope to force the number down:
+> ```
+> target = 460 lines; measured = 603 → also extract the kept sections, to hit 460   # violates the fixed scope
+> ```
+> WRONG — round or fudge the reported savings to match the projection.
+> CORRECT — execute the fixed scope, `wc -l` the result, report the measured number, and log the projection-vs-reality delta as an Issue with the arithmetic that explains it:
+> ```
+> fixed scope: keep the first three subsections, extract the rest → wc -l = 603
+> report 603 / ~3.8K saved; Issue: projection assumed 460 (280-extract + 460-remainder = 740 ≠ 894 original) — the projection was internally inconsistent, and the section had grown since the audit.
+> ```
+>
+> Before starting, run the up-front sanity check: `original − extracted_block ?= projected_remainder`. If they don't reconcile, surface it before execution, not at verification time. The extraction is correct; only the projection was optimistic. This is the plan-level headline-metric sibling of the "structurally unreachable threshold" concept (Check 058 / `verification-task-authoring.md` §2), which targets grep-count thresholds inside verification tasks — a different surface, no overlap.
+
+### 8.4 Grep the entire artifact surface for every phrasing of a doctrinal claim before declaring it fixed
+
+> [!constraint] Doctrinal errors propagate across files — sweep the whole surface; surface out-of-scope instances; re-run at end
+> A doctrinal error (a rule, a parameter, a threshold, a factual claim stated in a source file and cited by consumers) rarely lives in one place. Before declaring it fixed, grep the entire artifact surface for every phrasing of the claim.
+>
+> WRONG — edit the file named in scope, confirm that file reads correctly, ship:
+> ```
+> scope names templates/orchestration.md → fix it, confirm, ship.
+> (The same false claim also lived in the section the template CITES — 4 spots —
+>  and in handlers/plan.md — 4 more spots. The template now cites a self-contradicting section.)
+> ```
+> CORRECT — grep the whole surface for every phrasing of the claim (e.g. `parent.{0,2}tier`, `inherit the parent`, the specific false-assertion text); fix all instances — or, where instances fall outside the literal scope, surface them as a structural finding / scope-expansion gate and let the user decide. Re-run the sweep at the end and confirm only correct/negated phrasings remain.
+>
+> A citation chain is coherent only when the cited source and every consumer agree. When instances fall outside literal task scope, surface them per §1.2 of `session-execution-protocol.md` (structural findings beyond literal scope — surface, don't silently fix or silently ignore), not silently.
 
 ---
 

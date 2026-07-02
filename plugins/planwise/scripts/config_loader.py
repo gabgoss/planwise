@@ -297,6 +297,31 @@ def get_token_saver_config(config: dict) -> dict:
     }
 
 
+def get_upgrade_config(config: dict) -> dict:
+    """Extract the `upgrade:` block from config, with conservative defaults.
+
+    Mirrors get_token_saver_config: reads the three `upgrade.*` keys and falls
+    back to documented backward-compatible defaults when the block (or a key) is
+    absent — a config that predates the upgrade surface. Defaults are the safe
+    status quo: report-only handoff, no gh issue, new de-scope behavior.
+
+      * customization_handoff        -> "report" (never auto-relocate/-issue)
+      * github_issue                 -> False    (opt-in, interactive only)
+      * descope_preserve_paths_edits -> False    (new behavior: remove a
+                                                   paths-only-edited de-scoped rule)
+    """
+    upgrade = config.get("upgrade", {})
+    if not isinstance(upgrade, dict):
+        upgrade = {}
+    return {
+        "customization_handoff": upgrade.get("customization_handoff", "report"),
+        "github_issue": bool(upgrade.get("github_issue", False)),
+        "descope_preserve_paths_edits": bool(
+            upgrade.get("descope_preserve_paths_edits", False)
+        ),
+    }
+
+
 def get_effective_token_saver_config(config: dict, plan_override=None) -> dict:
     """Overlay an optional per-plan on/off decision onto the project surface.
 

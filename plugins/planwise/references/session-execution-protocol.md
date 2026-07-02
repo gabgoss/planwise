@@ -161,6 +161,9 @@ The audit trail is NOT optional when the expansion is approved. A scope-expanded
 > [!practice] When in Doubt, Surface It
 > If the executor is uncertain whether a finding is "structural" enough to warrant Option A/B, surface it anyway. The cost of asking is a single `AskUserQuestion` round-trip; the cost of NOT asking is either a defective artifact or an undocumented scope expansion. Bias toward surfacing.
 
+> [!practice] Doctrinal Sweep Before Declaring a Claim Fixed
+> When the session's scope involves correcting a factual claim (a rule, a parameter, a threshold, an assertion) that is stated in a source file and cited by consumers, do NOT declare it fixed after editing the source alone. First grep the entire plugin surface for every phrasing of the claim (the exact assertion text, common paraphrases, and any regex that catches the misconception). If instances fall outside the literal task scope, surface them as a structural finding and let the user decide (Option A / Option B above). Re-run the sweep at the end of the session and confirm only correct/negated phrasings remain. A citation chain is coherent only when the source and every consumer agree.
+
 ### 1.3 Cross-Task Coordination Flags
 
 > [!binding] Downstream-Propagation Gate
