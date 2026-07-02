@@ -661,6 +661,21 @@ When Token Saver is off, none of the above runs — the §9.A token-estimation c
 
 Quick reference for common patterns and their correct classification.
 
+### Check — DELEGATED Trigger Named
+
+This check is the mechanical, grep-determinable sibling of catalog row #11 (DELEGATED dispatch mandatory trigger violated): #11 checks whether a trigger *actually applies* to the session; this check verifies the Execution Strategy declaration *names* one. Do not merge the two — #11 requires reading task sizes/counts to judge, this one is a pure grep gate.
+
+- **Severity:** BLOCKER
+- **What:** Every session/sprint declaring `Execution Strategy: DELEGATED` MUST name which of the four mandatory triggers fired (2+ Opus tasks / META Discovery / >50K single task / output-chaining).
+- **Detection:** Grep the Master Plan + each Orchestration for `Execution Strategy:\s*DELEGATED`. For each match, require an adjacent named trigger from the four. A DELEGATED declaration with no named trigger → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] DELEGATED declaration without a named trigger
+File: {Master Plan / Orchestration path} | Location: Execution Strategy section
+Issue: Session declares DELEGATED but names no mandatory trigger (2+ Opus / META Discovery / >50K task / output-chaining)
+Fix: Name the trigger that fired, or change to DIRECT per references/agent-orchestration.md §11.1 | Confidence: HIGH
+```
+
 | # | Pattern | Severity | Where to Check |
 |---|---------|----------|----------------|
 | 1 | Vague section references ("Sections 2-5" instead of individual listings) | BLOCKER | Task file Required Context table |
@@ -728,3 +743,4 @@ Quick reference for common patterns and their correct classification.
 | 63 | Token Saver large-file ladder not applied — `context.token_saver: true` AND (over-ceiling task without `1M-exception`; OR Warn+ Required Context file with no backlog item; OR a `read`-reason Critical wrongly flagged `1M-exception`; OR a `1M-exception` task on a Sonnet/Haiku agent without override note; OR a runner-read generated artifact past the line/byte/token read gate without a Multi-Part split) (`task-content-fidelity.md` §9.A.8) — no-op when Token Saver is off | ERROR (read-Critical mis-flag / over-ceiling / artifact split) · WARNING (missing backlog item / uncovered read gate) | Task Required Context + Notes for Agent ([Token Saver Compliance Check](#token-saver-compliance-check)) |
 | 64 | Orchestrator consumes sub-agent verdict label without recomputing from reported finding counts — systematic under-classification risk (`agent-orchestration-delegated.md` §1.16.1) | ERROR | Orchestration synthesis step; rollup tables |
 | 65 | Orchestrator accepts cross-file control-flow claim ("symbol X never used → feature Y is broken") without tracing the full consumer call path — false-positive over-classification risk (`agent-orchestration-delegated.md` §1.16.2) | WARNING | Orchestration finding acceptance; release-signoff verdicts |
+| 66 | DELEGATED declaration without a named trigger (`agent-orchestration.md` §11.1) — grep `Execution Strategy:\s*DELEGATED`; each match MUST carry an adjacent named trigger from the four | BLOCKER | Master Plan / Orchestration Execution Strategy |

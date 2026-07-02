@@ -475,6 +475,8 @@ DELEGATED mode is REQUIRED when ANY of the following triggers are present in a s
 - Any single task estimates >50K token context load
 - Sequential tasks where one task's output is the next task's input (output-chaining)
 
+**The Master Plan's Execution Strategy section MUST name the trigger that fired for every DELEGATED session, and `/planwise review` MUST surface as a BLOCKING finding any DELEGATED declaration without a named trigger.**
+
 Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not an execution-time inference.
 
 > [!constraint] DELEGATED Declaration — Planning Time Only
@@ -489,6 +491,11 @@ Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not
 > Mode: DELEGATED
 > Trigger: Task 03 estimates >50K context load (output-chaining to Task 04)
 > ```
+
+> [!constraint] Name the Trigger — Not "For Consistency"
+> "Consistency" across a multi-session plan is not a trigger; every DELEGATED session must name one of the four mandatory triggers above.
+> WRONG: plan declares DELEGATED for all 8 sessions "for consistency"; only Sprint 01 meets a trigger (95K Opus task + output-chaining); Sprints 02-08 each have a single 23-41K task within the 100K DIRECT budget — ~378K of subagent-spawn overhead consumed for no gain.
+> CORRECT: Sprint 01 declares DELEGATED (#1 + #4); Sprints 02-08 declare DIRECT.
 
 ### 11.2 Task-File Error Recovery
 
