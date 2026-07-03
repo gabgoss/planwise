@@ -149,16 +149,21 @@ def _snapshot_tree(root: Path) -> dict[str, bytes]:
     return snap
 
 
-def _verdict(classification, confidence="contained", unique_blocks=()):
+def _verdict(classification, confidence="contained", unique_blocks=(), notes=""):
     """Build a canned StructuralVerdict-shaped object for the monkeypatch seam.
 
     Disposition tests patch `ip._classify_diverged` to return one of these so
     the assertions pin the site's disposition logic, not the real
     structural_compare primitive's segmentation accuracy.
+
+    `notes` defaults to "" (the common case). Pass a non-empty string to pin
+    the notes-gate branches: a SUBSET verdict whose notes flag tolerated
+    installed-only content must be preserved/sidecar'd rather than
+    removed/refreshed, even at exact/contained confidence.
     """
     return types.SimpleNamespace(
         classification=classification, confidence=confidence,
-        unique_blocks=list(unique_blocks))
+        unique_blocks=list(unique_blocks), notes=notes)
 
 
 class _MigrationFixtureBase(unittest.TestCase):
@@ -1018,6 +1023,550 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         self.assertEqual(refreshed_subsets, [])
         self.assertIn(str(installed_rule), unchanged)
         self.assertIn(str(installed_agent), unchanged)
+
+
+class TestMigrationVerdictNotesAndPathsGates(_MigrationFixtureBase):
+    """Site-1 (migrate_installed_rules) safety fixes: the notes gate, the
+    paths-preserve opt-out on a diverged (not just fast-path) body, the real
+    structural_compare primitive on a genuine strict-prefix subset, the
+    upgrade-backups/DISPOSITIONS.md pre-image, per-file OSError containment,
+    and the degraded-mode ("NOT analyzed") wording.
+    """
+
+    def _to_version(self) -> str:
+        return str(ip.RESCOPE_MIGRATION_VERSION)
+
+    def test_notes_gate_preserves_diverged_subset(self):
+        filename = "session-plan-requirements.md"
+        shipped_body = "# Session Plan Requirements\n\nOriginal line.\nGrown extra line.\n"
+        installed_body = "# Session Plan Requirements\n\nOriginal line.\n"
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        before = installed.read_bytes()
+        notes_text = (
+            "installed-only tokens present in sub-noise-floor fragments "
+            "(tolerated as noise)"
+        )
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("SUBSET", "exact", notes=notes_text),
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(
+            installed.exists(), "A notes-flagged SUBSET must be preserved, not removed"
+        )
+        self.assertEqual(installed.read_bytes(), before)
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(filename in entry and notes_text in entry for entry in preserved),
+            "The preserved notice must surface the verdict's notes text",
+        )
+        removed = _report_section(report, "removed", "deleted")
+        self.assertFalse(
+            any(filename in entry for entry in removed),
+            "A notes-flagged SUBSET must NOT appear under removed",
+        )
+
+    def test_diverged_stale_subset_paths_preserve_opt_out_default(self):
+        filename = "verify-against-shipped-artifact.md"
+        shipped_body = "# Verify Against Shipped Artifact\n\nOriginal line.\nGrown extra line.\n"
+        installed_body = "# Verify Against Shipped Artifact\n\nOriginal line.\n"
+        self.write_shipped(filename, shipped_body)
+        custom_paths = self.old_default_for(filename) + ", custom/**"
+        installed = self.write_installed(filename, installed_body, custom_paths)
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(
+            installed.exists(),
+            "A diverged stale-subset body with customized paths: must be kept "
+            "when the preserve opt-out is enabled (the default)",
+        )
+        self.assertEqual(installed.read_bytes(), before)
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(
+                filename in entry and "preserve opt-out covers paths" in entry
+                for entry in preserved
+            ),
+            "The preserved notice must explain the paths opt-out covers the "
+            "diverged body too",
+        )
+
+    def test_diverged_stale_subset_paths_opt_out_disabled_removed_with_info(self):
+        filename = "verification-gates.md"
+        shipped_body = "# Verification Gates\n\nOriginal line.\nGrown extra line.\n"
+        installed_body = "# Verification Gates\n\nOriginal line.\n"
+        self.write_shipped(filename, shipped_body)
+        custom_paths = self.old_default_for(filename) + ", custom/**"
+        installed = self.write_installed(filename, installed_body, custom_paths)
+        self.write_upgrade_config(descope_preserve_paths_edits=False)
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertFalse(
+            installed.exists(),
+            "With the preserve opt-out disabled, a diverged stale-subset body "
+            "with customized paths: must be removed",
+        )
+        removed = _report_section(report, "removed", "deleted")
+        matches = [entry for entry in removed if filename in entry]
+        self.assertTrue(matches, f"{filename} must be reported under removed")
+        self.assertTrue(
+            any("INFO" in entry for entry in matches),
+            "The removed notice must carry the [INFO] token for the dropped paths: edit",
+        )
+
+    def test_real_primitive_subset_rule_removed_site1(self):
+        # NO seam patching — exercises the real structural_compare primitive.
+        filename = "verification-task-authoring.md"
+        old_template = "{plans_path}"
+        shipped_old_body = "# Verification Task Authoring\n\nOriginal line.\n"
+        shipped_grown_body = shipped_old_body + "Grown extra line.\n"
+        self.write_shipped(filename, shipped_grown_body)
+
+        default_paths = self.old_default_for(filename)
+        # Build the installed file the way install_rules() actually would:
+        # update_frontmatter() on the (old, placeholder-carrying) shipped text.
+        shipped_old_text = self._rule_text(shipped_old_body, old_template)
+        installed_text = ip.update_frontmatter(shipped_old_text, default_paths)
+        installed = self.rules_dir / filename
+        installed.write_text(installed_text, encoding="utf-8")
+        self.assertEqual(
+            ip._extract_paths_value(installed_text), default_paths,
+            "Fixture sanity: update_frontmatter must produce the resolved default",
+        )
+
+        report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertFalse(
+            installed.exists(),
+            "A real strict-prefix subset (paths matching the old default) must "
+            "be removed by the real classifier, with no verdict override",
+        )
+        removed = _report_section(report, "removed", "deleted")
+        self.assertTrue(any(filename in entry for entry in removed))
+
+    def test_backup_and_dispositions_written_on_site1_removal(self):
+        filename = "session-planning-protocol.md"
+        body = "# Session Planning Protocol\n\nBody content line.\n"
+        self.write_shipped(filename, body)
+        installed = self.write_installed(filename, body, self.old_default_for(filename))
+        before = installed.read_bytes()
+        to_version = self._to_version()
+
+        ip.migrate_installed_rules(self.cfg, "0.0.0", to_version)
+
+        self.assertFalse(installed.exists())
+        backup_dir = (
+            self.project_root / self.cfg.planwise_root / "upgrade-backups"
+            / f"0.0.0-to-{to_version}"
+        )
+        backup_file = backup_dir / ".claude" / "rules" / "planwise" / filename
+        self.assertTrue(
+            backup_file.exists(), "Site-1 removal must mirror the pre-image under upgrade-backups/"
+        )
+        self.assertEqual(backup_file.read_bytes(), before)
+        self.assertTrue(
+            (backup_dir / "DISPOSITIONS.md").exists(),
+            "DISPOSITIONS.md must be written alongside the backup",
+        )
+
+    def test_site1_containment_skips_unreadable_entry_and_continues(self):
+        # A directory in place of the installed file forces read_text() to
+        # raise OSError — the per-file containment must record it as skipped
+        # and continue to the next (normal) fixture without raising.
+        dir_filename = "callout-conventions.md"
+        dir_path = self.rules_dir / dir_filename
+        dir_path.mkdir(parents=True, exist_ok=True)
+
+        normal_filename = "schema-pin-requirement.md"
+        body = "# Schema Pin\n\nBody.\n"
+        self.write_shipped(normal_filename, body)
+        normal_installed = self.write_installed(
+            normal_filename, body, self.old_default_for(normal_filename)
+        )
+
+        report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertFalse(
+            normal_installed.exists(),
+            "The normal fixture must still be dispositioned despite the other's failure",
+        )
+        skipped = _report_section(report, "skipped")
+        self.assertTrue(
+            any(
+                dir_filename in entry and "disposition failed" in entry
+                for entry in skipped
+            ),
+            "The unreadable directory entry must be reported as skipped, not raise",
+        )
+
+    def test_degraded_mode_site1_preserved_not_analyzed(self):
+        filename = "task-content-fidelity.md"
+        shipped_body = "# Task Content Fidelity\n\nShipped body.\n"
+        installed_body = (
+            "# Task Content Fidelity\n\nShipped body.\n# Extra\nUser-added block.\n"
+        )
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        before = installed.read_bytes()
+
+        with mock.patch.dict(sys.modules, {"structural_compare": None}):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(installed.exists(), "Degraded mode must preserve, never remove")
+        self.assertEqual(installed.read_bytes(), before)
+        preserved = _report_section(report, "preserved", "kept")
+        matches = [entry for entry in preserved if filename in entry]
+        self.assertTrue(matches)
+        self.assertTrue(
+            any("NOT analyzed" in entry for entry in matches),
+            "Degraded-mode preserve notice must say the copy was NOT analyzed",
+        )
+        self.assertFalse(
+            any("0 customized block(s)" in entry for entry in matches),
+            "Degraded mode must never claim '0 customized block(s)' "
+            "(analysis never ran)",
+        )
+
+
+class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
+    """Sites 2/3 (upgrade_artifacts) safety fixes: the notes gate, the
+    exact/contained-only agent overwrite gate (a reorg subset now sidecars),
+    the any-confidence rule refresh gate, the normalized-equal fast path, the
+    real structural_compare primitive, upgrade-backups/DISPOSITIONS.md,
+    sidecar/INDEX cleanup, per-file OSError containment, and degraded mode.
+    """
+
+    def test_notes_gate_site2_rule_not_refreshed_sidecar(self):
+        shipped_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Rule\n\nShipped superset body.\n"
+        custom_paths = ".claude/agents/**, custom/**"
+        shipped_dst = self.write_shipped_rule(shipped_body)
+        shipped_raw = shipped_dst.read_text(encoding="utf-8")
+        installed = self.write_installed_rule(installed_body, custom_paths)
+        before = installed.read_bytes()
+        notes_text = (
+            "installed-only tokens present in sub-noise-floor fragments "
+            "(tolerated as noise)"
+        )
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("SUBSET", "exact", notes=notes_text),
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        self.assertEqual(
+            installed.read_bytes(), before, "A notes-flagged SUBSET rule must not be refreshed"
+        )
+        self.assertNotIn(str(installed), refreshed)
+        self.assertNotIn(str(installed), refreshed_subsets)
+        self.assertTrue(conflicts, "A notes-flagged SUBSET must record a conflict")
+        dst_path, sidecar_path = conflicts[0]
+        self.assertEqual(dst_path, str(installed))
+        sidecar = Path(sidecar_path)
+        self.assertTrue(sidecar.exists())
+        self.assertEqual(sidecar.read_text(encoding="utf-8"), shipped_raw)
+
+    def test_notes_gate_site3_agent_not_overwritten_sidecar(self):
+        shipped_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Agent\n\nShipped superset body.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+        before = installed.read_bytes()
+        notes_text = (
+            "installed-only tokens present in sub-noise-floor fragments "
+            "(tolerated as noise)"
+        )
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("SUBSET", "exact", notes=notes_text),
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        self.assertEqual(
+            installed.read_bytes(), before, "A notes-flagged SUBSET agent must not be overwritten"
+        )
+        self.assertNotIn(str(installed), refreshed)
+        self.assertTrue(conflicts, "A notes-flagged SUBSET agent must record a conflict")
+        dst_path, sidecar_path = conflicts[0]
+        self.assertEqual(dst_path, str(installed))
+        self.assertTrue(Path(sidecar_path).exists())
+
+    def test_reorg_subset_agent_goes_to_sidecar(self):
+        shipped_body = "# Agent\n\nSection A.\nSection B.\n"
+        installed_body = "# Agent\n\nSection B.\nSection A.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        self.assertEqual(
+            installed.read_bytes(), before,
+            "A reorg-confidence agent subset must NOT be overwritten "
+            "(agents gate on exact/contained only)",
+        )
+        self.assertNotIn(str(installed), refreshed)
+        self.assertEqual(refreshed_subsets, [])
+        self.assertTrue(
+            conflicts, "A reorg-confidence agent subset must go to the sidecar branch"
+        )
+
+    def test_reorg_subset_rule_refreshes_in_place(self):
+        shipped_body = "# Rule\n\nSection A.\nSection B.\n"
+        installed_body = "# Rule\n\nSection B.\nSection A.\n"
+        custom_paths = ".claude/agents/**, custom/**"
+        shipped_dst = self.write_shipped_rule(shipped_body)
+        shipped_raw = shipped_dst.read_text(encoding="utf-8")
+        installed = self.write_installed_rule(installed_body, custom_paths)
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        self.assertIn(
+            str(installed), refreshed,
+            "Rules keep the any-confidence SUBSET gate — a reorg subset still refreshes",
+        )
+        self.assertIn(str(installed), refreshed_subsets)
+        self.assertEqual(conflicts, [])
+        updated = installed.read_text(encoding="utf-8")
+        self.assertEqual(
+            ip.normalize_rule_for_diff(updated), ip.normalize_rule_for_diff(shipped_raw)
+        )
+        self.assertEqual(ip._extract_paths_value(updated), custom_paths)
+
+    def test_normalized_equal_byte_different_paths_rule_uses_fast_path(self):
+        body = "# Rule\n\nIdentical normalized body.\n"
+        self.write_shipped_rule(body, ".claude/agents/**")
+        installed_rule = self.write_installed_rule(body, ".claude/agents/**, custom/**")
+
+        original = ip._classify_diverged
+        ip._classify_diverged = mock.Mock(
+            side_effect=AssertionError("fast path must not consult the primitive")
+        )
+        self.addCleanup(setattr, ip, "_classify_diverged", original)
+
+        refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            self.run_upgrade()
+        )
+
+        self.assertEqual(conflicts, [])
+        self.assertIn(str(installed_rule), unchanged)
+        self.assertNotIn(str(installed_rule), refreshed)
+
+    def test_real_primitive_subset_rule_refreshes(self):
+        # NO seam patching — exercises the real structural_compare primitive.
+        shipped_body = "# Rule\n\nShipped body.\nGrown extra line.\n"
+        installed_body = "# Rule\n\nShipped body.\n"
+        custom_paths = ".claude/agents/**, custom/**"
+        shipped_dst = self.write_shipped_rule(shipped_body)
+        shipped_raw = shipped_dst.read_text(encoding="utf-8")
+        installed = self.write_installed_rule(installed_body, custom_paths)
+
+        refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            self.run_upgrade()
+        )
+
+        self.assertIn(str(installed), refreshed)
+        self.assertIn(str(installed), refreshed_subsets)
+        self.assertEqual(conflicts, [])
+        updated = installed.read_text(encoding="utf-8")
+        self.assertEqual(
+            ip.normalize_rule_for_diff(updated), ip.normalize_rule_for_diff(shipped_raw)
+        )
+        self.assertEqual(ip._extract_paths_value(updated), custom_paths)
+
+    def test_backup_and_dispositions_written_on_site2_rule_adoption(self):
+        shipped_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Rule\n\nShipped superset body.\n"
+        custom_paths = ".claude/agents/**, custom/**"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, custom_paths)
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ):
+            self.run_upgrade()
+
+        backup_dir = (
+            self.project_root / self.cfg.planwise_root / "upgrade-backups"
+            / "1.0.0-to-1.1.0"
+        )
+        backup_file = backup_dir / ".claude" / "rules" / "planwise" / self.RULE_FILENAME
+        self.assertTrue(
+            backup_file.exists(), "Site-2 adoption must mirror the pre-image under upgrade-backups/"
+        )
+        self.assertEqual(backup_file.read_bytes(), before)
+        self.assertTrue((backup_dir / "DISPOSITIONS.md").exists())
+
+    def test_backup_and_dispositions_written_on_site3_agent_adoption(self):
+        shipped_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Agent\n\nShipped superset body.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ):
+            self.run_upgrade()
+
+        backup_dir = (
+            self.project_root / self.cfg.planwise_root / "upgrade-backups"
+            / "1.0.0-to-1.1.0"
+        )
+        backup_file = backup_dir / ".claude" / "agents" / self.AGENT_FILENAME
+        self.assertTrue(
+            backup_file.exists(), "Site-3 adoption must mirror the pre-image under upgrade-backups/"
+        )
+        self.assertEqual(backup_file.read_bytes(), before)
+        self.assertTrue((backup_dir / "DISPOSITIONS.md").exists())
+
+    def test_stale_sidecar_removed_on_adoption(self):
+        shipped_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Rule\n\nShipped superset body.\n"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, ".claude/agents/**")
+
+        sidecar = (
+            self.conflict_dir() / ".claude" / "rules" / "planwise"
+            / f"{self.RULE_FILENAME}.new"
+        )
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        sidecar.write_text("stale sidecar from an interrupted prior run", encoding="utf-8")
+        self.assertTrue(sidecar.exists())
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        self.assertIn(str(installed), refreshed)
+        self.assertFalse(
+            sidecar.exists(), "A resolved adoption must remove the stale .new sidecar"
+        )
+
+    def test_stale_index_pruned_when_no_conflicts_remain(self):
+        body = "# Rule\n\nIdentical body.\n"
+        paths_value = ".claude/agents/**"
+        self.write_shipped_rule(body, paths_value)
+        self.write_installed_rule(body, paths_value)
+        agent_body = "# Agent\n\nIdentical body.\n"
+        self.write_shipped_agent(agent_body)
+        self.write_installed_agent(agent_body)
+
+        conflict_dir = self.conflict_dir()
+        conflict_dir.mkdir(parents=True, exist_ok=True)
+        index_path = conflict_dir / "INDEX.md"
+        index_path.write_text("# stale index from a prior resolved run\n", encoding="utf-8")
+
+        refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            self.run_upgrade()
+        )
+
+        self.assertEqual(conflicts, [])
+        self.assertFalse(
+            index_path.exists(),
+            "A stale INDEX.md with no remaining .new sidecars must be pruned",
+        )
+
+    def test_site3_containment_skips_unreadable_agent_and_continues(self):
+        second_agent = "second-agent.md"
+        with mock.patch.object(ip, "INSTALLED_AGENTS", [self.AGENT_FILENAME, second_agent]):
+            self.write_shipped_agent("# Agent\n\nShipped body.\n")
+            # Directory in place of the installed file forces read_text() to
+            # raise OSError for this entry only.
+            dir_dst = self.agents_dst_dir / self.AGENT_FILENAME
+            dir_dst.mkdir(parents=True, exist_ok=True)
+
+            second_shipped = self.agents_src_dir / second_agent
+            second_shipped.write_text("# Second Agent\n\nBody.\n", encoding="utf-8")
+
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        second_installed = self.agents_dst_dir / second_agent
+        self.assertTrue(
+            second_installed.exists(),
+            "The other agent must still be processed (fresh install) despite "
+            "the directory entry's failure",
+        )
+        self.assertIn(str(second_installed), refreshed)
+
+    def test_degraded_mode_upgrade_artifacts_nothing_refreshed(self):
+        shipped_rule_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_rule_body = "# Rule\n\nShipped superset body.\n"
+        custom_paths = ".claude/agents/**, custom/**"
+        self.write_shipped_rule(shipped_rule_body)
+        installed_rule = self.write_installed_rule(installed_rule_body, custom_paths)
+        before_rule = installed_rule.read_bytes()
+
+        shipped_agent_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_agent_body = "# Agent\n\nShipped superset body.\n"
+        self.write_shipped_agent(shipped_agent_body)
+        installed_agent = self.write_installed_agent(installed_agent_body)
+        before_agent = installed_agent.read_bytes()
+
+        with mock.patch.dict(sys.modules, {"structural_compare": None}):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        self.assertEqual(installed_rule.read_bytes(), before_rule)
+        self.assertEqual(installed_agent.read_bytes(), before_agent)
+        self.assertNotIn(str(installed_rule), refreshed)
+        self.assertNotIn(str(installed_agent), refreshed)
+        self.assertEqual(refreshed_subsets, [])
+        self.assertEqual(len(conflicts), 2)
+
+
+class TestClassifyDivergedDegradedFallback(unittest.TestCase):
+    """Unit-level pin for the degraded-install verdict `_classify_diverged`
+    manufactures when structural_compare is unavailable at call time."""
+
+    def test_classify_diverged_degraded_on_missing_structural_compare(self):
+        with mock.patch.dict(sys.modules, {"structural_compare": None}):
+            verdict = ip._classify_diverged("installed body", "shipped body")
+
+        self.assertEqual(verdict.classification, "HAS_UNIQUE")
+        self.assertTrue(
+            getattr(verdict, "notes", ""),
+            "The degraded stand-in verdict must carry a non-empty notes field",
+        )
 
 
 if __name__ == "__main__":

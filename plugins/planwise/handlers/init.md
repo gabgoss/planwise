@@ -207,7 +207,7 @@ The plugin installs 4 author-time reference files as path-scoped rules. These ar
 Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with actual values from Step 1 where they appear in `paths:` values.
 
 > [!practice] Plan/Backlog/Lessons Rules Are Handler-Loaded, Not Installed
-> The plan-, backlog-, and lessons-scoped reference files (session protocols, scaffolding hygiene, orchestration, conventions, verification rules, and similar) are **no longer installed as path-scoped rules**. Handlers load them on demand from the plugin's `references/` directory when a workflow needs them, instead of injecting them as always-on path-scoped rules. This keeps the always-on context budget small while preserving the guidance. When upgrading a project that previously installed these rules, the upgrade flow removes the untouched installed copies (and preserves any the user customized) — see the de-scope migration in `scripts/init_project.py`.
+> The plan-, backlog-, and lessons-scoped reference files (session protocols, scaffolding hygiene, orchestration, conventions, verification rules, and similar) are **no longer installed as path-scoped rules**. Handlers load them on demand from the plugin's `references/` directory when a workflow needs them, instead of injecting them as always-on path-scoped rules. This keeps the always-on context budget small while preserving the guidance. When upgrading a project that previously installed these rules, the upgrade flow removes the untouched installed copies and high-confidence stale-subset copies (each backed up under `upgrade-backups/` first), and preserves any copy carrying user content — see the de-scope migration in `scripts/init_project.py`.
 
 ---
 

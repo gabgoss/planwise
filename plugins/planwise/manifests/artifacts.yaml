@@ -183,9 +183,13 @@ artifacts:
       now handler-loaded in-place from references/ (upgrade_behavior:
       not_installed; see DESCOPED_RULES and the de-scoped rows below). On
       upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
-      removes the untouched installed copies of those de-scoped rules and
-      preserves any the user customized byte-for-byte; this glob row covers
-      only the four still-installed rules for refresh_or_sidecar.
+      removes the untouched installed copies of those de-scoped rules AND
+      high-confidence stale-subset copies (backed up under upgrade-backups/
+      first); copies carrying user content (HAS_UNIQUE, or any flagged
+      installed-only content) are preserved byte-for-byte, and paths-only
+      edits are preserved while upgrade.descope_preserve_paths_edits is true
+      (the default). This glob row covers only the four still-installed rules
+      for refresh_or_sidecar.
 
   - id: planwise_agents
     on_disk: ".claude/agents/*.md"
@@ -328,9 +332,10 @@ artifacts:
       {planwise_root}/{plans_dir}/**; the plan-reviewer agent loads it in-place
       from references/ at review time (see DESCOPED_RULES in init_project.py).
       On upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
-      removes the untouched previously-installed copy and preserves any the
-      user customized. Listed individually because it has a named consumer
-      worth documenting.
+      removes the untouched or high-confidence stale-subset previously-
+      installed copy (backed up under upgrade-backups/ first) and preserves
+      any copy carrying user content. Listed individually because it has a
+      named consumer worth documenting.
 
   - id: upgrade_block
     on_disk: "{planwise_root}/config.yaml (key: upgrade)"
@@ -344,8 +349,11 @@ artifacts:
     notes: >
       Three keys (customization_handoff, github_issue,
       descope_preserve_paths_edits) controlling HAS_UNIQUE handoff routing and
-      the de-scope paths-only-edit policy. Handlers default to report / false /
-      false when the block is absent; `--migrate` adds it to existing configs.
+      the de-scope paths-only-edit policy. When the block is absent,
+      config_loader.get_upgrade_config() supplies the conservative defaults:
+      report / false / TRUE (descope_preserve_paths_edits defaults to
+      preserve — false opts in to removing paths-edited copies); `--migrate`
+      adds the block to existing configs.
 
   - id: rule_comparator_agent
     on_disk: ".claude/agents/rule-comparator.md"

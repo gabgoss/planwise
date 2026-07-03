@@ -79,8 +79,8 @@ The script:
 2. Calls `bootstrap_lessons_artifacts()` to backfill the lessons scaffolding — seeds `{lessons_dir}/00-Index-LessonsLearned.md` and renders `{lessons_dir}/00-Categorization-By-Domain.md` — whenever either is missing. Idempotent and non-destructive: a no-op when both already exist, and an existing (possibly user-customised) file is preserved verbatim. This recovers the categorization file that gates `/planwise lessons curate` and `promote-batch` on projects adopted via `/planwise upgrade` rather than a fresh `/planwise init` (the render used to be fresh-init-only). Runs after `migrate_config()` so a freshly-migrated `categorization:` block is picked up; falls back to the built-in default buckets (and flags it in the banner) when the block is absent
 3. Iterates `manifests/artifacts.yaml` rows where `upgrade_behavior == "refresh_or_sidecar"`
 4. Refreshes installed copies whose normalised body matches the shipped body
-5. Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any installed copy that has diverged
-6. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy ONLY when its body AND its `paths:` both match the original shipped default (i.e., untouched); it **preserves** byte-for-byte any copy whose body OR `paths:` were customised, emitting an action-required re-home notice (never a default delete)
+5. Classifies each **diverged** installed copy with the structural verdict: a clean **stale subset** is auto-adopted in place — rules refresh via `update_frontmatter()` (the project's `paths:` line is preserved); agents are overwritten whole-file only on a **high-confidence** (exact/contained) subset verdict. Any verdict that is HAS_UNIQUE (genuine customization), reorg-confidence for an agent, or whose `notes` flag installed-only tolerated content instead gets a `.new` sidecar under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` and the installed file is left untouched. Every auto-adoption first mirrors the pre-change file under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (with a `DISPOSITIONS.md` log) and deletes any sidecar it obsoletes from an earlier interrupted run
+6. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy when it is untouched (normalized-identical body, `paths:` match) **or** when its body is a high-confidence **stale subset** of the grown shipped reference with no installed-only content flagged; it **preserves** byte-for-byte any HAS_UNIQUE (customised) copy, any subset verdict with reorg confidence or a non-empty installed-only-content flag, and — while `upgrade.descope_preserve_paths_edits` is `true` (the default) — any copy with a customised `paths:` line, even over a stale body. Setting that key to `false` opts in to removing paths-edited copies (reported with an `[INFO]` marker). Every removal is backed up under `upgrade-backups/` first, so a disposition is always recoverable without VCS
 7. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size
 8. Bumps `plugin_version:` in `config.yaml` LAST, as the commit point
 
@@ -146,6 +146,7 @@ Lessons scaffolding backfilled:           ({omitted entirely when both already e
   …
 
 Refreshed: {N}
+  ({M} were stale subsets, auto-adopted shipped)   ({sub-line omitted when M == 0; pre-change copies live under {planwise_root}/upgrade-backups/<from>-to-<to>/})
   + {file}
   …
 Unchanged: {N} (installed body already matches shipped)
@@ -153,12 +154,12 @@ Untracked preserved: {N}
   = {file}
   …
 
-De-scoped rules removed: {N} (now handler-loaded; installed copy was untouched)
+De-scoped rules removed: {N} (now handler-loaded; untouched or a high-confidence stale subset — pre-change copy under upgrade-backups/)
   - {file}
   …
-De-scoped rules preserved (action required): {N} (customised — re-home, NOT auto-deleted)
+De-scoped rules preserved (action required): {N} (customised or headless-inconclusive — NOT auto-deleted)
   ! {file}
-      reason: body or paths customised — not safe to auto-remove
+      reason: customised (HAS_UNIQUE), installed-only content flagged, reorg-inconclusive, or paths: customised with the preserve opt-out enabled
       action: re-home as a project-local rule, OR re-scope paths: to the code dirs it governs, OR upstream the change
 
 Conflicts (action required):
