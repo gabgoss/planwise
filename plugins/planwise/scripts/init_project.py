@@ -23,11 +23,24 @@ import json
 import os
 import re
 import sys
+import types
 from datetime import date
 from enum import Enum
 from pathlib import Path
 
 from constants import InstallScope
+
+try:
+    import structural_compare
+    # classify_blocks/is_safe_to_remove/is_subset are re-exported for downstream verdict
+    # consumers; not called in this module yet (StructuralVerdict and structural_compare.* are used).
+    from structural_compare import classify_blocks, is_safe_to_remove, is_subset, StructuralVerdict  # noqa: F401
+    HAS_STRUCTURAL_COMPARE = True
+except ImportError:
+    # A missing/broken structural_compare must degrade (preserve-on-doubt via
+    # _classify_diverged) rather than hard-crash the whole CLI at import time.
+    structural_compare = None
+    HAS_STRUCTURAL_COMPARE = False
 
 try:
     import yaml
@@ -990,21 +1003,42 @@ def normalize_rule_for_diff(content: str) -> str:
     reference's placeholder paths value (which contains literal curly
     braces) and the installed file's resolved paths value are normalized
     identically.
+
+    Delegates the split to structural_compare.split_frontmatter() when the
+    module is importable, with a byte-identical inline fallback when it is
+    not, so a degraded install keeps diffing correctly. (Sibling helpers
+    update_frontmatter/_extract_paths_value retain their own inline
+    frontmatter handling — keep the three consistent when editing any.)
     """
-    if not content.startswith("---\n"):
-        return content
-    end = content.find("\n---\n", 4)
-    if end == -1:
-        return content
-    frontmatter_text = content[4:end]
-    body = content[end + 5:]
-    cleaned_frontmatter = re.sub(
-        r"^paths:.*$\n?", "", frontmatter_text, count=1, flags=re.MULTILINE
-    )
-    cleaned_frontmatter = cleaned_frontmatter.rstrip()
+    if structural_compare is not None:
+        cleaned_frontmatter, body = structural_compare.split_frontmatter(content)
+    else:
+        cleaned_frontmatter, body = _split_frontmatter_fallback(content)
     if not cleaned_frontmatter:
         return body
     return f"---\n{cleaned_frontmatter}\n---\n{body}"
+
+
+_FALLBACK_PATHS_LINE_RE = re.compile(r"^paths:.*$\n?", re.MULTILINE)
+
+
+def _split_frontmatter_fallback(content: str):
+    """Byte-identical inline mirror of structural_compare.split_frontmatter.
+
+    Used only when the structural_compare module is unavailable, so
+    normalize_rule_for_diff keeps producing the same output in a degraded
+    install. Returns (None, content) when there is no frontmatter, else
+    (frontmatter_minus_paths, body).
+    """
+    if not content.startswith("---\n"):
+        return None, content
+    end = content.find("\n---\n", 4)
+    if end == -1:
+        return None, content
+    frontmatter_text = content[4:end]
+    body = content[end + 5:]
+    cleaned = _FALLBACK_PATHS_LINE_RE.sub("", frontmatter_text, count=1)
+    return cleaned.rstrip(), body
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:
@@ -1038,6 +1072,43 @@ def _extract_paths_value(content: str) -> str | None:
     if not match:
         return None
     return match.group(1).strip()
+
+
+def _classify_diverged(
+    installed_norm: str,
+    shipped_norm: str,
+    *,
+    override: "StructuralVerdict | None" = None,
+) -> "StructuralVerdict":
+    """Return the structural verdict for a normalized installed/shipped pair.
+
+    If `override` (an agent-produced verdict) is supplied, it is returned
+    as-is. Otherwise this delegates to structural_compare.classify_blocks().
+    On ImportError (structural_compare missing/broken), degrades to a
+    conservative HAS_UNIQUE verdict so the caller preserves the file rather
+    than risk deleting a genuine customization — the safe error over the
+    dangerous one. The degraded verdict is a duck-typed stand-in (attribute-
+    compatible with StructuralVerdict), since the real class is unavailable
+    exactly when this path fires. Module-level (not nested) so tests can
+    monkeypatch `ip._classify_diverged` directly.
+    """
+    if override is not None:
+        return override
+    try:
+        from structural_compare import classify_blocks as _classify_blocks
+    except ImportError:
+        return types.SimpleNamespace(
+            classification="HAS_UNIQUE",
+            confidence="unique",
+            unique_blocks=[],
+            shared_blocks=0,
+            total_installed_blocks=0,
+            installed_only_chars=0,
+            unique_sample_tokens=[],
+            source="inline",
+            notes="structural_compare unavailable; degraded to preserve",
+        )
+    return _classify_blocks(installed_norm, shipped_norm)
 
 
 def migrate_installed_rules(

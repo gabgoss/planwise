@@ -95,7 +95,7 @@ categorization:
 upgrade:
   customization_handoff: report        # report | report+relocate | report+issue
   github_issue: false                  # opt-in gh issue for "upstream" entries (interactive only)
-  descope_preserve_paths_edits: false  # true = keep today's preserve-on-paths-only-edit behavior
+  descope_preserve_paths_edits: true   # true = keep today's preserve-on-paths-only-edit behavior; false opts in to removal
 
 scoring:
   priority_high: 30

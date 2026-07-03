@@ -30,7 +30,8 @@ _CONFIDENCE_ORDER = ("exact", "contained", "reorg", "unique")
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 _CALLOUT_RE = re.compile(r"^>\s*\[!(\w+)\]\s*(.*)$")
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+_QUOTED_FENCE_RE = re.compile(r"^\s*>\s?\s*(`{3,}|~{3,})")
 
 _PATHS_LINE_RE = re.compile(r"^paths:.*$\n?", re.MULTILINE)
 
@@ -41,7 +42,10 @@ _ANCHOR_BRACE_RE = re.compile(r"\{#[^}]*\}")
 _HTML_ANCHOR_OPEN_RE = re.compile(r"<a\s+name=[^>]*>(?:\s*</a>)?", re.IGNORECASE)
 _HTML_ANCHOR_CLOSE_RE = re.compile(r"</a>", re.IGNORECASE)
 _LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-_LEADING_ENUM_RE = re.compile(r"^\d+(?:\.\d+)*\.?\s", re.MULTILINE)
+# Heading enumeration only ("## 1.2.3. Title" -> "## Title"): a bare
+# line-leading numeral outside a heading is content (a numeric value edit
+# must change the token multiset), so the pattern requires the heading marker.
+_LEADING_ENUM_RE = re.compile(r"^(#{1,6}\s+)\d+(?:\.\d+)*\.?\s+", re.MULTILINE)
 _FENCE_MARKER_RE = re.compile(r"^\s*(```|~~~)\S*[ \t]*$", re.MULTILINE)
 _HEADING_MARKER_RE = re.compile(r"^#{1,6}\s*", re.MULTILINE)
 _BULLET_RE = re.compile(r"^[-*+]\s+", re.MULTILINE)
@@ -77,9 +81,25 @@ class StructuralVerdict:
 
     @classmethod
     def from_dict(cls, d: dict) -> "StructuralVerdict":
-        """Build a StructuralVerdict from a dict, tolerating extra keys."""
+        """Build a StructuralVerdict from a dict, tolerating extra keys.
+
+        ``classification`` and ``confidence`` are required — a dict missing
+        either raises ValueError so callers can degrade to a conservative
+        preserve verdict. The remaining fields default to empty/zero so a
+        partial (e.g. agent-produced) verdict never crashes deserialization.
+        """
         field_names = {f.name for f in dataclasses.fields(cls)}
         kwargs = {k: v for k, v in d.items() if k in field_names}
+        missing = [name for name in ("classification", "confidence") if name not in kwargs]
+        if missing:
+            raise ValueError(
+                f"verdict dict missing required field(s): {', '.join(missing)}"
+            )
+        kwargs.setdefault("unique_blocks", [])
+        kwargs.setdefault("shared_blocks", 0)
+        kwargs.setdefault("total_installed_blocks", 0)
+        kwargs.setdefault("installed_only_chars", 0)
+        kwargs.setdefault("unique_sample_tokens", [])
         return cls(**kwargs)
 
 
@@ -138,8 +158,9 @@ def normalize_tokens(text: str) -> collections.Counter:
     text = _ANCHOR_BRACE_RE.sub("", text)
     text = _LINK_RE.sub(r"\1", text)
 
-    # 4. strip leading heading enumeration ("1.2.3. " / "1. ").
-    text = _LEADING_ENUM_RE.sub("", text)
+    # 4. strip heading enumeration ("## 1.2.3. Title" / "## 1. Title"),
+    #    keeping the heading marker for step 5 to remove.
+    text = _LEADING_ENUM_RE.sub(r"\1", text)
 
     # 5. strip structural markers.
     text = _FENCE_MARKER_RE.sub("", text)
@@ -176,6 +197,12 @@ def segment_blocks(content: str) -> list:
     fence stay inert) — this is the highest-impact correctness edge, since
     documentation fixtures pervasively show fenced ``> [!x]`` / ``###``
     example text that must not be split into real blocks.
+
+    Fence tracking is character- and length-aware: a fence closes only on a
+    marker of the same character at least as long as the opener, so a ```
+    line nested inside a ~~~ fence stays inert. Fences quoted inside a
+    blockquote (``> ``` ...``) are tracked the same way, so quoted example
+    callouts/headings inside them never split the enclosing real callout.
     """
     content = content.replace("\r\n", "\n").replace("\r", "\n")
     if content.startswith("﻿"):
@@ -191,7 +218,8 @@ def segment_blocks(content: str) -> list:
     current_label = ""
     current_lines: list = []
     callout: dict | None = None
-    in_fence = False
+    in_fence: str | None = None        # opening fence marker while inside a fence
+    quoted_fence: str | None = None    # opening marker of a fence quoted inside a blockquote
 
     def flush_current() -> None:
         nonlocal current_lines
@@ -204,22 +232,48 @@ def segment_blocks(content: str) -> list:
             blocks.append(_make_block("callout", callout["label"], "\n".join(callout["lines"])))
             callout = None
 
+    def append_verbatim(line: str) -> None:
+        if callout is not None:
+            callout["lines"].append(line)
+        else:
+            current_lines.append(line)
+
+    def closes(opening: str, marker: str) -> bool:
+        # A fence closes only on the same character with at least the
+        # opening length — a ``` line inside a ~~~ fence (or a shorter
+        # marker) is fence content, not a closer.
+        return marker[0] == opening[0] and len(marker) >= len(opening)
+
     for line in body.split("\n"):
         fence_match = _FENCE_RE.match(line)
-        if fence_match:
-            in_fence = not in_fence
-            if callout is not None:
-                callout["lines"].append(line)
-            else:
-                current_lines.append(line)
+
+        if in_fence is not None:
+            # In-fence lines are never structural — append verbatim.
+            if fence_match and closes(in_fence, fence_match.group(1)):
+                in_fence = None
+            append_verbatim(line)
             continue
 
-        if in_fence:
-            # In-fence lines are never structural — append verbatim.
-            if callout is not None:
-                callout["lines"].append(line)
-            else:
-                current_lines.append(line)
+        if fence_match:
+            in_fence = fence_match.group(1)
+            append_verbatim(line)
+            continue
+
+        quoted_fence_match = _QUOTED_FENCE_RE.match(line)
+        if quoted_fence is not None:
+            if line.lstrip().startswith(">"):
+                # Inside a fence quoted within a blockquote: `>`-prefixed
+                # lines (including quoted `> [!x]` / `> ###` example text)
+                # are verbatim continuation, never structural.
+                if quoted_fence_match and closes(quoted_fence, quoted_fence_match.group(1)):
+                    quoted_fence = None
+                append_verbatim(line)
+                continue
+            # The blockquote ended with the quoted fence unterminated.
+            quoted_fence = None
+        elif quoted_fence_match:
+            quoted_fence = quoted_fence_match.group(1)
+            append_verbatim(line)
             continue
 
         heading_match = _HEADING_RE.match(line)
@@ -281,6 +335,17 @@ def classify_blocks(installed_raw: str, shipped_raw: str, *, source: str = "inli
     for sb in ship:
         ship_global.update(sb.tokens)
 
+    # All-blocks token totals (noise included). Noise blocks are excluded
+    # from per-block level matching — sub-MIN_BLOCK_TOKENS fragments are
+    # tolerated churn — but the totals guard the degenerate case below where
+    # NO non-noise installed block exists to demonstrate any containment.
+    installed_global: collections.Counter = collections.Counter()
+    for b in installed_blocks:
+        installed_global.update(b.tokens)
+    shipped_global_all: collections.Counter = collections.Counter()
+    for sb in shipped_blocks:
+        shipped_global_all.update(sb.tokens)
+
     unique_blocks: list = []
     unique_sample_tokens: list = []
     levels_present: set = set()
@@ -293,12 +358,9 @@ def classify_blocks(installed_raw: str, shipped_raw: str, *, source: str = "inli
             if ib.tokens == sb.tokens:
                 level = "exact"
                 break
-        if level != "exact":
-            for sb in ship:
-                if multiset_subset(ib.tokens, sb.tokens):
-                    level = "contained"
-                    break
-        if level not in ("exact", "contained"):
+            if level != "contained" and multiset_subset(ib.tokens, sb.tokens):
+                level = "contained"  # remember; keep scanning for an exact match
+        if level == "unique":
             level = "reorg" if multiset_subset(ib.tokens, ship_global) else "unique"
 
         levels_present.add(level)
@@ -312,6 +374,28 @@ def classify_blocks(installed_raw: str, shipped_raw: str, *, source: str = "inli
                 unique_sample_tokens.append(tok)
         else:
             shared_count += 1
+
+    notes = ""
+    if not inst and installed_global:
+        # Every installed block fell under the noise floor, so no
+        # block-level containment was demonstrated at all. Never report
+        # exact/contained (and thus never safe-to-remove) on zero evidence:
+        # a whole-document token subset degrades to reorg; any
+        # installed-only token makes the document HAS_UNIQUE.
+        if multiset_subset(installed_global, shipped_global_all):
+            levels_present.add("reorg")
+        else:
+            levels_present.add("unique")
+            for b in installed_blocks:
+                if b.tokens - shipped_global_all:
+                    unique_blocks.append(b.label or b.kind)
+                    installed_only_chars += len(b.raw_text)
+            for tok in installed_global - shipped_global_all:
+                if len(unique_sample_tokens) >= UNIQUE_SAMPLE_LIMIT:
+                    break
+                unique_sample_tokens.append(tok)
+    elif "unique" not in levels_present and (installed_global - shipped_global_all):
+        notes = "installed-only tokens present in sub-noise-floor fragments (tolerated as noise)"
 
     classification = "HAS_UNIQUE" if "unique" in levels_present else "SUBSET"
 
@@ -330,6 +414,7 @@ def classify_blocks(installed_raw: str, shipped_raw: str, *, source: str = "inli
         installed_only_chars=installed_only_chars,
         unique_sample_tokens=unique_sample_tokens[:UNIQUE_SAMPLE_LIMIT],
         source=source,
+        notes=notes,
     )
 
 

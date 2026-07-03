@@ -74,15 +74,17 @@ def _parse_yaml_simple(text: str) -> dict:
             result[key] = _coerce(val)
             continue
 
-        # Nested key-value under a section
-        nested_match = re.match(r"^\s+([a-zA-Z_]\w*):\s+(.+)$", stripped)
+        # Nested key-value under a section. Match against the ORIGINAL line —
+        # `stripped` has no leading whitespace, so matching it would silently
+        # flatten nested keys to the top level (dropping the whole section).
+        nested_match = re.match(r"^\s+([a-zA-Z_]\w*):\s+(.+)$", line)
         if nested_match and current_section is not None:
             key, val = nested_match.group(1), nested_match.group(2).strip().strip("'\"")
             result[current_section][key] = _coerce(val)
             continue
 
-        # List item under a section
-        list_match = re.match(r"^\s+-\s+(.+)$", stripped)
+        # List item under a section (also matched against the original line)
+        list_match = re.match(r"^\s+-\s+(.+)$", line)
         if list_match and current_section is not None:
             val = list_match.group(1).strip().strip("'\"")
             if not isinstance(result[current_section], list):
@@ -297,27 +299,54 @@ def get_token_saver_config(config: dict) -> dict:
     }
 
 
+def _as_bool_flag(value, default: bool) -> bool:
+    """Coerce a config flag to bool without Python-truthiness surprises.
+
+    YAML users commonly quote booleans (`github_issue: "false"`), which
+    `bool(...)` would coerce to True. Recognized string spellings map to
+    their boolean meaning; None, unrecognized strings, and other types fall
+    back to the documented default.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "yes", "on", "1"):
+            return True
+        if lowered in ("false", "no", "off", "0"):
+            return False
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
 def get_upgrade_config(config: dict) -> dict:
     """Extract the `upgrade:` block from config, with conservative defaults.
 
     Mirrors get_token_saver_config: reads the three `upgrade.*` keys and falls
-    back to documented backward-compatible defaults when the block (or a key) is
-    absent — a config that predates the upgrade surface. Defaults are the safe
-    status quo: report-only handoff, no gh issue, new de-scope behavior.
+    back to documented backward-compatible defaults when the block (or a key)
+    is absent, explicitly null, or malformed — a config that predates the
+    upgrade surface. Defaults are the safe status quo:
 
       * customization_handoff        -> "report" (never auto-relocate/-issue)
       * github_issue                 -> False    (opt-in, interactive only)
-      * descope_preserve_paths_edits -> False    (new behavior: remove a
-                                                   paths-only-edited de-scoped rule)
+      * descope_preserve_paths_edits -> True     (keep today's behavior:
+                                                   preserve a paths-only-edited
+                                                   de-scoped rule; False opts in
+                                                   to removing it)
     """
     upgrade = config.get("upgrade", {})
     if not isinstance(upgrade, dict):
         upgrade = {}
+    handoff = upgrade.get("customization_handoff", "report")
+    if not isinstance(handoff, str) or not handoff.strip():
+        handoff = "report"
     return {
-        "customization_handoff": upgrade.get("customization_handoff", "report"),
-        "github_issue": bool(upgrade.get("github_issue", False)),
-        "descope_preserve_paths_edits": bool(
-            upgrade.get("descope_preserve_paths_edits", False)
+        "customization_handoff": handoff,
+        "github_issue": _as_bool_flag(upgrade.get("github_issue"), False),
+        "descope_preserve_paths_edits": _as_bool_flag(
+            upgrade.get("descope_preserve_paths_edits"), True
         ),
     }
 

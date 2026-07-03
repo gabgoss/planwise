@@ -179,6 +179,107 @@ Some real body content that has enough tokens to not be noise.
         d["extra_context_field"] = "agent added this"
         self.assertEqual(sc.StructuralVerdict.from_dict(d), v)
 
+    def test_tiny_unrelated_file_never_safe_to_remove(self):
+        # A document whose every block falls under the noise floor has
+        # demonstrated no containment at all — it must not classify as
+        # exact/safe-to-remove against unrelated shipped content.
+        shipped = """## Deployment
+Follow the standard release checklist and confirm approvals before shipping.
+"""
+        v = sc.classify_blocks("custom local rule\n", shipped)
+        self.assertEqual(v.classification, "HAS_UNIQUE")
+        self.assertFalse(sc.is_safe_to_remove(v))
+
+    def test_tiny_covered_file_degrades_to_reorg(self):
+        # All-noise installed content whose tokens DO all appear in shipped
+        # is a whole-document subset, but with no block-level evidence the
+        # confidence degrades to reorg — never safe-to-remove.
+        shipped = """## Standard Release Checklist
+Confirm the required approvals before shipping anything to production users.
+"""
+        v = sc.classify_blocks("required approvals\n", shipped)
+        self.assertEqual(v.classification, "SUBSET")
+        self.assertEqual(v.confidence, "reorg")
+        self.assertFalse(sc.is_safe_to_remove(v))
+
+    def test_numeric_value_edit_is_not_subset(self):
+        # A line-leading numeric VALUE is content: editing it must change
+        # the verdict (only heading enumeration is normalized away).
+        shipped = """## Limits
+3 retries maximum before the task runner gives up entirely.
+"""
+        installed = """## Limits
+10 retries maximum before the task runner gives up entirely.
+"""
+        v = sc.classify_blocks(installed, shipped)
+        self.assertFalse(sc.is_subset(v))
+        self.assertFalse(sc.is_safe_to_remove(v))
+
+    def test_plain_numeric_heading_renumber_normalizes(self):
+        # Pure heading renumbering ("## 2. Setup" -> "## 2.1 Setup") is
+        # structural churn and normalizes away: identical bodies stay SUBSET.
+        shipped = """## 2. Setup
+Follow these steps to install and configure the tool correctly for use.
+"""
+        installed = """## 2.1 Setup
+Follow these steps to install and configure the tool correctly for use.
+"""
+        v = sc.classify_blocks(installed, shipped)
+        self.assertTrue(sc.is_subset(v))
+        self.assertEqual(v.confidence, "exact")
+
+    def test_nested_fence_markers_stay_inert(self):
+        # A ``` pair nested inside a ~~~ fence must not close the outer
+        # fence: fences close only on the same character at >= length.
+        content = """### Real One
+Real prose content with enough meaningful tokens to matter here.
+
+~~~markdown
+```
+### Fake Heading Inside
+```
+~~~
+
+### Real Two
+More real prose after the tilde fence closes for good measure.
+"""
+        blocks = sc.segment_blocks(content)
+        heading_labels = [b.label for b in blocks if b.kind == "heading"]
+        self.assertEqual(heading_labels, ["Real One", "Real Two"])
+        self.assertNotIn("Fake Heading Inside", heading_labels)
+
+    def test_quoted_fence_inside_callout_not_split(self):
+        # A fence quoted inside a callout ("> ```") must keep quoted example
+        # callout/heading lines inert — the real callout stays one block.
+        content = """> [!binding] Real Policy
+> This real callout explains an enforcement mechanism in enough words.
+> ```markdown
+> [!template] Example Inside Quoted Fence
+> ### Example Heading Inside Quoted Fence
+> ```
+> Closing remark line of the real callout with several more tokens.
+"""
+        blocks = sc.segment_blocks(content)
+        callout_labels = [b.label for b in blocks if b.kind == "callout"]
+        self.assertEqual(callout_labels, ["[!binding] Real Policy"])
+        all_labels = [b.label for b in blocks]
+        self.assertNotIn("[!template] Example Inside Quoted Fence", all_labels)
+        self.assertNotIn("Example Heading Inside Quoted Fence", all_labels)
+
+    def test_from_dict_partial_verdict(self):
+        # A partial agent verdict with the two core fields deserializes with
+        # neutral defaults; missing core fields raise ValueError (callers
+        # degrade to a preserve verdict instead of crashing).
+        v = sc.StructuralVerdict.from_dict(
+            {"classification": "SUBSET", "confidence": "exact"}
+        )
+        self.assertEqual(v.classification, "SUBSET")
+        self.assertEqual(v.unique_blocks, [])
+        self.assertEqual(v.shared_blocks, 0)
+
+        with self.assertRaises(ValueError):
+            sc.StructuralVerdict.from_dict({"confidence": "exact"})
+
 
 if __name__ == "__main__":
     unittest.main()

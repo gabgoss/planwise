@@ -491,5 +491,107 @@ class TestLinter(_MigrationFixtureBase):
         )
 
 
+class TestUpgradeConfigFoundation(unittest.TestCase):
+    """Foundation invariants for the `upgrade:` config surface.
+
+    Plain TestCase on purpose: these are pure constant/function assertions
+    that need none of the migration fixture's temp project tree.
+    """
+
+    _DEFAULTS = {
+        "customization_handoff": "report",
+        "github_issue": False,
+        # True preserves today's behavior (a paths-only-edited de-scoped
+        # rule is kept); False is the explicit opt-in to removal.
+        "descope_preserve_paths_edits": True,
+    }
+
+    def test_get_upgrade_config_defaults_on_absent_block(self):
+        import config_loader as cl
+
+        self.assertEqual(
+            cl.get_upgrade_config({}),
+            self._DEFAULTS,
+            "get_upgrade_config({}) must return the conservative defaults",
+        )
+
+    def test_get_upgrade_config_defaults_on_non_dict_block(self):
+        import config_loader as cl
+
+        self.assertEqual(
+            cl.get_upgrade_config({"upgrade": "not-a-dict"}),
+            self._DEFAULTS,
+            "A non-dict upgrade: block must also fall back to defaults",
+        )
+
+    def test_get_upgrade_config_string_booleans_not_truthy_coerced(self):
+        import config_loader as cl
+
+        result = cl.get_upgrade_config(
+            {"upgrade": {"github_issue": "false", "descope_preserve_paths_edits": "false"}}
+        )
+        self.assertFalse(
+            result["github_issue"],
+            'a quoted "false" must mean False, not bool-truthy True',
+        )
+        self.assertFalse(result["descope_preserve_paths_edits"])
+        result = cl.get_upgrade_config({"upgrade": {"github_issue": "true"}})
+        self.assertTrue(result["github_issue"])
+
+    def test_get_upgrade_config_null_handoff_falls_back_to_report(self):
+        import config_loader as cl
+
+        result = cl.get_upgrade_config({"upgrade": {"customization_handoff": None}})
+        self.assertEqual(
+            result["customization_handoff"],
+            "report",
+            "an explicitly-null customization_handoff must fall back to 'report'",
+        )
+
+    def test_upgrade_in_migratable_top_level_keys(self):
+        self.assertIn(
+            "upgrade",
+            ip.MIGRATABLE_TOP_LEVEL_KEYS,
+            "MIGRATABLE_TOP_LEVEL_KEYS must include 'upgrade' so --migrate "
+            "backfills the block into existing configs",
+        )
+
+    def test_rule_comparator_in_installed_agents(self):
+        self.assertIn(
+            "rule-comparator.md",
+            ip.INSTALLED_AGENTS,
+            "INSTALLED_AGENTS must include 'rule-comparator.md'",
+        )
+
+
+class TestNormalizeRuleForDiffFallback(unittest.TestCase):
+    """normalize_rule_for_diff must be byte-identical with and without the
+    structural_compare module (the degraded-install fallback path)."""
+
+    SAMPLES = [
+        "---\npaths: a/**\ndescription: x\n---\n# H\nbody\n",
+        "---\ndescription: x\npaths: '{plans_path}/**'\n---\n# H\nbody\n",
+        "---\npaths: a/**\n---\nbody only\n",
+        "# no frontmatter\nbody\n",
+        "---\nunterminated frontmatter\n",
+        "",
+    ]
+
+    def test_fallback_split_byte_identical(self):
+        for sample in self.SAMPLES:
+            with_module = ip.normalize_rule_for_diff(sample)
+            saved = ip.structural_compare
+            try:
+                ip.structural_compare = None
+                without_module = ip.normalize_rule_for_diff(sample)
+            finally:
+                ip.structural_compare = saved
+            self.assertEqual(
+                with_module,
+                without_module,
+                f"fallback output diverged for sample: {sample!r}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

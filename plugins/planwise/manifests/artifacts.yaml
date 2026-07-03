@@ -332,6 +332,49 @@ artifacts:
       user customized. Listed individually because it has a named consumer
       worth documenting.
 
+  - id: upgrade_block
+    on_disk: "{planwise_root}/config.yaml (key: upgrade)"
+    config_keys:
+      - "upgrade"
+    producer: "generate_config() / --migrate"
+    consumers:
+      - "/planwise upgrade (customization handoff, gh issue, de-scope policy)"
+    missing_key_behavior: migrate_only
+    upgrade_behavior: migrate_only
+    notes: >
+      Three keys (customization_handoff, github_issue,
+      descope_preserve_paths_edits) controlling HAS_UNIQUE handoff routing and
+      the de-scope paths-only-edit policy. Handlers default to report / false /
+      false when the block is absent; `--migrate` adds it to existing configs.
+
+  - id: rule_comparator_agent
+    on_disk: ".claude/agents/rule-comparator.md"
+    config_keys: []
+    producer: "install_agents()"
+    consumers:
+      - "/planwise upgrade (interactive divergence fan-out)"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: refresh_or_sidecar
+    notes: >
+      Semantic comparator subagent spawned once per diverged rule/agent during
+      interactive upgrade to classify SUBSET vs HAS_UNIQUE. Mirrored into
+      .claude/agents/ for bare-name resolution; covered by the planwise_agents
+      glob row for refresh, listed individually for contributor visibility.
+
+  - id: customization_report
+    on_disk: "{planwise_root}/upgrade-conflicts/{from}-to-{to}/ (INDEX.md + .new sidecars + verdicts.json)"
+    config_keys: []
+    producer: "upgrade_artifacts() / handlers/upgrade.md fan-out"
+    consumers:
+      - "/planwise upgrade (HAS_UNIQUE handoff)"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: not_installed
+    notes: >
+      Generated handoff surface for preserved HAS_UNIQUE customizations. Reuses
+      the existing upgrade-conflicts INDEX.md + sidecars rather than a new
+      standalone report file. Never installed; row exists so the relocate/gh
+      opt-in escalations don't invent a duplicate artifact path.
+
 
 # Skills register their config dependencies here so the gap-detection rule
 # stays mechanical. To extend:
