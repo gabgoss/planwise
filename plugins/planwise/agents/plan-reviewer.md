@@ -477,6 +477,22 @@ Fix: Categorize per references/task-content-fidelity.md §9.B.4 | Confidence: ME
 ```
 - **Insert:** Sixth item under `**New checks (task content fidelity — Required Context):**`.
 
+### Check 071 — Shared-Context Est. Lines Fan-Out Consistency
+
+- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `handlers/plan.md` §Step 8c (shared-context pre-pass) | NEW
+- **What:** When the same file path appears in the Required Context of ≥2 tasks, the `Est. Lines` value MUST be identical across those rows AND within tolerance of the live `wc -l`. A multiply-cited file is measured once and the single value fanned out — divergent rows, or a shared-doc estimate deviating >15% from `wc -l`, is a replicated-drift candidate: one stale guess copied into every citing task's Context subtotal and header. The check is direction-agnostic — an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver large-file scan or under-budget a DELEGATED dispatch — so flag ANY divergence or stale value, not only under-estimates.
+- **Detection:**
+  1. Group all tasks' Required Context rows by file path. For any path cited in ≥2 rows, compare the `Est. Lines` values — any mismatch → WARNING (name the file path, the task IDs involved, and the divergent values).
+  2. For each such shared path, measure the live file with `wc -l` (never a Read-output line number — same evidence rule as Check 069) and compare against the fanned value — >15% delta → WARNING.
+- **Finding template:**
+```
+[WARNING] Shared-context Est. Lines divergent/stale across citing tasks
+File: {cited file path} | Location: Required Context rows in {task IDs}
+Issue: {Est. Lines values {A} vs {B} diverge across citing tasks | fanned value {N} deviates {pct}% from live wc -l ({actual})}
+Fix: Re-measure once with wc -l, fan the identical value into every citing row, re-roll affected subtotals/headers/session totals per handlers/plan.md Step 8c | Confidence: MEDIUM
+```
+- **Insert:** Seventh item under `**New checks (task content fidelity — Required Context):**`.
+
 **New checks (schema pin & token budget):**
 
 ### Check 022 — Task Schema Pin Pre-Execution Form
