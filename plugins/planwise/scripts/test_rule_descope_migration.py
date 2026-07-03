@@ -27,8 +27,10 @@ INSTALLED_RULES). That is the intended TDD red state, not a fixture bug.
 import shutil
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # Allow `import init_project` whether unittest is launched from the repo root
 # (python -m unittest scripts/test_...) or from inside scripts/.
@@ -147,6 +149,18 @@ def _snapshot_tree(root: Path) -> dict[str, bytes]:
     return snap
 
 
+def _verdict(classification, confidence="contained", unique_blocks=()):
+    """Build a canned StructuralVerdict-shaped object for the monkeypatch seam.
+
+    Disposition tests patch `ip._classify_diverged` to return one of these so
+    the assertions pin the site's disposition logic, not the real
+    structural_compare primitive's segmentation accuracy.
+    """
+    return types.SimpleNamespace(
+        classification=classification, confidence=confidence,
+        unique_blocks=list(unique_blocks))
+
+
 class _MigrationFixtureBase(unittest.TestCase):
     """Builds a temporary project tree with a fake install + references dir."""
 
@@ -211,6 +225,29 @@ class _MigrationFixtureBase(unittest.TestCase):
         if filename in EXPECTED_DESCOPED_ALL:
             return self.all_paths_value
         return self.plans_paths_value
+
+    def write_upgrade_config(self, **upgrade_overrides) -> Path:
+        """Write config.yaml with an `upgrade:` block under the fixture root.
+
+        Exercises the `descope_preserve_paths_edits` opt-out that
+        migrate_installed_rules() reads via get_upgrade_config() at the
+        Site-1 fast path. Absent unless a test calls this — no config.yaml
+        means the conservative defaults apply.
+        """
+        config_dir = self.project_root / self.cfg.planwise_root
+        config_dir.mkdir(parents=True, exist_ok=True)
+        lines = ["upgrade:"]
+        for key, value in upgrade_overrides.items():
+            if value is True:
+                yaml_value = "true"
+            elif value is False:
+                yaml_value = "false"
+            else:
+                yaml_value = str(value)
+            lines.append(f"  {key}: {yaml_value}")
+        config_path = config_dir / "config.yaml"
+        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return config_path
 
 
 class TestRulePartition(_MigrationFixtureBase):
@@ -434,6 +471,154 @@ class TestMigrationBranches(_MigrationFixtureBase):
             "Version-gated no-op must leave the tree byte-for-byte identical",
         )
 
+    # -- verdict-driven disposition cases (monkeypatch seam) -----------------
+
+    def test_subset_of_reflowed_shipped_is_removed(self):
+        filename = "session-plan-requirements.md"
+        shipped_body = "# Session Plan Requirements\n\nOriginal line.\nGrown extra line.\n"
+        installed_body = "# Session Plan Requirements\n\nOriginal line.\n"
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertFalse(
+            installed.exists(),
+            "A stale SUBSET (contained confidence) of the grown shipped "
+            "reference must be removed",
+        )
+        removed = _report_section(report, "removed", "deleted")
+        self.assertTrue(
+            any(filename in entry for entry in removed),
+            f"{filename} must be reported under removed",
+        )
+
+    def test_has_unique_is_preserved_with_block_count(self):
+        filename = "session-context-budget.md"
+        shipped_body = "# Session Context Budget\n\nShipped body.\n"
+        installed_body = (
+            "# Session Context Budget\n\nShipped body.\n# Extra\nUser-added block.\n"
+        )
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(installed.exists(), "HAS_UNIQUE must be preserved, not removed")
+        self.assertEqual(
+            installed.read_bytes(), before, "HAS_UNIQUE file must be kept byte-for-byte"
+        )
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(
+                filename in entry and "1 customized block" in entry
+                for entry in preserved
+            ),
+            f"{filename} must be reported preserved with the unique block count",
+        )
+        removed = _report_section(report, "removed", "deleted")
+        self.assertFalse(
+            any(filename in entry for entry in removed),
+            "HAS_UNIQUE must never appear under removed",
+        )
+
+    def test_reorg_subset_is_preserved_with_inconclusive_notice(self):
+        filename = "session-execution-protocol.md"
+        shipped_body = (
+            "# Session Execution Protocol\n\nReflowed section A.\nReflowed section B.\n"
+        )
+        installed_body = "# Session Execution Protocol\n\nSection B.\nSection A.\n"
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(
+            installed.exists(),
+            "A reorg SUBSET is headless-inconclusive, not auto-removed",
+        )
+        self.assertEqual(installed.read_bytes(), before)
+        notice = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(
+                filename in entry and "inconclusive" in entry.lower()
+                for entry in notice
+            ),
+            f"{filename} must carry a headless-inconclusive notice",
+        )
+
+    def test_paths_only_edit_subset_is_removed_with_info(self):
+        filename = "scaffolding-hygiene.md"
+        body = "# Scaffolding Hygiene\n\nMatching body.\n"
+        self.write_shipped(filename, body)
+        custom_paths = self.old_default_for(filename) + ", custom/**"
+        installed = self.write_installed(filename, body, custom_paths)
+        self.write_upgrade_config(descope_preserve_paths_edits=False)
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            side_effect=AssertionError("fast path must not consult the primitive"),
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertFalse(
+            installed.exists(),
+            "Body-identical, paths-only-edited de-scoped rule must be removed "
+            "when the preserve opt-out is disabled",
+        )
+        removed = _report_section(report, "removed", "deleted")
+        matches = [entry for entry in removed if filename in entry]
+        self.assertTrue(matches, f"{filename} must be reported under removed")
+        self.assertTrue(
+            any("INFO" in entry for entry in matches),
+            "The removed notice must carry the [INFO] token for a paths-only edit",
+        )
+
+    def test_paths_only_edit_opt_out_is_preserved(self):
+        filename = "task-content-fidelity.md"
+        body = "# Task Content Fidelity\n\nMatching body.\n"
+        self.write_shipped(filename, body)
+        custom_paths = self.old_default_for(filename) + ", custom/**"
+        installed = self.write_installed(filename, body, custom_paths)
+        before = installed.read_bytes()
+        self.write_upgrade_config(descope_preserve_paths_edits=True)
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            side_effect=AssertionError("fast path must not consult the primitive"),
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(
+            installed.exists(),
+            "Body-identical, paths-only-edited de-scoped rule must be preserved "
+            "when the preserve opt-out is enabled",
+        )
+        self.assertEqual(installed.read_bytes(), before)
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(filename in entry for entry in preserved),
+            f"{filename} must be reported preserved (opt-out enabled)",
+        )
+
 
 class TestLinter(_MigrationFixtureBase):
     """lint_rule_overscope() flags overscoped rules without mutating disk."""
@@ -591,6 +776,248 @@ class TestNormalizeRuleForDiffFallback(unittest.TestCase):
                 without_module,
                 f"fallback output diverged for sample: {sample!r}",
             )
+
+
+class _UpgradeArtifactsFixtureBase(unittest.TestCase):
+    """Builds a temp tree for exercising upgrade_artifacts() (Sites 2/3).
+
+    Separate from _MigrationFixtureBase's DESCOPED_RULES-driven tree: this
+    fixture monkeypatches the INSTALLED_RULES / INSTALLED_AGENTS module
+    globals to a single fixture entry each, so the three-way rules/agents
+    branches in upgrade_artifacts() can be exercised without needing every
+    real shipped rule/agent file on disk.
+    """
+
+    RULE_FILENAME = "agent-authoring.md"
+    RULE_PATHS_TEMPLATE = ".claude/agents/**"
+    AGENT_FILENAME = "fix-agent.md"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="rso_upgrade_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+        self.project_root = self.tmp / "project"
+        self.plugin_root = self.tmp / "plugin"
+
+        self.rules_dst_dir = self.project_root / ".claude" / "rules" / "planwise"
+        self.refs_dir = self.plugin_root / "references"
+        self.agents_dst_dir = self.project_root / ".claude" / "agents"
+        self.agents_src_dir = self.plugin_root / "agents"
+        for d in (self.rules_dst_dir, self.refs_dir, self.agents_dst_dir, self.agents_src_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        self.cfg = ip.InitConfig(
+            project_name="FixtureProject",
+            project_root=self.project_root,
+            plugin_root=self.plugin_root,
+        )
+        self.manifest = {"artifacts": []}
+
+        # Scope the module-global allowlists to this fixture's single rule and
+        # single agent, so upgrade_artifacts() iterates exactly the files this
+        # test controls (no unrelated real-shipped-file warnings/untracked noise).
+        rules_patch = mock.patch.object(
+            ip, "INSTALLED_RULES", [(self.RULE_FILENAME, self.RULE_PATHS_TEMPLATE)]
+        )
+        agents_patch = mock.patch.object(ip, "INSTALLED_AGENTS", [self.AGENT_FILENAME])
+        rules_patch.start()
+        agents_patch.start()
+        self.addCleanup(rules_patch.stop)
+        self.addCleanup(agents_patch.stop)
+
+    # -- rule helpers ---------------------------------------------------------
+
+    def _rule_text(self, body: str, paths_value: str) -> str:
+        return f"---\ndescription: fixture rule\npaths: {paths_value}\n---\n{body}"
+
+    def write_shipped_rule(self, body: str, paths_value: str | None = None) -> Path:
+        dst = self.refs_dir / self.RULE_FILENAME
+        dst.write_text(
+            self._rule_text(body, paths_value or self.RULE_PATHS_TEMPLATE),
+            encoding="utf-8",
+        )
+        return dst
+
+    def write_installed_rule(self, body: str, paths_value: str) -> Path:
+        dst = self.rules_dst_dir / self.RULE_FILENAME
+        dst.write_text(self._rule_text(body, paths_value), encoding="utf-8")
+        return dst
+
+    # -- agent helpers ----------------------------------------------------------
+
+    def write_shipped_agent(self, body: str) -> Path:
+        dst = self.agents_src_dir / self.AGENT_FILENAME
+        dst.write_text(body, encoding="utf-8")
+        return dst
+
+    def write_installed_agent(self, body: str) -> Path:
+        dst = self.agents_dst_dir / self.AGENT_FILENAME
+        dst.write_text(body, encoding="utf-8")
+        return dst
+
+    # -- run + derived paths ------------------------------------------------
+
+    def run_upgrade(self, from_version="1.0.0", to_version="1.1.0"):
+        return ip.upgrade_artifacts(self.cfg, self.manifest, from_version, to_version)
+
+    def conflict_dir(self, from_version="1.0.0", to_version="1.1.0") -> Path:
+        return (
+            self.project_root / self.cfg.planwise_root / "upgrade-conflicts"
+            / f"{from_version}-to-{to_version}"
+        )
+
+
+class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
+    """One test per Sites 2/3 disposition branch of upgrade_artifacts()."""
+
+    def test_conflict_subset_refreshes_in_place_no_sidecar(self):
+        shipped_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Rule\n\nShipped superset body.\n"
+        custom_paths = ".claude/agents/**, custom/**"
+        shipped_dst = self.write_shipped_rule(shipped_body)
+        shipped_raw = shipped_dst.read_text(encoding="utf-8")
+        installed = self.write_installed_rule(installed_body, custom_paths)
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        self.assertIn(str(installed), refreshed)
+        self.assertIn(str(installed), refreshed_subsets)
+        self.assertEqual(conflicts, [])
+
+        updated = installed.read_text(encoding="utf-8")
+        self.assertEqual(
+            ip.normalize_rule_for_diff(updated),
+            ip.normalize_rule_for_diff(shipped_raw),
+            "Refreshed body must equal the shipped body (normalized)",
+        )
+        self.assertEqual(
+            ip._extract_paths_value(updated), custom_paths,
+            "The per-project paths: must be preserved across the refresh",
+        )
+        sidecar = (
+            self.conflict_dir() / ".claude" / "rules" / "planwise"
+            / f"{self.RULE_FILENAME}.new"
+        )
+        self.assertFalse(sidecar.exists(), "A SUBSET refresh must NOT write a .new sidecar")
+
+    def test_conflict_has_unique_keeps_and_writes_sidecar_and_index(self):
+        shipped_body = "# Rule\n\nShipped body.\n"
+        installed_body = "# Rule\n\nShipped body.\n# Extra\nUser-added block.\n"
+        custom_paths = ".claude/agents/**, custom/**"
+        shipped_dst = self.write_shipped_rule(shipped_body)
+        shipped_raw = shipped_dst.read_text(encoding="utf-8")
+        installed = self.write_installed_rule(installed_body, custom_paths)
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        self.assertEqual(
+            installed.read_bytes(), before, "HAS_UNIQUE rule must be left untouched"
+        )
+        self.assertEqual(refreshed_subsets, [])
+        self.assertNotIn(str(installed), refreshed)
+        self.assertTrue(conflicts, "HAS_UNIQUE must record a conflict")
+        dst_path, sidecar_path = conflicts[0]
+        self.assertEqual(dst_path, str(installed))
+        sidecar = Path(sidecar_path)
+        self.assertTrue(sidecar.exists(), ".new sidecar must be written for HAS_UNIQUE")
+        self.assertEqual(sidecar.read_text(encoding="utf-8"), shipped_raw)
+
+        index_path = self.conflict_dir() / "INDEX.md"
+        self.assertTrue(index_path.exists(), "INDEX.md must be written when conflicts exist")
+        index_text = index_path.read_text(encoding="utf-8")
+        self.assertIn(str(installed), index_text)
+
+    def test_agent_subset_overwrites_shipped_no_sidecar(self):
+        shipped_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Agent\n\nShipped superset body.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        self.assertEqual(
+            installed.read_text(encoding="utf-8"), shipped_body,
+            "A SUBSET agent must be overwritten with the shipped body verbatim",
+        )
+        self.assertIn(str(installed), refreshed)
+        self.assertIn(str(installed), refreshed_subsets)
+        self.assertEqual(conflicts, [])
+        sidecar = (
+            self.conflict_dir() / ".claude" / "agents" / f"{self.AGENT_FILENAME}.new"
+        )
+        self.assertFalse(
+            sidecar.exists(), "A SUBSET agent refresh must NOT write a .new sidecar"
+        )
+
+    def test_agent_has_unique_keeps_and_writes_sidecar(self):
+        shipped_body = "# Agent\n\nShipped body.\n"
+        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+                self.run_upgrade()
+            )
+
+        self.assertEqual(
+            installed.read_bytes(), before, "HAS_UNIQUE agent must be left untouched"
+        )
+        self.assertEqual(refreshed_subsets, [])
+        self.assertNotIn(str(installed), refreshed)
+        self.assertTrue(conflicts, "HAS_UNIQUE agent must record a conflict")
+        dst_path, sidecar_path = conflicts[0]
+        self.assertEqual(dst_path, str(installed))
+        sidecar = Path(sidecar_path)
+        self.assertTrue(
+            sidecar.exists(), ".new sidecar must be written for HAS_UNIQUE agent"
+        )
+        self.assertEqual(sidecar.read_text(encoding="utf-8"), shipped_body)
+
+    def test_byte_identical_skips_primitive(self):
+        body = "# Rule\n\nIdentical body.\n"
+        paths_value = ".claude/agents/**"
+        self.write_shipped_rule(body, paths_value)
+        installed_rule = self.write_installed_rule(body, paths_value)
+        agent_body = "# Agent\n\nIdentical body.\n"
+        self.write_shipped_agent(agent_body)
+        installed_agent = self.write_installed_agent(agent_body)
+
+        original = ip._classify_diverged
+        ip._classify_diverged = mock.Mock(
+            side_effect=AssertionError("fast path must not consult the primitive")
+        )
+        self.addCleanup(setattr, ip, "_classify_diverged", original)
+
+        refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            self.run_upgrade()
+        )
+
+        self.assertEqual(conflicts, [])
+        self.assertEqual(refreshed_subsets, [])
+        self.assertIn(str(installed_rule), unchanged)
+        self.assertIn(str(installed_agent), unchanged)
 
 
 if __name__ == "__main__":

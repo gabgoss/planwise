@@ -28,12 +28,13 @@ from datetime import date
 from enum import Enum
 from pathlib import Path
 
+from config_loader import get_upgrade_config
 from constants import InstallScope
 
 try:
     import structural_compare
-    # classify_blocks/is_safe_to_remove/is_subset are re-exported for downstream verdict
-    # consumers; not called in this module yet (StructuralVerdict and structural_compare.* are used).
+    # is_safe_to_remove/is_subset gate the disposition sites below;
+    # classify_blocks/StructuralVerdict are re-exported for downstream verdict consumers.
     from structural_compare import classify_blocks, is_safe_to_remove, is_subset, StructuralVerdict  # noqa: F401
     HAS_STRUCTURAL_COMPARE = True
 except ImportError:
@@ -41,6 +42,15 @@ except ImportError:
     # _classify_diverged) rather than hard-crash the whole CLI at import time.
     structural_compare = None
     HAS_STRUCTURAL_COMPARE = False
+
+    # Degraded predicates so the disposition call sites stay callable when the
+    # primitive module is unavailable. Both read attributes off the verdict
+    # object (duck-typed against the degraded HAS_UNIQUE stand-in).
+    def is_subset(v):           # noqa: E306
+        return getattr(v, "classification", "HAS_UNIQUE") == "SUBSET"
+
+    def is_safe_to_remove(v):   # noqa: E306
+        return is_subset(v) and getattr(v, "confidence", "unique") in {"exact", "contained"}
 
 try:
     import yaml
@@ -1124,13 +1134,18 @@ def migrate_installed_rules(
     pure no-op and touches nothing.
 
     For each (filename, old_template) in DESCOPED_RULES, the installed copy at
-    ``.claude/rules/planwise/{filename}`` is removed ONLY when it is provably
-    untouched by the user — its normalized body matches the shipped reference
-    AND its paths: line equals the resolved OLD default. ANY divergence (body
-    OR paths) leaves the file byte-for-byte unchanged and records a preserve
-    notice; the migration never deletes a customized copy and never defaults a
-    notice to recommending deletion. Rules outside DESCOPED_RULES are never
-    inspected or modified.
+    ``.claude/rules/planwise/{filename}`` is dispositioned as follows.
+    Normalized-identical body (fast path — the structural primitive is never
+    invoked): paths also match -> removed (provably untouched); paths differ ->
+    removed with an INFO notice (scoping is moot once the rule is
+    handler-loaded), unless ``upgrade.descope_preserve_paths_edits`` is true ->
+    preserved. Diverged body: classified via ``_classify_diverged()`` — a
+    provably stale SUBSET (confidence exact/contained) is removed; a reorg
+    SUBSET is preserved with a headless-inconclusive notice; HAS_UNIQUE (a
+    genuine customization) is always preserved byte-for-byte with a re-home
+    notice. The migration never deletes a HAS_UNIQUE copy and never defaults a
+    preserve notice to recommending deletion. Rules outside DESCOPED_RULES are
+    never inspected or modified.
 
     Returns ``{"removed": [...], "preserved": [...], "skipped": [...]}`` where
     each list holds human-readable strings (filename + reason). The shape is
@@ -1145,6 +1160,23 @@ def migrate_installed_rules(
 
     refs_dir = cfg.plugin_root / "references"
     rules_dir = cfg.project_root / ".claude" / "rules" / "planwise"
+
+    # The paths-edit opt-out lives under the `upgrade:` block in config.yaml.
+    # InitConfig does not carry the raw config dict, so load it at the site;
+    # tolerant on purpose — an absent/unparsable config degrades to {} and
+    # get_upgrade_config() supplies the conservative defaults.
+    config: dict = {}
+    if HAS_YAML:
+        try:
+            loaded = yaml.safe_load(
+                (cfg.project_root / cfg.planwise_root / "config.yaml").read_text(
+                    encoding="utf-8"
+                )
+            )
+        except (OSError, yaml.YAMLError):
+            loaded = None
+        if isinstance(loaded, dict):
+            config = loaded
 
     for filename, old_template in DESCOPED_RULES:
         dst = rules_dir / filename
@@ -1167,33 +1199,46 @@ def migrate_installed_rules(
             )
             continue
 
-        body_matches = (
-            normalize_rule_for_diff(installed_raw) == normalize_rule_for_diff(shipped_raw)
-        )
+        installed_norm = normalize_rule_for_diff(installed_raw)
+        shipped_norm = normalize_rule_for_diff(shipped_raw)
         installed_paths = _extract_paths_value(installed_raw)
-        old_default_paths = resolve_rule_paths_value(cfg, old_template)
-        paths_match = installed_paths == old_default_paths
+        paths_match = installed_paths == resolve_rule_paths_value(cfg, old_template)
 
-        if body_matches and paths_match:
-            dst.unlink()
-            report["removed"].append(
-                f"{filename}: removed — untouched de-scoped rule "
-                "(now handler-loaded from references/)"
-            )
-        else:
-            if not body_matches:
-                reason = "body-customized"
+        if installed_norm == shipped_norm:
+            # FAST PATH — normalized-identical; primitive NOT called.
+            if paths_match:
+                dst.unlink()
+                report["removed"].append(
+                    f"{filename}: removed — untouched de-scoped rule "
+                    "(now handler-loaded from references/)")
+            elif get_upgrade_config(config)["descope_preserve_paths_edits"]:   # dict contract; pass the config dict
+                report["preserved"].append(
+                    f"{filename}: kept (paths-customized; preserve opt-out enabled) — "
+                    "re-home or re-scope to the code dirs it governs")
             else:
-                reason = "paths-customized"
-            # Preserve byte-for-byte; the orchestrator now loads this rule from
-            # references/, so a user edit needs re-homing. Offer non-destructive
-            # options — never lead with a removal verdict for a customized file.
-            report["preserved"].append(
-                f"{filename}: kept ({reason}) — post-de-scope the orchestrator loads "
-                "this rule from references/, so re-home your edit: port it to a "
-                "project-local rule, keep it and re-scope to code paths, or upstream "
-                "the change. The installed copy was left unchanged."
-            )
+                dst.unlink()
+                report["removed"].append(
+                    f"{filename}: removed [INFO] — body matches shipped; custom paths: "
+                    "dropped (scoping is moot once the rule is handler-loaded)")
+        else:
+            verdict = _classify_diverged(installed_norm, shipped_norm)
+            if is_safe_to_remove(verdict):
+                dst.unlink()
+                report["removed"].append(
+                    f"{filename}: removed — stale subset of the grown shipped reference "
+                    "(now handler-loaded from references/)")
+            elif is_subset(verdict):                       # SUBSET but confidence == reorg
+                report["preserved"].append(
+                    f"{filename}: kept — headless inconclusive (content reorganized, not a "
+                    "clean subset); run /planwise upgrade interactively to agent-verify, "
+                    "or /planwise doctor, before removal")
+            else:                                          # HAS_UNIQUE
+                blocks = ", ".join(verdict.unique_blocks[:3]) or "see verdict"
+                report["preserved"].append(
+                    f"{filename}: kept ({len(verdict.unique_blocks)} customized block(s): "
+                    f"{blocks}) — the orchestrator now loads this rule from references/; "
+                    "re-home: port to a project-local rule, re-scope paths: to code dirs, "
+                    "or upstream the change. Installed copy unchanged.")
 
     return report
 
@@ -1248,19 +1293,24 @@ def upgrade_artifacts(
     manifest: dict,
     from_version: str,
     to_version: str,
-) -> tuple[list[str], list[str], list[tuple[str, str]], list[str]]:
+) -> tuple[list[str], list[str], list[tuple[str, str]], list[str], list[str]]:
     """Refresh artifacts whose upgrade_behavior is `refresh_or_sidecar`.
 
-    Returns a 4-tuple:
+    Returns a 5-tuple:
       refreshed: list of destination paths overwritten cleanly
       unchanged: list of destination paths whose installed body already matched the shipped body
       conflicts: list of (destination_path, sidecar_path) tuples — installed body diverged
+        and the structural verdict was HAS_UNIQUE (genuine customization)
       untracked: list of destination paths found in the install dirs but NOT in the manifest allowlist
+      refreshed_subsets: subset of `refreshed` whose entries were auto-adopted because the
+        installed body was a stale SUBSET of the (grown) shipped body — surfaced separately
+        so the caller can print a "N were stale subsets, auto-adopted shipped" banner sub-line
     """
     refreshed: list[str] = []
     unchanged: list[str] = []
     conflicts: list[tuple[str, str]] = []
     untracked: list[str] = []
+    refreshed_subsets: list[str] = []
 
     conflict_dir = (
         cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
@@ -1290,15 +1340,27 @@ def upgrade_artifacts(
             refreshed.append(str(dst))
         elif normalize_rule_for_diff(shipped_raw) == normalize_rule_for_diff(installed_raw):
             # Bodies match after stripping per-project paths: — no rewrite needed.
-            unchanged.append(str(dst))
+            unchanged.append(str(dst))  # FAST PATH — primitive NOT called
         else:
-            # Installed body diverged from shipped body — write sidecar for user review.
-            sidecar_dst = (
-                conflict_dir / ".claude" / "rules" / "planwise" / f"{filename}.new"
+            verdict = _classify_diverged(
+                normalize_rule_for_diff(installed_raw),
+                normalize_rule_for_diff(shipped_raw),
             )
-            sidecar_dst.parent.mkdir(parents=True, exist_ok=True)
-            sidecar_dst.write_text(shipped_raw, encoding="utf-8")
-            conflicts.append((str(dst), str(sidecar_dst)))
+            if is_subset(verdict):
+                # Stale subset — adopt shipped in place, preserve the project paths:.
+                preserved_paths = (
+                    _extract_paths_value(installed_raw)
+                    or resolve_rule_paths_value(cfg, paths_template))
+                dst.write_text(
+                    update_frontmatter(shipped_raw, preserved_paths), encoding="utf-8")
+                refreshed.append(str(dst))
+                refreshed_subsets.append(str(dst))         # banner sub-count
+            else:                                          # HAS_UNIQUE — keep + sidecar
+                sidecar_dst = (
+                    conflict_dir / ".claude" / "rules" / "planwise" / f"{filename}.new")
+                sidecar_dst.parent.mkdir(parents=True, exist_ok=True)
+                sidecar_dst.write_text(shipped_raw, encoding="utf-8")
+                conflicts.append((str(dst), str(sidecar_dst)))
 
     # --- planwise_agents ---
     agents_src_dir = cfg.plugin_root / "agents"
@@ -1321,12 +1383,18 @@ def upgrade_artifacts(
             dst.write_text(shipped_raw, encoding="utf-8")
             refreshed.append(str(dst))
         elif shipped_raw == installed_raw:
-            unchanged.append(str(dst))
+            unchanged.append(str(dst))                     # FAST PATH (byte-exact) — primitive NOT called
         else:
-            sidecar_dst = conflict_dir / ".claude" / "agents" / f"{filename}.new"
-            sidecar_dst.parent.mkdir(parents=True, exist_ok=True)
-            sidecar_dst.write_text(shipped_raw, encoding="utf-8")
-            conflicts.append((str(dst), str(sidecar_dst)))
+            verdict = _classify_diverged(installed_raw, shipped_raw)   # whole-file
+            if is_subset(verdict):
+                dst.write_text(shipped_raw, encoding="utf-8")          # overwrite, no frontmatter
+                refreshed.append(str(dst))
+                refreshed_subsets.append(str(dst))
+            else:                                                      # HAS_UNIQUE
+                sidecar_dst = conflict_dir / ".claude" / "agents" / f"{filename}.new"
+                sidecar_dst.parent.mkdir(parents=True, exist_ok=True)
+                sidecar_dst.write_text(shipped_raw, encoding="utf-8")
+                conflicts.append((str(dst), str(sidecar_dst)))
 
     # --- Untracked detection ---
     rule_allowlist = {r[0] for r in INSTALLED_RULES}
@@ -1355,7 +1423,7 @@ def upgrade_artifacts(
             lines.append(f"| {i} | {dst_path} | {sidecar_path} | (diff and merge manually) |")
         index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    return refreshed, unchanged, conflicts, untracked
+    return refreshed, unchanged, conflicts, untracked, refreshed_subsets
 
 
 def _bump_plugin_version(config_path: Path, new_version: str) -> None:
@@ -1476,12 +1544,16 @@ def _run_upgrade(cfg: "InitConfig") -> int:
 
     # 3. Refresh artifacts.
     manifest = load_artifact_manifest(cfg.plugin_root)
-    refreshed, unchanged, conflicts, untracked = upgrade_artifacts(
+    refreshed, unchanged, conflicts, untracked, refreshed_subsets = upgrade_artifacts(
         cfg, manifest, pinned_version, target_version
     )
 
     if refreshed:
         print(f"Refreshed: {len(refreshed)}")
+        if refreshed_subsets:
+            print(
+                f"  ({len(refreshed_subsets)} were stale subsets, auto-adopted shipped)"
+            )
         for r in refreshed:
             print(f"  + {r}")
     if unchanged:
