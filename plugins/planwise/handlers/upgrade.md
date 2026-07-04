@@ -304,12 +304,12 @@ Conflicts (preserved in place — action required): {N}   (conservative handoff 
       remediation: diff the sidecar against the installed file, merge manually, then delete the .new
   See {planwise_root}/upgrade-conflicts/<from>-to-<to>/INDEX.md for the full conflict list.
 
-De-scoped rules removed: {N} (now handler-loaded; untouched or a high-confidence stale subset — pre-change copy under upgrade-backups/)
+De-scoped rules removed: {N} (now handler-loaded; untouched, a high-confidence stale subset, or — under `customization_handoff: report+relocate`, and only when `paths:` also matches the resolved default or the preserve opt-out is disabled — a genuine customization already transferred to `upgrade-transfers/` first; pre-change copy under upgrade-backups/)
   - {file}
   …
-De-scoped rules preserved (action required): {N} (customised or headless-inconclusive — NOT auto-deleted)
+De-scoped rules preserved (action required): {N} (headless-inconclusive, paths: customised with the preserve opt-out enabled, the file could not be analyzed, or — under conservative handoff modes, or a failed transfer/backup — a genuine customization not yet moved)
   ! {file}
-      reason: customised (HAS_UNIQUE), installed-only content flagged, reorg-inconclusive, or paths: customised with the preserve opt-out enabled
+      reason: reorg-inconclusive, paths: customised with the preserve opt-out enabled, could not be analyzed (structural comparison unavailable — no evidence to act on), customised but `customization_handoff` is `report`/`report+issue` (or absent), or a transfer/backup write failed
       action: re-home as a project-local rule, OR re-scope paths: to the code dirs it governs, OR upstream the change
 
 Over-scope advisory: {N} rule(s) still scoped to plan/backlog paths (~{X}K injected per task-runner)
@@ -339,8 +339,8 @@ Artifacts unchanged:     {N}        (installed body already matched shipped)
 Untracked preserved:     {N}        ({list of files outside the manifest allowlist})
 Customizations transferred: {N}     (moved to {planwise_root}/upgrade-transfers/ before shipped was adopted — see Step 4.1)
 Conflicts:               {N}        (preserved in place — conservative handoff mode, transfer/backup/adoption failed, or not analyzed; see Step 4 if > 0)
-De-scoped removed:       {N}        (now handler-loaded; installed copy was untouched)
-De-scoped preserved:     {N}        (customised — action required, re-home not delete)
+De-scoped removed:       {N}        (now handler-loaded; untouched, or customised and transferred first under `report+relocate`)
+De-scoped preserved:     {N}        (conservative handoff mode, reorg-inconclusive, or a failed transfer/backup — action required, re-home not delete)
 Over-scope advisory:     {N}        (rules still plan/backlog-scoped — run `/planwise doctor`)
 
 Plugin version pinned:   {to}
@@ -440,8 +440,9 @@ into the shipped artifact so future consumers benefit.
 | Diverged file with an agent verdict in `verdicts.json` | Writer uses the agent's **semantic** verdict (supersedes the inline primitive); disposition shape unchanged | Nothing — fidelity raised on the minority |
 | Installed file absent | Writes shipped body fresh | Nothing — file just appeared |
 | File present, not in manifest allowlist | Reports as Untracked | Nothing — file is the user's own |
-| De-scoped rule, installed body **and** `paths:` untouched | Removes the redundant installed copy (rule is now handler-loaded from `references/`) | Nothing — the rule still applies, loaded on demand |
-| De-scoped rule, body **or** `paths:` customised | Preserves byte-for-byte + emits an action-required re-home notice (never auto-deletes) | Re-home: keep as a project-local rule, re-scope `paths:` to the code dirs it governs, or upstream the change |
+| De-scoped rule, installed body **and** `paths:` untouched (or a high-confidence stale subset, no tolerated notes) — AND, when `paths:` also diverges from the resolved default, `upgrade.descope_preserve_paths_edits` is `false` (opt-out disabled) | Removes the redundant installed copy (rule is now handler-loaded from `references/`; pre-image under `upgrade-backups/` first) | Nothing — the rule still applies, loaded on demand |
+| De-scoped rule, body diverged with a genuine customization (HAS_UNIQUE, or a SUBSET whose `notes` flag tolerated installed-only content), `paths:` matches the resolved default (or the preserve opt-out is disabled) — and `customization_handoff: report+relocate` | **Transfers** the installed body to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` (verified write), backs up the pre-image, **then removes** the installed copy | Review the transferred file and re-home it (Step 4.1 promote to an active rule, or Step 4.2 upstream) |
+| Same customization-bearing verdicts, but `customization_handoff` is `report` / `report+issue` (or absent); or the transfer/backup write failed; or `paths:` is customised — alone, or combined with a customized body — with the preserve opt-out enabled; or the SUBSET is reorg-inconclusive | Preserves byte-for-byte + emits an action-required re-home notice (never auto-deletes without a verified transfer, and a paths-customised copy is never given weaker protection than a body-only customization) | Re-home: keep as a project-local rule, re-scope `paths:` to the code dirs it governs, or upstream the change |
 
 ---
 

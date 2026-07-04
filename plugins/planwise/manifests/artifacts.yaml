@@ -273,7 +273,12 @@ artifacts:
       discipline injects when those artifacts are authored, and also read
       in-place by the promote/backlog self-containment grep gate. Covered by the
       planwise_rules glob row for refresh; listed individually because it has
-      cross-handler consumers worth documenting.
+      cross-handler consumers worth documenting. The canonical source is the
+      in-place references/ copy: the promote/backlog grep gate reads
+      references/artifact-self-containment.md in place, never this installed
+      copy, which is injection-only. The planwise_rules glob row owns the
+      refresh for this file (one INSTALLED_RULES entry); this row is
+      documentation-only and does not cause a second install/refresh pass.
 
   - id: lessons_curate_workflow_reference
     on_disk: "plugin in-place (references/lessons-curate-workflow.md)"

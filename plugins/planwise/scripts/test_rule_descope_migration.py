@@ -8,11 +8,17 @@ contract that the de-scope migration must satisfy:
   * DESCOPED_RULES enumerates the sixteen author-time rules removed from the
     install set (handler-loaded from references/ instead).
   * migrate_installed_rules(cfg, from_version, to_version) removes an installed
-    de-scoped rule ONLY when its normalized body matches the shipped body AND
-    its paths: line equals the resolved OLD default. ANY divergence (body OR
-    paths) leaves the file byte-for-byte unchanged and reports it as a notice.
-    It never auto-deletes a diverged file and never defaults to suggesting
-    deletion of one.
+    de-scoped rule when it is provably redundant: normalized body matches the
+    shipped body (with paths: equal to the resolved OLD default, or the
+    preserve opt-out disabled), or a high-confidence stale SUBSET with a clean
+    notes field. A customization-bearing copy (HAS_UNIQUE, or a SUBSET whose
+    notes flag tolerated installed-only content) is gated on the effective
+    `upgrade.customization_handoff`: `report+relocate` verified-transfers the
+    customization to the upgrade transfer helper's preservation home and only
+    then backs up and removes the stale file; any other value (including the
+    absent-key fallback, `report`) preserves it byte-for-byte with a re-home
+    notice. A failed transfer or backup means NO removal. The migration never
+    defaults to suggesting deletion of a preserved file.
   * lint_rule_overscope(cfg) flags plan-scoped rules (with a size/line field)
     without mutating anything on disk.
 
@@ -314,7 +320,14 @@ class TestRulePartition(_MigrationFixtureBase):
 
 
 class TestMigrationBranches(_MigrationFixtureBase):
-    """One test per branch of migrate_installed_rules()."""
+    """One test per branch of migrate_installed_rules().
+
+    No fixture here writes a `customization_handoff` key, so every
+    customization-bearing preserve assertion below pins the conservative
+    absent-key fallback (`report`): preserve in place, no transfer, no
+    removal. The `report+relocate` transfer-then-remove flow is pinned
+    separately in TestSite1TransferThenRemove.
+    """
 
     def _to_version(self) -> str:
         return str(ip.RESCOPE_MIGRATION_VERSION)
@@ -1150,6 +1163,11 @@ class TestMigrationVerdictNotesAndPathsGates(_MigrationFixtureBase):
     structural_compare primitive on a genuine strict-prefix subset, the
     upgrade-backups/DISPOSITIONS.md pre-image, per-file OSError containment,
     and the degraded-mode ("NOT analyzed") wording.
+
+    Like TestMigrationBranches, no fixture here sets `customization_handoff`,
+    so the customization-bearing preserve assertions pin the conservative
+    absent-key fallback (`report`). The `report+relocate` transfer-then-remove
+    flow is pinned in TestSite1TransferThenRemove.
     """
 
     def _to_version(self) -> str:
@@ -1360,6 +1378,450 @@ class TestMigrationVerdictNotesAndPathsGates(_MigrationFixtureBase):
             any("0 customized block(s)" in entry for entry in matches),
             "Degraded mode must never claim '0 customized block(s)' "
             "(analysis never ran)",
+        )
+
+
+class TestSite1TransferThenRemove(_MigrationFixtureBase):
+    """The de-scope migration's customization_handoff gate: a
+    customization-bearing de-scoped rule (HAS_UNIQUE, or a SUBSET whose notes
+    flag tolerated installed-only content) transfers-then-removes under
+    `customization_handoff: report+relocate` (the shipped template default),
+    and preserves in place under the conservative modes or on ANY
+    transfer/backup failure. The paths-edit preserve opt-out
+    (`descope_preserve_paths_edits`, default true) takes PRECEDENCE over the
+    handoff gate: a paths-customized copy is preserved in place even when the
+    body also carries a customization — never weaker protection for the
+    more-customized file. The migration reuses the artifact refresh
+    writer's `_transfer_customization()` helper and destination convention —
+    pinned here so the migration path can never drift onto a second transfer
+    writer or a different destination.
+    """
+
+    def _to_version(self) -> str:
+        return str(ip.RESCOPE_MIGRATION_VERSION)
+
+    def _transfer_dir(self) -> Path:
+        return (
+            self.project_root / self.cfg.planwise_root / "upgrade-transfers"
+            / f"0.0.0-to-{self._to_version()}"
+        )
+
+    def _backup_dir(self) -> Path:
+        return (
+            self.project_root / self.cfg.planwise_root / "upgrade-backups"
+            / f"0.0.0-to-{self._to_version()}"
+        )
+
+    def test_has_unique_transferred_then_removed_under_relocate(self):
+        filename = "session-context-budget.md"
+        shipped_body = "# Session Context Budget\n\nShipped body.\n"
+        installed_body = (
+            "# Session Context Budget\n\nShipped body.\n# Extra\nUser-added block.\n"
+        )
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        before = installed.read_bytes()
+        self.write_upgrade_config(customization_handoff="report+relocate")
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertFalse(
+            installed.exists(),
+            "Under report+relocate a HAS_UNIQUE de-scoped rule must be removed "
+            "after its customization is transferred",
+        )
+        transfer_file = self._transfer_dir() / filename
+        self.assertTrue(
+            transfer_file.exists(),
+            "The customization must land at the transfer helper's destination "
+            "(upgrade-transfers/{from}-to-{to}/)",
+        )
+        self.assertIn(
+            installed_body,
+            transfer_file.read_text(encoding="utf-8"),
+            "The transfer file must carry the full installed body",
+        )
+        backup_file = (
+            self._backup_dir() / ".claude" / "rules" / "planwise" / filename
+        )
+        self.assertTrue(
+            backup_file.exists(),
+            "Removal must be preceded by a pre-image backup under upgrade-backups/",
+        )
+        self.assertEqual(backup_file.read_bytes(), before)
+        self.assertTrue(
+            (self._backup_dir() / "DISPOSITIONS.md").exists(),
+            "The removal must be logged to DISPOSITIONS.md",
+        )
+        removed = _report_section(report, "removed", "deleted")
+        self.assertTrue(
+            any(filename in entry and "transferred" in entry for entry in removed),
+            "The removed notice must say the customization was transferred",
+        )
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertFalse(
+            any(filename in entry for entry in preserved),
+            "A transferred-then-removed file must not also appear under preserved",
+        )
+
+    def test_notes_flagged_subset_transferred_then_removed_under_relocate(self):
+        filename = "session-plan-requirements.md"
+        shipped_body = "# Session Plan Requirements\n\nOriginal line.\nGrown extra line.\n"
+        installed_body = "# Session Plan Requirements\n\nOriginal line.\n"
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        self.write_upgrade_config(customization_handoff="report+relocate")
+        notes_text = (
+            "installed-only tokens present in sub-noise-floor fragments "
+            "(tolerated as noise)"
+        )
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("SUBSET", "exact", notes=notes_text),
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertFalse(
+            installed.exists(),
+            "Under report+relocate a notes-flagged SUBSET (customization-bearing) "
+            "must be removed after its customization is transferred",
+        )
+        transfer_file = self._transfer_dir() / filename
+        self.assertTrue(transfer_file.exists())
+        self.assertIn(installed_body, transfer_file.read_text(encoding="utf-8"))
+        removed = _report_section(report, "removed", "deleted")
+        self.assertTrue(
+            any(filename in entry and "transferred" in entry for entry in removed)
+        )
+
+    def test_report_mode_preserves_untouched_no_transfer_no_removal(self):
+        filename = "ei-fidelity.md"
+        shipped_body = "# EI Fidelity\n\nShipped body.\n"
+        installed_body = "# EI Fidelity\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        before = installed.read_bytes()
+        self.write_upgrade_config(customization_handoff="report")
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(
+            installed.exists(),
+            "Under report (conservative) mode a HAS_UNIQUE de-scoped rule must "
+            "be preserved in place",
+        )
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertFalse(
+            self._transfer_dir().exists(),
+            "report mode must never write a transfer file",
+        )
+        removed = _report_section(report, "removed", "deleted")
+        self.assertFalse(any(filename in entry for entry in removed))
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(any(filename in entry for entry in preserved))
+
+    def test_transfer_failure_means_no_removal(self):
+        filename = "verification-gates.md"
+        shipped_body = "# Verification Gates\n\nShipped body.\n"
+        installed_body = "# Verification Gates\n\nShipped body.\n# Extra\nCustom.\n"
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        before = installed.read_bytes()
+        self.write_upgrade_config(customization_handoff="report+relocate")
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ), mock.patch.object(ip, "_transfer_customization", return_value=None):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(
+            installed.exists(),
+            "A failed transfer must mean NO removal — never destroy the only "
+            "copy of a customization",
+        )
+        self.assertEqual(installed.read_bytes(), before)
+        removed = _report_section(report, "removed", "deleted")
+        self.assertFalse(any(filename in entry for entry in removed))
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(
+                filename in entry and "transfer failed" in entry
+                for entry in preserved
+            ),
+            "The preserved notice must report the failed transfer",
+        )
+
+    def test_backup_failure_means_no_removal(self):
+        filename = "verify-against-shipped-artifact.md"
+        shipped_body = "# Verify Against Shipped Artifact\n\nShipped body.\n"
+        installed_body = (
+            "# Verify Against Shipped Artifact\n\nShipped body.\n# Extra\nCustom.\n"
+        )
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        before = installed.read_bytes()
+        self.write_upgrade_config(customization_handoff="report+relocate")
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ), mock.patch.object(ip, "_write_backup_preimage", return_value=False):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(
+            installed.exists(),
+            "A failed pre-removal backup must mean NO removal",
+        )
+        self.assertEqual(installed.read_bytes(), before)
+        transfer_file = self._transfer_dir() / filename
+        self.assertTrue(
+            transfer_file.exists(),
+            "The verified transfer precedes the backup, so the transfer file "
+            "exists even when the backup then fails",
+        )
+        removed = _report_section(report, "removed", "deleted")
+        self.assertFalse(any(filename in entry for entry in removed))
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(filename in entry and "backup" in entry for entry in preserved),
+            "The preserved notice must report the failed backup",
+        )
+
+    def test_paths_and_body_customized_preserved_under_relocate_with_optout_default(self):
+        # Regression (R1 finding 1): a rule customized in BOTH paths: AND body
+        # must never get WEAKER protection than one customized in paths: alone.
+        # With descope_preserve_paths_edits at its default (true, key absent),
+        # the paths-opt-out takes precedence over customization_handoff:
+        # report+relocate must NOT transfer-then-remove — preserve untouched.
+        filename = "task-content-fidelity.md"
+        shipped_body = "# Task Content Fidelity\n\nShipped body.\n"
+        installed_body = (
+            "# Task Content Fidelity\n\nShipped body.\n# Extra\nUser-added block.\n"
+        )
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, "src/custom/**"   # customized paths: line
+        )
+        before = installed.read_bytes()
+        # Only customization_handoff set; descope_preserve_paths_edits absent
+        # -> defaults to true via get_upgrade_config().
+        self.write_upgrade_config(customization_handoff="report+relocate")
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(
+            installed.exists(),
+            "A paths+body-customized rule must be preserved in place under "
+            "report+relocate while the paths-edit preserve opt-out is on — "
+            "the more-customized file must never get weaker protection than "
+            "the less-customized one",
+        )
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertFalse(
+            self._transfer_dir().exists(),
+            "The paths-opt-out precedence means NO transfer file is written",
+        )
+        removed = _report_section(report, "removed", "deleted")
+        self.assertFalse(any(filename in entry for entry in removed))
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(
+                filename in entry and "paths-customized" in entry
+                for entry in preserved
+            ),
+            "The preserve notice must attribute the preservation to the paths: "
+            "customization (existing notice convention)",
+        )
+
+    def test_paths_and_body_customized_notes_flagged_subset_also_preserved(self):
+        # Same precedence for the OTHER customization-bearing branch (a
+        # notes-flagged SUBSET): the paths-opt-out wins over report+relocate.
+        filename = "session-planning-protocol.md"
+        shipped_body = "# Session Planning Protocol\n\nOriginal line.\nGrown extra line.\n"
+        installed_body = "# Session Planning Protocol\n\nOriginal line.\n"
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, "src/custom/**"   # customized paths: line
+        )
+        before = installed.read_bytes()
+        self.write_upgrade_config(customization_handoff="report+relocate")
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict(
+                "SUBSET", "exact",
+                notes="installed-only tokens tolerated as sub-noise-floor fragments"),
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(installed.exists())
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertFalse(self._transfer_dir().exists())
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(filename in entry and "paths-customized" in entry for entry in preserved)
+        )
+
+    def test_paths_and_body_customized_relocated_when_optout_disabled(self):
+        # Counterpart: with descope_preserve_paths_edits explicitly false, the
+        # paths: customization no longer blocks the handoff gate — under
+        # report+relocate the body customization transfers and the file is
+        # removed (same flow as a paths-matching HAS_UNIQUE).
+        filename = "discovery-and-exit-criteria.md"
+        shipped_body = "# Discovery and Exit Criteria\n\nShipped body.\n"
+        installed_body = (
+            "# Discovery and Exit Criteria\n\nShipped body.\n# Extra\nUser-added block.\n"
+        )
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, "src/custom/**"   # customized paths: line
+        )
+        self.write_upgrade_config(
+            customization_handoff="report+relocate",
+            descope_preserve_paths_edits=False,
+        )
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertFalse(
+            installed.exists(),
+            "With the paths-edit opt-out disabled, report+relocate transfers "
+            "then removes a paths+body-customized rule",
+        )
+        transfer_file = self._transfer_dir() / filename
+        self.assertTrue(transfer_file.exists())
+        self.assertIn(installed_body, transfer_file.read_text(encoding="utf-8"))
+        removed = _report_section(report, "removed", "deleted")
+        self.assertTrue(
+            any(filename in entry and "transferred" in entry for entry in removed)
+        )
+
+    def test_reorg_subset_still_preserved_under_relocate(self):
+        filename = "session-execution-protocol.md"
+        shipped_body = (
+            "# Session Execution Protocol\n\nReflowed section A.\nReflowed section B.\n"
+        )
+        installed_body = "# Session Execution Protocol\n\nSection B.\nSection A.\n"
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        before = installed.read_bytes()
+        self.write_upgrade_config(customization_handoff="report+relocate")
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(
+            installed.exists(),
+            "A reorg-confidence SUBSET is a confidence gap, not a genuine "
+            "customization — it must stay preserved even under report+relocate",
+        )
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertFalse(
+            self._transfer_dir().exists(),
+            "A reorg-inconclusive verdict must never trigger a transfer",
+        )
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(
+                filename in entry and "inconclusive" in entry.lower()
+                for entry in preserved
+            )
+        )
+
+    def test_degraded_not_analyzed_still_preserved_under_relocate(self):
+        filename = "task-content-fidelity.md"
+        shipped_body = "# Task Content Fidelity\n\nShipped body.\n"
+        installed_body = (
+            "# Task Content Fidelity\n\nShipped body.\n# Extra\nUser-added block.\n"
+        )
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        before = installed.read_bytes()
+        self.write_upgrade_config(customization_handoff="report+relocate")
+
+        with mock.patch.dict(sys.modules, {"structural_compare": None}):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertTrue(
+            installed.exists(),
+            "The degraded not-analyzed stand-in must preserve even under "
+            "report+relocate — there is no verdict evidence to transfer on",
+        )
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertFalse(
+            self._transfer_dir().exists(),
+            "Degraded mode must never write a transfer file",
+        )
+        preserved = _report_section(report, "preserved", "kept")
+        self.assertTrue(
+            any(filename in entry and "NOT analyzed" in entry for entry in preserved)
+        )
+
+    def test_sweep_stays_read_only_under_relocate(self):
+        filename = "callout-conventions.md"
+        shipped_body = "# Callout Conventions\n\nShipped body.\n"
+        installed_body = (
+            "# Callout Conventions\n\nShipped body.\n# Extra\nUser-added block.\n"
+        )
+        self.write_shipped(filename, shipped_body)
+        installed = self.write_installed(
+            filename, installed_body, self.old_default_for(filename)
+        )
+        self.write_upgrade_config(customization_handoff="report+relocate")
+        before = _snapshot_tree(self.project_root)
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            findings = ip.sweep_stale_descoped_rules(self.cfg)
+
+        matches = [f for f in findings if f["filename"] == filename]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["verdict"], "PRESERVE")
+        self.assertTrue(
+            installed.exists(),
+            "The doctor sweep is read-only regardless of customization_handoff "
+            "— only the upgrade migration and the opt-in pruner write",
+        )
+        self.assertEqual(
+            _snapshot_tree(self.project_root), before,
+            "report+relocate must not leak into the read-only sweep: the tree "
+            "must be byte-for-byte unchanged",
         )
 
 
@@ -2202,6 +2664,268 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         )
         second_pruned = (second_dir / "PRUNED.md").read_text(encoding="utf-8")
         self.assertIn(filename2, second_pruned)
+
+
+class TestInstalledDivergenceLint(_UpgradeArtifactsFixtureBase):
+    """lint_installed_divergence() + the _run_doctor() Stage 9 call site.
+
+    Generalizes TestDoctorStaleSweep's pattern from DESCOPED_RULES to the
+    still-installed set (INSTALLED_RULES + INSTALLED_AGENTS). Reuses
+    _UpgradeArtifactsFixtureBase because its temp tree layout and its
+    INSTALLED_RULES / INSTALLED_AGENTS monkeypatch scope already match what
+    lint_installed_divergence() walks — no new fixture needed.
+    """
+
+    def test_installed_rule_stale_subset_recommends_upgrade(self):
+        shipped_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Rule\n\nShipped superset body.\n"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, self.RULE_PATHS_TEMPLATE)
+        before = _snapshot_tree(self.project_root)
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ):
+            findings = ip.lint_installed_divergence(self.cfg)
+
+        matches = [f for f in findings if f["path"] == str(installed)]
+        self.assertEqual(len(matches), 1, "the diverged installed rule must produce a finding")
+        self.assertEqual(matches[0]["kind"], "rule")
+        self.assertEqual(matches[0]["classification"], "SUBSET")
+        self.assertIn("/planwise upgrade", matches[0]["recommendation"])
+        self.assertEqual(
+            _snapshot_tree(self.project_root), before,
+            "The lint is read-only — it must never mutate the installed tree",
+        )
+
+    def test_installed_agent_has_unique_recommends_kind_aware_advice(self):
+        # Regression (R1 finding 7): the rule-specific decide-callout advice
+        # ("Choosing a Home for a Rule Customization", which prescribes
+        # .claude/rules/<project>/ homing) is meaningless for an agent file
+        # and would nag a sanctioned frontmatter pin as HAS_UNIQUE on every
+        # doctor run. Agents must get agent-appropriate advice instead.
+        shipped_body = "# Agent\n\nShipped body.\n"
+        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            findings = ip.lint_installed_divergence(self.cfg)
+
+        matches = [f for f in findings if f["path"] == str(installed)]
+        self.assertEqual(len(matches), 1, "the diverged installed agent must produce a finding")
+        self.assertEqual(matches[0]["kind"], "agent")
+        self.assertEqual(matches[0]["classification"], "HAS_UNIQUE")
+        self.assertNotIn(
+            "Choosing a Home for a Rule Customization", matches[0]["recommendation"],
+            "the rule-specific decide-callout advice must not be reused for an agent",
+        )
+        self.assertIn("frontmatter guard", matches[0]["recommendation"])
+
+    def test_installed_rule_has_unique_still_recommends_decide_callout(self):
+        # A rule (not an agent) keeps the pre-existing decide-callout advice —
+        # only the agent kind gets the new kind-aware wording.
+        shipped_body = "# Rule\n\nShipped body.\n"
+        installed_body = "# Rule\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, self.RULE_PATHS_TEMPLATE)
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            findings = ip.lint_installed_divergence(self.cfg)
+
+        matches = [f for f in findings if f["path"] == str(installed)]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["kind"], "rule")
+        self.assertEqual(matches[0]["classification"], "HAS_UNIQUE")
+        self.assertIn(
+            "Choosing a Home for a Rule Customization", matches[0]["recommendation"]
+        )
+
+    def test_subset_with_notes_does_not_promise_unconditional_auto_adopt(self):
+        # Regression (R1 finding 6): a notes-flagged SUBSET must not get the
+        # unconditional "(auto-adopts shipped)" wording — the writer's own
+        # auto-adopt gate (`is_subset(verdict) and not verdict.notes`) does
+        # not fire on a non-empty notes field.
+        shipped_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Rule\n\nShipped superset body.\n"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, self.RULE_PATHS_TEMPLATE)
+        notes_text = "installed-only tokens tolerated as sub-noise-floor fragments"
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("SUBSET", "exact", notes=notes_text),
+        ):
+            findings = ip.lint_installed_divergence(self.cfg)
+
+        matches = [f for f in findings if f["path"] == str(installed)]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["classification"], "SUBSET")
+        self.assertNotIn(
+            "(auto-adopts shipped)", matches[0]["recommendation"],
+            "a notes-flagged subset must not promise unconditional auto-adoption",
+        )
+        self.assertIn("customization_handoff", matches[0]["recommendation"])
+
+    def test_non_utf8_installed_file_reported_unverifiable_not_crashed(self):
+        # Regression (R1 findings 2 + 4): a non-UTF-8 installed file must
+        # never crash the always-exit-0 doctor path — it must be reported as
+        # an explicit unverifiable row instead of raising UnicodeDecodeError.
+        self.write_shipped_rule("# Rule\n\nShipped body.\n")
+        installed = self.rules_dst_dir / self.RULE_FILENAME
+        # Write bytes that are invalid UTF-8 (a lone 0xFF byte).
+        installed.write_bytes(b"---\ndescription: fixture rule\npaths: "
+                               + self.RULE_PATHS_TEMPLATE.encode("utf-8")
+                               + b"\n---\n# Rule\n\xff\xfe garbled\n")
+
+        findings = ip.lint_installed_divergence(self.cfg)
+
+        matches = [f for f in findings if f["path"] == str(installed)]
+        self.assertEqual(len(matches), 1, "an unreadable installed file must still be reported")
+        self.assertEqual(matches[0]["classification"], "UNVERIFIABLE")
+        self.assertIn("unreadable", matches[0]["recommendation"])
+
+    def test_non_utf8_installed_file_doctor_path_exits_cleanly(self):
+        import contextlib
+        import io
+
+        self.write_shipped_rule("# Rule\n\nShipped body.\n")
+        (self.rules_dst_dir / self.RULE_FILENAME).write_bytes(
+            b"---\ndescription: fixture rule\npaths: "
+            + self.RULE_PATHS_TEMPLATE.encode("utf-8")
+            + b"\n---\n# Rule\n\xff\xfe garbled\n"
+        )
+        self.cfg.plugin_version = "1.0.4"
+        config_dir = self.project_root / self.cfg.planwise_root
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            f'plugin_version: "{self.cfg.plugin_version}"\n', encoding="utf-8"
+        )
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            exit_code = ip._run_doctor(self.cfg)
+
+        self.assertEqual(exit_code, 0, "bare --doctor must always exit 0, even over an unreadable file")
+        self.assertIn("UNVERIFIABLE", buf.getvalue())
+
+    def test_bom_identical_installed_file_not_reported(self):
+        # Regression (R1 finding 3): both sides must be read with utf-8-sig
+        # so a BOM'd-but-untouched installed file is not falsely flagged
+        # HAS_UNIQUE (a BOM defeats normalize_rule_for_diff's frontmatter
+        # detection under plain utf-8).
+        body = "# Rule\n\nUntouched body.\n"
+        self.write_shipped_rule(body)
+        installed = self.write_installed_rule(body, self.RULE_PATHS_TEMPLATE)
+        installed.write_bytes(b"\xef\xbb\xbf" + installed.read_bytes())  # prepend UTF-8 BOM
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            side_effect=AssertionError("a BOM-only difference must never reach the primitive"),
+        ):
+            findings = ip.lint_installed_divergence(self.cfg)
+
+        matches = [f for f in findings if f["path"] == str(installed)]
+        self.assertEqual(matches, [], "a BOM'd-but-untouched file must NOT be reported")
+
+    def test_missing_shipped_reference_reported_unverifiable_no_all_clear(self):
+        # Regression (R1 finding 4): a missing shipped reference (broken/
+        # partial install) must surface an explicit unverifiable row rather
+        # than a silent skip that would let the caller's all-clear line print.
+        installed = self.write_installed_rule(
+            "# Rule\n\nSome body.\n", self.RULE_PATHS_TEMPLATE
+        )
+        # Deliberately do NOT call write_shipped_rule() — no shipped reference.
+
+        findings = ip.lint_installed_divergence(self.cfg)
+
+        matches = [f for f in findings if f["path"] == str(installed)]
+        self.assertEqual(len(matches), 1, "a missing shipped reference must produce a finding")
+        self.assertEqual(matches[0]["classification"], "UNVERIFIABLE")
+        self.assertIn("shipped reference unavailable", matches[0]["recommendation"])
+        self.assertNotEqual(findings, [], "must never silently reduce to the all-clear state")
+
+    def test_degraded_not_analyzed_verdict_reported_explicitly(self):
+        # Regression (R1 finding 5): the degraded not-analyzed stand-in
+        # (structural_compare unavailable) must produce an explicit
+        # NOT_ANALYZED row, never a confident HAS_UNIQUE recommendation.
+        shipped_body = "# Rule\n\nShipped body.\n"
+        installed_body = "# Rule\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, self.RULE_PATHS_TEMPLATE)
+
+        with mock.patch.dict(sys.modules, {"structural_compare": None}):
+            findings = ip.lint_installed_divergence(self.cfg)
+
+        matches = [f for f in findings if f["path"] == str(installed)]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["classification"], "NOT_ANALYZED")
+        self.assertNotEqual(
+            matches[0]["classification"], "HAS_UNIQUE",
+            "an un-analyzed file must never be reported as a confident HAS_UNIQUE verdict",
+        )
+        self.assertIn("not analyzed", matches[0]["recommendation"].lower())
+
+    def test_normalized_identical_copy_skipped_fast_path(self):
+        body = "# Rule\n\nUntouched body.\n"
+        self.write_shipped_rule(body)
+        self.write_installed_rule(body, self.RULE_PATHS_TEMPLATE)
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            side_effect=AssertionError("fast path must not consult the primitive"),
+        ):
+            findings = ip.lint_installed_divergence(self.cfg)
+
+        self.assertEqual(findings, [], "A normalized-identical copy must not be reported")
+
+    def test_stage9_wired_into_doctor_path(self):
+        import contextlib
+        import io
+
+        shipped_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Rule\n\nShipped superset body.\n"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, self.RULE_PATHS_TEMPLATE)
+
+        # Pin the version-state gate to "ok" (pinned == installed) so
+        # _run_doctor() proceeds past the preflight into Stage 8 / Stage 9.
+        self.cfg.plugin_version = "1.0.4"
+        config_dir = self.project_root / self.cfg.planwise_root
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            f'plugin_version: "{self.cfg.plugin_version}"\n', encoding="utf-8"
+        )
+        before = _snapshot_tree(self.project_root)
+
+        buf = io.StringIO()
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ):
+            with contextlib.redirect_stdout(buf):
+                exit_code = ip._run_doctor(self.cfg)
+
+        stdout = buf.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn(
+            "installed rule/agent divergence lint", stdout,
+            "Stage 9 must be invoked by _run_doctor(), not merely defined",
+        )
+        self.assertTrue(
+            any(str(installed) in line and "SUBSET" in line for line in stdout.splitlines()),
+            "The doctor path must print a SUBSET row for the diverged installed rule",
+        )
+        self.assertIn("recommend /planwise upgrade", stdout)
+        self.assertEqual(
+            _snapshot_tree(self.project_root), before,
+            "The doctor path (bare --doctor) must never write or delete",
+        )
 
 
 class TestVerdictOverrideShapeAndFreshness(unittest.TestCase):

@@ -138,6 +138,14 @@ The asymmetry is deliberate. Content-bearing artifacts must read as standalone r
 
 Every BB that produces content-bearing artifacts MUST include a self-containment grep in its Acceptance Criteria. The grep covers ALL external-bookkeeping ID families — `LL-`, `BB-`, `BLI-`, `PLG-`, `D-` — across ALL content-bearing artifact paths the BB touched.
 
+> [!constraint] Which Copy Is Canonical — This File's Own Double-Ship
+> This file itself ships twice on disk: an in-place reference copy (what you are reading)
+> and an installed, path-scoped copy that injects the discipline during artifact authoring.
+> The reference copy is the **single canonical source** — the grep below always reads the
+> reference copy in place, never the installed copy. The installed copy is
+> **injection-only**: it exists solely so this discipline auto-loads while a consumer
+> authors a rule/agent/skill/command artifact; it is never read as a source by other code.
+
 > [!verify] Self-Containment Grep
 > ```bash
 > # Bash / POSIX — replace {paths-touched} with the actual files this BB wrote:

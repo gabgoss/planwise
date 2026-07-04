@@ -84,6 +84,33 @@ Omit `paths:` entirely when a rule genuinely applies to ALL work regardless of f
 
 **Exception:** Extension globs like `**/*.cs` are acceptable for source code files because those extensions reliably indicate the rule's domain. The problem is `**/*.md` where markdown exists everywhere.
 
+### Choosing a Home for a Rule Customization
+
+When you need to change behavior that a plugin-installed rule already covers, choose
+WHERE the change lives by the nature of the change — never edit the installed copy in
+place (it is machine-managed; see the warning below).
+
+> [!decide] Where to Home a Rule Customization
+> - **Generic fix** — the change improves the rule for *every* consumer, not just this
+>   project → **upstream it.** Open a PR or issue against the shipped reference rule.
+>   Do NOT localize a generic improvement: a generic edit left in a local copy is lost
+>   on the next refresh and never reaches anyone else.
+> - **Project-specific customization** — the change only makes sense for this codebase →
+>   **localize it.** Create `.claude/rules/<project>/<name>.md` and scope its `paths:` to
+>   the **code directories** the rule governs. NEVER scope a localized rule to plan,
+>   backlog, or lessons globs — that re-creates the always-on over-scope that path
+>   scoping (§2) exists to prevent.
+> - **Mixed** — part generic, part project-specific → **split it.** Upstream the generic
+>   portion; localize only the project-specific remainder in `.claude/rules/<project>/`.
+> - **Never** leave a customization inside `.claude/rules/planwise/`. That directory is
+>   machine-managed: on upgrade an identical copy is auto-refreshed to the shipped body
+>   (your edit is silently overwritten). A diverged copy, under the default handoff mode,
+>   has its customization transferred to a dormant holding area and the shipped body
+>   adopted in its place — your edit survives only as an inert file you must manually
+>   re-home, not as an active rule. Only under the conservative handoff mode is a
+>   diverged copy instead preserved in place and nagged as an unresolved conflict on
+>   every upgrade.
+
 ## 2b. Common Frontmatter Mistakes
 
 > [!constraint] YAML Array Syntax for Multi-Path Scoping

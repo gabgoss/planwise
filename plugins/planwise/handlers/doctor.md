@@ -149,6 +149,67 @@ removed. Pass the script's stdout through and point the user at the
 
 ---
 
+### Stage 9: Installed rule/agent divergence lint
+
+> [!constraint] Read-Only — bare doctor only recommends
+> Stage 9 runs `lint_installed_divergence()` standalone. It READS the
+> still-installed set (`INSTALLED_RULES` + `INSTALLED_AGENTS`) under
+> `.claude/rules/planwise/` and `.claude/agents/`, plus the plugin's shipped
+> `references/` and `agents/` copies, then prints a report. It writes
+> nothing and deletes nothing — there is no opt-in writer for this stage.
+
+Always-on (independent of Token Saver). Generalizes the Stage 8 sweep from
+the de-scoped rule set to the still-installed set: each installed rule is
+normalized with the same `paths:`-stripping normalization the writer uses
+(installed agents are compared whole-file; both sides are read `utf-8-sig`,
+matching the upgrade writer, so a BOM'd-but-untouched copy is never falsely
+flagged), a normalized-identical pair is skipped before the structural
+primitive is ever invoked, and each remaining file is classified as one of:
+
+- **SUBSET** (`~`) — the installed copy's content is fully contained in the
+  now-grown shipped reference. Notes-clean: *recommend `/planwise upgrade` —
+  it auto-adopts the shipped version.* Notes-flagged (the matcher tolerated
+  installed-only content): *recommend `/planwise upgrade` — it transfers the
+  flagged content first (or preserves in place, per
+  `upgrade.customization_handoff`) before adopting shipped* — upgrade never
+  auto-adopts unconditionally over flagged content.
+- **HAS_UNIQUE** (`!`) — the installed copy carries genuine unique content (a
+  real customization). Kind-aware advice: a **rule** → *re-home per the
+  "Choosing a Home for a Rule Customization" decide callout* — do NOT
+  delete; an **agent** → a sanctioned single-line `model:`/`tools:`/
+  `maxTurns:` frontmatter pin is preserved by upgrade's frontmatter guard
+  and needs no action; other unique body content should be kept as a
+  project-local agent or upstreamed.
+- **NOT_ANALYZED** (`?`) — the file diverges but structural comparison was
+  unavailable, so no analysis ran. Reported explicitly, never as a confident
+  HAS_UNIQUE recommendation — diff it against the shipped copy manually.
+- **UNVERIFIABLE** (`?`) — the installed file is unreadable (e.g. not
+  UTF-8), or the shipped reference is missing/unreadable (broken or partial
+  install). Reported explicitly rather than silently skipped, and it never
+  crashes the always-exit-0 doctor run.
+
+Print verbatim:
+
+```
+planwise doctor — installed rule/agent divergence lint
+
+  ~ {path}   SUBSET
+      size:    {N} lines (~{X} tokens)
+      action:  {the SUBSET recommendation above — notes-clean or notes-flagged}
+  ! {path}   HAS_UNIQUE
+      size:    {N} lines (~{X} tokens)
+      action:  {the kind-aware HAS_UNIQUE recommendation above}
+  ? {path}   {NOT_ANALYZED | UNVERIFIABLE}
+      size:    {N} lines (~{X} tokens)
+      action:  {the explicit not-analyzed / unverifiable notice}
+```
+
+If nothing diverges AND nothing was unverifiable or not-analyzed:
+`All installed rules/agents match shipped — no divergence found.` (The
+all-clear line never prints over an unverifiable or not-analyzed row.)
+
+---
+
 ## Token Saver Audit
 
 > [!gate] Run only when `context.token_saver` is `true`

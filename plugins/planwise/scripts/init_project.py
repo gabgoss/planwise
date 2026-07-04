@@ -1390,16 +1390,40 @@ def migrate_installed_rules(
     the matcher tolerated installed-only content, e.g. sub-noise-floor
     fragments — preserved instead) AND the paths-edit preserve opt-out does
     not apply (a paths-customized copy is kept even over a stale body while
-    ``descope_preserve_paths_edits`` is true); a reorg or notes-flagged SUBSET
-    is preserved with an explanatory notice; HAS_UNIQUE (a genuine
-    customization) is always preserved byte-for-byte with a re-home notice
-    (or, in degraded mode, an explicit not-analyzed notice). Every removal
-    first mirrors the pre-image under ``{planwise_root}/upgrade-backups/``
-    via ``_record_disposition()``. The migration never deletes a HAS_UNIQUE
-    copy and never defaults a preserve notice to recommending deletion. A
-    per-file OSError is contained as a ``skipped`` entry — the loop always
-    completes and reports. Rules outside DESCOPED_RULES are never inspected
-    or modified.
+    ``descope_preserve_paths_edits`` is true); a reorg-confidence SUBSET (no
+    notes) is always preserved with an explanatory notice — a confidence gap,
+    not a genuine customization, so ``customization_handoff`` never applies.
+    A notes-flagged SUBSET or a genuine HAS_UNIQUE (customization-bearing)
+    verdict is gated on the effective ``upgrade.customization_handoff``,
+    read via the SAME accessor the artifact refresh writer uses — BUT the
+    paths-edit preserve opt-out takes PRECEDENCE over that gate too, exactly
+    as it does for the high-confidence-subset branch above: a paths-
+    customized copy (``paths_match`` False) with ``descope_preserve_paths_edits``
+    true is preserved in place even when the body ALSO carries a genuine
+    customization — a file customized in both paths: and body must never get
+    WEAKER protection than one customized in paths: alone. Only when that
+    opt-out does not apply does ``customization_handoff`` decide the
+    disposition: ``report+relocate`` (the shipped template default)
+    verified-transfers the customization to the upgrade transfer helper's
+    dormant preservation home (``_transfer_customization()``) and, ONLY on
+    that verified success, backs up and removes the stale installed file;
+    any other value (``report``, the absent-key fallback, or
+    ``report+issue``) preserves in place with a re-home notice, unchanged
+    from prior behavior. A failed transfer or a failed pre-removal backup
+    means NO removal — the file is preserved in place and the failure
+    reported; a customization is never destroyed without a verified copy
+    elsewhere. The degraded not-analyzed stand-in
+    (structural_compare unavailable) always preserves regardless of
+    ``customization_handoff`` — there is no verdict evidence yet to transfer
+    on. Every plain removal (the fast-path and high-confidence branches)
+    mirrors the pre-image under ``{planwise_root}/upgrade-backups/`` via
+    ``_record_disposition()``; a transfer-then-remove instead backs up via
+    ``_write_backup_preimage()`` and logs via ``_append_disposition_log()``
+    only once the removal itself has succeeded (mirroring the artifact
+    refresh's own transfer-then-adopt ordering). The migration never
+    defaults a preserve notice to recommending deletion. A per-file OSError
+    is contained as a ``skipped`` entry — the loop always completes and
+    reports. Rules outside DESCOPED_RULES are never inspected or modified.
 
     Returns ``{"removed": [...], "preserved": [...], "skipped": [...]}`` where
     each list holds human-readable strings (filename + reason). The shape is
@@ -1420,14 +1444,95 @@ def migrate_installed_rules(
     # tolerant on purpose — an absent/unparsable config degrades to {} and
     # get_upgrade_config() supplies the conservative defaults.
     config = _load_raw_config(cfg)
+    upgrade_config = get_upgrade_config(config)   # dict contract; bind once, read twice below
 
-    preserve_paths_edits = get_upgrade_config(config)["descope_preserve_paths_edits"]   # dict contract; pass the config dict
+    preserve_paths_edits = upgrade_config["descope_preserve_paths_edits"]
+
+    # `upgrade.customization_handoff` gates Site-1's own transfer-then-remove
+    # path over a preserved, customization-bearing de-scoped rule — read via
+    # the SAME accessor and gated exactly like the artifact refresh writer's
+    # (Sites 2/3) customization-bearing branch: `report+relocate` (the
+    # shipped template default) enables the automated transfer-then-remove
+    # flow below; `report` (also the absent-key fallback) and `report+issue`
+    # (whose extra gh-issue meaning is handler-side only) stay conservative —
+    # preserve in place, no transfer, no removal.
+    relocate_enabled = upgrade_config["customization_handoff"] == "report+relocate"
 
     # verdicts.json entries apply across every --upgrade writer site, not just
     # the artifact refresh (Sites 2/3) — the interactive fan-out's --list-diverged
     # scope includes DESCOPED_RULES, so a de-scoped rule can carry a cached
     # agent verdict too. Same helper, same degrade-to-None-on-absence contract.
     verdicts = _load_verdicts_cache(cfg, from_version, to_version)
+
+    def _transfer_then_remove_or_preserve(
+        dst: Path, filename: str, installed_raw: str, verdict, preserve_message: str,
+        *, paths_match: bool,
+    ) -> None:
+        """Disposition for a customization-bearing preserved de-scoped rule.
+
+        Mirrors the artifact refresh writer's (Sites 2/3) customization_handoff
+        gate and reuses its `_transfer_customization()` helper exactly: under
+        `report+relocate`, the customization is verified-transferred to the
+        upgrade transfer helper's dormant preservation home BEFORE the stale
+        installed copy is backed up and removed. A failed transfer or a
+        failed pre-removal backup means NO removal — the file stays in place
+        and the failure is reported (never destroy the only copy of a
+        customization). Any other handoff value preserves in place, exactly
+        as before (no writes).
+
+        The paths-edit preserve opt-out (`descope_preserve_paths_edits`) takes
+        PRECEDENCE over `customization_handoff` here, exactly as it does in the
+        sibling high-confidence-subset branch above: a paths-customized copy
+        (`paths_match` False) is preserved in place even when the body ALSO
+        carries a genuine customization, rather than transferred-then-removed
+        under `report+relocate`. A file customized in BOTH paths: and body
+        must never receive WEAKER protection than one customized in paths:
+        alone.
+        """
+        if not paths_match and preserve_paths_edits:
+            report["preserved"].append(
+                f"{filename}: kept (paths-customized; preserve opt-out covers paths: "
+                "edits even when the body also carries a customization) — re-home or "
+                "re-scope to the code dirs it governs")
+            return
+
+        if not relocate_enabled:
+            report["preserved"].append(preserve_message)
+            return
+
+        transfer_path = _transfer_customization(
+            cfg, filename, "rule", installed_raw, verdict, from_version, to_version,
+        )
+        if transfer_path is None:
+            report["preserved"].append(
+                f"{filename}: kept — automated transfer failed; installed file "
+                "left in place (no removal without a verified transfer)")
+            return
+
+        if not _write_backup_preimage(cfg, from_version, to_version, dst):
+            report["preserved"].append(
+                f"{filename}: kept — customization transferred to {transfer_path}, "
+                "but the pre-removal backup failed; installed file left in place "
+                "(no removal without a pre-image)")
+            return
+
+        try:
+            dst.unlink()
+        except OSError as exc:
+            report["skipped"].append(
+                f"{filename}: skipped — customization transferred to "
+                f"{transfer_path} and backed up, but removal failed ({exc}); "
+                "installed file left in place")
+            return
+
+        _append_disposition_log(
+            cfg, from_version, to_version, dst, "removed (customization transferred)",
+            f"customization transferred to {transfer_path}")
+        report["removed"].append(
+            f"{filename}: removed — customization transferred to "
+            f"{transfer_path} (re-home it there: port to a project-local rule, "
+            "re-scope paths:, or upstream the change); the rule is now "
+            "handler-loaded from references/")
 
     for filename, old_template in DESCOPED_RULES:
         dst = rules_dir / filename
@@ -1530,14 +1635,22 @@ def migrate_installed_rules(
                 elif is_subset(verdict):
                     if verdict_notes:
                         # SUBSET verdict flagged installed-only content the matcher
-                        # tolerated as noise — preserve rather than risk deleting a
-                        # short customization, and surface the primitive's own note.
-                        report["preserved"].append(
+                        # tolerated as noise — genuine customization-bearing
+                        # content. Under `report+relocate` this transfers then
+                        # removes (the same customization-bearing gate the
+                        # artifact refresh applies); otherwise it preserves as
+                        # before, surfacing the primitive's own note either way.
+                        _transfer_then_remove_or_preserve(
+                            dst, filename, installed_raw, verdict,
                             f"{filename}: kept — subset verdict carries installed-only "
                             f"content ({verdict_notes}); preserved rather than risk "
                             "deleting a short customization. Review manually before "
-                            "removal.")
+                            "removal.",
+                            paths_match=paths_match)
                     else:                                  # SUBSET but confidence == reorg
+                        # Headless-inconclusive reorg is a confidence gap, not a
+                        # genuine customization — it always preserves regardless
+                        # of customization_handoff (nothing to transfer).
                         report["preserved"].append(
                             f"{filename}: kept — headless inconclusive (content reorganized, "
                             "not a clean subset); run /planwise upgrade interactively to "
@@ -1545,20 +1658,29 @@ def migrate_installed_rules(
                 else:                                      # HAS_UNIQUE
                     unique_blocks = getattr(verdict, "unique_blocks", []) or []
                     if _verdict_not_analyzed(verdict):
-                        # Degraded stand-in (analysis never ran) — do NOT assert
-                        # "0 customized blocks"; say why it was preserved unexamined.
+                        # Degraded stand-in (analysis never ran) — always
+                        # preserved regardless of customization_handoff,
+                        # mirroring the artifact refresh's own bypass: there is
+                        # no verdict evidence yet to transfer on. Do NOT assert
+                        # "0 customized blocks"; say why it was preserved
+                        # unexamined.
                         report["preserved"].append(
                             f"{filename}: kept — {verdict_notes}. The installed copy was "
                             "NOT analyzed and may carry customizations; diff it against "
                             "references/ before deleting anything manually.")
                     else:
+                        # Genuine HAS_UNIQUE — customization-bearing. Under
+                        # `report+relocate` this transfers then removes;
+                        # otherwise it preserves as before.
                         blocks = ", ".join(unique_blocks[:3]) or "see verdict"
-                        report["preserved"].append(
+                        _transfer_then_remove_or_preserve(
+                            dst, filename, installed_raw, verdict,
                             f"{filename}: kept ({len(unique_blocks)} customized block(s): "
                             f"{blocks}) — the orchestrator now loads this rule from "
                             "references/; re-home: port to a project-local rule, re-scope "
                             "paths: to code dirs, or upstream the change. Installed copy "
-                            "unchanged.")
+                            "unchanged.",
+                            paths_match=paths_match)
         except OSError as exc:
             # Per-file containment: one unreadable/read-only file must not abort
             # the migration mid-loop (earlier deletions would then go unreported).
@@ -1596,7 +1718,10 @@ def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
             continue
         try:
             content = md_file.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
+            # A non-UTF-8/unreadable file cannot be over-scope-linted, and it
+            # must never crash the always-exit-0 doctor path — skip it here;
+            # the Stage 9 divergence lint surfaces it as UNVERIFIABLE.
             continue
         paths_value = _extract_paths_value(content)
         if not paths_value:
@@ -1727,6 +1852,167 @@ def sweep_stale_descoped_rules(cfg: "InitConfig") -> list[dict]:
                                  "reason": "prefix-rename hack fingerprint of a de-scoped "
                                            "rule — migrate to .claude/rules/<project>/<name>.md"})
                 break
+    return findings
+
+
+def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
+    """Read-only: report still-installed rules/agents whose body diverges
+    from the plugin-shipped reference.
+
+    Generalizes the de-scoped-rule sweep (sweep_stale_descoped_rules, above)
+    from DESCOPED_RULES to the still-installed set: walks INSTALLED_RULES +
+    INSTALLED_AGENTS, comparing each installed copy to its shipped reference
+    with the same normalization the writer uses (normalize_rule_for_diff()
+    for rules; whole-file for agents), reading BOTH sides with
+    ``utf-8-sig`` — the same encoding the artifact refresh writer reads with
+    — so a BOM'd-but-untouched installed file is never falsely reported
+    diverged (a BOM defeats normalize_rule_for_diff's frontmatter-anchored
+    detection under plain ``utf-8``). A normalized-identical pair is skipped
+    before `_classify_diverged` is ever called — the byte-identical fast
+    path.
+
+    A diverged pair is classified via `_classify_diverged()` and recommended:
+      * The degraded not-analyzed stand-in (`_verdict_not_analyzed()` —
+        structural_compare unavailable, no analysis ran) -> an explicit
+        NOT_ANALYZED row, never a confident recommendation (mirrors the
+        migrate/upgrade NOT-analyzed notice convention).
+      * SUBSET with empty ``notes`` -> recommend `/planwise upgrade`
+        (auto-adopts shipped; matches the writer's own auto-adopt gate,
+        `is_subset(verdict) and not verdict.notes`).
+      * SUBSET with non-empty ``notes`` (the matcher tolerated
+        installed-only content) -> a recommendation that upgrade will
+        transfer that content first (or preserve it in place, depending on
+        `upgrade.customization_handoff`) before adopting shipped — NOT the
+        unconditional auto-adopt wording, since the writer's auto-adopt gate
+        does not fire on a non-empty notes field.
+      * HAS_UNIQUE for a rule -> re-home per the "Choosing a Home for a Rule
+        Customization" decide callout.
+      * HAS_UNIQUE for an agent -> kind-aware advice instead: a sanctioned
+        single-line model:/tools:/maxTurns: frontmatter pin is preserved by
+        the writer's frontmatter guard and needs no action; any other unique
+        body content should be kept as a project-local agent or upstreamed.
+        The rule-specific decide-callout advice (which prescribes
+        `.claude/rules/<project>/` homing) is meaningless for an agent file
+        and would nag a sanctioned pin as HAS_UNIQUE on every doctor run.
+
+    A missing shipped reference (broken/partial install) and an unreadable
+    installed or shipped file (`OSError` or `UnicodeDecodeError` — e.g.
+    non-UTF-8 content) both surface as an explicit UNVERIFIABLE row rather
+    than a silent skip: a silent skip would let the caller's all-clear line
+    print on a broken or partially-unreadable install, and an uncaught
+    `UnicodeDecodeError` would crash the always-on bare `/planwise doctor`
+    path. A rule/agent that is simply not installed (no destination file)
+    stays a silent skip — that is the normal, expected case, not a broken
+    install. NEVER writes or deletes; purely diagnostic, like the
+    de-scoped-rule sweep and lint_rule_overscope(). Wired into
+    `_run_doctor()`, which calls `lint_installed_divergence(cfg)` immediately
+    after the Stage 8 sweep call so the bare `/planwise doctor` emits this
+    report too; the caller's all-clear line ("All installed rules/agents
+    match shipped") must print ONLY when this returns `[]` — i.e. nothing
+    diverged AND nothing was unverifiable/not-analyzed.
+
+    Each finding is a dict:
+      {path, kind ("rule" | "agent"), classification ("SUBSET" |
+       "HAS_UNIQUE" | "NOT_ANALYZED" | "UNVERIFIABLE"), line_count,
+       approx_tokens (=line_count*13), recommendation}
+    """
+    rules_dst_dir = cfg.project_root / ".claude" / "rules" / "planwise"
+    agents_dst_dir = cfg.project_root / ".claude" / "agents"
+    refs_dir = cfg.plugin_root / "references"
+    agents_src_dir = cfg.plugin_root / "agents"
+
+    def _check(dst: Path, src: Path, kind: str, norm) -> dict | None:
+        if not dst.is_file():
+            return None   # not installed — nothing to check, not a broken install
+
+        # utf-8-sig: mirrors the artifact refresh writer's own read encoding
+        # (see upgrade_artifacts()) so a leading BOM cannot defeat the
+        # frontmatter-anchored comparison and falsely report a divergence.
+        try:
+            installed_raw = dst.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError) as exc:
+            # A non-UTF-8 (or otherwise unreadable) installed file must
+            # never crash the always-exit-0 doctor path — report it as
+            # unverifiable instead of letting the exception escape.
+            return {"path": str(dst), "kind": kind, "classification": "UNVERIFIABLE",
+                    "line_count": 0, "approx_tokens": 0,
+                    "recommendation": f"unreadable ({exc}) — cannot verify divergence"}
+
+        line_count = installed_raw.count("\n") + (0 if installed_raw.endswith("\n") else 1)
+        base = {"path": str(dst), "kind": kind,
+                "line_count": line_count, "approx_tokens": line_count * 13}
+
+        if not src.is_file():
+            # Missing shipped reference = a broken/partial install — an
+            # explicit unverifiable row, never a silent skip that would let
+            # the caller's all-clear line print over it.
+            return {**base, "classification": "UNVERIFIABLE",
+                    "recommendation": "shipped reference unavailable — cannot verify divergence"}
+        try:
+            shipped_raw = src.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError) as exc:
+            return {**base, "classification": "UNVERIFIABLE",
+                    "recommendation": f"shipped reference unreadable ({exc}) — cannot verify divergence"}
+
+        inst_norm, ship_norm = norm(installed_raw), norm(shipped_raw)
+        if inst_norm == ship_norm:
+            return None
+
+        v = _classify_diverged(inst_norm, ship_norm)
+        notes = getattr(v, "notes", "") or ""
+
+        if _verdict_not_analyzed(v):
+            # Degraded stand-in (structural_compare unavailable at call
+            # time) — no analysis actually ran. Must NOT be reported as a
+            # confident HAS_UNIQUE recommendation; mirrors the migrate/
+            # upgrade NOT-analyzed notice convention.
+            return {**base, "classification": "NOT_ANALYZED",
+                    "recommendation": "NOT analyzed — structural comparison unavailable; "
+                                       "diff it against references/ before acting manually"}
+
+        if is_subset(v):
+            if notes:
+                # Non-empty notes = the matcher tolerated installed-only
+                # content (e.g. sub-noise-floor fragments) — the writer's
+                # own auto-adopt gate (`is_subset(verdict) and not
+                # verdict.notes`) does NOT fire here; /planwise upgrade
+                # instead routes this file through the customization-bearing
+                # transfer-then-adopt (or preserve) gate, never an
+                # unconditional auto-adopt.
+                recommendation = (
+                    "recommend /planwise upgrade — installed-only content flagged "
+                    f"({notes}); upgrade will transfer it (or preserve it in place, "
+                    "depending on upgrade.customization_handoff) before adopting "
+                    "shipped, not auto-adopt unconditionally"
+                )
+            else:
+                recommendation = "recommend /planwise upgrade (auto-adopts shipped)"
+            return {**base, "classification": "SUBSET", "recommendation": recommendation}
+
+        # HAS_UNIQUE — kind-aware: the rule decide-callout advice prescribes
+        # `.claude/rules/<project>/` homing, which is meaningless for an
+        # agent file and would nag a sanctioned frontmatter pin every run.
+        if kind == "agent":
+            recommendation = (
+                "a sanctioned single-line model:/tools:/maxTurns: frontmatter pin is "
+                "preserved by /planwise upgrade's frontmatter guard and needs no "
+                "action; any other unique body content should be kept as a "
+                "project-local agent or upstreamed — review before /planwise upgrade "
+                "overwrites it"
+            )
+        else:
+            recommendation = 're-home per the "Choosing a Home for a Rule Customization" decide callout'
+        return {**base, "classification": "HAS_UNIQUE", "recommendation": recommendation}
+
+    findings: list[dict] = []
+    for filename, _paths_template in INSTALLED_RULES:
+        row = _check(rules_dst_dir / filename, refs_dir / filename, "rule", normalize_rule_for_diff)
+        if row:
+            findings.append(row)
+    for filename in INSTALLED_AGENTS:
+        row = _check(agents_dst_dir / filename, agents_src_dir / filename, "agent", lambda s: s)
+        if row:
+            findings.append(row)
     return findings
 
 
@@ -2814,8 +3100,9 @@ def _run_doctor(cfg: "InitConfig") -> int:
     one row per flagged rule with its size, a re-scope hint, and a total
     always-on injected-budget line. Then runs Stage 8, the post-boundary stale
     de-scoped rule sweep (sweep_stale_descoped_rules()), and prints its report
-    too — always-on, independent of whether any rule was overscoped. Always
-    exits 0 (diagnostic, not a gate).
+    too — always-on, independent of whether any rule was overscoped. Then runs
+    Stage 9, the installed rule/agent divergence lint (lint_installed_divergence()),
+    and prints its report — also always-on. Always exits 0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
     Saver): an uninitialized or version-drifted install is surfaced with a
@@ -2875,6 +3162,23 @@ def _run_doctor(cfg: "InitConfig") -> int:
         print()
         print(f"Total REMOVABLE always-on budget: ~{sum(f['approx_tokens'] for f in removable)} "
               f"tokens across {len(removable)} rule(s).")
+
+    # Stage 9: installed rule/agent divergence lint — read-only, always-on.
+    print()
+    print("planwise doctor — installed rule/agent divergence lint")
+    print()
+    diverged = lint_installed_divergence(cfg)
+    if not diverged:
+        print("All installed rules/agents match shipped — no divergence found.")
+    else:
+        mark_by_classification = {
+            "SUBSET": "~", "HAS_UNIQUE": "!", "NOT_ANALYZED": "?", "UNVERIFIABLE": "?",
+        }
+        for f in diverged:
+            mark = mark_by_classification.get(f["classification"], "!")
+            print(f"  {mark} {f['path']}   {f['classification']}")
+            print(f"      size:    {f['line_count']} lines (~{f['approx_tokens']} tokens)")
+            print(f"      action:  {f['recommendation']}")
     return 0
 
 
