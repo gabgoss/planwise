@@ -54,7 +54,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
 **Review-specific references (always load):**
 1. Read `references/session-planning-protocol.md`
@@ -517,6 +517,9 @@ These patterns look like errors but are intentional. Discard findings that match
 ---
 
 ## Severity Classification
+
+> [!practice] Severity Is Impact, Not Fix Size
+> Rate every finding by what it breaks, never by how laborious the remedy is. Downgrading a finding because the coherent fix is large inverts the project motto — see [do-the-hard-things.md](../references/do-the-hard-things.md).
 
 ### Definitions
 

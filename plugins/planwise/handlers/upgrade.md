@@ -354,6 +354,9 @@ If customizations-transferred > 0, list each transferred file and its target pat
 
 ### Step 4 — Resolve conflicts
 
+> [!practice] Resolve, Don't Sidestep
+> Prefer fully resolving a divergence through the documented flow (relocation, adoption, or upstream issue) over leaving a sidecar note for later — a deferred resolution must name the constraint that forced deferral. See [do-the-hard-things.md](../references/do-the-hard-things.md).
+
 For each conflict in `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` (files preserved in place: conservative handoff mode — `upgrade.customization_handoff` is `report`/`report+issue` — or a transfer/backup/adoption write failed, or the verdict was the degraded not-analyzed stand-in — see Step 2.4, item 5):
 
 1. The user diffs `<destination>.md` against `<destination>.md.new`

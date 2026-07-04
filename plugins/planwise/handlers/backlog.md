@@ -55,7 +55,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Bac
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
 **Conditional references:**
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
@@ -440,6 +440,9 @@ After closing all triaged items, prompt for lessons learned.
 ---
 
 ## Routing Decision Tree
+
+> [!practice] Route by What the Defect Needs
+> Pick the route that fully resolves the item, not the cheapest one to execute — a session-sized fix gets Route C, never a quick patch that leaves known incoherence behind. Full principle and exception clause: [do-the-hard-things.md](../references/do-the-hard-things.md).
 
 Use this logic to determine the recommended route in Phase 3.
 

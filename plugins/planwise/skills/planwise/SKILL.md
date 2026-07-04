@@ -79,6 +79,7 @@ ARGUMENTS: $ARGUMENTS
 - [Markdown conventions](../../references/markdown-conventions.md)
 - [Callout conventions](../../references/callout-conventions.md)
 - [Agent orchestration](../../references/agent-orchestration.md)
+- [Do the hard things](../../references/do-the-hard-things.md) — the project motto: favor the coherent, complete treatment over the easy partial one; effort is never the tiebreaker
 
 **Loaded on demand, NOT pre-injected** — each is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. Key references (not exhaustive — handlers own the full set):
 

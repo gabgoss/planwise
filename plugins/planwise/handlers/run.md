@@ -42,7 +42,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
 **Run-specific references (always load):**
 1. Read `references/session-execution-protocol.md`
@@ -140,6 +140,9 @@ If Step 1.1 surfaced a structural defect that makes the literal task scope produ
 If the user approves Option A (or any expansion beyond the literal scope), the Phase-1 approval reference (the AskUserQuestion turn or timestamp) MUST be recorded in:
 - Recovery's `Scope-Expansion Decisions` section (see [templates/recovery.md](../templates/recovery.md))
 - Summary's `Scope-Expansion Decisions` block in Context Notes (see [templates/summary-template.md](../templates/summary-template.md))
+
+> [!practice] Recommend the Coherent Option — Effort Is Not a Tiebreaker
+> When surfacing Option A (Coherent) / Option B (Literal) — or any fix-versus-patch choice that arises during execution — the "(Recommended)" label goes to the coherent, complete treatment by default. Diff size, renumbering churn, or ripple through dependent files is never by itself a reason to recommend the partial path: dependent references are exactly what closeout reconciliation exists to update. Recommend the partial path only when a real constraint forces it (an interface external consumers already depend on, an irreversible-migration boundary, an explicit user deadline) and name that constraint in the recommendation. The user still chooses — this rule governs which option the executor endorses. Project quality compounds; deferred coherence rarely gets cheaper than it is today. Full principle, exception clause, and stage table: [do-the-hard-things.md](../references/do-the-hard-things.md).
 
 ### Step 1.3: ACT
 
