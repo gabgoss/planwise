@@ -68,7 +68,7 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 
 ## 2. Cross-Context Tool Comparison
 
-*Source: ATD-EmpiricalResults.md Appendix — verified by 15 empirical tests.*
+*Empirically verified across 15 tests.*
 
 | Tool | Main Session | Subagent | Teammate | Skill-Forked |
 |------|-------------|----------|----------|-------------|
@@ -101,14 +101,14 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 
 ## 3. Context Loading Matrix
 
-*Source: ATD-S04-03-LoadingMatrix-Working.md — 21 cells, 18 tested (3 skipped, no MCP configured).*
+*Empirically verified — 21-cell context-loading matrix (18 cells directly tested; the skill-forked MCP cell later confirmed by a live test).*
 
 | # | What Loads | Subagent | Teammate | Skill-Forked |
 |---|-----------|---------|----------|-------------|
 | 1 | System prompt identity | YES (CC CLI) | NO — different identity (Agent SDK) | YES (CC CLI) |
 | 2 | CLAUDE.md | YES | YES | YES |
 | 3 | All project skill descriptions | YES (via FS discovery) | YES | YES (via FS discovery) |
-| 4 | MCP servers | YES (FG); NO (BG) | SKIP (no data) | **[UNVERIFIED]** |
+| 4 | MCP servers | YES (FG); NO (BG) | SKIP (no data) | YES (FG) |
 | 5 | Conversation history | NO | NO | NO |
 | 6 | Team tools | YES (all incl. TeamCreate/Delete) | PARTIAL (no TeamCreate/Delete) | YES (all) |
 | 7 | Path-specific rules | NO (global only) | NO (global only) | NO (global only) |
@@ -119,13 +119,13 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 
 > **Surprise 6 — Path rules:** Even teammates ("full, independent sessions") do NOT load path-specific rules. This is the clearest empirical distinction between teammate and main session contexts. All non-main contexts see the same global rules.
 
-> **Skill-Forked MCP:** MCP availability in skill-forked contexts is [UNVERIFIED]. Mechanism equivalence with subagents (verified across all other rows) suggests MCP should be available in foreground mode if configured, but requires empirical confirmation with a configured MCP server.
+> **Skill-Forked MCP:** MCP is reachable from foreground skill-forked contexts. Confirmed by a live test — a `context: fork` skill loaded a configured MCP server's tool via `ToolSearch` and the subsequent call round-tripped to the MCP layer and returned a real result. Background skill-forked MCP behavior was not exercised.
 
 ---
 
 ## 4. Nesting Rules
 
-*Source: ATD-S04-03-NestingMatrix-Working.md — 8 empirical tests.*
+*Empirically verified across 8 tests.*
 
 | # | From → To | Result | Enforcement Mechanism |
 |---|-----------|--------|----------------------|

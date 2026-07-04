@@ -299,10 +299,10 @@ An agent definition file maps to runtime behavior in two modes:
 | `general-purpose` | Inherit | All tools | Complex autonomous tasks |
 | `Bash` | Inherit | Bash only | Terminal commands |
 | `statusline-setup` | Sonnet | Read, Edit | Status line configuration |
-| Claude Code Guide | Haiku | Limited | Claude Code feature questions — **[UNVERIFIED: exact `subagent_type` string]** |
+| `claude-code-guide` | Haiku | Limited | Claude Code feature questions |
 
-> [!practice] [UNVERIFIED] Claude Code Guide subagent_type
-> The exact `subagent_type` parameter string for the Claude Code Guide agent (e.g., `claude-code-guide` vs `Claude Code Guide`) has not been empirically verified. Flag usage as unverified until confirmed.
+> [!practice] Claude Code Guide subagent_type
+> The built-in guide agent's `subagent_type` string is `claude-code-guide` (lowercase, hyphenated) — confirmed against the live Claude Code agent registry (the Agent tool's available subagent types).
 
 ---
 

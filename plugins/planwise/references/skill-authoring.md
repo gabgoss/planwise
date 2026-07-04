@@ -1,5 +1,5 @@
 ---
-description: Skill authoring conventions — directory structure, YAML frontmatter, invocation control, forked execution (ATD-verified), tool restrictions, hooks. Loads when authoring .claude/skills/ files.
+description: Skill authoring conventions — directory structure, YAML frontmatter, invocation control, forked execution (empirically verified), tool restrictions, hooks. Loads when authoring .claude/skills/ files.
 paths: .claude/skills/**
 ---
 
@@ -305,7 +305,7 @@ Research $ARGUMENTS:
 3. Summarize findings with file:line references
 ```
 
-### ATD Empirical Findings — Forked Context Behavior
+### Empirical Findings — Forked Context Behavior
 
 > [!practice] Empirically Verified
 > **Forked contexts receive the full Claude Code CLI system prompt** — NOT "a custom prompt only" as some documentation suggests. The `SKILL.md` content is ADDITIONAL to the system prompt.
@@ -319,8 +319,8 @@ Research $ARGUMENTS:
 > [!practice] Empirically Verified
 > **Path-specific rules do NOT load in forked contexts.** Only the global rules active in the parent session are visible. If a forked skill needs domain-specific rule content, embed it in SKILL.md directly.
 
-> [!practice] [UNVERIFIED] MCP availability in forked context
-> No MCP servers were configured in the test environment; all MCP loading tests were skipped. Theoretical mechanism equivalence between forked skills and general-purpose subagents (confirmed for all other tool access) suggests MCP SHOULD be available for foreground-executed forked skills if configured. Empirical confirmation pending. [ATD-EmpiricalResults §7]
+> [!practice] MCP availability in forked context
+> MCP is available to foreground-executed forked skills when a server is configured. Confirmed empirically: a `context: fork` skill loaded a configured MCP server's tool schema via `ToolSearch` and the subsequent tool call round-tripped to the MCP layer and returned a real result. Forked skills share the full CC-CLI system prompt and the same 18-tool set as a general-purpose subagent, so MCP access matches. Background-forked MCP behavior was not exercised.
 
 ### Forked Skill vs Subagent — Comparison
 
