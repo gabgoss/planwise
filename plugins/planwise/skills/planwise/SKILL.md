@@ -47,6 +47,7 @@ Available subcommands:
   run [@orchestration-file]    Execute a planned session
   upgrade                      Refresh installed rules/agents after a plugin update
   doctor                       Report rules over-scoped to plan/backlog paths (injection-budget risks)
+  doctor --prune-stale         Delete stale de-scoped rules flagged REMOVABLE (writer; opt-in)
   token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
   backlog [item-id]            Triage backlog items; capture follow-up BLIs from resolution outputs
   list                         List all plans with status

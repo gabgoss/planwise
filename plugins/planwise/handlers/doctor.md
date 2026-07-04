@@ -74,6 +74,81 @@ Briefly note: a rule scoped to `planwise/Plans/**` is injected into EVERY contex
 
 ---
 
+### Stage 8: Stale de-scoped rule sweep (post-boundary)
+
+> [!constraint] Read-Only — bare doctor only recommends
+> Stage 8 runs `sweep_stale_descoped_rules()` standalone. It READS
+> `.claude/rules/**` and the plugin's `references/`, then prints a report. It
+> writes nothing and deletes nothing. The one-shot de-scope migration in
+> `/planwise upgrade` is spent for any install already past the de-scope
+> boundary; this sweep is the only mechanism that surfaces the leftover
+> rules. To actually remove them, the user opts in with the separate writer
+> `/planwise doctor --prune-stale` (Stage 8b below).
+
+Always-on (independent of Token Saver). The sweep classifies every still-installed
+de-scoped rule under `.claude/rules/planwise/` against its shipped `references/`
+copy and recommends one of:
+
+- **REMOVABLE** (`~`) — identical to, or a stale subset of, the now-grown shipped
+  reference. The canonical rule is handler-loaded from `references/`; the
+  installed copy is dead always-on weight. A subset only qualifies as REMOVABLE
+  when its structural verdict carries an empty `notes` field — a subset where
+  the matcher tolerated any installed-only content reports PRESERVE instead, so
+  a genuine short customization is never silently deleted. *Remove with `/planwise doctor --prune-stale`.*
+- **PRESERVE** (`!`) — the installed copy has genuine unique content (a real
+  customization), or could not be proven stale. *Re-home to
+  `.claude/rules/<project>/<name>.md`; do NOT delete.*
+- **RELOCATE** (`~`) — a `<…>-<de-scoped-name>.md` file matching the old
+  prefix-rename workaround fingerprint. *Migrate to `.claude/rules/<project>/<name>.md`.*
+
+Print verbatim:
+
+```
+planwise doctor — stale de-scoped rule sweep (post-boundary)
+
+Stale de-scoped rules still installed under .claude/rules/planwise/:
+  ~ {filename}.md   REMOVABLE
+      size:    {N} lines (~{X} tokens)
+      reason:  {untouched leftover | stale subset of grown shipped reference}
+      action:  remove with /planwise doctor --prune-stale
+  ! {filename}.md   PRESERVE
+      size:    {N} lines (~{X} tokens)
+      reason:  genuine customization (unique content)
+      action:  re-home to .claude/rules/<project>/<name>.md — do NOT delete
+  ~ {prefix}-{filename}.md   RELOCATE (prefix-rename fingerprint)
+      size:    {N} lines (~{X} tokens)
+      reason:  prefix-rename hack fingerprint of a de-scoped rule
+      action:  migrate to .claude/rules/<project>/<name>.md
+
+Total REMOVABLE always-on budget: ~{X} tokens across {N} rule(s).
+```
+
+If the sweep returns nothing: `No stale de-scoped rules found — install is past the boundary and clean.`
+
+### Stage 8b: `--prune-stale` (opt-in writer)
+
+When `$ARGUMENTS` contains `--prune-stale`, this is the ONE doctor path that mutates.
+Run the writer:
+
+```bash
+python "{plugin_root}/scripts/init_project.py" --prune-stale --project-root "{project_root}"
+```
+
+It deletes ONLY the rules Stage 8 marked **REMOVABLE** (identical or proven stale
+subset), never a **PRESERVE** (customized) or **RELOCATE** one, and writes
+`{planwise_root}/upgrade-backups/prune-{YYYY-MM-DD}/PRUNED.md` listing every
+removed and preserved rule with its reason. If a `prune-{YYYY-MM-DD}/` folder
+already exists (a second run the same day), the run gets its own
+`prune-{YYYY-MM-DD}-2/`, `-3/`, ... folder instead — an earlier run's log and
+backups are never overwritten. Every deleted file is first copied as a
+pre-image into that same run's prune folder alongside `PRUNED.md`, so a prune
+is recoverable; a file whose deletion fails after a successful backup is
+reported `REMOVE_FAILED` (left in place) and its orphan backup copy is
+removed. Pass the script's stdout through and point the user at the
+`PRUNED.md` audit log.
+
+---
+
 ## Token Saver Audit
 
 > [!gate] Run only when `context.token_saver` is `true`

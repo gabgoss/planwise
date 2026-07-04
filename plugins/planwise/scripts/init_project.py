@@ -19,6 +19,7 @@ Options:
 
 import argparse
 import dataclasses
+import datetime
 import json
 import os
 import re
@@ -62,6 +63,19 @@ except ImportError:
 
     def is_safe_to_remove(v):   # noqa: E306
         return is_subset(v) and getattr(v, "confidence", "unique") in {"exact", "contained"}
+
+
+def _destructively_removable(v) -> bool:
+    """True when a verdict clears every destructive-disposition gate.
+
+    SUBSET at exact/contained confidence (is_safe_to_remove) AND no
+    tolerated installed-only content — a non-empty verdict.notes means the
+    matcher tolerated installed-only content it could not prove was noise.
+    Shared by every site that deletes or overwrites an installed file based
+    on a structural verdict, in both the real and degraded import modes.
+    """
+    return is_safe_to_remove(v) and not (getattr(v, "notes", "") or "")
+
 
 try:
     import yaml
@@ -1301,7 +1315,7 @@ def migrate_installed_rules(
             else:
                 verdict = _classify_diverged(installed_norm, shipped_norm)
                 verdict_notes = getattr(verdict, "notes", "") or ""
-                if is_safe_to_remove(verdict) and not verdict_notes:
+                if _destructively_removable(verdict):
                     # Deletion needs BOTH the high-confidence subset verdict AND a
                     # clean notes field — non-empty notes means the primitive
                     # tolerated installed-only content (e.g. sub-noise-floor
@@ -1411,6 +1425,190 @@ def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
             "matched_glob": matched,
         })
     return flagged
+
+
+def sweep_stale_descoped_rules(cfg: "InitConfig") -> list[dict]:
+    """Post-boundary stale de-scoped rule sweep. Read-only.
+
+    Mirrors lint_rule_overscope(): walks the still-installed DESCOPED_RULES
+    under .claude/rules/planwise/ — the leftovers the one-shot
+    migrate_installed_rules() never reached (its version gate is spent for any
+    install already past RESCOPE_MIGRATION_VERSION) — classifies each against
+    the shipped references/ copy, and recommends a disposition. NEVER writes or
+    deletes; purely diagnostic.
+
+    Each finding is a dict:
+      {path, filename, line_count, approx_tokens (=line_count*13),
+       verdict: "REMOVABLE" | "PRESERVE" | "RELOCATE", confidence, reason
+       [, unique_blocks]}
+
+    REMOVABLE requires BOTH a high-confidence subset verdict (is_subset AND
+    is_safe_to_remove) AND an empty verdict.notes field — non-empty notes means
+    the matcher tolerated installed-only content (e.g. sub-noise-floor
+    fragments) it could not prove was noise, which flips the disposition to
+    PRESERVE rather than risk deleting a genuine short customization.
+    """
+    rules_planwise = cfg.project_root / ".claude" / "rules" / "planwise"
+    rules_root = cfg.project_root / ".claude" / "rules"
+    refs_dir = cfg.plugin_root / "references"
+    findings: list[dict] = []
+    if not rules_root.exists():
+        return findings
+
+    descoped_names = {fn for fn, _ in DESCOPED_RULES}
+
+    for filename, _old_template in DESCOPED_RULES:
+        dst = rules_planwise / filename
+        if not dst.is_file():
+            continue  # already migrated/removed — nothing stale here
+        try:
+            installed_raw = dst.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            # An unclassifiable file must never be deletable — preserve
+            # unread rather than guess at its disposition.
+            findings.append({"path": str(dst), "filename": filename,
+                             "line_count": 0, "approx_tokens": 0,
+                             "verdict": "PRESERVE", "confidence": "unknown",
+                             "reason": f"unreadable ({exc}) — cannot classify; preserved"})
+            continue
+        line_count = installed_raw.count("\n") + (0 if installed_raw.endswith("\n") else 1)
+        base = {"path": str(dst), "filename": filename,
+                "line_count": line_count, "approx_tokens": line_count * 13}
+        try:
+            shipped_raw = (refs_dir / filename).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            findings.append({**base, "verdict": "PRESERVE", "confidence": "unknown",
+                             "reason": "shipped reference unavailable — cannot prove "
+                                       "stale; re-home if customized"})
+            continue
+
+        inst_norm = normalize_rule_for_diff(installed_raw)
+        ship_norm = normalize_rule_for_diff(shipped_raw)
+        if inst_norm == ship_norm:
+            findings.append({**base, "verdict": "REMOVABLE", "confidence": "exact",
+                             "reason": "untouched de-scoped rule the one-shot migration "
+                                       "never reached; handler-loaded from references/"})
+            continue
+
+        v = _classify_diverged(inst_norm, ship_norm)
+        # `v.notes` (set by classify_blocks) flags sub-noise-floor installed-only
+        # content tolerated during matching — surface it in the reason whenever
+        # present so a human sees the caveat before acting on the verdict.
+        notes_suffix = f" ({v.notes})" if getattr(v, "notes", "") else ""
+        if _destructively_removable(v):
+            findings.append({**base, "verdict": "REMOVABLE", "confidence": v.confidence,
+                             "reason": "stale subset of the now-grown shipped reference; "
+                                       "handler-loaded from references/"})
+        elif is_subset(v) and is_safe_to_remove(v):
+            # Safe-to-remove EXCEPT the notes field is non-empty — the matcher
+            # tolerated installed-only content (e.g. sub-noise-floor fragments).
+            # Deletion needs BOTH the high-confidence subset verdict AND a clean
+            # notes field; preserve rather than risk destroying a short
+            # customization until a transfer-to-project-file flow exists.
+            findings.append({**base, "verdict": "PRESERVE", "confidence": v.confidence,
+                             "unique_blocks": v.unique_blocks,
+                             "reason": "subset, but the matcher tolerated installed-only "
+                                       "content" + notes_suffix + "; preserved rather than "
+                                       "risk deleting a customization — re-home to "
+                                       ".claude/rules/<project>/<name>.md, do NOT delete"})
+        else:
+            findings.append({**base, "verdict": "PRESERVE", "confidence": v.confidence,
+                             "unique_blocks": v.unique_blocks,
+                             "reason": "genuine customization (unique content) — re-home "
+                                       "to .claude/rules/<project>/<name>.md, do NOT delete"
+                                       + notes_suffix})
+
+    # Hack-detection bonus: the old prefix-rename workaround produced files named
+    # "<anything>-<shipped-descoped-name>.md" to dodge the de-scope. Flag the
+    # fingerprint and point at the proper project-scoped home.
+    for md in sorted(rules_root.rglob("*.md")):
+        if not md.is_file():
+            continue
+        for dn in descoped_names:
+            if md.name != dn and md.name.endswith("-" + dn):
+                try:
+                    raw = md.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                lc = raw.count("\n") + (0 if raw.endswith("\n") else 1)
+                findings.append({"path": str(md), "filename": md.name,
+                                 "line_count": lc, "approx_tokens": lc * 13,
+                                 "verdict": "RELOCATE", "confidence": "fingerprint",
+                                 "reason": "prefix-rename hack fingerprint of a de-scoped "
+                                           "rule — migrate to .claude/rules/<project>/<name>.md"})
+                break
+    return findings
+
+
+def _run_prune_stale(cfg: "InitConfig") -> int:
+    """WRITER (opt-in): delete ONLY the REMOVABLE stale de-scoped rules, log to PRUNED.md.
+
+    Explicit opt-in companion to the read-only --doctor Stage 8 sweep. Runs
+    the plugin version-state gate first (mirroring _run_doctor): an
+    uninitialized or version-drifted install refuses to prune and returns 0
+    with the tree untouched. On a gate-ok install it runs
+    sweep_stale_descoped_rules(cfg), unlinks every REMOVABLE finding (never a
+    PRESERVE / RELOCATE one), and writes the full disposition (removed +
+    preserved + why) to a per-run, never-overwritten folder:
+    {planwise_root}/upgrade-backups/prune-{YYYY-MM-DD}/PRUNED.md, or
+    prune-{YYYY-MM-DD}-2/, -3/, ... when a folder for today already exists (a
+    second run the same day never clobbers an earlier run's log). Before each
+    deletion, a pre-image of the file is copied into that same prune folder
+    alongside PRUNED.md, so a prune is recoverable; a failed backup copy means
+    the file is left in place rather than deleted. A failed unlink after a
+    successful backup is reported as REMOVE_FAILED (not REMOVABLE) and its
+    orphan backup copy is removed. Exits 0.
+    """
+    gate = _doctor_version_gate(cfg)
+    if gate["state"] != "ok":
+        print(gate["report"])
+        print()
+        print("Nothing pruned — see the version-state gate above.")
+        return 0
+
+    findings = sweep_stale_descoped_rules(cfg)
+    removable = [f for f in findings if f["verdict"] == "REMOVABLE"]
+    kept = [f for f in findings if f["verdict"] != "REMOVABLE"]
+
+    today = datetime.date.today().isoformat()  # YYYY-MM-DD
+    backups_root = cfg.project_root / cfg.planwise_root / "upgrade-backups"
+    out_dir = backups_root / f"prune-{today}"
+    suffix = 2
+    while out_dir.exists():
+        out_dir = backups_root / f"prune-{today}-{suffix}"
+        suffix += 1
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    removed: list[dict] = []
+    for f in removable:
+        try:
+            src = Path(f["path"])
+            (out_dir / f["filename"]).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+            src.unlink()
+            removed.append(f)
+        except OSError as exc:
+            f["verdict"] = "REMOVE_FAILED"
+            f["reason"] = f"could not remove ({exc}) — left in place"
+            kept.append(f)
+            (out_dir / f["filename"]).unlink(missing_ok=True)
+
+    lines = [f"# Stale de-scoped rule prune — {today}", ""]
+    lines.append(f"## Removed ({len(removed)})")
+    for f in removed:
+        lines.append(f"- `{f['filename']}` (~{f['approx_tokens']} tokens) — {f['reason']}")
+    lines.append("")
+    lines.append(f"## Preserved ({len(kept)})")
+    for f in kept:
+        lines.append(f"- `{f['filename']}` [{f['verdict']}] — {f['reason']}")
+    if removed:
+        lines.append("")
+        lines.append("Pre-image copies of every removed file above sit alongside this "
+                      "log in this same folder, named after their original filename.")
+    (out_dir / "PRUNED.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    print(f"Pruned {len(removed)} stale de-scoped rule(s); "
+          f"preserved {len(kept)}. Log: {out_dir / 'PRUNED.md'}")
+    return 0
 
 
 def upgrade_artifacts(
@@ -1541,7 +1739,7 @@ def upgrade_artifacts(
             else:
                 verdict = _classify_diverged(installed_raw, shipped_raw)   # whole-file
                 sidecar_dst = conflict_dir / ".claude" / "agents" / f"{filename}.new"
-                if is_safe_to_remove(verdict) and not (getattr(verdict, "notes", "") or ""):
+                if _destructively_removable(verdict):
                     # Agents are overwritten WHOLE-FILE, frontmatter included, so
                     # the overwrite gate is exact/contained (is_safe_to_remove) —
                     # NOT bare is_subset: a reorg-confidence containment can mask a
@@ -1880,18 +2078,21 @@ def _doctor_version_gate(cfg: "InitConfig") -> dict:
 
 
 def _run_doctor(cfg: "InitConfig") -> int:
-    """Run the read-only overscope linter and print a report. Returns exit code.
+    """Run the read-only overscope linter + stale-rule sweep and print a report.
 
     Standalone diagnostic — does not require or perform an upgrade. Walks the
     installed rules, flags any scoped to plan/backlog/lessons globs, and prints
     one row per flagged rule with its size, a re-scope hint, and a total
-    always-on injected-budget line. Always exits 0 (diagnostic, not a gate).
+    always-on injected-budget line. Then runs Stage 8, the post-boundary stale
+    de-scoped rule sweep (sweep_stale_descoped_rules()), and prints its report
+    too — always-on, independent of whether any rule was overscoped. Always
+    exits 0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
     Saver): an uninitialized or version-drifted install is surfaced with a
     remediation (init / upgrade) and the function returns before linting — no
-    point auditing a stale rule surface. Read-only throughout; init/upgrade are
-    the only writers.
+    point auditing a stale rule surface. Read-only throughout; init/upgrade
+    (and the separate opt-in `--prune-stale` writer) are the only writers.
     """
     gate = _doctor_version_gate(cfg)
     print(gate["report"])
@@ -1905,19 +2106,46 @@ def _run_doctor(cfg: "InitConfig") -> int:
     if not overscoped:
         print("No overscoped rules found.")
         print("All installed rules are scoped to code paths (.claude/** or narrower).")
-        return 0
+    else:
+        total_tokens = sum(item["approx_tokens"] for item in overscoped)
+        print(f"Flagged {len(overscoped)} rule(s) scoped to plan/backlog/lessons globs:")
+        print()
+        for item in overscoped:
+            print(
+                f"  ~ {item['path']} ({item['line_count']} lines, "
+                f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
+            )
+            print("      hint: re-scope to code paths or convert to a handler-loaded reference")
+        print()
+        print(f"Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
 
-    total_tokens = sum(item["approx_tokens"] for item in overscoped)
-    print(f"Flagged {len(overscoped)} rule(s) scoped to plan/backlog/lessons globs:")
+    # Stage 8: post-boundary stale de-scoped rule sweep — read-only, always-on.
     print()
-    for item in overscoped:
-        print(
-            f"  ~ {item['path']} ({item['line_count']} lines, "
-            f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
-        )
-        print("      hint: re-scope to code paths or convert to a handler-loaded reference")
+    print("planwise doctor — stale de-scoped rule sweep (post-boundary)")
     print()
-    print(f"Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
+    stale = sweep_stale_descoped_rules(cfg)
+    if not stale:
+        print("No stale de-scoped rules found — install is past the boundary and clean.")
+    else:
+        print("Stale de-scoped rules still installed under .claude/rules/planwise/:")
+        for f in stale:
+            mark = "!" if f["verdict"] == "PRESERVE" else "~"
+            verdict_label = f["verdict"]
+            if verdict_label == "RELOCATE":
+                verdict_label += " (prefix-rename fingerprint)"
+            print(f"  {mark} {f['filename']}   {verdict_label}")
+            print(f"      size:    {f['line_count']} lines (~{f['approx_tokens']} tokens)")
+            print(f"      reason:  {f['reason']}")
+            if f["verdict"] == "REMOVABLE":
+                print("      action:  remove with /planwise doctor --prune-stale")
+            elif f["verdict"] == "PRESERVE":
+                print("      action:  re-home to .claude/rules/<project>/<name>.md — do NOT delete")
+            else:  # RELOCATE
+                print("      action:  migrate to .claude/rules/<project>/<name>.md")
+        removable = [f for f in stale if f["verdict"] == "REMOVABLE"]
+        print()
+        print(f"Total REMOVABLE always-on budget: ~{sum(f['approx_tokens'] for f in removable)} "
+              f"tokens across {len(removable)} rule(s).")
     return 0
 
 
@@ -1961,12 +2189,19 @@ def main():
                              "still scoped to plan/backlog/lessons globs (always-on context "
                              "overscope), with size and a re-scope hint. Does not modify "
                              "anything and does not require --upgrade.")
+    parser.add_argument("--prune-stale", action="store_true",
+                        help="WRITER (opt-in): delete the stale de-scoped rules that "
+                             "--doctor's Stage 8 sweep marks REMOVABLE, logging every "
+                             "removal to upgrade-backups/prune-<date>[-N]/PRUNED.md. "
+                             "Never deletes a customized (PRESERVE) rule.")
     args = parser.parse_args()
 
-    # --doctor is a read-only diagnostic and does not use the project name;
-    # every other mode (init / --migrate / --upgrade) requires it.
-    if not args.doctor and not args.name:
-        parser.error("--name is required (omit it only for the read-only --doctor diagnostic)")
+    # --doctor and --prune-stale are read-only/self-scoped diagnostics that do
+    # not use the project name; every other mode (init / --migrate / --upgrade)
+    # requires it.
+    if not args.doctor and not args.prune_stale and not args.name:
+        parser.error("--name is required (omit it only for the read-only --doctor "
+                     "diagnostic or --prune-stale)")
 
     _plugin_root = get_plugin_root()
     cfg = InitConfig(
@@ -1982,6 +2217,9 @@ def main():
         plugin_version=read_plugin_version(_plugin_root),
         token_saver=args.token_saver,
     )
+
+    if args.prune_stale:
+        sys.exit(_run_prune_stale(cfg))
 
     if args.doctor:
         sys.exit(_run_doctor(cfg))
