@@ -93,7 +93,17 @@ categorization:
   edge_cases_section: true
 
 upgrade:
-  customization_handoff: report        # report | report+relocate | report+issue
+  # customization_handoff: how /planwise upgrade disposes a customization-bearing
+  # installed rule/agent (HAS_UNIQUE, or a subset with tolerated installed-only content):
+  #   report          = conservative: preserve in place + .new sidecar; no transfer, no adoption
+  #   report+relocate = automated transfer-then-adopt: the customization is verified-written
+  #                     to a dormant preservation file under upgrade-transfers/ BEFORE the
+  #                     shipped body is adopted (never destroys work; promote the transfer
+  #                     file to an active rule interactively when convenient)
+  #   report+issue    = same disposition as report; additionally offers a GitHub issue for
+  #                     upstream-tagged customizations (interactive only, needs github_issue: true)
+  # When this key is ABSENT entirely, the loader falls back to the conservative `report`.
+  customization_handoff: report+relocate
   github_issue: false                  # opt-in gh issue for "upstream" entries (interactive only)
   descope_preserve_paths_edits: true   # true = keep today's preserve-on-paths-only-edit behavior; false opts in to removal
 

@@ -20,6 +20,7 @@ Options:
 import argparse
 import dataclasses
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -1109,6 +1110,15 @@ def _extract_paths_value(content: str) -> str | None:
     return match.group(1).strip()
 
 
+# Unambiguous marker for the degraded not-analyzed stand-in `_classify_diverged`
+# manufactures when structural_compare is unavailable at call time. Checked
+# ONLY by `_verdict_not_analyzed()` — a real verdict (inline or agent-sourced)
+# never carries this value, so a genuine HAS_UNIQUE verdict that happens to
+# have empty unique_blocks and non-empty notes can never be misidentified as
+# "never analyzed" (the old shape-based detection's false-positive hazard).
+_DEGRADED_VERDICT_SOURCE = "not-analyzed"
+
+
 def _classify_diverged(
     installed_norm: str,
     shipped_norm: str,
@@ -1124,8 +1134,11 @@ def _classify_diverged(
     than risk deleting a genuine customization — the safe error over the
     dangerous one. The degraded verdict is a duck-typed stand-in (attribute-
     compatible with StructuralVerdict), since the real class is unavailable
-    exactly when this path fires. Module-level (not nested) so tests can
-    monkeypatch `ip._classify_diverged` directly.
+    exactly when this path fires. Its `source` is the explicit
+    `_DEGRADED_VERDICT_SOURCE` marker (not a shape heuristic) so
+    `_verdict_not_analyzed()` can never mistake a genuine verdict for this
+    stand-in. Module-level (not nested) so tests can monkeypatch
+    `ip._classify_diverged` directly.
     """
     if override is not None:
         return override
@@ -1140,31 +1153,99 @@ def _classify_diverged(
             total_installed_blocks=0,
             installed_only_chars=0,
             unique_sample_tokens=[],
-            source="inline",
+            source=_DEGRADED_VERDICT_SOURCE,
             notes="structural_compare unavailable; degraded to preserve",
         )
     return _classify_blocks(installed_norm, shipped_norm)
 
 
-def _record_disposition(
-    cfg: "InitConfig",
-    from_version: str,
-    to_version: str,
-    dst: Path,
-    action: str,
-    reason: str,
-) -> None:
-    """Back up the pre-image of a destructive disposition and append a log row.
+def _load_verdicts_cache(cfg: "InitConfig", from_version: str, to_version: str) -> dict:
+    """Load the interactive fan-out's verdicts.json cache, if present.
 
-    Auto-adoption and stale-subset removal destroy the only installed copy of
-    a file, and stdout is the only other record — it does not survive the
-    version bump (a re-run prints "Already up to date"). Every deleted or
-    overwritten file therefore gets its pre-change bytes mirrored under
-    ``{planwise_root}/upgrade-backups/{from}-to-{to}/`` plus a DISPOSITIONS.md
-    row, so a misclassified customization stays recoverable without VCS.
+    Path: ``{planwise_root}/upgrade-conflicts/{from}-to-{to}/verdicts.json``. This
+    is the ONLY place the cache is read from disk — every ``--upgrade`` writer
+    site (the Site-1 de-scope migration and the Sites-2/3 artifact refresh)
+    calls this helper once, then looks up its own filename to build an
+    override. A missing file, an unreadable file, or malformed (non-dict)
+    JSON all degrade to ``{}`` — no ``verdicts.json`` is the headless-complete
+    baseline; the writer never requires the cache to run.
+    """
+    path = (
+        cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
+        / f"{from_version}-to-{to_version}" / "verdicts.json"
+    )
+    if not path.exists():
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
-    Never raises: a backup failure downgrades to a stderr warning — the
-    disposition itself is still reported by the caller.
+
+def _load_verdict_override(
+    verdicts: dict, filename: str, installed_raw: str
+) -> "StructuralVerdict | None":
+    """Return a StructuralVerdict built from a verdicts.json cache entry, or None.
+
+    Degrades to None (the conservative inline-primitive path, per
+    `_classify_diverged`'s own preserve-on-doubt fallback) whenever: the
+    filename has no cache entry, `structural_compare` itself is unavailable
+    (`StructuralVerdict` is not importable in degraded mode), the entry is not
+    a dict (a string/list/number/null cache value — malformed cache, never
+    crash), or `from_dict` raises (`ValueError` when `classification`/
+    `confidence` is missing, or `AttributeError` when the entry is dict-shaped
+    but a nested field is the wrong type for `.items()`-style access — a
+    partial/malformed agent verdict must NEVER crash the `--upgrade` run).
+
+    Freshness-bound: each entry must also carry `installed_sha256` — the
+    sha256 hex digest of the installed file's bytes at the time the
+    comparator analyzed it. It is re-hashed against `installed_raw` here; a
+    missing or mismatched hash means the cached verdict was computed against
+    different bytes than what's on disk NOW (a later edit, a partial rerun, a
+    stale carried-over cache) — the override is ignored (one-line stderr
+    note) rather than trusted against content it doesn't provably describe.
+
+    A well-formed SUBSET verdict may legitimately carry a non-empty `notes`
+    field (installed-only sub-noise-floor fragments) — that is not malformed
+    and deserializes cleanly.
+    """
+    if not HAS_STRUCTURAL_COMPARE or filename not in verdicts:
+        return None
+    entry = verdicts[filename]
+    if not isinstance(entry, dict):
+        print(
+            f"  Warning: verdicts.json entry for {filename} is not an object "
+            "— ignoring cached verdict",
+            file=sys.stderr,
+        )
+        return None
+    current_hash = hashlib.sha256(installed_raw.encode("utf-8")).hexdigest()
+    cached_hash = entry.get("installed_sha256")
+    if not cached_hash or cached_hash != current_hash:
+        print(
+            f"  Warning: verdicts.json entry for {filename} has a missing or "
+            "stale installed_sha256 — ignoring cached verdict",
+            file=sys.stderr,
+        )
+        return None
+    try:
+        return StructuralVerdict.from_dict(entry)
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _write_backup_preimage(
+    cfg: "InitConfig", from_version: str, to_version: str, dst: Path
+) -> bool:
+    """Copy dst's CURRENT bytes to upgrade-backups/{from}-to-{to}/, mirroring
+    its project-relative path. Call this BEFORE any destructive overwrite or
+    removal of `dst`.
+
+    Returns True on success, False on any OSError (a stderr warning is
+    printed). Callers MUST treat False as "abort the destructive step; leave
+    the file untouched" — the same failed-backup-blocks-destruction contract
+    `_run_prune_stale()` already applies to its own removals. Never raises.
     """
     backup_root = (
         cfg.project_root / cfg.planwise_root / "upgrade-backups"
@@ -1178,19 +1259,111 @@ def _record_disposition(
         backup_path = backup_root / rel
         backup_path.parent.mkdir(parents=True, exist_ok=True)
         backup_path.write_text(dst.read_text(encoding="utf-8"), encoding="utf-8")
+        return True
+    except OSError as exc:
+        print(
+            f"  Warning: could not back up {dst} before a destructive write: {exc}",
+            file=sys.stderr,
+        )
+        return False
+
+
+def _append_disposition_log(
+    cfg: "InitConfig",
+    from_version: str,
+    to_version: str,
+    dst: Path,
+    action: str,
+    reason: str,
+) -> None:
+    """Append a DISPOSITIONS.md row recording an ALREADY-COMPLETED destructive
+    action.
+
+    Call this ONLY after the destructive write/removal has actually
+    succeeded — logging before the fact can produce a false row plus stranded
+    state if the write later fails (the interleaving `upgrade_artifacts()`'s
+    transfer-then-adopt sites now avoid: transfer, verify, back up, THEN
+    write, and only log once that write is confirmed).
+
+    Best-effort: an OSError here is a stderr warning only — the disposition
+    itself already happened, so losing the log row (not the file) is the
+    worst case. Never raises.
+    """
+    backup_root = (
+        cfg.project_root / cfg.planwise_root / "upgrade-backups"
+        / f"{from_version}-to-{to_version}"
+    )
+    try:
+        rel = dst.relative_to(cfg.project_root)
+    except ValueError:
+        rel = Path(dst.name)
+    try:
         log_path = backup_root / "DISPOSITIONS.md"
         header = "" if log_path.exists() else (
             f"# Upgrade dispositions: {from_version} -> {to_version}\n\n"
             "Pre-change copies of every file this upgrade deleted or overwrote\n"
             "live alongside this log, mirroring their project-relative paths.\n\n"
         )
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as fh:
             fh.write(f"{header}- {date.today().isoformat()} `{rel}` — {action}: {reason}\n")
     except OSError as exc:
         print(
-            f"  Warning: could not back up {dst} before {action}: {exc}",
+            f"  Warning: could not log disposition for {dst}: {exc}",
             file=sys.stderr,
         )
+
+
+def _record_disposition(
+    cfg: "InitConfig",
+    from_version: str,
+    to_version: str,
+    dst: Path,
+    action: str,
+    reason: str,
+) -> bool:
+    """Back up dst's pre-image and append a DISPOSITIONS.md row in one call —
+    the convenience wrapper for the SIMPLE destructive sites where the
+    caller's own destructive write immediately follows this call with no
+    intermediate step that could itself independently fail (e.g. `dst.unlink()`
+    right after).
+
+    Returns True iff the backup succeeded; callers MUST skip the destructive
+    action when this returns False (same failed-backup-blocks-destruction
+    contract as `_write_backup_preimage()`). Sites where the destructive write
+    can itself fail AFTER a successful transfer (the transfer-then-adopt
+    sites in `upgrade_artifacts()`) call `_write_backup_preimage()` and
+    `_append_disposition_log()` directly instead, logging only once the write
+    is confirmed to have succeeded.
+    """
+    ok = _write_backup_preimage(cfg, from_version, to_version, dst)
+    if ok:
+        _append_disposition_log(cfg, from_version, to_version, dst, action, reason)
+    return ok
+
+
+def _load_raw_config(cfg: "InitConfig") -> dict:
+    """Load config.yaml as a plain dict, degrading to {} on any failure.
+
+    Shared by every writer site that needs the `upgrade:` block (the de-scope
+    migration's `descope_preserve_paths_edits`, the artifact refresh's
+    `customization_handoff`) — tolerant on purpose so a missing/unparsable
+    config.yaml degrades to `get_upgrade_config()`'s conservative defaults
+    rather than aborting the run.
+    """
+    if not HAS_YAML:
+        return {}
+    try:
+        loaded = yaml.safe_load(
+            (cfg.project_root / cfg.planwise_root / "config.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, ValueError, yaml.YAMLError):
+        # ValueError covers UnicodeDecodeError (non-UTF-8 config) — the load
+        # is tolerant on purpose; degrade to {} = conservative defaults.
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def migrate_installed_rules(
@@ -1246,22 +1419,15 @@ def migrate_installed_rules(
     # InitConfig does not carry the raw config dict, so load it at the site;
     # tolerant on purpose — an absent/unparsable config degrades to {} and
     # get_upgrade_config() supplies the conservative defaults.
-    config: dict = {}
-    if HAS_YAML:
-        try:
-            loaded = yaml.safe_load(
-                (cfg.project_root / cfg.planwise_root / "config.yaml").read_text(
-                    encoding="utf-8"
-                )
-            )
-        except (OSError, ValueError, yaml.YAMLError):
-            # ValueError covers UnicodeDecodeError (non-UTF-8 config) — the
-            # load is tolerant on purpose; degrade to {} = conservative defaults.
-            loaded = None
-        if isinstance(loaded, dict):
-            config = loaded
+    config = _load_raw_config(cfg)
 
     preserve_paths_edits = get_upgrade_config(config)["descope_preserve_paths_edits"]   # dict contract; pass the config dict
+
+    # verdicts.json entries apply across every --upgrade writer site, not just
+    # the artifact refresh (Sites 2/3) — the interactive fan-out's --list-diverged
+    # scope includes DESCOPED_RULES, so a de-scoped rule can carry a cached
+    # agent verdict too. Same helper, same degrade-to-None-on-absence contract.
+    verdicts = _load_verdicts_cache(cfg, from_version, to_version)
 
     for filename, old_template in DESCOPED_RULES:
         dst = rules_dir / filename
@@ -1272,10 +1438,13 @@ def migrate_installed_rules(
                 report["skipped"].append(f"{filename}: not installed — nothing to migrate")
                 continue
 
-            installed_raw = dst.read_text(encoding="utf-8")
+            # utf-8-sig: a leading BOM must not defeat the frontmatter-anchored
+            # comparison helpers (startswith("---\n") returns False on a BOM'd
+            # file, silently flipping the disposition) — strip it at read time.
+            installed_raw = dst.read_text(encoding="utf-8-sig")
             src = refs_dir / filename
             try:
-                shipped_raw = src.read_text(encoding="utf-8")
+                shipped_raw = src.read_text(encoding="utf-8-sig")
             except FileNotFoundError:
                 # Cannot prove the body is untouched without the shipped reference —
                 # preserve the installed copy rather than risk deleting a custom one.
@@ -1293,27 +1462,41 @@ def migrate_installed_rules(
             if installed_norm == shipped_norm:
                 # FAST PATH — normalized-identical; primitive NOT called.
                 if paths_match:
-                    _record_disposition(
-                        cfg, from_version, to_version, dst, "removed",
-                        "untouched de-scoped rule (normalized-identical, paths match)")
-                    dst.unlink()
-                    report["removed"].append(
-                        f"{filename}: removed — untouched de-scoped rule "
-                        "(now handler-loaded from references/)")
+                    if _record_disposition(
+                            cfg, from_version, to_version, dst, "removed",
+                            "untouched de-scoped rule (normalized-identical, paths match)"):
+                        dst.unlink()
+                        report["removed"].append(
+                            f"{filename}: removed — untouched de-scoped rule "
+                            "(now handler-loaded from references/)")
+                    else:
+                        # Failed backup = no deletion (same contract as the
+                        # prune writer): the pre-image is the only recovery
+                        # path once the file is gone.
+                        report["skipped"].append(
+                            f"{filename}: skipped — backup write failed; installed "
+                            "file left in place (no removal without a pre-image)")
                 elif preserve_paths_edits:
                     report["preserved"].append(
                         f"{filename}: kept (paths-customized; preserve opt-out enabled) — "
                         "re-home or re-scope to the code dirs it governs")
                 else:
-                    _record_disposition(
-                        cfg, from_version, to_version, dst, "removed",
-                        "body matches shipped; custom paths: dropped (opt-out disabled)")
-                    dst.unlink()
-                    report["removed"].append(
-                        f"{filename}: removed [INFO] — body matches shipped; custom paths: "
-                        "dropped (scoping is moot once the rule is handler-loaded)")
+                    if _record_disposition(
+                            cfg, from_version, to_version, dst, "removed",
+                            "body matches shipped; custom paths: dropped (opt-out disabled)"):
+                        dst.unlink()
+                        report["removed"].append(
+                            f"{filename}: removed [INFO] — body matches shipped; custom paths: "
+                            "dropped (scoping is moot once the rule is handler-loaded)")
+                    else:
+                        report["skipped"].append(
+                            f"{filename}: skipped — backup write failed; installed "
+                            "file left in place (no removal without a pre-image)")
             else:
-                verdict = _classify_diverged(installed_norm, shipped_norm)
+                verdict = _classify_diverged(
+                    installed_norm, shipped_norm,
+                    override=_load_verdict_override(verdicts, filename, installed_raw),
+                )
                 verdict_notes = getattr(verdict, "notes", "") or ""
                 if _destructively_removable(verdict):
                     # Deletion needs BOTH the high-confidence subset verdict AND a
@@ -1331,15 +1514,19 @@ def migrate_installed_rules(
                         reason = "stale subset of the grown shipped reference"
                         if not paths_match:
                             reason += "; custom paths: dropped (opt-out disabled)"
-                        _record_disposition(
-                            cfg, from_version, to_version, dst, "removed", reason)
-                        dst.unlink()
-                        suffix = (
-                            " [INFO] custom paths: dropped (opt-out disabled)"
-                            if not paths_match else "")
-                        report["removed"].append(
-                            f"{filename}: removed — stale subset of the grown shipped "
-                            f"reference (now handler-loaded from references/){suffix}")
+                        if _record_disposition(
+                                cfg, from_version, to_version, dst, "removed", reason):
+                            dst.unlink()
+                            suffix = (
+                                " [INFO] custom paths: dropped (opt-out disabled)"
+                                if not paths_match else "")
+                            report["removed"].append(
+                                f"{filename}: removed — stale subset of the grown shipped "
+                                f"reference (now handler-loaded from references/){suffix}")
+                        else:
+                            report["skipped"].append(
+                                f"{filename}: skipped — backup write failed; installed "
+                                "file left in place (no removal without a pre-image)")
                 elif is_subset(verdict):
                     if verdict_notes:
                         # SUBSET verdict flagged installed-only content the matcher
@@ -1357,7 +1544,7 @@ def migrate_installed_rules(
                             "agent-verify, or /planwise doctor, before removal")
                 else:                                      # HAS_UNIQUE
                     unique_blocks = getattr(verdict, "unique_blocks", []) or []
-                    if not unique_blocks and verdict_notes:
+                    if _verdict_not_analyzed(verdict):
                         # Degraded stand-in (analysis never ran) — do NOT assert
                         # "0 customized blocks"; say why it was preserved unexamined.
                         report["preserved"].append(
@@ -1504,7 +1691,10 @@ def sweep_stale_descoped_rules(cfg: "InitConfig") -> list[dict]:
             # tolerated installed-only content (e.g. sub-noise-floor fragments).
             # Deletion needs BOTH the high-confidence subset verdict AND a clean
             # notes field; preserve rather than risk destroying a short
-            # customization until a transfer-to-project-file flow exists.
+            # customization. The automated transfer-then-adopt flow (and the
+            # assisted relocation handoff) apply to the --upgrade artifact
+            # refresh, not this read-only sweep, so this finding stays PRESERVE
+            # here and the customization is re-homed by hand.
             findings.append({**base, "verdict": "PRESERVE", "confidence": v.confidence,
                              "unique_blocks": v.unique_blocks,
                              "reason": "subset, but the matcher tolerated installed-only "
@@ -1611,43 +1801,417 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
     return 0
 
 
+def _list_diverged_rows(cfg: "InitConfig") -> list[dict]:
+    """Read-only: return the diverged rule/agent minority as a list of dict rows.
+
+    Walks DESCOPED_RULES, INSTALLED_RULES, and INSTALLED_AGENTS present on
+    disk; compares installed vs shipped using the SAME normalization the
+    writer uses (`normalize_rule_for_diff()` for rules, whole-file for
+    agents). A row is emitted only when the bodies differ — the byte/
+    normalized-identical majority is skipped and never reaches the primitive
+    or an agent. Stable-sorted by (kind, filename) so a downstream fan-out
+    batch is reproducible. Returns `[]` when nothing diverges. Never writes
+    or deletes anything; a per-file OSError is skipped rather than raised so
+    one unreadable file cannot hide the rest of the diverged set.
+    """
+    refs_dir = cfg.plugin_root / "references"
+    agents_src_dir = cfg.plugin_root / "agents"
+    rules_dst_dir = cfg.project_root / ".claude" / "rules" / "planwise"
+    agents_dst_dir = cfg.project_root / ".claude" / "agents"
+
+    rows: list[dict] = []
+
+    for filename, _template in list(INSTALLED_RULES) + list(DESCOPED_RULES):
+        dst = rules_dst_dir / filename
+        src = refs_dir / filename
+        if not dst.is_file() or not src.is_file():
+            continue
+        try:
+            installed_raw = dst.read_text(encoding="utf-8")
+            shipped_raw = src.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if normalize_rule_for_diff(installed_raw) != normalize_rule_for_diff(shipped_raw):
+            rows.append({
+                "filename": filename,
+                "kind": "rule",
+                "installed": dst.relative_to(cfg.project_root).as_posix(),
+                "shipped": src.relative_to(cfg.plugin_root).as_posix(),
+            })
+
+    for filename in INSTALLED_AGENTS:
+        dst = agents_dst_dir / filename
+        src = agents_src_dir / filename
+        if not dst.is_file() or not src.is_file():
+            continue
+        try:
+            installed_raw = dst.read_text(encoding="utf-8")
+            shipped_raw = src.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if installed_raw != shipped_raw:
+            rows.append({
+                "filename": filename,
+                "kind": "agent",
+                "installed": dst.relative_to(cfg.project_root).as_posix(),
+                "shipped": src.relative_to(cfg.plugin_root).as_posix(),
+            })
+
+    rows.sort(key=lambda r: (r["kind"], r["filename"]))
+    return rows
+
+
+def _run_list_diverged(cfg: "InitConfig") -> int:
+    """Execute the --list-diverged diagnostic. Prints json.dumps(rows) (an
+    empty array when nothing diverges) and returns 0. Read-only — mutates
+    nothing; the cheap gate that decides whether a fan-out is even worth
+    spawning. See `_list_diverged_rows()` for the comparison logic.
+    """
+    print(json.dumps(_list_diverged_rows(cfg)))
+    return 0
+
+
+_AGENT_FRONTMATTER_GUARDED_FIELDS = ("model", "tools", "maxTurns")
+
+_FM_KEY_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(.*)$")
+
+# UTF-8 byte-order mark as a code point — kept as chr() so this source file
+# stays pure ASCII (an invisible literal BOM in source is exactly the bug
+# class the guard below exists to defeat).
+_BOM_CHAR = chr(0xFEFF)
+
+
+def _split_frontmatter_block(content: str) -> "tuple[str, str] | None":
+    """Split `content` into (frontmatter_text, body). BOM-tolerant.
+
+    Returns None when there is no complete, well-delimited frontmatter block
+    (missing opening `---`, or no closing delimiter). A leading UTF-8 BOM is
+    stripped before the delimiter check so a BOM'd file cannot silently
+    defeat frontmatter-anchored logic.
+    """
+    content = content.lstrip(_BOM_CHAR)
+    if not content.startswith("---\n"):
+        return None
+    end = content.find("\n---\n", 4)
+    if end == -1:
+        return None
+    return content[4:end], content[end + 5:]
+
+
+def _parse_frontmatter_map(frontmatter_text: str) -> "dict[str, str] | None":
+    """Parse a frontmatter block into a {key: value-text} map, or None.
+
+    A top-level `key: value` line maps to its stripped scalar value; any
+    continuation lines (indented content, `- ` list items, block scalars)
+    are appended verbatim with their newlines, so a multi-line value is
+    detectable via `"\\n" in value` AND two different multi-line values
+    never compare equal. Returns None when a line cannot be attributed to
+    any key (structurally unparseable — the guard treats that as
+    cannot-guard).
+    """
+    result: dict[str, str] = {}
+    current_key: "str | None" = None
+    for line in frontmatter_text.split("\n"):
+        if not line.strip():
+            continue
+        m = _FM_KEY_LINE_RE.match(line)
+        if m:
+            current_key = m.group(1)
+            result[current_key] = m.group(2).strip()
+            continue
+        if current_key is None:
+            return None            # leading continuation with no key — unparseable
+        result[current_key] += "\n" + line.rstrip()
+    return result
+
+
+def _apply_agent_frontmatter_guard(installed_raw: str, shipped_raw: str) -> "str | None":
+    """Build the adopted text for an agent whole-file overwrite, preserving a
+    customized model:/tools:/maxTurns: pin — or return None when the
+    installed frontmatter carries ANY delta the guard cannot PROVABLY
+    preserve (detect, don't guess).
+
+    Agents are overwritten whole-file (unlike rules, which only reset
+    `paths:` via `update_frontmatter()`), so a reorg-confidence containment
+    verdict — which can mask a frontmatter edit that reappears verbatim
+    elsewhere in the shipped prose — must not silently drop a customization.
+    The guard splices ONLY when it can prove no loss:
+
+      * Guarded field (model/tools/maxTurns) differs, single-line on BOTH
+        sides -> installed value spliced into shipped's frontmatter (line
+        replaced, or appended when shipped lacks the key). Splicing is plain
+        string assembly — never a regex replacement template — so backslashes
+        and `\\g<...>`-lookalike values pass through verbatim.
+      * ANY other installed-side delta -> None (cannot-guard): a non-guarded
+        key that differs from shipped or exists only installed-side, a
+        guarded key that is multi-line/block-style on either side, an
+        installed frontmatter that fails to parse (including one hidden
+        behind a BOM), or a shipped file with no frontmatter to splice into
+        while installed has one. The caller MUST route a None to the
+        customization-bearing path (transfer-then-adopt or preserve +
+        sidecar) — NEVER overwrite whole-file with unpreserved deltas.
+
+    Keys that exist ONLY in shipped's frontmatter are fine (shipped grew a
+    key; nothing installed is lost by adopting it). When installed has no
+    frontmatter at all there is nothing to preserve — shipped is returned
+    unchanged.
+    """
+    installed_split = _split_frontmatter_block(installed_raw)
+    if installed_split is None:
+        # No (complete) installed frontmatter — nothing installed to lose.
+        # But if there IS text that looks like it wanted to be frontmatter
+        # (starts with --- but never closes), be conservative.
+        if installed_raw.lstrip(_BOM_CHAR).startswith("---"):
+            return None
+        return shipped_raw
+
+    shipped_split = _split_frontmatter_block(shipped_raw)
+    if shipped_split is None:
+        # Installed has frontmatter, shipped has none — adopting shipped
+        # wholesale would drop the entire installed frontmatter. Cannot guard.
+        return None
+
+    installed_fm, _ = installed_split
+    shipped_fm, shipped_body = shipped_split
+
+    installed_map = _parse_frontmatter_map(installed_fm)
+    shipped_map = _parse_frontmatter_map(shipped_fm)
+    if installed_map is None or shipped_map is None:
+        return None                                    # unparseable — cannot guard
+
+    splices: dict[str, str] = {}
+    for key, installed_value in installed_map.items():
+        shipped_value = shipped_map.get(key)
+        if installed_value == shipped_value:
+            continue                                   # no delta for this key
+        if key not in _AGENT_FRONTMATTER_GUARDED_FIELDS:
+            return None            # non-guarded delta (differs or installed-only)
+        if "\n" in installed_value or (shipped_value is not None and "\n" in shipped_value):
+            return None            # block-style/multi-line — never splice
+        if not installed_value:
+            return None            # empty extraction — never splice an empty value
+        splices[key] = installed_value
+
+    if not splices:
+        return shipped_raw                             # nothing to preserve
+
+    # Splice by direct line assembly (no regex replacement templates).
+    out_lines: list[str] = []
+    replaced: set[str] = set()
+    for line in shipped_fm.split("\n"):
+        m = _FM_KEY_LINE_RE.match(line)
+        if m and m.group(1) in splices:
+            key = m.group(1)
+            out_lines.append(f"{key}: {splices[key]}")
+            replaced.add(key)
+        else:
+            out_lines.append(line)
+    new_fm = "\n".join(out_lines).rstrip()
+    for key in splices:
+        if key not in replaced:                        # shipped lacked the key
+            new_fm += f"\n{key}: {splices[key]}"
+
+    return f"---\n{new_fm}\n---\n{shipped_body}"
+
+
+def _verdict_not_analyzed(v) -> bool:
+    """True for the degraded stand-in verdict `_classify_diverged` manufactures
+    when structural_compare is unavailable at call time. The installed file
+    was never actually analyzed, so the automated transfer-then-adopt path
+    must NOT act on it — there is no verdict evidence to base an adoption on.
+    The caller preserves the file in place and writes a shipped sidecar for
+    manual merge (the always-safe degradation).
+
+    Detection is by the explicit `source == _DEGRADED_VERDICT_SOURCE` marker
+    ONLY — never by verdict shape. A genuine verdict (inline primitive or
+    agent-sourced) that happens to be HAS_UNIQUE with empty unique_blocks and
+    non-empty notes must NOT match: it carries real analysis evidence and
+    routes through the normal customization-bearing disposition.
+    """
+    return getattr(v, "source", "") == _DEGRADED_VERDICT_SOURCE
+
+
+def _transfer_customization(
+    cfg: "InitConfig",
+    filename: str,
+    kind: str,
+    installed_raw: str,
+    verdict: "StructuralVerdict",
+    from_version: str,
+    to_version: str,
+) -> "Path | None":
+    """Move a customization-bearing installed file's content to a dormant
+    preservation home BEFORE the writer adopts the shipped body over it.
+
+    Per the automated-transfer-first upgrade policy: a notes-flagged SUBSET
+    (installed-only content the matcher tolerated as noise) or a HAS_UNIQUE
+    verdict (genuine customization) must never simply be overwritten — the
+    customization is written to a separate file, the write is VERIFIED
+    (read back and compared), and ONLY THEN may the caller adopt shipped in
+    place. Writes the full installed body (the carrier of the customization —
+    a granular per-block extract is not available at this layer) to
+    ``{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}`` (beside
+    ``upgrade-backups/``), alongside a minimal generic provenance header
+    (source filename, kind, upgrade pair, date, verdict summary). The
+    transfer file is a dormant preservation document — it lives OUTSIDE
+    ``.claude/rules/`` so it is NEVER loaded as a rule and can never collide
+    with the managed tree (including on a project literally named
+    "planwise"). Promotion into an active ``.claude/rules/<project>/`` rule
+    with real ``paths:`` scoping is an interactive, opt-in handler action.
+    Never clobbers a pre-existing file at the target (e.g. from a prior
+    interrupted run) — collisions are uniquified with a numeric loop
+    (``{stem}-{from}-to-{to}``, then ``-2``, ``-3``, ...) until a
+    non-existent name is found.
+
+    Returns the transfer file Path on a verified success, or None on ANY
+    failure (OSError writing or reading back, or a content mismatch on
+    read-back — a filesystem lie is never trusted). The caller MUST treat
+    None as "do not adopt/remove; preserve the installed file in place and
+    report."
+    """
+    target_dir = (
+        cfg.project_root / cfg.planwise_root / "upgrade-transfers"
+        / f"{from_version}-to-{to_version}"
+    )
+    target = target_dir / filename
+    if target.exists():
+        stem, suffix = target.stem, target.suffix
+        candidate = target_dir / f"{stem}-{from_version}-to-{to_version}{suffix}"
+        counter = 2
+        while candidate.exists():
+            candidate = (
+                target_dir / f"{stem}-{from_version}-to-{to_version}-{counter}{suffix}"
+            )
+            counter += 1
+        target = candidate
+
+    unique_blocks = getattr(verdict, "unique_blocks", None) or []
+    notes = getattr(verdict, "notes", "") or ""
+    header_lines = [
+        "---",
+        f"source_filename: {filename}",
+        f"source_kind: {kind}",
+        f"upgrade: {from_version} -> {to_version}",
+        f"transferred: {date.today().isoformat()}",
+        f"classification: {getattr(verdict, 'classification', 'HAS_UNIQUE')}",
+    ]
+    if unique_blocks:
+        header_lines.append(f"unique_blocks: {unique_blocks!r}")
+    if notes:
+        header_lines.append(f"notes: {notes!r}")
+    header_lines.append("---")
+    provenance = (
+        "\n".join(header_lines) + "\n\n"
+        f"# Transferred customization: {filename}\n\n"
+        "This file was auto-transferred from the installed copy before a "
+        f"plugin upgrade ({from_version} -> {to_version}) adopted the shipped "
+        "body in its place. Review and re-home the content below (port to a "
+        "project-local rule, re-scope, or upstream the change), then delete "
+        "this file once it is no longer needed.\n\n---\n\n"
+    )
+    transfer_text = provenance + installed_raw
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target.write_text(transfer_text, encoding="utf-8")
+        if target.read_text(encoding="utf-8") != transfer_text:
+            return None
+    except OSError:
+        return None
+    return target
+
+
 def upgrade_artifacts(
     cfg: "InitConfig",
     manifest: dict,
     from_version: str,
     to_version: str,
-) -> tuple[list[str], list[str], list[tuple[str, str]], list[str], list[str]]:
+) -> tuple[list[str], list[str], list[tuple[str, str]], list[str], list[str], list[tuple[str, str]]]:
     """Refresh artifacts whose upgrade_behavior is `refresh_or_sidecar`.
 
-    Returns a 5-tuple:
-      refreshed: list of destination paths overwritten cleanly
+    Returns a 6-tuple:
+      refreshed: list of destination paths overwritten cleanly (includes every
+        `transferred` entry below — its customization was moved out first)
       unchanged: list of destination paths whose installed body already matched the shipped body
       conflicts: list of (destination_path, sidecar_path) tuples — installed body diverged
-        and the verdict did not clear the destructive gate (HAS_UNIQUE, a reorg-confidence
-        agent subset, or any subset whose notes flag installed-only tolerated content)
+        and was not adopted: the customization transfer-first write FAILED, the verdict was
+        the degraded not-analyzed stand-in (structural_compare unavailable — no evidence to
+        adopt on), a pre-image backup could not be written (failed backup = no destructive
+        write), the adoption write itself failed after a verified transfer, or
+        `upgrade.customization_handoff` is `report`/`report+issue` (conservative mode: a
+        customization-bearing file is preserved in place, never auto-transferred). The file
+        is left untouched and a shipped sidecar written for manual merge
       untracked: list of destination paths found in the install dirs but NOT in the manifest allowlist
       refreshed_subsets: subset of `refreshed` whose entries were auto-adopted because the
-        installed body was a stale SUBSET of the (grown) shipped body — surfaced separately
-        so the caller can print a "N were stale subsets, auto-adopted shipped" banner sub-line
+        installed body was a stale SUBSET of the (grown) shipped body (rules: any confidence;
+        agents: exact/contained, or reorg-confidence via the frontmatter-preservation guard) —
+        surfaced separately so the caller can print a "N were stale subsets, auto-adopted
+        shipped" banner sub-line
+      transferred: list of (destination_path, transfer_path) tuples — a customization-bearing
+        verdict (HAS_UNIQUE or notes-flagged subset) whose content was VERIFIED-written to
+        `transfer_path` (a dormant preservation file under
+        `{planwise_root}/upgrade-transfers/{from}-to-{to}/`) before shipped was adopted at
+        destination_path; see `_transfer_customization()`
+
+    Config gate (`upgrade.customization_handoff`, read via `get_upgrade_config()`):
+    `report+relocate` (the shipped template default) enables the automated
+    transfer-then-adopt path below; `report` (the absent-key fallback) and
+    `report+issue` (whose extra meaning — gh-issue routing — is handler-side only)
+    are conservative for disposition purposes: customization-bearing files are
+    preserved in place + sidecar'd, with NO transfer and NO adoption.
 
     Destructive gates: rules refresh on `is_subset` with empty verdict notes (the project
-    paths: line is re-applied via update_frontmatter); agents are overwritten whole-file, so
-    they refresh only on `is_safe_to_remove` (exact/contained) with empty notes — reorg
-    containment can mask a frontmatter value edit and goes to the sidecar branch. Every
-    overwrite first mirrors the pre-image under `{planwise_root}/upgrade-backups/` via
-    `_record_disposition()`, and an adoption removes the sidecar it obsoletes. A per-file
-    OSError is contained (stderr warning, file left untouched) — the loops always complete.
+    paths: line is re-applied via update_frontmatter). Agents are overwritten whole-file:
+    they auto-adopt on `is_safe_to_remove` (exact/contained, no notes) unchanged, OR on a
+    pure reorg-confidence subset (no notes) via the frontmatter-preservation guard —
+    detect-don't-guess: the guard splices a customized single-line model:/tools:/maxTurns:
+    pin into shipped's frontmatter, and returns None (routing the file to the
+    customization-bearing path instead) for ANY frontmatter delta it cannot provably
+    preserve (non-guarded keys, block-style values, BOM'd/unparseable frontmatter). Any
+    OTHER divergence (HAS_UNIQUE, or any confidence level whose notes flag tolerated
+    installed-only content) is customization-bearing: under `report+relocate`,
+    `_transfer_customization()` moves the content to the upgrade-transfers/ preservation
+    file, verifies the write, and ONLY THEN adopts shipped in place. Carve-outs fall back
+    to the conservative preserve + sidecar branch: a FAILED transfer (never adopt/remove
+    without a verified transfer), the degraded not-analyzed stand-in verdict
+    (`_verdict_not_analyzed()` — analysis never ran, so there is nothing to adopt on), a
+    failed pre-image backup, and a failed adoption write.
+
+    Destructive-write ordering at every adoption site: pre-image backup FIRST
+    (`_write_backup_preimage()`; failure aborts the adoption), THEN the adoption write,
+    and ONLY on its success the DISPOSITIONS.md row (`_append_disposition_log()`) and
+    result bookkeeping — a failed write can never leave a false log row. An adoption
+    removes the sidecar it obsoletes. A per-file OSError is contained (stderr warning,
+    file left untouched) — the loops always complete.
     """
     refreshed: list[str] = []
     unchanged: list[str] = []
     conflicts: list[tuple[str, str]] = []
     untracked: list[str] = []
     refreshed_subsets: list[str] = []
+    transferred: list[tuple[str, str]] = []
 
     conflict_dir = (
         cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
         / f"{from_version}-to-{to_version}"
     )
+
+    # verdicts.json (if the interactive fan-out produced one) supersedes the
+    # inline primitive per-file — loaded once, looked up per diverged file.
+    verdicts = _load_verdicts_cache(cfg, from_version, to_version)
+
+    # `upgrade.customization_handoff` gates the automated transfer-then-adopt
+    # path. Only the explicit `report+relocate` value (the shipped template
+    # default) enables it; `report` (also the absent-key fallback) and
+    # `report+issue` (extra gh-issue meaning is handler-side) stay
+    # conservative: preserve in place + sidecar, no transfer, no adoption.
+    handoff = get_upgrade_config(_load_raw_config(cfg))["customization_handoff"]
+    relocate_enabled = handoff == "report+relocate"
+
+    def _write_conflict_sidecar(dst: Path, sidecar_dst: Path, shipped_raw: str) -> None:
+        sidecar_dst.parent.mkdir(parents=True, exist_ok=True)
+        sidecar_dst.write_text(shipped_raw, encoding="utf-8")
+        conflicts.append((str(dst), str(sidecar_dst)))
 
     # --- planwise_rules ---
     refs_dir = cfg.plugin_root / "references"
@@ -1657,13 +2221,16 @@ def upgrade_artifacts(
         src = refs_dir / filename
         dst = rules_dst_dir / filename
         try:
-            shipped_raw = src.read_text(encoding="utf-8")
+            # utf-8-sig: a leading BOM must not defeat the frontmatter-anchored
+            # comparison/guard helpers (see the comparator's non-substantive
+            # framing rules — BOM is never a customization).
+            shipped_raw = src.read_text(encoding="utf-8-sig")
         except FileNotFoundError:
             print(f"  Warning: shipped reference not found: {src}", file=sys.stderr)
             continue
 
         try:
-            installed_raw = dst.read_text(encoding="utf-8") if dst.exists() else None
+            installed_raw = dst.read_text(encoding="utf-8-sig") if dst.exists() else None
 
             if installed_raw is None:
                 # Fresh install — write via update_frontmatter() to set paths:.
@@ -1678,33 +2245,84 @@ def upgrade_artifacts(
                 verdict = _classify_diverged(
                     normalize_rule_for_diff(installed_raw),
                     normalize_rule_for_diff(shipped_raw),
+                    override=_load_verdict_override(verdicts, filename, installed_raw),
                 )
                 sidecar_dst = (
                     conflict_dir / ".claude" / "rules" / "planwise" / f"{filename}.new")
                 if is_subset(verdict) and not (getattr(verdict, "notes", "") or ""):
                     # Stale subset — adopt shipped in place, preserve the project
                     # paths:. Non-empty notes = the matcher tolerated installed-only
-                    # content (sub-noise-floor fragments) — that flips to the sidecar
-                    # branch: an overwrite must not destroy a short customization.
-                    _record_disposition(
-                        cfg, from_version, to_version, dst, "auto-adopted shipped",
-                        "installed rule body was a stale subset of the grown shipped body")
-                    preserved_paths = (
-                        _extract_paths_value(installed_raw)
-                        or resolve_rule_paths_value(cfg, paths_template))
-                    dst.write_text(
-                        update_frontmatter(shipped_raw, preserved_paths), encoding="utf-8")
-                    refreshed.append(str(dst))
-                    refreshed_subsets.append(str(dst))     # banner sub-count
-                    if sidecar_dst.exists():
-                        # A prior interrupted run flagged this file — the adoption
-                        # resolves that conflict; drop the obsoleted sidecar so a
-                        # stale INDEX row cannot invite merging outdated content back.
-                        sidecar_dst.unlink()
-                else:               # HAS_UNIQUE or noise-flagged subset — keep + sidecar
-                    sidecar_dst.parent.mkdir(parents=True, exist_ok=True)
-                    sidecar_dst.write_text(shipped_raw, encoding="utf-8")
-                    conflicts.append((str(dst), str(sidecar_dst)))
+                    # content (sub-noise-floor fragments) — that flips to the
+                    # customization-bearing branch below: an overwrite must not
+                    # destroy a short customization without moving it first.
+                    # Failed backup = no destructive write.
+                    if not _write_backup_preimage(cfg, from_version, to_version, dst):
+                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                    else:
+                        preserved_paths = (
+                            _extract_paths_value(installed_raw)
+                            or resolve_rule_paths_value(cfg, paths_template))
+                        dst.write_text(
+                            update_frontmatter(shipped_raw, preserved_paths), encoding="utf-8")
+                        _append_disposition_log(
+                            cfg, from_version, to_version, dst, "auto-adopted shipped",
+                            "installed rule body was a stale subset of the grown shipped body")
+                        refreshed.append(str(dst))
+                        refreshed_subsets.append(str(dst))     # banner sub-count
+                        if sidecar_dst.exists():
+                            # A prior interrupted run flagged this file — the adoption
+                            # resolves that conflict; drop the obsoleted sidecar so a
+                            # stale INDEX row cannot invite merging outdated content back.
+                            sidecar_dst.unlink()
+                elif _verdict_not_analyzed(verdict):
+                    # Degraded stand-in — the file was never analyzed, so the
+                    # automated transfer-then-adopt has no verdict evidence to
+                    # act on. Preserve in place + shipped sidecar (always safe).
+                    _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                elif not relocate_enabled:
+                    # customization_handoff is report/report+issue — conservative
+                    # mode: never auto-transfer or adopt over a customization-
+                    # bearing verdict. Preserve in place + shipped sidecar.
+                    _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                else:
+                    # HAS_UNIQUE or noise-flagged subset — customization-bearing.
+                    # Ordering: transfer + verify -> pre-image backup (abort on
+                    # failure) -> adoption write -> ONLY on success the
+                    # DISPOSITIONS row + transferred bookkeeping. A failed
+                    # transfer or backup must never destroy the only copy; a
+                    # failed adoption write must never leave a false log row.
+                    transfer_path = _transfer_customization(
+                        cfg, filename, "rule", installed_raw, verdict,
+                        from_version, to_version,
+                    )
+                    if transfer_path is None or not _write_backup_preimage(
+                            cfg, from_version, to_version, dst):
+                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                    else:
+                        preserved_paths = (
+                            _extract_paths_value(installed_raw)
+                            or resolve_rule_paths_value(cfg, paths_template))
+                        try:
+                            dst.write_text(
+                                update_frontmatter(shipped_raw, preserved_paths),
+                                encoding="utf-8")
+                        except OSError as exc:
+                            print(
+                                f"  Warning: could not adopt shipped at {dst}: {exc}; "
+                                f"preserved in place (customization already transferred "
+                                f"to {transfer_path})",
+                                file=sys.stderr,
+                            )
+                            _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                        else:
+                            _append_disposition_log(
+                                cfg, from_version, to_version, dst,
+                                "adopted shipped (customization transferred)",
+                                f"customization transferred to {transfer_path}")
+                            refreshed.append(str(dst))
+                            transferred.append((str(dst), str(transfer_path)))
+                            if sidecar_dst.exists():
+                                sidecar_dst.unlink()
         except OSError as exc:
             # Per-file containment: a read-only/locked file must not abort the
             # whole refresh mid-loop with earlier dispositions unreported.
@@ -1721,13 +2339,13 @@ def upgrade_artifacts(
         src = agents_src_dir / filename
         dst = agents_dst_dir / filename
         try:
-            shipped_raw = src.read_text(encoding="utf-8")
+            shipped_raw = src.read_text(encoding="utf-8-sig")
         except FileNotFoundError:
             print(f"  Warning: shipped agent not found: {src}", file=sys.stderr)
             continue
 
         try:
-            installed_raw = dst.read_text(encoding="utf-8") if dst.exists() else None
+            installed_raw = dst.read_text(encoding="utf-8-sig") if dst.exists() else None
 
             if installed_raw is None:
                 # Fresh install — straight copy.
@@ -1737,27 +2355,104 @@ def upgrade_artifacts(
             elif shipped_raw == installed_raw:
                 unchanged.append(str(dst))                 # FAST PATH (byte-exact) — primitive NOT called
             else:
-                verdict = _classify_diverged(installed_raw, shipped_raw)   # whole-file
+                verdict = _classify_diverged(
+                    installed_raw, shipped_raw,
+                    override=_load_verdict_override(verdicts, filename, installed_raw),
+                )   # whole-file
                 sidecar_dst = conflict_dir / ".claude" / "agents" / f"{filename}.new"
-                if _destructively_removable(verdict):
-                    # Agents are overwritten WHOLE-FILE, frontmatter included, so
-                    # the overwrite gate is exact/contained (is_safe_to_remove) —
-                    # NOT bare is_subset: a reorg-confidence containment can mask a
-                    # frontmatter value edit (e.g. a model: pin whose token appears
-                    # elsewhere in the shipped prose) and must go to the sidecar
-                    # branch instead of silently reverting the customization.
-                    _record_disposition(
-                        cfg, from_version, to_version, dst, "auto-adopted shipped",
-                        "installed agent was a stale subset of the grown shipped file")
-                    dst.write_text(shipped_raw, encoding="utf-8")      # overwrite, no frontmatter helper
-                    refreshed.append(str(dst))
-                    refreshed_subsets.append(str(dst))
-                    if sidecar_dst.exists():
-                        sidecar_dst.unlink()               # conflict resolved by adoption
-                else:               # HAS_UNIQUE, reorg subset, or noise-flagged subset
-                    sidecar_dst.parent.mkdir(parents=True, exist_ok=True)
-                    sidecar_dst.write_text(shipped_raw, encoding="utf-8")
-                    conflicts.append((str(dst), str(sidecar_dst)))
+                notes = getattr(verdict, "notes", "") or ""
+
+                # The guard is consulted for EVERY whole-file agent adoption
+                # (auto-adopt and transfer-then-adopt alike). None = the
+                # installed frontmatter carries a delta the guard cannot
+                # provably preserve — that file is customization-bearing
+                # regardless of its body verdict.
+                adopted = _apply_agent_frontmatter_guard(installed_raw, shipped_raw)
+
+                if _destructively_removable(verdict) and adopted is not None:
+                    # exact/contained subset, no notes, guard-clean frontmatter
+                    # — safe to overwrite whole-file (with any provable pin
+                    # splice applied).
+                    if not _write_backup_preimage(cfg, from_version, to_version, dst):
+                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                    else:
+                        dst.write_text(adopted, encoding="utf-8")
+                        _append_disposition_log(
+                            cfg, from_version, to_version, dst, "auto-adopted shipped",
+                            "installed agent was a stale subset of the grown shipped file")
+                        refreshed.append(str(dst))
+                        refreshed_subsets.append(str(dst))
+                        if sidecar_dst.exists():
+                            sidecar_dst.unlink()           # conflict resolved by adoption
+                elif is_subset(verdict) and not notes and adopted is not None:
+                    # Pure reorg-confidence subset: content reorganized, not
+                    # customized (no unique blocks, no tolerated-noise notes).
+                    # Auto-adopt directly — no transfer needed — through the
+                    # guard, which keeps a customized model:/tools:/maxTurns:
+                    # pin from being silently dropped (a reorg containment can
+                    # mask a frontmatter edit that reappears verbatim elsewhere
+                    # in the shipped prose). A guard-undecidable frontmatter
+                    # (adopted is None) never reaches this branch.
+                    if not _write_backup_preimage(cfg, from_version, to_version, dst):
+                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                    else:
+                        dst.write_text(adopted, encoding="utf-8")
+                        _append_disposition_log(
+                            cfg, from_version, to_version, dst, "auto-adopted shipped",
+                            "installed agent content reorganized but not customized "
+                            "(reorg-confidence subset)")
+                        refreshed.append(str(dst))
+                        refreshed_subsets.append(str(dst))
+                        if sidecar_dst.exists():
+                            sidecar_dst.unlink()
+                elif _verdict_not_analyzed(verdict):
+                    # Degraded stand-in — never analyzed; preserve + sidecar
+                    # (same carve-out as the rules site above).
+                    _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                elif not relocate_enabled:
+                    # Conservative handoff mode (report / report+issue): a
+                    # customization-bearing agent — including a subset whose
+                    # frontmatter the guard could not provably preserve — is
+                    # preserved in place + sidecar'd. No transfer, no adoption.
+                    _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                else:
+                    # HAS_UNIQUE, noise-flagged subset, or guard-undecidable
+                    # frontmatter — customization-bearing. Same ordering as the
+                    # rules site: transfer + verify -> backup (abort on
+                    # failure) -> adoption write -> log + bookkeeping on
+                    # success only. The adopted text goes through the guard
+                    # when it can provably preserve a pin; otherwise plain
+                    # shipped is adopted — the full installed pre-image is
+                    # already safe in BOTH the transfer file and the backup.
+                    transfer_path = _transfer_customization(
+                        cfg, filename, "agent", installed_raw, verdict,
+                        from_version, to_version,
+                    )
+                    if transfer_path is None or not _write_backup_preimage(
+                            cfg, from_version, to_version, dst):
+                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                    else:
+                        try:
+                            dst.write_text(
+                                adopted if adopted is not None else shipped_raw,
+                                encoding="utf-8")
+                        except OSError as exc:
+                            print(
+                                f"  Warning: could not adopt shipped at {dst}: {exc}; "
+                                f"preserved in place (customization already transferred "
+                                f"to {transfer_path})",
+                                file=sys.stderr,
+                            )
+                            _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
+                        else:
+                            _append_disposition_log(
+                                cfg, from_version, to_version, dst,
+                                "adopted shipped (customization transferred)",
+                                f"customization transferred to {transfer_path}")
+                            refreshed.append(str(dst))
+                            transferred.append((str(dst), str(transfer_path)))
+                            if sidecar_dst.exists():
+                                sidecar_dst.unlink()
         except OSError as exc:
             print(
                 f"  Warning: could not upgrade {dst}: {exc}; installed file left untouched",
@@ -1798,7 +2493,7 @@ def upgrade_artifacts(
         if index_path.exists() and not any(conflict_dir.rglob("*.new")):
             index_path.unlink()
 
-    return refreshed, unchanged, conflicts, untracked, refreshed_subsets
+    return refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred
 
 
 def _bump_plugin_version(config_path: Path, new_version: str) -> None:
@@ -1919,7 +2614,7 @@ def _run_upgrade(cfg: "InitConfig") -> int:
 
     # 3. Refresh artifacts.
     manifest = load_artifact_manifest(cfg.plugin_root)
-    refreshed, unchanged, conflicts, untracked, refreshed_subsets = upgrade_artifacts(
+    refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = upgrade_artifacts(
         cfg, manifest, pinned_version, target_version
     )
 
@@ -1939,11 +2634,22 @@ def _run_upgrade(cfg: "InitConfig") -> int:
             print(f"  = {u}")
     print()
 
+    if transferred:
+        print(f"Customizations transferred before adoption: {len(transferred)}")
+        for dst, transfer_path in transferred:
+            print(f"  ~ {dst}")
+            print(f"      moved to: {transfer_path}")
+        print("  Review each transferred file and re-home it (project-local rule, "
+              "re-scope, or upstream the change).")
+        print()
+
     if conflicts:
-        print("Conflicts (action required):")
+        print("Conflicts (preserved in place — action required):")
         for dst, sidecar in conflicts:
             print(f"  ! {dst}")
-            print("      reason:      installed body diverged from plugin-shipped version")
+            print("      reason:      installed body diverged and was not auto-adopted "
+                  "(conservative handoff mode, a transfer/backup/adoption write failed, "
+                  "or the file could not be analyzed)")
             print(f"      sidecar:     {sidecar}")
             print("      remediation: diff the sidecar against the installed file, merge manually, then delete the .new")
         index_path = (
@@ -1968,6 +2674,29 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         for entry in migration["preserved"]:
             print(f"  ! {entry}")
         print()
+
+    # 4b. Retire the consumed verdict cache. A verdicts.json entry is bound to
+    # the exact (upgrade pair, installed bytes) it was computed against; once
+    # this run has consumed it, leaving it in place would let a stale verdict
+    # fire on a later re-run or a different pair. Renamed (not deleted) so the
+    # analysis remains inspectable next to INDEX.md.
+    verdicts_path = (
+        cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
+        / f"{pinned_version}-to-{target_version}" / "verdicts.json"
+    )
+    if verdicts_path.exists():
+        try:
+            consumed_path = verdicts_path.with_name("verdicts.json.consumed")
+            if consumed_path.exists():
+                consumed_path.unlink()
+            verdicts_path.rename(consumed_path)
+            print(f"Verdict cache consumed: renamed to {consumed_path.name}")
+            print()
+        except OSError as exc:
+            print(
+                f"  Warning: could not retire consumed verdict cache {verdicts_path}: {exc}",
+                file=sys.stderr,
+            )
 
     # 5. Post-upgrade advisory: flag any installed rule still scoped to
     # plan/backlog/lessons globs (read-only — never mutates).
@@ -2189,6 +2918,11 @@ def main():
                              "still scoped to plan/backlog/lessons globs (always-on context "
                              "overscope), with size and a re-scope hint. Does not modify "
                              "anything and does not require --upgrade.")
+    parser.add_argument("--list-diverged", action="store_true",
+                        help="Read-only diagnostic: print a JSON array of installed rule/agent "
+                             "files whose body diverges from the plugin-shipped version "
+                             "(filename, kind, installed path, shipped path). Prints [] when "
+                             "none diverge. Does not modify anything and does not require --name.")
     parser.add_argument("--prune-stale", action="store_true",
                         help="WRITER (opt-in): delete the stale de-scoped rules that "
                              "--doctor's Stage 8 sweep marks REMOVABLE, logging every "
@@ -2196,12 +2930,12 @@ def main():
                              "Never deletes a customized (PRESERVE) rule.")
     args = parser.parse_args()
 
-    # --doctor and --prune-stale are read-only/self-scoped diagnostics that do
-    # not use the project name; every other mode (init / --migrate / --upgrade)
-    # requires it.
-    if not args.doctor and not args.prune_stale and not args.name:
+    # --doctor, --list-diverged, and --prune-stale are read-only/self-scoped
+    # diagnostics that do not use the project name; every other mode
+    # (init / --migrate / --upgrade) requires it.
+    if not args.doctor and not args.prune_stale and not args.list_diverged and not args.name:
         parser.error("--name is required (omit it only for the read-only --doctor "
-                     "diagnostic or --prune-stale)")
+                     "or --list-diverged diagnostics, or --prune-stale)")
 
     _plugin_root = get_plugin_root()
     cfg = InitConfig(
@@ -2223,6 +2957,9 @@ def main():
 
     if args.doctor:
         sys.exit(_run_doctor(cfg))
+
+    if args.list_diverged:
+        sys.exit(_run_list_diverged(cfg))
 
     if args.upgrade:
         if args.migrate:

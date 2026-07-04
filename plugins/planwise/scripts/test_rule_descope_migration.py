@@ -753,6 +753,24 @@ class TestUpgradeConfigFoundation(unittest.TestCase):
             "INSTALLED_AGENTS must include 'rule-comparator.md'",
         )
 
+    @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse the template")
+    def test_template_ships_report_relocate_while_absent_key_stays_report(self):
+        """The shipped config.yaml.template pins customization_handoff to
+        report+relocate EXPLICITLY; the loader's absent-key fallback stays the
+        conservative 'report' (pinned by the defaults tests above)."""
+        import yaml
+
+        template_path = (
+            Path(ip.__file__).resolve().parent.parent / "config.yaml.template"
+        )
+        data = yaml.safe_load(template_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            data["upgrade"]["customization_handoff"],
+            "report+relocate",
+            "the shipped template must opt new installs into the automated "
+            "transfer-then-adopt flow explicitly",
+        )
+
 
 class TestNormalizeRuleForDiffFallback(unittest.TestCase):
     """normalize_rule_for_diff must be byte-identical with and without the
@@ -860,6 +878,35 @@ class _UpgradeArtifactsFixtureBase(unittest.TestCase):
         dst.write_text(body, encoding="utf-8")
         return dst
 
+    # -- config helpers -------------------------------------------------------
+
+    def write_upgrade_config(self, **upgrade_overrides) -> Path:
+        """Write config.yaml with an `upgrade:` block under the fixture root.
+
+        upgrade_artifacts() reads `upgrade.customization_handoff` via
+        get_upgrade_config() at run time; an absent config.yaml means the
+        conservative `report` default applies (preserve + sidecar, no
+        transfer, no adoption of customization-bearing files).
+        """
+        config_dir = self.project_root / self.cfg.planwise_root
+        config_dir.mkdir(parents=True, exist_ok=True)
+        lines = ["upgrade:"]
+        for key, value in upgrade_overrides.items():
+            if value is True:
+                yaml_value = "true"
+            elif value is False:
+                yaml_value = "false"
+            else:
+                yaml_value = str(value)
+            lines.append(f"  {key}: {yaml_value}")
+        config_path = config_dir / "config.yaml"
+        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return config_path
+
+    def enable_relocate(self) -> Path:
+        """Opt this fixture into the automated transfer-then-adopt path."""
+        return self.write_upgrade_config(customization_handoff="report+relocate")
+
     # -- run + derived paths ------------------------------------------------
 
     def run_upgrade(self, from_version="1.0.0", to_version="1.1.0"):
@@ -868,6 +915,12 @@ class _UpgradeArtifactsFixtureBase(unittest.TestCase):
     def conflict_dir(self, from_version="1.0.0", to_version="1.1.0") -> Path:
         return (
             self.project_root / self.cfg.planwise_root / "upgrade-conflicts"
+            / f"{from_version}-to-{to_version}"
+        )
+
+    def transfer_dir(self, from_version="1.0.0", to_version="1.1.0") -> Path:
+        return (
+            self.project_root / self.cfg.planwise_root / "upgrade-transfers"
             / f"{from_version}-to-{to_version}"
         )
 
@@ -886,7 +939,7 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         with mock.patch.object(
             ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
@@ -910,39 +963,55 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         )
         self.assertFalse(sidecar.exists(), "A SUBSET refresh must NOT write a .new sidecar")
 
-    def test_conflict_has_unique_keeps_and_writes_sidecar_and_index(self):
+    def test_conflict_has_unique_transfers_customization_then_adopts_shipped(self):
+        self.enable_relocate()
         shipped_body = "# Rule\n\nShipped body.\n"
         installed_body = "# Rule\n\nShipped body.\n# Extra\nUser-added block.\n"
         custom_paths = ".claude/agents/**, custom/**"
         shipped_dst = self.write_shipped_rule(shipped_body)
         shipped_raw = shipped_dst.read_text(encoding="utf-8")
         installed = self.write_installed_rule(installed_body, custom_paths)
-        before = installed.read_bytes()
 
         with mock.patch.object(
             ip, "_classify_diverged",
             return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
+        # Automated, transfer-first: the customization is moved out FIRST,
+        # verified, and only then is shipped adopted in place — the installed
+        # copy is NOT left untouched (that was the old sidecar-and-stop policy).
+        updated = installed.read_text(encoding="utf-8")
         self.assertEqual(
-            installed.read_bytes(), before, "HAS_UNIQUE rule must be left untouched"
+            ip.normalize_rule_for_diff(updated), ip.normalize_rule_for_diff(shipped_raw),
+            "HAS_UNIQUE rule must be adopted to shipped once its customization is transferred",
         )
-        self.assertEqual(refreshed_subsets, [])
-        self.assertNotIn(str(installed), refreshed)
-        self.assertTrue(conflicts, "HAS_UNIQUE must record a conflict")
-        dst_path, sidecar_path = conflicts[0]
+        self.assertEqual(ip._extract_paths_value(updated), custom_paths)
+        self.assertIn(str(installed), refreshed)
+        self.assertEqual(refreshed_subsets, [], "adoption via transfer is NOT a stale-subset auto-adopt")
+        self.assertEqual(conflicts, [], "a successfully transferred HAS_UNIQUE is not a conflict")
+
+        self.assertEqual(len(transferred), 1)
+        dst_path, transfer_path = transferred[0]
         self.assertEqual(dst_path, str(installed))
-        sidecar = Path(sidecar_path)
-        self.assertTrue(sidecar.exists(), ".new sidecar must be written for HAS_UNIQUE")
-        self.assertEqual(sidecar.read_text(encoding="utf-8"), shipped_raw)
+        transfer_file = Path(transfer_path)
+        self.assertEqual(
+            transfer_file.parent,
+            self.transfer_dir(),
+            "transfer target is {planwise_root}/upgrade-transfers/<from>-to-<to>/ "
+            "(a dormant preservation dir outside .claude/rules/)",
+        )
+        transferred_text = transfer_file.read_text(encoding="utf-8")
+        self.assertIn("# Extra", transferred_text)
+        self.assertIn("User-added block.", transferred_text)
 
         index_path = self.conflict_dir() / "INDEX.md"
-        self.assertTrue(index_path.exists(), "INDEX.md must be written when conflicts exist")
-        index_text = index_path.read_text(encoding="utf-8")
-        self.assertIn(str(installed), index_text)
+        self.assertFalse(
+            index_path.exists(),
+            "no unresolved conflict remains once the customization is transferred and adopted",
+        )
 
     def test_agent_subset_overwrites_shipped_no_sidecar(self):
         shipped_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
@@ -953,7 +1022,7 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         with mock.patch.object(
             ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
@@ -971,7 +1040,58 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
             sidecar.exists(), "A SUBSET agent refresh must NOT write a .new sidecar"
         )
 
-    def test_agent_has_unique_keeps_and_writes_sidecar(self):
+    def test_agent_has_unique_transfers_customization_then_adopts_shipped(self):
+        self.enable_relocate()
+        shipped_body = "# Agent\n\nShipped body.\n"
+        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+                self.run_upgrade()
+            )
+
+        # Automated, transfer-first: the customization is moved out FIRST,
+        # verified, then shipped is adopted whole-file over the installed copy.
+        self.assertEqual(
+            installed.read_text(encoding="utf-8"), shipped_body,
+            "HAS_UNIQUE agent must be adopted to shipped once its customization is transferred",
+        )
+        self.assertIn(str(installed), refreshed)
+        self.assertEqual(refreshed_subsets, [], "adoption via transfer is NOT a stale-subset auto-adopt")
+        self.assertEqual(conflicts, [], "a successfully transferred HAS_UNIQUE agent is not a conflict")
+
+        self.assertEqual(len(transferred), 1)
+        dst_path, transfer_path = transferred[0]
+        self.assertEqual(dst_path, str(installed))
+        transfer_file = Path(transfer_path)
+        self.assertEqual(
+            transfer_file.parent,
+            self.transfer_dir(),
+            "transfer target is {planwise_root}/upgrade-transfers/<from>-to-<to>/ "
+            "(a dormant preservation dir outside .claude/rules/)",
+        )
+        transferred_text = transfer_file.read_text(encoding="utf-8")
+        self.assertIn("# Extra", transferred_text)
+        self.assertIn("User-added block.", transferred_text)
+        sidecar = (
+            self.conflict_dir() / ".claude" / "agents" / f"{self.AGENT_FILENAME}.new"
+        )
+        self.assertFalse(
+            sidecar.exists(), "a transferred adoption must NOT leave a .new sidecar"
+        )
+
+    def test_has_unique_failed_transfer_preserves_and_writes_sidecar(self):
+        """The failed-transfer carve-out: when the customization cannot be
+        VERIFIED-written to the upgrade-transfers preservation file, the
+        installed copy must be preserved byte-for-byte (never adopt/remove
+        without a verified transfer) and the conservative shipped sidecar
+        written."""
+        self.enable_relocate()
         shipped_body = "# Agent\n\nShipped body.\n"
         installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
         self.write_shipped_agent(shipped_body)
@@ -981,23 +1101,22 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         with mock.patch.object(
             ip, "_classify_diverged",
             return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
-        ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+        ), mock.patch.object(ip, "_transfer_customization", return_value=None):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
         self.assertEqual(
-            installed.read_bytes(), before, "HAS_UNIQUE agent must be left untouched"
+            installed.read_bytes(), before,
+            "A failed transfer must preserve the installed file byte-for-byte",
         )
-        self.assertEqual(refreshed_subsets, [])
         self.assertNotIn(str(installed), refreshed)
-        self.assertTrue(conflicts, "HAS_UNIQUE agent must record a conflict")
+        self.assertEqual(transferred, [], "a failed transfer must not be reported as transferred")
+        self.assertTrue(conflicts, "a failed transfer must fall back to the conflict branch")
         dst_path, sidecar_path = conflicts[0]
         self.assertEqual(dst_path, str(installed))
         sidecar = Path(sidecar_path)
-        self.assertTrue(
-            sidecar.exists(), ".new sidecar must be written for HAS_UNIQUE agent"
-        )
+        self.assertTrue(sidecar.exists(), ".new sidecar must be written on a failed transfer")
         self.assertEqual(sidecar.read_text(encoding="utf-8"), shipped_body)
 
     def test_byte_identical_skips_primitive(self):
@@ -1015,7 +1134,7 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         )
         self.addCleanup(setattr, ip, "_classify_diverged", original)
 
-        refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
             self.run_upgrade()
         )
 
@@ -1245,21 +1364,25 @@ class TestMigrationVerdictNotesAndPathsGates(_MigrationFixtureBase):
 
 
 class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
-    """Sites 2/3 (upgrade_artifacts) safety fixes: the notes gate, the
-    exact/contained-only agent overwrite gate (a reorg subset now sidecars),
-    the any-confidence rule refresh gate, the normalized-equal fast path, the
-    real structural_compare primitive, upgrade-backups/DISPOSITIONS.md,
-    sidecar/INDEX cleanup, per-file OSError containment, and degraded mode.
+    """Sites 2/3 (upgrade_artifacts) disposition gates under the automated
+    transfer-first policy: a notes-flagged SUBSET transfers-then-adopts (the
+    tolerated fragment is moved to a project-owned file before shipped is
+    adopted), a pure reorg-confidence agent subset auto-adopts via the
+    frontmatter-preservation guard, the any-confidence rule refresh gate, the
+    normalized-equal fast path, the real structural_compare primitive,
+    upgrade-backups/DISPOSITIONS.md, sidecar/INDEX cleanup, per-file OSError
+    containment, and degraded mode (never analyzed -> preserve + sidecar,
+    nothing adopted or transferred).
     """
 
-    def test_notes_gate_site2_rule_not_refreshed_sidecar(self):
+    def test_notes_gate_site2_rule_transfers_then_refreshes(self):
+        self.enable_relocate()
         shipped_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
         installed_body = "# Rule\n\nShipped superset body.\n"
         custom_paths = ".claude/agents/**, custom/**"
         shipped_dst = self.write_shipped_rule(shipped_body)
         shipped_raw = shipped_dst.read_text(encoding="utf-8")
         installed = self.write_installed_rule(installed_body, custom_paths)
-        before = installed.read_bytes()
         notes_text = (
             "installed-only tokens present in sub-noise-floor fragments "
             "(tolerated as noise)"
@@ -1269,28 +1392,42 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
             ip, "_classify_diverged",
             return_value=_verdict("SUBSET", "exact", notes=notes_text),
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
+        # A notes-flagged SUBSET is customization-bearing: the tolerated
+        # installed-only fragment is transferred to a project-owned file
+        # FIRST, then shipped is adopted in place (paths: preserved).
+        updated = installed.read_text(encoding="utf-8")
         self.assertEqual(
-            installed.read_bytes(), before, "A notes-flagged SUBSET rule must not be refreshed"
+            ip.normalize_rule_for_diff(updated), ip.normalize_rule_for_diff(shipped_raw),
+            "A notes-flagged SUBSET rule must be refreshed to shipped after transfer",
         )
-        self.assertNotIn(str(installed), refreshed)
-        self.assertNotIn(str(installed), refreshed_subsets)
-        self.assertTrue(conflicts, "A notes-flagged SUBSET must record a conflict")
-        dst_path, sidecar_path = conflicts[0]
+        self.assertEqual(ip._extract_paths_value(updated), custom_paths)
+        self.assertIn(str(installed), refreshed)
+        self.assertNotIn(
+            str(installed), refreshed_subsets,
+            "a transferred adoption is NOT counted as a clean stale-subset adopt",
+        )
+        self.assertEqual(conflicts, [], "a successful transfer resolves the would-be conflict")
+        self.assertEqual(len(transferred), 1)
+        dst_path, transfer_path = transferred[0]
         self.assertEqual(dst_path, str(installed))
-        sidecar = Path(sidecar_path)
-        self.assertTrue(sidecar.exists())
-        self.assertEqual(sidecar.read_text(encoding="utf-8"), shipped_raw)
+        transferred_text = Path(transfer_path).read_text(encoding="utf-8")
+        self.assertIn(
+            "Shipped superset body.", transferred_text,
+            "the transfer file must carry the installed content (the notes fragment carrier)",
+        )
+        self.assertIn(notes_text, transferred_text,
+                      "the transfer file must surface the verdict's notes")
 
-    def test_notes_gate_site3_agent_not_overwritten_sidecar(self):
+    def test_notes_gate_site3_agent_transfers_then_adopts(self):
+        self.enable_relocate()
         shipped_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
         installed_body = "# Agent\n\nShipped superset body.\n"
         self.write_shipped_agent(shipped_body)
         installed = self.write_installed_agent(installed_body)
-        before = installed.read_bytes()
         notes_text = (
             "installed-only tokens present in sub-noise-floor fragments "
             "(tolerated as noise)"
@@ -1300,43 +1437,85 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
             ip, "_classify_diverged",
             return_value=_verdict("SUBSET", "exact", notes=notes_text),
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
         self.assertEqual(
-            installed.read_bytes(), before, "A notes-flagged SUBSET agent must not be overwritten"
+            installed.read_text(encoding="utf-8"), shipped_body,
+            "A notes-flagged SUBSET agent must be adopted to shipped after transfer",
         )
-        self.assertNotIn(str(installed), refreshed)
-        self.assertTrue(conflicts, "A notes-flagged SUBSET agent must record a conflict")
-        dst_path, sidecar_path = conflicts[0]
+        self.assertIn(str(installed), refreshed)
+        self.assertNotIn(str(installed), refreshed_subsets)
+        self.assertEqual(conflicts, [], "a successful transfer resolves the would-be conflict")
+        self.assertEqual(len(transferred), 1)
+        dst_path, transfer_path = transferred[0]
         self.assertEqual(dst_path, str(installed))
-        self.assertTrue(Path(sidecar_path).exists())
+        transferred_text = Path(transfer_path).read_text(encoding="utf-8")
+        self.assertIn("Shipped superset body.", transferred_text)
+        self.assertIn(notes_text, transferred_text)
 
-    def test_reorg_subset_agent_goes_to_sidecar(self):
-        shipped_body = "# Agent\n\nSection A.\nSection B.\n"
-        installed_body = "# Agent\n\nSection B.\nSection A.\n"
+    def test_reorg_subset_agent_adopts_with_frontmatter_guard(self):
+        # Pure reorg subset (no notes, no unique blocks) = content reorganized,
+        # not customized — auto-adopts directly. The frontmatter-preservation
+        # guard keeps a customized scalar pin (model:) that the reorg
+        # containment could otherwise silently revert.
+        shipped_body = (
+            "---\nname: fixture-agent\nmodel: sonnet\n---\n"
+            "# Agent\n\nSection A.\nSection B.\n"
+        )
+        installed_body = (
+            "---\nname: fixture-agent\nmodel: opus\n---\n"
+            "# Agent\n\nSection B.\nSection A.\n"
+        )
         self.write_shipped_agent(shipped_body)
         installed = self.write_installed_agent(installed_body)
-        before = installed.read_bytes()
 
         with mock.patch.object(
             ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
-        self.assertEqual(
-            installed.read_bytes(), before,
-            "A reorg-confidence agent subset must NOT be overwritten "
-            "(agents gate on exact/contained only)",
+        self.assertIn(
+            str(installed), refreshed,
+            "A pure reorg-confidence agent subset now auto-adopts shipped",
         )
-        self.assertNotIn(str(installed), refreshed)
-        self.assertEqual(refreshed_subsets, [])
-        self.assertTrue(
-            conflicts, "A reorg-confidence agent subset must go to the sidecar branch"
+        self.assertIn(str(installed), refreshed_subsets)
+        self.assertEqual(conflicts, [])
+        self.assertEqual(transferred, [], "a pure reorg subset carries no customization to transfer")
+        updated = installed.read_text(encoding="utf-8")
+        self.assertIn(
+            "Section A.\nSection B.", updated,
+            "the adopted body must be the shipped (reorganized-target) content",
         )
+        self.assertIn(
+            "model: opus", updated,
+            "the frontmatter-preservation guard must keep the customized model: pin",
+        )
+        self.assertNotIn("model: sonnet", updated)
+
+    def test_reorg_subset_agent_no_pin_adopts_shipped_verbatim(self):
+        # Same reorg auto-adopt, but with no customized frontmatter — the
+        # guard must be a no-op and shipped must land verbatim.
+        shipped_body = "# Agent\n\nSection A.\nSection B.\n"
+        installed_body = "# Agent\n\nSection B.\nSection A.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
+        ):
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+                self.run_upgrade()
+            )
+
+        self.assertEqual(installed.read_text(encoding="utf-8"), shipped_body)
+        self.assertIn(str(installed), refreshed)
+        self.assertIn(str(installed), refreshed_subsets)
+        self.assertEqual(conflicts, [])
+        self.assertEqual(transferred, [])
 
     def test_reorg_subset_rule_refreshes_in_place(self):
         shipped_body = "# Rule\n\nSection A.\nSection B.\n"
@@ -1349,7 +1528,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         with mock.patch.object(
             ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
@@ -1376,7 +1555,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         )
         self.addCleanup(setattr, ip, "_classify_diverged", original)
 
-        refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
             self.run_upgrade()
         )
 
@@ -1393,7 +1572,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         shipped_raw = shipped_dst.read_text(encoding="utf-8")
         installed = self.write_installed_rule(installed_body, custom_paths)
 
-        refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
             self.run_upgrade()
         )
 
@@ -1470,7 +1649,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         with mock.patch.object(
             ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
@@ -1493,7 +1672,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         index_path = conflict_dir / "INDEX.md"
         index_path.write_text("# stale index from a prior resolved run\n", encoding="utf-8")
 
-        refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
             self.run_upgrade()
         )
 
@@ -1515,7 +1694,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
             second_shipped = self.agents_src_dir / second_agent
             second_shipped.write_text("# Second Agent\n\nBody.\n", encoding="utf-8")
 
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
@@ -1542,7 +1721,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         before_agent = installed_agent.read_bytes()
 
         with mock.patch.dict(sys.modules, {"structural_compare": None}):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets = (
+            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
@@ -2023,6 +2202,557 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         )
         second_pruned = (second_dir / "PRUNED.md").read_text(encoding="utf-8")
         self.assertIn(filename2, second_pruned)
+
+
+class TestVerdictOverrideShapeAndFreshness(unittest.TestCase):
+    """_load_verdict_override(): malformed-entry containment (never crash) and
+    the installed_sha256 freshness binding (missing/stale hash => ignored)."""
+
+    INSTALLED_RAW = "---\ndescription: x\n---\n# Rule\n\nInstalled body.\n"
+
+    def _sha(self, text: str) -> str:
+        import hashlib
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def _valid_entry(self, **overrides) -> dict:
+        entry = {
+            "classification": "SUBSET",
+            "confidence": "contained",
+            "unique_blocks": [],
+            "shared_blocks": 3,
+            "total_installed_blocks": 3,
+            "installed_only_chars": 0,
+            "unique_sample_tokens": [],
+            "source": "agent",
+            "notes": "",
+            "installed_sha256": self._sha(self.INSTALLED_RAW),
+        }
+        entry.update(overrides)
+        return entry
+
+    def test_non_dict_entries_degrade_to_none_without_crashing(self):
+        for bad in ("a plain string", ["a", "list"], 42, None, 3.14, True):
+            with self.subTest(entry=bad):
+                self.assertIsNone(
+                    ip._load_verdict_override({"f.md": bad}, "f.md", self.INSTALLED_RAW),
+                    f"a non-dict verdicts.json entry ({bad!r}) must degrade to "
+                    "None (inline primitive), never crash",
+                )
+
+    def test_missing_installed_sha256_is_ignored(self):
+        entry = self._valid_entry()
+        del entry["installed_sha256"]
+        self.assertIsNone(
+            ip._load_verdict_override({"f.md": entry}, "f.md", self.INSTALLED_RAW),
+            "an entry with no installed_sha256 must be ignored (no freshness proof)",
+        )
+
+    def test_stale_installed_sha256_is_ignored(self):
+        entry = self._valid_entry(installed_sha256=self._sha("different bytes now"))
+        self.assertIsNone(
+            ip._load_verdict_override({"f.md": entry}, "f.md", self.INSTALLED_RAW),
+            "a hash computed against different bytes must invalidate the override",
+        )
+
+    @unittest.skipUnless(ip.HAS_STRUCTURAL_COMPARE, "requires structural_compare")
+    def test_matching_installed_sha256_returns_agent_verdict(self):
+        verdict = ip._load_verdict_override(
+            {"f.md": self._valid_entry()}, "f.md", self.INSTALLED_RAW
+        )
+        self.assertIsNotNone(verdict, "a fresh, well-formed entry must deserialize")
+        self.assertEqual(verdict.classification, "SUBSET")
+        self.assertEqual(verdict.source, "agent")
+
+    def test_malformed_dict_entry_degrades_to_none(self):
+        # dict-shaped but missing the required classification/confidence keys.
+        entry = {"installed_sha256": self._sha(self.INSTALLED_RAW), "notes": ""}
+        self.assertIsNone(
+            ip._load_verdict_override({"f.md": entry}, "f.md", self.INSTALLED_RAW)
+        )
+
+
+class TestCustomizationHandoffGating(_UpgradeArtifactsFixtureBase):
+    """upgrade.customization_handoff gates the automated transfer-then-adopt
+    path: report (also the absent-key default) and report+issue are
+    conservative (preserve + sidecar, no transfer, no adoption);
+    report+relocate enables the automated flow (pinned by the transfer tests
+    in TestUpgradeArtifactsDisposition)."""
+
+    def _run_has_unique_rule(self):
+        shipped_body = "# Rule\n\nShipped body.\n"
+        installed_body = "# Rule\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, ".claude/agents/**")
+        before = installed.read_bytes()
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            result = self.run_upgrade()
+        return installed, before, result
+
+    def test_absent_config_defaults_to_conservative_report(self):
+        installed, before, result = self._run_has_unique_rule()
+        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = result
+
+        self.assertEqual(installed.read_bytes(), before,
+                         "report mode must preserve the installed file byte-for-byte")
+        self.assertEqual(transferred, [], "report mode must NOT transfer")
+        self.assertNotIn(str(installed), refreshed, "report mode must NOT adopt shipped")
+        self.assertTrue(conflicts, "report mode must surface the file as a conflict")
+        dst_path, sidecar_path = conflicts[0]
+        self.assertEqual(dst_path, str(installed))
+        self.assertTrue(Path(sidecar_path).exists(), "a .new sidecar must be written")
+        self.assertFalse(
+            self.transfer_dir().exists(),
+            "report mode must not create the upgrade-transfers dir",
+        )
+
+    def test_explicit_report_is_conservative(self):
+        self.write_upgrade_config(customization_handoff="report")
+        installed, before, result = self._run_has_unique_rule()
+        _, _, conflicts, _, _, transferred = result
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertEqual(transferred, [])
+        self.assertTrue(conflicts)
+
+    def test_report_issue_is_conservative_for_disposition(self):
+        self.write_upgrade_config(customization_handoff="report+issue")
+        installed, before, result = self._run_has_unique_rule()
+        _, _, conflicts, _, _, transferred = result
+        self.assertEqual(installed.read_bytes(), before,
+                         "report+issue must dispose like report (issue routing is "
+                         "handler-side, never a writer-side adoption license)")
+        self.assertEqual(transferred, [])
+        self.assertTrue(conflicts)
+
+    def test_report_mode_conservative_for_agent_too(self):
+        self.write_upgrade_config(customization_handoff="report")
+        shipped_body = "# Agent\n\nShipped body.\n"
+        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+        before = installed.read_bytes()
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            _, _, conflicts, _, _, transferred = self.run_upgrade()
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertEqual(transferred, [])
+        self.assertTrue(conflicts)
+
+
+class TestFrontmatterGuardDetectPosture(_UpgradeArtifactsFixtureBase):
+    """The detect-don't-guess frontmatter guard: provable single-line pin
+    splices only; ANY unpreservable delta (block-style values, non-guarded
+    key deltas, BOM'd/unparseable frontmatter) routes the agent to the
+    customization-bearing path instead of a silent whole-file overwrite."""
+
+    def test_bom_agent_frontmatter_pin_survives_no_silent_loss(self):
+        # BOM'd installed file: the read strips it (utf-8-sig) and the guard
+        # is BOM-tolerant, so the customized model: pin must survive into the
+        # adopted file — never silently reverted to shipped's value.
+        shipped_body = (
+            "---\nname: fixture-agent\nmodel: sonnet\n---\n"
+            "# Agent\n\nSection A.\nSection B.\n"
+        )
+        installed_body = chr(0xFEFF) + (
+            "---\nname: fixture-agent\nmodel: opus\n---\n"
+            "# Agent\n\nSection B.\nSection A.\n"
+        )
+        self.write_shipped_agent(shipped_body)
+        installed = self.agents_dst_dir / self.AGENT_FILENAME
+        installed.write_bytes(installed_body.encode("utf-8"))
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
+        ):
+            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
+
+        updated = installed.read_text(encoding="utf-8-sig")
+        self.assertIn("model: opus", updated,
+                      "the BOM must not defeat the guard — the pin survives")
+        self.assertNotIn("model: sonnet", updated)
+        self.assertIn(str(installed), refreshed)
+        self.assertEqual(conflicts, [])
+
+    def test_guard_unit_bom_string_still_splices(self):
+        installed = chr(0xFEFF) + "---\nmodel: opus\n---\nbody\n"
+        shipped = "---\nmodel: sonnet\n---\nnew body\n"
+        adopted = ip._apply_agent_frontmatter_guard(installed, shipped)
+        self.assertIsNotNone(adopted)
+        self.assertIn("model: opus", adopted)
+        self.assertIn("new body", adopted)
+
+    def test_block_style_tools_routes_conservative_never_empty_splice(self):
+        # Installed pins tools: as a block-style list; the guard cannot
+        # provably preserve it — with the conservative default handoff the
+        # file must be preserved in place + sidecar'd, and no adopted file
+        # may ever carry an empty-spliced `tools:` line.
+        shipped_body = (
+            "---\nname: fixture-agent\ntools: Read, Grep\n---\n"
+            "# Agent\n\nSection A.\nSection B.\n"
+        )
+        installed_body = (
+            "---\nname: fixture-agent\ntools:\n  - Read\n  - Grep\n  - Bash\n---\n"
+            "# Agent\n\nSection B.\nSection A.\n"
+        )
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
+        ):
+            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
+
+        self.assertEqual(installed.read_bytes(), before,
+                         "a block-style guarded value must route conservative — "
+                         "never an in-place overwrite")
+        self.assertNotIn(str(installed), refreshed)
+        self.assertEqual(transferred, [])
+        self.assertTrue(conflicts, "guard-undecidable frontmatter is a conflict "
+                                   "under the conservative handoff")
+
+    def test_block_style_tools_relocate_transfers_then_adopts(self):
+        # Same block-style pin, but with report+relocate: the file transfers
+        # (full pre-image preserved) and shipped is adopted — never an
+        # empty-spliced tools: line in the adopted file.
+        self.enable_relocate()
+        shipped_body = (
+            "---\nname: fixture-agent\ntools: Read, Grep\n---\n"
+            "# Agent\n\nSection A.\nSection B.\n"
+        )
+        installed_body = (
+            "---\nname: fixture-agent\ntools:\n  - Read\n  - Bash\n---\n"
+            "# Agent\n\nSection B.\nSection A.\n"
+        )
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
+        ):
+            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
+
+        updated = installed.read_text(encoding="utf-8")
+        self.assertEqual(updated, shipped_body,
+                         "adopted text is plain shipped (the pre-image lives in "
+                         "the transfer file)")
+        self.assertNotIn("tools:\n---", updated,
+                         "never splice an empty tools: value")
+        self.assertEqual(len(transferred), 1)
+        transferred_text = Path(transferred[0][1]).read_text(encoding="utf-8")
+        self.assertIn("- Bash", transferred_text,
+                      "the transfer file must carry the block-style customization")
+        self.assertEqual(conflicts, [])
+
+    def test_non_guarded_frontmatter_delta_routes_conservative(self):
+        shipped_body = (
+            "---\nname: fixture-agent\ndescription: shipped text\n---\n"
+            "# Agent\n\nSection A.\nSection B.\n"
+        )
+        installed_body = (
+            "---\nname: fixture-agent\ndescription: my custom description\n---\n"
+            "# Agent\n\nSection B.\nSection A.\n"
+        )
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
+        ):
+            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
+
+        self.assertEqual(installed.read_bytes(), before,
+                         "a non-guarded frontmatter delta (description:) must "
+                         "never be silently reverted by an auto-adopt")
+        self.assertNotIn(str(installed), refreshed)
+        self.assertTrue(conflicts)
+
+    def test_backslash_pinned_value_survives_guard(self):
+        # A pinned value containing backslashes and regex-replacement-template
+        # lookalikes must splice verbatim — no re.error, no corruption.
+        pinned = r"C:\models\g<1>\opus"
+        shipped_body = (
+            "---\nname: fixture-agent\nmodel: sonnet\n---\n"
+            "# Agent\n\nSection A.\nSection B.\n"
+        )
+        installed_body = (
+            f"---\nname: fixture-agent\nmodel: {pinned}\n---\n"
+            "# Agent\n\nSection B.\nSection A.\n"
+        )
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
+        ):
+            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
+
+        updated = installed.read_text(encoding="utf-8")
+        self.assertIn(f"model: {pinned}", updated,
+                      "backslash-bearing pin must be spliced verbatim")
+        self.assertIn(str(installed), refreshed)
+        self.assertEqual(conflicts, [])
+
+    def test_guard_unit_shipped_new_key_is_not_a_delta(self):
+        # A key that exists ONLY in shipped (shipped grew it) loses nothing
+        # installed — the guard must not treat it as unpreservable.
+        installed = "---\nname: a\nmodel: opus\n---\nbody\n"
+        shipped = "---\nname: a\nmodel: sonnet\npermissionMode: ask\n---\nnew body\n"
+        adopted = ip._apply_agent_frontmatter_guard(installed, shipped)
+        self.assertIsNotNone(adopted)
+        self.assertIn("model: opus", adopted)
+        self.assertIn("permissionMode: ask", adopted)
+
+
+class TestDestructiveWriteOrderingAndBackupGates(_UpgradeArtifactsFixtureBase):
+    """Failed backup => no destructive write; failed adoption write (after a
+    verified transfer) => conflict + NO false DISPOSITIONS row; transfer
+    collisions uniquify instead of clobbering."""
+
+    def test_backup_failure_blocks_rule_subset_adoption(self):
+        shipped_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Rule\n\nShipped superset body.\n"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, ".claude/agents/**")
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ), mock.patch.object(ip, "_write_backup_preimage", return_value=False):
+            refreshed, _, conflicts, _, refreshed_subsets, _ = self.run_upgrade()
+
+        self.assertEqual(installed.read_bytes(), before,
+                         "failed backup must block the adoption write")
+        self.assertNotIn(str(installed), refreshed)
+        self.assertEqual(refreshed_subsets, [])
+        self.assertTrue(conflicts, "the blocked adoption must surface as a conflict")
+
+    def test_backup_failure_blocks_agent_subset_adoption(self):
+        shipped_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
+        installed_body = "# Agent\n\nShipped superset body.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
+        ), mock.patch.object(ip, "_write_backup_preimage", return_value=False):
+            refreshed, _, conflicts, _, _, _ = self.run_upgrade()
+
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertNotIn(str(installed), refreshed)
+        self.assertTrue(conflicts)
+
+    def test_backup_failure_blocks_transfer_then_adopt(self):
+        self.enable_relocate()
+        shipped_body = "# Agent\n\nShipped body.\n"
+        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ), mock.patch.object(ip, "_write_backup_preimage", return_value=False):
+            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
+
+        self.assertEqual(installed.read_bytes(), before,
+                         "even with a verified transfer, a failed backup blocks adoption")
+        self.assertEqual(transferred, [])
+        self.assertTrue(conflicts)
+
+    def test_adoption_write_failure_is_conflict_with_no_false_log_row(self):
+        self.enable_relocate()
+        shipped_body = "# Agent\n\nShipped body.\n"
+        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+        before = installed.read_bytes()
+
+        original_write_text = Path.write_text
+
+        def _raising_write_text(self_path, *args, **kwargs):
+            if self_path == installed:
+                raise OSError("mock: adoption write failed")
+            return original_write_text(self_path, *args, **kwargs)
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ), mock.patch.object(Path, "write_text", _raising_write_text):
+            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
+
+        self.assertEqual(installed.read_bytes(), before,
+                         "the failed adoption must leave the installed file untouched")
+        self.assertEqual(transferred, [],
+                         "a failed adoption is NOT reported as transferred")
+        self.assertNotIn(str(installed), refreshed)
+        self.assertTrue(conflicts, "the failed adoption must surface as a conflict")
+
+        # The transfer file WAS written (before the failure) — the conflict
+        # is recoverable from it; and no false "adopted" DISPOSITIONS row.
+        transfer_files = (
+            list(self.transfer_dir().iterdir()) if self.transfer_dir().exists() else []
+        )
+        self.assertTrue(transfer_files, "the pre-adoption transfer file must survive")
+        dispositions = (
+            self.project_root / self.cfg.planwise_root / "upgrade-backups"
+            / "1.0.0-to-1.1.0" / "DISPOSITIONS.md"
+        )
+        if dispositions.exists():
+            self.assertNotIn(
+                "adopted shipped (customization transferred)",
+                dispositions.read_text(encoding="utf-8"),
+                "a failed adoption write must not append a false adoption row",
+            )
+
+    def test_transfer_collision_uniquifies_never_clobbers(self):
+        self.enable_relocate()
+        shipped_body = "# Agent\n\nShipped body.\n"
+        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_agent(shipped_body)
+        self.write_installed_agent(installed_body)
+
+        tdir = self.transfer_dir()
+        tdir.mkdir(parents=True, exist_ok=True)
+        stem = Path(self.AGENT_FILENAME).stem
+        suffix = Path(self.AGENT_FILENAME).suffix
+        first = tdir / self.AGENT_FILENAME
+        second = tdir / f"{stem}-1.0.0-to-1.1.0{suffix}"
+        first.write_text("pre-existing transfer ONE", encoding="utf-8")
+        second.write_text("pre-existing transfer TWO", encoding="utf-8")
+
+        with mock.patch.object(
+            ip, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            _, _, conflicts, _, _, transferred = self.run_upgrade()
+
+        self.assertEqual(len(transferred), 1)
+        new_transfer = Path(transferred[0][1])
+        self.assertEqual(
+            new_transfer.name, f"{stem}-1.0.0-to-1.1.0-2{suffix}",
+            "the collision loop must uniquify with a numeric suffix",
+        )
+        self.assertEqual(first.read_text(encoding="utf-8"), "pre-existing transfer ONE",
+                         "a pre-existing transfer file must never be clobbered")
+        self.assertEqual(second.read_text(encoding="utf-8"), "pre-existing transfer TWO")
+        self.assertIn("User-added block.", new_transfer.read_text(encoding="utf-8"))
+        self.assertEqual(conflicts, [])
+
+
+class TestNotAnalyzedMarker(unittest.TestCase):
+    """The degraded stand-in is detected by its explicit source marker only —
+    a genuine agent verdict of the same SHAPE must never be captured."""
+
+    def test_degraded_standin_carries_explicit_marker(self):
+        with mock.patch.dict(sys.modules, {"structural_compare": None}):
+            verdict = ip._classify_diverged("installed body", "shipped body")
+        self.assertEqual(verdict.source, ip._DEGRADED_VERDICT_SOURCE)
+        self.assertTrue(ip._verdict_not_analyzed(verdict))
+
+    def test_genuine_agent_has_unique_with_notes_is_not_captured(self):
+        genuine = types.SimpleNamespace(
+            classification="HAS_UNIQUE", confidence="unique",
+            unique_blocks=[], notes="one tolerated fragment: 'local exemption'",
+            source="agent",
+        )
+        self.assertFalse(
+            ip._verdict_not_analyzed(genuine),
+            "a genuine agent verdict (HAS_UNIQUE, no unique_blocks, non-empty "
+            "notes) must NOT be shape-matched as not-analyzed",
+        )
+
+    def test_inline_primitive_verdict_is_not_captured(self):
+        inline = types.SimpleNamespace(
+            classification="HAS_UNIQUE", confidence="unique",
+            unique_blocks=[], notes="tolerated fragments", source="inline",
+        )
+        self.assertFalse(ip._verdict_not_analyzed(inline))
+
+
+class TestGenuineAgentVerdictRoutesToTransfer(_UpgradeArtifactsFixtureBase):
+    """Integration pin for the marker fix: a genuine agent HAS_UNIQUE verdict
+    with empty unique_blocks and non-empty notes (the exact shape the old
+    heuristic misrouted to preserve+sidecar) must route through the automated
+    transfer-then-adopt path under report+relocate."""
+
+    def test_shape_lookalike_agent_verdict_transfers_then_adopts(self):
+        self.enable_relocate()
+        shipped_body = "# Agent\n\nShipped body.\n"
+        installed_body = "# Agent\n\nShipped body.\nOne extra installed line.\n"
+        self.write_shipped_agent(shipped_body)
+        installed = self.write_installed_agent(installed_body)
+
+        lookalike = types.SimpleNamespace(
+            classification="HAS_UNIQUE", confidence="unique",
+            unique_blocks=[], notes="One extra installed line.", source="agent",
+        )
+        with mock.patch.object(ip, "_classify_diverged", return_value=lookalike):
+            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
+
+        self.assertEqual(installed.read_text(encoding="utf-8"), shipped_body,
+                         "a genuine agent verdict must adopt after transfer, not "
+                         "stall in the not-analyzed carve-out")
+        self.assertEqual(len(transferred), 1)
+        self.assertIn("One extra installed line.",
+                      Path(transferred[0][1]).read_text(encoding="utf-8"))
+        self.assertEqual(conflicts, [])
+        self.assertIn(str(installed), refreshed)
+
+
+class TestVerdictCacheConsumption(_UpgradeArtifactsFixtureBase):
+    """A successful --upgrade run retires verdicts.json (renamed to
+    verdicts.json.consumed) so a stale cached verdict can never fire on a
+    later pair or re-run."""
+
+    @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML (--upgrade hard-requires it)")
+    def test_cache_consumed_after_successful_run(self):
+        import contextlib
+        import io
+
+        # Minimal upgradeable fixture: pinned 1.0.0, target 1.1.0, identical
+        # rule + agent so the artifact refresh has nothing to dispose.
+        self.cfg.plugin_version = "1.1.0"
+        config_dir = self.project_root / self.cfg.planwise_root
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            'plugin_version: "1.0.0"\n', encoding="utf-8"
+        )
+        real_template = Path(ip.__file__).resolve().parent.parent / "config.yaml.template"
+        shutil.copy(str(real_template), str(self.plugin_root / "config.yaml.template"))
+
+        body = "# Rule\n\nIdentical body.\n"
+        self.write_shipped_rule(body, ".claude/agents/**")
+        self.write_installed_rule(body, ".claude/agents/**")
+        agent_body = "# Agent\n\nIdentical body.\n"
+        self.write_shipped_agent(agent_body)
+        self.write_installed_agent(agent_body)
+
+        verdicts_path = self.conflict_dir() / "verdicts.json"
+        verdicts_path.parent.mkdir(parents=True, exist_ok=True)
+        verdicts_path.write_text("{}", encoding="utf-8")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            exit_code = ip._run_upgrade(self.cfg)
+
+        self.assertEqual(exit_code, 0)
+        self.assertFalse(
+            verdicts_path.exists(),
+            "a successful --upgrade must retire the consumed verdicts.json",
+        )
+        consumed = verdicts_path.with_name("verdicts.json.consumed")
+        self.assertTrue(
+            consumed.exists(),
+            "the cache is renamed to .consumed (inspectable, never re-fired)",
+        )
 
 
 if __name__ == "__main__":

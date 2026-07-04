@@ -352,8 +352,12 @@ artifacts:
       the de-scope paths-only-edit policy. When the block is absent,
       config_loader.get_upgrade_config() supplies the conservative defaults:
       report / false / TRUE (descope_preserve_paths_edits defaults to
-      preserve — false opts in to removing paths-edited copies); `--migrate`
-      adds the block to existing configs.
+      preserve — false opts in to removing paths-edited copies). The shipped
+      config.yaml.template pins customization_handoff to report+relocate
+      explicitly (automated transfer-then-adopt via the upgrade-transfers/
+      preservation dir), while the absent-key fallback stays the conservative
+      report (preserve + sidecar, no transfer); `--migrate` adds the block to
+      existing configs.
 
   - id: rule_comparator_agent
     on_disk: ".claude/agents/rule-comparator.md"
@@ -380,7 +384,11 @@ artifacts:
     notes: >
       Generated handoff surface for preserved HAS_UNIQUE customizations. Reuses
       the existing upgrade-conflicts INDEX.md + sidecars rather than a new
-      standalone report file. Never installed; row exists so the relocate/gh
+      standalone report file. verdicts.json is consumed by a successful
+      --upgrade run (renamed to verdicts.json.consumed so a stale verdict can
+      never fire on a later pair/rerun); automated transfers land beside it
+      under {planwise_root}/upgrade-transfers/{from}-to-{to}/ as dormant
+      preservation documents. Never installed; row exists so the relocate/gh
       opt-in escalations don't invent a duplicate artifact path.
 
 

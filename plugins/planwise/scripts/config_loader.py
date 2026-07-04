@@ -329,12 +329,33 @@ def get_upgrade_config(config: dict) -> dict:
     is absent, explicitly null, or malformed — a config that predates the
     upgrade surface. Defaults are the safe status quo:
 
-      * customization_handoff        -> "report" (never auto-relocate/-issue)
+      * customization_handoff        -> "report"
       * github_issue                 -> False    (opt-in, interactive only)
       * descope_preserve_paths_edits -> True     (keep today's behavior:
                                                    preserve a paths-only-edited
                                                    de-scoped rule; False opts in
                                                    to removing it)
+
+    `customization_handoff` disposition semantics (consumed by the `--upgrade`
+    writer's customization-bearing branch):
+
+      * "report"          — conservative: preserve the installed file in place
+                            + write a `.new` sidecar; NO automated transfer,
+                            NO adoption. This stays the ABSENT-KEY fallback so
+                            configs that predate the key keep the safe
+                            pre-existing behavior.
+      * "report+relocate" — automated transfer-then-adopt: the customization
+                            is verified-written to a dormant preservation file
+                            under `{planwise_root}/upgrade-transfers/` first,
+                            then shipped is adopted in place. The shipped
+                            config.yaml.template pins this value EXPLICITLY —
+                            new installs get the automated flow while the
+                            absent-key fallback above stays conservative.
+      * "report+issue"    — same conservative disposition as "report" for the
+                            writer; the extra "+issue" meaning (routing an
+                            upstream-tagged customization to a GitHub issue)
+                            is interactive/handler-side only and additionally
+                            requires `github_issue: true`.
     """
     upgrade = config.get("upgrade", {})
     if not isinstance(upgrade, dict):
