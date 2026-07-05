@@ -458,6 +458,11 @@ Ask the user: "Were any lessons learned during this session?"
 
 If the session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before staging. Per `references/session-execution-protocol.md` §7 Git Workflow.
 
+> [!binding] Destructive-Diff Pre-Commit Review Gate
+> - [ ] If this session's diff adds or widens a destructive disposition (delete / overwrite / migrate / prune / sweep): a pre-commit adversarial multi-agent code review was run as a gate DISTINCT from script verification, its findings fixed, and regression tests added in the same session. (A green suite + clean lint + passing smoke does NOT satisfy this gate.)
+>
+> "Run script verification" and "run code review" are DIFFERENT gates; the second is mandatory when the diff touches destructive dispositions, even when the first is fully green — a fresh feature's tests are written by the same mind that wrote its bugs, so a green suite says nothing about the inputs nobody imagined (BOMs, block-style YAML, non-dict JSON cache entries, retry-after-crash staleness, filename collisions).
+
 ```bash
 git add {specific files changed during session}
 git commit -m "{type}: {description}"
