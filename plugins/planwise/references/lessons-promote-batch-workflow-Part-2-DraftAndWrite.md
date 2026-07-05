@@ -89,7 +89,7 @@ Each BB has between 2 and 5 deliverables, in this order:
 1. **Rule deliverable(s)** — one per target rule. Outline the §-sections, name each promoted lesson whose content is being inlined, state explicitly *"the rule does NOT cite LL-X"*.
 2. **Code/settings application deliverable(s)** — one per file that gets a docstring/comment/settings edit.
 3. **CLAUDE.md update deliverable** — list each `> [!binding]` callout to add or replace, with the exact text of the callout (rule-pointer language, no lesson references). Include the new row(s) for the "Skills, Rules, and LSPs" Rules table.
-4. **Lesson status flip deliverable** — table mapping each in-scope lesson to its new status (`rule` | `applied` | `documented`) and `applied-as` path. Include row count for the Rule Promotion Log in the lessons index.
+4. **Lesson status flip deliverable** — the immediate capture-time flip is `documented → promoted` (done in Phase 4, §6.6, not deferred). The deliverable's table maps each in-scope lesson to its **eventual** landing status (`rule` | `applied`) and `applied-as` path — what curate flips it to once the owning item ships. Note the Rule Promotion Log row count for that eventual landing (curate writes the rows then, not at capture).
 5. **Acceptance Criteria** — must include a self-containment grep check (see §8).
 
 ### 5.5 Write the Notes section last
@@ -99,7 +99,7 @@ The Notes section is the only place where lessons NOT promoted **by THIS specifi
 **(a) Lesson decomposed across BBs** — the lesson is fully accounted for, but other fragments live in sibling BBs:
 
 ```markdown
-- **Decomposed across BBs:** LL-X fragments split across this BB ({fragment-1 description}) + BB-{P} ({fragment-2 description}) + BB-{Q} ({fragment-3 description}). LL-X status flips to `rule` only when ALL three BBs ship.
+- **Decomposed across BBs:** LL-X fragments split across this BB ({fragment-1 description}) + BB-{P} ({fragment-2 description}) + BB-{Q} ({fragment-3 description}). At capture LL-X archives as `promoted` (all fragments are owned); its status flips to `rule` only when ALL three BBs ship.
 ```
 
 **(b) Lesson owned by another active BB** — already excluded in Part-1 §3.2 step 5; mention only for traceability:
@@ -164,20 +164,36 @@ Emit a markdown summary with three sections:
 ```markdown
 ## BBs drafted
 
-| BB | Title | Lessons promoted | Lessons left documented |
-|----|-------|------------------|-------------------------|
-| BB-{NNN} | ... | LL-X, LL-Y, LL-Z | LL-W (out of scope) |
+| BB | Title | Lessons archived as promoted | Out-of-scope lessons (stay documented) |
+|----|-------|------------------------------|-----------------------------------------|
+| BB-{NNN} | ... | LL-X, LL-Y, LL-Z | LL-W |
 
 ## Files written
 
 - `{backlog_dir}/BB-{NNN}-{SB}-DOC-PromoteLessons{BucketSlug}.md` ({L} lines)
 - `{backlog_dir}/{backlog_index}` (appended {N} rows; re-scored)
+- `{lessons_dir}/Archive/` ({N} lessons flipped to `promoted` and `git mv`d from `{lessons_dir}/`)
+- `{lessons_dir}/{lessons_index}` (Master Table Status + File-link updated for the {N} archived lessons)
 
 ## Anomalies
 
 - {Lessons skipped because already promoted}
 - {Lessons missing from categorisation file (if any)}
 ```
+
+### 6.6 Capture the in-scope lessons (archive-on-capture)
+
+Every in-scope lesson is now fully captured into a drafted backlog item, so it is captured immediately: it flips to `promoted` and moves to the archive. This is the **archive-on-capture** step — completeness of capture IS the gate; there is no per-file prompt.
+
+For each in-scope lesson that landed in a BB deliverable:
+
+1. **Flip the frontmatter.** Set `status: promoted` and populate `promoted-to:` with the owning backlog item id(s) — e.g. `promoted-to: BB-{NNN}`, listing every owner when the lesson decomposed across several BBs.
+2. **Move the file to the archive.** `git mv {lessons_dir}/LL-{NNN}-*.md {lessons_dir}/Archive/`. A fully-captured lesson belongs in `Archive/` (archived ≠ landed).
+3. **Update the Master Table** in `{lessons_dir}/{lessons_index}`: set the lesson's Status column to `promoted` and repoint its File link to the new `Archive/` path.
+
+**Do NOT write the Rule Promotion Log.** The Promotion Log records a *landing* event — the owning item shipped and its artifact now exists — but at capture the item has only been drafted. Those rows are written later by `/planwise lessons curate --phase=promote`, when the owning item lands and the status flips `promoted → rule|applied`.
+
+Under `--dry-run`, skip this entire step: report the planned flips and archive moves without touching any lesson file, frontmatter, or index row.
 
 ---
 
@@ -212,10 +228,10 @@ Emit a markdown summary with three sections:
 >
 > ## Evidence
 >
-> | Lesson | Status today | Recurrences | Already-applied artefact (if any) | Fragment scope (if decomposed) |
-> |--------|--------------|-------------|------------------------------------|--------------------------------|
-> | LL-X | documented | 3 | - | full lesson |
-> | LL-Y | documented | 2 | - | covers (a) only — (b) in BB-{P} |
+> | Lesson | Status today | Recurrences | Already-applied artefact (if any) | Fragment scope |
+> |--------|--------------|-------------|------------------------------------|----------------|
+> | LL-X | promoted | 3 | - | full lesson |
+> | LL-Y | promoted | 2 | - | covers (a) only — (b) in BB-{P} |
 >
 > ## Proposal
 >
@@ -240,12 +256,14 @@ Emit a markdown summary with three sections:
 >
 > ### Deliverable 4 — Lesson status flips + Rule Promotion Log
 >
-> | Lesson | New status | applied-as |
-> |--------|-----------|------------|
+> This table lists each lesson's **eventual** landing status — what it becomes when this item ships. At capture the lesson flips to `promoted` (the immediate status); the flip to `rule`/`applied` below happens later, at landing.
+>
+> | Lesson | Eventual status (at landing) | applied-as |
+> |--------|------------------------------|------------|
 > | LL-X | rule | `.claude/rules/{path}.md` §1 |
 > | LL-Y | rule | `.claude/rules/{path}.md` §2 |
 >
-> Append {N} rows to the Rule Promotion Log in `{lessons_dir}/{lessons_index}`. Run `/planwise lessons curate --phase=promote` afterwards to verify each `applied-as` path and update the Master Table Status column.
+> Capture (this workflow, §6.6) flips each lesson `documented → promoted`, writes `promoted-to:`, and `git mv`s it to `Archive/` — but writes **no** Rule Promotion Log rows yet (the log records landing events). After the owning item lands, `/planwise lessons curate --phase=promote` verifies each `applied-as` path, flips `promoted → rule|applied`, updates the Master Table Status column, and appends the {N} Rule Promotion Log rows in `{lessons_dir}/{lessons_index}`.
 >
 > ## Acceptance Criteria
 >
@@ -305,15 +323,24 @@ A single lesson MAY span multiple BBs when its body covers content for distinct 
 | Mechanic | Rule |
 |----------|------|
 | **Each BB cites LL-X in its Evidence row** | Add a *Fragment scope* column noting "covers (a) only", "covers (b)+(c)", etc. |
-| **Lesson lifecycle state stays `documented` while fragments are mid-flight** | Planwise's lesson lifecycle is `documented → applied → rule`. Decomposition does NOT introduce a new state. The lesson stays `documented` until the LAST fragment ships. |
-| **`applied-as` accumulates as a comma-separated list** | Each fragment that ships adds its artifact path to `applied-as`. Example: `applied-as: '.claude/rules/X.md §1, .claude/rules/Y.md §2, PENDING:Z'` while the third fragment is still mid-flight. Drop the `PENDING:` markers once each lands. |
-| **Promotion Log tracks each fragment** | One Rule Promotion Log row per fragment per BB. The same LL-X appears in N rows when it decomposes across N BBs. |
-| **Status flips to `rule` (or `applied`) only when the last fragment lands** | The curate workflow's Phase 2 promotion check is the gate: it verifies every path in `applied-as` exists, then flips the Status column. Partial promotion stays `documented` until then. |
+| **Lesson archives as `promoted` once every fragment is OWNED** | When each fragment is owned by a drafted backlog item, the lesson flips `documented → promoted` and archives at capture (archive-on-capture, §6.6) — regardless of how many BBs its fragments span. It does not linger in `documented`; a fully-owned lesson rests at `promoted` until its fragments land. |
+| **`applied-as` accumulates as fragments land (a post-`promoted`, curate-driven mechanism)** | After the lesson rests at `promoted`, each fragment that ships adds its artifact path to `applied-as` (curate writes this at landing). Example: `applied-as: '.claude/rules/X.md §1, .claude/rules/Y.md §2, PENDING:BB-{NNN}'` while the third fragment is still owned-but-unshipped. Drop each `PENDING:` marker once its fragment lands. |
+| **Promotion Log tracks each fragment** | One Rule Promotion Log row per fragment per BB, written by curate when that fragment lands (never at capture). The same LL-X appears in N rows when it decomposes across N BBs. |
+| **Status flips `promoted → rule` (or `applied`) only when the last fragment lands (a post-`promoted`, curate-driven mechanism)** | The curate workflow's Phase-2 promotion check is the gate: it verifies every path in `applied-as` exists, then flips the Status column off `promoted`. A partially-landed lesson stays `promoted` (never back to `documented`) until the last fragment ships. |
 | **Self-containment grep is per-BB** | Each BB's grep check (§8) covers ONLY the fragment files it produces. Cross-BB orchestration is the user's responsibility. |
 
-### 9.2 Why no `partial-promoted` state
+### 9.2 Why `promoted` is a stable capture state
 
-The source-skill version of this workflow introduced a transient `partial-promoted` working state for decomposed lessons. Planwise resolves this differently: the `applied-as` field becomes a comma-separated list (or a list with `PENDING:` markers) and the lesson stays `documented` until the last fragment lands. This keeps the planwise lesson lifecycle at three states (`documented`, `applied`, `rule`) — matching the existing `templates/lesson-template.md` and the curate workflow's Phase 2 check — without introducing a fourth transient state that every downstream consumer would need to understand.
+`promoted` is a **resting state**, not a transient one. It answers one durable question about a lesson: *is this lesson already owned by an actionable backlog item and merely awaiting that item to land, or is it not yet promoted?* A lesson fully captured into drafted backlog item(s) rests at `promoted` — indefinitely, if the owning item sits in the backlog for months — until that item ships. Nothing about `promoted` is mid-transition; it is the stable answer to "owned-and-awaiting-landing vs not-yet-promoted."
+
+This is deliberately **distinct** from the transient partial-landing state an earlier version of this workflow introduced for decomposed lessons — a working state that existed only while *some* fragments had landed and others had not. That transient state was rejected: a lesson's lifecycle status must not flicker as individual fragments ship. The intra-transition bookkeeping — *which* fragments have landed while the lesson is mid-decomposition — is handled instead by the `applied-as` field accumulating real paths and `PENDING:BB-{NNN}` markers (§9.1). That accumulation is **kept**.
+
+The two mechanisms **compose**; they are not alternatives:
+
+- **`status: promoted`** (the resting lifecycle state) records that the lesson is fully owned and archived, awaiting landing. It does not change as fragments land — only the final landing (last fragment) flips it to `rule`/`applied`.
+- **`applied-as` with `PENDING:` markers** (the bookkeeping field) records the fine-grained landing progress of each fragment *within* the `promoted → rule|applied` transition.
+
+So a decomposed lesson can legitimately read `status: promoted` **and** `applied-as: '.claude/rules/X.md §1, PENDING:BB-{NNN}'` at once: owned and archived (resting `promoted`), with one fragment already landed and one still awaiting its BB. The lifecycle stays coarse and stable; the per-fragment detail lives in `applied-as`. Both the lesson template in `seed/00-Index-LessonsLearned.md` and the curate workflow's Phase-2 check understand this pairing.
 
 ---
 
@@ -323,9 +350,9 @@ The source-skill version of this workflow introduced a transient `partial-promot
 > WRONG — this workflow writes `.claude/rules/{name}.md` directly.
 > CORRECT — this workflow writes a BB that DESCRIBES the rule to be created. Rule creation happens at BB execution time (via `/planwise backlog`), not at BB drafting time.
 
-> [!constraint] Do Not Modify Lesson Frontmatter
-> WRONG — this workflow flips `status: documented → rule` in the lesson file.
-> CORRECT — this workflow writes a Deliverable that describes the status flip. The actual frontmatter edit happens at BB execution time, when the rule file actually lands. The downstream `/planwise lessons curate --phase=promote` (or the single-lesson `/planwise lessons promote`) is the canonical way to flip the status.
+> [!constraint] Modify Lesson Frontmatter at Capture
+> WRONG — this workflow flips `status: documented → rule` (or `applied`) in the lesson file, claiming the artifact has landed when only a BB has been drafted.
+> CORRECT — this workflow flips `status: documented → promoted` and writes `promoted-to:` at capture time (§6.6), because a fully-captured lesson is now owned by a live backlog item. It does NOT flip to `rule`/`applied` — that landing flip happens later, when the owning item ships, via `/planwise lessons curate --phase=promote` (or the single-lesson `/planwise lessons promote`). Archived ≠ landed.
 
 > [!constraint] Do Not Run /planwise lessons promote
 > WRONG — invoke `/planwise lessons promote LL-X` from inside this workflow.
@@ -341,11 +368,11 @@ The source-skill version of this workflow introduced a transient `partial-promot
 
 > [!constraint] No `documented` Limbo for In-Scope Lessons
 > WRONG — a lesson survives Part-1 §3.2's gate (passed all 5 checks) but ends up in a BB's *Out of scope* notes because it "lacks a clean WRONG/CORRECT pair" or "is just a platform constraint." It re-surfaces on every future `--all-documented` run.
-> CORRECT — every lesson that passes Part-1 §3.2 lands in at least one BB deliverable. Use the Part-1 §4.2 destination table to route advisory patterns to `> [!practice]` callouts and platform constraints to `> [!hazard]` callouts. The status flip is what removes the lesson from `documented`.
+> CORRECT — every lesson that passes Part-1 §3.2 lands in at least one BB deliverable and, once captured, rests at `promoted` (archived), not `documented`. Use the Part-1 §4.2 destination table to route advisory patterns to `> [!practice]` callouts and platform constraints to `> [!hazard]` callouts. The capture-time flip to `promoted` (§6.6) is what removes the lesson from `documented`.
 
-> [!constraint] Do Not Auto-Move Lessons to Archive
-> WRONG — this workflow moves promoted lesson files to `{lessons_dir}/Archive/` after writing the BB. The user has not yet executed the BB; the lesson is still `documented`; the move is premature.
-> CORRECT — archive moves are the responsibility of [lessons-curate-workflow.md §4.4](lessons-curate-workflow.md#44-optional--move-file-to-archive), which gates the move on explicit user approval AFTER the rule artifact has actually landed. This workflow does NOT touch lesson file locations under any circumstance.
+> [!constraint] Archive Fully-Captured Lessons
+> WRONG — this workflow leaves a fully-captured lesson in `{lessons_dir}/` and defers its archive to a later, per-file, user-approved step, even though the lesson is already owned by a drafted backlog item and has flipped to `promoted`.
+> CORRECT — a lesson fully captured into backlog item(s) is `git mv`d to `{lessons_dir}/Archive/` automatically at capture (§6.6). Completeness of capture IS the gate — there is no per-file prompt. Archived ≠ landed: the move records that the lesson is owned and awaiting landing, not that its artifact has shipped; the later `promoted → rule|applied` landing flip is [lessons-curate-workflow.md](lessons-curate-workflow.md)'s Phase-2 responsibility. Skipped only under `--dry-run`.
 
 > [!constraint] Use score_backlog.py for Scoring
 > WRONG — this workflow computes the Score column manually using its own priority-to-points logic.

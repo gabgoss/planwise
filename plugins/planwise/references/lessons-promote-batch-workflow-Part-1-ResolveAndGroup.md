@@ -89,11 +89,12 @@ For each resolved lesson ID, run all five checks:
 
 1. **File exists.** Confirm `{lessons_dir}/LL-{NNN}-*.md` exists. If missing, flag as anomaly and exclude from this run.
 2. **NOT archived.** Confirm the file is in `{lessons_dir}/` (active) and NOT in `{lessons_dir}/Archive/`. Archived lessons are already promoted; exclude with the note *"already in {lessons_dir}/Archive/; skipping"*.
-3. **Frontmatter status check.** Read the YAML frontmatter (body load is deferred to §3.4 after this gate). If `status` is already `applied` or `rule`, exclude with the note *"already promoted to {applied-as}; skipping"*.
+3. **Frontmatter status check.** Read the YAML frontmatter (body load is deferred to §3.4 after this gate). If `status` is already `applied` or `rule`, exclude with the note *"already promoted to {applied-as}; skipping"*. If `status` is already `promoted`, exclude with the note *"already captured via {promoted-to}; awaiting landing; skipping"* — the lesson is fully owned by a drafted backlog item and needs no further promotion work.
 4. **Categorised.** Verify the lesson is listed in `00-Categorization-By-Domain.md` under its expected bucket (or sub-bucket). If not, flag as anomaly: *"LL-NNN is not in `00-Categorization-By-Domain.md`; run `/planwise lessons curate --phase=categorize` first."*
-5. **NOT owned by an existing BB.** Run `Grep 'LL-{NNN}' {backlog_dir}/` (recursive — covers active + Archive). If any BB cites this lesson:
-   - **Active BB** (`NOT_STARTED` / `IN_PROGRESS` / `BLOCKED` / `PLANNING`): exclude with the note *"already owned by BB-{NNN} ({status}); will be promoted via that BB"*.
-   - **Archived BB** (`COMPLETE` / `CLOSED`, in `{backlog_dir}/Archive/`): exclude with the note *"already promoted via archived BB-{NNN}; flag as anomaly because the lesson frontmatter should have been flipped to `rule`/`applied`"* — recommend the user run `/planwise lessons curate --phase=promote` to reconcile.
+5. **NOT owned by an existing BB (fragment-aware).** Run `Grep 'LL-{NNN}' {backlog_dir}/` (recursive — covers active + Archive). If any BB cites this lesson, determine ownership at the fragment level — a lesson may have some fragments owned and others not (see §4.4 decomposition):
+   - **Fully-owned** (every fragment of the lesson is cited by an active BB): exclude with the note *"already owned by BB-{NNN} ({status}); will be promoted via that BB"*.
+   - **Partially-owned** (an active BB cites only some fragment(s) of the lesson; other fragment(s) are un-cited): include the lesson in scope, but restrict Phase 2 grouping to the un-owned fragment(s) — the owned fragment stays with its existing BB. Note in the scope report (§3.3): *"LL-{NNN}: fragment {X} owned by BB-{NNN} ({status}); fragment {Y} in scope"*.
+   - **Archived BB whose owning item is COMPLETE** (`COMPLETE` / `CLOSED`, in `{backlog_dir}/Archive/`): if the lesson's frontmatter was never flipped to `rule`/`applied`/`promoted`, this is an **owner-anomaly** — flag it (do not silently exclude): *"already promoted via archived BB-{NNN} (COMPLETE) but lesson frontmatter still shows `{status}`; flag as anomaly"* — recommend the user run `/planwise lessons curate --phase=promote` to reconcile.
 
 > [!gate] Categorisation Gate
 > If any in-scope lesson is missing from `00-Categorization-By-Domain.md`, STOP. Tell the user to run `/planwise lessons curate --phase=categorize` first. Do NOT attempt to grouping-decision a lesson whose bucket is unknown — silent default-bucketing distorts the BB clustering.
@@ -112,6 +113,8 @@ Before doing any further work, emit a short table to the chat:
 |----|--------|----------|--------|-------|
 | LL-... | A | HIGH | in scope | ... |
 | LL-... | B | MEDIUM | excluded — owned by BB-{Y} (IN_PROGRESS) | ... |
+| LL-... | C | LOW | excluded — status `promoted` (already captured via BB-{Y}); awaiting landing | ... |
+| LL-... | D | MEDIUM | partial — fragment owned by BB-{Y} ({status}); remaining fragment in scope | ... |
 ```
 
 ### 3.4 Read every in-scope lesson body in full (BINDING)
@@ -168,25 +171,29 @@ Within one BB, lessons can target multiple deliverables. Decide each lesson's de
 > ```
 > This is the `documented`-as-limbo failure mode. The lesson re-surfaces in the next `/planwise lessons promote-batch --all-documented` run, and the next, indefinitely.
 >
-> CORRECT — even platform constraints land in a destination row of the table above. LL-X belongs as a `> [!hazard]` operational-guidance entry in `agent-orchestration.md` (a short statement of the constraint + its operational workaround). Status flips to `rule` once the hazard callout lands.
+> CORRECT — even platform constraints land in a destination row of the table above. LL-X belongs as a `> [!hazard]` operational-guidance entry in `agent-orchestration.md` (a short statement of the constraint + its operational workaround). Status flips to `promoted` once captured.
 >
 > The only valid reason for an in-scope lesson to remain `documented` AFTER this workflow run is: another active BB in `{backlog_dir}/` already owns it (caught by §3.2 step 5; the lesson was already excluded). Anything else is the limbo failure.
+
+**Resting state after a run.** The resting state for every lesson this workflow captures is `promoted` (archived) — not `documented`. A captured lesson is fully owned by a drafted backlog item; it is NOT yet `applied`/`rule` (that flip happens later, at landing — see [lessons-curate-workflow.md](lessons-curate-workflow.md)). Route each captured lesson by its `promotion-target:` field: a single value routes 1:1 to the matching destination row in the table above (rule / applied-to-code / applied-to-settings / CLAUDE.md / hazard callout); multiple values mark the lesson a split candidate (§4.4 decomposition).
 
 ### 4.3 Bundling rule
 
 > [!practice] Prefer One Rule per Cluster
 > When 2+ lessons share a root cause (e.g., LL-X, LL-Y, LL-Z all surface from one root cause like "two independent lint/type gates"), bundle them into ONE rule rather than producing N near-duplicate rules. The rule body inlines all WRONG/CORRECT examples from each lesson, organised by sub-section.
 
-### 4.4 Lesson decomposition across multiple BBs
+### 4.4 Lesson decomposition — fallback for multi-target/coarse lessons
 
-A single lesson MAY span multiple destination artefacts when its body covers content for distinct rules. Force-fitting a multi-part lesson into one BB either drops two-thirds of its content or pollutes the receiving rule with off-topic material.
+Most lessons are single-purpose and promote 1:1 (a single `promotion-target:` value — §A2 in the design vocabulary, or simply: one lesson, one destination). Decomposition is a **fallback**, not the primary mechanism — reach for it only when a lesson's `promotion-target:` carries multiple values (a coarse lesson, flagged a split candidate) or its body demonstrably covers content for distinct destination artefacts that a single BB deliverable cannot serve without dropping content or diluting the receiving artefact. Try routing the lesson whole via §4.2 first; fall back to decomposition only when that would either drop two-thirds of its content or pollute the receiving rule with off-topic material.
 
-> [!constraint] Decompose Multi-Destination Lessons
+> [!constraint] Decompose Multi-Destination Lessons Only as a Fallback
 > WRONG — LL-X has content covering four distinct fragments (a)/(b)/(c)/(d) that map to different destination rules. The workflow bundles all of LL-X into one BB (say, the C1 bucket BB). The receiving BB either inflates beyond 500 lines OR the (c)/(d) fragments get summarised away because they don't fit C1's narrative.
 >
-> CORRECT — LL-X is decomposed: the (a) fragment lands in the C1 BB; the (c) fragment lands in a tooling/agent-extension BB; the (d) fragment lands in a CLAUDE.md hooks BB. Each BB's Evidence table cites LL-X with the specific fragment it owns; each BB's rule design inlines ONLY the WRONG/CORRECT examples relevant to its destination.
+> CORRECT — LL-X is decomposed: the (a) fragment lands in the C1 BB; the (c) fragment lands in a tooling/agent-extension BB; the (d) fragment lands in a CLAUDE.md hooks BB. Each BB's Evidence table cites LL-X with the specific fragment it owns; each BB's rule design inlines ONLY the WRONG/CORRECT examples relevant to its destination. `promoted-to:` on the lesson accumulates ALL owning backlog item ids — one per fragment's BB — not just the first.
 
 Decomposition signal: during Phase 1 full-body reads (§3.4), an LL whose Context section names ≥2 distinct rule files OR whose "Applies To" lists ≥2 distinct file domains is a decomposition candidate. Flag in the Phase 2 grouping output: *"LL-X decomposes across BBs P, Q, R — fragments listed below."*
+
+**Archive condition.** A decomposed lesson archives as `promoted` once **every** fragment is OWNED by a drafted backlog item — OWNED means named in a BB deliverable, not landed or shipped. Do not wait for any fragment's BB to ship before archiving; `promoted` (awaiting landing) is the correct resting state for owned-but-unshipped work — see the resting-state note in §4.2 above.
 
 See [Part-2 §9 — Decomposition Mechanics](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#9-decomposition-mechanics) for the full mechanics (Evidence column shape, `applied-as` accumulation, Rule Promotion Log rows, lifecycle-state policy).
 

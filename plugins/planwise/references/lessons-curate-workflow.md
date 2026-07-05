@@ -6,7 +6,7 @@ description: Two-phase lessons-learned curation workflow — categorise uncatego
 
 ## Purpose
 
-Keep `{lessons_dir}/00-Categorization-By-Domain.md` in sync with the master lesson index and track which lessons have been promoted to permanent artifacts (rules, CLAUDE.md, code, settings). This workflow categorises new lessons into the project's configured bucket taxonomy and appends rows to the master index's Rule Promotion Log — it does NOT author new `LL-*` files.
+Keep `{lessons_dir}/00-Categorization-By-Domain.md` in sync with the master lesson index and track which lessons have landed as permanent artifacts (rules, CLAUDE.md, code, agents, skills, settings). This workflow categorises new lessons into the project's configured bucket taxonomy, classifies each lesson's promotion target type, and appends rows to the master index's Rule Promotion Log — it does NOT author new `LL-*` files.
 
 ---
 
@@ -15,7 +15,7 @@ Keep `{lessons_dir}/00-Categorization-By-Domain.md` in sync with the master less
 - [1. Inputs and Outputs](#1-inputs-and-outputs)
 - [2. Workflow Overview](#2-workflow-overview)
 - [3. Phase 1 — Categorize New Lessons](#3-phase-1--categorize-new-lessons)
-- [4. Phase 2 — Track Promotions to Permanent Artifacts](#4-phase-2--track-promotions-to-permanent-artifacts)
+- [4. Phase 2 — Land Promoted Lessons (and heal documented→promoted)](#4-phase-2--land-promoted-lessons-and-heal-documentedpromoted)
 - [5. Domain Bucket Decision Tree](#5-domain-bucket-decision-tree)
 - [6. Reporting Format](#6-reporting-format)
 - [7. Constraints](#7-constraints)
@@ -31,8 +31,8 @@ All paths resolve from `config.yaml: project.planwise_root + project.lessons_dir
 |------|------|------|-------|
 | `{lessons_dir}/{lessons_index}` | Master table; ID range; Rule Promotion Log | Yes | Phase 2 only — append rows to Rule Promotion Log; update Status column in Master Table |
 | `{lessons_dir}/00-Categorization-By-Domain.md` | Domain buckets (one section per `categorization.buckets[]` from `config.yaml`) | Yes | Phase 1 — append rows to relevant bucket tables |
-| `{lessons_dir}/LL-{NNN}-*.md` | Individual lesson frontmatter + body | Yes (in full for new lessons; frontmatter only for promotion check) | No |
-| `{lessons_dir}/Archive/` | Destination for `applied`/`rule` lessons (may not exist yet) | List | Optional — move files here only when user opts in |
+| `{lessons_dir}/LL-{NNN}-*.md` | Individual lesson frontmatter + body | Yes (in full for new lessons; frontmatter only for promotion check) | Phase 1 — set/refine `promotion-target:`. Phase 2 — flip `promoted`→`rule`/`applied` and set `applied-as`; heal `documented`→`promoted` and set `promoted-to:` (user-gated, §4.1b) |
+| `{lessons_dir}/Archive/` | Destination for `promoted`, `applied`, and `rule` lessons (may not exist yet) | List | Optional — move files here only for the heal step (§4.4); `promoted` lessons reaching Phase 2 via `promote-batch` are already archived at capture |
 | `config.yaml: categorization` | Bucket schema, decision-tree order, default bucket | Yes | No |
 
 ---
@@ -40,8 +40,8 @@ All paths resolve from `config.yaml: project.planwise_root + project.lessons_dir
 ## 2. Workflow Overview
 
 > [!protocol] Two-Phase Curation
-> 1. **Phase 1 — Categorize new lessons** (default first). Diff master index against the categorisation file; read uncategorised lessons in full; place each into one of the buckets declared in `config.yaml: categorization.buckets`; update the categorisation tables.
-> 2. **Phase 2 — Track promotions.** Find lessons with `status: applied` or `status: rule` in their frontmatter; verify the artifact path in `applied-as`; append rows to the master index's Rule Promotion Log; optionally move the lesson file to `Archive/` (user-gated).
+> 1. **Phase 1 — Categorize new lessons** (default first). Diff master index against the categorisation file; read uncategorised lessons in full; place each into one of the buckets declared in `config.yaml: categorization.buckets`; also classify each lesson's promotion target type (§3.6) — a lesson spanning more than one target type is flagged a split-candidate; update the categorisation tables.
+> 2. **Phase 2 — Land promoted lessons (and heal documented→promoted).** Find lessons with `status: promoted` whose owning backlog item(s) have shipped; verify the artifact and flip them to `applied`/`rule`, setting `applied-as`; leave lessons with an unshipped owner at `promoted` and report them as "awaiting landing" (not an anomaly); also heal any `documented` lesson that is fully owned by a backlog item forward to `promoted` (user-gated, §4.1b — this is the only step in Phase 2 that moves a file to `Archive/`). Append rows to the master index's Rule Promotion Log.
 >
 > Run both phases unless `$ARGUMENTS` specifies `--phase=categorize` or `--phase=promote`. Default is `--phase=both`.
 
@@ -93,37 +93,79 @@ If the new batch of lessons reinforces an existing observation in the Cross-cutt
 > WRONG: Rewrite existing observations to "improve" the file or reorder existing rows.
 > CORRECT: Append new rows in the right severity slot. Update the `Last Updated:` line. Touch existing observations only if the new evidence makes them numerically wrong (e.g., severity-distribution counts).
 
+### 3.6 Target-Type Classification
+
+While reading each uncategorised lesson in full (§3.2), also determine — or refine — its `promotion-target` frontmatter value(s) from the lesson body: what kind of artifact would this lesson's fix ultimately become?
+
+| Target type | Neutral artifact destination |
+|-------------|------------------------------|
+| `rule` | `.claude/rules/` |
+| `code` | application code |
+| `claude-md` | `CLAUDE.md` |
+| `agent` | `.claude/agents/` |
+| `skill` | `.claude/skills/` |
+| `settings` | settings file |
+
+Use the lesson's existing callout and markdown conventions to infer the type — no new markup is needed: a fenced code block or diff reads as `code`; a `MUST`/`NEVER` callout reads as `rule`; guidance meant for durable project-wide context reads as `claude-md`; a reusable multi-step procedure reads as `skill`; a delegatable role definition reads as `agent`; a permission or config toggle reads as `settings`.
+
+A single value is a single-purpose lesson (promotes 1:1 to a backlog item). If the lesson body genuinely spans more than one target type, set all matching values on `promotion-target:` and report the lesson as a **split-candidate** in the chat summary (§6) — do not silently pick one.
+
 ---
 
-## 4. Phase 2 — Track Promotions to Permanent Artifacts
+## 4. Phase 2 — Land Promoted Lessons (and heal documented→promoted)
 
-### 4.1 Find promoted lessons
+### 4.1 Find promoted lessons awaiting landing
 
-Grep all `LL-NNN-*.md` files in `{lessons_dir}/` for `status: applied` or `status: rule` in their YAML frontmatter using the `Grep` tool:
+Grep all `LL-NNN-*.md` files in `{lessons_dir}/` for `status: promoted` in their YAML frontmatter using the `Grep` tool:
 
 ```
-pattern: ^status: (applied|rule)$
+pattern: ^status: promoted$
 path: {lessons_dir}
 glob: **/LL-*.md
 output_mode: files_with_matches
 ```
 
-Read each match and capture: `id`, `title`, `date`, `status`, `applied-as`.
+Read each match and capture: `id`, `title`, `date`, `status`, `applied-as`, `promoted-to`.
 
-### 4.2 Verify the destination artifact
+### 4.1b Heal fully-owned documented lessons
 
-For each promoted lesson, confirm the file path in `applied-as` actually exists. The four expected destination patterns are:
+Some lessons remain `status: documented` even though every fragment of their content is already owned by a drafted backlog item — for example, ownership was recorded after the lesson was captured, rather than through `promote-batch`. Grep for candidates:
 
-| Destination | Convention | Example |
-|-------------|-----------|---------|
-| `.claude/rules/**` | Promotion to a rule (highest tier) | `.claude/rules/{domain}/{name}.md` |
-| `CLAUDE.md` (project or global) | Promotion to durable project guidance | `CLAUDE.md` (root) |
-| `src/**` or other code path | Lesson encoded directly in code (with explanatory comment) | `src/{module}/{file}.{ext}` |
-| `.claude/settings.local.json` / `.claude/settings.json` | Lesson encoded as a setting/permission | `.claude/settings.local.json` |
+```
+pattern: ^status: documented$
+path: {lessons_dir}
+glob: **/LL-*.md
+output_mode: files_with_matches
+```
 
-If `applied-as` is `null` but `status` is not `documented`, flag it in the chat as an anomaly. Do NOT append a row to the log without a verifiable destination.
+For each match, check whether a backlog item now owns the lesson's ENTIRE content (not just a fragment of it). If so, it is a heal candidate: `documented` → `promoted`, with `promoted-to:` set to the owning item id(s).
 
-### 4.3 Update the Rule Promotion Log
+> [!gate] Heal Is User-Gated
+> Do NOT flip `documented` → `promoted` silently. Surface each heal candidate (lesson id, owning item id, evidence of full ownership) to the user and wait for approval before writing the frontmatter change. A lesson that is only PARTIALLY owned (some content still unowned) is NOT a heal candidate — leave it `documented`.
+
+### 4.2 Resolve ownership and verify landing readiness
+
+For each lesson found in §4.1 (`status: promoted`), resolve every id in its `promoted-to:` field to that backlog item's current status.
+
+1. **All owning items shipped (status COMPLETE).** The lesson is ready to land. Verify the destination artifact now exists — the four expected destination patterns are:
+
+   | Destination | Convention | Example |
+   |-------------|-----------|---------|
+   | `.claude/rules/**` | Promotion to a rule (highest tier) | `.claude/rules/{domain}/{name}.md` |
+   | `CLAUDE.md` (project or global) | Promotion to durable project guidance | `CLAUDE.md` (root) |
+   | `src/**` or other code path | Lesson encoded directly in code (with explanatory comment) | `src/{module}/{file}.{ext}` |
+   | `.claude/settings.local.json` / `.claude/settings.json` | Lesson encoded as a setting/permission | `.claude/settings.local.json` |
+
+   If the artifact exists, proceed to §4.3 (log + flip). If it does not, flag it as an anomaly — the owning item claims completion but left no verifiable artifact; do NOT append a log row without a verifiable destination.
+
+2. **Any owning item still active (not yet COMPLETE).** Leave the lesson at `status: promoted`. Report it in the chat summary as **"awaiting landing"** — this is NOT an anomaly; a `promoted` lesson with an unshipped owner is the expected resting state (archived ≠ landed).
+
+> [!practice] Anomaly Rules — Do Not Confuse These Two States
+> - **Legitimate, not an anomaly:** `promoted` + `applied-as: null` — the lesson is owned and archived, awaiting its backlog item to ship.
+> - **Legitimate, not an anomaly:** `promoted` + `applied-as: 'PENDING:BB-{NNN}'` — a coarse lesson where some fragments have already landed and others are still only owned.
+> - **NEW ANOMALY:** `rule` or `applied` + `applied-as: null` — the lesson claims to be landed but carries no artifact pointer. Flag this in the chat report.
+
+### 4.3 Update the Rule Promotion Log, then flip the lesson
 
 Append one row per promoted lesson to the table at the bottom of `{lessons_dir}/{lessons_index}`:
 
@@ -140,16 +182,24 @@ Update the Master Table row's Status column to match the lesson frontmatter (`ap
 > [!gate] Deduplicate Before Appending
 > Single-lesson `/planwise lessons promote` (handler Stage 7) also appends a row to the Rule Promotion Log at promotion time. Before appending, parse the existing log and skip any `(lesson_id, artifact_path)` tuple that is already present. Dedup key is the pair — a lesson with multiple `applied-as` paths (§4.5) gets one row per *new* path, even if a sibling path is already logged. Count skipped tuples in the Phase 2 summary as `Already logged: N` so the anomaly section stays honest.
 
-### 4.4 Optional — Move file to Archive/
+**After the log row is written**, flip the lesson's own frontmatter to reflect the landing:
 
-The master index typically says: *"Lessons with status `applied` or `rule` are moved to `Archive/` as part of the promotion workflow."*
+1. Set `status: promoted` → `status: rule` (destination is `.claude/rules/**`) or `status: applied` (any other destination pattern from §4.2).
+2. Set `applied-as:` to the real, verified destination path — replacing `null` or a `PENDING:BB-{NNN}` placeholder.
+3. Leave `promoted-to:` untouched; it still records which backlog item(s) did the work.
 
-This workflow SHOULD NOT move files automatically. Surface the candidates and ask the user whether to move them.
+Write the log row before the frontmatter flip — the log is the durable trail, and the flip only happens once that trail exists.
+
+### 4.4 Archive move — heal step only
+
+Landing a `promoted` lesson (§4.2–4.3) never moves its file: a lesson reaching §4.1 is already in `Archive/`, because `promote-batch` archives at capture (`documented` → `promoted` is archive-on-capture).
+
+The archive move in this section applies ONLY to the heal step (§4.1b). When a `documented` lesson is healed to `promoted`, move it to `Archive/` in the same step — this mirrors `promote-batch`'s archive-on-capture behaviour and keeps `promoted` lessons consistently archived (see the branching lifecycle in [handlers/lessons.md](../handlers/lessons.md#lesson-status-lifecycle)).
 
 > [!gate] Confirm Before Moving
-> Moving a lesson file changes its path. Do NOT execute the move without explicit user approval — even in auto mode, this is a structural change to the lessons directory.
+> Moving a lesson file changes its path. Do NOT execute the heal-step move without explicit user approval — even in auto mode, this is a structural change to the lessons directory. Bundle this approval with the heal approval from §4.1b; do not ask twice.
 
-If the user approves, create `{lessons_dir}/Archive/` (or whatever archive folder is configured) if it does not exist and move each file with `git mv` (preserves history). After moving, update the master-table File-link column if any links break.
+If the user approves the heal, create `{lessons_dir}/Archive/` (or whatever archive folder is configured) if it does not exist and move the file with `git mv` (preserves history). After moving, update the master-table File-link column if any links break.
 
 ### 4.5 Cross-check Companion / Cross-references blocks
 
@@ -244,10 +294,15 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 | LL-N | C | MEDIUM | ... |
 | LL-M | A | HIGH | ... |
 
-## Phase 2 — Promotions
+**Split candidates (multi-target `promotion-target`):** K
+- LL-N: `[rule, code]` — spans both a convention and an implementation; consider splitting
 
-**Lessons promoted since last sync:** M
-**Already logged (deduplicated):** K  _<!-- per §4.3 gate; pairs already present in the Rule Promotion Log -->_
+## Phase 2 — Landings
+
+**Landed (promoted → rule/applied):** M
+**Awaiting landing (owning item still active):** N
+**Healed (documented → promoted):** K
+**Already logged (deduplicated):** K2  _<!-- per §4.3 gate; pairs already present in the Rule Promotion Log -->_
 
 | ID | Status | Artifact | Date |
 |----|--------|----------|------|
@@ -255,7 +310,7 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 
 ## Anomalies
 
-- LL-NNN missing `applied-as` despite `status: applied`
+- LL-NNN `status: applied`/`rule` with `applied-as: null` (claims landed, no artifact pointer)
 - LL-NNN referenced in master table but file not on disk
 - LL-NNN in categorisation file but missing from master table
 - LL-NNN missing both `technology:` and `domain:` in frontmatter
@@ -288,9 +343,9 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 |-----------|-----------------|----------|
 | "Refresh the lessons categorisation" | Both phases | `/planwise lessons curate` |
 | "Categorise new lessons added since LL-NNN" | Phase 1 only | `/planwise lessons curate --phase=categorize` |
-| "Update the rule promotion log" | Phase 2 only | `/planwise lessons curate --phase=promote` |
+| "Land lessons whose backlog items have shipped" | Phase 2 only — §4.1-§4.3 | `/planwise lessons curate --phase=promote` |
 | "Which lessons became rules?" | Phase 2 read-only — list `status: rule` lessons without writing | `/planwise lessons curate --phase=promote` (then decline the log-update prompt) |
-| "Move applied lessons to Archive/" | Phase 2 with the move-to-Archive step explicitly approved | `/planwise lessons curate --phase=promote` (approve the Archive prompt) |
+| "Heal a fully-owned documented lesson to promoted" | Phase 2 heal step (§4.1b) with the Archive move approved | `/planwise lessons curate --phase=promote` (approve the heal + Archive prompt) |
 
 ---
 
