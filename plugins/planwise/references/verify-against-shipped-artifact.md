@@ -41,6 +41,11 @@ paths: {planwise_root}/{plans_dir}/**
   - [7.5 Scaffold-time verification command](#75-scaffold-time-verification-command)
   - [7.6 Exempt task types](#76-exempt-task-types)
   - [7.7 Applies-to surface](#77-applies-to-surface)
+- [8. Verifying Source Edits When the Installed Plugin Is Older Than the Source](#8-verifying-source-edits-when-the-installed-plugin-is-older-than-the-source)
+- [9. Backlog-Item Citation Freshness at Execution Time](#9-backlog-item-citation-freshness-at-execution-time)
+  - [9.1 Re-derive pinned sequential identifiers from the live artifact](#91-re-derive-pinned-sequential-identifiers-from-the-live-artifact)
+  - [9.2 Re-locate cited code anchors by symbol; re-check acceptance criteria against HEAD](#92-re-locate-cited-code-anchors-by-symbol-re-check-acceptance-criteria-against-head)
+  - [9.3 Verify pre-drafted narrative attributions against the live file](#93-verify-pre-drafted-narrative-attributions-against-the-live-file)
 
 ---
 
@@ -782,6 +787,78 @@ When editing the plugin **source** while an older version is **installed and run
 1. What the check would prove (the exact claim it tests)
 2. The post-`upgrade` command to re-run it
 3. That the deferred check is NOT a pass — it is explicitly unresolved until post-install
+
+---
+
+## 9. Backlog-Item Citation Freshness at Execution Time
+
+A backlog item's body is a snapshot; every reference it pins — a sequential identifier, a `file:line` code anchor, an acceptance criterion, a narrative claim about which artifact carries which behavior — is a *hypothesis* about a live artifact, and must be re-proven at execution time, never trusted. The item may have been drafted days or sprints before it is worked, and in that interval sibling changes land: a promotion consumes the next-free number, a file grows and its line anchors move, a criterion becomes satisfied by code that arrived after authoring, a symbol the note names turns out to hold a different assertion. Applying any stale citation verbatim ships a defect. Re-derive each cited reference from the current artifact — by content grep or measurement — immediately before acting on it.
+
+This is the backlog-execution sibling of §7.3a–§7.3d (fix-recipe execution-time fidelity) and §8 (verification under an older installed plugin): the same "verify against the live artifact, not the snapshot" principle, applied to the triage → fix surface where the drifting reference is the item's own pre-drafted citation rather than an audit recipe.
+
+### 9.1 Re-derive pinned sequential identifiers from the live artifact
+
+> [!constraint] A pre-drafted Check number / catalog row / §-number is next-free at DRAFT time only — re-derive it from the live artifact before inserting
+>
+> A backlog item drafted ahead of execution typically pins a **sequential artifact identifier** — a `plan-reviewer.md` Check number, an Error Pattern Catalog row number, a reference §-number — to whatever was next-free *at draft time*. Those numbers are not stable: any other change that lands between drafting and execution consumes the next slot. Before inserting, re-derive the next-free identifier from the **live** artifact and renumber the deliverable (and any in-item self-references — group labels, acceptance criteria) to match.
+>
+> WRONG — trust the item's drafted number:
+> ```
+> item says "add Check 066" → insert `### Check 066` → the file now has two Check 066 sections.
+> # A duplicate identifier silently breaks cross-references and any detection grep keyed on the number.
+> ```
+>
+> CORRECT — re-verify against the live artifact, then renumber:
+> ```
+> grep '^### Check 0' agents/plan-reviewer.md   → max existing = 066
+> next-free = 067 → insert `### Check 067`; update the item's group label + acceptance criteria to 067.
+> ```
+>
+> The rule generalises to any monotonically-allocated identifier (Check number, Error Pattern Catalog row, reference §-number). Cost: one grep per pinned identifier. Failure it prevents: a duplicate ID shipped in an artifact. In a queue of promotions, the later-executed item MUST re-verify — an earlier-executed sibling may have consumed the slot.
+
+### 9.2 Re-locate cited code anchors by symbol; re-check acceptance criteria against HEAD
+
+> [!constraint] Treat a backlog item's `≈L####` as a hint, never an address; re-check every acceptance criterion against current code before writing a fix
+>
+> Line numbers and acceptance criteria are snapshots that rot as the codebase moves on. Before scoping or implementing, re-verify each against the **current** source:
+>
+> - **Anchors → re-locate by content.** Grep the cited function/symbol name; treat the item's `≈L####` as a hint, never an address. A partially-correct anchor set (some anchors still exact, some stale) is the dangerous case — it lulls you into trusting the rest.
+> - **Acceptance criteria → re-check against HEAD.** A criterion may already be satisfied by code that landed after the item was authored. Run the cheapest proof (grep for the constant, a throwaway dry-run) before writing a fix, and record it as "already satisfied — verified" rather than silently dropping it.
+>
+> WRONG — read the cited line range directly:
+> ```
+> item cites "the comparison in foo.py (≈L1614–1628)" → read foo.py L1614–1628.
+> # After the file grew, the real logic moved to a different function ~400 lines away; the read lands on unrelated code.
+> ```
+>
+> CORRECT — re-locate by symbol, treat the line number as a cost hint only:
+> ```
+> grep -n "def _run_upgrade" foo.py   → real location of the logic
+> # For each acceptance criterion, run the cheapest proof it is still unsatisfied before writing code.
+> # A criterion already satisfied by later code → record "already satisfied — verified", never silently drop it.
+> ```
+
+### 9.3 Verify pre-drafted narrative attributions against the live file
+
+> [!constraint] Verbatim fidelity binds the RULE CONTENT being promoted — not incidental wiring prose that names a sibling symbol; re-attribute those to the artifact that actually carries the behavior
+>
+> A backlog item's body is authored ahead of execution; its **narrative claims about which artifact carries which behavior** drift the same way pre-drafted sequential IDs and cited code anchors drift. Before inlining a pre-drafted note that asserts "test/section/function X does Y", verify the claim against the live file and reword to name the artifact that actually carries the behavior.
+>
+> WRONG — inline the item's note verbatim because the content was "fully specified":
+> ```
+> The `test_read_constants_are_fixed_values` test also asserts a cross-model
+> ratio band: 1.4 ≤ … ≤ 1.55 (see …::test_cross_model_ratio_band).
+> ```
+> The note is internally contradictory: it attributes the assertion to one test, then cites a different one. `test_read_constants_are_fixed_values` asserts the FIXED caps only; the ratio band lives in the sibling method.
+>
+> CORRECT — read the live file first, then attribute to the method that actually holds the assertion:
+> ```
+> The read-constant tripwire is paired with a cross-model ratio-band assertion:
+> `…::test_cross_model_ratio_band` asserts 1.4 ≤ opus/sonnet ≤ 1.55 for the same file.
+> A ratio drift outside this band signals a tokenizer-weight change.
+> ```
+>
+> Rule of thumb: a "paste verbatim" mandate covers the rule content and its WRONG/CORRECT examples; it never covers a factual claim about which test / section / function / check carries a behavior — those must match the live artifact.
 
 ---
 

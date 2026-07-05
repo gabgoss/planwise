@@ -123,12 +123,20 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
 1. Get the item's file paths from the JSON data (the `files` array)
 2. Read each backlog item file (files have YAML frontmatter with `created`, `blocks`, and `status` fields)
-3. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
+3. **Citation-Freshness Preflight (run before scoping or routing):** A backlog item's body is a snapshot — every reference it pins (a sequential identifier, a `file:line` anchor, an acceptance criterion, a "test/section X does Y" note) is a hypothesis about a live artifact that rots between authoring and execution. Re-prove each against the current artifact before scoping. See `references/verify-against-shipped-artifact.md` §9.
+
+   > [!checklist] Citation-Freshness Preflight (run before scoping or routing a backlog item)
+   > - [ ] For every pinned sequential identifier the item cites (Check NNN, Error Pattern Catalog row N, reference §N.N), grep the live target for the current max and re-derive the next-free value; renumber the item's deliverables + self-references to match
+   > - [ ] For every `file:line` anchor, re-locate the symbol by content grep; treat the cited line number as a cost hint only
+   > - [ ] For every acceptance criterion, run the cheapest proof it is still unsatisfied before writing a fix; mark any already-satisfied criterion "already satisfied — verified"
+   > - [ ] For every pre-drafted note/callout that asserts "test/section/function X does Y", verify against the live file and re-word to name the artifact that actually carries the behavior
+
+4. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
    - If the BLI's motivating driver is a runtime symptom (keywords: collision, race, hang, missing endpoint, intermittent), run a `grep -rn` for the symptom in `src/` and cross-check against recent session summaries in `Plans/**/Sessions/**/Outputs/`. If the driver is no longer active (no recent matches, fix landed), mark the BLI as STALE per `verify-against-shipped-artifact.md §3h` and skip routing. Include §3h.untested-axes and §3h.cluster signal checks per the same reference.
 
-4. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
+5. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
 
-5. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
+6. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
 
    ```bash
    grep -rn "paths:" .claude/rules/
@@ -140,7 +148,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
    This gate applies regardless of route (Route A or Route B) — do not skip it.
 
-6. Present the scope assessment to the user:
+7. Present the scope assessment to the user:
 
 > [!template] Scope Assessment Block
 > ```
