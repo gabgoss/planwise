@@ -3479,5 +3479,128 @@ class TestVerdictCacheConsumption(_UpgradeArtifactsFixtureBase):
         )
 
 
+class TestMotivatingSixRuleRegression(_MigrationFixtureBase):
+    """Reproduce the live incident that motivated the subset-vs-unique work.
+
+    Six de-scoped rules were installed as older/smaller copies of references
+    that had since grown. The exact-match migration preserved ALL SIX as
+    "body-customized," leaving the always-on over-scope the de-scope was meant
+    to remove. Under the structural verdict, the five copies that carry no
+    installed-only content must auto-remove (over-scope cleared), and the one
+    that DOES carry installed-only content must be surfaced-and-preserved for
+    re-home -- never silently removed, never silently mislabeled "customized"
+    and left in place unflagged. The per-branch tests above pin each disposition
+    in isolation; this pins the aggregate multi-rule outcome the incident was.
+    """
+
+    # The exact filenames from the incident (all present in DESCOPED_RULES).
+    _STALE_SUBSETS = (
+        "agent-orchestration.md",
+        "callout-conventions.md",
+        "session-context-budget.md",
+        "session-execution-protocol.md",
+        "session-plan-requirements.md",
+    )
+    _CUSTOMIZED = "session-planning-protocol.md"
+    _MARKER = "INSTALLEDONLYSTALEPROSE"
+
+    def _to_version(self) -> str:
+        return str(ip.RESCOPE_MIGRATION_VERSION)
+
+    def _classify(self, installed_norm, shipped_norm, override=None):
+        # The one copy carrying installed-only content classifies HAS_UNIQUE;
+        # the five clean older copies classify as high-confidence stale subsets.
+        if self._MARKER in installed_norm:
+            return _verdict("HAS_UNIQUE", "unique",
+                            unique_blocks=["# Stale generic block"])
+        return _verdict("SUBSET", "contained")
+
+    def test_six_rule_case_clears_overscope_and_flags_customized(self):
+        # Five older/smaller copies: installed body is a strict subset of the
+        # grown shipped reference (no installed-only content).
+        for filename in self._STALE_SUBSETS:
+            shipped = (
+                f"# {filename}\n\nShared line one.\nShared line two.\n"
+                "Line the reference grew later.\n"
+            )
+            installed = f"# {filename}\n\nShared line one.\nShared line two.\n"
+            self.write_shipped(filename, shipped)
+            self.write_installed(
+                filename, installed, self.old_default_for(filename))
+
+        # The sixth carries stale generic installed-only prose -- not a project
+        # edit, but the machine cannot prove that, so it must be preserved.
+        self.write_shipped(
+            self._CUSTOMIZED,
+            f"# {self._CUSTOMIZED}\n\nShared line one.\n"
+            "Line the reference grew later.\n")
+        self.write_installed(
+            self._CUSTOMIZED,
+            f"# {self._CUSTOMIZED}\n\nShared line one.\n"
+            f"{self._MARKER} carried over from an old plugin era.\n",
+            self.old_default_for(self._CUSTOMIZED))
+
+        with mock.patch.object(ip, "_classify_diverged", side_effect=self._classify):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        removed = _report_section(report, "removed", "deleted")
+        preserved = _report_section(report, "preserved", "kept")
+        skipped = _report_section(report, "skipped")
+
+        # The five clean stale subsets are all removed -> the always-on
+        # over-scope the de-scope targeted is physically cleared.
+        for filename in self._STALE_SUBSETS:
+            self.assertFalse(
+                (self.rules_dir / filename).exists(),
+                f"{filename}: a clean stale subset of the grown reference must be "
+                "removed, not preserved as 'customized' (the original defect)",
+            )
+            self.assertTrue(
+                any(filename in e and "stale subset" in e for e in removed),
+                f"{filename} must be reported removed as a stale subset",
+            )
+            self.assertFalse(
+                any(filename in e for e in preserved),
+                f"{filename} must not be reported preserved",
+            )
+
+        # The sixth is surfaced-and-preserved for re-home: kept on disk AND
+        # flagged with a customization notice (not silently removed, not silent).
+        self.assertTrue(
+            (self.rules_dir / self._CUSTOMIZED).exists(),
+            "the copy carrying installed-only content must be preserved",
+        )
+        self.assertTrue(
+            any(self._CUSTOMIZED in e and "customized block" in e for e in preserved),
+            "the preserved copy must be surfaced with a re-home notice",
+        )
+        self.assertFalse(
+            any(self._CUSTOMIZED in e for e in removed),
+            "a customization-bearing copy must never be removed",
+        )
+
+        # Aggregate: every one of the six was dispositioned (none skipped), and
+        # the over-scope is cleared down to exactly the one file needing review.
+        for filename in (*self._STALE_SUBSETS, self._CUSTOMIZED):
+            self.assertFalse(
+                any(filename in e for e in skipped),
+                f"{filename} must be dispositioned, not skipped",
+            )
+        surviving = [
+            f for f in (*self._STALE_SUBSETS, self._CUSTOMIZED)
+            if (self.rules_dir / f).exists()
+        ]
+        self.assertEqual(
+            surviving, [self._CUSTOMIZED],
+            "over-scope cleared: only the customization-bearing copy remains",
+        )
+        self.assertEqual(
+            len([e for e in removed
+                 if any(f in e for f in self._STALE_SUBSETS)]),
+            5,
+            "all five stale subsets reported removed",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
