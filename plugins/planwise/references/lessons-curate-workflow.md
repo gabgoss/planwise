@@ -147,7 +147,7 @@ For each match, check whether a backlog item now owns the lesson's ENTIRE conten
 
 For each lesson found in §4.1 (`status: promoted`), resolve every id in its `promoted-to:` field to that backlog item's current status.
 
-1. **All owning items shipped (status COMPLETE).** The lesson is ready to land. Verify the destination artifact now exists — the four expected destination patterns are:
+1. **All owning items shipped (status COMPLETE).** The lesson is ready to land. Verify the destination artifact now exists — the expected destination patterns (illustrative, not exhaustive) are:
 
    | Destination | Convention | Example |
    |-------------|-----------|---------|
@@ -155,6 +155,8 @@ For each lesson found in §4.1 (`status: promoted`), resolve every id in its `pr
    | `CLAUDE.md` (project or global) | Promotion to durable project guidance | `CLAUDE.md` (root) |
    | `src/**` or other code path | Lesson encoded directly in code (with explanatory comment) | `src/{module}/{file}.{ext}` |
    | `.claude/settings.local.json` / `.claude/settings.json` | Lesson encoded as a setting/permission | `.claude/settings.local.json` |
+
+   The list is illustrative: a rule/convention artifact may live outside `.claude/rules/**` (for example, a shared conventions or reference document a project treats as its rule surface). Match the artifact by the landing path the owning item recorded (or the lesson's `applied-as:`), and let the lesson's `promotion-target:` — not the destination folder — determine the `rule` vs `applied` status in §4.3.
 
    If the artifact exists, proceed to §4.3 (log + flip). If it does not, flag it as an anomaly — the owning item claims completion but left no verifiable artifact; do NOT append a log row without a verifiable destination.
 
@@ -184,7 +186,7 @@ Update the Master Table row's Status column to match the lesson frontmatter (`ap
 
 **After the log row is written**, flip the lesson's own frontmatter to reflect the landing:
 
-1. Set `status: promoted` → `status: rule` (destination is `.claude/rules/**`) or `status: applied` (any other destination pattern from §4.2).
+1. Set the terminal status from the lesson's **`promotion-target:`** field — the intent recorded at capture is authoritative. A rule / convention / guidance / reusable-artifact target (`rule`, `claude-md`, `agent`, `skill`) → `status: rule`; an implementing code or config change (`code`, `settings`) → `status: applied`. Do NOT gate `rule` on the artifact living under `.claude/rules/**` — a project may site its rule/convention artifacts elsewhere (for example, a shared conventions or reference document it treats as its rule surface), so the `promotion-target:` intent, not the destination folder, decides `rule` vs `applied`. Only if `promotion-target:` is unset, fall back to inferring from the destination path (a rule/convention artifact → `rule`; a code path → `applied`).
 2. Set `applied-as:` to the real, verified destination path — replacing `null` or a `PENDING:BB-{NNN}` placeholder.
 3. Leave `promoted-to:` untouched; it still records which backlog item(s) did the work.
 
