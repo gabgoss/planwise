@@ -30,6 +30,7 @@ description: EI fidelity across scaffolding tiers — source preservation, thres
   - [10.1 Body⇄Citation Presence (Consolidated Context Parts)](#101-bodycitation-presence-consolidated-context-parts)
   - [10.2 Pre-Extraction Verification Protocol (Task Execution)](#102-pre-extraction-verification-protocol-task-execution)
   - [10.3 Fallback Hierarchy (When the Cited Section Is Absent or Divergent)](#103-fallback-hierarchy-when-the-cited-section-is-absent-or-divergent)
+- [11. Verbatim-Block Behavioral Freshness — A Wording Freeze Is Not a Fact Freeze](#11-verbatim-block-behavioral-freshness--a-wording-freeze-is-not-a-fact-freeze)
 
 ---
 
@@ -897,6 +898,36 @@ See also: §10.1 (the Consolidated Context tier where the promise is made), §10
 The fallback levels are *priority-ordered, not interchangeable*. Skipping a higher-priority fallback in favor of a lower-priority one is itself a deviation worth recording.
 
 See also: §10.1 (the upstream cause — the cited section is empty because the body⇄citation promise was broken), §10.2 (the verification step that triggers this hierarchy).
+
+---
+
+## 11. Verbatim-Block Behavioral Freshness — A Wording Freeze Is Not a Fact Freeze
+
+> [!constraint] A verbatim-copy mandate freezes wording and placement — it NEVER freezes the factual claims the block asserts; re-verify those against live state before pasting
+> When an EI marks a block "paste verbatim — do not reword" and a task enforces it with a line-count gate, the mandate protects the block's *wording and placement*. It says nothing about whether the *factual claims* inside the block are still true. Between the moment a block is authored at scaffold time and the moment a later-executing task pastes it, an intervening sprint can change the very behavior one of the block's sentences describes. The task pastes faithfully, passes every gate, and ships a reference doc asserting the pre-change behavior — a silent fidelity defect no line-count or verbatim gate can catch.
+>
+> WRONG — treat the verbatim mandate as covering the claims too:
+>
+> ```
+> "the spec says verbatim, the gates passed, ship it"
+> ```
+>
+> The pasted block asserts a tool behavior an intervening sprint has since changed, so the shipped doc now describes the pre-change behavior.
+>
+> CORRECT — separate the wording freeze from the fact check:
+>
+> ```
+> "verbatim for wording; behavioral claims re-verified against live state;
+>  any deviation surfaced and noted before paste"
+> ```
+
+Three timing rules make the staleness surface auditable and the check mechanical:
+
+1. **Authoring time.** When an EI marks a block "paste verbatim," record — in one line beside the block — which behavioral facts the block asserts (e.g. "describes upgrade-divergence handling"). This makes the staleness surface greppable later.
+2. **Execution time.** Before pasting a verbatim block that describes tool / handler behavior, the runner or orchestrator MUST check the block's behavioral claims against the LIVE code / handler state — the same discipline cross-sprint grep gates apply to structural anchors. If a claim no longer matches live behavior, HALT the paste: surface the divergence, note it, and reconcile before writing.
+3. **Flag-routing time.** A sprint that changes a behavior described in a later sprint's PENDING verbatim block MUST flag it, naming the later sprint (or its session) as the downstream consumer, so the paste-time check has a pointer to what changed. Route the flag per the two-hop model in [`handlers/run.md`](../handlers/run.md) (closeout delivers to the downstream front door; the receiving session routes it into its task files at its Phase-1 preflight).
+
+This rule is the behavioral-claim analogue of §10.2's source-presence check: §10.2 verifies the cited section physically CARRIES the prose before extraction; §11 verifies the prose's factual CLAIMS still hold against the live world before paste. A block can pass §10.2 (the source carries it verbatim) and still fail §11 (the world it describes has moved).
 
 ---
 

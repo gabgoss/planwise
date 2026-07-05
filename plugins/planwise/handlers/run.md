@@ -119,6 +119,27 @@ Read these files completely (not skim):
 
 While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [session-execution-protocol.md §1.2](../references/session-execution-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
 
+### Step 1.1a: RECONCILE (Flag-Reconciliation Preflight)
+
+> [!binding] Route binding cross-sprint flags into task files BEFORE confirming
+> A binding coordination flag recorded in a sprint plan's `Carried-Forward Coordination Flags` section only reaches sessions scaffolded AFTER it lands. When THIS session was already scaffolded when the flag was recorded, the "re-propagate at scaffold time" step never fired — the session orchestrator reads only the orchestration / Recovery / task files, the flag is invisible, and tasks execute their stale EI-verbatim specs. In the incident this rule exists to prevent, a destructive prune operation shipped able to delete user content the contract existed to protect, and only a closeout cross-check caught it. Reconcile flags into the task files at session start, before the CONFIRM block.
+
+> [!checklist] Flag-Reconciliation Preflight (Phase 1, between READ and CONFIRM)
+> - [ ] Read the sprint plan's `Carried-Forward Coordination Flags` section (if present)
+> - [ ] For each flag recorded ON OR AFTER this session's scaffold date: check it appears in the orchestration's `Pre-Known Cross-Task Coordination Flags` AND in every affected task file
+> - [ ] Route each missing flag: write it into the affected task file(s) under `## Pre-Known Cross-Task Coordination Flags`, and carry it into that task's spawn prompt at dispatch
+> - [ ] Record the routing in Recovery (one Change Log row: "flag preflight — N flags routed to tasks X, Y")
+> - [ ] If a routed flag CONTRADICTS a task spec or EI verbatim block → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first
+
+**The two-hop propagation model (why the receiver routes the last hop):**
+
+A coordination flag reaches an executing task in two hops, and each hop has exactly one owner:
+
+- **Hop 1 — upstream closeout (sender).** The closing session delivers every flag to the downstream session's FRONT DOOR: the orchestration file's `Pre-Known Cross-Task Coordination Flags` section when that session is already scaffolded, else the sprint plan's `Carried-Forward Coordination Flags` section. The sender NEVER reaches into another session's task files — it does not own that decomposition and would race a concurrent session editing the same files.
+- **Hop 2 — downstream session start (receiver, THIS preflight).** This session routes each flag the final hop into its own task files, because it already reads every task file, knows its own decomposition, and is the single writer of its own files.
+
+Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the flag MUST say so explicitly (e.g. "the LIVE implementation supersedes EI §N"). A runner copying a "verbatim" spec has no reason to doubt it otherwise. Spawn-prompt injection alone (without the task-file write) is acceptable ONLY for informational flags; a binding contract belongs in the task file so it survives session resumption and is visible to reviewers.
+
 ### Step 1.2: CONFIRM
 
 Output the confirmation block:
@@ -420,8 +441,12 @@ Ask the user: "Were any lessons learned during this session?"
    |---------------------|--------------|
    | A specific named task in a later session | That task's file under `## Pre-Known Cross-Task Coordination Flags` |
    | A whole session (consumer task unclear) | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` |
-   | A future sprint (consumer task not yet authored) | That sprint plan's `## Carried-Forward Coordination Flags` section |
+   | A future sprint, downstream sessions NOT yet scaffolded on disk | That sprint plan's `## Carried-Forward Coordination Flags` section |
+   | A future sprint whose downstream session is ALREADY scaffolded on disk | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` (the sprint-plan `Carried-Forward` entry remains as the record) |
    | A follow-up plan not yet written | The current Master Plan's `## Carried-Forward Coordination Flags` section + the rollup/handoff task file |
+
+   > [!constraint] "Future sprint" → `Carried-Forward` applies ONLY while the downstream session is unscaffolded
+   > The sprint-plan `Carried-Forward Coordination Flags` destination reaches a downstream session ONLY at that session's scaffold time. Once the downstream session already exists on disk, it never re-reads the sprint plan's `Carried-Forward` section at its own start — so a flag dropped there after scaffolding is invisible to it. When the downstream session is already scaffolded, deliver the flag to that session's orchestration file front door instead (keep the sprint-plan entry as the record). The sending side NEVER edits another session's task files: it does not own that decomposition and risks racing a concurrent session. The receiving session routes the flag the last hop into its own task files at its Phase-1 Flag-Reconciliation Preflight (Step 1.1a).
 
 3. Use the Propagated Flag Block format from §1.3 — group flags under `### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}` and reserve a `### From {next-source-session-id} — to be appended when session completes` placeholder so later closeouts know where to append.
 4. If the destination file does not yet have a `## Pre-Known Cross-Task Coordination Flags` (or `## Carried-Forward Coordination Flags`) section, create it; if it does, append under it.
