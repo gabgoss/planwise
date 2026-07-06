@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing.
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing.
 
 **Invocation examples:**
 ```
@@ -210,6 +210,64 @@ all-clear line never prints over an unverifiable or not-analyzed row.)
 
 ---
 
+### Stage 10: Plans Index Drift Audit
+
+> [!constraint] Read-Only — audit only recommends
+> Stage 10 runs `reconcile_plans.py --json` standalone. It READS the plans
+> index (`{plans_dir}/{plans_index}`) and each row's Master Plan `Status:`
+> field, then prints a report. It writes nothing unless the user explicitly
+> consents to reconcile (below) — the audit itself never mutates.
+
+Always-on (independent of Token Saver) — auditing plans-index consistency is
+doctor's purpose, so this check has **no `--no-check` escape hatch** (contrast
+`/planwise list`, where the same detect pass IS skippable for a fast glance).
+The plans index is a denormalized cache: each row's Status column is a copy
+of its Master Plan's own `Status:` field, written at closeout by run.md's
+Step 4.3 "Update Plan Status" (sub-step 5). Nothing else re-checks the cache
+against the source of truth between closeouts, so a plan completed outside
+that step — or before it existed — can carry a stale row indefinitely. This
+audit runs the same detect pass `/planwise list` runs, reused here as one
+more health check alongside doctor's existing over-scope/divergence/
+self-containment scans; neither handler re-implements the comparison.
+
+Run the shared script:
+
+```bash
+python "{plugin_root}/scripts/reconcile_plans.py" --config "{planwise_root}/config.yaml" --json
+```
+
+Read the JSON file at the path it prints (`JSON: {path}`), shaped
+`{"drifts": [...], "anomalies": [...]}`. Report every drift and anomaly:
+
+```
+planwise doctor — plans index drift audit
+
+Drift detected ({K} row(s) out of sync with Master Plan status):
+  ! {ABBR}: index={X}  ->  Master Plan={Y}
+
+Anomalies ({N}):
+  ? {ABBR}: Master Plan not found at {path}
+```
+
+If both are empty: `No drift detected. All index rows match their Master
+Plan status.`
+
+**Optional write-on-consent (same contract as `/planwise list`):** after
+reporting, doctor MAY offer to reconcile via `AskUserQuestion` ("Reconcile
+{K} drifted row(s) in the plans index to match their Master Plan status?").
+On agreement, run:
+
+```bash
+python "{plugin_root}/scripts/reconcile_plans.py" --config "{planwise_root}/config.yaml" --write
+```
+
+The script re-reads the index immediately before writing (race-safe against
+a concurrent closeout), reconciles only rows still drifted, and never writes
+an anomaly row. Report `Reconciled {N} row(s).` Declining leaves the index
+untouched — the report above already recorded what was found.
+
+---
+
 ## Token Saver Audit
 
 > [!gate] Run only when `context.token_saver` is `true`
@@ -343,4 +401,4 @@ This is advisory only — a pointer that merely *supplements* inlined content is
 
 ---
 
-*Cross-reference: [run.md](run.md) (Model-Floor Bridge, 1M-Exception Dispatch), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py).*
+*Cross-reference: [run.md](run.md) (Model-Floor Bridge, 1M-Exception Dispatch, Step 4.3 Update Plan Status), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py), [reconcile_plans.py](../scripts/reconcile_plans.py) (plans index drift detect/reconcile, shared with [list.md](list.md)).*
