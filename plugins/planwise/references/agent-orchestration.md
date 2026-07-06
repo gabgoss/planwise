@@ -247,7 +247,7 @@ A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use
 >   ...
 > )
 > ```
-> See `handlers/review.md` (9 sites), `handlers/run.md` (4 sites), `handlers/backlog.md` (1 site) for spawn-call updates.
+> See `handlers/review.md` (9 sites), `handlers/run.md` (5 sites), `handlers/backlog.md` (1 site) for spawn-call updates.
 
 ---
 

@@ -13,8 +13,8 @@ maxTurns: 50
 > [!constraint] Foreground Execution Only
 > Task-runner writes output files and updates recovery state — it MUST be launched in foreground mode. Background subagents auto-deny Write/Edit/Bash permissions not pre-approved at launch, and `bypassPermissions` does NOT override this gate. The agent will complete but produce no files.
 >
-> WRONG: `Task(subagent_type: "task-runner", run_in_background: true, ...)`
-> CORRECT: `Task(subagent_type: "task-runner", ...)` (foreground is the default)
+> WRONG: `Task(subagent_type: "planwise:task-runner", run_in_background: true, ...)`
+> CORRECT: `Task(subagent_type: "planwise:task-runner", ...)` (foreground is the default)
 
 ## 1. READ — Load Task Context
 

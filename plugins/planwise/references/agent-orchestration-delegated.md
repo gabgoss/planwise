@@ -289,7 +289,7 @@ A DELEGATED task-runner does an INLINE self-review — it applies the review len
 > WRONG — spawn prompt instructs the task-runner to run a slash-command that itself spawns review agents:
 > ```
 > Task(
->   subagent_type: "task-runner",
+>   subagent_type: "planwise:task-runner",
 >   prompt: "...implement X; build; then run /simplify"
 > )
 > # task-runner: "Unknown subcommand: simplify" — it cannot spawn the review agents.
@@ -297,7 +297,7 @@ A DELEGATED task-runner does an INLINE self-review — it applies the review len
 > CORRECT — task-runner applies the review lenses inline; orchestrator runs the real review command on the diff after:
 > ```
 > Task(
->   subagent_type: "task-runner",
+>   subagent_type: "planwise:task-runner",
 >   prompt: "...implement X; apply the review lenses INLINE yourself — do NOT invoke /simplify or /code-review, you cannot spawn the review agents"
 > )
 > # orchestrator, after task-runner returns: Skill(code-review) (or /simplify) on the diff.
