@@ -255,7 +255,9 @@ Task(
   description: "Execute task {task-num}: {task-name}",
   model: "{model-override-from-task-file-Agent-field}",
   prompt: |
-    Execute the following task:
+    Execute the following task YOURSELF, directly, with your own tool calls.
+    Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
+    tool calls) — you ARE the task-runner.
 
     Task file: {task-file-absolute-path}
     Session ID: {session-id}
@@ -588,7 +590,9 @@ b. Launch `task-runner` agent:
      description: "Execute task {task-num}: {task-name}",
      model: "{agent-from-task-file}",
      prompt: |
-       Execute the following task:
+       Execute the following task YOURSELF, directly, with your own tool calls.
+       Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
+       tool calls) — you ARE the task-runner.
 
        Task file: {task-file-absolute-path}
        Session ID: {session-id}
@@ -598,9 +602,13 @@ b. Launch `task-runner` agent:
    )
    ```
 c. Wait for task-runner to return
-d. Read updated recovery file -- check task status
-e. If BLOCKED: decide proceed or halt based on dependencies
-f. If COMPLETE: update TaskList, proceed to next task
+d. **Classify the return before consuming it** — apply the diagnosis table in [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md). Only a structured completion report (status + verification results) is a real completion. The two failure signals — and their resume, never a fresh dispatch:
+   - **Fast return + dispatch-voice reply ("I've dispatched… I'll report back") + clean tree** = self-delegation → resume the SAME agent with the execute-yourself directive (§1.17.2).
+   - **Mid-work narration ending in a colon/next-step phrase + dirty tree with partial edits** = message-boundary stall → resume the SAME agent with a continuation message (quote its last line, forbid re-editing completed work, enumerate only the remaining items, restate the report format) (§1.17.3).
+   After any resume, verify single-application: `git status` / diff on the edit target and confirm Recovery advanced.
+e. Read updated recovery file -- check task status
+f. If BLOCKED: decide proceed or halt based on dependencies
+g. If COMPLETE: update TaskList, proceed to next task
 
 #### Parallel Dispatch Branch (DELEGATED)
 
@@ -614,7 +622,9 @@ b. Launch all task-runners in the layer in a single message (multiple Task tool 
      description: "Execute task {task-num} (parallel batch): {task-name}",
      model: "{agent-from-task-file}",
      prompt: |
-       Execute the following task:
+       Execute the following task YOURSELF, directly, with your own tool calls.
+       Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
+       tool calls) — you ARE the task-runner.
 
        Task file: {task-file-absolute-path}
        Session ID: {session-id}
@@ -637,7 +647,7 @@ b. Launch all task-runners in the layer in a single message (multiple Task tool 
    ```
 
    Note that the spawn prompt for parallel-mode runners OMITS the `Recovery file:` parameter — the runner must not touch it.
-c. Wait for ALL parallel runners to return their status blocks.
+c. Wait for ALL parallel runners to return their status blocks. Classify each return per [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md): a runner whose final message is dispatch-voice with no status block (self-delegation) or mid-work narration on a dirty tree (message-boundary stall) must be resumed as the SAME agent per that protocol — never redispatched — before reconciling.
 d. Reconcile Recovery centrally per Step 3.3 "After a parallel batch" instructions: parse each status block, verify OUTPUT_FILES on disk, write Recovery ONCE for the whole batch.
 e. If any task returned BLOCKED or PARTIAL: decide proceed or halt based on downstream dependencies. Mark BLOCKED tasks IN_PROGRESS in TaskList (do NOT mark `completed`).
 f. Advance to the next dependency layer.

@@ -23,6 +23,7 @@ This file continues the DELEGATED contract begun in [`agent-orchestration.md`](a
 - [1.14 Orchestrator-Only Review Commands](#114-orchestrator-only-review-commands)
 - [1.15 Delegated Code Task-Runners Build LAST](#115-delegated-code-task-runners-build-last)
 - [1.16 Recompute Delegated Verdicts from Primary Evidence — Both Directions](#116-recompute-delegated-verdicts-from-primary-evidence--both-directions)
+- [1.17 Task-Runner Dispatch Failure Modes and Resume Protocol](#117-task-runner-dispatch-failure-modes-and-resume-protocol)
 
 ---
 
@@ -371,6 +372,45 @@ A claim of the form "symbol X is declared but never used in this file, therefore
 Highest false-positive risk patterns — any of these warrants an independent code-read before accepting the verdict: "declared-but-unused," "never called," "dead code," "flag has no effect," "interface mismatch," "unreferenced in this file."
 
 Cost note: a false positive in a release-signoff verdict either blocks a shippable tag or spawns phantom backlog work; the verification is a few targeted reads of the disputed call path — NOT a full re-review.
+
+## 1.17 Task-Runner Dispatch Failure Modes and Resume Protocol
+
+A dispatched task-runner has three post-return states. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by two signals **together**: the final-message voice and the working-tree state. For BOTH failure states the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner. A fresh runner re-reads everything and can race or duplicate the first one's partial work.
+
+### 1.17.1 Diagnosis table
+
+Classify every returned runner against this table before acting on its result:
+
+| Signal | Diagnosis | Action |
+|--------|-----------|--------|
+| Fast return (seconds, a handful of tool calls), dispatch-voice reply ("I've dispatched the task-runner… I'll report back"), clean tree (zero diff in the edit target, Recovery untouched) | Self-delegation — the runner spawned a nested duplicate instead of executing | Resume the same agent with the execute-yourself directive (§1.17.2) |
+| Mid-work narration ending in a colon or next-step phrase ("Now let's rewrite each. First, `test_conflict…`:"), dirty tree with genuine partial edits on disk | Message-boundary stall — the runner executed part-way, then ended its message at a narration checkpoint | Resume the SAME agent with a continuation message (§1.17.3); its context holds the full task state |
+| Structured completion report with status + verification results | Real completion | Reconcile normally |
+
+The two failure modes are genuinely distinct: self-delegation is a **clean** tree + **dispatch** voice (the runner never executed); a stall is a **dirty** tree + **executor** voice (the runner executed part-way). The shared corrective is "resume the same agent," but the resume *message* differs — see below.
+
+### 1.17.2 Self-delegation resume
+
+A task-runner whose spawn prompt merely says "Execute the following task:" can pattern-match itself into the ORCHESTRATOR role (the task file and handler prose it reads are full of dispatch language) and delegate the work onward instead of executing. On the self-delegation signature, do NOT re-dispatch a fresh runner — the first may have left a live nested duplicate that will race it. Resume the same agent with this directive (identical to the spawn-prompt role pin the dispatch loop opens with):
+
+> Execute the following task YOURSELF, directly, with your own tool calls. Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task tool calls) — you ARE the task-runner.
+
+Then verify single-application afterward (`git status` / diff on the edit target; Recovery advanced).
+
+**Secondary consequence to reconcile:** an orphaned nested duplicate can finish AFTER the corrected primary, so "file modified since read" Edit rejections or unexplained concurrent-editor observations in Recovery may be the duplicate — reconcile by verifying the working tree holds a single spec-exact application, rather than assuming an external session raced.
+
+### 1.17.3 Message-boundary-stall resume
+
+On a message-boundary stall the runner's partial edits are real and on disk. Do NOT treat the stall notification as completion (that silently loses the unfinished tail), and do NOT dispatch a fresh runner (it re-reads everything and may re-edit or conflict with the partial work). Send the SAME agent a continuation message that:
+
+1. quotes the runner's own last line so it anchors where it stopped;
+2. forbids starting over or re-editing completed work;
+3. enumerates ONLY the remaining work items; and
+4. restates the required final-report format.
+
+For long remediation prompts, instruct up front: "work through to the end without pausing for narration checkpoints."
+
+**Residual risk to reconcile:** a stalled runner may have half-updated Recovery (e.g. the header + step table but not Files Modified / Change Log). The orchestrator owns reconciling that gap from verified facts — check Recovery section-by-section after any stalled-then-resumed task. Runs approaching the ~50-tool-use regime are the stall-prone range; budget 1–2 resume round-trips into session-time estimates.
 
 ---
 
