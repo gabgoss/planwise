@@ -190,6 +190,43 @@ A promotion BB's self-containment grep verifies that **the content the BB promot
 > [!practice] Write the Promotion BB's Grep Criterion to Match Reality
 > When authoring a promotion BB's grep Acceptance Criterion, write it so it can actually pass: scope its file list/paths to exclude zones that legitimately carry cross-refs, OR annotate the criterion with the expected exempt/pre-existing hits. Otherwise the executor is forced to choose between an impossible literal pass and an unscoped destructive cleanup.
 
+### 4.3 Widen the Gate to Plan-Structure Names — Semantic vs Syntactic Leaks
+
+The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`, `D-`). But the isolation rule this file enforces covers a **semantic** class — *any name that only resolves inside the authoring repo* — while that grep tests only a **syntactic** one (dash-number IDs). A plan-structure name such as a resolved sprint folder `Sprint-N`, or the executing plan's abbreviation, is exactly as unresolvable to a marketplace consumer as a bookkeeping ID — yet it is not ID-shaped, so it passes a green gate and leaks.
+
+> [!constraint] Add a Second Pattern for Plan-Structure Names — Both Greps Must Be Empty
+> WRONG — a single ID-shaped grep passes on a real leak. A shipped comment like
+> `# customization until Sprint-N's transfer flow exists` (with a *resolved* sprint number)
+> passes clean:
+> ```bash
+> git diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9])'
+> ```
+> CORRECT — run TWO patterns; both must return empty:
+> ```bash
+> git diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9])'
+> git diff plugins/planwise/ | grep -E '^\+' | grep -E 'Sprint-[0-9]|{PLAN_ABBREV}-'
+> ```
+> `{PLAN_ABBREV}` is the executing plan's abbreviation, parameterised per plan (substitute the live abbreviation before running).
+
+**Gate semantics:**
+
+- `{PLAN_ABBREV}-` hits are **always** leaks — a plan abbreviation resolves only inside the authoring repo.
+- `Sprint-[0-9]` hits are leaks **unless** the line is demonstrably the plugin's own template/example vocabulary — `templates/`, `examples/`, and `handlers/plan.md` legitimately show resolved sprint folder names (e.g. `Sprint-NN-{Name}`) as sample output of the tool itself. Inspect every hit; never ignore one silently.
+- The `{Sprint-N}` template placeholder (no digit after the dash) stays legal — the pattern targets resolved numerals, not the placeholder.
+- For plan sessions editing non-template plugin files (scripts, handlers, agents, references), expect strictly EMPTY.
+
+### 4.4 Where the Displaced Note Goes — Banning the Reference Must Not Lose the Information
+
+A plan-name comment usually exists because the code is in a deliberate interim state ("this stays conservative until a later flow lands"). Banning the plan name displaces that information; re-home it, do not drop it.
+
+> [!practice] Re-Home the Interim Note in Three Places
+> 1. **Code carries the condition.** The comment states the *generic condition* — true for any consumer regardless of the authoring plan: `# customization until a transfer-to-project-file flow exists`. Never the schedule.
+> 2. **Plans carry the schedule.** At the same moment, record a Cross-Task Coordination Flag whose downstream consumer is the sprint that closes the gap, pointing at the code location **by symbol** (not line) and **quoting the interim comment text** so it is greppable.
+> 3. **Flags carry the linkage.** The flag's Recommended Action tells the closing session to sweep the now-stale interim comments when its feature lands (grep for the quoted text).
+>
+> WRONG — delete the plan name and keep only the generic comment: the closing sprint never learns it owes a comment sweep, and the "until X exists" text quietly outlives X.
+> CORRECT — generic comment in code + a flag row naming the closing sprint, the symbol, and the quoted comment text.
+
 ---
 
 ## 5. Single-Lesson Promotion Integration
