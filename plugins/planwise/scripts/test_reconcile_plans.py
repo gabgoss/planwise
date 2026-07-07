@@ -95,12 +95,24 @@ class _ReconcileFixtureBase(unittest.TestCase):
         return path
 
     def write_master_plan(
-        self, rel_path: str, abbrev: str, status: str, last_updated: str | None = None
+        self,
+        rel_path: str,
+        abbrev: str,
+        status: str,
+        last_updated: str | None = None,
+        meta: bool = False,
     ) -> Path:
-        """Write a Master Plan at Plans/{rel_path}/{abbrev}-Master-Plan.md."""
+        """Write a Master Plan at Plans/{rel_path}/{abbrev}-Master-Plan.md.
+
+        When meta=True, writes the Discovery/Meta filename convention
+        {abbrev}-META-Master-Plan.md instead of {abbrev}-Master-Plan.md.
+        """
         mp_dir = self.plans_dir / rel_path
         mp_dir.mkdir(parents=True, exist_ok=True)
-        mp_path = mp_dir / f"{abbrev}-Master-Plan.md"
+        filename = (
+            f"{abbrev}-META-Master-Plan.md" if meta else f"{abbrev}-Master-Plan.md"
+        )
+        mp_path = mp_dir / filename
         body = f"# {abbrev} Master Plan\n\n**Status:** {status}\n"
         if last_updated:
             body += f"\n*Last Updated: {last_updated}*\n"
@@ -304,6 +316,78 @@ class TestReconcilePlans(_ReconcileFixtureBase):
         prc = next(r for r in rows if r["abbrev"] == "PRC")
         # Mirrors the date embedded in the annotated footer, not today.
         self.assertEqual(prc["last_updated"], "2026-03-19")
+
+    def test_meta_plan_resolves_via_meta_fallback(self):
+        # A Discovery/Meta plan carries a Meta-{ABBR}/ Path marker and names its
+        # Master Plan {ABBR}-META-Master-Plan.md. The resolver must fall back to
+        # that name so a well-formed Meta plan whose status matches the index
+        # reports as neither anomaly nor drift (previously it reported a
+        # standing "Master Plan not found" anomaly on every run).
+        self.write_index(
+            "| PRV | PluginReview | READY_TO_EXECUTE | 2026-07-01 | 2026-07-01 | Review/Meta-PRV/ |\n"
+        )
+        self.write_master_plan(
+            "Review/Meta-PRV/", "PRV", "READY_TO_EXECUTE", "2026-07-01", meta=True
+        )
+
+        result = detect_drift(self.config)
+
+        self.assertEqual(result["anomalies"], [])
+        self.assertEqual(result["drifts"], [])
+
+    def test_meta_plan_status_drift_detected_after_resolve(self):
+        # Once resolved via the -META- fallback, a Meta plan is drift-checked
+        # like any other row: a genuine status divergence must register as
+        # drift (the fallback resolves the file; it does not exclude Meta rows
+        # from the comparison).
+        self.write_index(
+            "| PRV | PluginReview | READY_TO_EXECUTE | 2026-07-01 | 2026-07-01 | Review/Meta-PRV/ |\n"
+        )
+        self.write_master_plan(
+            "Review/Meta-PRV/", "PRV", "COMPLETE", "2026-07-02", meta=True
+        )
+
+        result = detect_drift(self.config)
+
+        self.assertEqual(result["anomalies"], [])
+        self.assertEqual(len(result["drifts"]), 1)
+        self.assertEqual(result["drifts"][0]["abbrev"], "PRV")
+        self.assertEqual(result["drifts"][0]["mp_status"], "COMPLETE")
+
+    def test_meta_marked_row_missing_both_still_anomaly(self):
+        # A Meta-marked row with NO Master Plan under either convention must
+        # still report as an anomaly (no silent pass), and the expected_path
+        # must name the -META- convention so the message is actionable.
+        self.write_index(
+            "| ZZZ | ZetaPlan | READY_TO_EXECUTE | 2026-07-01 | 2026-07-01 | Zeta/Meta-ZZZ/ |\n"
+        )
+        # Intentionally write no Master Plan under either name.
+
+        result = detect_drift(self.config)
+
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(len(result["anomalies"]), 1)
+        anomaly = result["anomalies"][0]
+        self.assertEqual(anomaly["abbrev"], "ZZZ")
+        self.assertIn("not found", anomaly["reason"].lower())
+        self.assertIn("META-Master-Plan.md", anomaly["expected_path"])
+
+    def test_non_meta_missing_does_not_probe_meta_name(self):
+        # The Path-marker gate keeps the fallback OFF for regular (non-Meta)
+        # rows: a row missing {ABBR}-Master-Plan.md must still anomaly even if a
+        # -META- file happens to exist alongside it, rather than silently
+        # resolving to the wrong convention.
+        self.write_index(
+            "| REG | RegPlan | IN_PROGRESS | 2026-01-01 | 2026-01-01 | Reg/ |\n"
+        )
+        # Only a -META- file exists, but the Path is NOT Meta-marked.
+        self.write_master_plan("Reg/", "REG", "IN_PROGRESS", "2026-01-01", meta=True)
+
+        result = detect_drift(self.config)
+
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(len(result["anomalies"]), 1)
+        self.assertEqual(result["anomalies"][0]["abbrev"], "REG")
 
     def test_reconcile_preserves_crlf_line_endings(self):
         # A destructive write must preserve the file's original line endings.

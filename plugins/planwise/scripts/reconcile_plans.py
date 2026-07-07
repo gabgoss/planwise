@@ -61,25 +61,61 @@ def _plans_index_path(config: dict) -> Path:
     return config["_plans_dir"] / filename
 
 
+def _master_plan_filename(abbrev: str, meta: bool = False) -> str:
+    """Build the Master Plan filename for a plan.
+
+    Regular execution plans name their Master Plan `{Abbrev}-Master-Plan.md`;
+    Discovery/Meta plans name theirs `{Abbrev}-META-Master-Plan.md`.
+    """
+    return f"{abbrev}-META-Master-Plan.md" if meta else f"{abbrev}-Master-Plan.md"
+
+
+def _is_meta_row(row: dict) -> bool:
+    """True when a Plans-index row's Path marks it a Discovery/Meta plan.
+
+    Discovery/Meta plans live under a `Meta-{Abbrev}/` directory (the final
+    non-empty Path segment starts with `Meta-`) and name their Master Plan
+    `{Abbrev}-META-Master-Plan.md` rather than `{Abbrev}-Master-Plan.md`. This
+    marker gates the `-META-` resolution fallback so a genuinely-missing
+    regular Master Plan still reports as an anomaly instead of silently probing
+    a second filename.
+    """
+    segments = [s for s in row.get("path", "").split("/") if s]
+    return bool(segments) and segments[-1].startswith("Meta-")
+
+
 def _relative_master_plan_path(config: dict, row: dict) -> str:
     """Build a project-relative display path for anomaly reporting.
 
     Uses the raw (unresolved) project.plans_dir string rather than the
-    absolute filesystem path, so reports stay portable across machines.
+    absolute filesystem path, so reports stay portable across machines. Names
+    the `-META-` convention for Meta-marked rows so a genuinely-missing
+    Discovery/Meta Master Plan reports the filename it should actually have.
     """
     project = config.get("project", {}) if isinstance(config.get("project"), dict) else {}
     plans_rel = project.get("plans_dir", "Plans")
-    return f"{plans_rel}/{row['path']}{row['abbrev']}-Master-Plan.md"
+    filename = _master_plan_filename(row["abbrev"], meta=_is_meta_row(row))
+    return f"{plans_rel}/{row['path']}{filename}"
 
 
 def resolve_master_plan_path(config: dict, row: dict) -> Path:
     """Resolve a Plans-index row's Master Plan file path (absolute, for file I/O).
 
     Joins the resolved plans directory with the row's Path column (which
-    already ends in `/` and may nest) and the `{Abbrev}-Master-Plan.md`
-    filename.
+    already ends in `/` and may nest) and the Master Plan filename. Tries the
+    regular `{Abbrev}-Master-Plan.md` first; when that file does not exist AND
+    the row's Path marks it a Discovery/Meta plan, falls back to the
+    `{Abbrev}-META-Master-Plan.md` convention those plans use. A genuinely-
+    missing regular Master Plan (Path not Meta-marked) returns the primary
+    path, which the caller reports as an anomaly.
     """
-    return config["_plans_dir"] / row["path"] / f"{row['abbrev']}-Master-Plan.md"
+    plan_dir = config["_plans_dir"] / row["path"]
+    primary = plan_dir / _master_plan_filename(row["abbrev"])
+    if not primary.exists() and _is_meta_row(row):
+        meta_path = plan_dir / _master_plan_filename(row["abbrev"], meta=True)
+        if meta_path.exists():
+            return meta_path
+    return primary
 
 
 def parse_plans_index(content: str) -> list[dict]:
