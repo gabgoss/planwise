@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing.
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
 
 **Invocation examples:**
 ```
@@ -325,6 +325,67 @@ untouched — the report above already recorded what was found.
 
 ---
 
+### Stage 12: Backlog Index Archival Drift Audit
+
+> [!constraint] Read-Only — audit only recommends
+> Stage 12 runs `reconcile_backlog.py --json` standalone. It READS the backlog
+> index (`{backlog_dir}/{backlog_index}`) and the on-disk location of each
+> closed item's file, then prints a report. It writes nothing unless the user
+> explicitly consents to reconcile (below) — the audit itself never mutates.
+
+Always-on (independent of Token Saver) — auditing backlog-index consistency is
+doctor's purpose, so this check has **no `--no-check` escape hatch** (contrast
+`/planwise backlog`, where the same detect pass IS skippable for a fast triage).
+Archival is **state-coupled, not transition-coupled**: a COMPLETE/CLOSED item's
+file must live under `Archive/` and its index link must point there.
+`update_backlog.py` reconciles that on every `--status COMPLETE`/`CLOSED` call,
+but an item that reaches a closed status by another path — a session closeout
+that hand-edits the index row + frontmatter — leaves the file stranded in the
+top-level backlog dir with an index link that never repointed. This audit is the
+read-side counterpart, the backlog-index analogue of the Stage 11 plans-index
+drift audit; neither re-implements the other's comparison.
+
+Run the shared script:
+
+```bash
+python "{plugin_root}/scripts/reconcile_backlog.py" --config "{planwise_root}/config.yaml" --json
+```
+
+Read the JSON file at the path it prints (`JSON: {path}`), shaped
+`{"drifts": [...], "anomalies": [...]}`. `drifts` are closed rows whose file is
+not archived (or whose index link is not repointed); `anomalies` are closed rows
+whose linked file exists in neither the top-level backlog dir nor `Archive/`
+(deleted/renamed — reported, never fabricated). Report every drift and anomaly:
+
+```
+planwise doctor — backlog index archival drift audit
+
+Drift detected ({K} closed row(s) whose file is not archived):
+  ! {ID} ({STATUS}): {file} — {reason}
+
+Anomalies ({N}):
+  ? {ID} ({STATUS}): {file} — linked file not found in backlog dir or Archive/
+```
+
+If both are empty: `No archival drift detected. All closed backlog rows are
+archived.`
+
+**Optional write-on-consent (same contract as `/planwise backlog`):** after
+reporting, doctor MAY offer to reconcile via `AskUserQuestion` ("Archive {K}
+stranded closed row(s) — move the file(s) into `Archive/` and repoint the index
+link(s)?"). On agreement, run:
+
+```bash
+python "{plugin_root}/scripts/reconcile_backlog.py" --config "{planwise_root}/config.yaml" --write
+```
+
+The script re-reads the index immediately before writing (race-safe against a
+concurrent closeout), heals only rows still drifted, and never touches an
+anomaly row. Report `Reconciled {N} row(s).` Declining leaves the backlog
+untouched — the report above already recorded what was found.
+
+---
+
 ## Token Saver Audit
 
 > [!gate] Run only when `context.token_saver` is `true`
@@ -458,4 +519,4 @@ This is advisory only — a pointer that merely *supplements* inlined content is
 
 ---
 
-*Cross-reference: [run.md](run.md) (Model-Floor Bridge, 1M-Exception Dispatch, Step 4.3 Update Plan Status), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py), [reconcile_plans.py](../scripts/reconcile_plans.py) (plans index drift detect/reconcile, shared with [list.md](list.md)).*
+*Cross-reference: [run.md](run.md) (Model-Floor Bridge, 1M-Exception Dispatch, Step 4.3 Update Plan Status), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py), [reconcile_plans.py](../scripts/reconcile_plans.py) (plans index drift detect/reconcile, shared with [list.md](list.md)), [reconcile_backlog.py](../scripts/reconcile_backlog.py) (backlog index archival-drift detect/reconcile, shared with [backlog.md](backlog.md)).*

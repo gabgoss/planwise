@@ -8,6 +8,7 @@
 - `--priority High` — filter by priority
 - `--abbrev APP` — filter by domain abbreviation
 - `--status IN_PROGRESS` — filter by status
+- `--no-check` — skip the Phase 1 archival-drift detect pass (fast triage)
 
 ---
 
@@ -90,6 +91,37 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --abbrev APP
 python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --status IN_PROGRESS
 ```
+
+**Detect archival drift (always-on unless `--no-check`):**
+
+The backlog index is a denormalized cache: a COMPLETE/CLOSED item's file is moved to `Archive/` and its index link repointed as a **state-coupled** step in `update_backlog.py`. But an item that reaches a closed status by another path — a session closeout that hand-edits the index row + frontmatter — leaves the file stranded in the top-level backlog dir with an index link that never repointed, and nothing on the read side heals it. This detect pass is that read-side counterpart (the backlog analogue of `/planwise list` Step 2's plans-index drift check), reused unchanged in `/planwise doctor` Stage 12. It stays **non-mutating by default** — nothing is written without explicit consent.
+
+**If `--no-check` is present:** skip this step (a fast triage) and go straight to displaying the table.
+
+Otherwise run:
+
+```bash
+python {plugin_root}/scripts/reconcile_backlog.py --config {planwise_root}/config.yaml --json
+```
+
+Read the JSON file at the path it prints (`JSON: {path}`), shaped `{"drifts": [...], "anomalies": [...]}`. `drifts` are closed rows whose file is not archived (or whose index link is not repointed); `anomalies` are closed rows whose linked file exists in neither the top-level dir nor `Archive/` (deleted/renamed — reported, never fabricated). If either is non-empty, print a banner **before** the backlog table:
+
+```
+⚠ Backlog archival drift ({K} closed row(s) whose file is not archived):
+  • {ID} ({STATUS}): {file} — {reason}
+Anomalies:
+  • {ID} ({STATUS}): {file} — linked file not found in backlog dir or Archive/
+```
+
+If both are empty, print nothing.
+
+**Write on consent (READ-CONFIRM-ACT):** after the banner, use `AskUserQuestion` to offer reconciliation: "Archive {K} stranded closed row(s) — move the file(s) into `Archive/` and repoint the index link(s)?" On agreement:
+
+```bash
+python {plugin_root}/scripts/reconcile_backlog.py --config {planwise_root}/config.yaml --write
+```
+
+The script re-reads the index immediately before writing (race-safe against a concurrent closeout), heals only rows still drifted, and never touches an anomaly row. Report `Reconciled {N} row(s).` If the user declines, leave the backlog untouched — the banner already recorded what was found. If a write ran, re-run the Phase 1 parse so the reconciled links are reflected in this same invocation.
 
 Display the table to the user.
 
