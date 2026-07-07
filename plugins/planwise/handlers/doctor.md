@@ -149,22 +149,22 @@ removed. Pass the script's stdout through and point the user at the
 
 ---
 
-### Stage 9: Installed rule/agent divergence lint
+### Stage 9: Installed rule divergence lint
 
 > [!constraint] Read-Only — bare doctor only recommends
 > Stage 9 runs `lint_installed_divergence()` standalone. It READS the
-> still-installed set (`INSTALLED_RULES` + `INSTALLED_AGENTS`) under
-> `.claude/rules/planwise/` and `.claude/agents/`, plus the plugin's shipped
-> `references/` and `agents/` copies, then prints a report. It writes
-> nothing and deletes nothing — there is no opt-in writer for this stage.
+> still-installed set (`INSTALLED_RULES`) under `.claude/rules/planwise/`,
+> plus the plugin's shipped `references/` copies, then prints a report. It
+> writes nothing and deletes nothing — there is no opt-in writer for this
+> stage.
 
 Always-on (independent of Token Saver). Generalizes the Stage 8 sweep from
 the de-scoped rule set to the still-installed set: each installed rule is
 normalized with the same `paths:`-stripping normalization the writer uses
-(installed agents are compared whole-file; both sides are read `utf-8-sig`,
-matching the upgrade writer, so a BOM'd-but-untouched copy is never falsely
-flagged), a normalized-identical pair is skipped before the structural
-primitive is ever invoked, and each remaining file is classified as one of:
+(both sides are read `utf-8-sig`, matching the upgrade writer, so a
+BOM'd-but-untouched copy is never falsely flagged), a normalized-identical
+pair is skipped before the structural primitive is ever invoked, and each
+remaining file is classified as one of:
 
 - **SUBSET** (`~`) — the installed copy's content is fully contained in the
   now-grown shipped reference. Notes-clean: *recommend `/planwise upgrade` —
@@ -174,12 +174,8 @@ primitive is ever invoked, and each remaining file is classified as one of:
   `upgrade.customization_handoff`) before adopting shipped* — upgrade never
   auto-adopts unconditionally over flagged content.
 - **HAS_UNIQUE** (`!`) — the installed copy carries genuine unique content (a
-  real customization). Kind-aware advice: a **rule** → *re-home per the
-  "Choosing a Home for a Rule Customization" decide callout* — do NOT
-  delete; an **agent** → a sanctioned single-line `model:`/`tools:`/
-  `maxTurns:` frontmatter pin is preserved by upgrade's frontmatter guard
-  and needs no action; other unique body content should be kept as a
-  project-local agent or upstreamed.
+  real customization). *Re-home per the "Choosing a Home for a Rule
+  Customization" decide callout* — do NOT delete.
 - **NOT_ANALYZED** (`?`) — the file diverges but structural comparison was
   unavailable, so no analysis ran. Reported explicitly, never as a confident
   HAS_UNIQUE recommendation — diff it against the shipped copy manually.

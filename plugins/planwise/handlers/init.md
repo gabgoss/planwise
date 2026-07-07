@@ -211,27 +211,6 @@ Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with 
 
 ---
 
-### Step 6b — Mirror plugin agents/ into project .claude/agents/
-
-The plugin ships 4 custom agents that handlers spawn by name. To enable bare-name resolution in consumer projects and allow consumer-side agent overrides, mirror plugin agents into `.claude/agents/`:
-
-1. Use **Glob** to enumerate `{plugin_root}/agents/*.md`
-2. For each agent file:
-   a. Use **Glob** to check if `.claude/agents/{filename}` exists — **skip if it does**
-   b. Use **Read** to read source agent file
-   c. Use **Write** to create destination
-
-| Source (plugin) | Destination (project) |
-|----------------|----------------------|
-| `{plugin_root}/agents/plan-reviewer.md` | `.claude/agents/plan-reviewer.md` |
-| `{plugin_root}/agents/structural-reviewer.md` | `.claude/agents/structural-reviewer.md` |
-| `{plugin_root}/agents/task-runner.md` | `.claude/agents/task-runner.md` |
-| `{plugin_root}/agents/fix-agent.md` | `.claude/agents/fix-agent.md` |
-
-> **Note:** Step 6b is a companion fix for plugin-handler spawn name resolution. Handlers also work with namespaced spawns alone (`subagent_type: "planwise:plan-reviewer"`) — Step 6b additionally enables consumer-project agent overrides. Without Step 6b the consumer cannot customize plan-reviewer or task-runner. The fast-path script (Step 2) also calls `install_agents()` to perform the same mirroring; this fallback runs only when the Python script is unavailable.
-
----
-
 ### Step 7 — Configure Agent Teams (fallback)
 
 Enable Agent Teams by adding the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environment variable to the settings file determined by `{install_scope}`:
@@ -380,12 +359,6 @@ Agent Teams:
 Plugin permissions:
   ✓ additionalDirectories: {plugin_root} → {settings_file}
 
-Agents mirrored to .claude/agents/:
-  ✓ plan-reviewer.md
-  ✓ structural-reviewer.md
-  ✓ task-runner.md
-  ✓ fix-agent.md
-
 Rules installed to .claude/rules/planwise/:
   ✓ agent-authoring.md              (paths: .claude/agents/**)
   ✓ skill-authoring.md              (paths: .claude/skills/**)
@@ -490,7 +463,7 @@ Auto-Init Fallback, the init handler runs in **subroutine mode**:
 - The calling handler passes `--auto-from {handler-name}` to `init_project.py`.
 - The team-sharing prompt (Step 9) is suppressed — no `AskUserQuestion` is issued.
 - The Step 10 banner is replaced by: "Init complete — resuming /planwise {caller}…"
-- All other steps execute normally (directories, seeds, config, rules, settings, agent mirroring).
+- All other steps execute normally (directories, seeds, config, rules, settings).
 - If Auto Mode is active in the caller, all convenience questions in Step 1
   (project name, install scope, directories) use their inferred defaults
   (see Auto Mode Policy in `references/skill-authoring.md` §4b). If Auto Mode is NOT

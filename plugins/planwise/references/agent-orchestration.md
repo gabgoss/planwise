@@ -227,7 +227,7 @@ A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use
 ### Plugin Handler Spawns Resolve in the Consumer's Scope Chain
 
 > [!pitfall] Un-Namespaced Plugin-Handler Spawn
-> **Problem:** A plugin handler that spawns an agent by bare name (e.g., `subagent_type: "plan-reviewer"`) resolves the agent in the CONSUMER PROJECT's scope chain, not the plugin's scope chain. If the consumer has not run `/planwise init`, the agent file does not exist in `.claude/agents/` and the spawn fails with "agent not found".
+> **Problem:** A plugin handler that spawns an agent by bare name (e.g., `subagent_type: "plan-reviewer"`) resolves the agent in the CONSUMER PROJECT's scope chain, not the plugin's scope chain. If the consumer has not run `/planwise init`, the agent file does not exist in `.claude/agents/` (the plugin never installs one there) and the spawn fails with "agent not found".
 >
 > This constraint was empirically verified 2026-05-12 (behavior may not be re-verified).
 >

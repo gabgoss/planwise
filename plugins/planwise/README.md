@@ -454,7 +454,7 @@ planwise/                           # Plugin root
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 11 subcommand handlers (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, help)
-  agents/                           # 4 custom AI agents (auto-mirrored into project .claude/agents/ on init)
+  agents/                           # 5 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init
