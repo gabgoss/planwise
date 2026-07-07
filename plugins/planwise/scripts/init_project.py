@@ -1823,6 +1823,113 @@ def sweep_stale_descoped_rules(cfg: "InitConfig") -> list[dict]:
     return findings
 
 
+def sweep_orphaned_agent_mirrors(cfg: "InitConfig") -> list[dict]:
+    """Post-mirror-drop orphaned agent-mirror sweep. Read-only.
+
+    Parallels sweep_stale_descoped_rules(): walks FORMERLY_MIRRORED_AGENTS —
+    the frozen filename list of agents that used to be mirrored into
+    .claude/agents/ on init/upgrade — classifies each still-installed copy
+    against the shipped agents/{filename} reference, and recommends a
+    disposition. Every install's mirrored copy became an orphan the moment
+    the mirror-on-init/upgrade behavior was dropped (there is no live
+    install list left to gate a one-shot migration against), so this sweep
+    is a permanent, always-on diagnostic rather than a version-boundary-
+    gated one-shot. NEVER writes or deletes; purely diagnostic.
+
+    Comparison is whole-file identity (agents carry no `paths:` frontmatter
+    key to normalize away, unlike rules) — a customized `model:`/`tools:`/
+    `maxTurns:` pin simply makes the whole file diverge and correctly routes
+    to HAS_UNIQUE/PRESERVE; there is no frontmatter-splice guard here.
+
+    Each finding is a dict:
+      {path, filename, line_count, approx_tokens (=line_count*13),
+       verdict: "REMOVABLE" | "PRESERVE", confidence, reason
+       [, unique_blocks]}
+
+    REMOVABLE requires EITHER a byte-identical installed/shipped pair (fast
+    path — the primitive is never consulted) OR a high-confidence subset
+    verdict from `_classify_diverged()` that clears `_destructively_removable`
+    (is_subset AND is_safe_to_remove AND an empty verdict.notes field) —
+    non-empty notes means the matcher tolerated installed-only content it
+    could not prove was noise, which flips the disposition to PRESERVE
+    rather than risk deleting a genuine short customization. A missing
+    shipped reference, an unreadable installed/shipped file, and a degraded
+    (structural_compare unavailable) verdict all PRESERVE — never a
+    confident recommendation on incomplete evidence.
+    """
+    agents_dir = cfg.project_root / ".claude" / "agents"
+    agents_src_dir = cfg.plugin_root / "agents"
+    findings: list[dict] = []
+    if not agents_dir.exists():
+        return findings
+
+    for filename in FORMERLY_MIRRORED_AGENTS:
+        dst = agents_dir / filename
+        if not dst.is_file():
+            continue  # not installed — nothing to do, not a broken install
+
+        try:
+            installed_raw = dst.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError) as exc:
+            # An unclassifiable file must never be deletable — preserve
+            # unread rather than guess at its disposition.
+            findings.append({"path": str(dst), "filename": filename,
+                             "line_count": 0, "approx_tokens": 0,
+                             "verdict": "PRESERVE", "confidence": "unknown",
+                             "reason": f"unreadable ({exc}) — cannot classify; preserved"})
+            continue
+
+        line_count = installed_raw.count("\n") + (0 if installed_raw.endswith("\n") else 1)
+        base = {"path": str(dst), "filename": filename,
+                "line_count": line_count, "approx_tokens": line_count * 13}
+
+        src = agents_src_dir / filename
+        try:
+            shipped_raw = src.read_text(encoding="utf-8-sig")
+        except FileNotFoundError:
+            findings.append({**base, "verdict": "PRESERVE", "confidence": "unknown",
+                             "reason": "shipped reference unavailable — cannot prove "
+                                       "stale; preserved"})
+            continue
+        except (OSError, UnicodeDecodeError) as exc:
+            findings.append({**base, "verdict": "PRESERVE", "confidence": "unknown",
+                             "reason": f"shipped reference unreadable ({exc}) — cannot "
+                                       "classify; preserved"})
+            continue
+
+        if installed_raw == shipped_raw:
+            findings.append({**base, "verdict": "REMOVABLE", "confidence": "exact",
+                             "reason": "untouched shipped agent, orphaned by the dropped "
+                                       "mirror"})
+            continue
+
+        v = _classify_diverged(installed_raw, shipped_raw)
+        # `v.notes` (set by classify_blocks) flags sub-noise-floor installed-only
+        # content tolerated during matching — surface it in the reason whenever
+        # present so a human sees the caveat before acting on the verdict.
+        notes_suffix = f" ({v.notes})" if getattr(v, "notes", "") else ""
+        if _destructively_removable(v):
+            findings.append({**base, "verdict": "REMOVABLE", "confidence": v.confidence,
+                             "reason": "stale/reorganized subset of the shipped agent"})
+        elif is_subset(v) and is_safe_to_remove(v):
+            # Safe-to-remove EXCEPT the notes field is non-empty — the matcher
+            # tolerated installed-only content. Preserve rather than risk
+            # destroying a short customization; this read-only sweep never
+            # transfers/relocates content, unlike the --upgrade artifact
+            # refresh, so the finding stays PRESERVE here.
+            findings.append({**base, "verdict": "PRESERVE", "confidence": v.confidence,
+                             "unique_blocks": v.unique_blocks,
+                             "reason": "subset, but the matcher tolerated installed-only "
+                                       "content" + notes_suffix + "; preserved rather than "
+                                       "risk deleting a customization"})
+        else:
+            findings.append({**base, "verdict": "PRESERVE", "confidence": v.confidence,
+                             "unique_blocks": v.unique_blocks,
+                             "reason": "genuine customization (unique content) — keep or "
+                                       "upstream, do NOT delete" + notes_suffix})
+    return findings
+
+
 def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
     """Read-only: report still-installed rules whose body diverges
     from the plugin-shipped reference.
@@ -1960,15 +2067,18 @@ def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
 
 
 def _run_prune_stale(cfg: "InitConfig") -> int:
-    """WRITER (opt-in): delete ONLY the REMOVABLE stale de-scoped rules, log to PRUNED.md.
+    """WRITER (opt-in): delete ONLY the REMOVABLE stale de-scoped rules and
+    orphaned agent mirrors, log to PRUNED.md.
 
-    Explicit opt-in companion to the read-only --doctor Stage 8 sweep. Runs
-    the plugin version-state gate first (mirroring _run_doctor): an
-    uninitialized or version-drifted install refuses to prune and returns 0
-    with the tree untouched. On a gate-ok install it runs
-    sweep_stale_descoped_rules(cfg), unlinks every REMOVABLE finding (never a
-    PRESERVE / RELOCATE one), and writes the full disposition (removed +
-    preserved + why) to a per-run, never-overwritten folder:
+    Explicit opt-in companion to the read-only --doctor sweeps (Stage 8 and
+    the orphaned agent-mirror sweep). Runs the plugin version-state gate
+    first (mirroring _run_doctor): an uninitialized or version-drifted
+    install refuses to prune and returns 0 with the tree untouched. On a
+    gate-ok install it runs BOTH sweep_stale_descoped_rules(cfg) and
+    sweep_orphaned_agent_mirrors(cfg) in the same pass — one opt-in writer,
+    two artifact kinds — unlinks every REMOVABLE finding from either sweep
+    (never a PRESERVE / RELOCATE one), and writes the full disposition
+    (removed + preserved + why) to a per-run, never-overwritten folder:
     {planwise_root}/upgrade-backups/prune-{YYYY-MM-DD}/PRUNED.md, or
     prune-{YYYY-MM-DD}-2/, -3/, ... when a folder for today already exists (a
     second run the same day never clobbers an earlier run's log). Before each
@@ -1985,7 +2095,7 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
         print("Nothing pruned — see the version-state gate above.")
         return 0
 
-    findings = sweep_stale_descoped_rules(cfg)
+    findings = sweep_stale_descoped_rules(cfg) + sweep_orphaned_agent_mirrors(cfg)
     removable = [f for f in findings if f["verdict"] == "REMOVABLE"]
     kept = [f for f in findings if f["verdict"] != "REMOVABLE"]
 
@@ -2011,7 +2121,7 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
             kept.append(f)
             (out_dir / f["filename"]).unlink(missing_ok=True)
 
-    lines = [f"# Stale de-scoped rule prune — {today}", ""]
+    lines = [f"# Stale de-scoped rule / orphaned agent-mirror prune — {today}", ""]
     lines.append(f"## Removed ({len(removed)})")
     for f in removed:
         lines.append(f"- `{f['filename']}` (~{f['approx_tokens']} tokens) — {f['reason']}")
@@ -2025,7 +2135,7 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
                       "log in this same folder, named after their original filename.")
     (out_dir / "PRUNED.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    print(f"Pruned {len(removed)} stale de-scoped rule(s); "
+    print(f"Pruned {len(removed)} stale de-scoped rule(s)/orphaned agent mirror(s); "
           f"preserved {len(kept)}. Log: {out_dir / 'PRUNED.md'}")
     return 0
 
@@ -2798,7 +2908,9 @@ def _run_doctor(cfg: "InitConfig") -> int:
     de-scoped rule sweep (sweep_stale_descoped_rules()), and prints its report
     too — always-on, independent of whether any rule was overscoped. Then runs
     Stage 9, the installed rule divergence lint (lint_installed_divergence()),
-    and prints its report — also always-on. Always exits 0 (diagnostic, not a gate).
+    and prints its report — also always-on. Then runs Stage 10, the orphaned
+    agent-mirror sweep (sweep_orphaned_agent_mirrors()), and prints its report
+    too — also always-on. Always exits 0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
     Saver): an uninitialized or version-drifted install is surfaced with a
@@ -2875,6 +2987,30 @@ def _run_doctor(cfg: "InitConfig") -> int:
             print(f"  {mark} {f['path']}   {f['classification']}")
             print(f"      size:    {f['line_count']} lines (~{f['approx_tokens']} tokens)")
             print(f"      action:  {f['recommendation']}")
+
+    # Stage 10: orphaned agent-mirror sweep — read-only, always-on.
+    print()
+    print("planwise doctor — orphaned agent mirror sweep")
+    print()
+    orphaned_agents = sweep_orphaned_agent_mirrors(cfg)
+    if not orphaned_agents:
+        print("No orphaned agent mirrors found — install has none of the formerly "
+              "mirrored agents left, or they already match shipped.")
+    else:
+        print("Orphaned agent mirrors still installed under .claude/agents/:")
+        for f in orphaned_agents:
+            mark = "!" if f["verdict"] == "PRESERVE" else "~"
+            print(f"  {mark} {f['filename']}   {f['verdict']}")
+            print(f"      size:    {f['line_count']} lines (~{f['approx_tokens']} tokens)")
+            print(f"      reason:  {f['reason']}")
+            if f["verdict"] == "REMOVABLE":
+                print("      action:  remove with /planwise doctor --prune-stale")
+            else:
+                print("      action:  keep in place — customization detected, do NOT delete")
+        removable_agents = [f for f in orphaned_agents if f["verdict"] == "REMOVABLE"]
+        print()
+        print(f"Total REMOVABLE orphaned agent mirror(s): {len(removable_agents)} of "
+              f"{len(orphaned_agents)} found.")
     return 0
 
 
@@ -2924,10 +3060,11 @@ def main():
                              "(filename, kind, installed path, shipped path). Prints [] when "
                              "none diverge. Does not modify anything and does not require --name.")
     parser.add_argument("--prune-stale", action="store_true",
-                        help="WRITER (opt-in): delete the stale de-scoped rules that "
-                             "--doctor's Stage 8 sweep marks REMOVABLE, logging every "
-                             "removal to upgrade-backups/prune-<date>[-N]/PRUNED.md. "
-                             "Never deletes a customized (PRESERVE) rule.")
+                        help="WRITER (opt-in): delete the stale de-scoped rules and "
+                             "orphaned agent mirrors that --doctor's read-only sweeps mark "
+                             "REMOVABLE, logging every removal to "
+                             "upgrade-backups/prune-<date>[-N]/PRUNED.md. Never deletes a "
+                             "customized (PRESERVE) rule or agent.")
     args = parser.parse_args()
 
     # --doctor, --list-diverged, and --prune-stale are read-only/self-scoped

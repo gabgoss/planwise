@@ -134,18 +134,22 @@ Run the writer:
 python "{plugin_root}/scripts/init_project.py" --prune-stale --project-root "{project_root}"
 ```
 
-It deletes ONLY the rules Stage 8 marked **REMOVABLE** (identical or proven stale
-subset), never a **PRESERVE** (customized) or **RELOCATE** one, and writes
+It deletes REMOVABLE-marked artifacts from BOTH sweeps in the same pass — the
+Stage 8 de-scoped rules and the Stage 10 orphaned `.claude/agents/*.md`
+mirrors (below) — one opt-in writer, two artifact kinds, sharing the same
+backup folder, log, and version gate. It never touches a **PRESERVE**
+(customized, or not provably stale) or **RELOCATE** one — a customized agent
+mirror is left in place exactly like a customized rule. It writes
 `{planwise_root}/upgrade-backups/prune-{YYYY-MM-DD}/PRUNED.md` listing every
-removed and preserved rule with its reason. If a `prune-{YYYY-MM-DD}/` folder
-already exists (a second run the same day), the run gets its own
-`prune-{YYYY-MM-DD}-2/`, `-3/`, ... folder instead — an earlier run's log and
-backups are never overwritten. Every deleted file is first copied as a
-pre-image into that same run's prune folder alongside `PRUNED.md`, so a prune
-is recoverable; a file whose deletion fails after a successful backup is
-reported `REMOVE_FAILED` (left in place) and its orphan backup copy is
-removed. Pass the script's stdout through and point the user at the
-`PRUNED.md` audit log.
+removed and preserved rule or agent mirror, with its kind and reason. If a
+`prune-{YYYY-MM-DD}/` folder already exists (a second run the same day), the
+run gets its own `prune-{YYYY-MM-DD}-2/`, `-3/`, ... folder instead — an
+earlier run's log and backups are never overwritten. Every deleted file
+(rule or agent mirror) is first copied as a pre-image into that same run's
+prune folder alongside `PRUNED.md`, so a prune is recoverable; a file whose
+deletion fails after a successful backup is reported `REMOVE_FAILED` (left
+in place) and its orphan backup copy is removed. Pass the script's stdout
+through and point the user at the `PRUNED.md` audit log.
 
 ---
 
@@ -187,29 +191,86 @@ remaining file is classified as one of:
 Print verbatim:
 
 ```
-planwise doctor — installed rule/agent divergence lint
+planwise doctor — installed rule divergence lint
 
   ~ {path}   SUBSET
       size:    {N} lines (~{X} tokens)
       action:  {the SUBSET recommendation above — notes-clean or notes-flagged}
   ! {path}   HAS_UNIQUE
       size:    {N} lines (~{X} tokens)
-      action:  {the kind-aware HAS_UNIQUE recommendation above}
+      action:  {the HAS_UNIQUE recommendation above}
   ? {path}   {NOT_ANALYZED | UNVERIFIABLE}
       size:    {N} lines (~{X} tokens)
       action:  {the explicit not-analyzed / unverifiable notice}
 ```
 
 If nothing diverges AND nothing was unverifiable or not-analyzed:
-`All installed rules/agents match shipped — no divergence found.` (The
+`All installed rules match shipped — no divergence found.` (The
 all-clear line never prints over an unverifiable or not-analyzed row.)
 
 ---
 
-### Stage 10: Plans Index Drift Audit
+### Stage 10: Orphaned agent mirror sweep (post-boundary)
+
+> [!constraint] Read-Only — bare doctor only recommends
+> Stage 10 runs `sweep_orphaned_agent_mirrors()` standalone. It READS
+> `.claude/agents/*.md` and the plugin's shipped `agents/` copies, then
+> prints a report. It writes nothing and deletes nothing. Agent files used
+> to be mirrored into every install on init/upgrade; that mirroring
+> behavior is gone, so every install's existing mirrored copy became an
+> orphan the moment it dropped — there is no one-shot migration to gate,
+> so this sweep is a permanent, always-on diagnostic rather than a
+> version-boundary-gated one-shot. To actually remove an orphan, the user
+> opts in with the same writer described in Stage 8b above
+> (`/planwise doctor --prune-stale`).
+
+Always-on (independent of Token Saver). The sweep classifies every installed
+agent mirror under `.claude/agents/` against its shipped counterpart
+(whole-file identity comparison — an installed agent carries no `paths:`
+frontmatter key to normalize away, unlike a rule) and recommends one of:
+
+- **REMOVABLE** (`~`) — untouched (byte-identical to the shipped agent) or a
+  stale/reorganized subset of it. *Remove with `/planwise doctor --prune-stale`.*
+- **PRESERVE** (`!`) — the installed copy carries genuine unique content (a
+  real customization — e.g. a pinned `model:`/`tools:`/`maxTurns:` override
+  simply makes the whole file diverge and correctly routes here), a subset
+  where the matcher tolerated some installed-only content it could not
+  prove was noise, or the file could not be proven stale at all (shipped
+  reference missing/unreadable, installed file unreadable, or structural
+  comparison degraded/unavailable). *Never a confident recommendation on
+  incomplete evidence — do NOT delete.*
+
+An installed file with no shipped counterpart in `agents/` is skipped
+silently (not installed via the plugin, or already not a formerly-mirrored
+filename — not a broken install, no finding).
+
+Print verbatim:
+
+```
+planwise doctor — orphaned agent mirror sweep
+
+Orphaned agent mirrors still installed under .claude/agents/:
+  ~ {filename}.md   REMOVABLE
+      size:    {N} lines (~{X} tokens)
+      reason:  {untouched shipped agent, orphaned by the dropped mirror | stale/reorganized subset of the shipped agent}
+      action:  remove with /planwise doctor --prune-stale
+  ! {filename}.md   PRESERVE
+      size:    {N} lines (~{X} tokens)
+      reason:  {genuine customization (unique content) | matcher tolerated installed-only content | shipped reference unavailable/unreadable | installed file unreadable — cannot classify}
+      action:  keep in place — customization detected, do NOT delete
+
+Total REMOVABLE orphaned agent mirror(s): {N} of {M} found.
+```
+
+If the sweep returns nothing: `No orphaned agent mirrors found — install has
+none of the formerly mirrored agents left, or they already match shipped.`
+
+---
+
+### Stage 11: Plans Index Drift Audit
 
 > [!constraint] Read-Only — audit only recommends
-> Stage 10 runs `reconcile_plans.py --json` standalone. It READS the plans
+> Stage 11 runs `reconcile_plans.py --json` standalone. It READS the plans
 > index (`{plans_dir}/{plans_index}`) and each row's Master Plan `Status:`
 > field, then prints a report. It writes nothing unless the user explicitly
 > consents to reconcile (below) — the audit itself never mutates.
