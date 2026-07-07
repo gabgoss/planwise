@@ -191,20 +191,6 @@ artifacts:
       (the default). This glob row covers only the four still-installed rules
       for refresh_or_sidecar.
 
-  - id: planwise_agents
-    on_disk: ".claude/agents/*.md"
-    config_keys: []                       # not driven by config; copies plugin/agents/
-    producer: "install_agents()"
-    consumers:
-      - "/planwise review (plan-reviewer, structural-reviewer)"
-      - "/planwise run (task-runner)"
-      - "/planwise backlog (fix-agent)"
-    missing_key_behavior: warn_loud
-    upgrade_behavior: refresh_or_sidecar
-    notes: >
-      Mirrored to enable bare-name agent resolution and consumer-side overrides.
-      Always installed; no config gate.
-
   - id: agent_teams_env
     on_disk: "{settings_file}: env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
     config_keys:
@@ -363,20 +349,6 @@ artifacts:
       preservation dir), while the absent-key fallback stays the conservative
       report (preserve + sidecar, no transfer); `--migrate` adds the block to
       existing configs.
-
-  - id: rule_comparator_agent
-    on_disk: ".claude/agents/rule-comparator.md"
-    config_keys: []
-    producer: "install_agents()"
-    consumers:
-      - "/planwise upgrade (interactive divergence fan-out)"
-    missing_key_behavior: warn_loud
-    upgrade_behavior: refresh_or_sidecar
-    notes: >
-      Semantic comparator subagent spawned once per diverged rule/agent during
-      interactive upgrade to classify SUBSET vs HAS_UNIQUE. Mirrored into
-      .claude/agents/ for bare-name resolution; covered by the planwise_agents
-      glob row for refresh, listed individually for contributor visibility.
 
   - id: customization_report
     on_disk: "{planwise_root}/upgrade-conflicts/{from}-to-{to}/ (INDEX.md + .new sidecars + verdicts.json)"

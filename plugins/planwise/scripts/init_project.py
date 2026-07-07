@@ -210,8 +210,11 @@ DESCOPED_RULES: list[tuple[str, str]] = [
 # --prune-stale) is then the only remaining reach.
 RESCOPE_MIGRATION_VERSION = "1.0.3"
 
-# Filenames copied verbatim from agents/ into .claude/agents/ on init.
-INSTALLED_AGENTS: list[str] = [
+# Frozen filename list for the post-boundary orphaned-mirror sweep: the agent
+# files formerly mirrored into .claude/agents/ on init. No live install list
+# remains after the mirror drop; this frozen copy lets the sweep recognize an
+# orphaned mirror without re-deriving the set.
+FORMERLY_MIRRORED_AGENTS = [
     "fix-agent.md",
     "plan-reviewer.md",
     "structural-reviewer.md",
@@ -780,41 +783,6 @@ def install_rules(cfg: InitConfig) -> list[str]:
             continue
         installed.append(filename)
 
-    return installed
-
-
-def install_agents(cfg: InitConfig) -> list[str]:
-    """Copy plugin's agents/ files into project's .claude/agents/ directory.
-
-    This enables bare-name agent resolution in consumer projects for handlers
-    that spawn agents by name. Companion to the handler-side
-    namespaced-spawn updates (`subagent_type: "planwise:plan-reviewer"`).
-
-    Only the filenames declared in INSTALLED_AGENTS are copied — this is
-    intentional so the manifest's allowlist contract is the authoritative
-    source rather than implicit glob-all behaviour.
-
-    Skips if destination exists. Returns list of installed agent filenames.
-    """
-    installed = []
-    agents_src_dir = cfg.plugin_root / "agents"
-    agents_dst_dir = cfg.project_root / ".claude" / "agents"
-    agents_dst_dir.mkdir(parents=True, exist_ok=True)
-
-    for filename in INSTALLED_AGENTS:
-        src = agents_src_dir / filename
-        dst = agents_dst_dir / filename
-        try:
-            content = src.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            print(f"  Warning: agent file not found: {src}", file=sys.stderr)
-            continue
-        try:
-            with open(dst, "x", encoding="utf-8") as f:
-                f.write(content)
-        except FileExistsError:
-            continue
-        installed.append(filename)
     return installed
 
 
@@ -1856,20 +1824,19 @@ def sweep_stale_descoped_rules(cfg: "InitConfig") -> list[dict]:
 
 
 def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
-    """Read-only: report still-installed rules/agents whose body diverges
+    """Read-only: report still-installed rules whose body diverges
     from the plugin-shipped reference.
 
     Generalizes the de-scoped-rule sweep (sweep_stale_descoped_rules, above)
-    from DESCOPED_RULES to the still-installed set: walks INSTALLED_RULES +
-    INSTALLED_AGENTS, comparing each installed copy to its shipped reference
-    with the same normalization the writer uses (normalize_rule_for_diff()
-    for rules; whole-file for agents), reading BOTH sides with
-    ``utf-8-sig`` — the same encoding the artifact refresh writer reads with
-    — so a BOM'd-but-untouched installed file is never falsely reported
-    diverged (a BOM defeats normalize_rule_for_diff's frontmatter-anchored
-    detection under plain ``utf-8``). A normalized-identical pair is skipped
-    before `_classify_diverged` is ever called — the byte-identical fast
-    path.
+    from DESCOPED_RULES to the still-installed set: walks INSTALLED_RULES,
+    comparing each installed copy to its shipped reference with the same
+    normalization the writer uses (normalize_rule_for_diff()), reading BOTH
+    sides with ``utf-8-sig`` — the same encoding the artifact refresh writer
+    reads with — so a BOM'd-but-untouched installed file is never falsely
+    reported diverged (a BOM defeats normalize_rule_for_diff's
+    frontmatter-anchored detection under plain ``utf-8``). A
+    normalized-identical pair is skipped before `_classify_diverged` is ever
+    called — the byte-identical fast path.
 
     A diverged pair is classified via `_classify_diverged()` and recommended:
       * The degraded not-analyzed stand-in (`_verdict_not_analyzed()` —
@@ -1885,15 +1852,8 @@ def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
         `upgrade.customization_handoff`) before adopting shipped — NOT the
         unconditional auto-adopt wording, since the writer's auto-adopt gate
         does not fire on a non-empty notes field.
-      * HAS_UNIQUE for a rule -> re-home per the "Choosing a Home for a Rule
+      * HAS_UNIQUE -> re-home per the "Choosing a Home for a Rule
         Customization" decide callout.
-      * HAS_UNIQUE for an agent -> kind-aware advice instead: a sanctioned
-        single-line model:/tools:/maxTurns: frontmatter pin is preserved by
-        the writer's frontmatter guard and needs no action; any other unique
-        body content should be kept as a project-local agent or upstreamed.
-        The rule-specific decide-callout advice (which prescribes
-        `.claude/rules/<project>/` homing) is meaningless for an agent file
-        and would nag a sanctioned pin as HAS_UNIQUE on every doctor run.
 
     A missing shipped reference (broken/partial install) and an unreadable
     installed or shipped file (`OSError` or `UnicodeDecodeError` — e.g.
@@ -1901,25 +1861,23 @@ def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
     than a silent skip: a silent skip would let the caller's all-clear line
     print on a broken or partially-unreadable install, and an uncaught
     `UnicodeDecodeError` would crash the always-on bare `/planwise doctor`
-    path. A rule/agent that is simply not installed (no destination file)
+    path. A rule that is simply not installed (no destination file)
     stays a silent skip — that is the normal, expected case, not a broken
     install. NEVER writes or deletes; purely diagnostic, like the
     de-scoped-rule sweep and lint_rule_overscope(). Wired into
     `_run_doctor()`, which calls `lint_installed_divergence(cfg)` immediately
     after the Stage 8 sweep call so the bare `/planwise doctor` emits this
-    report too; the caller's all-clear line ("All installed rules/agents
+    report too; the caller's all-clear line ("All installed rules
     match shipped") must print ONLY when this returns `[]` — i.e. nothing
     diverged AND nothing was unverifiable/not-analyzed.
 
     Each finding is a dict:
-      {path, kind ("rule" | "agent"), classification ("SUBSET" |
+      {path, kind ("rule"), classification ("SUBSET" |
        "HAS_UNIQUE" | "NOT_ANALYZED" | "UNVERIFIABLE"), line_count,
        approx_tokens (=line_count*13), recommendation}
     """
     rules_dst_dir = cfg.project_root / ".claude" / "rules" / "planwise"
-    agents_dst_dir = cfg.project_root / ".claude" / "agents"
     refs_dir = cfg.plugin_root / "references"
-    agents_src_dir = cfg.plugin_root / "agents"
 
     def _check(dst: Path, src: Path, kind: str, norm) -> dict | None:
         if not dst.is_file():
@@ -1989,28 +1947,13 @@ def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
                 recommendation = "recommend /planwise upgrade (auto-adopts shipped)"
             return {**base, "classification": "SUBSET", "recommendation": recommendation}
 
-        # HAS_UNIQUE — kind-aware: the rule decide-callout advice prescribes
-        # `.claude/rules/<project>/` homing, which is meaningless for an
-        # agent file and would nag a sanctioned frontmatter pin every run.
-        if kind == "agent":
-            recommendation = (
-                "a sanctioned single-line model:/tools:/maxTurns: frontmatter pin is "
-                "preserved by /planwise upgrade's frontmatter guard and needs no "
-                "action; any other unique body content should be kept as a "
-                "project-local agent or upstreamed — review before /planwise upgrade "
-                "overwrites it"
-            )
-        else:
-            recommendation = 're-home per the "Choosing a Home for a Rule Customization" decide callout'
+        # HAS_UNIQUE — re-home per the rule decide-callout.
+        recommendation = 're-home per the "Choosing a Home for a Rule Customization" decide callout'
         return {**base, "classification": "HAS_UNIQUE", "recommendation": recommendation}
 
     findings: list[dict] = []
     for filename, _paths_template in INSTALLED_RULES:
         row = _check(rules_dst_dir / filename, refs_dir / filename, "rule", normalize_rule_for_diff)
-        if row:
-            findings.append(row)
-    for filename in INSTALLED_AGENTS:
-        row = _check(agents_dst_dir / filename, agents_src_dir / filename, "agent", lambda s: s)
         if row:
             findings.append(row)
     return findings
@@ -2088,22 +2031,19 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
 
 
 def _list_diverged_rows(cfg: "InitConfig") -> list[dict]:
-    """Read-only: return the diverged rule/agent minority as a list of dict rows.
+    """Read-only: return the diverged rule minority as a list of dict rows.
 
-    Walks DESCOPED_RULES, INSTALLED_RULES, and INSTALLED_AGENTS present on
-    disk; compares installed vs shipped using the SAME normalization the
-    writer uses (`normalize_rule_for_diff()` for rules, whole-file for
-    agents). A row is emitted only when the bodies differ — the byte/
-    normalized-identical majority is skipped and never reaches the primitive
-    or an agent. Stable-sorted by (kind, filename) so a downstream fan-out
-    batch is reproducible. Returns `[]` when nothing diverges. Never writes
-    or deletes anything; a per-file OSError is skipped rather than raised so
-    one unreadable file cannot hide the rest of the diverged set.
+    Walks DESCOPED_RULES and INSTALLED_RULES present on disk; compares
+    installed vs shipped using the SAME normalization the writer uses
+    (`normalize_rule_for_diff()`). A row is emitted only when the bodies
+    differ — the byte/normalized-identical majority is skipped and never
+    reaches the primitive. Stable-sorted by (kind, filename) so a downstream
+    fan-out batch is reproducible. Returns `[]` when nothing diverges. Never
+    writes or deletes anything; a per-file OSError is skipped rather than
+    raised so one unreadable file cannot hide the rest of the diverged set.
     """
     refs_dir = cfg.plugin_root / "references"
-    agents_src_dir = cfg.plugin_root / "agents"
     rules_dst_dir = cfg.project_root / ".claude" / "rules" / "planwise"
-    agents_dst_dir = cfg.project_root / ".claude" / "agents"
 
     rows: list[dict] = []
 
@@ -2125,24 +2065,6 @@ def _list_diverged_rows(cfg: "InitConfig") -> list[dict]:
                 "shipped": src.relative_to(cfg.plugin_root).as_posix(),
             })
 
-    for filename in INSTALLED_AGENTS:
-        dst = agents_dst_dir / filename
-        src = agents_src_dir / filename
-        if not dst.is_file() or not src.is_file():
-            continue
-        try:
-            installed_raw = dst.read_text(encoding="utf-8")
-            shipped_raw = src.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if installed_raw != shipped_raw:
-            rows.append({
-                "filename": filename,
-                "kind": "agent",
-                "installed": dst.relative_to(cfg.project_root).as_posix(),
-                "shipped": src.relative_to(cfg.plugin_root).as_posix(),
-            })
-
     rows.sort(key=lambda r: (r["kind"], r["filename"]))
     return rows
 
@@ -2156,8 +2078,6 @@ def _run_list_diverged(cfg: "InitConfig") -> int:
     print(json.dumps(_list_diverged_rows(cfg)))
     return 0
 
-
-_AGENT_FRONTMATTER_GUARDED_FIELDS = ("model", "tools", "maxTurns")
 
 _FM_KEY_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(.*)$")
 
@@ -2209,95 +2129,6 @@ def _parse_frontmatter_map(frontmatter_text: str) -> "dict[str, str] | None":
             return None            # leading continuation with no key — unparseable
         result[current_key] += "\n" + line.rstrip()
     return result
-
-
-def _apply_agent_frontmatter_guard(installed_raw: str, shipped_raw: str) -> "str | None":
-    """Build the adopted text for an agent whole-file overwrite, preserving a
-    customized model:/tools:/maxTurns: pin — or return None when the
-    installed frontmatter carries ANY delta the guard cannot PROVABLY
-    preserve (detect, don't guess).
-
-    Agents are overwritten whole-file (unlike rules, which only reset
-    `paths:` via `update_frontmatter()`), so a reorg-confidence containment
-    verdict — which can mask a frontmatter edit that reappears verbatim
-    elsewhere in the shipped prose — must not silently drop a customization.
-    The guard splices ONLY when it can prove no loss:
-
-      * Guarded field (model/tools/maxTurns) differs, single-line on BOTH
-        sides -> installed value spliced into shipped's frontmatter (line
-        replaced, or appended when shipped lacks the key). Splicing is plain
-        string assembly — never a regex replacement template — so backslashes
-        and `\\g<...>`-lookalike values pass through verbatim.
-      * ANY other installed-side delta -> None (cannot-guard): a non-guarded
-        key that differs from shipped or exists only installed-side, a
-        guarded key that is multi-line/block-style on either side, an
-        installed frontmatter that fails to parse (including one hidden
-        behind a BOM), or a shipped file with no frontmatter to splice into
-        while installed has one. The caller MUST route a None to the
-        customization-bearing path (transfer-then-adopt or preserve +
-        sidecar) — NEVER overwrite whole-file with unpreserved deltas.
-
-    Keys that exist ONLY in shipped's frontmatter are fine (shipped grew a
-    key; nothing installed is lost by adopting it). When installed has no
-    frontmatter at all there is nothing to preserve — shipped is returned
-    unchanged.
-    """
-    installed_split = _split_frontmatter_block(installed_raw)
-    if installed_split is None:
-        # No (complete) installed frontmatter — nothing installed to lose.
-        # But if there IS text that looks like it wanted to be frontmatter
-        # (starts with --- but never closes), be conservative.
-        if installed_raw.lstrip(_BOM_CHAR).startswith("---"):
-            return None
-        return shipped_raw
-
-    shipped_split = _split_frontmatter_block(shipped_raw)
-    if shipped_split is None:
-        # Installed has frontmatter, shipped has none — adopting shipped
-        # wholesale would drop the entire installed frontmatter. Cannot guard.
-        return None
-
-    installed_fm, _ = installed_split
-    shipped_fm, shipped_body = shipped_split
-
-    installed_map = _parse_frontmatter_map(installed_fm)
-    shipped_map = _parse_frontmatter_map(shipped_fm)
-    if installed_map is None or shipped_map is None:
-        return None                                    # unparseable — cannot guard
-
-    splices: dict[str, str] = {}
-    for key, installed_value in installed_map.items():
-        shipped_value = shipped_map.get(key)
-        if installed_value == shipped_value:
-            continue                                   # no delta for this key
-        if key not in _AGENT_FRONTMATTER_GUARDED_FIELDS:
-            return None            # non-guarded delta (differs or installed-only)
-        if "\n" in installed_value or (shipped_value is not None and "\n" in shipped_value):
-            return None            # block-style/multi-line — never splice
-        if not installed_value:
-            return None            # empty extraction — never splice an empty value
-        splices[key] = installed_value
-
-    if not splices:
-        return shipped_raw                             # nothing to preserve
-
-    # Splice by direct line assembly (no regex replacement templates).
-    out_lines: list[str] = []
-    replaced: set[str] = set()
-    for line in shipped_fm.split("\n"):
-        m = _FM_KEY_LINE_RE.match(line)
-        if m and m.group(1) in splices:
-            key = m.group(1)
-            out_lines.append(f"{key}: {splices[key]}")
-            replaced.add(key)
-        else:
-            out_lines.append(line)
-    new_fm = "\n".join(out_lines).rstrip()
-    for key in splices:
-        if key not in replaced:                        # shipped lacked the key
-            new_fm += f"\n{key}: {splices[key]}"
-
-    return f"---\n{new_fm}\n---\n{shipped_body}"
 
 
 def _verdict_not_analyzed(v) -> bool:
@@ -2617,147 +2448,12 @@ def upgrade_artifacts(
                 file=sys.stderr,
             )
 
-    # --- planwise_agents ---
-    agents_src_dir = cfg.plugin_root / "agents"
-    agents_dst_dir = cfg.project_root / ".claude" / "agents"
-
-    for filename in INSTALLED_AGENTS:
-        src = agents_src_dir / filename
-        dst = agents_dst_dir / filename
-        try:
-            shipped_raw = src.read_text(encoding="utf-8-sig")
-        except FileNotFoundError:
-            print(f"  Warning: shipped agent not found: {src}", file=sys.stderr)
-            continue
-
-        try:
-            installed_raw = dst.read_text(encoding="utf-8-sig") if dst.exists() else None
-
-            if installed_raw is None:
-                # Fresh install — straight copy.
-                agents_dst_dir.mkdir(parents=True, exist_ok=True)
-                dst.write_text(shipped_raw, encoding="utf-8")
-                refreshed.append(str(dst))
-            elif shipped_raw == installed_raw:
-                unchanged.append(str(dst))                 # FAST PATH (byte-exact) — primitive NOT called
-            else:
-                verdict = _classify_diverged(
-                    installed_raw, shipped_raw,
-                    override=_load_verdict_override(verdicts, filename, installed_raw),
-                )   # whole-file
-                sidecar_dst = conflict_dir / ".claude" / "agents" / f"{filename}.new"
-                notes = getattr(verdict, "notes", "") or ""
-
-                # The guard is consulted for EVERY whole-file agent adoption
-                # (auto-adopt and transfer-then-adopt alike). None = the
-                # installed frontmatter carries a delta the guard cannot
-                # provably preserve — that file is customization-bearing
-                # regardless of its body verdict.
-                adopted = _apply_agent_frontmatter_guard(installed_raw, shipped_raw)
-
-                if _destructively_removable(verdict) and adopted is not None:
-                    # exact/contained subset, no notes, guard-clean frontmatter
-                    # — safe to overwrite whole-file (with any provable pin
-                    # splice applied).
-                    if not _write_backup_preimage(cfg, from_version, to_version, dst):
-                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                    else:
-                        dst.write_text(adopted, encoding="utf-8")
-                        _append_disposition_log(
-                            cfg, from_version, to_version, dst, "auto-adopted shipped",
-                            "installed agent was a stale subset of the grown shipped file")
-                        refreshed.append(str(dst))
-                        refreshed_subsets.append(str(dst))
-                        if sidecar_dst.exists():
-                            sidecar_dst.unlink()           # conflict resolved by adoption
-                elif is_subset(verdict) and not notes and adopted is not None:
-                    # Pure reorg-confidence subset: content reorganized, not
-                    # customized (no unique blocks, no tolerated-noise notes).
-                    # Auto-adopt directly — no transfer needed — through the
-                    # guard, which keeps a customized model:/tools:/maxTurns:
-                    # pin from being silently dropped (a reorg containment can
-                    # mask a frontmatter edit that reappears verbatim elsewhere
-                    # in the shipped prose). A guard-undecidable frontmatter
-                    # (adopted is None) never reaches this branch.
-                    if not _write_backup_preimage(cfg, from_version, to_version, dst):
-                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                    else:
-                        dst.write_text(adopted, encoding="utf-8")
-                        _append_disposition_log(
-                            cfg, from_version, to_version, dst, "auto-adopted shipped",
-                            "installed agent content reorganized but not customized "
-                            "(reorg-confidence subset)")
-                        refreshed.append(str(dst))
-                        refreshed_subsets.append(str(dst))
-                        if sidecar_dst.exists():
-                            sidecar_dst.unlink()
-                elif _verdict_not_analyzed(verdict):
-                    # Degraded stand-in — never analyzed; preserve + sidecar
-                    # (same carve-out as the rules site above).
-                    _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                elif not relocate_enabled:
-                    # Conservative handoff mode (report / report+issue): a
-                    # customization-bearing agent — including a subset whose
-                    # frontmatter the guard could not provably preserve — is
-                    # preserved in place + sidecar'd. No transfer, no adoption.
-                    _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                else:
-                    # HAS_UNIQUE, noise-flagged subset, or guard-undecidable
-                    # frontmatter — customization-bearing. Same ordering as the
-                    # rules site: transfer + verify -> backup (abort on
-                    # failure) -> adoption write -> log + bookkeeping on
-                    # success only. The adopted text goes through the guard
-                    # when it can provably preserve a pin; otherwise plain
-                    # shipped is adopted — the full installed pre-image is
-                    # already safe in BOTH the transfer file and the backup.
-                    transfer_path = _transfer_customization(
-                        cfg, filename, "agent", installed_raw, verdict,
-                        from_version, to_version,
-                    )
-                    if transfer_path is None or not _write_backup_preimage(
-                            cfg, from_version, to_version, dst):
-                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                    else:
-                        try:
-                            dst.write_text(
-                                adopted if adopted is not None else shipped_raw,
-                                encoding="utf-8")
-                        except OSError as exc:
-                            print(
-                                f"  Warning: could not adopt shipped at {dst}: {exc}; "
-                                f"preserved in place (customization already transferred "
-                                f"to {transfer_path})",
-                                file=sys.stderr,
-                            )
-                            _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                        else:
-                            _append_disposition_log(
-                                cfg, from_version, to_version, dst,
-                                "adopted shipped (customization transferred)",
-                                f"customization transferred to {transfer_path}")
-                            refreshed.append(str(dst))
-                            transferred.append((str(dst), str(transfer_path)))
-                            if sidecar_dst.exists():
-                                sidecar_dst.unlink()
-        except OSError as exc:
-            print(
-                f"  Warning: could not upgrade {dst}: {exc}; installed file left untouched",
-                file=sys.stderr,
-            )
-
     # --- Untracked detection ---
     rule_allowlist = {r[0] for r in INSTALLED_RULES}
-    agent_allowlist = set(INSTALLED_AGENTS)
 
     for md_file in rules_dst_dir.glob("*.md"):
         if md_file.name not in rule_allowlist:
             untracked.append(str(md_file))
-
-    agents_dir = cfg.project_root / ".claude" / "agents"
-    if agents_dir.exists():
-        for md_file in agents_dir.glob("*.md"):
-            if md_file.name not in agent_allowlist:
-                untracked.append(str(md_file))
 
     # --- Conflict INDEX.md ---
     if conflicts:
@@ -3101,7 +2797,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
     always-on injected-budget line. Then runs Stage 8, the post-boundary stale
     de-scoped rule sweep (sweep_stale_descoped_rules()), and prints its report
     too — always-on, independent of whether any rule was overscoped. Then runs
-    Stage 9, the installed rule/agent divergence lint (lint_installed_divergence()),
+    Stage 9, the installed rule divergence lint (lint_installed_divergence()),
     and prints its report — also always-on. Always exits 0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
@@ -3163,13 +2859,13 @@ def _run_doctor(cfg: "InitConfig") -> int:
         print(f"Total REMOVABLE always-on budget: ~{sum(f['approx_tokens'] for f in removable)} "
               f"tokens across {len(removable)} rule(s).")
 
-    # Stage 9: installed rule/agent divergence lint — read-only, always-on.
+    # Stage 9: installed rule divergence lint — read-only, always-on.
     print()
-    print("planwise doctor — installed rule/agent divergence lint")
+    print("planwise doctor — installed rule divergence lint")
     print()
     diverged = lint_installed_divergence(cfg)
     if not diverged:
-        print("All installed rules/agents match shipped — no divergence found.")
+        print("All installed rules match shipped — no divergence found.")
     else:
         mark_by_classification = {
             "SUBSET": "~", "HAS_UNIQUE": "!", "NOT_ANALYZED": "?", "UNVERIFIABLE": "?",
@@ -3215,7 +2911,7 @@ def main():
                              "directories, seeds, rules, or settings — use plain /planwise "
                              "init for those.")
     parser.add_argument("--upgrade", action="store_true",
-                        help="Refresh installed rules/agents and bump plugin_version: in "
+                        help="Refresh installed rules and bump plugin_version: in "
                              "config.yaml after a plugin update.")
     parser.add_argument("--doctor", action="store_true",
                         help="Read-only diagnostic: scan installed rules and report any "
@@ -3223,7 +2919,7 @@ def main():
                              "overscope), with size and a re-scope hint. Does not modify "
                              "anything and does not require --upgrade.")
     parser.add_argument("--list-diverged", action="store_true",
-                        help="Read-only diagnostic: print a JSON array of installed rule/agent "
+                        help="Read-only diagnostic: print a JSON array of installed rule "
                              "files whose body diverges from the plugin-shipped version "
                              "(filename, kind, installed path, shipped path). Prints [] when "
                              "none diverge. Does not modify anything and does not require --name.")
@@ -3349,15 +3045,6 @@ def main():
         print("Rules: already exist, skipped")
     print()
 
-    agents = install_agents(cfg)
-    if agents:
-        print("Agents mirrored to .claude/agents/:")
-        for a in agents:
-            print(f"  + {a}")
-    else:
-        print("Agents: already exist, skipped")
-    print()
-
     settings_path, plugin_dir = configure_settings(cfg)
     if settings_path:
         print(f"Settings configured ({cfg.install_scope} scope):")
@@ -3456,7 +3143,7 @@ def main():
             artifact=f"{cfg.planwise_root}/config.yaml (key: plugin_version)",
             reason=(
                 f"pinned plugin_version `{pinned_version}` is older than the installed plugin "
-                f"`{cfg.plugin_version}` — installed rules/agents may be stale"
+                f"`{cfg.plugin_version}` — installed rules may be stale"
             ),
             consumer="all handlers (rule and agent freshness)",
             remediation=(

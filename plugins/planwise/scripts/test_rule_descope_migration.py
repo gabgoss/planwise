@@ -759,13 +759,6 @@ class TestUpgradeConfigFoundation(unittest.TestCase):
             "backfills the block into existing configs",
         )
 
-    def test_rule_comparator_in_installed_agents(self):
-        self.assertIn(
-            "rule-comparator.md",
-            ip.INSTALLED_AGENTS,
-            "INSTALLED_AGENTS must include 'rule-comparator.md'",
-        )
-
     @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse the template")
     def test_template_ships_report_relocate_while_absent_key_stays_report(self):
         """The shipped config.yaml.template pins customization_handoff to
@@ -818,10 +811,9 @@ class _UpgradeArtifactsFixtureBase(unittest.TestCase):
     """Builds a temp tree for exercising upgrade_artifacts() (Sites 2/3).
 
     Separate from _MigrationFixtureBase's DESCOPED_RULES-driven tree: this
-    fixture monkeypatches the INSTALLED_RULES / INSTALLED_AGENTS module
-    globals to a single fixture entry each, so the three-way rules/agents
-    branches in upgrade_artifacts() can be exercised without needing every
-    real shipped rule/agent file on disk.
+    fixture monkeypatches the INSTALLED_RULES module global to a single
+    fixture entry, so the rule branch in upgrade_artifacts() can be
+    exercised without needing every real shipped rule file on disk.
     """
 
     RULE_FILENAME = "agent-authoring.md"
@@ -855,11 +847,8 @@ class _UpgradeArtifactsFixtureBase(unittest.TestCase):
         rules_patch = mock.patch.object(
             ip, "INSTALLED_RULES", [(self.RULE_FILENAME, self.RULE_PATHS_TEMPLATE)]
         )
-        agents_patch = mock.patch.object(ip, "INSTALLED_AGENTS", [self.AGENT_FILENAME])
         rules_patch.start()
-        agents_patch.start()
         self.addCleanup(rules_patch.stop)
-        self.addCleanup(agents_patch.stop)
 
     # -- rule helpers ---------------------------------------------------------
 
@@ -1026,78 +1015,6 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
             "no unresolved conflict remains once the customization is transferred and adopted",
         )
 
-    def test_agent_subset_overwrites_shipped_no_sidecar(self):
-        shipped_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
-        installed_body = "# Agent\n\nShipped superset body.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-
-        with mock.patch.object(
-            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
-        ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
-                self.run_upgrade()
-            )
-
-        self.assertEqual(
-            installed.read_text(encoding="utf-8"), shipped_body,
-            "A SUBSET agent must be overwritten with the shipped body verbatim",
-        )
-        self.assertIn(str(installed), refreshed)
-        self.assertIn(str(installed), refreshed_subsets)
-        self.assertEqual(conflicts, [])
-        sidecar = (
-            self.conflict_dir() / ".claude" / "agents" / f"{self.AGENT_FILENAME}.new"
-        )
-        self.assertFalse(
-            sidecar.exists(), "A SUBSET agent refresh must NOT write a .new sidecar"
-        )
-
-    def test_agent_has_unique_transfers_customization_then_adopts_shipped(self):
-        self.enable_relocate()
-        shipped_body = "# Agent\n\nShipped body.\n"
-        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-
-        with mock.patch.object(
-            ip, "_classify_diverged",
-            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
-        ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
-                self.run_upgrade()
-            )
-
-        # Automated, transfer-first: the customization is moved out FIRST,
-        # verified, then shipped is adopted whole-file over the installed copy.
-        self.assertEqual(
-            installed.read_text(encoding="utf-8"), shipped_body,
-            "HAS_UNIQUE agent must be adopted to shipped once its customization is transferred",
-        )
-        self.assertIn(str(installed), refreshed)
-        self.assertEqual(refreshed_subsets, [], "adoption via transfer is NOT a stale-subset auto-adopt")
-        self.assertEqual(conflicts, [], "a successfully transferred HAS_UNIQUE agent is not a conflict")
-
-        self.assertEqual(len(transferred), 1)
-        dst_path, transfer_path = transferred[0]
-        self.assertEqual(dst_path, str(installed))
-        transfer_file = Path(transfer_path)
-        self.assertEqual(
-            transfer_file.parent,
-            self.transfer_dir(),
-            "transfer target is {planwise_root}/upgrade-transfers/<from>-to-<to>/ "
-            "(a dormant preservation dir outside .claude/rules/)",
-        )
-        transferred_text = transfer_file.read_text(encoding="utf-8")
-        self.assertIn("# Extra", transferred_text)
-        self.assertIn("User-added block.", transferred_text)
-        sidecar = (
-            self.conflict_dir() / ".claude" / "agents" / f"{self.AGENT_FILENAME}.new"
-        )
-        self.assertFalse(
-            sidecar.exists(), "a transferred adoption must NOT leave a .new sidecar"
-        )
-
     def test_has_unique_failed_transfer_preserves_and_writes_sidecar(self):
         """The failed-transfer carve-out: when the customization cannot be
         VERIFIED-written to the upgrade-transfers preservation file, the
@@ -1105,10 +1022,10 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         without a verified transfer) and the conservative shipped sidecar
         written."""
         self.enable_relocate()
-        shipped_body = "# Agent\n\nShipped body.\n"
-        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
+        shipped_body = "# Rule\n\nShipped body.\n"
+        installed_body = "# Rule\n\nShipped body.\n# Extra\nUser-added block.\n"
+        shipped = self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, ".claude/agents/**")
         before = installed.read_bytes()
 
         with mock.patch.object(
@@ -1130,16 +1047,13 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         self.assertEqual(dst_path, str(installed))
         sidecar = Path(sidecar_path)
         self.assertTrue(sidecar.exists(), ".new sidecar must be written on a failed transfer")
-        self.assertEqual(sidecar.read_text(encoding="utf-8"), shipped_body)
+        self.assertEqual(sidecar.read_text(encoding="utf-8"), shipped.read_text(encoding="utf-8"))
 
     def test_byte_identical_skips_primitive(self):
         body = "# Rule\n\nIdentical body.\n"
         paths_value = ".claude/agents/**"
         self.write_shipped_rule(body, paths_value)
         installed_rule = self.write_installed_rule(body, paths_value)
-        agent_body = "# Agent\n\nIdentical body.\n"
-        self.write_shipped_agent(agent_body)
-        installed_agent = self.write_installed_agent(agent_body)
 
         original = ip._classify_diverged
         ip._classify_diverged = mock.Mock(
@@ -1154,7 +1068,6 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         self.assertEqual(conflicts, [])
         self.assertEqual(refreshed_subsets, [])
         self.assertIn(str(installed_rule), unchanged)
-        self.assertIn(str(installed_agent), unchanged)
 
 
 class TestMigrationVerdictNotesAndPathsGates(_MigrationFixtureBase):
@@ -1884,101 +1797,6 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         self.assertIn(notes_text, transferred_text,
                       "the transfer file must surface the verdict's notes")
 
-    def test_notes_gate_site3_agent_transfers_then_adopts(self):
-        self.enable_relocate()
-        shipped_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
-        installed_body = "# Agent\n\nShipped superset body.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-        notes_text = (
-            "installed-only tokens present in sub-noise-floor fragments "
-            "(tolerated as noise)"
-        )
-
-        with mock.patch.object(
-            ip, "_classify_diverged",
-            return_value=_verdict("SUBSET", "exact", notes=notes_text),
-        ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
-                self.run_upgrade()
-            )
-
-        self.assertEqual(
-            installed.read_text(encoding="utf-8"), shipped_body,
-            "A notes-flagged SUBSET agent must be adopted to shipped after transfer",
-        )
-        self.assertIn(str(installed), refreshed)
-        self.assertNotIn(str(installed), refreshed_subsets)
-        self.assertEqual(conflicts, [], "a successful transfer resolves the would-be conflict")
-        self.assertEqual(len(transferred), 1)
-        dst_path, transfer_path = transferred[0]
-        self.assertEqual(dst_path, str(installed))
-        transferred_text = Path(transfer_path).read_text(encoding="utf-8")
-        self.assertIn("Shipped superset body.", transferred_text)
-        self.assertIn(notes_text, transferred_text)
-
-    def test_reorg_subset_agent_adopts_with_frontmatter_guard(self):
-        # Pure reorg subset (no notes, no unique blocks) = content reorganized,
-        # not customized — auto-adopts directly. The frontmatter-preservation
-        # guard keeps a customized scalar pin (model:) that the reorg
-        # containment could otherwise silently revert.
-        shipped_body = (
-            "---\nname: fixture-agent\nmodel: sonnet\n---\n"
-            "# Agent\n\nSection A.\nSection B.\n"
-        )
-        installed_body = (
-            "---\nname: fixture-agent\nmodel: opus\n---\n"
-            "# Agent\n\nSection B.\nSection A.\n"
-        )
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-
-        with mock.patch.object(
-            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
-        ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
-                self.run_upgrade()
-            )
-
-        self.assertIn(
-            str(installed), refreshed,
-            "A pure reorg-confidence agent subset now auto-adopts shipped",
-        )
-        self.assertIn(str(installed), refreshed_subsets)
-        self.assertEqual(conflicts, [])
-        self.assertEqual(transferred, [], "a pure reorg subset carries no customization to transfer")
-        updated = installed.read_text(encoding="utf-8")
-        self.assertIn(
-            "Section A.\nSection B.", updated,
-            "the adopted body must be the shipped (reorganized-target) content",
-        )
-        self.assertIn(
-            "model: opus", updated,
-            "the frontmatter-preservation guard must keep the customized model: pin",
-        )
-        self.assertNotIn("model: sonnet", updated)
-
-    def test_reorg_subset_agent_no_pin_adopts_shipped_verbatim(self):
-        # Same reorg auto-adopt, but with no customized frontmatter — the
-        # guard must be a no-op and shipped must land verbatim.
-        shipped_body = "# Agent\n\nSection A.\nSection B.\n"
-        installed_body = "# Agent\n\nSection B.\nSection A.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-
-        with mock.patch.object(
-            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
-        ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
-                self.run_upgrade()
-            )
-
-        self.assertEqual(installed.read_text(encoding="utf-8"), shipped_body)
-        self.assertIn(str(installed), refreshed)
-        self.assertIn(str(installed), refreshed_subsets)
-        self.assertEqual(conflicts, [])
-        self.assertEqual(transferred, [])
-
     def test_reorg_subset_rule_refreshes_in_place(self):
         shipped_body = "# Rule\n\nSection A.\nSection B.\n"
         installed_body = "# Rule\n\nSection B.\nSection A.\n"
@@ -2071,29 +1889,6 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         self.assertEqual(backup_file.read_bytes(), before)
         self.assertTrue((backup_dir / "DISPOSITIONS.md").exists())
 
-    def test_backup_and_dispositions_written_on_site3_agent_adoption(self):
-        shipped_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
-        installed_body = "# Agent\n\nShipped superset body.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-        before = installed.read_bytes()
-
-        with mock.patch.object(
-            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
-        ):
-            self.run_upgrade()
-
-        backup_dir = (
-            self.project_root / self.cfg.planwise_root / "upgrade-backups"
-            / "1.0.0-to-1.1.0"
-        )
-        backup_file = backup_dir / ".claude" / "agents" / self.AGENT_FILENAME
-        self.assertTrue(
-            backup_file.exists(), "Site-3 adoption must mirror the pre-image under upgrade-backups/"
-        )
-        self.assertEqual(backup_file.read_bytes(), before)
-        self.assertTrue((backup_dir / "DISPOSITIONS.md").exists())
-
     def test_stale_sidecar_removed_on_adoption(self):
         shipped_body = "# Rule\n\nShipped superset body.\nExtra shipped-only line.\n"
         installed_body = "# Rule\n\nShipped superset body.\n"
@@ -2125,9 +1920,6 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         paths_value = ".claude/agents/**"
         self.write_shipped_rule(body, paths_value)
         self.write_installed_rule(body, paths_value)
-        agent_body = "# Agent\n\nIdentical body.\n"
-        self.write_shipped_agent(agent_body)
-        self.write_installed_agent(agent_body)
 
         conflict_dir = self.conflict_dir()
         conflict_dir.mkdir(parents=True, exist_ok=True)
@@ -2144,26 +1936,33 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
             "A stale INDEX.md with no remaining .new sidecars must be pruned",
         )
 
-    def test_site3_containment_skips_unreadable_agent_and_continues(self):
-        second_agent = "second-agent.md"
-        with mock.patch.object(ip, "INSTALLED_AGENTS", [self.AGENT_FILENAME, second_agent]):
-            self.write_shipped_agent("# Agent\n\nShipped body.\n")
+    def test_site3_containment_skips_unreadable_rule_and_continues(self):
+        second_rule = "second-rule.md"
+        with mock.patch.object(
+            ip, "INSTALLED_RULES",
+            [(self.RULE_FILENAME, self.RULE_PATHS_TEMPLATE),
+             (second_rule, self.RULE_PATHS_TEMPLATE)],
+        ):
+            self.write_shipped_rule("# Rule\n\nShipped body.\n")
             # Directory in place of the installed file forces read_text() to
             # raise OSError for this entry only.
-            dir_dst = self.agents_dst_dir / self.AGENT_FILENAME
+            dir_dst = self.rules_dst_dir / self.RULE_FILENAME
             dir_dst.mkdir(parents=True, exist_ok=True)
 
-            second_shipped = self.agents_src_dir / second_agent
-            second_shipped.write_text("# Second Agent\n\nBody.\n", encoding="utf-8")
+            second_shipped = self.refs_dir / second_rule
+            second_shipped.write_text(
+                self._rule_text("# Second Rule\n\nBody.\n", self.RULE_PATHS_TEMPLATE),
+                encoding="utf-8",
+            )
 
             refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
-        second_installed = self.agents_dst_dir / second_agent
+        second_installed = self.rules_dst_dir / second_rule
         self.assertTrue(
             second_installed.exists(),
-            "The other agent must still be processed (fresh install) despite "
+            "The other rule must still be processed (fresh install) despite "
             "the directory entry's failure",
         )
         self.assertIn(str(second_installed), refreshed)
@@ -2176,23 +1975,15 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         installed_rule = self.write_installed_rule(installed_rule_body, custom_paths)
         before_rule = installed_rule.read_bytes()
 
-        shipped_agent_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
-        installed_agent_body = "# Agent\n\nShipped superset body.\n"
-        self.write_shipped_agent(shipped_agent_body)
-        installed_agent = self.write_installed_agent(installed_agent_body)
-        before_agent = installed_agent.read_bytes()
-
         with mock.patch.dict(sys.modules, {"structural_compare": None}):
             refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
         self.assertEqual(installed_rule.read_bytes(), before_rule)
-        self.assertEqual(installed_agent.read_bytes(), before_agent)
         self.assertNotIn(str(installed_rule), refreshed)
-        self.assertNotIn(str(installed_agent), refreshed)
         self.assertEqual(refreshed_subsets, [])
-        self.assertEqual(len(conflicts), 2)
+        self.assertEqual(len(conflicts), 1)
 
 
 class TestClassifyDivergedDegradedFallback(unittest.TestCase):
@@ -2670,9 +2461,9 @@ class TestInstalledDivergenceLint(_UpgradeArtifactsFixtureBase):
     """lint_installed_divergence() + the _run_doctor() Stage 9 call site.
 
     Generalizes TestDoctorStaleSweep's pattern from DESCOPED_RULES to the
-    still-installed set (INSTALLED_RULES + INSTALLED_AGENTS). Reuses
+    still-installed set (INSTALLED_RULES). Reuses
     _UpgradeArtifactsFixtureBase because its temp tree layout and its
-    INSTALLED_RULES / INSTALLED_AGENTS monkeypatch scope already match what
+    INSTALLED_RULES monkeypatch scope already match what
     lint_installed_divergence() walks — no new fixture needed.
     """
 
@@ -2698,36 +2489,9 @@ class TestInstalledDivergenceLint(_UpgradeArtifactsFixtureBase):
             "The lint is read-only — it must never mutate the installed tree",
         )
 
-    def test_installed_agent_has_unique_recommends_kind_aware_advice(self):
-        # Regression (R1 finding 7): the rule-specific decide-callout advice
-        # ("Choosing a Home for a Rule Customization", which prescribes
-        # .claude/rules/<project>/ homing) is meaningless for an agent file
-        # and would nag a sanctioned frontmatter pin as HAS_UNIQUE on every
-        # doctor run. Agents must get agent-appropriate advice instead.
-        shipped_body = "# Agent\n\nShipped body.\n"
-        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-
-        with mock.patch.object(
-            ip, "_classify_diverged",
-            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
-        ):
-            findings = ip.lint_installed_divergence(self.cfg)
-
-        matches = [f for f in findings if f["path"] == str(installed)]
-        self.assertEqual(len(matches), 1, "the diverged installed agent must produce a finding")
-        self.assertEqual(matches[0]["kind"], "agent")
-        self.assertEqual(matches[0]["classification"], "HAS_UNIQUE")
-        self.assertNotIn(
-            "Choosing a Home for a Rule Customization", matches[0]["recommendation"],
-            "the rule-specific decide-callout advice must not be reused for an agent",
-        )
-        self.assertIn("frontmatter guard", matches[0]["recommendation"])
-
     def test_installed_rule_has_unique_still_recommends_decide_callout(self):
-        # A rule (not an agent) keeps the pre-existing decide-callout advice —
-        # only the agent kind gets the new kind-aware wording.
+        # A rule keeps the pre-existing decide-callout advice for a
+        # HAS_UNIQUE verdict.
         shipped_body = "# Rule\n\nShipped body.\n"
         installed_body = "# Rule\n\nShipped body.\n# Extra\nUser-added block.\n"
         self.write_shipped_rule(shipped_body)
@@ -2914,7 +2678,7 @@ class TestInstalledDivergenceLint(_UpgradeArtifactsFixtureBase):
         stdout = buf.getvalue()
         self.assertEqual(exit_code, 0)
         self.assertIn(
-            "installed rule/agent divergence lint", stdout,
+            "installed rule divergence lint", stdout,
             "Stage 9 must be invoked by _run_doctor(), not merely defined",
         )
         self.assertTrue(
@@ -3050,189 +2814,6 @@ class TestCustomizationHandoffGating(_UpgradeArtifactsFixtureBase):
         self.assertEqual(transferred, [])
         self.assertTrue(conflicts)
 
-    def test_report_mode_conservative_for_agent_too(self):
-        self.write_upgrade_config(customization_handoff="report")
-        shipped_body = "# Agent\n\nShipped body.\n"
-        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-        before = installed.read_bytes()
-        with mock.patch.object(
-            ip, "_classify_diverged",
-            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
-        ):
-            _, _, conflicts, _, _, transferred = self.run_upgrade()
-        self.assertEqual(installed.read_bytes(), before)
-        self.assertEqual(transferred, [])
-        self.assertTrue(conflicts)
-
-
-class TestFrontmatterGuardDetectPosture(_UpgradeArtifactsFixtureBase):
-    """The detect-don't-guess frontmatter guard: provable single-line pin
-    splices only; ANY unpreservable delta (block-style values, non-guarded
-    key deltas, BOM'd/unparseable frontmatter) routes the agent to the
-    customization-bearing path instead of a silent whole-file overwrite."""
-
-    def test_bom_agent_frontmatter_pin_survives_no_silent_loss(self):
-        # BOM'd installed file: the read strips it (utf-8-sig) and the guard
-        # is BOM-tolerant, so the customized model: pin must survive into the
-        # adopted file — never silently reverted to shipped's value.
-        shipped_body = (
-            "---\nname: fixture-agent\nmodel: sonnet\n---\n"
-            "# Agent\n\nSection A.\nSection B.\n"
-        )
-        installed_body = chr(0xFEFF) + (
-            "---\nname: fixture-agent\nmodel: opus\n---\n"
-            "# Agent\n\nSection B.\nSection A.\n"
-        )
-        self.write_shipped_agent(shipped_body)
-        installed = self.agents_dst_dir / self.AGENT_FILENAME
-        installed.write_bytes(installed_body.encode("utf-8"))
-
-        with mock.patch.object(
-            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
-        ):
-            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
-
-        updated = installed.read_text(encoding="utf-8-sig")
-        self.assertIn("model: opus", updated,
-                      "the BOM must not defeat the guard — the pin survives")
-        self.assertNotIn("model: sonnet", updated)
-        self.assertIn(str(installed), refreshed)
-        self.assertEqual(conflicts, [])
-
-    def test_guard_unit_bom_string_still_splices(self):
-        installed = chr(0xFEFF) + "---\nmodel: opus\n---\nbody\n"
-        shipped = "---\nmodel: sonnet\n---\nnew body\n"
-        adopted = ip._apply_agent_frontmatter_guard(installed, shipped)
-        self.assertIsNotNone(adopted)
-        self.assertIn("model: opus", adopted)
-        self.assertIn("new body", adopted)
-
-    def test_block_style_tools_routes_conservative_never_empty_splice(self):
-        # Installed pins tools: as a block-style list; the guard cannot
-        # provably preserve it — with the conservative default handoff the
-        # file must be preserved in place + sidecar'd, and no adopted file
-        # may ever carry an empty-spliced `tools:` line.
-        shipped_body = (
-            "---\nname: fixture-agent\ntools: Read, Grep\n---\n"
-            "# Agent\n\nSection A.\nSection B.\n"
-        )
-        installed_body = (
-            "---\nname: fixture-agent\ntools:\n  - Read\n  - Grep\n  - Bash\n---\n"
-            "# Agent\n\nSection B.\nSection A.\n"
-        )
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-        before = installed.read_bytes()
-
-        with mock.patch.object(
-            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
-        ):
-            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
-
-        self.assertEqual(installed.read_bytes(), before,
-                         "a block-style guarded value must route conservative — "
-                         "never an in-place overwrite")
-        self.assertNotIn(str(installed), refreshed)
-        self.assertEqual(transferred, [])
-        self.assertTrue(conflicts, "guard-undecidable frontmatter is a conflict "
-                                   "under the conservative handoff")
-
-    def test_block_style_tools_relocate_transfers_then_adopts(self):
-        # Same block-style pin, but with report+relocate: the file transfers
-        # (full pre-image preserved) and shipped is adopted — never an
-        # empty-spliced tools: line in the adopted file.
-        self.enable_relocate()
-        shipped_body = (
-            "---\nname: fixture-agent\ntools: Read, Grep\n---\n"
-            "# Agent\n\nSection A.\nSection B.\n"
-        )
-        installed_body = (
-            "---\nname: fixture-agent\ntools:\n  - Read\n  - Bash\n---\n"
-            "# Agent\n\nSection B.\nSection A.\n"
-        )
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-
-        with mock.patch.object(
-            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
-        ):
-            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
-
-        updated = installed.read_text(encoding="utf-8")
-        self.assertEqual(updated, shipped_body,
-                         "adopted text is plain shipped (the pre-image lives in "
-                         "the transfer file)")
-        self.assertNotIn("tools:\n---", updated,
-                         "never splice an empty tools: value")
-        self.assertEqual(len(transferred), 1)
-        transferred_text = Path(transferred[0][1]).read_text(encoding="utf-8")
-        self.assertIn("- Bash", transferred_text,
-                      "the transfer file must carry the block-style customization")
-        self.assertEqual(conflicts, [])
-
-    def test_non_guarded_frontmatter_delta_routes_conservative(self):
-        shipped_body = (
-            "---\nname: fixture-agent\ndescription: shipped text\n---\n"
-            "# Agent\n\nSection A.\nSection B.\n"
-        )
-        installed_body = (
-            "---\nname: fixture-agent\ndescription: my custom description\n---\n"
-            "# Agent\n\nSection B.\nSection A.\n"
-        )
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-        before = installed.read_bytes()
-
-        with mock.patch.object(
-            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
-        ):
-            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
-
-        self.assertEqual(installed.read_bytes(), before,
-                         "a non-guarded frontmatter delta (description:) must "
-                         "never be silently reverted by an auto-adopt")
-        self.assertNotIn(str(installed), refreshed)
-        self.assertTrue(conflicts)
-
-    def test_backslash_pinned_value_survives_guard(self):
-        # A pinned value containing backslashes and regex-replacement-template
-        # lookalikes must splice verbatim — no re.error, no corruption.
-        pinned = r"C:\models\g<1>\opus"
-        shipped_body = (
-            "---\nname: fixture-agent\nmodel: sonnet\n---\n"
-            "# Agent\n\nSection A.\nSection B.\n"
-        )
-        installed_body = (
-            f"---\nname: fixture-agent\nmodel: {pinned}\n---\n"
-            "# Agent\n\nSection B.\nSection A.\n"
-        )
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-
-        with mock.patch.object(
-            ip, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
-        ):
-            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
-
-        updated = installed.read_text(encoding="utf-8")
-        self.assertIn(f"model: {pinned}", updated,
-                      "backslash-bearing pin must be spliced verbatim")
-        self.assertIn(str(installed), refreshed)
-        self.assertEqual(conflicts, [])
-
-    def test_guard_unit_shipped_new_key_is_not_a_delta(self):
-        # A key that exists ONLY in shipped (shipped grew it) loses nothing
-        # installed — the guard must not treat it as unpreservable.
-        installed = "---\nname: a\nmodel: opus\n---\nbody\n"
-        shipped = "---\nname: a\nmodel: sonnet\npermissionMode: ask\n---\nnew body\n"
-        adopted = ip._apply_agent_frontmatter_guard(installed, shipped)
-        self.assertIsNotNone(adopted)
-        self.assertIn("model: opus", adopted)
-        self.assertIn("permissionMode: ask", adopted)
-
-
 class TestDestructiveWriteOrderingAndBackupGates(_UpgradeArtifactsFixtureBase):
     """Failed backup => no destructive write; failed adoption write (after a
     verified transfer) => conflict + NO false DISPOSITIONS row; transfer
@@ -3256,28 +2837,12 @@ class TestDestructiveWriteOrderingAndBackupGates(_UpgradeArtifactsFixtureBase):
         self.assertEqual(refreshed_subsets, [])
         self.assertTrue(conflicts, "the blocked adoption must surface as a conflict")
 
-    def test_backup_failure_blocks_agent_subset_adoption(self):
-        shipped_body = "# Agent\n\nShipped superset body.\nExtra shipped-only line.\n"
-        installed_body = "# Agent\n\nShipped superset body.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-        before = installed.read_bytes()
-
-        with mock.patch.object(
-            ip, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
-        ), mock.patch.object(ip, "_write_backup_preimage", return_value=False):
-            refreshed, _, conflicts, _, _, _ = self.run_upgrade()
-
-        self.assertEqual(installed.read_bytes(), before)
-        self.assertNotIn(str(installed), refreshed)
-        self.assertTrue(conflicts)
-
     def test_backup_failure_blocks_transfer_then_adopt(self):
         self.enable_relocate()
-        shipped_body = "# Agent\n\nShipped body.\n"
-        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
+        shipped_body = "# Rule\n\nShipped body.\n"
+        installed_body = "# Rule\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, ".claude/agents/**")
         before = installed.read_bytes()
 
         with mock.patch.object(
@@ -3293,10 +2858,10 @@ class TestDestructiveWriteOrderingAndBackupGates(_UpgradeArtifactsFixtureBase):
 
     def test_adoption_write_failure_is_conflict_with_no_false_log_row(self):
         self.enable_relocate()
-        shipped_body = "# Agent\n\nShipped body.\n"
-        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
+        shipped_body = "# Rule\n\nShipped body.\n"
+        installed_body = "# Rule\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_rule(shipped_body)
+        installed = self.write_installed_rule(installed_body, ".claude/agents/**")
         before = installed.read_bytes()
 
         original_write_text = Path.write_text
@@ -3338,16 +2903,16 @@ class TestDestructiveWriteOrderingAndBackupGates(_UpgradeArtifactsFixtureBase):
 
     def test_transfer_collision_uniquifies_never_clobbers(self):
         self.enable_relocate()
-        shipped_body = "# Agent\n\nShipped body.\n"
-        installed_body = "# Agent\n\nShipped body.\n# Extra\nUser-added block.\n"
-        self.write_shipped_agent(shipped_body)
-        self.write_installed_agent(installed_body)
+        shipped_body = "# Rule\n\nShipped body.\n"
+        installed_body = "# Rule\n\nShipped body.\n# Extra\nUser-added block.\n"
+        self.write_shipped_rule(shipped_body)
+        self.write_installed_rule(installed_body, ".claude/agents/**")
 
         tdir = self.transfer_dir()
         tdir.mkdir(parents=True, exist_ok=True)
-        stem = Path(self.AGENT_FILENAME).stem
-        suffix = Path(self.AGENT_FILENAME).suffix
-        first = tdir / self.AGENT_FILENAME
+        stem = Path(self.RULE_FILENAME).stem
+        suffix = Path(self.RULE_FILENAME).suffix
+        first = tdir / self.RULE_FILENAME
         second = tdir / f"{stem}-1.0.0-to-1.1.0{suffix}"
         first.write_text("pre-existing transfer ONE", encoding="utf-8")
         second.write_text("pre-existing transfer TWO", encoding="utf-8")
@@ -3401,36 +2966,6 @@ class TestNotAnalyzedMarker(unittest.TestCase):
         self.assertFalse(ip._verdict_not_analyzed(inline))
 
 
-class TestGenuineAgentVerdictRoutesToTransfer(_UpgradeArtifactsFixtureBase):
-    """Integration pin for the marker fix: a genuine agent HAS_UNIQUE verdict
-    with empty unique_blocks and non-empty notes (the exact shape the old
-    heuristic misrouted to preserve+sidecar) must route through the automated
-    transfer-then-adopt path under report+relocate."""
-
-    def test_shape_lookalike_agent_verdict_transfers_then_adopts(self):
-        self.enable_relocate()
-        shipped_body = "# Agent\n\nShipped body.\n"
-        installed_body = "# Agent\n\nShipped body.\nOne extra installed line.\n"
-        self.write_shipped_agent(shipped_body)
-        installed = self.write_installed_agent(installed_body)
-
-        lookalike = types.SimpleNamespace(
-            classification="HAS_UNIQUE", confidence="unique",
-            unique_blocks=[], notes="One extra installed line.", source="agent",
-        )
-        with mock.patch.object(ip, "_classify_diverged", return_value=lookalike):
-            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
-
-        self.assertEqual(installed.read_text(encoding="utf-8"), shipped_body,
-                         "a genuine agent verdict must adopt after transfer, not "
-                         "stall in the not-analyzed carve-out")
-        self.assertEqual(len(transferred), 1)
-        self.assertIn("One extra installed line.",
-                      Path(transferred[0][1]).read_text(encoding="utf-8"))
-        self.assertEqual(conflicts, [])
-        self.assertIn(str(installed), refreshed)
-
-
 class TestVerdictCacheConsumption(_UpgradeArtifactsFixtureBase):
     """A successful --upgrade run retires verdicts.json (renamed to
     verdicts.json.consumed) so a stale cached verdict can never fire on a
@@ -3455,9 +2990,6 @@ class TestVerdictCacheConsumption(_UpgradeArtifactsFixtureBase):
         body = "# Rule\n\nIdentical body.\n"
         self.write_shipped_rule(body, ".claude/agents/**")
         self.write_installed_rule(body, ".claude/agents/**")
-        agent_body = "# Agent\n\nIdentical body.\n"
-        self.write_shipped_agent(agent_body)
-        self.write_installed_agent(agent_body)
 
         verdicts_path = self.conflict_dir() / "verdicts.json"
         verdicts_path.parent.mkdir(parents=True, exist_ok=True)
