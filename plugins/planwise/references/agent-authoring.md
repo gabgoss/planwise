@@ -263,6 +263,9 @@ hooks:
 
 When multiple agents share the same name, the highest-priority location wins.
 
+> [!practice] Example: `planwise`'s No-Mirror Design
+> The `planwise` plugin illustrates the lowest-priority row above by design: its bundled `agents/` directory ships several agents, invoked as `planwise:<name>` — the plugin does not install a `.claude/agents/` mirror copy of them. This is the intended model, not a missing feature: a consumer who wants bare-name convenience, or a genuine override, opts in by authoring their own `.claude/agents/<name>.md`. The priority table above means that project-level file wins automatically — no cooperation from the plugin required. `/planwise doctor --prune-stale` conservatively removes now-orphaned mirror copies left behind by older installs, preserving any agent file a consumer has customized.
+
 ---
 
 ## 4. Naming Conventions
