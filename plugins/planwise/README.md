@@ -189,6 +189,8 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 /planwise backlog BUG-042
 ```
 
+**Archival stays in sync.** Closing an item moves its file to `Archive/` and repoints the index link in the same step, and re-runs are safe. If an item was closed by hand and its file left stranded, `backlog` detects the drift on open and offers to reconcile it — nothing is moved without your consent (`--no-check` skips the detect pass for fast triage).
+
 #### How `backlog` works
 
 ```mermaid
@@ -207,6 +209,8 @@ flowchart LR
 ```
 
 Shows a table of every plan in your project with its status, sprint count, and when it was created.
+
+`list` also cross-checks every index row against its plan's actual Master Plan status and flags any drift before the table, offering to reconcile the index on the spot — nothing is written without your consent (`--no-check` skips the check).
 
 #### How `list` works
 
@@ -243,7 +247,7 @@ flowchart LR
 /planwise lessons curate --phase=promote
 ```
 
-Curate runs two phases against your lesson set. Phase 1 sorts uncategorised lessons into the domain buckets defined in `config.yaml` (Database, Application Code, Process, Tooling — customisable). Phase 2 finds lessons you've already promoted to rules or applied to code, verifies the destination artifact exists, and logs each one in the Rule Promotion Log inside your lessons index. Run `--phase=both` (the default) to do both at once, or scope to just one phase.
+Curate runs two phases against your lesson set. Phase 1 sorts uncategorised lessons into the domain buckets defined in `config.yaml` (Database, Application Code, Process, Tooling — customisable), tags each lesson's promotion target from its own structure (a fenced code block reads as `code`, a MUST/NEVER callout reads as `rule`), and flags a lesson that spans several target types as a split candidate. Phase 2 lands `promoted` lessons whose owning backlog item has shipped — verifying the destination artifact exists and logging each one in the Rule Promotion Log inside your lessons index. Run `--phase=both` (the default) to do both at once, or scope to just one phase.
 
 **Batch-draft promotion plans for a whole bucket:**
 ```
@@ -253,7 +257,9 @@ Curate runs two phases against your lesson set. Phase 1 sorts uncategorised less
 /planwise lessons promote-batch --category=A --dry-run
 ```
 
-Where `/planwise lessons promote LL-003` promotes one lesson immediately, `promote-batch` plans the promotion of many lessons at once — grouping them by domain bucket and drafting backlog items (BBs) that describe the rules to be created, with the WRONG/CORRECT examples from each lesson inlined. Execution happens later via `/planwise backlog`. Add `--dry-run` to see the grouping plan without writing any files.
+Where single-lesson promote acts immediately, `promote-batch` plans the promotion of many lessons at once — grouping them by domain bucket and drafting backlog items (BBs) that describe the rules to be created, with the WRONG/CORRECT examples from each lesson inlined. Execution happens later via `/planwise backlog`. Add `--dry-run` to see the grouping plan without writing any files.
+
+**The lesson lifecycle.** Lessons graduate through four statuses: `documented → promoted → applied | rule`. When `promote-batch` fully captures a lesson into actionable backlog item(s), the lesson flips to the stable `promoted` status and moves to the archive right away — the backlog item becomes the live owner of the work (archived ≠ landed). When that item ships, `curate --phase=promote` lands the lesson as `applied` or `rule`. A lesson promoted one at a time skips the middle state and lands directly.
 
 > **What are lessons learned?** When something goes wrong (or right!), planwise can capture that insight so you don't repeat mistakes or forget what worked.
 
@@ -270,18 +276,25 @@ flowchart LR
 
 ## 8. `/planwise doctor`
 
-**Audit your project's planwise health — read-only, changes nothing.**
+**Audit your project's planwise health — read-only unless you explicitly opt in to cleanup.**
 
 ```
 /planwise doctor
 ```
 
-`doctor` runs a set of read-only checks and prints a report; it never writes a file and exits cleanly even when it flags something:
+`doctor` opens with a version-state gate, then runs a set of read-only checks and prints a report. A bare `doctor` never writes a file and exits cleanly even when it flags something:
 
+- **Version-state gate** — before any diagnostics, verifies the project is initialized and the pinned `plugin_version` matches the installed plugin; when it doesn't, recommends `/planwise init` or `/planwise upgrade` and stops there.
 - **Rule scope** — lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. These inject into every plan-brief read and can overflow a 200K-window task-runner, so `doctor` flags them with their size.
 - **Token Saver overhead staleness** — reports the stored `/context`-measured overheads and flags them stale after a plugin upgrade or a change in your agent/skill count.
 - **Read-gate scan** — checks your active plan's files against the Read-tool limits (256 KiB byte cap, ~25K-token page cap) and flags any that can't be read in one pass.
 - **Read-limit drift** — flags the fixed read constants if your CLI build has moved past the version they were measured on.
+- **Stale de-scoped rule sweep** — finds rule copies left behind in `.claude/rules/planwise/` by older versions; those rules are now loaded on demand from the plugin instead.
+- **Installed rule divergence lint** — classifies every still-installed rule against its shipped counterpart: a stale copy of an older shipped version (run [`/planwise upgrade`](#10-planwise-upgrade) — it refreshes it safely), a genuine customization (re-home it — never delete), or not analyzable (diff it manually).
+- **Orphaned agent mirror sweep** — flags agent copies under `.claude/agents/` left behind by older versions that mirrored agents into the project; agents now run directly from the plugin, so copies you never edited are safe to remove.
+- **Index drift audits** — cross-checks the plans index against each Master Plan's actual status, and the backlog index against archival state.
+
+**Opt-in cleanup:** `/planwise doctor --prune-stale` is the one doctor invocation that writes. It removes only what the stale-rule sweep and the mirror sweep flagged as provably removable — every deleted file is first backed up next to a `PRUNED.md` audit log under `{planwise_root}/upgrade-backups/`, and anything carrying content of your own is always preserved in place.
 
 Run it any time for a quick health check — especially right after a [`/planwise upgrade`](#10-planwise-upgrade).
 
@@ -289,7 +302,7 @@ Run it any time for a quick health check — especially right after a [`/planwis
 
 ```mermaid
 flowchart LR
-    A([Run command]) --> B[Read-only checks:<br/>rule scope, overheads,<br/>read gates] --> C([Get report])
+    A([Run command]) --> B[Version gate] --> C[Read-only checks:<br/>rules, mirrors, indexes,<br/>overheads, read gates] --> D([Get report])
 ```
 
 ---
@@ -338,7 +351,7 @@ flowchart LR
 
 ## 10. `/planwise upgrade`
 
-**Refresh installed rules and agents after a plugin update.**
+**Refresh installed rules and config after a plugin update.**
 
 When a new plugin version is published, upgrading happens in two stages:
 
@@ -357,14 +370,15 @@ When a new plugin version is published, upgrading happens in two stages:
    /planwise upgrade
    ```
 
-   `/plugin install` does not refresh the rules in `.claude/rules/planwise/` or the agents in `.claude/agents/` — those were installed once during `/planwise init` and are skip-if-exists thereafter. `/planwise upgrade`:
+   `/plugin install` does not refresh the rules in `.claude/rules/planwise/` — those were installed during `/planwise init` and are skip-if-exists thereafter. (Agents need no propagation step at all: they run directly from the plugin, invoked as `planwise:<name>`, so Stage 1 alone updates them.) `/planwise upgrade`:
 
    - Bumps the pinned `plugin_version:` in your `config.yaml`
-   - Adds any new top-level config keys (the additive merge previously available via `--migrate`)
-   - Refreshes installed rules/agents whose local body still matches the previously-shipped body
-   - **Auto-adopts stale copies:** a diverged file whose content is a clean structural subset of the newer shipped version (an old copy you never edited, that the plugin has since grown) is refreshed in place — rules keep your `paths:` line; agents are only overwritten on a high-confidence verdict. Before any overwrite or removal, the pre-change file is copied under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (with a `DISPOSITIONS.md` log), so every automatic disposition is recoverable even without git
-   - Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any file that carries content the shipped version doesn't have (a genuine customisation) or whose verdict is not clear-cut — those files are left untouched for you to merge manually
-   - **Retires de-scoped rules:** author-time rules that are now loaded on demand from the plugin's `references/` are removed from `.claude/rules/planwise/` when your installed copy is untouched **or is a high-confidence stale subset** of the grown shipped reference (backed up first). A copy with content of your own is **preserved byte-for-byte with an action-required notice**, and a copy whose only edit is its `paths:` line is preserved while `upgrade.descope_preserve_paths_edits` is `true` (the default) — re-home it as a project-local rule, re-scope its `paths:`, or upstream the change.
+   - Adds any new top-level config keys (the additive merge previously available via `--migrate`), including the `upgrade:` block described below
+   - Backfills missing lessons scaffolding — seeds the lessons index and the categorization file that gates `lessons curate` / `promote-batch` when either is absent (idempotent; an existing file, customised or not, is preserved verbatim)
+   - Refreshes installed rules whose local body still matches the previously-shipped body
+   - **Auto-adopts stale copies:** a diverged file whose content is a clean structural subset of the newer shipped version (an old copy you never edited, that the plugin has since grown) is refreshed in place — rules keep your `paths:` line. Before any overwrite or removal, the pre-change file is copied under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (with a `DISPOSITIONS.md` log), so every automatic disposition is recoverable even without git
+   - **Hands off customisations per `upgrade.customization_handoff`:** under `report+relocate` (the shipped default), a file that carries content of your own is first transferred verbatim — with a provenance header — to `{planwise_root}/upgrade-transfers/<from>-to-<to>/` as a dormant preservation document (outside `.claude/rules/`, never loaded as a rule), the transfer is verified by reading it back, and only then is the shipped body adopted in place. Under `report` / `report+issue` — or whenever a transfer, backup, or adoption write fails, or the verdict isn't analyzable — the file is preserved in place and a `.new` sidecar is written under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Either way, your content is never destroyed
+   - **Retires de-scoped rules:** author-time rules that are now loaded on demand from the plugin's `references/` are removed from `.claude/rules/planwise/` when your installed copy is untouched **or is a high-confidence stale subset** of the grown shipped reference (backed up first). Under `report+relocate`, a copy with content of your own is transferred to `upgrade-transfers/` before removal; under the conservative handoff modes it is **preserved byte-for-byte with an action-required notice**. A copy whose only edit is its `paths:` line is preserved while `upgrade.descope_preserve_paths_edits` is `true` (the default) — re-home it as a project-local rule, re-scope its `paths:`, or upstream the change.
    - **Re-calibrates Token Saver** overheads (the same `/context` capture `token-saver on` runs) so the budget tracks your current install.
    - **Over-scope advisory:** after upgrading, the script lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. Run [`/planwise doctor`](#8-planwise-doctor) any time for the full read-only report.
 
@@ -409,9 +423,9 @@ flowchart LR
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
-| `/planwise doctor` | Audit rule scope + (Token Saver) overhead staleness, read-gate scan, read-limit drift |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, Token Saver staleness (`--prune-stale` to clean up) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
-| `/planwise upgrade` | Refresh installed rules/agents after a plugin update |
+| `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
 
 ---
@@ -422,7 +436,7 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses four specialized AI agents behind the scenes:
+planwise uses five specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
@@ -430,8 +444,9 @@ planwise uses four specialized AI agents behind the scenes:
 | **plan-reviewer** | Deep content review — task specs, estimates, dependencies |
 | **task-runner** | Executes individual tasks during plan runs |
 | **fix-agent** | Applies targeted code fixes for small backlog items |
+| **rule-comparator** | Classifies a diverged installed rule against the shipped version during `/planwise upgrade` — stale copy vs. genuine customization |
 
-You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, and `/planwise backlog`.
+You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, and `/planwise upgrade`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
 
 ### Configuration
 
@@ -444,6 +459,7 @@ After running `/planwise init`, your settings live in `planwise/config.yaml`. He
 | `scoring` | How backlog items are scored and ranked | Sensible defaults |
 | `build_commands.default` | Command to verify builds after changes | `echo '...'` |
 | `context.token_saver` | Token Saver mode default (see [§9](#9-planwise-token-saver)) | `false` |
+| `upgrade.customization_handoff` | How upgrade hands off files you've customised (see [§10](#10-planwise-upgrade)) | `report+relocate` |
 
 ### Plugin file structure
 
@@ -458,7 +474,7 @@ planwise/                           # Plugin root
   references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init
-  scripts/                          # Python scripts (backlog utilities + init_project.py + token_saver.py)
+  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py)
   examples/                         # Sample outputs
   config.yaml.template              # Config template
 ```
@@ -497,7 +513,7 @@ To remove the marketplace:
 - If you see YAML-related warnings, install PyYAML: `pip install pyyaml` (optional but silences warnings)
 
 **Plans or backlog seem out of date after a plugin update**
-- Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules and agents into your project
+- Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules into your project
 
 **Token Saver always shows "uncalibrated" on Windows**
 - The `/context` capture needs a real console; run `/planwise token-saver on` from an interactive Claude Code session so the measured overheads can be captured
