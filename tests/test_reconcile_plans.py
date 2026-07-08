@@ -36,7 +36,7 @@ from pathlib import Path
 
 # Allow imports whether pytest is launched from the repo root
 # (python -m pytest scripts/test_...) or from inside scripts/.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import config_loader  # noqa: E402
 from reconcile_plans import detect_drift, parse_plans_index, reconcile  # noqa: E402
@@ -168,6 +168,24 @@ class TestReconcilePlans(_ReconcileFixtureBase):
         self.write_master_plan(
             "Foo/", "FOO", "IN_PROGRESS -- awaiting user transfer", "2026-01-01"
         )
+
+        result = detect_drift(self.config)
+
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(result["anomalies"], [])
+
+    def test_bolded_status_matching_index_not_drift(self):
+        # Read-side symmetry: a Master Plan whose Status token is markdown-bolded
+        # ("**COMPLETE**") against an index cell already holding the plain enum
+        # token ("COMPLETE") must NOT register as drift. Without emphasis-
+        # stripping in base_token, "**COMPLETE**" != "COMPLETE" and a fully-
+        # reconciled row reads as false drift. This is the read/detect-side twin
+        # of test_reconcile_bolded_status_writes_bare_token (which pins the write
+        # side): a clean "COMPLETE" fixture would pass while masking the gap.
+        self.write_index(
+            "| BLD | BoldPlan | COMPLETE | 2026-01-01 | 2026-01-01 | Bold/ |\n"
+        )
+        self.write_master_plan("Bold/", "BLD", "**COMPLETE**", "2026-01-01")
 
         result = detect_drift(self.config)
 

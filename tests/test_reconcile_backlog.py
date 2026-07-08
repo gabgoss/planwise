@@ -33,7 +33,7 @@ import unittest
 from pathlib import Path
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import config_loader  # noqa: E402
 from reconcile_backlog import detect_drift, reconcile  # noqa: E402

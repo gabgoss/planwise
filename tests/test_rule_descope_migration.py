@@ -40,7 +40,7 @@ from unittest import mock
 
 # Allow `import init_project` whether unittest is launched from the repo root
 # (python -m unittest scripts/test_...) or from inside scripts/.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import init_project as ip  # noqa: E402
 

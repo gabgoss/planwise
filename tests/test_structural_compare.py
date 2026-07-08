@@ -25,7 +25,7 @@ from pathlib import Path
 
 # Allow `import structural_compare` whether unittest is launched from the repo
 # root (python -m unittest scripts/test_...) or from inside scripts/.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import structural_compare as sc  # noqa: E402
 

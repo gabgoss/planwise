@@ -2,3 +2,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Test / lint tool caches (must never enter the shipped ./plugins/planwise tree)
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/

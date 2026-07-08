@@ -252,6 +252,44 @@ Both failures collapse a multi-signal verification surface into a single "looks 
 >
 > A citation chain is coherent only when the cited source and every consumer agree. When instances fall outside literal task scope, surface them per §1.2 of `session-execution-protocol.md` (structural findings beyond literal scope — surface, don't silently fix or silently ignore), not silently.
 
+### 8.5 Normalize an authored-markdown field on BOTH read and write — and test it with annotated, not clean, fixtures
+
+> [!constraint] When an authored-markdown field feeds a normalized/canonical slot, apply the SAME normalization on comparison AND on write — and regression-test it with realistically messy fixtures, never clean ones
+> A value read from a human-authored markdown field (a `**Status:**` line, a table cell a person edits by hand) routinely carries decoration that the canonical slot it feeds must not: wrapping `**bold**` / `_emphasis_`, em-dashes, trailing `(date)` or `— note` annotations, `<!-- comments -->`, `§`, backticks. When that field is compared against a canonical value — OR copied into a normalized (enum / single-token) cell — the normalization must apply consistently on every side, or detection and the write disagree and the slot is silently corrupted. This is a **data-corruption path** whenever the write is destructive, and the class recurs on any tool that copies an authored markdown field into a normalized index/cache cell.
+>
+> **1. Normalize on both sides, or not at all.** When a field read from authored markdown is compared against a canonical value, apply the normalization to BOTH operands. When such a field is *written* into a normalized (enum / canonical) cell, write the **normalized** value — never the raw authored string.
+> WRONG — the comparison normalizes but the write stores the raw source line, so the one-token cell ends up holding a whole annotated sentence, and downstream exact-token filters silently break:
+> ```python
+> if base_token(row.Status) != base_token(mp_status):   # compare: normalized
+>     row.Status = mp_status                             # write: RAW → "**COMPLETE** (2026-05-26) — shipped v1.2.0"
+> ```
+> CORRECT — the write stores the same normalization detection uses, so detection, the report banner, and the persisted cell all agree on one token:
+> ```python
+> if base_token(row.Status) != base_token(mp_status):
+>     row.Status = base_token(mp_status)                 # write: normalized → "COMPLETE"
+> ```
+>
+> **2. Strip inline formatting when normalizing an authored field.** A whitespace/case-only normalizer is not enough — the field's own value may carry markdown emphasis, so an already-reconciled row reads as false drift.
+> WRONG — first-word-uppercase leaves the emphasis attached, so a bolded token never equals its plain canonical form:
+> ```python
+> def base_token(s): return s.split()[0].upper()          # "**COMPLETE**" → "**COMPLETE**" ≠ "COMPLETE"  (false drift)
+> ```
+> CORRECT — strip wrapping emphasis (`*` / `_`) after uppercasing:
+> ```python
+> def base_token(s): return s.split()[0].upper().strip("*_")   # "**COMPLETE**" → "COMPLETE"
+> ```
+>
+> **3. Test with annotated, not clean, fixtures.** A fixture built on a clean canonical value (`"COMPLETE"`) stays green while masking BOTH bugs above — the raw-write corruption and the emphasis false-drift. A regression test MUST feed a realistically messy source and assert the destination receives ONLY the bare token, covering both directions:
+> ```python
+> # WRONG — clean fixture: green, but exercises none of the decoration the bug actually needs
+> write_master_plan(status="COMPLETE")
+> # CORRECT — annotated fixtures that an asymmetric or emphasis-blind normalizer would fail
+> write_master_plan(status="**COMPLETE** (2026-05-26) — shipped v1.2.0")   # write side: assert the written cell == "COMPLETE"
+> #   read side: index cell already "COMPLETE" vs Master Plan "**COMPLETE**" → assert NO drift (no false positive)
+> ```
+>
+> This is the same "a necessary signal is not sufficient" trap §8 opens with, aimed squarely at the test fixture: a green suite built on clean inputs says nothing about the messy authored strings the code will actually meet. It is a direct instance of the pre-commit adversarial-review discipline in `session-plan-requirements.md` §10.4 ("A green suite is not a review: pre-commit adversarial review for destructive diffs") — the write-side corruption in this class survived a fully green unit suite and fell only to the adversarial review of the destructive write path.
+
 ---
 
 *Cross-references: [session-execution-protocol.md](session-execution-protocol.md) (Recovery-file update discipline at closeout), [session-plan-requirements.md](session-plan-requirements.md) (Sprint exit-gate semantics in Master Plan / Sprint Plan rows).*
