@@ -183,23 +183,13 @@ artifacts:
       now handler-loaded in-place from references/ (upgrade_behavior:
       not_installed; see DESCOPED_RULES and the de-scoped rows below). On
       upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
-      removes the untouched installed copies of those de-scoped rules and
-      preserves any the user customized byte-for-byte; this glob row covers
-      only the four still-installed rules for refresh_or_sidecar.
-
-  - id: planwise_agents
-    on_disk: ".claude/agents/*.md"
-    config_keys: []                       # not driven by config; copies plugin/agents/
-    producer: "install_agents()"
-    consumers:
-      - "/planwise review (plan-reviewer, structural-reviewer)"
-      - "/planwise run (task-runner)"
-      - "/planwise backlog (fix-agent)"
-    missing_key_behavior: warn_loud
-    upgrade_behavior: refresh_or_sidecar
-    notes: >
-      Mirrored to enable bare-name agent resolution and consumer-side overrides.
-      Always installed; no config gate.
+      removes the untouched installed copies of those de-scoped rules AND
+      high-confidence stale-subset copies (backed up under upgrade-backups/
+      first); copies carrying user content (HAS_UNIQUE, or any flagged
+      installed-only content) are preserved byte-for-byte, and paths-only
+      edits are preserved while upgrade.descope_preserve_paths_edits is true
+      (the default). This glob row covers only the four still-installed rules
+      for refresh_or_sidecar.
 
   - id: agent_teams_env
     on_disk: "{settings_file}: env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
@@ -269,7 +259,12 @@ artifacts:
       discipline injects when those artifacts are authored, and also read
       in-place by the promote/backlog self-containment grep gate. Covered by the
       planwise_rules glob row for refresh; listed individually because it has
-      cross-handler consumers worth documenting.
+      cross-handler consumers worth documenting. The canonical source is the
+      in-place references/ copy: the promote/backlog grep gate reads
+      references/artifact-self-containment.md in place, never this installed
+      copy, which is injection-only. The planwise_rules glob row owns the
+      refresh for this file (one INSTALLED_RULES entry); this row is
+      documentation-only and does not cause a second install/refresh pass.
 
   - id: lessons_curate_workflow_reference
     on_disk: "plugin in-place (references/lessons-curate-workflow.md)"
@@ -328,9 +323,50 @@ artifacts:
       {planwise_root}/{plans_dir}/**; the plan-reviewer agent loads it in-place
       from references/ at review time (see DESCOPED_RULES in init_project.py).
       On upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
-      removes the untouched previously-installed copy and preserves any the
-      user customized. Listed individually because it has a named consumer
-      worth documenting.
+      removes the untouched or high-confidence stale-subset previously-
+      installed copy (backed up under upgrade-backups/ first) and preserves
+      any copy carrying user content. Listed individually because it has a
+      named consumer worth documenting.
+
+  - id: upgrade_block
+    on_disk: "{planwise_root}/config.yaml (key: upgrade)"
+    config_keys:
+      - "upgrade"
+    producer: "generate_config() / --migrate"
+    consumers:
+      - "/planwise upgrade (customization handoff, gh issue, de-scope policy)"
+    missing_key_behavior: migrate_only
+    upgrade_behavior: migrate_only
+    notes: >
+      Three keys (customization_handoff, github_issue,
+      descope_preserve_paths_edits) controlling HAS_UNIQUE handoff routing and
+      the de-scope paths-only-edit policy. When the block is absent,
+      config_loader.get_upgrade_config() supplies the conservative defaults:
+      report / false / TRUE (descope_preserve_paths_edits defaults to
+      preserve — false opts in to removing paths-edited copies). The shipped
+      config.yaml.template pins customization_handoff to report+relocate
+      explicitly (automated transfer-then-adopt via the upgrade-transfers/
+      preservation dir), while the absent-key fallback stays the conservative
+      report (preserve + sidecar, no transfer); `--migrate` adds the block to
+      existing configs.
+
+  - id: customization_report
+    on_disk: "{planwise_root}/upgrade-conflicts/{from}-to-{to}/ (INDEX.md + .new sidecars + verdicts.json)"
+    config_keys: []
+    producer: "upgrade_artifacts() / handlers/upgrade.md fan-out"
+    consumers:
+      - "/planwise upgrade (HAS_UNIQUE handoff)"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: not_installed
+    notes: >
+      Generated handoff surface for preserved HAS_UNIQUE customizations. Reuses
+      the existing upgrade-conflicts INDEX.md + sidecars rather than a new
+      standalone report file. verdicts.json is consumed by a successful
+      --upgrade run (renamed to verdicts.json.consumed so a stale verdict can
+      never fire on a later pair/rerun); automated transfers land beside it
+      under {planwise_root}/upgrade-transfers/{from}-to-{to}/ as dormant
+      preservation documents. Never installed; row exists so the relocate/gh
+      opt-in escalations don't invent a duplicate artifact path.
 
 
 # Skills register their config dependencies here so the gap-detection rule

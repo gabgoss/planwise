@@ -54,7 +54,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
 **Review-specific references (always load):**
 1. Read `references/session-planning-protocol.md`
@@ -68,6 +68,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
 - If reviewing IPC/protocol/codec sessions: Read `references/verification-gates.md`
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
+- If reviewing a plan with verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
+- If reviewing a DELEGATED-orchestration plan: Read `references/agent-orchestration-delegated.md`
 - If the **effective** Token Saver value is `true` for the plan under review (its Master-Plan `Token Saver:` field over the project `context.token_saver` default — `get_effective_token_saver_config(config, plan_override)`): Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](#token-saver-compliance-check))
 
 ---
@@ -170,11 +172,12 @@ Task(
 
 1. Collect findings from both subagent outputs
 2. Deduplicate: same file + same issue = merge; keep higher severity
-3. Cross-check `[UNCERTAIN]` findings against Known Patterns Whitelist
-4. Assign finding IDs: BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
-5. Classify systemic findings (see [Systemic Finding Classification](#systemic-finding-classification))
-6. Compute verdict (see [Verdict and Report](#verdict-and-report))
-7. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md`
+3. Recompute delegated verdicts: for each subagent that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated.md` §1.16)
+4. Cross-check `[UNCERTAIN]` findings against Known Patterns Whitelist
+5. Assign finding IDs: BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
+6. Classify systemic findings (see [Systemic Finding Classification](#systemic-finding-classification))
+7. Compute verdict (see [Verdict and Report](#verdict-and-report))
+8. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md`
 
 ---
 
@@ -382,21 +385,22 @@ Task(
 ### Phase 3: Synthesis
 
 9. **Deduplicate:** same file + same issue = merge; keep higher severity.
-10. **Cross-check [UNCERTAIN] findings:**
+10. **Recompute delegated verdicts:** For each reviewer that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated.md` §1.16).
+11. **Cross-check [UNCERTAIN] findings:**
     - Check against [Known Patterns Whitelist](#known-patterns-whitelist)
     - Cross-check against other reviewers' findings
     - Confirmed -> promote to stated severity; contradicted -> discard as false positive
-11. **Assign finding IDs:** BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
-12. **Classify systemic findings:** For each confirmed finding (BLOCKER, ERROR, WARNING), determine one-off vs systemic (see [Systemic Finding Classification](#systemic-finding-classification)).
-13. **Compute verdict** (see [Verdict and Report](#verdict-and-report)).
+12. **Assign finding IDs:** BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
+13. **Classify systemic findings:** For each confirmed finding (BLOCKER, ERROR, WARNING), determine one-off vs systemic (see [Systemic Finding Classification](#systemic-finding-classification)).
+14. **Compute verdict** (see [Verdict and Report](#verdict-and-report)).
 
 ### Phase 4: Report and Cleanup
 
-14. Create `{PlanPath}/Reviews/` directory if it does not exist.
-15. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md` using [templates/review-report.md](../templates/review-report.md).
-16. Send `shutdown_request` to each teammate; wait for `shutdown_response` approvals.
-17. `TeamDelete`.
-18. Output summary to user: verdict, finding counts by severity, systemic finding count, report path.
+15. Create `{PlanPath}/Reviews/` directory if it does not exist.
+16. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md` using [templates/review-report.md](../templates/review-report.md).
+17. Send `shutdown_request` to each teammate; wait for `shutdown_response` approvals.
+18. `TeamDelete`.
+19. Output summary to user: verdict, finding counts by severity, systemic finding count, report path.
 
 ### Communication Protocol
 
@@ -504,6 +508,8 @@ These patterns look like errors but are intentional. Discard findings that match
 |---------|----------------------|
 | Global numbering appearing non-sequential within a single EI | Spec numbers are assigned globally across all sprints. A sprint's EI may reference Spec #1, #3, #7 -- the gaps are other sprints' specs. |
 | Cross-sprint spec reference that appears orphaned to a single-sprint reviewer | An EI reviewer given only one sprint's scope may flag a valid cross-sprint reference as unresolved. EI reviewers must receive ALL spec outputs to avoid this. |
+| Line-count finding where the evidence is a Read-output last line number (not `wc -l`) | `Read` paginates; the last visible line is structurally smaller than the file's true line count. This is a false-positive candidate — verify via `wc -l <path>` before promoting it from `[UNCERTAIN]`. |
+| Doctrinal correction that edits only one named file while sibling files still carry the same claim | Scope was deliberately bounded; the executor surfaced the out-of-scope instances as structural findings per `references/session-execution-protocol.md` §1.2. A non-empty doctrinal grep that returns only classified legitimate-pattern rows is intentional. |
 
 > [!practice] Check Whitelist Before Reporting
 > Reviewers should verify each finding against the Known Patterns Whitelist before sending it to the team lead. If the pattern matches, discard it. If uncertain, send with `[UNCERTAIN]` prefix rather than discarding outright.
@@ -511,6 +517,9 @@ These patterns look like errors but are intentional. Discard findings that match
 ---
 
 ## Severity Classification
+
+> [!practice] Severity Is Impact, Not Fix Size
+> Rate every finding by what it breaks, never by how laborious the remedy is. Downgrading a finding because the coherent fix is large inverts the project motto — see [do-the-hard-things.md](../references/do-the-hard-things.md).
 
 ### Definitions
 
@@ -657,6 +666,21 @@ When Token Saver is off, none of the above runs — the §9.A token-estimation c
 
 Quick reference for common patterns and their correct classification.
 
+### Check — DELEGATED Trigger Named
+
+This check is the mechanical, grep-determinable sibling of catalog row #11 (DELEGATED dispatch mandatory trigger violated): #11 checks whether a trigger *actually applies* to the session; this check verifies the Execution Strategy declaration *names* one. Do not merge the two — #11 requires reading task sizes/counts to judge, this one is a pure grep gate.
+
+- **Severity:** BLOCKER
+- **What:** Every session/sprint declaring `Execution Strategy: DELEGATED` MUST name which of the four mandatory triggers fired (2+ Opus tasks / META Discovery / >50K single task / output-chaining).
+- **Detection:** Grep the Master Plan + each Orchestration for `Execution Strategy:\s*DELEGATED`. For each match, require an adjacent named trigger from the four. A DELEGATED declaration with no named trigger → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] DELEGATED declaration without a named trigger
+File: {Master Plan / Orchestration path} | Location: Execution Strategy section
+Issue: Session declares DELEGATED but names no mandatory trigger (2+ Opus / META Discovery / >50K task / output-chaining)
+Fix: Name the trigger that fired, or change to DIRECT per references/agent-orchestration.md §11.1 | Confidence: HIGH
+```
+
 | # | Pattern | Severity | Where to Check |
 |---|---------|----------|----------------|
 | 1 | Vague section references ("Sections 2-5" instead of individual listings) | BLOCKER | Task file Required Context table |
@@ -675,46 +699,46 @@ Quick reference for common patterns and their correct classification.
 | 14 | Token estimate uses `~?` placeholder (`task-content-fidelity.md` §9.A.2) | BLOCKER | Task file Estimated Tokens |
 | 15 | Cross-sprint Required Context not mirrored in Depends On (`session-plan-requirements.md` §9 cross-sprint) | BLOCKER | Task file Depends On |
 | 16 | EI bidirectional consistency violation (every Spec in `Extracted from:` MUST appear in ≥ 1 Cross-References row and vice versa) | WARNING (HIGH confidence) | EI header + Cross-References |
-| 17 | DELEGATED inter-dispatch lint/precheck diagnostics missing on shared file (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.4) | BLOCKER | Orchestration between dispatches |
-| 18 | DELEGATED output `wc -l` verification missing after dispatch (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.4 PLG-020 extension) | BLOCKER | Orchestration between dispatches |
-| 19 | DELEGATED spawn prompt missing HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.8) | BLOCKER | Orchestration spawn prompts |
-| 20 | DELEGATED follow-up fixes not tier-ranked by invasiveness (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.9) | BLOCKER | Orchestration follow-up dispatches |
-| 21 | DELEGATED forward-looking-verb detection + SendMessage resume protocol missing (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.10) | BLOCKER | Orchestration post-dispatch scan |
-| 22 | DELEGATED spawn prompt missing operational-ceiling disclaimer (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.11) | BLOCKER | Orchestration spawn prompts |
-| 23 | DELEGATED edit-heavy task missing N>25 resume protocol + tool-use budget estimation (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.12) | BLOCKER | Orchestration spawn prompts |
-| 24 | DELEGATED shared-edit-target dispatches missing parallelism cap/shard/delta strategy (PLG-020 sub-check / `agent-orchestration-delegated.md` §1.13) | BLOCKER | Orchestration dispatch matrix |
+| 17 | DELEGATED inter-dispatch lint/precheck diagnostics missing on shared file (`agent-orchestration-delegated.md` §1.4) | BLOCKER | Orchestration between dispatches |
+| 18 | DELEGATED output `wc -l` verification missing after dispatch (`agent-orchestration-delegated.md` §1.4) | BLOCKER | Orchestration between dispatches |
+| 19 | DELEGATED spawn prompt missing HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause (`agent-orchestration-delegated.md` §1.8) | BLOCKER | Orchestration spawn prompts |
+| 20 | DELEGATED follow-up fixes not tier-ranked by invasiveness (`agent-orchestration-delegated.md` §1.9) | BLOCKER | Orchestration follow-up dispatches |
+| 21 | DELEGATED forward-looking-verb detection + SendMessage resume protocol missing (`agent-orchestration-delegated.md` §1.10) | BLOCKER | Orchestration post-dispatch scan |
+| 22 | DELEGATED spawn prompt missing operational-ceiling disclaimer (`agent-orchestration-delegated.md` §1.11) | BLOCKER | Orchestration spawn prompts |
+| 23 | DELEGATED edit-heavy task missing N>25 resume protocol + tool-use budget estimation (`agent-orchestration-delegated.md` §1.12) | BLOCKER | Orchestration spawn prompts |
+| 24 | DELEGATED shared-edit-target dispatches missing parallelism cap/shard/delta strategy (`agent-orchestration-delegated.md` §1.13) | BLOCKER | Orchestration dispatch matrix |
 | 25 | Verify-before-cite round-2 (`task-content-fidelity.md` §9.B.6..§9.B.9) | BLOCKER (varies by sub-rule) | Task file SQL/MERGE briefs |
 | 26 | Sprint exit-gate verdict not reflecting gate-defining step (`verification-gates.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
 | 27 | Sprint Overview row encoding session-count fraction instead of gate verdict (`verification-gates.md` §4) | ERROR | Master Plan Sprint Overview |
 | 28 | EI Cross-References §-citation format violated (`ei-fidelity.md` §7) | BLOCKER | EI Cross-References table |
 | 29 | UNCONFIRMED claim missing four-site enforcement (`ei-fidelity.md` §4) | BLOCKER | EI body |
-| 30 | Sprint Plan has `READY_TO_EXECUTE` at scaffolding time (PLG-001 / `scaffolding-hygiene.md` §4) | WARNING | Sprint Plan Status field |
-| 31 | Per-session `Outputs/` directory missing (PLG-001 / `scaffolding-hygiene.md` §5) | BLOCKER | Session folder |
-| 32 | Orchestration `**Prerequisite:**` declaration missing for sequential session (PLG-001 / `scaffolding-hygiene.md` §6) | ERROR | Orchestration Prerequisites |
-| 33 | Orchestration Context Boundary callout missing (PLG-002 / `agent-orchestration.md` §11.3) | BLOCKER | Orchestration Execution Strategy |
-| 34 | Verification Commands section missing for runnable-artifact task (PLG-003 / `verification-gates.md` §3) — exempt if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in task's Notes for Agent | BLOCKER | Task file Verification Commands |
-| 35 | Per-file-type Verification Commands table empty (PLG-003 / `verification-gates.md` §3) — applies to runnable-artifact tasks per `templates/task-file.md` §Per-File-Type Commands | BLOCKER | Task file Verification Commands |
-| 36 | Verify Before/After callout missing for runnable artifact (PLG-003 / `verification-gates.md` §4) | BLOCKER | Task file Verification Commands |
-| 37 | Required Context not updated when a prior task changed file structure (PLG-004 / `task-content-fidelity.md` §9.A.1) | ERROR | Task Required Context |
-| 38 | Per-file-type token rate band violation (PLG-004 / `task-content-fidelity.md` §9.A.3) | WARNING | Task Required Context |
-| 39 | User-prompt-cited artifact unverified at scaffolding (PLG-004 / `task-content-fidelity.md` §9.B.1) | BLOCKER | Task file cited paths |
-| 40 | Identifier not reconciled with live contract (PLG-004 / `task-content-fidelity.md` §9.B.2) | BLOCKER | Task Execution Steps |
-| 41 | Helper-function design not categorized in column-presence check (PLG-004 / `task-content-fidelity.md` §9.B.4) | WARNING | Task helper refs |
-| 42 | EI archival fidelity violated — transform happens at EI not Task layer (PLG-005 / `ei-fidelity.md` §1) | ERROR | EI body |
-| 43 | EI source severity vocabulary not preserved (PLG-005 / `ei-fidelity.md` §2) | ERROR | EI body |
-| 44 | EI threshold misaligned with operational dispatch contract (PLG-005 / `ei-fidelity.md` §3) | BLOCKER | EI vs Sprint Plan |
-| 45 | EI cross-tier duplicate not preserved (PLG-005 / `ei-fidelity.md` §5) | ERROR | EI Cross-References |
-| 46 | EI cross-tier citation not propagated to implementation surface (PLG-005 / `ei-fidelity.md` §6) | ERROR | EI Cross-References |
-| 47 | EI token reconciliation gate failed (PLG-005 / `ei-fidelity.md` §8) | BLOCKER | EI token totals |
-| 48 | Discovery count missing execution citation (PLG-006 / `discovery-and-exit-criteria.md` §15.1) | BLOCKER | Discovery outputs |
-| 49 | Binding refinement not echoed across plan layers (PLG-006 / `discovery-and-exit-criteria.md` §16.1) | BLOCKER | Multi-layer files |
-| 50 | "Surfaces" used as non-enforceable mention not enforcement claim (PLG-006 / `discovery-and-exit-criteria.md` §16.2) | ERROR | EI / Sprint Plan |
-| 51 | Sprint signoff row-count mismatch with EI exit criteria (PLG-006 / `discovery-and-exit-criteria.md` §16.3) | BLOCKER | Sprint signoff |
-| 52 | Cross-session dependency not mirrored in task `Depends On` (PLG-007 D2 / `session-plan-requirements.md` §9 cross-session) | BLOCKER | Task Depends On |
-| 53 | Post-scaffold back-propagation missed after task edit (PLG-007 D3 / `session-plan-requirements.md` §9 post-scaffold sync) | ERROR | Task file + EI section |
-| 54 | BLI-cited audit anchor not re-verified before execution (PLG-019 / `verify-against-shipped-artifact.md` §6) | BLOCKER | Orchestration BLI refs |
-| 55 | Cohort token-uplift missing for known high-divergence cohort (PLG-022 / `scaffolding-hygiene.md` §10) | WARNING | Master Plan Sprint Overview Notes |
-| 56 | Cross-tier audit-finding triage table missing (PLG-022 / `discovery-and-exit-criteria.md` §18) | WARNING | Discovery/audit sessions |
+| 30 | Sprint Plan has `READY_TO_EXECUTE` at scaffolding time (`scaffolding-hygiene.md` §4) | WARNING | Sprint Plan Status field |
+| 31 | Per-session `Outputs/` directory missing (`scaffolding-hygiene.md` §5) | BLOCKER | Session folder |
+| 32 | Orchestration `**Prerequisite:**` declaration missing for sequential session (`scaffolding-hygiene.md` §6) | ERROR | Orchestration Prerequisites |
+| 33 | Orchestration Context Boundary callout missing (`agent-orchestration.md` §11.3) | BLOCKER | Orchestration Execution Strategy |
+| 34 | Verification Commands section missing for runnable-artifact task (`verification-gates.md` §3) — exempt if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in task's Notes for Agent | BLOCKER | Task file Verification Commands |
+| 35 | Per-file-type Verification Commands table empty (`verification-gates.md` §3) — applies to runnable-artifact tasks per `templates/task-file.md` §Per-File-Type Commands | BLOCKER | Task file Verification Commands |
+| 36 | Verify Before/After callout missing for runnable artifact (`verification-gates.md` §4) | BLOCKER | Task file Verification Commands |
+| 37 | Required Context not updated when a prior task changed file structure (`task-content-fidelity.md` §9.A.1) | ERROR | Task Required Context |
+| 38 | Per-file-type token rate band violation (`task-content-fidelity.md` §9.A.3) | WARNING | Task Required Context |
+| 39 | User-prompt-cited artifact unverified at scaffolding (`task-content-fidelity.md` §9.B.1) | BLOCKER | Task file cited paths |
+| 40 | Identifier not reconciled with live contract (`task-content-fidelity.md` §9.B.2) | BLOCKER | Task Execution Steps |
+| 41 | Helper-function design not categorized in column-presence check (`task-content-fidelity.md` §9.B.4) | WARNING | Task helper refs |
+| 42 | EI archival fidelity violated — transform happens at EI not Task layer (`ei-fidelity.md` §1) | ERROR | EI body |
+| 43 | EI source severity vocabulary not preserved (`ei-fidelity.md` §2) | ERROR | EI body |
+| 44 | EI threshold misaligned with operational dispatch contract (`ei-fidelity.md` §3) | BLOCKER | EI vs Sprint Plan |
+| 45 | EI cross-tier duplicate not preserved (`ei-fidelity.md` §5) | ERROR | EI Cross-References |
+| 46 | EI cross-tier citation not propagated to implementation surface (`ei-fidelity.md` §6) | ERROR | EI Cross-References |
+| 47 | EI token reconciliation gate failed (`ei-fidelity.md` §8) | BLOCKER | EI token totals |
+| 48 | Discovery count missing execution citation (`discovery-and-exit-criteria.md` §15.1) | BLOCKER | Discovery outputs |
+| 49 | Binding refinement not echoed across plan layers (`discovery-and-exit-criteria.md` §16.1) | BLOCKER | Multi-layer files |
+| 50 | "Surfaces" used as non-enforceable mention not enforcement claim (`discovery-and-exit-criteria.md` §16.2) | ERROR | EI / Sprint Plan |
+| 51 | Sprint signoff row-count mismatch with EI exit criteria (`discovery-and-exit-criteria.md` §16.3) | BLOCKER | Sprint signoff |
+| 52 | Cross-session dependency not mirrored in task `Depends On` (`session-plan-requirements.md` §9 cross-session) | BLOCKER | Task Depends On |
+| 53 | Post-scaffold back-propagation missed after task edit (`session-plan-requirements.md` §9 post-scaffold sync) | ERROR | Task file + EI section |
+| 54 | BLI-cited audit anchor not re-verified before execution (`verify-against-shipped-artifact.md` §6) | BLOCKER | Orchestration BLI refs |
+| 55 | Cohort token-uplift missing for known high-divergence cohort (`scaffolding-hygiene.md` §10) | WARNING | Master Plan Sprint Overview Notes |
+| 56 | Cross-tier audit-finding triage table missing (`discovery-and-exit-criteria.md` §18) | WARNING | Discovery/audit sessions |
 | 57 | EI multi-sprint cumulative state not reconciled (`ei-fidelity.md` §9.1) | BLOCKER | Later-sprint EI Current state block + Sprint Plan Cross-Sprint File Touches + task-file Step-1 prerequisite grep gate |
 | 58 | EI repoint map cluster incomplete — fewer enumerated rows than audit cluster cites (`ei-fidelity.md` §9.2) | BLOCKER | EI repoint map vs audit cluster |
 | 59 | EI audit-grep-table coverage gap — verification scope wider than upstream repair scope (`ei-fidelity.md` §9.3) | BLOCKER | EI verification task vs repair task Required Context |
@@ -722,3 +746,6 @@ Quick reference for common patterns and their correct classification.
 | 61 | Task verbatim-extraction targets a section that does not physically carry the cited prose — pre-extraction verification missing AND no fallback-hierarchy step (`ei-fidelity.md` §10.2 + §10.3) | ERROR | Task file Execution Steps |
 | 62 | Mega-scaffold skipped review gate — `n_sprints_scaffolded_this_pass ≥ 2` AND Master Plan Status is `READY_TO_EXECUTE` AND no `/planwise review` report referenced (`scaffolding-hygiene.md` §11) | BLOCKER | Master Plan / scaffold-session transcript |
 | 63 | Token Saver large-file ladder not applied — `context.token_saver: true` AND (over-ceiling task without `1M-exception`; OR Warn+ Required Context file with no backlog item; OR a `read`-reason Critical wrongly flagged `1M-exception`; OR a `1M-exception` task on a Sonnet/Haiku agent without override note; OR a runner-read generated artifact past the line/byte/token read gate without a Multi-Part split) (`task-content-fidelity.md` §9.A.8) — no-op when Token Saver is off | ERROR (read-Critical mis-flag / over-ceiling / artifact split) · WARNING (missing backlog item / uncovered read gate) | Task Required Context + Notes for Agent ([Token Saver Compliance Check](#token-saver-compliance-check)) |
+| 64 | Orchestrator consumes sub-agent verdict label without recomputing from reported finding counts — systematic under-classification risk (`agent-orchestration-delegated.md` §1.16.1) | ERROR | Orchestration synthesis step; rollup tables |
+| 65 | Orchestrator accepts cross-file control-flow claim ("symbol X never used → feature Y is broken") without tracing the full consumer call path — false-positive over-classification risk (`agent-orchestration-delegated.md` §1.16.2) | WARNING | Orchestration finding acceptance; release-signoff verdicts |
+| 66 | DELEGATED declaration without a named trigger (`agent-orchestration.md` §11.1) — grep `Execution Strategy:\s*DELEGATED`; each match MUST carry an adjacent named trigger from the four | BLOCKER | Master Plan / Orchestration Execution Strategy |

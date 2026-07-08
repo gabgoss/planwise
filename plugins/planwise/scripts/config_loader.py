@@ -74,15 +74,17 @@ def _parse_yaml_simple(text: str) -> dict:
             result[key] = _coerce(val)
             continue
 
-        # Nested key-value under a section
-        nested_match = re.match(r"^\s+([a-zA-Z_]\w*):\s+(.+)$", stripped)
+        # Nested key-value under a section. Match against the ORIGINAL line —
+        # `stripped` has no leading whitespace, so matching it would silently
+        # flatten nested keys to the top level (dropping the whole section).
+        nested_match = re.match(r"^\s+([a-zA-Z_]\w*):\s+(.+)$", line)
         if nested_match and current_section is not None:
             key, val = nested_match.group(1), nested_match.group(2).strip().strip("'\"")
             result[current_section][key] = _coerce(val)
             continue
 
-        # List item under a section
-        list_match = re.match(r"^\s+-\s+(.+)$", stripped)
+        # List item under a section (also matched against the original line)
+        list_match = re.match(r"^\s+-\s+(.+)$", line)
         if list_match and current_section is not None:
             val = list_match.group(1).strip().strip("'\"")
             if not isinstance(result[current_section], list):
@@ -293,6 +295,79 @@ def get_token_saver_config(config: dict) -> dict:
         "token_saver_context_breakdown": breakdown,
         "token_saver_overhead_measured_on": context.get(
             "token_saver_overhead_measured_on", ""
+        ),
+    }
+
+
+def _as_bool_flag(value, default: bool) -> bool:
+    """Coerce a config flag to bool without Python-truthiness surprises.
+
+    YAML users commonly quote booleans (`github_issue: "false"`), which
+    `bool(...)` would coerce to True. Recognized string spellings map to
+    their boolean meaning; None, unrecognized strings, and other types fall
+    back to the documented default.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "yes", "on", "1"):
+            return True
+        if lowered in ("false", "no", "off", "0"):
+            return False
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
+def get_upgrade_config(config: dict) -> dict:
+    """Extract the `upgrade:` block from config, with conservative defaults.
+
+    Mirrors get_token_saver_config: reads the three `upgrade.*` keys and falls
+    back to documented backward-compatible defaults when the block (or a key)
+    is absent, explicitly null, or malformed — a config that predates the
+    upgrade surface. Defaults are the safe status quo:
+
+      * customization_handoff        -> "report"
+      * github_issue                 -> False    (opt-in, interactive only)
+      * descope_preserve_paths_edits -> True     (keep today's behavior:
+                                                   preserve a paths-only-edited
+                                                   de-scoped rule; False opts in
+                                                   to removing it)
+
+    `customization_handoff` disposition semantics (consumed by the `--upgrade`
+    writer's customization-bearing branch):
+
+      * "report"          — conservative: preserve the installed file in place
+                            + write a `.new` sidecar; NO automated transfer,
+                            NO adoption. This stays the ABSENT-KEY fallback so
+                            configs that predate the key keep the safe
+                            pre-existing behavior.
+      * "report+relocate" — automated transfer-then-adopt: the customization
+                            is verified-written to a dormant preservation file
+                            under `{planwise_root}/upgrade-transfers/` first,
+                            then shipped is adopted in place. The shipped
+                            config.yaml.template pins this value EXPLICITLY —
+                            new installs get the automated flow while the
+                            absent-key fallback above stays conservative.
+      * "report+issue"    — same conservative disposition as "report" for the
+                            writer; the extra "+issue" meaning (routing an
+                            upstream-tagged customization to a GitHub issue)
+                            is interactive/handler-side only and additionally
+                            requires `github_issue: true`.
+    """
+    upgrade = config.get("upgrade", {})
+    if not isinstance(upgrade, dict):
+        upgrade = {}
+    handoff = upgrade.get("customization_handoff", "report")
+    if not isinstance(handoff, str) or not handoff.strip():
+        handoff = "report"
+    return {
+        "customization_handoff": handoff,
+        "github_issue": _as_bool_flag(upgrade.get("github_issue"), False),
+        "descope_preserve_paths_edits": _as_bool_flag(
+            upgrade.get("descope_preserve_paths_edits"), True
         ),
     }
 

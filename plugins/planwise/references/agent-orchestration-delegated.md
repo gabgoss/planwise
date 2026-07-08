@@ -10,22 +10,24 @@ This file continues the DELEGATED contract begun in [`agent-orchestration.md`](a
 
 ## Table of Contents
 
-- [1.4 Inter-Dispatch Diagnostics Verification](#14-inter-dispatch-diagnostics-verification-plg-002--plg-020-extension)
-- [1.5 Live-HTTP-Probing Tool-Use Budget Reservation](#15-live-http-probing-tool-use-budget-reservation-plg-012)
-- [1.6 Path-Scoped Rule Injection in Spawn Prompts](#16-path-scoped-rule-injection-in-spawn-prompts-plg-012)
-- [1.7 Idle-Mid-Step Wake-Up via SendMessage](#17-idle-mid-step-wake-up-via-sendmessage-plg-012)
-- [1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause](#18-hard-constraints-spawn-prompt-skeleton--scope-boundary-clause-plg-020-115--18)
-- [1.9 Tier-Rank Fixes by Invasiveness](#19-tier-rank-fixes-by-invasiveness-plg-020-116--19)
-- [1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol](#110-forward-looking-verb-detection--sendmessage-resume-protocol-plg-020-117--110)
-- [1.11 Operational-Ceiling Disclaimers in Spawn Prompts](#111-operational-ceiling-disclaimers-in-spawn-prompts-plg-020-118--111)
-- [1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation](#112-n25-edit-task-resume-protocol-with-tool-use-budget-estimation-plg-020-119--112)
-- [1.13 Shared-Edit-Target Strategy Matrix](#113-shared-edit-target-strategy-matrix-plg-020-supplemental)
+- [1.4 Inter-Dispatch Diagnostics Verification](#14-inter-dispatch-diagnostics-verification)
+- [1.5 Live-HTTP-Probing Tool-Use Budget Reservation](#15-live-http-probing-tool-use-budget-reservation)
+- [1.6 Path-Scoped Rule Injection in Spawn Prompts](#16-path-scoped-rule-injection-in-spawn-prompts)
+- [1.7 Idle-Mid-Step Wake-Up via SendMessage](#17-idle-mid-step-wake-up-via-sendmessage)
+- [1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause](#18-hard-constraints-spawn-prompt-skeleton--scope-boundary-clause)
+- [1.9 Tier-Rank Fixes by Invasiveness](#19-tier-rank-fixes-by-invasiveness)
+- [1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol](#110-forward-looking-verb-detection--sendmessage-resume-protocol)
+- [1.11 Operational-Ceiling Disclaimers in Spawn Prompts](#111-operational-ceiling-disclaimers-in-spawn-prompts)
+- [1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation](#112-n25-edit-task-resume-protocol-with-tool-use-budget-estimation)
+- [1.13 Shared-Edit-Target Strategy Matrix](#113-shared-edit-target-strategy-matrix)
 - [1.14 Orchestrator-Only Review Commands](#114-orchestrator-only-review-commands)
 - [1.15 Delegated Code Task-Runners Build LAST](#115-delegated-code-task-runners-build-last)
+- [1.16 Recompute Delegated Verdicts from Primary Evidence — Both Directions](#116-recompute-delegated-verdicts-from-primary-evidence--both-directions)
+- [1.17 Task-Runner Dispatch Failure Modes and Resume Protocol](#117-task-runner-dispatch-failure-modes-and-resume-protocol)
 
 ---
 
-## 1.4 Inter-Dispatch Diagnostics Verification (PLG-002 + PLG-020 extension)
+## 1.4 Inter-Dispatch Diagnostics Verification
 
 When DELEGATED dispatches modify shared files (e.g., a shared algorithm module or schema file), the orchestrator MUST independently run the project's primary diagnostic command between dispatches to verify no regression:
 
@@ -33,7 +35,7 @@ When DELEGATED dispatches modify shared files (e.g., a shared algorithm module o
 - Run `{precheck-cmd}` if the shared file is a data-layer contract (schema, config)
 - If diagnostics fail: halt subsequent dispatches; surface the failure in Recovery before retrying
 
-**PLG-020 extension — orchestrator `wc -l` verification:**
+**Orchestrator `wc -l` verification:**
 
 After each dispatch that produces output files, the orchestrator MUST run `wc -l` on every output file and compare against the Expected Output line budget declared in the task file. Deviations >20% from the declared budget are a signal to review before proceeding to the next dispatch.
 
@@ -49,7 +51,7 @@ After each dispatch that produces output files, the orchestrator MUST run `wc -l
 > Dispatch Task 02 → run {lint-cmd} {src/module/file.ext} → 2 errors → HALT → fix before Task 03
 > ```
 
-## 1.5 Live-HTTP-Probing Tool-Use Budget Reservation (PLG-012)
+## 1.5 Live-HTTP-Probing Tool-Use Budget Reservation
 
 When a DELEGATED subagent performs live HTTP probing (WebFetch/WebSearch calls in a loop), the orchestrator MUST reserve tool-use budget for this activity:
 
@@ -66,7 +68,7 @@ When a DELEGATED subagent performs live HTTP probing (WebFetch/WebSearch calls i
 > what was fetched and what remains.
 > ```
 
-## 1.6 Path-Scoped Rule Injection in Spawn Prompts (PLG-012)
+## 1.6 Path-Scoped Rule Injection in Spawn Prompts
 
 Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatically load for spawned subagents — spawned contexts start with zero file activity and inherit no path triggers from the parent. When a DELEGATED task requires path-specific rules, the orchestrator MUST inject those rule contents explicitly into the spawn prompt.
 
@@ -88,7 +90,7 @@ Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatica
 > )
 > ```
 
-## 1.7 Idle-Mid-Step Wake-Up via SendMessage (PLG-012)
+## 1.7 Idle-Mid-Step Wake-Up via SendMessage
 
 Teammates (in agent team mode) go idle after every turn. This is NORMAL — idle does not mean stopped. When a teammate is idle mid-step (has more work to do but has not been prompted for the next step), the orchestrator sends a wake-up message:
 
@@ -105,7 +107,7 @@ SendMessage(
 > **Problem:** Teammate completes step N and goes idle, waiting for acknowledgment before proceeding to step N+1. Lead session treats idle as "done" and marks task complete.
 > **Solution:** After receiving partial results from a teammate, check whether the task file has more steps. If yes, send a continuation message. Only treat idle as "done" when the task file's final step is confirmed complete.
 
-## 1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause (PLG-020 §11.5 → §1.8)
+## 1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause
 
 Every DELEGATED spawn prompt MUST include a HARD CONSTRAINTS section and a SCOPE BOUNDARY clause:
 
@@ -136,7 +138,7 @@ This task operates within:
 > [full HARD CONSTRAINTS + SCOPE BOUNDARY block]"
 > ```
 
-## 1.9 Tier-Rank Fixes by Invasiveness (PLG-020 §11.6 → §1.9)
+## 1.9 Tier-Rank Fixes by Invasiveness
 
 When a DELEGATED task produces results requiring fixes, rank the fixes by invasiveness before dispatching a follow-up:
 
@@ -148,7 +150,7 @@ When a DELEGATED task produces results requiring fixes, rank the fixes by invasi
 
 Start with Tier 1 fixes before escalating; do not over-dispatch high-invasiveness fixes when lower-tier corrections suffice.
 
-## 1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol (PLG-020 §11.7 → §1.10)
+## 1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol
 
 When reviewing a dispatch's output, scan for forward-looking verbs in the last paragraph ("will", "next I will", "the following step will", "planned"). These signal the subagent stopped mid-task and intends to continue but has gone idle.
 
@@ -166,7 +168,7 @@ SendMessage(
 > **Problem:** Subagent ends its turn with "I will next write the schema pin" but goes idle. Orchestrator reads output and marks task complete without checking for completion.
 > **Solution:** Grep the last 3 paragraphs of every dispatch output for `\b(will|next I will|the following step will|planned to)\b`. If found, send a resume message rather than marking COMPLETE.
 
-## 1.11 Operational-Ceiling Disclaimers in Spawn Prompts (PLG-020 §11.8 → §1.11)
+## 1.11 Operational-Ceiling Disclaimers in Spawn Prompts
 
 Spawn prompts for tasks approaching operational ceilings (>25 file edits, >30 HTTP probes, >100K expected context) MUST include an operational ceiling disclaimer:
 
@@ -179,7 +181,7 @@ If you reach a ceiling before completing all steps, STOP, write a partial output
 what was completed and what remains, then signal completion via your final response.
 ```
 
-## 1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation (PLG-020 §11.9 → §1.12)
+## 1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation
 
 When a task requires >25 file edits and cannot be split further, use the N>25 Edit-Task Resume Protocol:
 
@@ -191,13 +193,13 @@ When a task requires >25 file edits and cannot be split further, use the N>25 Ed
 > [!practice] Tool-Use Budget Estimation for Edit-Heavy Tasks
 > Before dispatching >25-edit tasks, estimate: `(edits × 2) + reads + overhead`. If total exceeds 80% of model tool-budget ceiling, split the task. Example: 30 edits = 60 edit calls + 20 reads + 10 overhead = 90 tool calls — review against model ceiling before dispatching.
 
-## 1.13 Shared-Edit-Target Strategy Matrix (PLG-020 supplemental)
+## 1.13 Shared-Edit-Target Strategy Matrix
 
 When N DELEGATED dispatches in a single session must write the same target (a shared content file, or the shared Recovery file all task-runners update), three strategies are available. Choose by the count of concurrent dispatches sharing the target; **Option C (orchestrator-reconciled delta) is the preferred default** because it remains safe at every band and aligns with the recorded parallel-task-runner Recovery practice.
 
 | Concurrent dispatches sharing the target | Strategy | Mechanism |
 |------------------------------------------|----------|-----------|
-| ≤ 4 | **Option A — Parallelism cap at 4** | Allow up to 4 parallel dispatches on the same target. PLG-020 found 4-way parallelism converges when edits are to disjoint regions. Beyond 4, escalate to Option B or C. |
+| ≤ 4 | **Option A — Parallelism cap at 4** | Allow up to 4 parallel dispatches on the same target. Empirically, 4-way parallelism converges when edits are to disjoint regions. Beyond 4, escalate to Option B or C. |
 | 5 – 6 | **Option B — Recovery / target shards** | Each dispatch writes to its own per-dispatch shard (e.g., `…-Recovery-shard-{N}.md` or a per-dispatch output file). Orchestrator merges shards after all dispatches return. Avoids last-write-wins clobbering at the cost of a merge step. |
 | 7 + | **Option C — Orchestrator-reconciled delta (PREFERRED)** | Each dispatch returns its changes as a status block / delta in its final message instead of writing the shared target directly. The orchestrator applies the deltas centrally — single writer, no clobbering, fully auditable. Also valid (and recommended) at lower bands. |
 
@@ -224,7 +226,7 @@ When N DELEGATED dispatches in a single session must write the same target (a sh
 > Dispatch Task 04 → returns "delta: +rows 15-19" → orchestrator writes
 > ```
 
-### Recovery File in Parallel DELEGATED Dispatch (PLG-020 supplemental)
+### Recovery File in Parallel DELEGATED Dispatch
 
 The §1.13 cap (≤4 parallel for shared targets) addresses **task output files**, not the Recovery file. The Recovery file is a structurally shared edit target for every DELEGATED task-runner in a session — applying the cap to it would wrongly serialize all parallelizable independent tasks.
 
@@ -287,7 +289,7 @@ A DELEGATED task-runner does an INLINE self-review — it applies the review len
 > WRONG — spawn prompt instructs the task-runner to run a slash-command that itself spawns review agents:
 > ```
 > Task(
->   subagent_type: "task-runner",
+>   subagent_type: "planwise:task-runner",
 >   prompt: "...implement X; build; then run /simplify"
 > )
 > # task-runner: "Unknown subcommand: simplify" — it cannot spawn the review agents.
@@ -295,7 +297,7 @@ A DELEGATED task-runner does an INLINE self-review — it applies the review len
 > CORRECT — task-runner applies the review lenses inline; orchestrator runs the real review command on the diff after:
 > ```
 > Task(
->   subagent_type: "task-runner",
+>   subagent_type: "planwise:task-runner",
 >   prompt: "...implement X; apply the review lenses INLINE yourself — do NOT invoke /simplify or /code-review, you cannot spawn the review agents"
 > )
 > # orchestrator, after task-runner returns: Skill(code-review) (or /simplify) on the diff.
@@ -319,6 +321,130 @@ If the task-runner edits after building (whether by accident or because the spaw
 > # If the agent edits after building despite the prompt, the orchestrator re-runs {build-cmd} on the
 > # final on-disk code before trusting the gate.
 > ```
+
+## 1.16 Recompute Delegated Verdicts from Primary Evidence — Both Directions
+
+Any session that delegates structured classification — a verdict label, a severity tag, a readiness state — to a sub-agent MUST recompute that classification from the agent's reported raw evidence before consuming the label. Two failure modes bound the gap symmetrically: **under-classification** (the sub-agent softens the verdict against its own enumerated counts) and **over-classification** (the sub-agent manufactures a finding on incomplete cross-file evidence). Capability does not prevent either — a smaller-tier agent (e.g. Sonnet) systematically under-classifies, and a frontier-tier agent (e.g. Opus) can over-classify on cross-file control-flow claims; the rule applies to ALL agent tiers and must not be scoped to one model. The orchestrator, holding the full evidence set, is the only reliable recompute site.
+
+### 1.16.1 Under-classification — recompute verdict from finding counts
+
+In one observed 13-way parallel dispatch, 8 of 13 sub-agents wrote a final verdict line that did not match the classification rule applied to their own enumerated counts; every error softened severity (e.g. BROKEN=2 reported as `YELLOW` instead of `RED`). The aggregate as-reported severity mix understated the canonical mix enough to mis-classify release-blocking findings as negotiable. The orchestrator must recompute the label from the counts, never read it off the agent's summary line.
+
+> [!constraint] Recompute the Verdict from the Reported Counts
+> WRONG — orchestrator trusts the verdict line:
+> ```
+> verdict = read_verdict_line(findings_file)  # may be wrong
+> roll_up_to_release_blocker_table(verdict)
+> ```
+> CORRECT — orchestrator recomputes from counts:
+> ```
+> counts = read_finding_counts(findings_file)
+> verdict = "RED" if counts.broken + counts.contradiction > 0 \
+>      else "YELLOW" if counts.drift + counts.missing > 0 \
+>      else "GREEN"
+> roll_up_to_release_blocker_table(verdict)
+> reported = read_verdict_line(findings_file)
+> if reported != verdict:
+>     log_meta_finding(f"sub-agent verdict mis-classification: reported={reported}, canonical={verdict}")
+> ```
+
+Scope note: this applies to any structured-classification dispatch — GREEN/YELLOW/RED verdicts, MUST_FIX/SHOULD_FIX/DEFER labels, BLOCKER/ERROR tags, or readiness states.
+
+### 1.16.2 Over-classification — cross-file control-flow claims require full call-path trace
+
+The mirror failure: a capable task-runner reviewing a cumulative diff returned READY-WITH-NOTES on the strength of a new finding — "`args.config` is never referenced in the script, therefore `--config` is a no-op." The orchestrator read the code and found the claim false: the script calls a loader, which calls a helper in a sibling module that runs its own `argparse.parse_known_args()` over `sys.argv` and returns the `--config` value. The flag is consumed end-to-end through a second file. Capability did not prevent the error — the agent over-classified.
+
+> [!constraint] Trace the Full Call Path Before Accepting a Cross-File Non-Use Claim
+> WRONG — accept the agent's new-issue finding because local evidence looks conclusive:
+> ```
+> # Agent: "args.config never referenced in {script}.py → --{flag} is a no-op → READY-WITH-NOTES"
+> # Orchestrator: records READY-WITH-NOTES, files the seed.   # propagates a false positive
+> ```
+> CORRECT — trace the full call path before accepting a cross-file non-use claim:
+> ```
+> # Agent: "args.config never referenced → --{flag} inert"
+> # Orchestrator: reads {load_fn}() → finds {helper}() re-parses {argv-source}
+> #               → confirms --{flag} IS consumed end-to-end → withdraws finding → verdict READY
+> ```
+
+A claim of the form "symbol X is declared but never used in this file, therefore feature Y is broken" is only safe to accept after tracing every consumer of X — including consumers in other files that may read the same input independently (e.g. a second argparse over `sys.argv`). Single-file grep proves local non-use, not global inertness.
+
+Highest false-positive risk patterns — any of these warrants an independent code-read before accepting the verdict: "declared-but-unused," "never called," "dead code," "flag has no effect," "interface mismatch," "unreferenced in this file."
+
+Cost note: a false positive in a release-signoff verdict either blocks a shippable tag or spawns phantom backlog work; the verification is a few targeted reads of the disputed call path — NOT a full re-review.
+
+## 1.17 Task-Runner Dispatch Failure Modes and Resume Protocol
+
+A dispatched task-runner has four post-return states — three failure modes and one real completion. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by the final-message voice and the working-tree state; and when the return *reads* as complete, gate acceptance on **on-disk deliverable evidence** before believing it — a stall can masquerade as completion (§1.17.4). For every failure state the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner. A fresh runner re-reads everything and can race or duplicate the first one's partial work.
+
+### 1.17.1 Diagnosis table
+
+Classify every returned runner against this table before acting on its result:
+
+| Signal | Diagnosis | Action |
+|--------|-----------|--------|
+| Fast return (seconds, a handful of tool calls), dispatch-voice reply ("I've dispatched the task-runner… I'll report back"), clean tree (zero diff in the edit target, Recovery untouched) | Self-delegation — the runner spawned a nested duplicate instead of executing | Resume the same agent with the execute-yourself directive (§1.17.2) |
+| Mid-work narration ending in a colon or next-step phrase ("Now let's rewrite each. First, `test_conflict…`:"), dirty tree with genuine partial edits on disk | Message-boundary stall — the runner executed part-way, then ended its message at a narration checkpoint | Resume the SAME agent with a continuation message (§1.17.3); its context holds the full task state |
+| `completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits required report fields — reads as done, but deliverables are not yet on disk | Mid-action stall masquerading as completion — the `completed` status is not a deliverable check | Run the on-disk acceptance gate, then resume the SAME agent to finish (§1.17.4) |
+| Structured completion report (status + verification results) whose deliverables verify on disk | Real completion | Reconcile normally |
+
+The three failure modes are genuinely distinct: self-delegation is a **clean** tree + **dispatch** voice (the runner never executed); a message-boundary stall is a **dirty** tree + **executor** voice that ends visibly mid-work (the runner executed part-way); a mid-action stall masquerading as completion **reads** as done — a structured-looking report or a clean final line — yet its deliverables are not on disk (§1.17.4). The shared corrective is "resume the same agent," but the resume *message* — and, for the masquerade case, the on-disk check that exposes it — differs; see below.
+
+### 1.17.2 Self-delegation resume
+
+A task-runner whose spawn prompt merely says "Execute the following task:" can pattern-match itself into the ORCHESTRATOR role (the task file and handler prose it reads are full of dispatch language) and delegate the work onward instead of executing. On the self-delegation signature, do NOT re-dispatch a fresh runner — the first may have left a live nested duplicate that will race it. Resume the same agent with this directive (identical to the spawn-prompt role pin the dispatch loop opens with):
+
+> Execute the following task YOURSELF, directly, with your own tool calls. Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task tool calls) — you ARE the task-runner.
+
+Then verify single-application afterward (`git status` / diff on the edit target; Recovery advanced).
+
+**Secondary consequence to reconcile:** an orphaned nested duplicate can finish AFTER the corrected primary, so "file modified since read" Edit rejections or unexplained concurrent-editor observations in Recovery may be the duplicate — reconcile by verifying the working tree holds a single spec-exact application, rather than assuming an external session raced.
+
+### 1.17.3 Message-boundary-stall resume
+
+On a message-boundary stall the runner's partial edits are real and on disk. Do NOT treat the stall notification as completion (that silently loses the unfinished tail), and do NOT dispatch a fresh runner (it re-reads everything and may re-edit or conflict with the partial work). Send the SAME agent a continuation message that:
+
+1. quotes the runner's own last line so it anchors where it stopped;
+2. forbids starting over or re-editing completed work;
+3. enumerates ONLY the remaining work items; and
+4. restates the required final-report format.
+
+For long remediation prompts, instruct up front: "work through to the end without pausing for narration checkpoints."
+
+**Residual risk to reconcile:** a stalled runner may have half-updated Recovery (e.g. the header + step table but not Files Modified / Change Log). The orchestrator owns reconciling that gap from verified facts — check Recovery section-by-section after any stalled-then-resumed task. Runs approaching the ~50-tool-use regime are the stall-prone range; budget 1–2 resume round-trips into session-time estimates.
+
+### 1.17.4 Acceptance gate: a `completed` status is not a deliverable check
+
+A runner can return with harness `status: completed` and a final message that reads clean, yet have stopped **mid-action** — before writing Recovery and before emitting its completion report. The harness `completed` status only means the agent stopped with no live children; it is NOT a check that the task's deliverables were produced. Accepting such a return at face value ships whatever the runner had not yet done — an unwritten Recovery step a later compaction would lose, or residual defects it had not yet addressed. Before marking a delegated task done, gate acceptance on **on-disk evidence**, not the agent's final message — especially when that message ends mid-action ("Now let me…", "Next I'll…") or omits the required report fields.
+
+This is distinct from the two voice+tree failure modes above: those announce themselves (dispatch voice, or narration ending mid-work). A mid-action stall *reads* as completion, so only an on-disk check exposes it. The corrective is still to resume the SAME agent — but acceptance is gated on the check first.
+
+> [!constraint] Gate acceptance on on-disk evidence, not the final message
+> WRONG — the runner returns `status=completed` with the last line "Now let me update the Recovery file"; the orchestrator marks the task COMPLETE and dispatches the next. The Recovery step is never written, and the stale references the runner had not yet cleaned ship:
+> ```
+> runner → status=completed, final line: "Now let me update the Recovery file"
+> orchestrator → mark COMPLETE, dispatch next task
+> [Recovery step unwritten; residual stale references remain in the edit target.]
+> ```
+> CORRECT — the final line ends mid-action / report fields are missing, so the orchestrator does NOT accept on the status alone. It greps the edit target for the symbol that was supposed to change and reads Recovery, detects the unwritten step + residual references, and resumes the SAME agent (context intact) to finish — then re-verifies on disk before accepting:
+> ```
+> runner → status=completed, final line ends mid-action / report fields missing
+> orchestrator → grep edit target for the changed symbol + read Recovery
+>              → unwritten step + residual refs detected
+>              → resume SAME agent: "you stopped before finishing — do X, write
+>                 Recovery, return the full report"
+> agent (context intact) → completes
+> orchestrator → re-verify on disk, THEN accept
+> ```
+
+**Cheap, high-signal acceptance checks for a code-edit task** (run before accepting a `completed` return; each is sub-second):
+
+- `grep` the target for the symbol that was supposed to change (added, removed, or renamed) — confirm the edit is actually present, and that residual references that were supposed to be swept are gone.
+- `git status --short` — confirm the expected file set is dirty and nothing unexpected changed.
+- A collection / parse check where applicable (the produced file parses; the test file collects).
+- Confirm the Recovery step row for the task flipped to its completed state.
+
+On any miss, resume the SAME agent to finish (never re-dispatch a fresh one), then re-run the checks before accepting.
 
 ---
 

@@ -362,8 +362,9 @@ When a new plugin version is published, upgrading happens in two stages:
    - Bumps the pinned `plugin_version:` in your `config.yaml`
    - Adds any new top-level config keys (the additive merge previously available via `--migrate`)
    - Refreshes installed rules/agents whose local body still matches the previously-shipped body
-   - Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any file whose body has diverged from the shipped version, so your customisations are preserved
-   - **Retires de-scoped rules:** author-time rules that are now loaded on demand from the plugin's `references/` are removed from `.claude/rules/planwise/` **only when your installed copy is untouched** (body and `paths:` both match the original default). Any copy you customised is **preserved byte-for-byte with an action-required notice** — re-home it as a project-local rule, re-scope its `paths:` to the code dirs it governs, or upstream the change. It is never auto-deleted.
+   - **Auto-adopts stale copies:** a diverged file whose content is a clean structural subset of the newer shipped version (an old copy you never edited, that the plugin has since grown) is refreshed in place — rules keep your `paths:` line; agents are only overwritten on a high-confidence verdict. Before any overwrite or removal, the pre-change file is copied under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (with a `DISPOSITIONS.md` log), so every automatic disposition is recoverable even without git
+   - Writes `.new` sidecars under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for any file that carries content the shipped version doesn't have (a genuine customisation) or whose verdict is not clear-cut — those files are left untouched for you to merge manually
+   - **Retires de-scoped rules:** author-time rules that are now loaded on demand from the plugin's `references/` are removed from `.claude/rules/planwise/` when your installed copy is untouched **or is a high-confidence stale subset** of the grown shipped reference (backed up first). A copy with content of your own is **preserved byte-for-byte with an action-required notice**, and a copy whose only edit is its `paths:` line is preserved while `upgrade.descope_preserve_paths_edits` is `true` (the default) — re-home it as a project-local rule, re-scope its `paths:`, or upstream the change.
    - **Re-calibrates Token Saver** overheads (the same `/context` capture `token-saver on` runs) so the budget tracks your current install.
    - **Over-scope advisory:** after upgrading, the script lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. Run [`/planwise doctor`](#8-planwise-doctor) any time for the full read-only report.
 
@@ -453,7 +454,7 @@ planwise/                           # Plugin root
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 11 subcommand handlers (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, help)
-  agents/                           # 4 custom AI agents (auto-mirrored into project .claude/agents/ on init)
+  agents/                           # 5 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init

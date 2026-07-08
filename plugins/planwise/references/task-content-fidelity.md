@@ -119,6 +119,8 @@ A complementary `/planwise review` check rejects any plan whose task files conta
 > | Plain text logs | ~10 tok/line | Often light |
 > | Minified / bundled JS | ~30–60 tok/line | Very high density — few line breaks, long lines; never assume 13, measure per file |
 > | Compressed JSON | ~20–40 tok/line | Dense single-line or near-single-line structures; measure when it dominates a task's budget |
+>
+> The `Est. Lines` value fed to the token rate band MUST come from `wc -l <path>` on the actual file — NOT from the last line number observed in a `Read` tool output. `Read` may paginate (default cap ~2000 lines / ~25K tokens); a partial read produces a lower number that underestimates the token cost and silently misroutes the file in the §9.A.8 Large-File Ladder.
 
 ### 9.A.4 Re-glob file-set counts at task-author time
 

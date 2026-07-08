@@ -81,7 +81,7 @@ description: Required file specifications per plan level, task file templates, a
 
 **Global Source Map:** When using global numbering for spec outputs (recommended for multi-sprint plans), the Master Plan MUST include a Global Source Map table assigning each spec output a number, its primary sprint, and any additional sprints that use it.
 
-**Multi-Tier Discovery Extraction (PLG-008):**
+**Multi-Tier Discovery Extraction:**
 
 When the source material is a Meta-Plan Discovery output, EI extraction MUST consume THREE tiers:
 
@@ -111,7 +111,7 @@ Every scaffolded sprint MUST include a `{Abbrev}-S{XX}-Deferred-OutOfScope-Log.m
 - Rationale for deferral (out of sprint scope, belongs to a different sprint, truly out of scope)
 - Target sprint or "Out of scope" designation
 
-**EI Bidirectional Consistency (BB-031 P4):**
+**EI Bidirectional Consistency:**
 
 Every Spec listed in the EI's `Extracted from:` header MUST appear in at least one Cross-References row. And conversely: every Cross-References row's source citation MUST appear in the `Extracted from:` header. Bidirectional inconsistency is WARNING with HIGH confidence at `/planwise review` Phase 2.
 
@@ -152,13 +152,13 @@ Every Spec listed in the EI's `Extracted from:` header MUST appear in at least o
 > | §4 Legacy compat | Spec #7 §2 (informational-only) | Background reference, not extracted |
 > ```
 
-**Three-Step Scaffolding Procedure for EI Consistency (BB-031 P6):**
+**Three-Step Scaffolding Procedure for EI Consistency:**
 
 1. Author EI sections with full content
 2. Build Cross-References table mapping each section to its source citation
 3. Reconcile `Extracted from:` header: list every source cited in the table (exact filename); annotate informational-only rows where applicable
 
-**Reviewer note (BB-031 P7):** `/planwise review` Phase 2 reports EI header ↔ Cross-References inconsistency as WARNING with HIGH confidence.
+**Reviewer note:** `/planwise review` Phase 2 reports EI header ↔ Cross-References inconsistency as WARNING with HIGH confidence.
 
 **Execution Input ≠ Summary.** Extraction means: select, reorganize, and scope. If source content is needed by the sprint, it MUST appear in the Execution Input verbatim. Only omit content irrelevant to that sprint's tasks.
 
@@ -356,18 +356,18 @@ Never leave many-to-many mappings for the agent to infer.
 
 **Scope of BLOCKING enforcement:** The BLOCKING severity applies ONLY to tasks that touch code, tests, or schemas (i.e., tasks whose Expected Output or Execution Steps create or modify files with extensions in the `templates/task-file.md` §Per-File-Type Commands table — `.py` / `.ipynb` / `.sql` / `.cs` / `.cshtml` / `.ts` / `.tsx` / `.{ext}` and equivalents). For purely documentary tasks (markdown edits, decision-only Opus tasks, research-and-report Sonnet tasks), Verification Commands MAY be omitted entirely — but the omission MUST be marked with a `<!-- VERIFICATION: not-applicable (reason) -->` HTML comment so the reviewer can confirm the choice was intentional rather than an oversight. The `handlers/plan.md` Step 8e (Populate Verification Commands) populates the section for runnable-artifact tasks; the `handlers/review.md` Error Pattern Catalog rows 34/35/36 enforce this at review time.
 
-> [!constraint] BLOCKING Severity — Source PLG-003 Discipline
+> [!constraint] BLOCKING Severity Discipline
 > WRONG — Verification Commands enforcement left at WARNING, allowing plans to ship with blank `{cmd_before_1}` / `{cmd_after_1}` placeholders:
 > ```
 > | Severity | Reviewer Action       |
 > | WARNING  | Flag as missing       |
 > ```
-> CORRECT — BLOCKING for runnable-artifact tasks (source PLG-003 §3C), with explicit `<!-- VERIFICATION: not-applicable -->` escape hatch for documentation/decision-only tasks:
+> CORRECT — BLOCKING for runnable-artifact tasks, with explicit `<!-- VERIFICATION: not-applicable -->` escape hatch for documentation/decision-only tasks:
 > ```
 > | Severity   | Reviewer Action                                           |
 > | BLOCKING   | Block plan approval until populated or explicitly exempted |
 > ```
-> The escape hatch keeps the rule humane (pure-doc tasks aren't penalized) without weakening enforcement on tasks that actually produce runnable artifacts. This check is BLOCKING rather than a warning: the source PLG-003 spec called for BLOCKING enforcement, the task-file template has per-file-type infrastructure, the plan-handler Step 8e populates it, and the escape hatch covers legitimate exemptions.
+> The escape hatch keeps the rule humane (pure-doc tasks aren't penalized) without weakening enforcement on tasks that actually produce runnable artifacts. This check is BLOCKING rather than a warning: BLOCKING enforcement is warranted here, the task-file template has per-file-type infrastructure, the plan-handler Step 8e populates it, and the escape hatch covers legitimate exemptions.
 
 > [!constraint] One Task File Per Task — Never Combined
 > WRONG — multiple tasks combined into one file, tasks numbered inline rather than as separate files:
@@ -427,7 +427,7 @@ Task file Required Context sections and Execution Steps are subject to the rules
 - §9.B.2 (extended): Env vars, function signatures, and config keys verified against live source (extends `task-content-fidelity.md` §9.B.2 identifier reconciliation)
 - §9.B.8: MERGE/upsert task briefs MUST include Field Mapping subsection (Source Field | DDL Column | Type Cast | Default)
 
-**Cross-sprint dependency mirroring (PLG-007 S2):**
+**Cross-sprint dependency mirroring:**
 
 When a task's Required Context cites files from another sprint or session, the task's `Depends On` field MUST mirror those reads with `cross-sprint:` or `cross-session:` prefixes:
 
@@ -451,7 +451,7 @@ When a task's Required Context cites files from another sprint or session, the t
 > | 2 | Plans/{PlanName}/Sprint-01/Session-02/Outputs/{Abbrev}-S01-02-ResearchOutput.md | ... |
 > ```
 
-**Post-scaffold back-propagation rule (PLG-007 S5):**
+**Post-scaffold back-propagation rule:**
 
 When a task file is edited AFTER scaffolding (adding a Required Context entry, extending Execution Steps, or changing Expected Output), the corresponding EI section MUST be back-propagated:
 
@@ -462,7 +462,7 @@ When a task file is edited AFTER scaffolding (adding a Required Context entry, e
 
 Skipping any of these 4 sites is ERROR with HIGH confidence at `/planwise review` Phase 2.
 
-**Declarative follow-up block convention (PLG-018):**
+**Declarative follow-up block convention:**
 
 Task files MAY include a Declarative Follow-Up block enumerating actionable recommendations that auto-surface during backlog Phase 7 (FOLLOW-UP BLI CAPTURE):
 
@@ -538,7 +538,7 @@ A related code-generation discipline applies when the LSP reports a diagnostic t
 2. Final git commit with "Complete {PlanName} project"
 3. *If Meta-Plan was used:* Meta, Scaffold, and Exec Master Plans marked COMPLETE
 
-### Module Split Threshold (PLG-016 Fragment B)
+### Module Split Threshold
 
 > [!practice] Module Split for Wide Dataclasses
 > Adapter/client modules whose row dataclass exceeds 75-80 fields SHOULD be split into:
@@ -551,6 +551,80 @@ When task briefs reference adapter modules, verify the field count before author
 > When splitting a wide dataclass module, verify the consumer count is >1 before splitting. Format-restore overhead (reconstituting the full dataclass for serialization from the companion module) can exceed the token savings from the split in single-consumer cases.
 
 **Cross-reference:** `references/agent-orchestration.md §13 Large-File Read Tactics` — apply large-file tactics when reading the wide companion module at task execution time.
+
+### Cross-Sprint Deferred-Finding Ownership
+
+> [!constraint] A deferred finding MUST have a forward owning action in the gate-opening sprint, not a backward cross-reference to a CLOSED task
+>
+> When a sprint defers a finding because its gate (a prerequisite task in another sprint) has not yet opened, the deferring sprint's closeout MUST create a **forward owning action** in the gate-opening sprint — a success-criterion checkbox or a backlog item — so the finding has a live owner regardless of execution order.
+>
+> WRONG — backward-only cross-reference; the deferred finding has no live owner after the deferring sprint closes:
+> ```
+> Sprint-B Task 1 note: "land this BEFORE Sprint-A Task 2's finding update."
+> Master Plan dependency: Sprint-B Task 1 → Sprint-A Task 2 (finding) | ⏳ Pending
+> # Sprint-A ran first, deferred the finding, and CLOSED. Nothing now applies it.
+> ```
+>
+> CORRECT — the deferring sprint records the deferral AND assigns a forward owning action in the gate-opening sprint's closeout (a success-criterion checkbox or a backlog item), so the finding has a live owner regardless of execution order:
+> ```
+> Sprint-A Summary: "Finding DEFERRED — gate is Sprint-B Task 1. Owner: Sprint-B closeout."
+> Sprint-B Sprint-Plan Success Criteria: "[ ] After Task 1 lands, apply the deferred finding."
+> Master Plan dependency row: Sprint-B Task 1 → deferred finding follow-up (owned by Sprint-B closeout).
+> ```
+>
+> Two reinforcing safeguards: (1) a deferral note that names a CLOSED task as the future owner is a red flag — reassign to a live, not-yet-run sprint/session; (2) verify the artifact's live state before trusting "deferred" bookkeeping (a grep that returns 0 confirms the finding is genuinely unapplied, not just mis-tracked).
+
+---
+
+## 10. Destructive-Path & Config-Gated Change Requirements
+
+*Applies to any task that adds or extends a branch which can DELETE, OVERWRITE, MIGRATE, PRUNE, or SWEEP user data or user customizations. For such code the ordinary per-task gates — lint clean, unit suite green, smoke passing, self-containment greps empty — certify nothing about the inputs and adjacent states nobody named. These four requirements are a chain, not duplicates: §10.1 makes the spec cover the whole interaction matrix; §10.2 has an independent test task re-derive the contract; §10.3 pins the gated branch without disturbing default-path evidence; §10.4 backstops all three with an adversarial review before the commit.*
+
+### 10.1 Enumerate the config-interaction matrix in the spec
+
+> [!constraint] For any change that can DELETE user data, the spec enumerates the interaction matrix and assigns every cell an outcome — it does not transcribe the directive
+>
+> WRONG — the spec treats the failure modes the directive happened to name as the whole safety surface:
+> "the user listed transfer-failure and backup-failure, so those are the safety cases."
+>
+> CORRECT — the spec decides every combination the target code region can produce:
+> "the user listed two cases; the code region has four gates; the spec decides all combinations and says which the user's ruling covers."
+>
+> Four-step method:
+> 1. **Enumerate at spec time.** Grep the target region for every config gate, opt-out, and degraded/fallback state that already influences the sibling branches (e.g. `get_upgrade_config()` keys, `not_analyzed`-style verdict stand-ins, absent-key fallbacks). Each one × the new behavior = a cell the spec must decide: proceed, preserve, or report.
+> 2. **Precedence rule of thumb.** An existing protective opt-out must bind the NEW destructive branch at least as strongly as it binds existing branches — a more-customized file must never get weaker protection than a less-customized one. Any cell where the new branch is more aggressive than a sibling is a spec bug until explicitly ruled otherwise.
+> 3. **Tests mirror the matrix, not the directive.** The regression class should have one case per cell, including the adjacent-gate cells — not just the failure modes the directive happened to name.
+> 4. **Guard the mid-session path.** A spec authored from a chat directive under time pressure is exactly where adjacent-gate enumeration gets skipped. Make the grep-for-gates step mandatory before the spec is dispatched.
+
+### 10.2 Schedule tests as an independent same-sprint task with a surface-don't-patch brief
+
+> [!constraint] For a new primitive/module with a written contract, schedule its test suite as its own same-sprint task (fresh runner context, spec-first), before any consumer sprint wires it in
+>
+> Two disciplines make a spec-vs-implementation divergence productive instead of destabilizing:
+> 1. **Independent test authorship in the same sprint.** A separate task (fresh context, spec-first reading) writing tests against the shipped artifact is a cheap adversarial re-derivation of the contract. Same-author self-verification tends to inherit the implementation's reading of the spec, so it misses the alternate readings the spec actually permits.
+> 2. **"Surface, don't silently patch" in the test task's brief.** The test task is forbidden from editing the artifact under test (unless the fix is trivially correct and noted). A spec-vs-impl discrepancy therefore becomes a Recovery Issue + Cross-Task Coordination Flag routed to the consumer sprint, instead of the test author quietly changing the primitive or the assertion to force green — which would destroy the signal.
+>
+> **Route by failure direction, and classify before deferring:** a conservative divergence (the implementation over-preserves relative to the spec) → coordination flag to the consumer sprint, safe to defer; a divergence in the deleting direction (the implementation removes what the spec would keep) → blocker in-sprint.
+
+### 10.3 Non-default-gated changes add gated-branch pins; keep absent-key pins as default-path evidence
+
+> [!constraint] When new behavior is gated on a non-default config value and the default/absent-key path is deliberately unchanged, budget a NEW pinned test class — never a rewrite of the absent-key pins
+>
+> - Existing absent-key pins keep passing **by construction** — do not budget task scope to rewrite them. Budget a new pinned test class that sets the gating value explicitly and covers the gated branch plus its failure paths.
+> - **Invert the signal.** If an existing absent-key pin DOES break during such a change, that is not "expected pin churn" — it means the default path changed, a spec violation to investigate, not an assertion to update.
+> - At plan/spec time, phrase the requirement as "verify existing pins still pass unchanged (default path untouched) + add gated-branch pins," never "update the pinning tests" — the latter invites a runner to modify load-bearing default-path evidence.
+>
+> For review synthesis: a diff that rewrites absent-key pin assertions during a non-default-gated change is a red flag, not diligence.
+
+### 10.4 A green suite is not a review: pre-commit adversarial review for destructive diffs
+
+> [!constraint] For any diff that adds or widens a destructive disposition (delete / overwrite / migrate), run an adversarial multi-agent review BEFORE the commit, then fix-and-regression-test in the same session
+>
+> WRONG — treat per-task verification (lint + suite green + smoke) as sufficient to commit a new destructive path.
+>
+> CORRECT — run the adversarial review pre-commit; a fresh feature's tests are written by the same mind that wrote its bugs, so a green suite says nothing about the inputs nobody imagined (BOMs, block-style YAML, non-dict JSON cache entries, retry-after-crash staleness, filename collisions).
+>
+> "Run script verification" and "run code review" are DIFFERENT gates; the second is mandatory when the diff touches destructive dispositions, even when the first is fully green.
 
 ---
 

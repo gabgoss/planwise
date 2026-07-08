@@ -57,7 +57,7 @@ Not every artifact is a content-bearing artifact. The rule above forbids `LL-NNN
 > |----------------|----------|
 > | LessonsLearned index | `{lessons_dir}/00-Index-LessonsLearned.md` — Master Table title/description, Rule Promotion Log |
 > | Backlog index | `{backlog_dir}/00-Index-Backlog.md` — Feature/Title column, Dependencies notes |
-> | Lesson frontmatter | `applied-as:`, `rule-as:`, `promoted-date:`, related-lesson links |
+> | Lesson frontmatter | `applied-as:`, `rule-as:`, `promoted-to:`, `promotion-target:`, `promoted-date:`, related-lesson links |
 > | BB header metadata | `Closes: LL-NNN`, `Related: BB-NNN`, `Source: LL-X + LL-Y` lines ABOVE the Deliverables section |
 > | BB Notes section | "Out of scope: LL-X, LL-Y …", "Decomposed across: BB-{P}, BB-{Q}" |
 > | Project changelog / release notes | the "Lessons folded in" / "BBs shipped this release" block at the bottom of `README.md` or `CHANGELOG.md` |
@@ -113,13 +113,13 @@ The asymmetry is deliberate. Content-bearing artifacts must read as standalone r
 > - **Source:** BB-NNN P4
 > - **What:** every Spec in `Extracted from:` MUST appear in Cross-References.
 > ```
-> CORRECT — agent check definition stands on its own, sourced (if anywhere) from a plugin-internal design label or the rule it enforces:
+> CORRECT — agent check definition stands on its own, sourced (if anywhere) from a sibling plugin reference file (`references/*.md §`) or the rule it enforces:
 > ```markdown
 > ### Check 042 — Bidirectional EI Consistency
 > - **Source:** `references/ei-fidelity.md` §8.1
 > - **What:** every Spec in `Extracted from:` MUST appear in Cross-References.
 > ```
-> Plugin-internal design IDs (`PLG-NNN` and similar that ship inside the plugin's own design docs) are allowed as `Source:` values because they refer to documents that travel with the plugin. Consumer-project `BB-NNN` and `LL-NNN` do not.
+> A `Source:` value must be a plugin-internal anchor that ships with the plugin — a sibling `references/*.md §` section, or the rule the check enforces. Do NOT use an external bookkeeping ID (`LL-NNN`, `BB-NNN`, `BLI-NNN`, `PLG-NNN`, `D-NNN`): these point at lessons / backlog items / decisions in this or another project's authoring repo that a downstream consumer cannot resolve.
 
 ### 3.4 Bookkeeping artifacts SHOULD carry cross-refs
 
@@ -136,12 +136,20 @@ The asymmetry is deliberate. Content-bearing artifacts must read as standalone r
 
 ## 4. Mechanical Verification
 
-Every BB that produces content-bearing artifacts MUST include a self-containment grep in its Acceptance Criteria. The grep covers BOTH `LL-NNN` and `BB-NNN` patterns across ALL content-bearing artifact paths the BB touched.
+Every BB that produces content-bearing artifacts MUST include a self-containment grep in its Acceptance Criteria. The grep covers ALL external-bookkeeping ID families — `LL-`, `BB-`, `BLI-`, `PLG-`, `D-` — across ALL content-bearing artifact paths the BB touched.
+
+> [!constraint] Which Copy Is Canonical — This File's Own Double-Ship
+> This file itself ships twice on disk: an in-place reference copy (what you are reading)
+> and an installed, path-scoped copy that injects the discipline during artifact authoring.
+> The reference copy is the **single canonical source** — the grep below always reads the
+> reference copy in place, never the installed copy. The installed copy is
+> **injection-only**: it exists solely so this discipline auto-loads while a consumer
+> authors a rule/agent/skill/command artifact; it is never read as a source by other code.
 
 > [!verify] Self-Containment Grep
 > ```bash
 > # Bash / POSIX — replace {paths-touched} with the actual files this BB wrote:
-> grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' \
+> grep -rnE '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9])' \
 >   .claude/rules/{paths-touched} \
 >   .claude/agents/{paths-touched} \
 >   .claude/skills/{paths-touched} \
@@ -154,11 +162,11 @@ Every BB that produces content-bearing artifacts MUST include a self-containment
 > # PowerShell (Windows shells):
 > Get-ChildItem -Path .claude/rules, .claude/agents, .claude/skills, .claude/commands, CLAUDE.md `
 >   -Recurse -Include *.md `
->   | Select-String -Pattern '(LL-\d{3}|BB-\d{3})'
+>   | Select-String -Pattern '(LL-\d|BB-\d|BLI-\d|PLG-\d|\bD-\d)'
 > # MUST return zero matches.
 > ```
 
-If grep returns matches, the BB executor MUST inline the cited content into the rule body or remove the reference. The check is binary — any `LL-NNN` or `BB-NNN` reference in any content-bearing artifact is a fail.
+If grep returns matches, the BB executor MUST inline the cited content into the rule body or remove the reference. The check is binary — any `LL-`, `BB-`, `BLI-`, `PLG-`, or `D-` reference in any content-bearing artifact is a fail.
 
 ### 4.1 What the grep deliberately does NOT cover
 
@@ -169,7 +177,55 @@ The grep scans content-bearing artifact zones only. It deliberately does NOT sca
 | `{lessons_dir}/**` | The Master Table, Rule Promotion Log, and lesson frontmatter all carry cross-refs by design. |
 | `{backlog_dir}/**` | BB Notes, BB header metadata, and the backlog index Dependencies notes all carry cross-refs by design. |
 | `README.md` Changelog / "Lessons folded in" / "BBs shipped" sections | Historical traceability at the document bottom. The user can read it and decide if it is still useful; it does not load-bear the rule prose. |
-| Plugin-internal `PLG-NNN`, `BB-NNN`-style design labels | These are the plugin's OWN bookkeeping (e.g., `BB-031` as a design item inside the plugin's authoring repo), distinct from a consumer project's backlog. They travel with the plugin and never dangle. |
+
+### 4.2 Scope the grep to the promoted content; classify pre-existing whole-file hits
+
+A promotion BB's self-containment grep verifies that **the content the BB promotes** is self-contained. It does NOT automatically mean "every pre-existing cite in the destination file must be removed." A destination rule may already carry a §References section, and `CLAUDE.md` may carry a routing/index table whose provenance column is intentional (§3.4/§4.1). Taken as a literal whole-file zero-match check, the §4 grep can be **impossible to satisfy as written** — not because of any defect in the promoted content, but because the destination already contained exempt or pre-existing hits the BB neither authored nor scoped for removal.
+
+> [!protocol] Scope the Grep to the Promoted Content; Classify Pre-Existing Hits
+> 1. **Scope the grep mentally to the promoted sections.** Confirm the *new* §/checklist/callout content carries zero `LL-`/`BB-` cites (a sibling-rule relative link like `[some-rule.md](some-rule.md)` is allowed; an `LL-NNN`/`BB-NNN` ID in the body is not). That is the binding pass.
+> 2. **Classify every remaining whole-file hit** into: (a) exempt `lessons:` / `closes:` frontmatter provenance; (b) pre-existing content the BB did not touch; (c) intentional bookkeeping/routing tables (e.g. the `CLAUDE.md` rules routing index) that §3.4/§4.1 treat as encouraged traceability.
+> 3. **Decide pre-existing cleanup EXPLICITLY — don't silently gut it.** Removing a pre-existing References section or a routing table destroys intentional traceability and is usually outside the BB's scope. Surface the discrepancy at the VERIFY gate and let the human choose between "promoted content is self-contained, leave pre-existing as-is" vs. "also clean the pre-existing cites in this file."
+
+> [!practice] Write the Promotion BB's Grep Criterion to Match Reality
+> When authoring a promotion BB's grep Acceptance Criterion, write it so it can actually pass: scope its file list/paths to exclude zones that legitimately carry cross-refs, OR annotate the criterion with the expected exempt/pre-existing hits. Otherwise the executor is forced to choose between an impossible literal pass and an unscoped destructive cleanup.
+
+### 4.3 Widen the Gate to Plan-Structure Names — Semantic vs Syntactic Leaks
+
+The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`, `D-`). But the isolation rule this file enforces covers a **semantic** class — *any name that only resolves inside the authoring repo* — while that grep tests only a **syntactic** one (dash-number IDs). A plan-structure name such as a resolved sprint folder `Sprint-N`, or the executing plan's abbreviation, is exactly as unresolvable to a marketplace consumer as a bookkeeping ID — yet it is not ID-shaped, so it passes a green gate and leaks.
+
+> [!constraint] Add a Second Pattern for Plan-Structure Names — Both Greps Must Be Empty
+> WRONG — a single ID-shaped grep passes on a real leak. A shipped comment like
+> `# customization until Sprint-N's transfer flow exists` (with a *resolved* sprint number)
+> passes clean:
+> ```bash
+> git diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9])'
+> ```
+> CORRECT — run TWO patterns; both must return empty:
+> ```bash
+> git diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9])'
+> git diff plugins/planwise/ | grep -E '^\+' | grep -E 'Sprint-[0-9]|{PLAN_ABBREV}-'
+> ```
+> `{PLAN_ABBREV}` is the executing plan's abbreviation, parameterised per plan (substitute the live abbreviation before running).
+
+**Gate semantics:**
+
+- `{PLAN_ABBREV}-` hits are **always** leaks — a plan abbreviation resolves only inside the authoring repo.
+- `Sprint-[0-9]` hits are leaks **unless** the line is demonstrably the plugin's own template/example vocabulary — `templates/`, `examples/`, and `handlers/plan.md` legitimately show resolved sprint folder names (e.g. `Sprint-NN-{Name}`) as sample output of the tool itself. Inspect every hit; never ignore one silently.
+- The `{Sprint-N}` template placeholder (no digit after the dash) stays legal — the pattern targets resolved numerals, not the placeholder.
+- For plan sessions editing non-template plugin files (scripts, handlers, agents, references), expect strictly EMPTY.
+
+### 4.4 Where the Displaced Note Goes — Banning the Reference Must Not Lose the Information
+
+A plan-name comment usually exists because the code is in a deliberate interim state ("this stays conservative until a later flow lands"). Banning the plan name displaces that information; re-home it, do not drop it.
+
+> [!practice] Re-Home the Interim Note in Three Places
+> 1. **Code carries the condition.** The comment states the *generic condition* — true for any consumer regardless of the authoring plan: `# customization until a transfer-to-project-file flow exists`. Never the schedule.
+> 2. **Plans carry the schedule.** At the same moment, record a Cross-Task Coordination Flag whose downstream consumer is the sprint that closes the gap, pointing at the code location **by symbol** (not line) and **quoting the interim comment text** so it is greppable.
+> 3. **Flags carry the linkage.** The flag's Recommended Action tells the closing session to sweep the now-stale interim comments when its feature lands (grep for the quoted text).
+>
+> WRONG — delete the plan name and keep only the generic comment: the closing sprint never learns it owes a comment sweep, and the "until X exists" text quietly outlives X.
+> CORRECT — generic comment in code + a flag row naming the closing sprint, the symbol, and the quoted comment text.
 
 ---
 
@@ -189,7 +245,9 @@ This is the canonical version of the Stage 4 verification. The lesson frontmatte
 
 When a BB executes (via `/planwise backlog` Route A direct-fix, Route B task list, or Route C session plan) and the produced changes include edits under `.claude/rules/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/commands/**`, or `CLAUDE.md`, the Phase 5 VERIFY step MUST run the §4 grep on the produced diff before the BB can be marked COMPLETE.
 
-If the grep finds matches:
+Before treating any grep hit as a failure, classify it per §4.2: hits inside the BB's **promoted** content are blockers (inline the cited content or remove the reference); hits in exempt frontmatter, pre-existing untouched content, or intentional bookkeeping/routing tables are a human decision at the VERIFY gate, not an automatic revert.
+
+If the grep finds (promoted-content) matches:
 
 - **Route A (fix-agent direct fix):** mark VERIFY as failing, return the grep output to fix-agent, ask for an inlining pass.
 - **Route B (task list):** open a follow-up task to inline the cited content; do not mark the BB COMPLETE until the follow-up passes.
@@ -208,7 +266,7 @@ A small set of cases need exemption from the §4 grep. When a BB needs one of th
 | Command-syntax usage examples | `/planwise lessons promote LL-NNN` shown as a literal sample | `handlers/lessons.md`, `README.md` usage examples, skill `examples:` blocks |
 | Seed template starting state | `Next available ID: LL-001` in a fresh project's lessons index | `seed/00-Index-LessonsLearned.md` and equivalents |
 | Sample data rows in template docs | `| LL-NNN | Example Lesson Title | … |` in a "here is the index format" reference table | `handlers/lessons.md` template examples |
-| Plugin-internal design labels | `PLG-NNN`, `BB-031`-style labels referring to the plugin's own design docs | agent definitions, plan-reviewer checks |
+| Bookkeeping frontmatter cross-refs | `applied-as:`, `rule-as:`, `promoted-to:`, `promotion-target:` — lesson frontmatter fields pointing at the owning backlog item or promotion target, not content citations | Lesson frontmatter across `{lessons_dir}/**`, including archived lessons |
 
 Each exemption MUST be a sample/placeholder pattern, NOT a load-bearing cross-reference to recover content from a specific lesson or backlog item. If you find yourself adding an exemption to silence a grep hit that IS actually a citation, the fix is to inline the content — not to widen the exemption list.
 

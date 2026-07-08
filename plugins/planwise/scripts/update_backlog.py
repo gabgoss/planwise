@@ -177,6 +177,53 @@ def sync_yaml_status(item_file_path: Path, new_status: str) -> bool:
     return True
 
 
+def reconcile_archival(
+    index_path: Path, backlog_dir: Path, archive_dir: Path, item_id: str
+) -> bool:
+    """Ensure a COMPLETE/CLOSED item's file(s) live in Archive/ and its links point there.
+
+    State-coupled and idempotent: the correct invariant is a property of the
+    item's *state* ("a closed item's file lives in Archive/ and its index link
+    points there"), not of the *transition* that produced it. This reconcile
+    holds that invariant regardless of how the row reached COMPLETE/CLOSED — a
+    real transition, a closeout hand-edit, or a no-op re-run — so calling it is
+    always safe.
+
+    Reads the index fresh, extracts the row's linked files, moves any still
+    outside Archive/ (archive_item_files reports "already in Archive" for ones
+    already moved), then repoints any index link not already prefixed Archive/.
+    A linked file present in neither location is reported "file not found" — a
+    deleted/renamed anomaly is surfaced, never fabricated. Prints only what it
+    actually reconciled and writes the index only when a link changed, so a
+    second call on an already-archived item changes nothing and stays quiet.
+
+    Returns True when it moved a file or rewrote a link, False otherwise.
+    """
+    content = index_path.read_text(encoding="utf-8")
+    filenames = extract_file_links(content, item_id)
+    if not filenames:
+        return False
+
+    # Normalize to bare filenames — a link may already read "Archive/BB-...md".
+    basenames = [f.rsplit("/", 1)[-1] for f in filenames]
+
+    changed = False
+    results = archive_item_files(backlog_dir, archive_dir, basenames)
+    for filename, success, message in results:
+        if success and message == "moved to Archive":
+            changed = True
+        prefix = "  +" if success else "  !"
+        print(f"{prefix} {filename}: {message}")
+
+    relinked = update_index_links_to_archive(content, item_id)
+    if relinked != content:
+        index_path.write_text(relinked, encoding="utf-8")
+        print("  Index links updated to Archive/")
+        changed = True
+
+    return changed
+
+
 def _row_id_exists(content: str, item_id: str) -> bool:
     """Return True if a Backlog Items row already uses this item ID."""
     target = item_id.lstrip("0")
@@ -453,6 +500,17 @@ def main():
 
     if old_status == new_status:
         print(f"Item {args.id} already has status {new_status}. No change.")
+        # The status write is a true no-op, but archival is state-coupled, not
+        # transition-coupled: an item whose row is ALREADY COMPLETE/CLOSED may
+        # still have its file stranded outside Archive/ (e.g. a closeout that
+        # hand-edited the row without going through this script). Reconcile the
+        # archival location/link even on a no-op status change so the invariant
+        # holds by state — this is precisely the reconciliation call an operator
+        # reaches for, and it used to hit the early-return and no-op. The status
+        # cell and frontmatter are left untouched; only the file location + link
+        # are healed.
+        if new_status in ARCHIVE_STATUSES:
+            reconcile_archival(index_path, backlog_dir, archive_dir, args.id)
         return
 
     index_path.write_text(updated_content, encoding="utf-8")
@@ -467,19 +525,10 @@ def main():
         if sync_yaml_status(item_path, new_status):
             print(f"  YAML status synced: {filename}")
 
-    # Archive item files when status is COMPLETE or CLOSED
+    # Archive item files when status is COMPLETE or CLOSED — same idempotent
+    # state-coupled reconcile used on the no-op path above.
     if new_status in ARCHIVE_STATUSES:
-        filenames = extract_file_links(content, args.id)
-        if filenames:
-            results = archive_item_files(backlog_dir, archive_dir, filenames)
-            for filename, success, message in results:
-                prefix = "  +" if success else "  !"
-                print(f"{prefix} {filename}: {message}")
-
-            archived_content = index_path.read_text(encoding="utf-8")
-            archived_content = update_index_links_to_archive(archived_content, args.id)
-            index_path.write_text(archived_content, encoding="utf-8")
-            print("  Index links updated to Archive/")
+        reconcile_archival(index_path, backlog_dir, archive_dir, args.id)
 
 
 if __name__ == "__main__":

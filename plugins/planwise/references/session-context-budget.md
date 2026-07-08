@@ -93,8 +93,10 @@ meta_plan_threshold     = min(0.80 * available_for_work, 500_000)
 # Practical session limit — soft target for one session's working set
 practical_session_limit = min(available_for_work, 400_000)  # cap at 400K on Max
 
-# DELEGATED check — per-subagent budget
-delegated_cap           = context_window
+# DELEGATED check — per-subagent budget (see § Subagent Context Window)
+# subagent_model_window = window of the model the DELEGATED task is dispatched to:
+#   Opus 1,000,000; Sonnet 200,000; Haiku 200,000 — NOT the parent context_window
+delegated_cap           = subagent_model_window
 ```
 
 | Variable | Pro (200K) | Max (1M) |
@@ -103,7 +105,12 @@ delegated_cap           = context_window
 | `available_for_work` | 100,000 | 900,000 |
 | `meta_plan_threshold` | 100,000 | 500,000 |
 | `practical_session_limit` | 100,000 | 400,000 |
-| `delegated_cap` | 200,000 | 1,000,000 |
+
+`delegated_cap` is **independent of the parent tier** — it is the window of the model the DELEGATED task is dispatched to (see [§ Subagent Context Window](#subagent-context-window)):
+
+| Variable | Opus | Sonnet | Haiku |
+|----------|------|--------|-------|
+| `delegated_cap` (= `subagent_model_window`) | 1,000,000 | 200,000 | 200,000 |
 
 > **Note (threshold precedence):** Where the formula above and these per-tier tables disagree, the **tables are canonical**. On Pro the formula's `0.80 × available_for_work` yields 80K, but the Tier-Specific Budget Table and the per-tier table above both set `meta_plan_threshold = 100K` on Pro (500K on Max) — use the table value. The formula is a derivation aid for non-standard tiers; the tables are the binding decision boundary. `handlers/plan.md` branches on 100K/500K, matching the tables.
 

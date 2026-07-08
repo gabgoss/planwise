@@ -25,6 +25,7 @@ paths: {planwise_root}/{plans_dir}/**
   - [3h.untested-axes Un-Tested Axes — Lead Phase 1 With the BLI's Blind Spots](#3huntested-axes-un-tested-axes--lead-phase-1-with-the-blis-blind-spots)
   - [3h.cluster Cluster Batching](#3hcluster-cluster-batching)
   - [3i. BLI Cross-Cutting Check Coverage at Fix-Agent Delegation Time](#3i-bli-cross-cutting-check-coverage-at-fix-agent-delegation-time)
+  - [3j. Live-Verify Spawn-Prompt Tool-Name Drift](#3j-live-verify-spawn-prompt-tool-name-drift)
 - [4. Plan-Authoring Pre-Flight Checklist](#4-plan-authoring-pre-flight-checklist)
 - [5. Applies To](#5-applies-to)
 - [6. Discovery-Phase Consolidation — Verify Citations and SDK Premises Against Live Source](#6-discovery-phase-consolidation--verify-citations-and-sdk-premises-against-live-source)
@@ -32,10 +33,19 @@ paths: {planwise_root}/{plans_dir}/**
   - [7.1 The recurring failure mode](#71-the-recurring-failure-mode)
   - [7.2 Rule — Required Context table MUST include the canonical source as a BINDING SOURCE row](#72-rule--required-context-table-must-include-the-canonical-source-as-a-binding-source-row)
   - [7.3 Rule — Execution Step 1 MUST be the canonical-file full read](#73-rule--execution-step-1-must-be-the-canonical-file-full-read)
+  - [7.3a Re-locate every edit by content, not by recipe line/step number](#73a--re-locate-every-edit-by-content-not-by-recipe-linestep-number)
+  - [7.3b Verify data shapes against the live file before writing code](#73b--verify-data-shapes-against-the-live-file-before-writing-code)
+  - [7.3c System-consistent value beats recipe literal — flag the divergence](#73c--system-consistent-value-beats-recipe-literal--flag-the-divergence)
+  - [7.3d Structured-data entries: derive from a same-class on-disk example; parser-load before close](#73d--structured-data-entries-derive-from-a-same-class-on-disk-example-parser-load-before-close)
   - [7.4 Why task-level enforcement, not reference-level](#74-why-task-level-enforcement-not-reference-level)
   - [7.5 Scaffold-time verification command](#75-scaffold-time-verification-command)
   - [7.6 Exempt task types](#76-exempt-task-types)
   - [7.7 Applies-to surface](#77-applies-to-surface)
+- [8. Verifying Source Edits When the Installed Plugin Is Older Than the Source](#8-verifying-source-edits-when-the-installed-plugin-is-older-than-the-source)
+- [9. Backlog-Item Citation Freshness at Execution Time](#9-backlog-item-citation-freshness-at-execution-time)
+  - [9.1 Re-derive pinned sequential identifiers from the live artifact](#91-re-derive-pinned-sequential-identifiers-from-the-live-artifact)
+  - [9.2 Re-locate cited code anchors by symbol; re-check acceptance criteria against HEAD](#92-re-locate-cited-code-anchors-by-symbol-re-check-acceptance-criteria-against-head)
+  - [9.3 Verify pre-drafted narrative attributions against the live file](#93-verify-pre-drafted-narrative-attributions-against-the-live-file)
 
 ---
 
@@ -461,6 +471,43 @@ When the BLI is routed to DIRECT_FIX, the fix-agent spawn prompt MUST include th
 | BLI Notes mentions "may surface latent defects in N other {DTOs / files / call sites}" | Author hedged on count but expects co-discovery during the fix |
 | Defect signature is a missing attribute, missing import / using, or missing helper call (mechanical, repo-wide-pattern defects) | A repo-wide grep almost always reveals additional sites |
 
+### 3j. Live-Verify Spawn-Prompt Tool-Name Drift
+
+A live-verify spawn prompt or task spec is a spec-like artifact. Any tool NAME it pins is an in-repo identifier subject to the same verify-against-shipped-artifact discipline as a third-party SDK type name or cross-sprint codebase symbol.
+
+> [!constraint] Tool names in a live-verify spawn prompt or task spec MUST be verified against the deployed tool surface before authoring
+> WRONG — name ID-lookup tools (or any tools) from convention or memory in the
+> spawn prompt; the runner discovers the tools are absent at runtime:
+> ```text
+> Before acting, obtain ids:
+>   --call list_widgets        (widget id)
+>   --call list_categories     (category id)
+> # Neither tool exists in the live tool surface — the runner discovers this at
+> # runtime, mid-gate, costing a discovery cycle and a deviation note.
+> ```
+> Common failure mode: `list_*` is a plausible-sounding convention that is not
+> actually the naming pattern used in the shipped tool surface.
+>
+> CORRECT — verify names against the deployed surface at authoring time, OR
+> underspecify and instruct the runner to enumerate via the runtime's
+> tool-discovery command and pick the closest equivalent; do not assume a
+> `list_*` convention:
+> ```text
+> Before acting, obtain ids from the LIVE tool surface:
+>   - widget id:   read_widgets       (verified present in the live tool surface)
+>   - category id: ensure_categories (Matched outcome) or read_all_categories
+> If a named tool is absent, enumerate via the runtime's tool-discovery command
+> and pick the closest equivalent — do not assume list_*.
+> ```
+>
+> Either verification approach costs under a minute:
+> - The runtime's tool-enumeration / discovery command lists the registered tools
+>   (the canonical runtime source of truth).
+> - A grep of the tool-registration declarations in the server's source tree
+>   confirms the shipped name set statically, without a live launch.
+
+This extends §3d (tool / framework already wired in the project) from build-time framework drift to **runtime tool-name drift** in live-verify orchestration.
+
 ---
 
 ## 4. Plan-Authoring Pre-Flight Checklist
@@ -592,6 +639,78 @@ Every fix task targeting a cross-repo canonical file MUST begin its Execution St
 
 This is the FIRST step — before "build mental model of fix", before "verify line ranges from audit", before any code edit. The full-read gate exists because agents have historically conflated audit excerpts with live state and shipped fixes that no longer apply.
 
+The full read at Step 1 is necessary but not sufficient. §7.3a–§7.3d bind the execution-time sub-rules that fire *after* the canonical file is in context — the discipline that turns a clean full read into a faithful edit.
+
+### 7.3a — Re-locate every edit by content, not by recipe line/step number
+
+Recipes carry step IDs, line numbers, and section shapes captured at audit time. After reading the canonical file in full at Step 1, find every edit target by its unique content anchor — heading text (`## Step 4 — …`), a function name, or a unique anchor string — never by the recipe's absolute line or step number. Where the recipe's structural claim conflicts with the live file (a list where the recipe shows a table, a different step count, content that has moved), the live file wins.
+
+> [!constraint] Locate edits by content anchor; the live file's shape overrides the recipe's
+> WRONG — apply a recipe's "Step 4.4" insert verbatim, overwriting an unrelated step that was renumbered since the recipe was authored; apply a recipe line-range to an already-shifted location:
+> ```
+> # recipe says: insert the git-commit step at "Step 4.4"
+> # → blindly edits the current Step 4.4, which is now a different, unrelated step
+> ```
+> CORRECT — read the full canonical file (Step 1 done), then locate the insertion point by heading text and function name rather than any recipe-provided step/line number; note the discrepancy in a deviation comment:
+> ```
+> # locate "## Step 4 — …" by heading text; find the git-commit anchor by content
+> # recipe said Step 4.4 but the live file now numbers it Step 4.5 — note the divergence + proceed
+> ```
+
+### 7.3b — Verify data shapes against the live file before writing code
+
+Excerpt-only patches can compile-fail or crash at runtime. After Step 1 (full read), verify every data shape, function signature, and argparse behaviour the recipe claims before writing code that relies on them. If the live shape differs from the recipe, implement against the live shape and flag the recipe divergence.
+
+> [!constraint] Read the live function/class to confirm shape before coding the recipe's edit
+> WRONG — code directly from the recipe's data-shape claims:
+> ```python
+> max((int(i.id) for i in items))   # recipe assumes objects; live items are dicts → AttributeError
+> _load_index(config)               # recipe calls a function that does not exist in the live file → NameError
+> ```
+> CORRECT — read the relevant function/class in the live file first, implement against the live shape, flag the divergence:
+> ```python
+> max(int(i["id"]) for i in items)  # live items are dicts: item["id"]
+> # the recipe's _load_index is not present in the live file — use the live index-loading path; note the divergence
+> ```
+
+### 7.3c — System-consistent value beats recipe literal — flag the divergence
+
+Where the recipe's literal value conflicts with the live system — an enum, a template default, or a naming convention — the live system's value is the system-consistent choice. Copy the recipe's value only when the live system's authoritative check (the enum list, the constant, the template) confirms it is valid; otherwise implement the system-consistent value and flag the recipe's divergent literal in a deviation note rather than silently copying it.
+
+> [!constraint] When a recipe literal is not in the live enum/template, implement the system value and flag it
+> WRONG — copy the recipe literal verbatim, injecting a value the live system rejects:
+> ```
+> # recipe: new-item --status should default to "Open"
+> --status "Open"   # "Open" is not a member of the live status enum
+> ```
+> CORRECT — implement the system-consistent value confirmed by the live enum + template default; flag the recipe's divergence:
+> ```
+> --status "NOT_STARTED"   # the live template default and a member of the status enum
+> # recipe said "Open"; not a valid status — diverged + noted in a deviation comment
+> ```
+
+### 7.3d — Structured-data entries: derive from a same-class on-disk example; parser-load before close
+
+When writing new entries to a self-describing structured file (YAML/JSON/TOML): (1) derive field values from an existing same-class on-disk entry rather than from the recipe/skeleton — the file's own declared enum sets and field names take precedence over a spec example; and (2) run a parser load as the mandatory final step of the editing task, not just a content grep. The parser load is the minimum exit criterion; a passing grep does not prove a schema-valid file.
+
+> [!constraint] Derive structured-file fields from an on-disk same-class entry, then parser-load before closing
+> WRONG — copy the skeleton field verbatim; the value belongs to a different enum block and the entry is schema-invalid:
+> ```yaml
+> missing_key_behavior: not_installed   # invalid: not_installed is an upgrade_behavior, not a missing_key_behavior
+> ```
+> CORRECT — derive each field from the existing same-class on-disk entry, then parser-load:
+> ```yaml
+> missing_key_behavior: warn_loud       # matches the canonical same-class on-disk entry
+> upgrade_behavior: not_installed
+> ```
+
+> [!verify] Parser-load is the mandatory final step of any YAML/JSON/TOML edit
+> ```bash
+> python -c "import yaml; yaml.safe_load(open('{file}'))"
+> # Must return without error. Then confirm each written value is a member
+> # of the enum block declared at the top of the file.
+> ```
+
 ### 7.4 Why task-level enforcement, not reference-level
 
 Documenting canonical-source discipline only in a reference file (such as this one) has historically produced variable adherence — "the agent should know to do this" devolves into the agent NOT doing it whenever the reference doesn't load into the agent's context window at execution time. By forcing the rule into every fix-task file's Required Context table AND Execution Steps Step 1, the discipline becomes:
@@ -638,6 +757,108 @@ All other cross-repo fix tasks MUST comply.
 - An upstream package cache or vendor extraction whose live state may diverge from the snapshot captured in audit excerpts
 
 The §3g internal-placement check (the project's own scoped-rules registry) is the in-repo analog of §7; together they cover both axes of "the spec quotes a file path; the agent must verify against the live destination, not the spec snapshot."
+
+---
+
+## 8. Verifying Source Edits When the Installed Plugin Is Older Than the Source
+
+When editing the plugin **source** while an older version is **installed and running**, verification signals split into two categories that MUST be treated differently.
+
+> [!constraint] Separate deterministic source-level evidence from live-behavior signals; defer live checks to post-install
+>
+> WRONG — treat a successful dispatched-subagent run, or live path-rule injection showing ~0 rules, as proof that source edits are correct. Those checks run the *installed* artifacts, not the edited source.
+>
+> CORRECT — prove source behavior deterministically: run the unit test suite, call edited functions directly against a temp copy, and run a read-only linter (`--doctor`) for before/after measurement. Explicitly mark live-behavior checks (dispatched agent definitions, live injection probes) as **DEFERRED-to-post-install** and record the exact post-`upgrade` re-test to run.
+
+**Deterministic source-level evidence (reliable under version split):**
+- Unit test suite run against the source directory directly
+- Direct function / script calls against a temp copy of the edited file
+- Read-only `--doctor` output (before/after line count, section presence)
+- Static grep checks on the edited source text
+
+**Live-behavior signals (unreliable under version split — defer):**
+- Dispatched subagent runs (spawn a `{plugin}:task-runner` or equivalent) — these load the *installed* agent definition, not the edited source
+- Live path-rule injection probes ("does a brief-read inject N rules?") — these reflect the *installed* handler, not the edited handler
+- Any check that depends on the running harness loading the edited artifact
+
+**Model override weakens live signals further:** if a live acceptance check is forced to a model tier different from the fix's target (e.g., Opus 1M for a 200K-window overflow fix), name it a weakened signal and make the deterministic measurement primary.
+
+**Recording deferred checks:** For each live-behavior signal deferred, record:
+1. What the check would prove (the exact claim it tests)
+2. The post-`upgrade` command to re-run it
+3. That the deferred check is NOT a pass — it is explicitly unresolved until post-install
+
+---
+
+## 9. Backlog-Item Citation Freshness at Execution Time
+
+A backlog item's body is a snapshot; every reference it pins — a sequential identifier, a `file:line` code anchor, an acceptance criterion, a narrative claim about which artifact carries which behavior — is a *hypothesis* about a live artifact, and must be re-proven at execution time, never trusted. The item may have been drafted days or sprints before it is worked, and in that interval sibling changes land: a promotion consumes the next-free number, a file grows and its line anchors move, a criterion becomes satisfied by code that arrived after authoring, a symbol the note names turns out to hold a different assertion. Applying any stale citation verbatim ships a defect. Re-derive each cited reference from the current artifact — by content grep or measurement — immediately before acting on it.
+
+This is the backlog-execution sibling of §7.3a–§7.3d (fix-recipe execution-time fidelity) and §8 (verification under an older installed plugin): the same "verify against the live artifact, not the snapshot" principle, applied to the triage → fix surface where the drifting reference is the item's own pre-drafted citation rather than an audit recipe.
+
+### 9.1 Re-derive pinned sequential identifiers from the live artifact
+
+> [!constraint] A pre-drafted Check number / catalog row / §-number is next-free at DRAFT time only — re-derive it from the live artifact before inserting
+>
+> A backlog item drafted ahead of execution typically pins a **sequential artifact identifier** — a `plan-reviewer.md` Check number, an Error Pattern Catalog row number, a reference §-number — to whatever was next-free *at draft time*. Those numbers are not stable: any other change that lands between drafting and execution consumes the next slot. Before inserting, re-derive the next-free identifier from the **live** artifact and renumber the deliverable (and any in-item self-references — group labels, acceptance criteria) to match.
+>
+> WRONG — trust the item's drafted number:
+> ```
+> item says "add Check 066" → insert `### Check 066` → the file now has two Check 066 sections.
+> # A duplicate identifier silently breaks cross-references and any detection grep keyed on the number.
+> ```
+>
+> CORRECT — re-verify against the live artifact, then renumber:
+> ```
+> grep '^### Check 0' agents/plan-reviewer.md   → max existing = 066
+> next-free = 067 → insert `### Check 067`; update the item's group label + acceptance criteria to 067.
+> ```
+>
+> The rule generalises to any monotonically-allocated identifier (Check number, Error Pattern Catalog row, reference §-number). Cost: one grep per pinned identifier. Failure it prevents: a duplicate ID shipped in an artifact. In a queue of promotions, the later-executed item MUST re-verify — an earlier-executed sibling may have consumed the slot.
+
+### 9.2 Re-locate cited code anchors by symbol; re-check acceptance criteria against HEAD
+
+> [!constraint] Treat a backlog item's `≈L####` as a hint, never an address; re-check every acceptance criterion against current code before writing a fix
+>
+> Line numbers and acceptance criteria are snapshots that rot as the codebase moves on. Before scoping or implementing, re-verify each against the **current** source:
+>
+> - **Anchors → re-locate by content.** Grep the cited function/symbol name; treat the item's `≈L####` as a hint, never an address. A partially-correct anchor set (some anchors still exact, some stale) is the dangerous case — it lulls you into trusting the rest.
+> - **Acceptance criteria → re-check against HEAD.** A criterion may already be satisfied by code that landed after the item was authored. Run the cheapest proof (grep for the constant, a throwaway dry-run) before writing a fix, and record it as "already satisfied — verified" rather than silently dropping it.
+>
+> WRONG — read the cited line range directly:
+> ```
+> item cites "the comparison in foo.py (≈L1614–1628)" → read foo.py L1614–1628.
+> # After the file grew, the real logic moved to a different function ~400 lines away; the read lands on unrelated code.
+> ```
+>
+> CORRECT — re-locate by symbol, treat the line number as a cost hint only:
+> ```
+> grep -n "def _run_upgrade" foo.py   → real location of the logic
+> # For each acceptance criterion, run the cheapest proof it is still unsatisfied before writing code.
+> # A criterion already satisfied by later code → record "already satisfied — verified", never silently drop it.
+> ```
+
+### 9.3 Verify pre-drafted narrative attributions against the live file
+
+> [!constraint] Verbatim fidelity binds the RULE CONTENT being promoted — not incidental wiring prose that names a sibling symbol; re-attribute those to the artifact that actually carries the behavior
+>
+> A backlog item's body is authored ahead of execution; its **narrative claims about which artifact carries which behavior** drift the same way pre-drafted sequential IDs and cited code anchors drift. Before inlining a pre-drafted note that asserts "test/section/function X does Y", verify the claim against the live file and reword to name the artifact that actually carries the behavior.
+>
+> WRONG — inline the item's note verbatim because the content was "fully specified":
+> ```
+> The `test_read_constants_are_fixed_values` test also asserts a cross-model
+> ratio band: 1.4 ≤ … ≤ 1.55 (see …::test_cross_model_ratio_band).
+> ```
+> The note is internally contradictory: it attributes the assertion to one test, then cites a different one. `test_read_constants_are_fixed_values` asserts the FIXED caps only; the ratio band lives in the sibling method.
+>
+> CORRECT — read the live file first, then attribute to the method that actually holds the assertion:
+> ```
+> The read-constant tripwire is paired with a cross-model ratio-band assertion:
+> `…::test_cross_model_ratio_band` asserts 1.4 ≤ opus/sonnet ≤ 1.55 for the same file.
+> A ratio drift outside this band signals a tokenizer-weight change.
+> ```
+>
+> Rule of thumb: a "paste verbatim" mandate covers the rule content and its WRONG/CORRECT examples; it never covers a factual claim about which test / section / function / check carries a behavior — those must match the live artifact.
 
 ---
 

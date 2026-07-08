@@ -47,6 +47,7 @@ Available subcommands:
   run [@orchestration-file]    Execute a planned session
   upgrade                      Refresh installed rules/agents after a plugin update
   doctor                       Report rules over-scoped to plan/backlog paths (injection-budget risks)
+  doctor --prune-stale         Delete stale de-scoped rules flagged REMOVABLE (writer; opt-in)
   token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
   backlog [item-id]            Triage backlog items; capture follow-up BLIs from resolution outputs
   list                         List all plans with status
@@ -73,9 +74,15 @@ ARGUMENTS: $ARGUMENTS
 
 ## Base Context
 
+**Pre-injected with this skill** — apply to every subcommand (mirrored by each handler's **Base references** note):
+
 - [Markdown conventions](../../references/markdown-conventions.md)
 - [Callout conventions](../../references/callout-conventions.md)
 - [Agent orchestration](../../references/agent-orchestration.md)
+- [Do the hard things](../../references/do-the-hard-things.md) — the project motto: favor the coherent, complete treatment over the easy partial one; effort is never the tiebreaker
+
+**Loaded on demand, NOT pre-injected** — each is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. Key references (not exhaustive — handlers own the full set):
+
 - [Scaffolding hygiene](../../references/scaffolding-hygiene.md)
 - [Discovery and exit criteria](../../references/discovery-and-exit-criteria.md)
 - [EI fidelity](../../references/ei-fidelity.md)

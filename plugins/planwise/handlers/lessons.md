@@ -29,7 +29,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
 **Conditional references:**
 - If running curate mode: Read `references/lessons-curate-workflow.md`
@@ -119,7 +119,7 @@ Halt without modifying any files.
 
 ### Workflow
 
-Curate runs two phases against the lesson set. **Phase 1** diffs the master index against the categorisation file, reads uncategorised `LL-*` files in full, applies the config-driven decision tree, and appends rows to the matching bucket tables. **Phase 2** greps for `status: applied` / `status: rule`, verifies each `applied-as` artifact exists, and appends rows to the Rule Promotion Log in the master index. Optional file moves to `Archive/` require explicit user approval.
+Curate runs two phases against the lesson set. **Phase 1** diffs the master index against the categorisation file, reads uncategorised `LL-*` files in full, applies the config-driven decision tree, appends rows to the matching bucket tables, and tags each lesson's `promotion-target` from its body using its existing callout/markdown conventions (a fenced code block or diff reads as `code`; a `MUST`/`NEVER` callout reads as `rule`; and so on) — a lesson whose body maps to more than one target type is flagged as a split candidate. **Phase 2** finds `status: promoted`, lands those whose owning backlog item has shipped — reconciling `applied-as` and flipping status to `rule`/`applied` with a Rule Promotion Log row — and also heals any `documented` lesson that turns out to be fully owned by a backlog item forward to `promoted`. Optional file moves to `Archive/` require explicit user approval.
 
 See `references/lessons-curate-workflow.md` for the binding step-by-step protocol (bucket selection algorithm, reporting format, anomaly detection, and constraint set).
 
@@ -185,7 +185,7 @@ The `--dry-run` flag is orthogonal to scope. When present, the workflow short-ci
 | `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md` | One new BB file per planned grouping |
 | `{backlog_dir}/{backlog_index}` | Appended row per new BB; `Last Updated` bumped |
 | Scoring | `python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml` is invoked after writes to compute Score columns |
-| Lesson files | NOT modified — status flips happen at BB execution time, not BB drafting time |
+| Lesson files | MODIFIED at capture — fully-captured lessons flip `documented` → `promoted`, gain `promoted-to:`, `git mv` to `Archive/`, Master Table updated |
 
 The single-lesson `promote <id>` mode below is preserved verbatim. Batch promotion is a parallel path, not a replacement.
 
@@ -336,6 +336,17 @@ Read domain abbreviations from `config.yaml` (`abbreviations` and `lesson_abbrev
 
 ### Step 2: Draft
 
+> [!important] Inline the content the capture depends on
+> When a lesson's value rests on specific content — the block it will later promote, the evidence behind the finding, an exact spec, the failing command and its output — **paste that content into the lesson verbatim**. A pointer (a session reference, a scratch file, a path) is welcome *alongside* the inlined content for context or provenance, but it must NOT be the *sole* carrier of the substance: the lesson must stay promotable and usable if that source becomes unavailable.
+> - **Inline:** the verbatim WRONG/CORRECT example, the failing command + its output, the exact before/after, the spec to promote.
+> - **Reference-only is acceptable** for: large, stable in-repo files that will still exist later AND are not the unique carrier of the lesson's substance.
+> - **Durability test:** "If this session's scratch and the originating repo vanished tomorrow, could someone promote this lesson from the file alone?" If no, inline more.
+>
+> This is a different concern from shipped-artifact self-containment (`references/artifact-self-containment.md`, which strips internal identifiers out of a promoted artifact) — here the goal is that the lesson itself carries its own substance so it survives to be promoted.
+
+> [!tip] Prefer single-purpose lessons
+> Building on the inlining principle above — once the substance is pasted in, keep each lesson's promotion scope to **one target type** (`rule`, `code`, `claude-md`, `agent`, `skill`, or `settings`). Infer the type from the lesson's structure: a fenced code block or diff usually promotes to `code`; a `MUST`/`NEVER` callout usually promotes to `rule`. When a single insight genuinely spans multiple target types, capture **2+ small, cross-linked lessons** instead of one coarse lesson — inlined, single-purpose lessons are easier to promote cleanly than one that tries to cover several targets at once.
+
 Create a candidate lesson with pre-filled YAML frontmatter:
 
 ```yaml
@@ -351,6 +362,8 @@ technology: [{inferred}]
 domain: [{inferred domain abbreviation}]
 status: documented
 applied-as: null
+promotion-target: [rule|code|claude-md|agent|skill|settings]   # one or more target types; multi-value = coarse / split-candidate
+# promoted-to:                                                  # owning backlog item id(s), e.g. BB-{NNN}; set at capture-archive
 ---
 ```
 
@@ -358,6 +371,7 @@ applied-as: null
 
 Present the draft to the user:
 - Show pre-filled frontmatter and draft Context/Lesson/Applies To sections
+- **Self-containment check:** confirm the draft inlines every block, example, or command output the lesson depends on — a reference may add context, but the substance required to promote it later is pasted in, not only linked. (Apply the durability test in Step 2.)
 - Ask: "Capture this lesson? (approve / edit / skip)" <!-- AUTO-MODE: critical -->
 
 ### Step 4: Write
@@ -377,15 +391,26 @@ If skipped, discard the draft. No file is written.
 
 ## Lesson Status Lifecycle
 
-Lessons graduate through three statuses:
+Lessons graduate through a branching set of four statuses:
 
 ```
-documented → applied → rule
+                  ┌─ single-lesson promote / already-landed ──────────────────────┐
+                  │                                                                ▼
+   documented ────┤                                                          applied | rule
+                  │                                                                ▲
+                  └─ promote-batch (fully captured into backlog item[s]) ─→ promoted ┘
+                         (archive-on-capture)                    (curate --phase=promote:
+                                                                  owning item shipped → land)
 ```
+
+- `documented → applied | rule` directly: single-lesson promote, or a lesson already landed at capture time (capture and landing simultaneous; never enters `promoted`).
+- `documented → promoted`: promote-batch, when every fragment is owned by a drafted backlog item (archive-on-capture).
+- `promoted → applied | rule`: curate `--phase=promote`, when the owning backlog item ships (landing).
 
 | Status | Meaning |
 |--------|---------|
-| `documented` | Lesson captured, available for reference |
+| `documented` | Captured; not yet owned by any backlog item. |
+| `promoted` | Fully captured into actionable backlog item(s); archived; awaiting landing; the backlog item is the live owner. **archived ≠ landed.** |
 | `applied` | Lesson has been manually applied in practice (proven useful) |
 | `rule` | Lesson promoted to a Claude Code artifact |
 

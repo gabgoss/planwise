@@ -42,7 +42,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
 **Run-specific references (always load):**
 1. Read `references/session-execution-protocol.md`
@@ -53,6 +53,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
 - If a task involves DB writes or MERGE/upsert briefs: Read `references/task-content-fidelity.md`, `references/schema-pin-requirement.md`
 - If a session is IPC/protocol/codec: Read `references/verification-gates.md`
+- If executing in DELEGATED mode (orchestrator dispatches task-runner subagents): Read `references/agent-orchestration-delegated.md`
 
 ---
 
@@ -118,6 +119,27 @@ Read these files completely (not skim):
 
 While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [session-execution-protocol.md §1.2](../references/session-execution-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
 
+### Step 1.1a: RECONCILE (Flag-Reconciliation Preflight)
+
+> [!binding] Route binding cross-sprint flags into task files BEFORE confirming
+> A binding coordination flag recorded in a sprint plan's `Carried-Forward Coordination Flags` section only reaches sessions scaffolded AFTER it lands. When THIS session was already scaffolded when the flag was recorded, the "re-propagate at scaffold time" step never fired — the session orchestrator reads only the orchestration / Recovery / task files, the flag is invisible, and tasks execute their stale EI-verbatim specs. In the incident this rule exists to prevent, a destructive prune operation shipped able to delete user content the contract existed to protect, and only a closeout cross-check caught it. Reconcile flags into the task files at session start, before the CONFIRM block.
+
+> [!checklist] Flag-Reconciliation Preflight (Phase 1, between READ and CONFIRM)
+> - [ ] Read the sprint plan's `Carried-Forward Coordination Flags` section (if present)
+> - [ ] For each flag recorded ON OR AFTER this session's scaffold date: check it appears in the orchestration's `Pre-Known Cross-Task Coordination Flags` AND in every affected task file
+> - [ ] Route each missing flag: write it into the affected task file(s) under `## Pre-Known Cross-Task Coordination Flags`, and carry it into that task's spawn prompt at dispatch
+> - [ ] Record the routing in Recovery (one Change Log row: "flag preflight — N flags routed to tasks X, Y")
+> - [ ] If a routed flag CONTRADICTS a task spec or EI verbatim block → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first
+
+**The two-hop propagation model (why the receiver routes the last hop):**
+
+A coordination flag reaches an executing task in two hops, and each hop has exactly one owner:
+
+- **Hop 1 — upstream closeout (sender).** The closing session delivers every flag to the downstream session's FRONT DOOR: the orchestration file's `Pre-Known Cross-Task Coordination Flags` section when that session is already scaffolded, else the sprint plan's `Carried-Forward Coordination Flags` section. The sender NEVER reaches into another session's task files — it does not own that decomposition and would race a concurrent session editing the same files.
+- **Hop 2 — downstream session start (receiver, THIS preflight).** This session routes each flag the final hop into its own task files, because it already reads every task file, knows its own decomposition, and is the single writer of its own files.
+
+Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the flag MUST say so explicitly (e.g. "the LIVE implementation supersedes EI §N"). A runner copying a "verbatim" spec has no reason to doubt it otherwise. Spawn-prompt injection alone (without the task-file write) is acceptable ONLY for informational flags; a binding contract belongs in the task file so it survives session resumption and is visible to reviewers.
+
 ### Step 1.2: CONFIRM
 
 Output the confirmation block:
@@ -139,6 +161,9 @@ If Step 1.1 surfaced a structural defect that makes the literal task scope produ
 If the user approves Option A (or any expansion beyond the literal scope), the Phase-1 approval reference (the AskUserQuestion turn or timestamp) MUST be recorded in:
 - Recovery's `Scope-Expansion Decisions` section (see [templates/recovery.md](../templates/recovery.md))
 - Summary's `Scope-Expansion Decisions` block in Context Notes (see [templates/summary-template.md](../templates/summary-template.md))
+
+> [!practice] Recommend the Coherent Option — Effort Is Not a Tiebreaker
+> When surfacing Option A (Coherent) / Option B (Literal) — or any fix-versus-patch choice that arises during execution — the "(Recommended)" label goes to the coherent, complete treatment by default. Diff size, renumbering churn, or ripple through dependent files is never by itself a reason to recommend the partial path: dependent references are exactly what closeout reconciliation exists to update. Recommend the partial path only when a real constraint forces it (an interface external consumers already depend on, an irreversible-migration boundary, an explicit user deadline) and name that constraint in the recommendation. The user still chooses — this rule governs which option the executor endorses. Project quality compounds; deferred coherence rarely gets cheaper than it is today. Full principle, exception clause, and stage table: [do-the-hard-things.md](../references/do-the-hard-things.md).
 
 ### Step 1.3: ACT
 
@@ -230,7 +255,9 @@ Task(
   description: "Execute task {task-num}: {task-name}",
   model: "{model-override-from-task-file-Agent-field}",
   prompt: |
-    Execute the following task:
+    Execute the following task YOURSELF, directly, with your own tool calls.
+    Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
+    tool calls) — you ARE the task-runner.
 
     Task file: {task-file-absolute-path}
     Session ID: {session-id}
@@ -398,11 +425,14 @@ Ask the user: "Were any lessons learned during this session?"
    - If all sprints COMPLETE BUT user-action gates pending (per Master Plan "Project Complete When" section) → `Status: IN_PROGRESS — awaiting {user action}` (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
    - If not all sprints COMPLETE → `Status: IN_PROGRESS`
 
-   > [!practice] User-Action-Gate Check (BLI-031 P3)
+   > [!practice] User-Action-Gate Check
    > When all sprints COMPLETE, check Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain, set IN_PROGRESS with note — NOT COMPLETE.
 5. Update plans index row for this plan in `{plans_dir}/{plans_index}`:
    - Set **Status** to match the Master Plan status (e.g., IN_PROGRESS or COMPLETE)
    - Set **Last Updated** to today's date
+
+> [!constraint] Twin-BB reconciliation — if a backlog route already shipped this plan's deliverables, reconcile instead of duplicating
+> A plan and a backlog item that name the same deliverables are twins. If this session found its deliverables **already satisfied** at the first dispatch layer — you grepped each deliverable against the live target and it already existed — the work was shipped through a backlog route (`/planwise backlog` Route A/B, a direct commit) and this twin plan was never retired at that route's closeout. Do NOT re-author or re-run idempotency-unsafe steps ("append N rows", "insert at max+1") against already-satisfied state. Reconcile instead: set this plan's Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{NNN} {route} {date})`, update its plans-index row, and record the linkage in the Summary. A plan that is entirely already-satisfied at its first dispatch layer is the signal that its twin was never retired.
 
 ### Step 4.4: Propagate Cross-Task Coordination Flags
 
@@ -416,8 +446,12 @@ Ask the user: "Were any lessons learned during this session?"
    |---------------------|--------------|
    | A specific named task in a later session | That task's file under `## Pre-Known Cross-Task Coordination Flags` |
    | A whole session (consumer task unclear) | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` |
-   | A future sprint (consumer task not yet authored) | That sprint plan's `## Carried-Forward Coordination Flags` section |
+   | A future sprint, downstream sessions NOT yet scaffolded on disk | That sprint plan's `## Carried-Forward Coordination Flags` section |
+   | A future sprint whose downstream session is ALREADY scaffolded on disk | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` (the sprint-plan `Carried-Forward` entry remains as the record) |
    | A follow-up plan not yet written | The current Master Plan's `## Carried-Forward Coordination Flags` section + the rollup/handoff task file |
+
+   > [!constraint] "Future sprint" → `Carried-Forward` applies ONLY while the downstream session is unscaffolded
+   > The sprint-plan `Carried-Forward Coordination Flags` destination reaches a downstream session ONLY at that session's scaffold time. Once the downstream session already exists on disk, it never re-reads the sprint plan's `Carried-Forward` section at its own start — so a flag dropped there after scaffolding is invisible to it. When the downstream session is already scaffolded, deliver the flag to that session's orchestration file front door instead (keep the sprint-plan entry as the record). The sending side NEVER edits another session's task files: it does not own that decomposition and risks racing a concurrent session. The receiving session routes the flag the last hop into its own task files at its Phase-1 Flag-Reconciliation Preflight (Step 1.1a).
 
 3. Use the Propagated Flag Block format from §1.3 — group flags under `### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}` and reserve a `### From {next-source-session-id} — to be appended when session completes` placeholder so later closeouts know where to append.
 4. If the destination file does not yet have a `## Pre-Known Cross-Task Coordination Flags` (or `## Carried-Forward Coordination Flags`) section, create it; if it does, append under it.
@@ -428,6 +462,11 @@ Ask the user: "Were any lessons learned during this session?"
 ### Step 4.5: Git Commit
 
 If the session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before staging. Per `references/session-execution-protocol.md` §7 Git Workflow.
+
+> [!binding] Destructive-Diff Pre-Commit Review Gate
+> - [ ] If this session's diff adds or widens a destructive disposition (delete / overwrite / migrate / prune / sweep): a pre-commit adversarial multi-agent code review was run as a gate DISTINCT from script verification, its findings fixed, and regression tests added in the same session. (A green suite + clean lint + passing smoke does NOT satisfy this gate.)
+>
+> "Run script verification" and "run code review" are DIFFERENT gates; the second is mandatory when the diff touches destructive dispositions, even when the first is fully green — a fresh feature's tests are written by the same mind that wrote its bugs, so a green suite says nothing about the inputs nobody imagined (BOMs, block-style YAML, non-dict JSON cache entries, retry-after-crash staleness, filename collisions).
 
 ```bash
 git add {specific files changed during session}
@@ -554,7 +593,9 @@ b. Launch `task-runner` agent:
      description: "Execute task {task-num}: {task-name}",
      model: "{agent-from-task-file}",
      prompt: |
-       Execute the following task:
+       Execute the following task YOURSELF, directly, with your own tool calls.
+       Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
+       tool calls) — you ARE the task-runner.
 
        Task file: {task-file-absolute-path}
        Session ID: {session-id}
@@ -564,9 +605,14 @@ b. Launch `task-runner` agent:
    )
    ```
 c. Wait for task-runner to return
-d. Read updated recovery file -- check task status
-e. If BLOCKED: decide proceed or halt based on dependencies
-f. If COMPLETE: update TaskList, proceed to next task
+d. **Classify the return before consuming it** — apply the diagnosis table in [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md). A return is a real completion only when it carries a structured report (status + verification results) AND its deliverables verify on disk — gate acceptance on the on-disk check, never on the `completed` status alone (§1.17.4). The three failure signals — and their resume, never a fresh dispatch:
+   - **Fast return + dispatch-voice reply ("I've dispatched… I'll report back") + clean tree** = self-delegation → resume the SAME agent with the execute-yourself directive (§1.17.2).
+   - **Mid-work narration ending in a colon/next-step phrase + dirty tree with partial edits** = message-boundary stall → resume the SAME agent with a continuation message (quote its last line, forbid re-editing completed work, enumerate only the remaining items, restate the report format) (§1.17.3).
+   - **`completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits report fields** = mid-action stall masquerading as completion → run the on-disk acceptance gate (grep the edit target for the symbol that was supposed to change; `git status --short` for the expected file set; confirm the Recovery step row flipped), then resume the SAME agent to finish rather than re-dispatch (§1.17.4).
+   After any resume — and before accepting any `completed` return — verify on disk: `git status` / diff on the edit target, the changed symbol is present, and Recovery advanced.
+e. Read updated recovery file -- check task status
+f. If BLOCKED: decide proceed or halt based on dependencies
+g. If COMPLETE: update TaskList, proceed to next task
 
 #### Parallel Dispatch Branch (DELEGATED)
 
@@ -580,7 +626,9 @@ b. Launch all task-runners in the layer in a single message (multiple Task tool 
      description: "Execute task {task-num} (parallel batch): {task-name}",
      model: "{agent-from-task-file}",
      prompt: |
-       Execute the following task:
+       Execute the following task YOURSELF, directly, with your own tool calls.
+       Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
+       tool calls) — you ARE the task-runner.
 
        Task file: {task-file-absolute-path}
        Session ID: {session-id}
@@ -603,7 +651,7 @@ b. Launch all task-runners in the layer in a single message (multiple Task tool 
    ```
 
    Note that the spawn prompt for parallel-mode runners OMITS the `Recovery file:` parameter — the runner must not touch it.
-c. Wait for ALL parallel runners to return their status blocks.
+c. Wait for ALL parallel runners to return their status blocks. Classify each return per [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md): a runner whose final message is dispatch-voice with no status block (self-delegation), or mid-work narration on a dirty tree (message-boundary stall), or a status-block/`completed` return whose claimed `OUTPUT_FILES` do not verify on disk or whose final message ends mid-action (mid-action stall masquerading as completion) must be resumed as the SAME agent per that protocol — never redispatched — before reconciling. Gate acceptance of each status block on its `OUTPUT_FILES` actually being present on disk (§1.17.4), not on the reported `COMPLETE` status alone.
 d. Reconcile Recovery centrally per Step 3.3 "After a parallel batch" instructions: parse each status block, verify OUTPUT_FILES on disk, write Recovery ONCE for the whole batch.
 e. If any task returned BLOCKED or PARTIAL: decide proceed or halt based on downstream dependencies. Mark BLOCKED tasks IN_PROGRESS in TaskList (do NOT mark `completed`).
 f. Advance to the next dependency layer.

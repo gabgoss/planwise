@@ -263,6 +263,9 @@ hooks:
 
 When multiple agents share the same name, the highest-priority location wins.
 
+> [!practice] Example: `planwise`'s No-Mirror Design
+> The `planwise` plugin illustrates the lowest-priority row above by design: its bundled `agents/` directory ships several agents, invoked as `planwise:<name>` — the plugin does not install a `.claude/agents/` mirror copy of them. This is the intended model, not a missing feature: a consumer who wants bare-name convenience, or a genuine override, opts in by authoring their own `.claude/agents/<name>.md`. The priority table above means that project-level file wins automatically — no cooperation from the plugin required. `/planwise doctor --prune-stale` conservatively removes now-orphaned mirror copies left behind by older installs, preserving any agent file a consumer has customized.
+
 ---
 
 ## 4. Naming Conventions
@@ -287,7 +290,7 @@ An agent definition file maps to runtime behavior in two modes:
 1. **`claude --agent <name>`** — Agent definition configures a **Main Session**: full context, all tools, can spawn subagents.
 2. **`subagent_type: "<name>"` in Task tool** — Agent definition configures a **Subagent**: fresh context, 18 tools, Task tool absent (no further spawning).
 
-> [!practice] Empirically Verified (ATD Sprint 04, LoadTest-03)
+> [!practice] Empirically Verified
 > **Custom agents created mid-session are NOT dynamically registered.** If you write a new agent definition to `.claude/agents/` during an active session, it will NOT be discoverable as a `subagent_type` value in that session. Agent discovery happens at session startup only.
 
 ### Built-in Subagent Types
@@ -299,10 +302,10 @@ An agent definition file maps to runtime behavior in two modes:
 | `general-purpose` | Inherit | All tools | Complex autonomous tasks |
 | `Bash` | Inherit | Bash only | Terminal commands |
 | `statusline-setup` | Sonnet | Read, Edit | Status line configuration |
-| Claude Code Guide | Haiku | Limited | Claude Code feature questions — **[UNVERIFIED: exact `subagent_type` string — U6]** |
+| `claude-code-guide` | Haiku | Limited | Claude Code feature questions |
 
-> [!practice] [UNVERIFIED — U6] Claude Code Guide subagent_type
-> The exact `subagent_type` parameter string for the Claude Code Guide agent (e.g., `claude-code-guide` vs `Claude Code Guide`) has not been empirically verified. Flag usage as unverified until confirmed.
+> [!practice] Claude Code Guide subagent_type
+> The built-in guide agent's `subagent_type` string is `claude-code-guide` (lowercase, hyphenated) — confirmed against the live Claude Code agent registry (the Agent tool's available subagent types).
 
 ---
 

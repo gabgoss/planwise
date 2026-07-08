@@ -25,7 +25,8 @@
 
 | Status | Meaning |
 |--------|---------|
-| `documented` | Lesson captured but not yet acted on |
+| `documented` | Captured; not yet owned by any backlog item. |
+| `promoted` | Fully captured into actionable backlog item(s); archived; awaiting landing; the backlog item is the live owner. **archived ≠ landed.** |
 | `applied` | Lesson applied to improve a process or pattern |
 | `rule` | Lesson promoted to a `.claude/` artifact |
 
@@ -66,6 +67,8 @@ technology: [{specific tech}]
 domain: [{project domains}]
 status: documented
 applied-as: null
+promotion-target: [rule|code|claude-md|agent|skill|settings]   # one or more target types; multi-value = coarse / split-candidate
+# promoted-to:                                                  # owning backlog item id(s), e.g. BB-{NNN}; set at capture-archive
 ---
 
 # LL-{NNN}-{Domain}: {Same title as frontmatter}
@@ -87,7 +90,7 @@ applied-as: null
 
 ## Archive
 
-Lessons with status `applied` or `rule` are moved to `Archive/` as part of the `/lessons promote` workflow. Archived lessons remain searchable via `/lessons <terms>` (search globs recurse into `Archive/`).
+A lesson is moved to `Archive/` when **fully captured** — either single-promote (→ `applied`/`rule`) or promote-batch (→ `promoted`). Archived lessons remain searchable via `/lessons <terms>` (search globs recurse into `Archive/`).
 
 **Location:** `{lessons-dir}/Archive/`
 

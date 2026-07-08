@@ -40,7 +40,7 @@ paths: Controllers/**, Views/**
 >   - "Controllers/**"
 >   - "Views/**"
 > ```
-> This format does **NOT** work. The YAML frontmatter parser fails on 2+ array items — the rule silently does not load. (Tested 3 times, reproduced consistently — RPT test D1.)
+> This format does **NOT** work. The YAML frontmatter parser fails on 2+ array items — the rule silently does not load. (Tested 3 times, reproduced consistently.)
 >
 > **Solution:** Use comma-separated format instead:
 > ```yaml
@@ -68,7 +68,7 @@ paths: .claude/rules/**, .claude/skills/**, Docs/**
 **Why:** Extension globs like `**/*.md` load the rule for files that don't need it (LICENSE files, archive content, external documents, build artifacts). Explicit paths keep context budgets tight and rules relevant.
 
 > [!pitfall] `*.md` Is NOT Root-Only
-> **Problem:** Official Anthropic docs claim `*.md` matches "Markdown files in the project root." This is **wrong**. Claude Code's glob treats `*` as matching across path separators, so `*.md` is functionally identical to `**/*.md` — it matches `.md` files at any depth. (Tested and verified in 2 independent runs — RPT tests B2b, V2.)
+> **Problem:** Official Anthropic docs claim `*.md` matches "Markdown files in the project root." This is **wrong**. Claude Code's glob treats `*` as matching across path separators, so `*.md` is functionally identical to `**/*.md` — it matches `.md` files at any depth. (Tested and verified in 2 independent runs.)
 >
 > **Solution:** There is no way to create a root-only glob. Use explicit directory paths instead.
 
@@ -83,6 +83,33 @@ Omit `paths:` entirely when a rule genuinely applies to ALL work regardless of f
 | File-type convention | Yes | csharp-conventions.md → `**/*.cs` (extension glob OK for code files) |
 
 **Exception:** Extension globs like `**/*.cs` are acceptable for source code files because those extensions reliably indicate the rule's domain. The problem is `**/*.md` where markdown exists everywhere.
+
+### Choosing a Home for a Rule Customization
+
+When you need to change behavior that a plugin-installed rule already covers, choose
+WHERE the change lives by the nature of the change — never edit the installed copy in
+place (it is machine-managed; see the warning below).
+
+> [!decide] Where to Home a Rule Customization
+> - **Generic fix** — the change improves the rule for *every* consumer, not just this
+>   project → **upstream it.** Open a PR or issue against the shipped reference rule.
+>   Do NOT localize a generic improvement: a generic edit left in a local copy is lost
+>   on the next refresh and never reaches anyone else.
+> - **Project-specific customization** — the change only makes sense for this codebase →
+>   **localize it.** Create `.claude/rules/<project>/<name>.md` and scope its `paths:` to
+>   the **code directories** the rule governs. NEVER scope a localized rule to plan,
+>   backlog, or lessons globs — that re-creates the always-on over-scope that path
+>   scoping (§2) exists to prevent.
+> - **Mixed** — part generic, part project-specific → **split it.** Upstream the generic
+>   portion; localize only the project-specific remainder in `.claude/rules/<project>/`.
+> - **Never** leave a customization inside `.claude/rules/planwise/`. That directory is
+>   machine-managed: on upgrade an identical copy is auto-refreshed to the shipped body
+>   (your edit is silently overwritten). A diverged copy, under the default handoff mode,
+>   has its customization transferred to a dormant holding area and the shipped body
+>   adopted in its place — your edit survives only as an inert file you must manually
+>   re-home, not as an active rule. Only under the conservative handoff mode is a
+>   diverged copy instead preserved in place and nagged as an unresolved conflict on
+>   every upgrade.
 
 ## 2b. Common Frontmatter Mistakes
 
@@ -200,7 +227,7 @@ See [session-planning-protocol.md](session-planning-protocol.md) for planning ru
 See [callout-conventions.md](callout-conventions.md) for callout syntax.
 ```
 
-## 6. Empirically Verified Behavior (RPT Tests, 2026-02-25)
+## 6. Empirically Verified Behavior
 
 These patterns were empirically tested in Claude Code CLI on 2026-02-25. Results supersede prior guidance for listed patterns.
 
@@ -235,11 +262,11 @@ Path-specific rules **DO** load in subagents (Task tool spawns). Behavior:
 - **At startup:** Only global rules load (no inherited path triggers from parent session)
 - **After file activity:** Path rules trigger dynamically based on the subagent's own file reads
 
-This means path scoping works in all contexts, not just the main session. (RPT test Q8, confirmed with 7 rules loading dynamically.)
+This means path scoping works in all contexts, not just the main session. (confirmed with 7 rules loading dynamically.)
 
 ### Context Budget Observation
 
-When total rule content is large, rules may silently fail to load due to context budget competition. The mechanism is unclear, but having many rules increases the risk of individual rules being dropped. Keep rule count and size minimal. (Observed during RPT testing — MEDIUM confidence, mechanism not fully understood.)
+When total rule content is large, rules may silently fail to load due to context budget competition. The mechanism is unclear, but having many rules increases the risk of individual rules being dropped. Keep rule count and size minimal. (Observed during testing — MEDIUM confidence, mechanism not fully understood.)
 
 ---
 

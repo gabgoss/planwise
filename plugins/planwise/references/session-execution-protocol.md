@@ -61,19 +61,20 @@ After outputting, use `AskUserQuestion` tool: "Ready to proceed with [next actio
 > ```
 
 > [!binding] READ-CONFIRM-ACT Cannot Be Waived
-> The READ-CONFIRM-ACT pattern applies before ANY task execution, including plan scaffolding. When `/planwise plan --scaffold` produces a CONFIRM block, the user MUST approve it before any Write or Edit tool calls are made. Skipping the CONFIRM step and proceeding directly to writes is a protocol violation.
+> READ-CONFIRM-ACT applies in **every** operating configuration: Auto Mode, background mode, skill-forked contexts, plan mode, `claude --agent` sessions, and any other runtime configuration of Claude Code. There is no mode that exempts a session from CONFIRM. The Auto-Mode directive "prefer action over planning" applies to ad-hoc decisions inside a routine task — it does NOT waive the CONFIRM step for protocol-driven workflows.
 >
-> WRONG — agent reads orchestration and immediately begins writing task files without CONFIRM:
+> **For `/planwise plan --scaffold` specifically:** before writing any plan file (Master Plan, Execution Input, Sprint Plan, Orchestration, Recovery, task file, Outputs/), the scaffolding agent MUST emit a confirmation block enumerating expected outputs and wait for user approval. The block MUST list:
+>
 > ```
-> (reads Orchestration.md) → (writes Sprint-01/Session-01/Orchestration.md directly)
+> CONTEXT LOADED
+> Plan: {plan name + abbreviation}
+> Expected outputs: 1 Master Plan + N Execution Inputs + M Sprint Plans
+> Per-sprint session count: Sprint-01: K1 sessions, Sprint-02: K2 sessions, ...
+> Total file count: F files (Σ session-folder × per-session file count + Master Plan + EIs + Sprint Plans)
+> Next Action: Write {first file path}
 > ```
-> CORRECT — agent reads orchestration, produces CONFIRM block, waits for approval, then writes:
-> ```
-> (reads Orchestration.md)
-> → CONTEXT LOADED / File: Orchestration.md / Current State: ... / Next Action: scaffold Sprint-01
-> → AskUserQuestion("Ready to proceed with scaffolding Sprint-01?")
-> → (user approves) → (writes Sprint-01/Session-01/Orchestration.md)
-> ```
+>
+> Skipping CONFIRM in any of these contexts is a known root-failure pattern: a scaffolder run in Auto Mode that wrote 20+ plan files with no CONFIRM, producing an incoherent plan tree. It is not a stylistic preference; it is the protocol's load-bearing gate.
 
 ### 1.2 Structural Findings Beyond Literal Scope
 
@@ -159,6 +160,9 @@ The audit trail is NOT optional when the expansion is approved. A scope-expanded
 
 > [!practice] When in Doubt, Surface It
 > If the executor is uncertain whether a finding is "structural" enough to warrant Option A/B, surface it anyway. The cost of asking is a single `AskUserQuestion` round-trip; the cost of NOT asking is either a defective artifact or an undocumented scope expansion. Bias toward surfacing.
+
+> [!practice] Doctrinal Sweep Before Declaring a Claim Fixed
+> When the session's scope involves correcting a factual claim (a rule, a parameter, a threshold, an assertion) that is stated in a source file and cited by consumers, do NOT declare it fixed after editing the source alone. First grep the entire plugin surface for every phrasing of the claim (the exact assertion text, common paraphrases, and any regex that catches the misconception). If instances fall outside the literal task scope, surface them as a structural finding and let the user decide (Option A / Option B above). Re-run the sweep at the end of the session and confirm only correct/negated phrasings remain. A citation chain is coherent only when the source and every consumer agree.
 
 ### 1.3 Cross-Task Coordination Flags
 

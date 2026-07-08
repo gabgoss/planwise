@@ -8,6 +8,7 @@
 - `--priority High` — filter by priority
 - `--abbrev APP` — filter by domain abbreviation
 - `--status IN_PROGRESS` — filter by status
+- `--no-check` — skip the Phase 1 archival-drift detect pass (fast triage)
 
 ---
 
@@ -55,7 +56,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Bac
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
 **Conditional references:**
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
@@ -91,6 +92,37 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --status IN_PROGRESS
 ```
 
+**Detect archival drift (always-on unless `--no-check`):**
+
+The backlog index is a denormalized cache: a COMPLETE/CLOSED item's file is moved to `Archive/` and its index link repointed as a **state-coupled** step in `update_backlog.py`. But an item that reaches a closed status by another path — a session closeout that hand-edits the index row + frontmatter — leaves the file stranded in the top-level backlog dir with an index link that never repointed, and nothing on the read side heals it. This detect pass is that read-side counterpart (the backlog analogue of `/planwise list` Step 2's plans-index drift check), reused unchanged in `/planwise doctor` Stage 12. It stays **non-mutating by default** — nothing is written without explicit consent.
+
+**If `--no-check` is present:** skip this step (a fast triage) and go straight to displaying the table.
+
+Otherwise run:
+
+```bash
+python {plugin_root}/scripts/reconcile_backlog.py --config {planwise_root}/config.yaml --json
+```
+
+Read the JSON file at the path it prints (`JSON: {path}`), shaped `{"drifts": [...], "anomalies": [...]}`. `drifts` are closed rows whose file is not archived (or whose index link is not repointed); `anomalies` are closed rows whose linked file exists in neither the top-level dir nor `Archive/` (deleted/renamed — reported, never fabricated). If either is non-empty, print a banner **before** the backlog table:
+
+```
+⚠ Backlog archival drift ({K} closed row(s) whose file is not archived):
+  • {ID} ({STATUS}): {file} — {reason}
+Anomalies:
+  • {ID} ({STATUS}): {file} — linked file not found in backlog dir or Archive/
+```
+
+If both are empty, print nothing.
+
+**Write on consent (READ-CONFIRM-ACT):** after the banner, use `AskUserQuestion` to offer reconciliation: "Archive {K} stranded closed row(s) — move the file(s) into `Archive/` and repoint the index link(s)?" On agreement:
+
+```bash
+python {plugin_root}/scripts/reconcile_backlog.py --config {planwise_root}/config.yaml --write
+```
+
+The script re-reads the index immediately before writing (race-safe against a concurrent closeout), heals only rows still drifted, and never touches an anomaly row. Report `Reconciled {N} row(s).` If the user declines, leave the backlog untouched — the banner already recorded what was found. If a write ran, re-run the Phase 1 parse so the reconciled links are reflected in this same invocation.
+
 Display the table to the user.
 
 ---
@@ -123,12 +155,20 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
 1. Get the item's file paths from the JSON data (the `files` array)
 2. Read each backlog item file (files have YAML frontmatter with `created`, `blocks`, and `status` fields)
-3. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
+3. **Citation-Freshness Preflight (run before scoping or routing):** A backlog item's body is a snapshot — every reference it pins (a sequential identifier, a `file:line` anchor, an acceptance criterion, a "test/section X does Y" note) is a hypothesis about a live artifact that rots between authoring and execution. Re-prove each against the current artifact before scoping. See `references/verify-against-shipped-artifact.md` §9.
+
+   > [!checklist] Citation-Freshness Preflight (run before scoping or routing a backlog item)
+   > - [ ] For every pinned sequential identifier the item cites (Check NNN, Error Pattern Catalog row N, reference §N.N), grep the live target for the current max and re-derive the next-free value; renumber the item's deliverables + self-references to match
+   > - [ ] For every `file:line` anchor, re-locate the symbol by content grep; treat the cited line number as a cost hint only
+   > - [ ] For every acceptance criterion, run the cheapest proof it is still unsatisfied before writing a fix; mark any already-satisfied criterion "already satisfied — verified"
+   > - [ ] For every pre-drafted note/callout that asserts "test/section/function X does Y", verify against the live file and re-word to name the artifact that actually carries the behavior
+
+4. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
    - If the BLI's motivating driver is a runtime symptom (keywords: collision, race, hang, missing endpoint, intermittent), run a `grep -rn` for the symptom in `src/` and cross-check against recent session summaries in `Plans/**/Sessions/**/Outputs/`. If the driver is no longer active (no recent matches, fix landed), mark the BLI as STALE per `verify-against-shipped-artifact.md §3h` and skip routing. Include §3h.untested-axes and §3h.cluster signal checks per the same reference.
 
-4. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
+5. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
 
-5. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
+6. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
 
    ```bash
    grep -rn "paths:" .claude/rules/
@@ -140,7 +180,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
    This gate applies regardless of route (Route A or Route B) — do not skip it.
 
-6. Present the scope assessment to the user:
+7. Present the scope assessment to the user:
 
 > [!template] Scope Assessment Block
 > ```
@@ -298,6 +338,16 @@ python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.ya
 - Moves item file(s) to the Archive/ directory within `{backlog_dir}`
 - Updates index links to point to `Archive/` subfolder
 
+**Twin-plan reconciliation (run when the outcome is COMPLETE/CLOSED):** If this item shipped deliverables that a live plan was authored to produce, retire that twin plan in the **same** closeout. A plan's status fields and its plans-index row are written only by session closeout (`/planwise run`); a plan whose deliverables were instead satisfied through this backlog route is written nowhere, so it is left live and independently runnable — and a later `/planwise run` will accept it and re-execute idempotency-unsafe steps ("append N rows", "insert at max+1", "add the next check number") against already-satisfied state, corrupting it.
+
+> [!constraint] Retire or link the twin plan at backlog closeout
+> 1. **Detect the twin.** Grep the plans index (`{plans_dir}/{plans_index}`) and the Master Plans under `{plans_dir}/**` for a plan that names the same deliverables — or targets the same files — this item just shipped.
+> 2. **Reconcile it in this closeout.** For each twin found, set its Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{item_id} {route} {date})` and update its plans-index row — OR explicitly link the two so the plan is not independently runnable.
+> 3. **If you cannot reconcile now, do not leave it silently runnable** — record the twin plan and the blocker so a later closeout retires it.
+>
+> WRONG — close the item, leave the twin plan alone → `/planwise run` starts it → a task step "append N rows" runs against rows that already exist → N duplicate rows, or a duplicate `## N` section colliding with the shipped one.
+> CORRECT — retire/link the twin plan in the same closeout so it is no longer independently runnable.
+
 **Print summary table:**
 
 > [!template] Session Summary
@@ -371,6 +421,14 @@ Use `AskUserQuestion`: "Create backlog item from this candidate?"
 
 ### Step 7.3: Auto-Create BLI Files
 
+> [!important] Inline the content the capture depends on
+> When a backlog item's value rests on specific content — a block to promote, the evidence behind a finding, an exact spec or recipe — **paste that content into the item verbatim**. A pointer (another repo, a path, a session-only artifact) is welcome *alongside* the inlined content for context or provenance, but it must NOT be the *sole* carrier of the substance: the item must stay fully executable if that source becomes unavailable.
+> - **Inline:** the verbatim text to promote, the failing command + its output, the exact before/after, the spec.
+> - **Reference-only is acceptable** for: large, stable in-repo files that will still exist at execution time AND are not the unique carrier of the item's substance.
+> - **Durability test:** "If the originating session or repo vanished tomorrow, could someone execute this item from the file alone?" If no, inline more.
+>
+> This is a different concern from shipped-artifact self-containment (`references/artifact-self-containment.md`, which strips internal identifiers out of distributed artifacts) — here the goal is that the capture itself carries its own substance.
+
 For each accepted candidate:
 
 1. **Get next BLI ID:**
@@ -383,6 +441,7 @@ For each accepted candidate:
    - `created:` today's date
    - `status: NOT_STARTED`
    - Body from candidate description + target file + severity
+   - **Self-containment check:** the body inlines every block, spec, or piece of evidence the item depends on — a reference may add context, but the substantive content required to act is pasted in, not only linked. (Apply the durability test above.)
 
 3. **Append row to backlog index:**
    ```bash
@@ -432,6 +491,9 @@ After closing all triaged items, prompt for lessons learned.
 
 ## Routing Decision Tree
 
+> [!practice] Route by What the Defect Needs
+> Pick the route that fully resolves the item, not the cheapest one to execute — a session-sized fix gets Route C, never a quick patch that leaves known incoherence behind. Full principle and exception clause: [do-the-hard-things.md](../references/do-the-hard-things.md).
+
 Use this logic to determine the recommended route in Phase 3.
 
 ### Scope Assessment Signals
@@ -439,7 +501,8 @@ Use this logic to determine the recommended route in Phase 3.
 | Signal | How to Detect | Weight |
 |--------|---------------|--------|
 | "Bug" in feature name | Case-insensitive check on Feature column | Strong → Direct Fix |
-| Item file < 50 lines | Line count on read | Strong → Direct Fix |
+| Item file < 50 lines | Line count on read | Moderate → Direct Fix (a *proxy* for a small fix — a file that is long only because it is thoroughly documented is NOT large scope) |
+| Exact fix evidence: named files + line anchors + before/after content + scope-confinement bound | BB body supplies concrete, bounded edit targets | Strong → Direct Fix — sets `HAS_CLEAR_FIX` regardless of file length |
 | Specific file paths mentioned | Regex for code file extensions | Moderate → Direct Fix |
 | "multi-sprint" / "phased" keywords | Case-insensitive content search | Strong → Session Planning |
 | "refactor" / "redesign" / "architecture" / "migration" | Content keywords | Strong → Session Planning |
@@ -451,10 +514,15 @@ Use this logic to determine the recommended route in Phase 3.
 
 ```
 1. Read item file(s)
-2. Compute signals
+2. Compute signals.
+   HAS_CLEAR_FIX is true when EITHER the item is short (< 50 lines) OR the BB
+   supplies exact fix evidence — named files, line anchors, before/after content,
+   and an explicit scope-confinement bound ("do NOT touch X"). Route on the
+   *measured* edit scope, never on file length alone: a BB that is long only
+   because it is thoroughly documented still has a clear, surgical fix.
 
-IF (IS_BUG AND IS_SHORT) OR (IS_SHORT AND HAS_CLEAR_FIX):
-    -> DIRECT FIX (Route A)
+IF HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6):
+    -> DIRECT FIX (Route A)          # IS_BUG strengthens this signal but is not required
 
 ELIF HAS_MULTI_SPRINT OR IS_ARCHITECTURAL OR (SUB_ITEMS >= 6):
     -> SESSION PLANNING (Route C)

@@ -1,5 +1,5 @@
 ---
-description: Eight binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, and high-divergence cohort token uplift
+description: Nine binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, and run-time-sound verification commands and context pointers
 ---
 # Scaffolding Hygiene
 
@@ -20,6 +20,7 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 - [9. Multi-Shape Integration Plan-Sizing Expansion Ratio](#9-multi-shape-integration-plan-sizing-expansion-ratio)
 - [10. Pre-Allocate Tokens for Known High-Divergence Cohorts](#10-pre-allocate-tokens-for-known-high-divergence-cohorts)
 - [11. Mega-Scaffold Review-Gate — Non-Skippable for 2+ Sprints In One Pass](#11-mega-scaffold-review-gate--non-skippable-for-2-sprints-in-one-pass)
+- [12. Verification Commands and Context Pointers Must Be Run-Time Sound](#12-verification-commands-and-context-pointers-must-be-run-time-sound)
 
 ---
 
@@ -379,4 +380,70 @@ See also: `handlers/plan.md` Step 10 (the gate's mechanical enforcement point), 
 
 ---
 
-*Eight binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from [session-planning-protocol.md](session-planning-protocol.md) §14.*
+## 12. Verification Commands and Context Pointers Must Be Run-Time Sound
+
+Content written into a task file at **scaffold** time can encode an assumption about the on-disk world that is no longer true — or was never true — at **run** time, while every per-task gate still passes because the scaffolded artifact is internally well-formed. Two surfaces are especially prone to this: Required-Context line pointers and verification-command paths. Both must be treated as run-time-derived facts, not scaffold-time constants.
+
+### 12.1 Required-Context Line Pointers Are Cost Hints — Locate by Symbol Before Reading/Editing
+
+> [!constraint] Treat a scaffolded `file — Lxxx-yyy` pointer as a hint for cost estimation, never as a read/edit anchor
+> Before any `offset/limit` read or edit of a cited region, re-locate the target by symbol grep and re-derive the offsets.
+
+A scaffolded pointer like `some_script.py — L860-930 (offset/limit read)` is authored when the file is in one state. By run time, concurrent sessions editing the same shared source — or an earlier task in the *same* session adding lines above the cited region — will have shifted the target. Observed drift: ~100+ lines into a shared script, so a verbatim `offset/limit` read lands on unrelated code.
+
+WRONG — trust the scaffolded pointer:
+
+```
+Read(some_script.py, offset=860, limit=70)   # reads unrelated code after concurrent sessions shifted the target ~100 lines
+```
+
+CORRECT — locate by content, then read:
+
+```
+grep -n "def normalize_rule_for_diff" some_script.py   # → :976
+Read(some_script.py, offset=970, limit=70)
+```
+
+Drift driver: concurrent sessions editing shared source (shared scripts, handlers, references) between scaffold time and run time — and a task adding lines earlier in the same file shifting a later task's offsets.
+
+Corollaries:
+
+- Task Step-1 gates and dispatch prompts gate on **symbols** (`grep -c 'def _classify_diverged' …`), never on line numbers.
+- An orchestrator forwarding context to a runner passes the **symbol names** and flags the line numbers as possibly stale.
+
+### 12.2 Scaffolded Verification Commands Derive the Repo Root — Never Assume Directory Depth
+
+> [!constraint] A relative `git -C ../../..` depth is a guess about the on-disk tree; the repo root is a derivable fact
+> Derive it, or anchor to a stable known path — never bake a directory-depth assumption into a verification command.
+
+A verification command that hard-codes a relative depth (`git -C ../../..`) assumes how many levels up the repo root sits. If the assumption is wrong, the command targets a different directory — and a BINDING gate whose pass condition is "empty output" then passes **vacuously**: a "clean" result from the wrong repo is indistinguishable from a genuinely clean target.
+
+WRONG — assumed depth baked in at scaffold time:
+
+```
+git -C ../../.. diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9])'
+```
+
+CORRECT — derive the root, or anchor project-root-relative to a stable known path:
+
+```
+git -C "$(git rev-parse --show-toplevel)" diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9])'
+# or, from the project root (stable known path):
+git -C cloned-repos/planwise diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9])'
+```
+
+Additional guidance:
+
+- When an auto-commit hook may fire mid-session, a working-tree diff alone under-covers the gate — also sweep the session's committed delta (`git diff HEAD~1 -- plugins/planwise/`) so already-committed edits are leak-checked too.
+- Any BINDING gate whose pass condition is "empty output" has path-correctness as part of its soundness: a wrong-repo invocation passes vacuously.
+- Reviewers should spot-check one `git -C` depth per scaffolded sprint against the live tree.
+
+Applies to:
+
+- Any scaffolded task file citing `file — Lxxx-yyy (offset/limit read)` in Required Context, especially into files that multiple concurrent sessions edit (shared scripts, handlers, references).
+- Scaffolding authoring Verification Commands into task files, wherever the target lives in a nested or cloned sub-repo.
+- Plan review: reviewers spot-check both surfaces — one symbol-vs-line pointer and one `git -C` depth per scaffolded sprint — against the live tree.
+
+---
+
+*Nine binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from [session-planning-protocol.md](session-planning-protocol.md) §14.*

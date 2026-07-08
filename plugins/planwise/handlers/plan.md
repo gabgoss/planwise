@@ -65,7 +65,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
 **Plan-specific references (always load):**
 1. Read `references/session-planning-protocol.md`
@@ -78,6 +78,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
 - If planning a scaffolded multi-sprint plan (Discovery → Scaffolding workflow): Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md`
+- If the plan contains verification tasks (grep/awk match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
 - If planning a task with DB writes (SQL INSERT/UPDATE/MERGE): Read `references/schema-pin-requirement.md`
 
 ---
@@ -149,7 +150,7 @@ Behavior:
 Without the flag (default), scaffold all sprints in one pass.
 
 > [!practice] Scope — Pause-Between-Sprints, Not Per-Sprint Scaffold Sessions
-> The `--scaffold-per-sprint` flag is an **in-conversation pause-and-confirm** mechanism — it does NOT create per-Exec-sprint `Scaffold-{Abbrev}-S{XX}/` sessions with their own Orchestration/Recovery files (which the source PLG-008 spec envisioned for compaction-resume capability). The simpler pause-only mechanism shipped intentionally as a documented design decision: the full per-sprint Scaffold-session resume mechanism is treated as a new feature, deliberately out of scope for the current contract. Future maintainers — do NOT treat the absence of per-sprint Scaffold sessions as a regression; it is the documented design. If compaction during multi-sprint scaffolding becomes a real problem, file a NEW backlog item (do not silently expand this flag's contract).
+> The `--scaffold-per-sprint` flag is an **in-conversation pause-and-confirm** mechanism — it does NOT create per-Exec-sprint `Scaffold-{Abbrev}-S{XX}/` sessions with their own Orchestration/Recovery files (a compaction-resume capability considered during design). The simpler pause-only mechanism shipped intentionally as a documented design decision: the full per-sprint Scaffold-session resume mechanism is treated as a new feature, deliberately out of scope for the current contract. Future maintainers — do NOT treat the absence of per-sprint Scaffold sessions as a regression; it is the documented design. If compaction during multi-sprint scaffolding becomes a real problem, file a NEW backlog item (do not silently expand this flag's contract).
 
 **Implicit indicators** (recommend Scaffolding via `AskUserQuestion`):
 
@@ -296,6 +297,8 @@ Each Orchestration file created MUST include this item in its post-session check
 Where `{lessons_dir}` and `{lessons_index}` come from `config.yaml`.
 
 ### Step 8c: Validate Token Estimates (Bottom-Up)
+
+**Shared-context pre-pass (measure once, fan out):** Before computing per-task estimates, build the set of files cited in the Required Context of **two or more** tasks (group Required Context rows by file path across the whole session). For each such shared file, measure it **ONCE** — `wc -l` on the live file — and convert to tokens once; then write the **IDENTICAL** `Est. Lines` / `Est. Tokens` values into every citing task's row. A multiply-cited file's size is a single source of truth, never a per-task guess — otherwise one estimation error replicates silently into every citing task's Context subtotal and header `Estimated Tokens`. If a shared doc is edited during authoring, re-measure it and re-fan the new value into all citing rows, then re-roll the affected subtotals, headers, and session totals. The drift is direction-agnostic: an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver Large-File Scan below or under-budget a DELEGATED dispatch.
 
 For each task in the session, compute a bottom-up token estimate:
 
@@ -566,7 +569,11 @@ Before completing `/planwise plan`, verify:
 [ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
 [ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
 [ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
+[ ] Scope favors the coherent treatment — no known-partial fix is planned without a recorded constraint and a named residual defect (see the callout below)
 ```
+
+> [!practice] Plan the Right Fix, Not the Easy Fix
+> When scoping reveals two treatments — a complete one that touches more surface (a full renumber, a schema migration, propagating a change through every consumer) and a narrower patch that leaves known incoherence behind — scope the complete treatment and cost it honestly. Budget pressure is answered by SPLITTING the coherent fix across tasks or sessions (see Token Budget Rules), never by shrinking it into a partial fix that is cheaper to execute. If a real constraint genuinely forces the partial path (an interface external consumers depend on, an irreversible boundary, a user-set deadline), record the constraint and the residual defect in the plan so the gap is a visible decision, not an accident. Overall project quality comes from doing the hard thing once, not the easy thing twice. Full principle, exception clause, and stage table: [do-the-hard-things.md](../references/do-the-hard-things.md).
 
 ---
 
@@ -875,6 +882,8 @@ Use standard templates for all other files (sprint plans, orchestrations, recove
 **`.gitkeep` emission (mirrors standard [Step 3](#step-3-create-folder-structure)):** For EVERY session folder created during scaffolding, write an empty `Outputs/.gitkeep` placeholder file inside the session's `Outputs/` directory. Empty directories are not tracked by git, so a missing `.gitkeep` means the `Outputs/` folder disappears on clone and downstream `/planwise run` cannot write summary or task-output files into the expected path. Apply to every sprint × every session — same per-session `.gitkeep` rule as the standard Step 3 constraint. Also populate each task file's Verification Commands per the [Step 8e per-file-type command map](#step-8e-populate-verification-commands-per-file-type-map) — scaffolded plans must NOT ship with blank verification placeholders any more than standard plans do.
 
 **Token Saver large-file scan (mirrors standard [Step 8c](#step-8c-validate-token-estimates-bottom-up)):** When the **effective** Token Saver value is `true` (resolve it via the plan's Master-Plan `Token Saver:` field over the project default — `get_effective_token_saver_config(config, plan_override)`, exactly as Step 8c does), run the same per-file warning ladder over every scaffolded task file's Required Context, with one scaffolding-specific addition — a scaffolded task's Required Context references the sprint's **Execution Input** (per the Critical-difference rule above), so scan the **EI-section sizes** the task cites (not the original Consolidated Context parts) plus any direct code references in the task. Derive thresholds via `token_saver.derive_thresholds(...)` and classify each cited file/section with `token_saver.classify_file(path, model=<task's Agent>, projected_added_lines=<delta if the task edits it>, thresholds=...)`, then emit the graduated ladder (Notice/Warn/Critical), file a backlog item at Warn+, and flag the task `1M-exception` only for a **cost-reason** Critical — identical contract to Step 8c (`reason=read` Critical → paged read / refactor, never `1M-exception`). The Execution Input itself is a **generated artifact a runner reads**, so its read-gate ceiling is HARD: if a sprint's EI trips the line, byte, OR token gate, split it into `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md` parts at scaffold time rather than letting a runner hit a truncated read.
+
+**Shared-context single measurement (mirrors the standard [Step 8c](#step-8c-validate-token-estimates-bottom-up) pre-pass):** The measure-once/fan-out rule applies equally to scaffolded plans. A sprint's **Execution Input** is by construction cited in every task of the sprint — measure it (or each cited EI section) **ONCE** with `wc -l` on the live file, and write the **IDENTICAL** `Est. Lines` / `Est. Tokens` into every citing task's Required Context row. The same applies to any cross-sprint shared doc (design pins, shared reference files). Never re-guess a shared file's size per task: one wrong guess otherwise replicates into every task subtotal, header, orchestration total, and the sprint total. If an EI or shared doc changes during scaffolding (e.g., a Multi-Part split), re-measure and re-fan the new value into all citing rows.
 
 **Sprint-signoff scaffold (multi-session sprints):** For each sprint with multi-session work, add a sprint-signoff scaffold using the [sprint-signoff.md](../templates/sprint-signoff.md) template per `references/discovery-and-exit-criteria.md` §16.3. Place the signoff file at `{plans_dir}/{PlanName}/Sprint-{XX}-{Name}/Sprint-Signoff.md`. The signoff quotes the sprint's EI exit-criteria verbatim — one row per criterion, one mechanical anchor per row — giving a multi-session sprint a single closeout checkpoint before it is marked COMPLETE. Single-session sprints MAY omit it.
 

@@ -39,6 +39,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 <!-- Reconciliation: this total MUST match the Estimated Tokens in this task's header. -->
 <!-- Use ~13 tokens/line for reads. See reference.md Token Estimation Reference for output costs. -->
 <!-- Read-gate note (Token Saver): the read-gate token count uses the task's ASSIGNED-MODEL rate (Sonnet/Haiku 13, Opus 19 tok/line) — a separate per-model check, NOT a change to this reconciliation. The budget Est. Tokens / reconciliation above stay on the existing ~13/line convention. -->
+<!-- Shared-context rule: a file cited by MULTIPLE tasks MUST carry the same measured Est. Lines (from wc -l on the live file) in every task — it is a single source of truth, not a per-task guess. -->
 
 **Section Reference Rule (scaffolded plans):** When referencing Execution Inputs, enumerate INDIVIDUAL section numbers with purpose — never ranges.
 

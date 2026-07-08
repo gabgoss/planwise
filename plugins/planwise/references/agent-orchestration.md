@@ -34,13 +34,13 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 | Context | Created Via | System Prompt Identity | Tool Set |
 |---------|-------------|----------------------|----------|
 | **Main Session** | `claude` CLI / VS Code extension | "You are Claude Code, Anthropic's official CLI" | All tools (~24+) |
-| **Subagent** | `Task` tool (`subagent_type` parameter) | **"You are Claude Code, Anthropic's official CLI"** [LoadTest-01] | 18 tools (no Task, AskUserQuestion, PlanMode) |
-| **Teammate** | `Task` tool with `team_name` + `name` | **"You are a Claude agent, built on Anthropic's Claude Agent SDK"** [LoadTest-01] | 16 tools (no Task, TeamCreate/Delete, AskUserQuestion, PlanMode) |
-| **Skill-Forked** | `Skill` tool with `context: fork` | **"You are Claude Code, Anthropic's official CLI"** [LoadTest-01, NestTest-08] | 18 tools (identical to Subagent) |
+| **Subagent** | `Task` tool (`subagent_type` parameter) | **"You are Claude Code, Anthropic's official CLI"** | 18 tools (no Task, AskUserQuestion, PlanMode) |
+| **Teammate** | `Task` tool with `team_name` + `name` | **"You are a Claude agent, built on Anthropic's Claude Agent SDK"** | 16 tools (no Task, TeamCreate/Delete, AskUserQuestion, PlanMode) |
+| **Skill-Forked** | `Skill` tool with `context: fork` | **"You are Claude Code, Anthropic's official CLI"** | 18 tools (identical to Subagent) |
 
-> **Surprise 1 [LoadTest-01]:** Subagents receive the **full** Claude Code system prompt. Official docs claim "not the full CC system prompt — custom prompt only." This is wrong. The `prompt` parameter in the Task tool is ADDITIONAL to the system prompt, not a replacement. Skill-Forked contexts receive the same full CC system prompt.
+> **Surprise 1:** Subagents receive the **full** Claude Code system prompt. Official docs claim "not the full CC system prompt — custom prompt only." This is wrong. The `prompt` parameter in the Task tool is ADDITIONAL to the system prompt, not a replacement. Skill-Forked contexts receive the same full CC system prompt.
 
-> **Surprise 2 [LoadTest-01]:** Teammates have a **different** identity ("Claude Agent SDK"), not the Claude Code system prompt. Documentation calling them "full, independent Claude Code sessions" is misleading — they use the Agent SDK identity and are pure workers.
+> **Surprise 2:** Teammates have a **different** identity ("Claude Agent SDK"), not the Claude Code system prompt. Documentation calling them "full, independent Claude Code sessions" is misleading — they use the Agent SDK identity and are pure workers.
 
 ### Built-in Subagent Types
 
@@ -68,7 +68,7 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 
 ## 2. Cross-Context Tool Comparison
 
-*Source: ATD-EmpiricalResults.md Appendix — verified by 15 empirical tests.*
+*Empirically verified across 15 tests.*
 
 | Tool | Main Session | Subagent | Teammate | Skill-Forked |
 |------|-------------|----------|----------|-------------|
@@ -95,37 +95,37 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 | Skill-Forked | 18 | Identical to Subagent |
 | Teammate | 16 | No Task, TeamCreate, TeamDelete, AskUserQuestion, PlanMode |
 
-> **Surprise 3 [NestTest-05]:** Teammates have FEWER tools than standalone subagents. TeamCreate/Delete are restricted FROM teammates (to prevent workers from managing teams) but are available to subagents and skill-forked contexts. The restriction is inverted from the expected — team management tools are NOT reserved for team members, they are removed from team members.
+> **Surprise 3:** Teammates have FEWER tools than standalone subagents. TeamCreate/Delete are restricted FROM teammates (to prevent workers from managing teams) but are available to subagents and skill-forked contexts. The restriction is inverted from the expected — team management tools are NOT reserved for team members, they are removed from team members.
 
 ---
 
 ## 3. Context Loading Matrix
 
-*Source: ATD-S04-03-LoadingMatrix-Working.md — 21 cells, 18 tested (3 skipped, no MCP configured).*
+*Empirically verified — 21-cell context-loading matrix (18 cells directly tested; the skill-forked MCP cell later confirmed by a live test).*
 
 | # | What Loads | Subagent | Teammate | Skill-Forked |
 |---|-----------|---------|----------|-------------|
 | 1 | System prompt identity | YES (CC CLI) | NO — different identity (Agent SDK) | YES (CC CLI) |
 | 2 | CLAUDE.md | YES | YES | YES |
 | 3 | All project skill descriptions | YES (via FS discovery) | YES | YES (via FS discovery) |
-| 4 | MCP servers | YES (FG); NO (BG) | SKIP (no data) | **[UNVERIFIED — U5]** |
+| 4 | MCP servers | YES (FG); NO (BG) | SKIP (no data) | YES (FG) |
 | 5 | Conversation history | NO | NO | NO |
 | 6 | Team tools | YES (all incl. TeamCreate/Delete) | PARTIAL (no TeamCreate/Delete) | YES (all) |
 | 7 | Path-specific rules | NO (global only) | NO (global only) | NO (global only) |
 
-> **Path rules are main-session-only [LoadTest-07, U2/U3/U4 resolved]:** All spawned contexts see only the global rule files. Path-specific rules load based on the context's OWN file activity — spawned contexts start with zero file activity so no path rules trigger at startup. Spawned contexts CAN trigger path rules after they begin working on matching files, but they do NOT inherit the parent session's active path triggers.
+> **Path rules are main-session-only:** All spawned contexts see only the global rule files. Path-specific rules load based on the context's OWN file activity — spawned contexts start with zero file activity so no path rules trigger at startup. Spawned contexts CAN trigger path rules after they begin working on matching files, but they do NOT inherit the parent session's active path triggers.
 
-> **Surprise 5 [LoadTest-03] — Skill discoverability:** All contexts discover all project skills via file system access (Glob on `.claude/skills/`). This is file system discoverability, not system-reminder injection. Mid-session created agents are NOT dynamically registered as available `subagent_type` values.
+> **Surprise 5 — Skill discoverability:** All contexts discover all project skills via file system access (Glob on `.claude/skills/`). This is file system discoverability, not system-reminder injection. Mid-session created agents are NOT dynamically registered as available `subagent_type` values.
 
-> **Surprise 6 [LoadTest-07] — Path rules:** Even teammates ("full, independent sessions") do NOT load path-specific rules. This is the clearest empirical distinction between teammate and main session contexts. All non-main contexts see the same global rules.
+> **Surprise 6 — Path rules:** Even teammates ("full, independent sessions") do NOT load path-specific rules. This is the clearest empirical distinction between teammate and main session contexts. All non-main contexts see the same global rules.
 
-> **U5 — Skill-Forked MCP:** MCP availability in skill-forked contexts is [UNVERIFIED]. Mechanism equivalence with subagents (verified across all other rows) suggests MCP should be available in foreground mode if configured, but requires empirical confirmation with a configured MCP server.
+> **Skill-Forked MCP:** MCP is reachable from foreground skill-forked contexts. Confirmed by a live test — a `context: fork` skill loaded a configured MCP server's tool via `ToolSearch` and the subsequent call round-tripped to the MCP layer and returned a real result. Background skill-forked MCP behavior was not exercised.
 
 ---
 
 ## 4. Nesting Rules
 
-*Source: ATD-S04-03-NestingMatrix-Working.md — 8 empirical tests.*
+*Empirically verified across 8 tests.*
 
 | # | From → To | Result | Enforcement Mechanism |
 |---|-----------|--------|----------------------|
@@ -144,7 +144,7 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 > WRONG: Subagent A tries to spawn Subagent B
 > CORRECT: Orchestrate all subagents from the main conversation; chain them sequentially if needed
 
-> **Surprise 4 [NestTest-04]:** Subagents CAN create team shells (TeamCreate works), but cannot add teammates (Task tool absent). The enforcement is at the Task tool level, not at TeamCreate. Main session could theoretically add teammates to a subagent-created team. Design around this — do not rely on it.
+> **Surprise 4:** Subagents CAN create team shells (TeamCreate works), but cannot add teammates (Task tool absent). The enforcement is at the Task tool level, not at TeamCreate. Main session could theoretically add teammates to a subagent-created team. Design around this — do not rely on it.
 
 All spawning MUST go through the Main Session:
 
@@ -227,9 +227,9 @@ A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use
 ### Plugin Handler Spawns Resolve in the Consumer's Scope Chain
 
 > [!pitfall] Un-Namespaced Plugin-Handler Spawn
-> **Problem:** A plugin handler that spawns an agent by bare name (e.g., `subagent_type: "plan-reviewer"`) resolves the agent in the CONSUMER PROJECT's scope chain, not the plugin's scope chain. If the consumer has not run `/planwise init`, the agent file does not exist in `.claude/agents/` and the spawn fails with "agent not found".
+> **Problem:** A plugin handler that spawns an agent by bare name (e.g., `subagent_type: "plan-reviewer"`) resolves the agent in the CONSUMER PROJECT's scope chain, not the plugin's scope chain. If the consumer has not run `/planwise init`, the agent file does not exist in `.claude/agents/` (the plugin never installs one there) and the spawn fails with "agent not found".
 >
-> PLG-017 documents this constraint (empirically verified 2026-05-12; behavior may not be re-verified).
+> This constraint was empirically verified 2026-05-12 (behavior may not be re-verified).
 >
 > **Solution:** Plugin handlers MUST spawn agents with the plugin-namespaced form: `subagent_type: "{plugin-name}:plan-reviewer"`. The `{plugin-name}:` prefix forces resolution against the plugin's own `agents/` directory, bypassing the consumer scope chain.
 >
@@ -247,7 +247,7 @@ A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use
 >   ...
 > )
 > ```
-> See `handlers/review.md` (9 sites), `handlers/run.md` (4 sites), `handlers/backlog.md` (1 site) for spawn-call updates.
+> See `handlers/review.md` (9 sites), `handlers/run.md` (5 sites), `handlers/backlog.md` (1 site) for spawn-call updates.
 
 ---
 
@@ -441,11 +441,11 @@ These constraints are empirically verified. The enforcement mechanism column exp
 | # | Constraint | Enforcement Mechanism | Impact | Workaround |
 |---|-----------|----------------------|--------|------------|
 | 1 | No sub-subagent spawning | Task tool stripped from ALL non-main contexts at spawn time | Single-level delegation only | Orchestrate all agents from main conversation; chain sequentially |
-| 2 | Teammates lack Task, TeamCreate, TeamDelete | Tool restriction at spawn time [NestTest-05] | Cannot spawn, cannot create/delete teams | All delegation through team lead (hub-and-spoke mandatory) |
+| 2 | Teammates lack Task, TeamCreate, TeamDelete | Tool restriction at spawn time | Cannot spawn, cannot create/delete teams | All delegation through team lead (hub-and-spoke mandatory) |
 | 3 | Context NOT inherited by subagents/teammates | Fresh context per spawn | Teammates start with empty context | Self-contained prompts; share via explicit messages or file references |
 | 4 | No AskUserQuestion in spawned contexts | Tool restriction | Cannot interactively prompt user | Pre-gather requirements before spawning |
 | 5 | No EnterPlanMode/ExitPlanMode in spawned contexts | Tool restriction | Cannot enter plan mode | Plan in main session before delegating |
-| 6 | Path-specific rules are main-session-only | Path rule loading requires OWN file activity [LoadTest-07] | Spawned contexts see only global rules | Include rule content explicitly in task prompt |
+| 6 | Path-specific rules are main-session-only | Path rule loading requires OWN file activity | Spawned contexts see only global rules | Include rule content explicitly in task prompt |
 | 7 | MCP unavailable in background subagents | Background execution mode restriction | Cannot use external systems | Run in foreground if MCP tools are required |
 | 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
 | 8 | Skill discovery ≠ system-prompt injection | File system access (Glob on `.claude/skills/`) | Mid-session agents not discoverable as subagent_type | Use `skills:` frontmatter to inject domain knowledge; all contexts discover existing skills via FS |
@@ -457,7 +457,7 @@ These constraints are empirically verified. The enforcement mechanism column exp
 
 > **Constraint 10 — background pre-approval detail:** Background subagents use an upfront pre-approval gate: before launch, Claude Code prompts for all permissions the agent will need. At runtime, anything not pre-approved is auto-denied — the tool call fails silently but the agent continues executing. `bypassPermissions` mode does NOT override this gate. Practical consequence: task-runner agents that write output files MUST run in foreground. Background mode is only safe for read-only operations (Explore, research).
 
-> **Constraint 10 — background pre-approval hazard (PLG-012 operational guidance):** Design background agents for read-only operations only. Before launching a background agent that you believe needs Write/Edit/Bash, convert it to foreground mode. The pre-approval gate cannot be bypassed by prompting or by `bypassPermissions` mode — both are enforced at the runtime layer, not the policy layer.
+> **Constraint 10 — background pre-approval hazard:** Design background agents for read-only operations only. Before launching a background agent that you believe needs Write/Edit/Bash, convert it to foreground mode. The pre-approval gate cannot be bypassed by prompting or by `bypassPermissions` mode — both are enforced at the runtime layer, not the policy layer.
 
 > **Team tool compatibility:** TeamCreate and SendMessage are not listed in the `allowed-tools` frontmatter system. Skills that need team functionality should use `context: fork` with `agent: general-purpose`. Do NOT attempt to list TeamCreate or SendMessage in `allowed-tools`.
 
@@ -467,13 +467,15 @@ These constraints are empirically verified. The enforcement mechanism column exp
 
 When the Execution Strategy is DELEGATED (orchestrator spawns task-runner subagents), the following subsections govern dispatch behavior. These rules apply whenever any DELEGATED trigger is present (see `references/session-plan-requirements.md` Execution Strategy section for mandatory triggers).
 
-### 11.1 Mandatory Triggers (PLG-002)
+### 11.1 Mandatory Triggers
 
 DELEGATED mode is REQUIRED when ANY of the following triggers are present in a session:
 - Session has 2 or more Opus tasks
 - Session is part of a META Discovery phase
 - Any single task estimates >50K token context load
 - Sequential tasks where one task's output is the next task's input (output-chaining)
+
+**The Master Plan's Execution Strategy section MUST name the trigger that fired for every DELEGATED session, and `/planwise review` MUST surface as a BLOCKING finding any DELEGATED declaration without a named trigger.**
 
 Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not an execution-time inference.
 
@@ -490,7 +492,12 @@ Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not
 > Trigger: Task 03 estimates >50K context load (output-chaining to Task 04)
 > ```
 
-### 11.2 Task-File Error Recovery (PLG-002)
+> [!constraint] Name the Trigger — Not "For Consistency"
+> "Consistency" across a multi-session plan is not a trigger; every DELEGATED session must name one of the four mandatory triggers above.
+> WRONG: plan declares DELEGATED for all 8 sessions "for consistency"; only Sprint 01 meets a trigger (95K Opus task + output-chaining); Sprints 02-08 each have a single 23-41K task within the 100K DIRECT budget — ~378K of subagent-spawn overhead consumed for no gain.
+> CORRECT: Sprint 01 declares DELEGATED (#1 + #4); Sprints 02-08 declare DIRECT.
+
+### 11.2 Task-File Error Recovery
 
 When a DELEGATED subagent fails or produces incomplete output, the orchestrator applies this recovery shape:
 
@@ -512,7 +519,7 @@ When a DELEGATED subagent fails or produces incomplete output, the orchestrator 
 > → Mark task BLOCKED in Recovery; report to orchestrator
 > ```
 
-### 11.3 Orchestration Context Boundary (PLG-002)
+### 11.3 Orchestration Context Boundary
 
 When Execution Strategy is DELEGATED:
 - Orchestration's Required Context MUST list ONLY plan files (Orchestration.md, Recovery.md, task files)
