@@ -338,6 +338,16 @@ python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.ya
 - Moves item file(s) to the Archive/ directory within `{backlog_dir}`
 - Updates index links to point to `Archive/` subfolder
 
+**Twin-plan reconciliation (run when the outcome is COMPLETE/CLOSED):** If this item shipped deliverables that a live plan was authored to produce, retire that twin plan in the **same** closeout. A plan's status fields and its plans-index row are written only by session closeout (`/planwise run`); a plan whose deliverables were instead satisfied through this backlog route is written nowhere, so it is left live and independently runnable — and a later `/planwise run` will accept it and re-execute idempotency-unsafe steps ("append N rows", "insert at max+1", "add the next check number") against already-satisfied state, corrupting it.
+
+> [!constraint] Retire or link the twin plan at backlog closeout
+> 1. **Detect the twin.** Grep the plans index (`{plans_dir}/{plans_index}`) and the Master Plans under `{plans_dir}/**` for a plan that names the same deliverables — or targets the same files — this item just shipped.
+> 2. **Reconcile it in this closeout.** For each twin found, set its Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{item_id} {route} {date})` and update its plans-index row — OR explicitly link the two so the plan is not independently runnable.
+> 3. **If you cannot reconcile now, do not leave it silently runnable** — record the twin plan and the blocker so a later closeout retires it.
+>
+> WRONG — close the item, leave the twin plan alone → `/planwise run` starts it → a task step "append N rows" runs against rows that already exist → N duplicate rows, or a duplicate `## N` section colliding with the shipped one.
+> CORRECT — retire/link the twin plan in the same closeout so it is no longer independently runnable.
+
 **Print summary table:**
 
 > [!template] Session Summary

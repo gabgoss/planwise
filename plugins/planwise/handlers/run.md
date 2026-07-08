@@ -431,6 +431,9 @@ Ask the user: "Were any lessons learned during this session?"
    - Set **Status** to match the Master Plan status (e.g., IN_PROGRESS or COMPLETE)
    - Set **Last Updated** to today's date
 
+> [!constraint] Twin-BB reconciliation — if a backlog route already shipped this plan's deliverables, reconcile instead of duplicating
+> A plan and a backlog item that name the same deliverables are twins. If this session found its deliverables **already satisfied** at the first dispatch layer — you grepped each deliverable against the live target and it already existed — the work was shipped through a backlog route (`/planwise backlog` Route A/B, a direct commit) and this twin plan was never retired at that route's closeout. Do NOT re-author or re-run idempotency-unsafe steps ("append N rows", "insert at max+1") against already-satisfied state. Reconcile instead: set this plan's Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{NNN} {route} {date})`, update its plans-index row, and record the linkage in the Summary. A plan that is entirely already-satisfied at its first dispatch layer is the signal that its twin was never retired.
+
 ### Step 4.4: Propagate Cross-Task Coordination Flags
 
 > [!binding] Downstream-Propagation Gate

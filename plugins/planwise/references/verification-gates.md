@@ -290,6 +290,28 @@ Both failures collapse a multi-signal verification surface into a single "looks 
 >
 > This is the same "a necessary signal is not sufficient" trap §8 opens with, aimed squarely at the test fixture: a green suite built on clean inputs says nothing about the messy authored strings the code will actually meet. It is a direct instance of the pre-commit adversarial-review discipline in `session-plan-requirements.md` §10.4 ("A green suite is not a review: pre-commit adversarial review for destructive diffs") — the write-side corruption in this class survived a fully green unit suite and fell only to the adversarial review of the destructive write path.
 
+### 8.6 Measure live state before an idempotency-unsafe append/author
+
+§8.1–§8.5 each measure a live surface instead of trusting a secondary reading. This section applies the same discipline to a plan's own task steps: a plan's stated anchors, counts, and "append/author N" instructions are **predictions written when the plan was authored — not facts about the live target now.**
+
+> [!constraint] Re-derive live state before any idempotency-unsafe append/author — never blind-append or blind-author
+> Treat a plan's stated anchors, row counts, and "append N rows" / "insert at max+1" / "add the next check number" steps as predictions, not facts. Before executing one, re-derive the live state: grep the shipped artifact and count the rows/sections that already exist. If the deliverable already exists, **verify-in-place** — never blind-append or blind-author on the plan's word.
+>
+> This matters most when the same deliverable can be shipped through more than one route — a plan session AND a backlog-triage route (direct fix, an in-session task list, a direct commit). A plan's status fields are written only by its own session closeout; a plan whose deliverables were satisfied through a different route is left live and independently runnable, its stale "append N" steps now aimed at already-satisfied state.
+>
+> WRONG — close the backlog item, leave the twin plan alone → `/planwise run` starts it → a task step "append 10 rows" runs against 10 rows that already exist → 10 duplicate rows, or a duplicate `## 9` section colliding with the shipped `## 8`:
+> ```text
+> plan step T04: "append 10 Rule-Promotion-Log rows"   # authored when 0 existed
+> live index already holds those 10 rows                # shipped via the backlog route
+> → blind append → 10 duplicate rows
+> ```
+> CORRECT — measure the live target first, and reconcile the twin at closeout:
+> ```text
+> before T04: grep the promotion log → the 10 rows already exist → verify-in-place, do NOT append
+> at the shipping route's closeout: retire/link the twin plan so it is never independently run
+> ```
+> Detection tripwire: at a delegated session's first dispatch layer, grep each deliverable against the live target before authoring. A plan that is **entirely** already-satisfied at that boundary is the signal that a twin was shipped elsewhere and never retired.
+
 ---
 
 *Cross-references: [session-execution-protocol.md](session-execution-protocol.md) (Recovery-file update discipline at closeout), [session-plan-requirements.md](session-plan-requirements.md) (Sprint exit-gate semantics in Master Plan / Sprint Plan rows).*
