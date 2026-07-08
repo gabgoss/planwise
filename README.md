@@ -130,14 +130,16 @@ This pulls the latest catalog and reinstalls planwise, updating the handlers, re
 /planwise upgrade
 ```
 
-Reinstalling the plugin does **not** refresh the rules in `.claude/rules/planwise/` or the agents in `.claude/agents/` — those were installed once during `init` and are left untouched on reinstall. `/planwise upgrade` finishes the job:
+Reinstalling the plugin does **not** refresh the rules in `.claude/rules/planwise/` — those were installed during `init` and are left untouched on reinstall. `/planwise upgrade` finishes the job:
 
 - Bumps the pinned `plugin_version:` in your `config.yaml`
-- Adds any new top-level config keys
-- Refreshes installed rules and agents whose local copy still matches the previously-shipped version
-- Saves `.new` sidecars under `{planwise_root}/upgrade-conflicts/` for any file you've customized, so your edits are never overwritten
+- Adds any new config keys and backfills missing lessons scaffolding
+- Refreshes installed rules that are untouched — or that are stale copies of an older shipped version you never edited
+- Never destroys your edits: a rule you've customized is transferred to a preservation file under `{planwise_root}/upgrade-transfers/` before the shipped version is adopted (or preserved in place with a `.new` sidecar, depending on your `upgrade.customization_handoff` setting), and every automatic change is backed up under `{planwise_root}/upgrade-backups/` first
 
-> **Run Stage 2 once per upgrade.** If you skip it, the next time you run `/planwise init` planwise will notice the version drift and remind you to run `/planwise upgrade`.
+> **Where did the agents go?** planwise agents now run directly from the plugin (invoked as `planwise:<name>`) — they are no longer copied into your project's `.claude/agents/`. If an older version left mirrored copies there, `/planwise doctor` flags them and `/planwise doctor --prune-stale` removes the ones you never edited (backed up first).
+
+> **Run Stage 2 once per upgrade.** If you skip it, `/planwise init` and `/planwise doctor` both notice the version drift and remind you to run `/planwise upgrade`.
 
 ---
 
@@ -152,12 +154,12 @@ For detailed documentation on every command, agents, configuration options, and 
 | Command | What it does |
 |---------|-------------|
 | `/planwise init` | Set up planwise in your project (once) |
-| `/planwise upgrade` | Refresh installed rules/agents after a plugin update |
+| `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise plan [name]` | Create a new session plan |
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
-| `/planwise doctor` | Audit rule scope + Token Saver overhead staleness, read-gate scan, read-limit drift |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, Token Saver staleness (`--prune-stale` to clean up) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
@@ -202,7 +204,7 @@ To remove the marketplace:
 - If you see YAML-related warnings, install PyYAML: `pip install pyyaml` (optional but silences warnings)
 
 **Plans or backlog seem out of date after a plugin update**
-- Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules and agents into your project
+- Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules into your project
 
 **Not sure which command to use?**
 - Run `/planwise help` to see all available commands and a link to the full user guide
