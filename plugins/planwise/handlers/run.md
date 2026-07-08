@@ -602,10 +602,11 @@ b. Launch `task-runner` agent:
    )
    ```
 c. Wait for task-runner to return
-d. **Classify the return before consuming it** — apply the diagnosis table in [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md). Only a structured completion report (status + verification results) is a real completion. The two failure signals — and their resume, never a fresh dispatch:
+d. **Classify the return before consuming it** — apply the diagnosis table in [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md). A return is a real completion only when it carries a structured report (status + verification results) AND its deliverables verify on disk — gate acceptance on the on-disk check, never on the `completed` status alone (§1.17.4). The three failure signals — and their resume, never a fresh dispatch:
    - **Fast return + dispatch-voice reply ("I've dispatched… I'll report back") + clean tree** = self-delegation → resume the SAME agent with the execute-yourself directive (§1.17.2).
    - **Mid-work narration ending in a colon/next-step phrase + dirty tree with partial edits** = message-boundary stall → resume the SAME agent with a continuation message (quote its last line, forbid re-editing completed work, enumerate only the remaining items, restate the report format) (§1.17.3).
-   After any resume, verify single-application: `git status` / diff on the edit target and confirm Recovery advanced.
+   - **`completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits report fields** = mid-action stall masquerading as completion → run the on-disk acceptance gate (grep the edit target for the symbol that was supposed to change; `git status --short` for the expected file set; confirm the Recovery step row flipped), then resume the SAME agent to finish rather than re-dispatch (§1.17.4).
+   After any resume — and before accepting any `completed` return — verify on disk: `git status` / diff on the edit target, the changed symbol is present, and Recovery advanced.
 e. Read updated recovery file -- check task status
 f. If BLOCKED: decide proceed or halt based on dependencies
 g. If COMPLETE: update TaskList, proceed to next task
@@ -647,7 +648,7 @@ b. Launch all task-runners in the layer in a single message (multiple Task tool 
    ```
 
    Note that the spawn prompt for parallel-mode runners OMITS the `Recovery file:` parameter — the runner must not touch it.
-c. Wait for ALL parallel runners to return their status blocks. Classify each return per [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md): a runner whose final message is dispatch-voice with no status block (self-delegation) or mid-work narration on a dirty tree (message-boundary stall) must be resumed as the SAME agent per that protocol — never redispatched — before reconciling.
+c. Wait for ALL parallel runners to return their status blocks. Classify each return per [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md): a runner whose final message is dispatch-voice with no status block (self-delegation), or mid-work narration on a dirty tree (message-boundary stall), or a status-block/`completed` return whose claimed `OUTPUT_FILES` do not verify on disk or whose final message ends mid-action (mid-action stall masquerading as completion) must be resumed as the SAME agent per that protocol — never redispatched — before reconciling. Gate acceptance of each status block on its `OUTPUT_FILES` actually being present on disk (§1.17.4), not on the reported `COMPLETE` status alone.
 d. Reconcile Recovery centrally per Step 3.3 "After a parallel batch" instructions: parse each status block, verify OUTPUT_FILES on disk, write Recovery ONCE for the whole batch.
 e. If any task returned BLOCKED or PARTIAL: decide proceed or halt based on downstream dependencies. Mark BLOCKED tasks IN_PROGRESS in TaskList (do NOT mark `completed`).
 f. Advance to the next dependency layer.

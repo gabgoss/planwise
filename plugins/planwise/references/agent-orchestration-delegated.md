@@ -375,7 +375,7 @@ Cost note: a false positive in a release-signoff verdict either blocks a shippab
 
 ## 1.17 Task-Runner Dispatch Failure Modes and Resume Protocol
 
-A dispatched task-runner has three post-return states. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by two signals **together**: the final-message voice and the working-tree state. For BOTH failure states the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner. A fresh runner re-reads everything and can race or duplicate the first one's partial work.
+A dispatched task-runner has four post-return states — three failure modes and one real completion. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by the final-message voice and the working-tree state; and when the return *reads* as complete, gate acceptance on **on-disk deliverable evidence** before believing it — a stall can masquerade as completion (§1.17.4). For every failure state the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner. A fresh runner re-reads everything and can race or duplicate the first one's partial work.
 
 ### 1.17.1 Diagnosis table
 
@@ -385,9 +385,10 @@ Classify every returned runner against this table before acting on its result:
 |--------|-----------|--------|
 | Fast return (seconds, a handful of tool calls), dispatch-voice reply ("I've dispatched the task-runner… I'll report back"), clean tree (zero diff in the edit target, Recovery untouched) | Self-delegation — the runner spawned a nested duplicate instead of executing | Resume the same agent with the execute-yourself directive (§1.17.2) |
 | Mid-work narration ending in a colon or next-step phrase ("Now let's rewrite each. First, `test_conflict…`:"), dirty tree with genuine partial edits on disk | Message-boundary stall — the runner executed part-way, then ended its message at a narration checkpoint | Resume the SAME agent with a continuation message (§1.17.3); its context holds the full task state |
-| Structured completion report with status + verification results | Real completion | Reconcile normally |
+| `completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits required report fields — reads as done, but deliverables are not yet on disk | Mid-action stall masquerading as completion — the `completed` status is not a deliverable check | Run the on-disk acceptance gate, then resume the SAME agent to finish (§1.17.4) |
+| Structured completion report (status + verification results) whose deliverables verify on disk | Real completion | Reconcile normally |
 
-The two failure modes are genuinely distinct: self-delegation is a **clean** tree + **dispatch** voice (the runner never executed); a stall is a **dirty** tree + **executor** voice (the runner executed part-way). The shared corrective is "resume the same agent," but the resume *message* differs — see below.
+The three failure modes are genuinely distinct: self-delegation is a **clean** tree + **dispatch** voice (the runner never executed); a message-boundary stall is a **dirty** tree + **executor** voice that ends visibly mid-work (the runner executed part-way); a mid-action stall masquerading as completion **reads** as done — a structured-looking report or a clean final line — yet its deliverables are not on disk (§1.17.4). The shared corrective is "resume the same agent," but the resume *message* — and, for the masquerade case, the on-disk check that exposes it — differs; see below.
 
 ### 1.17.2 Self-delegation resume
 
@@ -411,6 +412,39 @@ On a message-boundary stall the runner's partial edits are real and on disk. Do 
 For long remediation prompts, instruct up front: "work through to the end without pausing for narration checkpoints."
 
 **Residual risk to reconcile:** a stalled runner may have half-updated Recovery (e.g. the header + step table but not Files Modified / Change Log). The orchestrator owns reconciling that gap from verified facts — check Recovery section-by-section after any stalled-then-resumed task. Runs approaching the ~50-tool-use regime are the stall-prone range; budget 1–2 resume round-trips into session-time estimates.
+
+### 1.17.4 Acceptance gate: a `completed` status is not a deliverable check
+
+A runner can return with harness `status: completed` and a final message that reads clean, yet have stopped **mid-action** — before writing Recovery and before emitting its completion report. The harness `completed` status only means the agent stopped with no live children; it is NOT a check that the task's deliverables were produced. Accepting such a return at face value ships whatever the runner had not yet done — an unwritten Recovery step a later compaction would lose, or residual defects it had not yet addressed. Before marking a delegated task done, gate acceptance on **on-disk evidence**, not the agent's final message — especially when that message ends mid-action ("Now let me…", "Next I'll…") or omits the required report fields.
+
+This is distinct from the two voice+tree failure modes above: those announce themselves (dispatch voice, or narration ending mid-work). A mid-action stall *reads* as completion, so only an on-disk check exposes it. The corrective is still to resume the SAME agent — but acceptance is gated on the check first.
+
+> [!constraint] Gate acceptance on on-disk evidence, not the final message
+> WRONG — the runner returns `status=completed` with the last line "Now let me update the Recovery file"; the orchestrator marks the task COMPLETE and dispatches the next. The Recovery step is never written, and the stale references the runner had not yet cleaned ship:
+> ```
+> runner → status=completed, final line: "Now let me update the Recovery file"
+> orchestrator → mark COMPLETE, dispatch next task
+> [Recovery step unwritten; residual stale references remain in the edit target.]
+> ```
+> CORRECT — the final line ends mid-action / report fields are missing, so the orchestrator does NOT accept on the status alone. It greps the edit target for the symbol that was supposed to change and reads Recovery, detects the unwritten step + residual references, and resumes the SAME agent (context intact) to finish — then re-verifies on disk before accepting:
+> ```
+> runner → status=completed, final line ends mid-action / report fields missing
+> orchestrator → grep edit target for the changed symbol + read Recovery
+>              → unwritten step + residual refs detected
+>              → resume SAME agent: "you stopped before finishing — do X, write
+>                 Recovery, return the full report"
+> agent (context intact) → completes
+> orchestrator → re-verify on disk, THEN accept
+> ```
+
+**Cheap, high-signal acceptance checks for a code-edit task** (run before accepting a `completed` return; each is sub-second):
+
+- `grep` the target for the symbol that was supposed to change (added, removed, or renamed) — confirm the edit is actually present, and that residual references that were supposed to be swept are gone.
+- `git status --short` — confirm the expected file set is dirty and nothing unexpected changed.
+- A collection / parse check where applicable (the produced file parses; the test file collects).
+- Confirm the Recovery step row for the task flipped to its completed state.
+
+On any miss, resume the SAME agent to finish (never re-dispatch a fresh one), then re-run the checks before accepting.
 
 ---
 
