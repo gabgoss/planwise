@@ -31,7 +31,7 @@ from enum import Enum
 from pathlib import Path
 
 try:
-    from config_loader import get_upgrade_config
+    from config_loader import get_upgrade_config, write_config_checked
 except ImportError:
     # Partial-install tolerance, mirroring the structural_compare guard below:
     # a half-synced scripts tree must not kill the whole CLI at import time.
@@ -42,6 +42,12 @@ except ImportError:
             "github_issue": False,
             "descope_preserve_paths_edits": True,
         }
+
+    def write_config_checked(config_path, text: str) -> None:   # noqa: D103
+        # Degraded fallback: the post-write parse check lives in config_loader,
+        # so a half-synced scripts tree writes unverified rather than failing
+        # to start. Same spirit as the no-PyYAML no-op in the real helper.
+        Path(config_path).write_text(text, encoding="utf-8")
 from constants import InstallScope
 
 try:
@@ -342,6 +348,60 @@ def merge_context_subkeys(text: str, token_saver_value: str = "false") -> str:
     return "\n".join(new_lines)
 
 
+def extract_top_level_block(text: str, key: str) -> str | None:
+    """Return the raw text of the top-level `key:` block in `text`, or None.
+
+    Locates the unindented `{key}:` line and captures through to the line before
+    the next top-level construct (any unindented non-blank line, comment lines
+    included — a column-0 comment introduces the block BELOW it, so it belongs
+    to the next key). Trailing blank lines are trimmed off the captured block.
+
+    The contiguous run of comment lines immediately above the key is carried
+    with the block so the template's hand-authored commentary travels with the
+    key it documents. One exception: a run that reaches line 0 is the FILE
+    header, not a block comment, and is dropped — the destination file already
+    has its own header.
+
+    Used by the migrate merge to splice a missing key into the user's config as
+    text, so no part of the user's file is ever re-emitted through a YAML dumper.
+    """
+    lines = text.split("\n")
+    start = None
+    for i, line in enumerate(lines):
+        if re.match(rf"^{re.escape(key)}:", line):
+            start = i
+            break
+    if start is None:
+        return None
+
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        line = lines[j]
+        if line.strip() == "":
+            continue
+        if re.match(r"^\s", line):
+            continue
+        end = j
+        break
+
+    # Trim trailing blank lines and any comment run that introduces the next key.
+    while end - 1 > start:
+        prev = lines[end - 1]
+        if prev.strip() == "" or prev.lstrip().startswith("#"):
+            end -= 1
+        else:
+            break
+
+    head = start
+    while head - 1 >= 0 and lines[head - 1].lstrip().startswith("#"):
+        head -= 1
+    if head == 0:
+        # The comment run runs to the top of the file — that is the file header.
+        head = start
+
+    return "\n".join(lines[head:end])
+
+
 class ConfigResult(Enum):
     CREATED = "created"
     SKIPPED_EXISTS = "skipped_exists"
@@ -491,6 +551,20 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
             f.write(content)
     except FileExistsError:
         return ConfigResult.SKIPPED_EXISTS, config_rel
+
+    # Same invariant the editing writers hold: never leave an unparseable config
+    # on disk. Exclusive-create mode means the file is ours and did not exist a
+    # moment ago, so the rollback is simply to remove it — the caller sees a
+    # loud failure instead of an init that "succeeded" into a broken file.
+    if HAS_YAML:
+        try:
+            yaml.safe_load(dst.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            dst.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"{dst}: rendered config does not parse as YAML — the file was removed. "
+                f"Parser said: {exc}"
+            ) from exc
     return ConfigResult.CREATED, config_rel
 
 
@@ -849,6 +923,10 @@ def migrate_config(cfg: InitConfig) -> tuple[str, list[str], list[str]]:
     template_text = template_text.replace("{plan-tier}", cfg.plan_tier)
     template_text = template_text.replace("{context-window}", str(cfg.context_window))
     template_text = template_text.replace("{plugin-version}", cfg.plugin_version)
+    # Migration is toggle-neutral: a whole-block add lands the engine OFF, matching
+    # the nested-merge default below. The --token-saver flag is applied afterwards
+    # by the separate flip step, so rendering it here would double-apply it.
+    template_text = template_text.replace("{token-saver}", "false")
 
     template_data = yaml.safe_load(template_text) or {}
     user_text = config_path.read_text(encoding="utf-8")
@@ -861,7 +939,6 @@ def migrate_config(cfg: InitConfig) -> tuple[str, list[str], list[str]]:
     present: list[str] = []
     for key in MIGRATABLE_TOP_LEVEL_KEYS:
         if key in template_data and key not in user_data:
-            user_data[key] = template_data[key]
             added.append(key)
         elif key in user_data:
             present.append(key)
@@ -873,42 +950,44 @@ def migrate_config(cfg: InitConfig) -> tuple[str, list[str], list[str]]:
         # comments/order survive and re-running stays byte-for-byte idempotent).
         merged_text = merge_context_subkeys(user_text)
         if merged_text != user_text:
-            config_path.write_text(merged_text, encoding="utf-8")
+            write_config_checked(config_path, merged_text)
             sub_added = _context_subkeys_delta(user_text, merged_text)
             added.extend(sub_added)
         return str(config_path), added, present
 
-    # Re-emit the file. PyYAML's default dump is acceptable here; the user
-    # can reflow manually if needed. Block style + indent 2 keeps the result
-    # closest to the template's hand-authored layout.
-    merged_yaml = yaml.safe_dump(
-        user_data,
-        sort_keys=False,
-        default_flow_style=False,
-        indent=2,
-        allow_unicode=True,
-    )
-
-    # Preserve the original leading comment header if present.
-    header_lines: list[str] = []
-    for line in user_text.splitlines():
-        if line.startswith("#") or line.strip() == "":
-            header_lines.append(line)
-        else:
-            break
-    if header_lines and not header_lines[-1].strip() == "":
-        header_lines.append("")
-    header = "\n".join(header_lines)
-    if header:
-        merged_yaml = header + "\n" + merged_yaml
+    # Adding a key is the SAME targeted, comment-preserving text edit as the
+    # branch above — each missing key's block is spliced onto the user's own
+    # file text. The user's bytes are never round-tripped through a YAML dumper:
+    # a whole-file re-emit rewrites every value in the dumper's default style
+    # (collapsing inline flow mappings and inline lists into multi-line blocks)
+    # and destroys every interior comment. That reflow is not merely cosmetic —
+    # the targeted line editor that later writes the measured context values
+    # matches a key's value on ONE line, so a value reflowed into a block
+    # mapping is left with orphaned children and the file stops parsing.
+    #
+    # Each block is lifted from the rendered template as TEXT, so the template's
+    # own layout and commentary come across intact. A key that cannot be located
+    # as text falls back to a dump of THAT KEY'S BLOCK ONLY.
+    merged_text = user_text
+    for key in added:
+        block = extract_top_level_block(template_text, key)
+        if block is None:
+            block = yaml.safe_dump(
+                {key: template_data[key]},
+                sort_keys=False,
+                default_flow_style=False,
+                indent=2,
+                allow_unicode=True,
+            ).rstrip("\n")
+        merged_text = merged_text.rstrip("\n") + "\n\n" + block + "\n"
 
     # The whole-block-add path (context copied from the template) may still
     # lack the Token Saver sub-keys when the shipped template predates them —
-    # backfill them into the freshly-written block so every migrate target
+    # backfill them into the freshly-appended block so every migrate target
     # ends up with the full surface.
-    merged_yaml = merge_context_subkeys(merged_yaml)
+    merged_text = merge_context_subkeys(merged_text)
 
-    config_path.write_text(merged_yaml, encoding="utf-8")
+    write_config_checked(config_path, merged_text)
     return str(config_path), added, present
 
 
@@ -2592,24 +2671,114 @@ def _bump_plugin_version(config_path: Path, new_version: str) -> None:
     """Update the plugin_version: line in config.yaml in-place, preserving formatting.
 
     Prefers a line-level edit over PyYAML round-trip so the user's comment
-    layout is preserved. Falls back to PyYAML re-emit if the line isn't found
-    (e.g., legacy config that never got the migrate-added key).
+    layout is preserved. Falls back to appending the key as text if the line
+    isn't found (e.g., legacy config that never got the migrate-added key) —
+    never a whole-file re-emit, which would drop every interior comment and
+    reflow every inline flow value. Both paths write through the parse-checked
+    writer, so a bad edit is rolled back instead of bricking the config.
     """
     text = config_path.read_text(encoding="utf-8")
     pattern = re.compile(r'^(\s*plugin_version:\s*)("[^"]*"|\S+)\s*$', re.MULTILINE)
     if pattern.search(text):
         new_text = pattern.sub(rf'\1"{new_version}"', text)
-        config_path.write_text(new_text, encoding="utf-8")
+        write_config_checked(config_path, new_text)
         return
-    # Fallback — append the key under the existing top-level set.
+    # Fallback — append the key as text after the existing top-level set.
     data = yaml.safe_load(text) or {}
     if not isinstance(data, dict):
         raise RuntimeError(f"{config_path} is not a YAML mapping — cannot pin version.")
-    data["plugin_version"] = new_version
-    config_path.write_text(
-        yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True),
-        encoding="utf-8",
+    write_config_checked(
+        config_path,
+        text.rstrip("\n") + f'\n\nplugin_version: "{new_version}"\n',
     )
+
+
+def _repoint_plugin_root(config_path: Path, new_root: Path) -> None:
+    """Update the plugin_root: line in config.yaml in-place, preserving formatting.
+
+    Same shape as _bump_plugin_version(): a line-level edit over a PyYAML
+    round-trip so the user's comment layout survives, falling back to
+    appending the key as text when it is absent (never a whole-file re-emit,
+    which would drop every interior comment and reflow every inline flow
+    value). Routes through the parse-checked writer, so a bad edit is rolled
+    back instead of bricking the config.
+
+    `new_root` is rendered POSIX-style (forward slashes), matching
+    generate_config()'s `{plugin-root}` substitution — the value this writes
+    is styled identically to what a fresh init would have written.
+
+    Standalone helper for a repoint with no accompanying version change (see
+    the "already up to date" branch of _run_upgrade()). The version-bump
+    commit point uses _commit_upgrade_pin() instead, which repoints AND bumps
+    in a single write so the pair can never land half-committed.
+    """
+    text = config_path.read_text(encoding="utf-8")
+    posix_root = str(new_root).replace("\\", "/")
+    pattern = re.compile(r'^(\s*plugin_root:\s*)("[^"]*"|\S+)\s*$', re.MULTILINE)
+    if pattern.search(text):
+        new_text = pattern.sub(rf'\1"{posix_root}"', text)
+        write_config_checked(config_path, new_text)
+        return
+    # Fallback — append the key as text after the existing top-level set.
+    data = yaml.safe_load(text) or {}
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{config_path} is not a YAML mapping — cannot repoint plugin_root.")
+    write_config_checked(
+        config_path,
+        text.rstrip("\n") + f'\n\nplugin_root: "{posix_root}"\n',
+    )
+
+
+def _commit_upgrade_pin(config_path: Path, new_version: str, new_root: Path) -> None:
+    """Atomically pin BOTH plugin_version and plugin_root — the upgrade commit
+    point — in a single parse-checked write, so the pair can never disagree.
+
+    A prior version of this commit point bumped plugin_version alone, leaving
+    plugin_root aimed at whatever cache directory the PREVIOUS version lived
+    in. migrate_config() cannot repair that after the fact — it is purely
+    additive and never touches a key that is already present — so every
+    handler that resolves scripts through config's plugin_root would keep
+    running the superseded version's scripts silently, and a handler that
+    trusts plugin_root to locate .claude-plugin/plugin.json for drift
+    detection would deadlock on "already up to date" forever (until the
+    superseded cache directory is reaped, at which point plugin_root simply
+    dangles instead).
+
+    Both edits are applied to ONE in-memory text buffer, then written through
+    write_config_checked() exactly ONCE. That single write is what makes this
+    atomic: two separate write_config_checked() calls could leave the pair
+    half-committed if the second call's parse check failed after the first
+    had already landed on disk — precisely the drift this function exists to
+    close. On failure the whole buffer is rolled back, so neither key changes.
+    """
+    text = config_path.read_text(encoding="utf-8")
+    posix_root = str(new_root).replace("\\", "/")
+
+    version_pattern = re.compile(r'^(\s*plugin_version:\s*)("[^"]*"|\S+)\s*$', re.MULTILINE)
+    if version_pattern.search(text):
+        text = version_pattern.sub(rf'\1"{new_version}"', text)
+    else:
+        text = text.rstrip("\n") + f'\n\nplugin_version: "{new_version}"\n'
+
+    root_pattern = re.compile(r'^(\s*plugin_root:\s*)("[^"]*"|\S+)\s*$', re.MULTILINE)
+    if root_pattern.search(text):
+        text = root_pattern.sub(rf'\1"{posix_root}"', text)
+    else:
+        text = text.rstrip("\n") + f'\n\nplugin_root: "{posix_root}"\n'
+
+    write_config_checked(config_path, text)
+
+
+def _same_path(a: "str | Path", b: "str | Path") -> bool:
+    """Case/separator-normalized path equality (Windows-safe comparison).
+
+    Used to decide whether a configured plugin_root already matches the live
+    plugin root without needing a write — a plain string/Path `==` would
+    false-flag on a case-insensitive filesystem or on a `\\` vs `/` styling
+    difference between a hand-edited value and the POSIX form this module
+    writes.
+    """
+    return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(os.path.normpath(str(b)))
 
 
 def _flip_token_saver_on(config_path: Path) -> bool:
@@ -2636,7 +2805,7 @@ def _flip_token_saver_on(config_path: Path) -> bool:
     if not pattern.search(text):
         return False
     new_text = pattern.sub(r'\g<1>true\g<2>', text)
-    config_path.write_text(new_text, encoding="utf-8")
+    write_config_checked(config_path, new_text)
     return True
 
 
@@ -2667,7 +2836,36 @@ def _run_upgrade(cfg: "InitConfig") -> int:
     target_version = cfg.plugin_version
 
     if pinned_version == target_version:
+        # The version pin is current, but a SEPARATE key — plugin_root — can
+        # still be stale: a legacy upgrade run (predating the commit point
+        # that now repoints both together below) bumped plugin_version
+        # alone, or a hand-edited plugin_root still names a cache directory
+        # that was later reaped. Repoint it now so every OTHER handler that
+        # resolves scripts through config's plugin_root stays trustworthy —
+        # nothing else here changed, so this is a standalone, single-key
+        # write, not the paired commit below.
+        configured_root = user_cfg.get("plugin_root")
+        needs_repoint = bool(configured_root) and not _same_path(configured_root, cfg.plugin_root)
+        # Honor --token-saver on this branch too. The flip below the version
+        # gate never runs here, and a flag the caller passed explicitly must
+        # not be silently dropped just because no version bump was needed.
+        # Unlike that call site this one cannot rely on migrate_config()
+        # having seeded the key: _flip_token_saver_on() returns False for an
+        # absent key, which is the correct no-op — a config with no
+        # token_saver key at a current version pin is already anomalous and
+        # is repaired by the next real upgrade's merge.
+        toggled = bool(cfg.token_saver) and _flip_token_saver_on(config_path)
+        if needs_repoint:
+            _repoint_plugin_root(config_path, cfg.plugin_root)
+            print(f"Plugin version: {pinned_version}")
+            print(f"Plugin root repointed: {configured_root} -> {cfg.plugin_root}")
+            if toggled:
+                print("Token Saver enabled.")
+            print("Already up to date (plugin_root repointed).")
+            return 0
         print(f"Plugin version: {pinned_version}")
+        if toggled:
+            print("Token Saver enabled.")
         print("Already up to date.")
         return 0
 
@@ -2805,9 +3003,13 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         print(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
         print()
 
-    # 6. Commit point: bump plugin_version: in config.yaml LAST.
-    _bump_plugin_version(config_path, target_version)
+    # 6. Commit point: pin plugin_version AND repoint plugin_root together, in
+    # ONE write, LAST — see _commit_upgrade_pin(). Never split into two
+    # writes here: a config left with a bumped version but a stale root (or
+    # vice versa) is exactly the defect this closes.
+    _commit_upgrade_pin(config_path, target_version, cfg.plugin_root)
     print(f"Plugin version pinned: {target_version}")
+    print(f"Plugin root repointed: {cfg.plugin_root}")
     print()
     print("Upgrade complete.")
     return 0
@@ -2868,17 +3070,48 @@ def _read_pinned_plugin_version(config_path: "Path") -> str:
     return (m.group(2) if m.group(2) is not None else m.group(3)).strip()
 
 
+def _read_configured_plugin_root(config_path: "Path") -> "Path | None":
+    """Read the top-level plugin_root from config.yaml WITHOUT requiring
+    PyYAML, mirroring _read_pinned_plugin_version() — so the read-only doctor
+    gate works even when yaml is unavailable. Returns None when the key is
+    absent, empty, or the file can't be read: a missing plugin_root is not
+    itself a fault (a pre-migration config never had the key), so the
+    version-state gate below simply skips the root checks in that case."""
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(r'^\s*plugin_root:\s*("([^"]*)"|(\S+))\s*$', text, re.MULTILINE)
+    if not m:
+        return None
+    value = (m.group(2) if m.group(2) is not None else m.group(3)).strip()
+    return Path(value) if value else None
+
+
 def _doctor_version_gate(cfg: "InitConfig") -> dict:
     """Read-only plugin version-state preflight for /planwise doctor.
 
     Compares the project's pinned plugin_version against the installed plugin
-    (cfg.plugin_version, from read_plugin_version()). Returns a dict with:
-      state:  "uninitialized" (no config.yaml)     -> recommend /planwise init
-              "drift"         (pinned != installed) -> recommend /planwise upgrade
-              "ok"            (pinned == installed)  -> proceed with diagnostics
+    (cfg.plugin_version, from read_plugin_version() against the LIVE plugin
+    root — never the configured plugin_root — so this comparison alone is
+    immune to a stale plugin_root). Only once that comparison is healthy does
+    the gate check the SEPARATE plugin_root: key other handlers resolve
+    scripts through: a legacy upgrade could have bumped plugin_version
+    without repointing it (predating the commit point that now writes both
+    together — see _commit_upgrade_pin()), or the directory it names could
+    have been reaped since. Returns a dict with:
+      state:  "uninitialized"  (no config.yaml)                        -> recommend /planwise init
+              "drift"          (pinned != installed)                   -> recommend /planwise upgrade
+              "root_dangling"  (pinned == installed, but the configured
+                                plugin_root directory no longer exists) -> recommend /planwise upgrade
+              "root_mismatch"  (pinned == installed, but the configured
+                                plugin_root directory's own version !=
+                                pinned)                                 -> recommend /planwise upgrade
+              "ok"             (pinned == installed, and plugin_root,
+                                when present, resolves and matches)      -> proceed with diagnostics
       report: the lines to print verbatim.
     Never mutates anything — doctor only recommends; init/upgrade are the only
-    writers (they bump the pin)."""
+    writers (they bump the pin and repoint plugin_root together)."""
     installed = cfg.plugin_version
     config_path = _resolve_doctor_config_path(cfg)
 
@@ -2894,7 +3127,107 @@ def _doctor_version_gate(cfg: "InitConfig") -> dict:
         lines.append("    Recommend: /planwise upgrade")
         return {"state": "drift", "report": "\n".join(lines)}
 
+    configured_root = _read_configured_plugin_root(config_path)
+    if configured_root is not None:
+        if not configured_root.exists():
+            lines.append(f"  ! plugin_root dangling — {configured_root} does not exist.")
+            lines.append("    Recommend: /planwise upgrade (repoints plugin_root)")
+            return {"state": "root_dangling", "report": "\n".join(lines)}
+        root_version = read_plugin_version(configured_root)
+        if root_version != pinned:
+            lines.append(
+                f"  ! plugin_root version mismatch — {configured_root} is "
+                f"{root_version}, pinned is {pinned}."
+            )
+            lines.append("    Recommend: /planwise upgrade (repoints plugin_root)")
+            return {"state": "root_mismatch", "report": "\n".join(lines)}
+
     lines.append(f"  plugin version {installed} — up to date")
+    return {"state": "ok", "report": "\n".join(lines)}
+
+
+def _detect_orphaned_block_signature(text: str) -> str | None:
+    """Return the key name carrying an orphaned child block, or None.
+
+    The signature: a key line whose value is a complete inline flow mapping
+    (`key: {...}`) directly followed by deeper-indented bare `key: value` lines.
+    That is what a single-line targeted writer leaves behind when it replaces
+    the parent line of a block mapping without consuming the block — the old
+    children survive under a value that is already complete, and the parser
+    stops at the first of them.
+    """
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        m = re.match(r"^(\s*)([A-Za-z_][\w-]*):\s*\{.*\}\s*(?:#.*)?$", line)
+        if not m:
+            continue
+        indent = len(m.group(1))
+        for nxt in lines[i + 1:]:
+            if not nxt.strip():
+                break
+            nxt_indent = len(nxt) - len(nxt.lstrip())
+            if nxt_indent <= indent:
+                break
+            if nxt.lstrip().startswith("#"):
+                continue
+            if re.match(r"^\s*[A-Za-z_][\w-]*:", nxt):
+                return m.group(2)
+            break
+    return None
+
+
+def _doctor_config_parse_check(cfg: "InitConfig") -> dict | None:
+    """Read-only YAML parse check of the resolved project config.
+
+    The version gate above reads the pinned version with a regex, so it stays
+    green on a config that no longer parses — and every other command then dies
+    on a raw parser traceback with no diagnosis. This stage loads the file with
+    the real parser and reports the failure loudly, adding a specific hint when
+    the orphaned-block signature is present.
+
+    Returns None when there is nothing to check (no config on disk, or no YAML
+    parser available), otherwise {"state": "ok"|"unparseable", "report": str}.
+    Never mutates anything — doctor only reports and recommends.
+    """
+    if not HAS_YAML:
+        return None
+    config_path = _resolve_doctor_config_path(cfg)
+    if config_path is None:
+        return None
+
+    lines = ["Config parse check"]
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        lines.append(f"  ! {config_path} could not be read.")
+        lines.append(f"      error:   {exc}")
+        return {"state": "unparseable", "report": "\n".join(lines)}
+
+    try:
+        yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        detail = str(exc).strip().splitlines()
+        lines.append(f"  ! {config_path} does not parse as YAML.")
+        lines.append(f"      parser:  {detail[0] if detail else exc}")
+        orphan_key = _detect_orphaned_block_signature(text)
+        if orphan_key:
+            lines.append(
+                f"      cause:   `{orphan_key}:` holds a complete single-line "
+                f"{{...}} value with indented lines still beneath it."
+            )
+            lines.append(
+                "      action:  delete the indented lines under that key — the "
+                "single-line value already carries them."
+            )
+        else:
+            lines.append(
+                "      action:  fix the reported line, then re-run "
+                "/planwise doctor to confirm."
+            )
+        lines.append("      note:    every planwise command fails until this parses.")
+        return {"state": "unparseable", "report": "\n".join(lines)}
+
+    lines.append(f"  {config_path.name} parses cleanly")
     return {"state": "ok", "report": "\n".join(lines)}
 
 
@@ -2915,12 +3248,21 @@ def _run_doctor(cfg: "InitConfig") -> int:
     Runs the plugin version-state gate FIRST (always-on, independent of Token
     Saver): an uninitialized or version-drifted install is surfaced with a
     remediation (init / upgrade) and the function returns before linting — no
-    point auditing a stale rule surface. Read-only throughout; init/upgrade
+    point auditing a stale rule surface. The config parse check runs next, and
+    deliberately BEFORE that early return: a config that no longer parses is
+    the reason every other command is failing, and the version gate cannot see
+    it (it reads the pin with a regex). Read-only throughout; init/upgrade
     (and the separate opt-in `--prune-stale` writer) are the only writers.
     """
     gate = _doctor_version_gate(cfg)
     print(gate["report"])
     print()
+
+    parse_check = _doctor_config_parse_check(cfg)
+    if parse_check is not None:
+        print(parse_check["report"])
+        print()
+
     if gate["state"] != "ok":
         return 0
 
@@ -3206,20 +3548,49 @@ def main():
     manifest = load_artifact_manifest(cfg.plugin_root)
     config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
     user_cfg: dict = {}
+    config_parse_error: str | None = None
     if HAS_YAML and config_path.exists():
         try:
             loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 user_cfg = loaded
-        except yaml.YAMLError:
+        except yaml.YAMLError as exc:
+            # An unparseable config is NOT an empty one. Falling through with
+            # `{}` makes every presence check below read its key as absent, so
+            # the banner fills with "missing block — run --migrate" rows that
+            # cannot succeed (migrate parses the same file) and bury the actual
+            # fault. Record the parser message and report THAT instead.
             user_cfg = {}
+            first_line = str(exc).strip().splitlines()
+            config_parse_error = first_line[0] if first_line else exc.__class__.__name__
 
     migrate_remediation = (
         f"Run `python {cfg.plugin_root.as_posix()}/scripts/init_project.py "
         f"--name \"{cfg.project_name}\" --migrate` to merge the block from the template."
     )
 
-    for entry in manifest.get("artifacts", []):
+    if config_parse_error is not None:
+        skipped.append(SkippedArtifact(
+            artifact=f"{cfg.planwise_root}/config.yaml",
+            reason=(
+                f"the file does not parse as YAML ({config_parse_error}) — key-presence "
+                f"and version checks are suppressed because they cannot be trusted"
+            ),
+            consumer="every planwise handler — all of them load this file",
+            remediation=(
+                f"Run `python {cfg.plugin_root.as_posix()}/scripts/init_project.py "
+                f"--name \"{cfg.project_name}\" --doctor` to locate the fault (it names "
+                f"the offending key when the cause is a recognised one), fix the reported "
+                f"line, then re-run this command."
+            ),
+        ))
+
+    # Both checks below are presence/comparison tests against the parsed config,
+    # so neither means anything when the parse failed — skip them rather than
+    # emit rows the user cannot act on.
+    manifest_artifacts = [] if config_parse_error is not None else manifest.get("artifacts", [])
+
+    for entry in manifest_artifacts:
         if not isinstance(entry, dict):
             continue
         behavior = entry.get("missing_key_behavior")
@@ -3275,7 +3646,7 @@ def main():
     # because the check is comparative (pinned vs. shipped), not a presence
     # check on a config key.
     pinned_version = str(user_cfg.get("plugin_version", "0.0.0"))
-    if pinned_version != cfg.plugin_version:
+    if config_parse_error is None and pinned_version != cfg.plugin_version:
         skipped.append(SkippedArtifact(
             artifact=f"{cfg.planwise_root}/config.yaml (key: plugin_version)",
             reason=(

@@ -51,7 +51,18 @@ missing_key_behaviors:
 #     row only if the file is missing (re-run init to recreate).
 #
 #   migrate_only: Handled by migrate_config(), not by the artifact-refresh
-#     loop. Applies to top-level config keys.
+#     loop. Applies to top-level config keys. migrate_config() is purely
+#     additive — it adds the key when absent and NEVER overwrites a value
+#     that is already present — so a key whose value must track the
+#     installed plugin cannot use this behavior (see commit_point_write).
+#
+#   commit_point_write: Rewritten by the upgrade commit point itself, not by
+#     migrate_config() and not by the artifact-refresh loop. Applies to the
+#     top-level config keys that MUST track the currently-installed plugin:
+#     an additive merge cannot refresh an already-present value, so leaving
+#     such a key to migrate_only would strand it pointing at the superseded
+#     install. All keys carrying this behavior are written together in one
+#     parse-checked write, so they can never land half-committed.
 #
 #   not_installed: Documents an artifact that is read in-place from the
 #     plugin directory (never copied to the project). The upgrade loop
@@ -62,6 +73,7 @@ upgrade_behaviors:
   - refresh_or_sidecar
   - preserve
   - migrate_only
+  - commit_point_write
   - not_installed
 
 artifacts:
@@ -118,15 +130,21 @@ artifacts:
     on_disk: "{planwise_root}/config.yaml (key: plugin_root)"
     config_keys:
       - "plugin_root"
-    producer: "generate_config() / --migrate"
+    producer: "generate_config() / --migrate / --upgrade commit point"
     consumers:
       - "all handlers (script invocation paths)"
     missing_key_behavior: migrate_only
-    upgrade_behavior: migrate_only
+    upgrade_behavior: commit_point_write
     notes: >
       `plugin_root:` lets handlers locate plugin scripts without depending on
       CLAUDE_PLUGIN_ROOT. When missing in an existing config, `--migrate`
-      adds it pointing at the currently-installed plugin path.
+      adds it pointing at the currently-installed plugin path. On every
+      `--upgrade` that bumps `plugin_version:`, the commit point repoints
+      this key to the newly-installed plugin path in the SAME write, so the
+      pair can never disagree (see `_commit_upgrade_pin()` in
+      `scripts/init_project.py`); an already-current version pin whose
+      `plugin_root` has drifted is repointed on its own on the next
+      `--upgrade` run even though nothing else changes.
 
   - id: backlog_index
     on_disk: "{planwise_root}/{backlog_dir}/00-Index-Backlog.md"
@@ -215,17 +233,21 @@ artifacts:
     on_disk: "{planwise_root}/config.yaml (key: plugin_version)"
     config_keys:
       - "plugin_version"
-    producer: "generate_config() / --migrate"
+    producer: "generate_config() / --migrate / --upgrade commit point"
     consumers:
       - "/planwise init (Step 10 stale-version detection)"
       - "/planwise upgrade (drift detection)"
     missing_key_behavior: migrate_only
-    upgrade_behavior: migrate_only
+    upgrade_behavior: commit_point_write
     notes: >
       Pinned plugin version, set on fresh init from .claude-plugin/plugin.json
       and added to existing configs by `--migrate`. When missing or older
       than the currently-installed plugin, `/planwise init` Step 10 emits a
       drift-detection SKIPPED row directing the user at `/planwise upgrade`.
+      On every `--upgrade` the commit point rewrites this key in the SAME
+      single write that repoints `plugin_root:` — the two are pinned as a
+      pair so a reader can never see a new version against a superseded
+      install path (see `_commit_upgrade_pin()` in `scripts/init_project.py`).
 
   - id: planwise_skill
     on_disk: "plugin in-place (skills/planwise/SKILL.md)"

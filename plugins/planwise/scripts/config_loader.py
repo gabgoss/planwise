@@ -47,6 +47,53 @@ def find_config_upward(start_path: Path) -> Path | None:
     return None
 
 
+class ConfigWriteError(RuntimeError):
+    """A config.yaml write produced an unparseable file and was rolled back."""
+
+
+def write_config_checked(config_path, text: str) -> None:
+    """Write `text` to `config_path`, then verify the result still parses.
+
+    Every writer that edits config.yaml routes through here. The writers are
+    deliberately *targeted* (regex line splices and text-block appends) so the
+    user's comments, key order, and flow styles survive — but a targeted edit
+    that goes wrong produces a file that no longer parses, and nothing else in
+    the pipeline notices until the NEXT command dies on a raw parser traceback.
+    This helper closes that gap: it writes, re-reads, and parses the result; on
+    failure it restores the pre-write bytes (or removes the file when it did not
+    exist before) and raises ConfigWriteError naming the path.
+
+    When PyYAML is unavailable the parse check degrades to a documented no-op —
+    the write proceeds unverified, mirroring the HAS_YAML fallbacks elsewhere in
+    this module. Verification needs a real parser: the minimal
+    `_parse_yaml_simple` reader above accepts malformed input silently and would
+    hand back a false all-clear.
+    """
+    path = Path(config_path)
+    try:
+        previous = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        previous = None
+
+    path.write_text(text, encoding="utf-8")
+
+    if not HAS_YAML:
+        return
+
+    try:
+        yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        if previous is None:
+            path.unlink()
+            restored = "the file was removed"
+        else:
+            path.write_text(previous, encoding="utf-8")
+            restored = "the file is unchanged"
+        raise ConfigWriteError(
+            f"{path}: the edited config does not parse as YAML — the write was "
+            f"rolled back and {restored}. Parser said: {exc}"
+        ) from exc
+
 
 def _parse_yaml_simple(text: str) -> dict:
     """Minimal YAML parser for flat and one-level-nested structures.

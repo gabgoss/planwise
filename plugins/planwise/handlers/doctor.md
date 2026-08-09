@@ -26,15 +26,17 @@
 
 ### Preflight: Plugin version-state gate
 
-Before any diagnostics, `--doctor` emits an **always-on** version-state gate (independent of Token Saver) — the cheap "is this install even in a sane state to be doctored?" check that precedes everything else. It is read-only: it only *recommends* `init`/`upgrade`; those commands remain the only writers (they bump the `plugin_version` pin). The same `init_project.py --doctor` invocation shown in Step 1 prints the gate verdict **first**, then either stops or proceeds:
+Before any diagnostics, `--doctor` emits an **always-on** version-state gate (independent of Token Saver) — the cheap "is this install even in a sane state to be doctored?" check that precedes everything else. It is read-only: it only *recommends* `init`/`upgrade`; those commands remain the only writers (they bump the `plugin_version` pin and, at the same commit point, repoint `plugin_root`). The same `init_project.py --doctor` invocation shown in Step 1 prints the gate verdict **first**, then either stops or proceeds:
 
 | Gate state | Condition | doctor output | Action |
 |------------|-----------|---------------|--------|
 | Not initialized | no `config.yaml` resolved | `! Not initialized …` | Recommend `/planwise init` and **STOP** — no diagnostics run |
 | Version drift | pinned `plugin_version` ≠ installed plugin (absent / `0.0.0` counts as drift) | `! Version drift — pinned {X} != installed {Y}` | Recommend `/planwise upgrade`, showing both versions, and **STOP** |
-| Up to date | pinned == installed | `plugin version {X} — up to date` | Proceed with the over-scope linter (and the Token-Saver audit when enabled) |
+| `plugin_root` dangling | pinned == installed, but the configured `plugin_root:` points at a directory that no longer exists | `! plugin_root dangling — {path} does not exist` | Recommend `/planwise upgrade` (repoints `plugin_root` even though the version pin is already current) and **STOP** |
+| `plugin_root` version mismatch | pinned == installed, but the configured `plugin_root:` directory's own `.claude-plugin/plugin.json` version ≠ pinned | `! plugin_root version mismatch — {path} is {X}, pinned is {Y}` | Recommend `/planwise upgrade` and **STOP** |
+| Up to date | pinned == installed, and the configured `plugin_root:` (when present) resolves to a directory whose own version matches | `plugin version {X} — up to date` | Proceed with the over-scope linter (and the Token-Saver audit when enabled) |
 
-The pinned version is read from `config.yaml` (`plugin_version:`; absent → `0.0.0`); the installed version via `read_plugin_version(plugin_root)` from `.claude-plugin/plugin.json`. The gate stops on any non-`up to date` state, so **everything below (over-scope lint, Token-Saver audit) runs only when pinned == installed.**
+The pinned version is read from `config.yaml` (`plugin_version:`; absent → `0.0.0`); the installed version via `read_plugin_version(plugin_root)` from `.claude-plugin/plugin.json` — always the LIVE currently-executing plugin, never the configured `plugin_root:` value, so this comparison alone is immune to a stale `plugin_root:`. The two `plugin_root` checks below it catch a DIFFERENT residual defect: a version pin that already looks current (a legacy upgrade bumped it without repointing the root, or the cache directory the config still names was later reaped) while the separate `plugin_root:` key every other handler resolves scripts through is still wrong. The gate stops on any non-`up to date` state, so **everything below (over-scope lint, Token-Saver audit) runs only when the full gate — version pin AND `plugin_root` — is healthy.**
 
 ### Step 1: Run the over-scope linter
 

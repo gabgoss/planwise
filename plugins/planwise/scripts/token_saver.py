@@ -18,8 +18,10 @@ Two independent concerns live here:
 
 Pure functions (parser/derivation/classifier) shell out to nothing, so they are
 unit-testable without a live `claude` binary. Only `capture_context` /
-`calibrate` touch the filesystem or subprocess. Stdlib-only (re, os, subprocess,
-datetime) — this is a script, not a workflow.
+`calibrate` touch the filesystem or subprocess. No third-party dependency —
+stdlib (re, os, shutil, subprocess, datetime) plus the sibling `config_loader`
+script module for the parse-checked config write; this is a script, not a
+workflow.
 """
 
 import os
@@ -27,6 +29,15 @@ import re
 import shutil
 import subprocess
 from datetime import date
+
+try:
+    from config_loader import write_config_checked
+except ImportError:  # pragma: no cover - partial-install tolerance
+    def write_config_checked(config_path, text: str) -> None:   # noqa: D103
+        # Degraded fallback: the post-write parse check lives in config_loader,
+        # so a half-synced scripts tree writes unverified rather than failing to
+        # import. Same spirit as the no-PyYAML no-op in the real helper.
+        config_path.write_text(text, encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # FIXED Read-tool limit constants (empirically measured 2026-06-23).
@@ -414,12 +425,53 @@ def _format_breakdown(categories: dict) -> str:
     return "{" + ", ".join(parts) + "}"
 
 
+def _block_value_end(text: str, line_end: int, key_indent: int) -> int:
+    """Return the offset just past a block-mapping value following a key line.
+
+    `line_end` is the end offset of the matched `key:` line (the position of its
+    newline, or EOF); `key_indent` is that line's indent width. Consumes each
+    following line indented STRICTLY deeper than the key — deeper-indented
+    comment lines included, since they sit inside the block. Stops at the first
+    blank line or any line indented at or below the key, so a trailing blank
+    line and a comment introducing the NEXT key are never swallowed.
+
+    Returns `line_end` unchanged unless at least one deeper-indented NON-comment
+    child was found — a lone comment under a valueless key is the user's note on
+    an empty value, not a block mapping, and must survive the rewrite.
+    """
+    end = line_end
+    pos = line_end
+    saw_child = False
+    while pos < len(text) and text[pos] == "\n":
+        nxt = text.find("\n", pos + 1)
+        line = text[pos + 1:] if nxt == -1 else text[pos + 1:nxt]
+        if not line.strip():
+            break
+        indent = len(line) - len(line.lstrip())
+        if indent <= key_indent:
+            break
+        if not line.lstrip().startswith("#"):
+            saw_child = True
+        end = pos + 1 + len(line)
+        pos = end
+    return end if saw_child else line_end
+
+
 def _write_back(config_path, values: dict) -> None:
     """Targeted in-place edit of the six token_saver* lines under `context:`.
 
     Regex-replaces only each `token_saver_*:` line value (comments, key order,
     and unrelated lines preserved). NO yaml.safe_dump round-trip. A key absent
     from the file (pre-migration config) is appended under the `context:` block.
+
+    A key whose value is a BLOCK mapping rather than an inline one — which a
+    user may hand-author, and which an older whole-file re-dump produced — has
+    its parent line AND its whole child block replaced by the new single-line
+    value. Replacing only the parent line would leave the children orphaned
+    beneath a complete value and the file would no longer parse.
+
+    The write goes through the parse-checked writer, so an edit that would leave
+    an unparseable config is rolled back and raised rather than saved.
     """
     text = config_path.read_text(encoding="utf-8")
     lines = text.split("\n")
@@ -468,7 +520,14 @@ def _write_back(config_path, values: dict) -> None:
             cm = re.search(r"(\s+#.*)$", m.group("rest"))
             comment = cm.group(1) if cm else ""
             replacement = f"{m.group('indent')}{key}: {value}{comment}"
-            text = text[: m.start()] + replacement + text[m.end():]
+            end = m.end()
+            # An empty value on the key line (once its inline comment is set
+            # aside) means the real value may live in an indented block below —
+            # consume that block along with the parent line.
+            value_part = m.group("rest")[: cm.start(1)] if cm else m.group("rest")
+            if not value_part.strip():
+                end = _block_value_end(text, m.end(), len(m.group("indent")))
+            text = text[: m.start()] + replacement + text[end:]
         else:
             appended.append(f"{subkey_indent}{key}: {value}")
 
@@ -500,7 +559,7 @@ def _write_back(config_path, values: dict) -> None:
         lines = lines[:insert_at] + appended + lines[insert_at:]
         text = "\n".join(lines)
 
-    config_path.write_text(text, encoding="utf-8")
+    write_config_checked(config_path, text)
 
 
 def set_token_saver(config_path, enabled: bool) -> dict:
