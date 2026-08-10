@@ -1213,6 +1213,32 @@ Fix: Add a pre-edit-derived conservation gate (`for s in '<coordinate>' '<exact 
 ```
 - **Insert:** Second item under `**New checks (gates-that-cannot-fail discipline):**`.
 
+## Sub-role: Change-Surface Reviewer (NEW)
+
+- Verify that a plan pairing a new diagnostic with a new repair path also carries a deliverable editing the caller — code or document — that routes between them (`references/verification-gates.md` §8.8 sub-rule B)
+- Confirm that any deliverable changing a behavior described by a manifest, schema or frontmatter field also updates that structured field, not only the adjacent free-text prose (`references/verification-gates.md` §8.8 sub-rule A)
+
+**New checks (change-surface discipline):**
+
+### Check 076 — Detection + Repair With No Routing Deliverable
+
+- **Severity / Role / Source / Type:** WARNING | Plan Reviewer | `references/verification-gates.md` §8.8 | NEW
+- **What:** When a plan's deliverables include BOTH a new diagnostic (a check, warning, doctor stage, lint, drift detector) AND a new repair path (a fixer, migration, self-heal, reconcile-on-consent branch), it MUST also carry a deliverable that edits the **caller** which routes from the diagnostic's recommendation to the repair's execution. Without it, both halves ship, both are tested, the suite is green — and the loop is still open: the diagnostic's advice is a dead end. **The caller is frequently a document**, not code. Where a handler, runbook or documented command sequence is the caller of record, its gate conditions are as load-bearing as an `if`, and a prose gate that exits on the very condition the repair path serves cannot be caught by any test. A secondary signal: a plan that makes a previously-unreachable branch live without a deliverable auditing that branch against every input the newly-routed caller can supply — the branch's age and test count are not evidence, since until now it never ran.
+- **Detection:**
+  1. Classify each deliverable as diagnostic (detects/reports a bad state), repair (corrects it), or routing (connects a recommendation to an invocation).
+  2. If the plan has ≥1 diagnostic and ≥1 repair but zero routing deliverables → WARNING.
+  3. Where a routing deliverable exists, check it names the caller **and** its gate condition. A deliverable that only adds a note *describing* the repair capability alongside an unchanged gate does not route — flag it.
+  4. Check the handler / runbook / command-sequence docs among the plan's touched files. If the documented flow exits early on the state the repair addresses and no deliverable edits that gate → WARNING.
+  5. If any deliverable relaxes a gate, guard or early return so a dormant branch begins executing, require a deliverable that walks that branch against the caller-suppliable inputs (flags, options, environment). Anything set up after the branch's return point is not applied there. Absent → WARNING.
+- **Finding template:**
+```
+[WARNING] Detection and repair ship with nothing routing between them
+File: {plan or sprint file path} | Location: Deliverables / Sprint scope
+Issue: Plan adds {diagnostic} and {repair} but no deliverable edits the caller ({handler|runbook|entry point}) that routes between them; documented flow exits on {condition} — the repair path is unreachable and the diagnostic's recommendation is a dead end
+Fix: Add a deliverable editing the caller's gate to route the detected state to the repair (naming what is skipped and why), and audit the newly-reachable branch against every caller-suppliable input per references/verification-gates.md §8.8 | Confidence: MEDIUM
+```
+- **Insert:** First item under `**New checks (change-surface discipline):**`.
+
 ---
 
 ## Finding Report Format

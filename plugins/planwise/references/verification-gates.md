@@ -372,6 +372,97 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 >
 > **Generalisation:** applies to any consolidation carrying a size objective — merging docs, deduping rules, collapsing config, summarising logs, compressing prompts. Ask what the artifact's *payload* is as distinct from its *prose*, and gate on the payload.
 
+### 8.8 After a behavior change, sweep the surfaces that describe and call it
+
+A behavior change lands on surfaces beyond the code that implements it. **The tests cover the code. Nothing covers the metadata that *describes* the code, or the document that *invokes* it.** Both can therefore be left asserting the old behavior with the suite fully green — and both are read as authoritative: the metadata by tooling and by the next author, the document by the user following it.
+
+§8.7 asks whether a gate can fail. This section asks a prior question: whether the change was even applied everywhere it is stated. The three sub-rules below are one sweep, in causal order — C only ever arises as a consequence of acting on B, so they are not separable.
+
+> [!constraint] A — Update the field, not just the prose beside it
+> WRONG — the fix updates the human-readable half and leaves the machine-readable half asserting the old behavior. The row now asserts two contradictory things about the same key, and the authoritative half is the false one:
+> ```yaml
+>   - id: <some_key>
+>     <field>: <old_value>        # ← still says the old behavior
+>     notes: >
+>       … the commit point now rewrites this key in the SAME write …   # ← says the opposite
+> ```
+>
+> CORRECT — the field moves too, a truthful value is **added** when none exists, and the siblings are swept:
+> ```yaml
+> # (enum gains a definition comment in the file's own style)
+> #   <new_value>: <definition of what this actually means>
+>
+> <enum_key>: [<existing values>, <new_value>]
+>
+>   - id: <some_key>
+>     <field>: <new_value>
+>   - id: <paired_key>
+>     <field>: <new_value>   # ← sibling audit: was false before this fix, too
+> ```
+>
+> Three ordered steps:
+>
+> **(a) Find the field, not just the prose.** Grep the manifests, schemas and frontmatter for the artifact you changed, and read the **structured** values. Free-text `notes:` / `description:` are the easy half — they read as commentary and an author updates them by reflex. The enum, boolean or path-glob two lines above is the half that reads as authoritative to tooling and to the next author, and it is the half that gets left behind.
+>
+> **(b) If no legal value is true, add one — do not round to the nearest.** Check what consumes the field first: a value that is inert to code but wrong to a reader is a documentation defect; one that drives a loop is a runtime defect. Then add the value to the declared enum **and** write its definition comment in the file's established style. Picking the least-wrong existing value is not a smaller fix than adding one — it encodes a second, subtler lie in a field that now looks deliberately chosen.
+>
+> **(c) Audit every sibling row carrying the value you just abandoned.** The reason your row was wrong usually applies to its neighbours. **This is the step that pays.** A sibling written by the same mechanism can have been false since before your change existed — no current task owns it, no test covers it, and nothing but this sweep will surface it. Your fix did not cause it; your fix created the occasion to notice it.
+>
+> When nothing in code validates the field, verify it by hand:
+> ```bash
+> python -c "
+> import yaml; d=yaml.safe_load(open('<manifest>',encoding='utf-8'))
+> enum=set(d['<enum_key>'])
+> print('off-enum:', [a['id'] for a in d['artifacts'] if a.get('<field>') not in enum] or 'NONE')
+> print('grouped:', {v: [a['id'] for a in d['artifacts'] if a.get('<field>')==v] for v in enum})
+> "
+> ```
+> The **grouped** half matters as much as the off-enum half. Off-enum catches a value that is illegal; grouped catches a value that is legal and false — it puts an inherited wrong value directly beside its correct peers, which is the only cheap way to see it.
+
+> [!constraint] B — A detection plus a repair is not a remediation until something routes between them
+> Whenever a change adds "X detects a bad state" and "Y can fix it", the deliverable is **not done** until the path from X's recommendation to Y's execution has been traced end to end and shown to be walkable. State the trace explicitly. Do not infer it from the fact that both halves exist and both are tested — that is exactly the evidence that is available when the loop is still open.
+>
+> **Where the caller is a document** — a handler, a runbook, a README command sequence — the document is part of the change surface, and its gate conditions are as load-bearing as an `if`. A prose gate that exits on the very condition the new repair path exists to serve is a dead end that no test can fail: the user is told they are already fine and left broken, twice.
+>
+> WRONG — the gate exits on the condition the repair serves, and a nearby note merely *describes* the capability:
+> ```
+> > If `pinned == shipped` → report "already up to date" and exit.
+> …
+> > [!practice] A stale root is upgrade-indicating
+> > …re-running the script resolves the mismatch…      ← nothing routes here
+> ```
+>
+> CORRECT — the gate itself carries the routing, and names what is skipped and why:
+> ```
+> > If `pinned == shipped` **and** the stored value matches the live one → report and exit.
+> > If `pinned == shipped` **but** the stored value differs → do NOT exit; skip the
+> >   comparison stages (nothing changed to compare) and run the writer invocation,
+> >   which repairs the value on its own. Report it as a repair, not a version change.
+> ```
+
+> [!constraint] C — A previously-unreachable branch is unproven code, regardless of its age or test count
+> Fixing a gate per sub-rule B makes a dormant branch live. That is a **behavioral change to everything the branch touches** — the branch's age and the suite's green status say nothing about it, because until now it never ran.
+>
+> Before declaring it done, walk the branch line by line against every input the newly-routed caller can supply — flags, options, environment — and ask what the branch does with each. **Anything set up after the point where that branch returns is, by construction, not applied there.**
+> ```python
+>     if pinned_version == target_version:
+>         # This branch is now reachable. Everything below the gate — the opt-in
+>         # flag application, the backfills — never runs here. Anything a caller
+>         # can pass must be honored on THIS path or explicitly declared a no-op.
+>         toggled = bool(cfg.opt_in_flag) and _apply_opt_in(config_path)
+> ```
+>
+> The mechanical check is a set difference — enumerate what the caller can request, enumerate what the branch performs before it returns, and subtract:
+> ```bash
+> # 1. what the caller can ask for: every flag/option the entry point accepts
+> grep -nE 'add_argument|opt_in|--[a-z-]+' <entry_point> | sed 's/.*--//' | sort -u
+> # 2. what the newly-live branch actually does before returning
+> sed -n '<branch_start>,<return_line>p' <module> | grep -nE '_apply_|_backfill_|write|=' 
+> ```
+> A non-empty difference is either a bug or a decision that needs stating — never a silent no-op.
+
+**Applies-to surface.** Any change to behavior that a manifest, schema, frontmatter field or capability table also describes — **including when the field is documentation-only and no test can fail.** Any change pairing a new diagnostic with a new remediation. Any change relaxing a gate, guard or early return so a previously-dead branch begins executing. And any codebase where prose — a handler, a runbook, a documented command sequence — is the caller of record for a script: there the document's conditions must be edited in the same change as the code's, or the code's new capability is unreachable in practice.
+
 ---
 
 *Cross-references: [session-execution-protocol.md](session-execution-protocol.md) (Recovery-file update discipline at closeout), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Sprint exit-gate semantics in Master Plan / Sprint Plan rows).*
