@@ -312,6 +312,66 @@ Both failures collapse a multi-signal verification surface into a single "looks 
 > ```
 > Detection tripwire: at a delegated session's first dispatch layer, grep each deliverable against the live target before authoring. A plan that is **entirely** already-satisfied at that boundary is the signal that a twin was shipped elsewhere and never retired.
 
+### 8.7 Verify the gate's input set before trusting its predicate
+
+An empty result from a verification command is **ambiguous**. It means either "I checked and found nothing" or "I checked nothing." Those are opposite facts and the gate renders them identically. Every downstream reader — the verification report, the sprint signoff, the release battery — consumes the empty result as evidence of cleanliness.
+
+This is worse than a missing gate. A missing gate is visible in review; a gate that *cannot fail* is documented as coverage and actively suppresses the search for one. §8.1–§8.6 each measure a live surface rather than trusting a secondary reading. This section turns the same discipline on the gate itself: **verify the gate's input set, then its predicate.** The two sub-rules below are the two ways a gate ends up unable to fail — one where the input never arrived, one where the objective is satisfied by destroying the thing being checked.
+
+> [!constraint] A — A change-set-derived gate silently excludes whatever the change set omits
+> WRONG — the canonical shape. It reports the same empty result whether it inspected everything or nothing:
+> ```bash
+> git diff $BASE -- <paths> | grep -E '^\+' | grep -E '<forbidden-pattern>'   # expect empty
+> ```
+> Three independent blind spots, each sufficient on its own to make the gate unfalsifiable:
+> 1. **Untracked files never appear in `git diff` at all.** A task that CREATES files gets an empty result from a pipeline those files' content never entered.
+> 2. **`^\+` filtering hides everything predating the base.** A defect older than `$BASE` is a context line, not an added line, so it is invisible by construction — and stays invisible across every later session reusing the shape.
+> 3. **A pattern narrower than the forms it must catch misses them even unfiltered.** A pattern written as `{PREFIX}-[0-9]` matches only the citation spelling; the same identifier glued into a file name (`…-{PREFIX}SomeTopicName.md` — no hyphen, no digit) slips straight through, so widening the scope without widening the pattern still returns empty on a visibly leaking file.
+>
+> CORRECT — four remedies, all of them cheap:
+>
+> **1. Register new files before diffing.** Intent-to-add puts the path in the index without staging content or creating a commit:
+> ```bash
+> git add -N <each new file>       # then run the gate
+> ```
+>
+> **2. Assert the gate's input was non-empty.** A gate over a diff must prove the diff covered the intended file set — never trust the pattern result alone:
+> ```bash
+> git status --porcelain <scope> | grep -c '^??'    # must be 0, else some file was never registered
+> git diff --name-only $BASE -- <scope> | wc -l     # must equal the expected file count
+> ```
+>
+> **3. Add one unfiltered sweep for pre-existing content.** `^\+`-filtered gates correctly answer "did this change introduce X"; they cannot answer "does X exist". A whole-tree audit or release battery needs a sweep over files **on disk**, not over a diff — and it must **classify** hits rather than blanket-fail, since legitimate template placeholders and rule text that enumerates the forbidden forms will match. Widening a pattern without widening the classification step converts a silent miss into a noisy blanket-fail, which gets ignored just as fast.
+>
+> **4. Dry-run every gate against known-bad input before trusting it.** Run it once against a file that genuinely carries the pattern and once against a clean file; the two runs MUST produce different results. Each of the three defects above would have surfaced in one such run. A gate that has only ever been run against clean input has never been shown to discriminate.
+>
+> **Generalisation:** the class is broader than git. Any check deriving its input from a *change set* — a diff, a changelog, a CI touched-files list, a migration delta — silently excludes whatever the change set omits, and inherits this whole failure mode.
+
+> [!constraint] B — A size objective is satisfied by destroying the content the gate was meant to protect
+> A pointer's value is not its description — it is the **location**: file + section number + exact heading name. A summary that keeps a rule's topic but drops its section number converts a jump into a search through a long target; one that renames the heading breaks even the search. The pointer no longer points.
+>
+> WRONG — a consolidation task whose gates are all size- or absence-shaped: a `wc -l` band, a `grep -c` proving the old headings are gone, plus the usual self-containment greps. A runner collapses six pointer sections into one table, flattens nine sub-section numbers into running prose, and rewrites two heading names into shorter paraphrases. **Every gate passes.** The file got smaller, which is what the task asked for — it got smaller *by* discarding the payload. Grepping the target for the table's own wording now returns zero hits.
+>
+> The failure mode is structurally adversarial: the metric the task optimises improves monotonically with the amount of content destroyed. There is no size at which the gate objects.
+>
+> CORRECT — four remedies:
+>
+> **1. Pair every size gate with a content-conservation gate.** Before the task runs, enumerate the specific payload terms that must survive, and check them by exact string:
+> ```bash
+> for s in '<coordinate-1>' '<coordinate-2>' '<exact heading name>'; do
+>   printf '%-40s %s\n' "$s" "$(grep -cF "$s" $FILE)"
+> done      # every line must be >= 1
+> ```
+> Derive the term list from the **pre-edit** file, never from the post-edit result — a list written afterwards inherits whatever was already lost.
+>
+> **2. Use `grep -F` and mind case.** Proper-noun rule names are part of the payload; lower-casing them breaks findability against the target's actual heading. Run the gate case-sensitively, then re-run case-insensitively to distinguish a genuine loss from a casing slip — they need different fixes.
+>
+> **3. Never let the output shape truncate the content.** If a three-column table cannot hold the payload readably, widen the cell (`<br>`-separated bullets) or add a sub-list — do not trim the payload to fit the shape. Readability of the container never outranks conservation of what it contains.
+>
+> **4. Require the gate output in the completion report, and re-run it independently.** In the originating incident the runner did not paste its gate output and reported COMPLETE in good faith; the loss was found only when the orchestrator ran the gate itself. **A conservation claim verified by the same agent that made the cut is not verification.**
+>
+> **Generalisation:** applies to any consolidation carrying a size objective — merging docs, deduping rules, collapsing config, summarising logs, compressing prompts. Ask what the artifact's *payload* is as distinct from its *prose*, and gate on the payload.
+
 ---
 
 *Cross-references: [session-execution-protocol.md](session-execution-protocol.md) (Recovery-file update discipline at closeout), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Sprint exit-gate semantics in Master Plan / Sprint Plan rows).*

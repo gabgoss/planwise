@@ -1169,6 +1169,50 @@ Fix: Phrase as "verify existing pins still pass unchanged (default path untouche
 ```
 - **Insert:** Second item under `**New checks (destructive-path discipline):**`.
 
+## Sub-role: Verification-Gate Reviewer (NEW)
+
+- Verify that any task gate deriving its input from a change set registers untracked files and asserts its input set was non-empty (`references/verification-gates.md` §8.7 sub-rule A)
+- Confirm that any task with a compaction/consolidation objective pairs its size gate with a content-conservation gate (`references/verification-gates.md` §8.7 sub-rule B)
+
+**New checks (gates-that-cannot-fail discipline):**
+
+### Check 074 — Diff-Derived Gate Without Input-Set Assertion
+
+- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/verification-gates.md` §8.7 | NEW
+- **What:** A task verification gate whose input comes from a change set — `git diff`, a changelog, a CI touched-files list, a migration delta — MUST carry BOTH an untracked-file registration step (`git add -N`) and an input-set assertion proving the diff actually covered the intended files. Without them the gate returns the same empty result whether it inspected everything or nothing, and every downstream reader consumes that empty result as evidence of cleanliness. The defect is worst on tasks that CREATE files: `git diff` does not report untracked paths at all, so a gate over a newly-authored file inspects zero bytes and reports PASS.
+- **Detection:**
+  1. Identify every Success Criterion / verification step whose command pipes a change set into a matcher (`git diff … | grep`, `git diff --name-only`, a touched-files list).
+  2. For each, check whether the task's Execution Steps also register untracked files (`git add -N`) before the gate runs. Absent, on a task whose deliverables include NEW files → ERROR.
+  3. Check for an input-set assertion (`git status --porcelain <scope> | grep -c '^??'` expecting 0, and/or `git diff --name-only $BASE -- <scope> | wc -l` compared against an expected file count). Absent → ERROR.
+  4. If the task is a whole-tree audit or release battery, also require one unfiltered on-disk sweep — a `^\+`-filtered gate cannot answer "does X exist", only "did this change introduce X". Absent on an audit-scoped task → ERROR.
+  5. Inspect the matcher pattern against the forms it must catch. A pattern matching only the hyphen-digit citation spelling of an identifier while the leak also appears glued into file names → ERROR (too narrow to discriminate).
+- **Finding template:**
+```
+[ERROR] Diff-derived gate without input-set assertion
+File: {task file path} | Location: Success Criteria / verification step {n}
+Issue: Gate derives input from {git diff | change set} with no {git add -N registration | input-set assertion | unfiltered sweep}; task authors {N} new file(s) whose content never enters the pipeline — empty result is unfalsifiable
+Fix: Add `git add -N` for each new file, assert `git status --porcelain <scope> | grep -c '^??'` == 0 and `git diff --name-only $BASE -- <scope> | wc -l` == expected count, and dry-run the gate against known-bad input per references/verification-gates.md §8.7 | Confidence: HIGH
+```
+- **Insert:** First item under `**New checks (gates-that-cannot-fail discipline):**`.
+
+### Check 075 — Size Gate Without Content-Conservation Gate
+
+- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `references/verification-gates.md` §8.7 | NEW
+- **What:** When a task's objective is compaction, consolidation, collapsing, deduplication, or summarisation, its gates MUST include a content-conservation check derived from the **pre-edit** file — not only size gates (`wc -l` bands) and absence gates (`grep -c` for removed headings). Size and absence gates are both satisfied by destroying the payload: the metric improves monotonically with the amount of content lost, and there is no size at which the gate objects. The payload at risk is usually a pointer's coordinates — target section numbers and exact heading names — which a paraphrase drops while keeping the prose intact.
+- **Detection:**
+  1. Identify tasks whose Objective contains a compaction verb (collapse, consolidate, merge, dedupe, compress, summarise, trim, "reduce to N lines").
+  2. Inspect their Success Criteria. If every gate is size-shaped (`wc -l`, line band, token count) or absence-shaped (`grep -c` of what was removed) → WARNING.
+  3. Require an explicit conservation term list — section numbers, exact heading names, coordinates — checked by exact string (`grep -cF`), with the list stated as derived from the pre-edit file. A list derived after the edit inherits whatever was lost; flag that phrasing specifically.
+  4. Check that the task requires the conservation gate's OUTPUT in the completion report, and that a party other than the editing runner re-runs it. Self-certified conservation → WARNING.
+- **Finding template:**
+```
+[WARNING] Compaction task gated on size only — no content-conservation check
+File: {task file path} | Location: Objective / Success Criteria
+Issue: Objective is {collapse|consolidate|dedupe} but all gates are size/absence-shaped; payload ({section numbers | exact heading names | coordinates}) can be discarded with every gate green
+Fix: Add a pre-edit-derived conservation gate (`for s in '<coordinate>' '<exact heading>'; do grep -cF "$s" $FILE; done`, every count >= 1), run it case-sensitively then case-insensitively, and require its output in the completion report re-run by a second party per references/verification-gates.md §8.7 | Confidence: MEDIUM
+```
+- **Insert:** Second item under `**New checks (gates-that-cannot-fail discipline):**`.
+
 ---
 
 ## Finding Report Format

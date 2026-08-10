@@ -297,12 +297,12 @@ The 500-line soft limit above is advisory. When `context.token_saver: true`, **g
 > [!constraint] Generated-Artifact Split — Hard, Not Advisory
 > WRONG — a planwise-generated Consolidated Context part is checked against the line limit alone, passes at 480 lines, but is 9,200 bytes-per-100-lines of dense tables → exceeds the 256 KiB byte gate / 25K-token page-cap and a Sonnet runner can only read its first page:
 > ```
-> wc -l RSO-Consolidated-Context-Part-1.md   # 480 → "under 500, fine"  ← INSUFFICIENT
+> wc -l PI-Consolidated-Context-Part-1.md   # 480 → "under 500, fine"  ← INSUFFICIENT
 > ```
 > CORRECT — check the line gate, the byte gate, AND the token gate; split on whichever trips first:
 > ```
-> wc -l RSO-Consolidated-Context-Part-1.md   # line gate
-> wc -c RSO-Consolidated-Context-Part-1.md   # byte gate: must stay < 245,760 (warn) / 262,144 (hard)
+> wc -l PI-Consolidated-Context-Part-1.md   # line gate
+> wc -c PI-Consolidated-Context-Part-1.md   # byte gate: must stay < 245,760 (warn) / 262,144 (hard)
 > # token gate: lines × per-model rate must stay < 22,000 (warn) / 25,000 (hard)
 > # → split into Part-1a / Part-1b if line OR byte OR token gate trips
 > ```

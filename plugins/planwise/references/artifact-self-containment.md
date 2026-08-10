@@ -149,7 +149,7 @@ Every BB that produces content-bearing artifacts MUST include a self-containment
 > [!verify] Self-Containment Grep
 > ```bash
 > # Bash / POSIX — replace {paths-touched} with the actual files this BB wrote:
-> grep -rnE '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9])' \
+> grep -rnE '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9]|\b(LL|BB|BLI|PLG)([A-Z][a-z]|[0-9]))' \
 >   .claude/rules/{paths-touched} \
 >   .claude/agents/{paths-touched} \
 >   .claude/skills/{paths-touched} \
@@ -162,11 +162,13 @@ Every BB that produces content-bearing artifacts MUST include a self-containment
 > # PowerShell (Windows shells):
 > Get-ChildItem -Path .claude/rules, .claude/agents, .claude/skills, .claude/commands, CLAUDE.md `
 >   -Recurse -Include *.md `
->   | Select-String -Pattern '(LL-\d|BB-\d|BLI-\d|PLG-\d|\bD-\d)'
+>   | Select-String -Pattern '(LL-\d|BB-\d|BLI-\d|PLG-\d|\bD-\d|\b(LL|BB|BLI|PLG)([A-Z][a-z]|\d))'
 > # MUST return zero matches.
 > ```
 
 If grep returns matches, the BB executor MUST inline the cited content into the rule body or remove the reference. The check is binary — any `LL-`, `BB-`, `BLI-`, `PLG-`, or `D-` reference in any content-bearing artifact is a fail.
+
+**Why the alternation carries a second, hyphen-less clause.** A prefix pattern written only as `{PREFIX}-[0-9]` matches the *citation* spelling of an identifier and nothing else. The same identifier reaches a shipped file just as often glued into a file name — `…-{PREFIX}SomeTopicName.md`, no hyphen and no digit — so a narrow pattern returns empty on a file that is visibly leaking. The `\b(LL|BB|BLI|PLG)([A-Z][a-z]|[0-9])` clause covers the PascalCase-continuation and run-together-digit spellings for every prefix in the family. It deliberately does NOT fire on the plugin's own vocabulary: a bare `BLI`, the `BLI-{NNN}` template placeholder, and prose plurals like "BBs shipped" all lack the required following character class. Widening the pattern without widening the **classification** step below converts a silent miss into a noisy blanket-fail — so treat every hit from the second clause as a candidate to classify per §4.2, not an automatic failure.
 
 ### 4.1 What the grep deliberately does NOT cover
 
@@ -201,12 +203,17 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 > ```bash
 > git diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9])'
 > ```
-> CORRECT — run TWO patterns; both must return empty:
+> CORRECT — register untracked files, assert the input set, then run TWO patterns; both must return empty:
 > ```bash
-> git diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9])'
+> git add -N $(git status --porcelain plugins/planwise/ | awk '/^\?\?/{print $2}')   # 1. register
+> git status --porcelain plugins/planwise/ | grep -c '^??'      # 2. MUST be 0
+> git diff --name-only plugins/planwise/ | wc -l                # 3. MUST equal the expected file count
+> git diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9]|\b(LL|BB|BLI|PLG)([A-Z][a-z]|[0-9]))'
 > git diff plugins/planwise/ | grep -E '^\+' | grep -E 'Sprint-[0-9]|{PLAN_ABBREV}-'
 > ```
 > `{PLAN_ABBREV}` is the executing plan's abbreviation, parameterised per plan (substitute the live abbreviation before running).
+>
+> Steps 1–3 are not optional decoration — they are what makes step 4's empty result mean anything. `git diff` does not report untracked files at all, so a promotion that ADDS a file gets an empty result from a pipeline that never saw the file's content, and an empty result that inspected nothing is indistinguishable from one that inspected everything. See `verification-gates.md` §8.7 *Verify the gate's input set before trusting its predicate*.
 
 **Gate semantics:**
 
@@ -214,6 +221,27 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 - `Sprint-[0-9]` hits are leaks **unless** the line is demonstrably the plugin's own template/example vocabulary — `templates/`, `examples/`, and `handlers/plan.md` legitimately show resolved sprint folder names (e.g. `Sprint-NN-{Name}`) as sample output of the tool itself. Inspect every hit; never ignore one silently.
 - The `{Sprint-N}` template placeholder (no digit after the dash) stays legal — the pattern targets resolved numerals, not the placeholder.
 - For plan sessions editing non-template plugin files (scripts, handlers, agents, references), expect strictly EMPTY.
+
+**Both gates above are `^\+`-filtered, and that filter has a second blind spot.** They answer "did this change introduce a leak" — they cannot answer "does a leak exist". Anything that predates the diff base is a context line, never an added line, so it is invisible by construction and stays invisible across every subsequent session that reuses the same gate shape. A whole-tree audit or a release battery therefore needs one companion sweep that reads **files on disk**, not a diff:
+
+> [!verify] Unfiltered On-Disk Sweep — Classify, Do Not Blanket-Fail
+> ```bash
+> # Whole-tree / release use. Reads the working tree, so pre-existing leaks are visible.
+> grep -rnE '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9]|\b(LL|BB|BLI|PLG)([A-Z][a-z]|[0-9]))' plugins/planwise/
+> grep -rnE 'Sprint-[0-9]|{PLAN_ABBREV}-' plugins/planwise/
+> ```
+> This sweep is expected to return hits, and a non-empty result is NOT automatically a failure. Classify every hit into exactly one bucket before deciding:
+>
+> | Bucket | What it looks like | Disposition |
+> |--------|--------------------|-------------|
+> | Plugin's own scaffold vocabulary | `templates/`, `examples/`, `handlers/plan.md` showing resolved sample structure names, and sample abbreviations invented for the doc | False positive — leave it |
+> | Rule text enumerating the forbidden forms | This file, and any prose that must *name* `LL-NNN` / `PLG-NNN` to ban them | False positive — leave it |
+> | Declared §7 exemption | Command-syntax samples, seed starting state, template sample rows, bookkeeping frontmatter | False positive — leave it |
+> | Anything else | A real authoring repo's abbreviation, its real artifact file names, a resolved sprint reference | **Leak — reword or inline** |
+>
+> The distinguishing question for the last two rows is whether the token names an artifact that exists in some authoring repo. An invented sample abbreviation in a format example is vocabulary; a real project's abbreviation attached to that project's real file names is a citation wearing an example's clothes.
+
+**Dry-run every one of these gates against known-bad input before trusting it.** Run each gate once against a file that genuinely carries the pattern and once against a clean file; the two runs MUST produce different results. A gate that has only ever been run against clean input has never been shown to discriminate — and all three defects this section corrects (untracked blindness, `^\+` blindness, a too-narrow pattern) would have surfaced in a single such run.
 
 ### 4.4 Where the Displaced Note Goes — Banning the Reference Must Not Lose the Information
 

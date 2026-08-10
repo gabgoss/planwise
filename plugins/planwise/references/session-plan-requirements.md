@@ -94,14 +94,14 @@ Extraction MUST cite all three tiers in the EI's `Extracted from:` header when a
 > [!constraint] Multi-Tier EI Extraction
 > WRONG — EI cites only the final consolidated layer (Tier 2/3); Tier 1 raw outputs ignored:
 > ```
-> **Extracted from:** Spec #1 (PPU-Consolidated-Context-Part-1.md), Spec #2 (PPU-Consolidated-Context-Part-2.md)
+> **Extracted from:** Spec #1 (PI-Consolidated-Context-Part-1.md), Spec #2 (PI-Consolidated-Context-Part-2.md)
 > ```
 > CORRECT — EI cites all tiers with Tier 1 raw outputs explicitly:
 > ```
-> **Extracted from:** Spec #1 (PPU-META-S01-01-PlanwiseRulesInventory.md) [Tier 1 raw],
->   Spec #2 (PPU-META-S01-02-PLGPromotionsInventory.md) [Tier 1 raw],
->   Spec #3 (PPU-Consolidated-Context-Part-1.md) [Tier 2 consolidated],
->   Spec #4 (PPU-Consolidated-Context-Part-3-EnforcementLayer.md) [Tier 2 consolidated]
+> **Extracted from:** Spec #1 (PI-META-S01-01-SourceInventory.md) [Tier 1 raw],
+>   Spec #2 (PI-META-S01-02-DependencyInventory.md) [Tier 1 raw],
+>   Spec #3 (PI-Consolidated-Context-Part-1.md) [Tier 2 consolidated],
+>   Spec #4 (PI-Consolidated-Context-Part-3-EnforcementLayer.md) [Tier 2 consolidated]
 > ```
 
 **Deferred/Out-of-Scope Log Requirement:**
