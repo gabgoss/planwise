@@ -30,7 +30,12 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config, get_scoring_weights
 from constants import OPEN_STATUSES
-from markdown_parser import parse_markdown_table
+from markdown_parser import (
+    parse_markdown_table,
+    split_row_cells,
+    split_row_raw,
+    warn_on_unparsed_rows,
+)
 
 # Try yaml import; fall back to regex extraction if unavailable
 try:
@@ -76,8 +81,16 @@ def parse_index_table(content: str) -> list[dict]:
 
     Returns list of dicts with keys: id, feature, priority, status, abbrev,
     score (str or None), files_raw, file_count, line_number.
+
+    Warns loudly if any row present in the table failed to parse, so the
+    "N open items" headline is never quietly derived from a short read.
     """
-    return parse_markdown_table(content, "## Backlog Items", _score_row_processor)
+    stats: dict = {}
+    items = parse_markdown_table(
+        content, "## Backlog Items", _score_row_processor, stats=stats
+    )
+    warn_on_unparsed_rows(stats, "Backlog Items")
+    return items
 
 
 def read_item_frontmatter(filepath: Path) -> dict:
@@ -229,11 +242,11 @@ def write_scores_to_index(content: str, scores: dict[str, int]) -> str:
         return content
 
     if not has_score_column:
-        hparts = lines[header_idx].split("|")
+        hparts = split_row_raw(lines[header_idx])
         hparts.insert(-2, " Score ")
         lines[header_idx] = "|".join(hparts)
 
-        sparts = lines[separator_idx].split("|")
+        sparts = split_row_raw(lines[separator_idx])
         sparts.insert(-2, "------")
         lines[separator_idx] = "|".join(sparts)
 
@@ -244,26 +257,32 @@ def write_scores_to_index(content: str, scores: dict[str, int]) -> str:
         if stripped.startswith("## ") or stripped.startswith("---"):
             break
 
-        parts = lines[i].split("|")
+        parts = split_row_raw(lines[i])
+        cells = split_row_cells(lines[i])
         if len(parts) < 3:
             continue
 
-        row_id = parts[1].strip() if len(parts) > 1 else ""
+        row_id = cells[0] if cells else ""
         if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
             continue
 
-        status_cell = parts[4].strip() if len(parts) > 4 else ""
+        # Cell 3 is Status in both the 6- and 7-column index formats. Reading it
+        # by name-derived index rather than a raw offset is what stops an
+        # escaped pipe from presenting the Priority cell here.
+        status_cell = cells[3] if len(cells) > 3 else ""
         if status_cell in ("COMPLETE", "CLOSED"):
             score_val = "-"
         else:
             score_val = str(scores.get(row_id, 0))
 
         if has_score_column:
-            if len(parts) >= 8:
-                parts[6] = f" {score_val} "
+            # Score is the second-to-last cell; Files trails it.
+            score_idx = len(cells) - 2
+            if score_idx >= 0 and len(parts) > score_idx + 1:
+                parts[score_idx + 1] = f" {score_val} "
                 lines[i] = "|".join(parts)
         else:
-            if len(parts) >= 7:
+            if len(cells) >= 6:
                 parts.insert(-2, f" {score_val} ")
                 lines[i] = "|".join(parts)
 

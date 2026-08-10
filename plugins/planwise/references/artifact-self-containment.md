@@ -57,7 +57,7 @@ Not every artifact is a content-bearing artifact. The rule above forbids `LL-NNN
 > |----------------|----------|
 > | LessonsLearned index | `{lessons_dir}/00-Index-LessonsLearned.md` — Master Table title/description, Rule Promotion Log |
 > | Backlog index | `{backlog_dir}/00-Index-Backlog.md` — Feature/Title column, Dependencies notes |
-> | Lesson frontmatter | `applied-as:`, `rule-as:`, `promoted-to:`, `promotion-target:`, `promoted-date:`, related-lesson links |
+> | Lesson frontmatter | `applied-as:`, `promoted-to:`, `promotion-target:`, `promoted-date:`, the deprecated `rule-as:`, related-lesson links — field semantics are defined once in `seed/00-Index-LessonsLearned.md` (Pointer Fields) |
 > | BB header metadata | `Closes: LL-NNN`, `Related: BB-NNN`, `Source: LL-X + LL-Y` lines ABOVE the Deliverables section |
 > | BB Notes section | "Out of scope: LL-X, LL-Y …", "Decomposed across: BB-{P}, BB-{Q}" |
 > | Project changelog / release notes | the "Lessons folded in" / "BBs shipped this release" block at the bottom of `README.md` or `CHANGELOG.md` |
@@ -266,7 +266,7 @@ A small set of cases need exemption from the §4 grep. When a BB needs one of th
 | Command-syntax usage examples | `/planwise lessons promote LL-NNN` shown as a literal sample | `handlers/lessons.md`, `README.md` usage examples, skill `examples:` blocks |
 | Seed template starting state | `Next available ID: LL-001` in a fresh project's lessons index | `seed/00-Index-LessonsLearned.md` and equivalents |
 | Sample data rows in template docs | `| LL-NNN | Example Lesson Title | … |` in a "here is the index format" reference table | `handlers/lessons.md` template examples |
-| Bookkeeping frontmatter cross-refs | `applied-as:`, `rule-as:`, `promoted-to:`, `promotion-target:` — lesson frontmatter fields pointing at the owning backlog item or promotion target, not content citations | Lesson frontmatter across `{lessons_dir}/**`, including archived lessons |
+| Bookkeeping frontmatter cross-refs | `applied-as:`, `promoted-to:`, `promotion-target:`, and the deprecated `rule-as:` — lesson frontmatter fields pointing at the owning backlog item or promotion target, not content citations. Exempt regardless of which scheme a lesson was written under; see `seed/00-Index-LessonsLearned.md` (Pointer Fields) for what each field means | Lesson frontmatter across `{lessons_dir}/**`, including archived lessons |
 
 Each exemption MUST be a sample/placeholder pattern, NOT a load-bearing cross-reference to recover content from a specific lesson or backlog item. If you find yourself adding an exemption to silence a grep hit that IS actually a citation, the fix is to inline the content — not to widen the exemption list.
 

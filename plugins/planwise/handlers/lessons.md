@@ -137,7 +137,7 @@ If `$2` is absent or not a recognised `--phase=` value, default to `both`.
 
 ### Output
 
-Chat report only (markdown summary with Phase 1 / Phase 2 / Anomalies sections per the reference doc's §6). File writes are limited to: appending rows to `00-Categorization-By-Domain.md` and bumping its top-of-file `Last Updated:` line to the current date when Phase 1 appends new rows (Phase 1); appending rows to the Rule Promotion Log in `{lessons_dir}/{lessons_index}` (Phase 2); updating the Status column in the Master Table (Phase 2). No new `LL-*` files are created.
+Chat report only (markdown summary with Phase 1 / Phase 2 / Anomalies sections per the reference doc's §6). The authoritative write scope — which files each phase writes, and what it writes to them — is the Write column of [`references/lessons-curate-workflow.md`](../references/lessons-curate-workflow.md) §1. It is deliberately not restated here: a restated list is a cache with no invalidation, and it drifts the moment either phase gains a write. Note that Phase 1 writes lesson frontmatter (`promotion-target:`, per §3.6) and Phase 2 writes lesson status/`applied-as`/`promoted-to:` — read the table rather than assuming lesson files are read-only. No new `LL-*` files are created (§7, Do Not Author Lessons).
 
 ---
 
@@ -180,12 +180,7 @@ The `--dry-run` flag is orthogonal to scope. When present, the workflow short-ci
 
 ### Output
 
-| Surface | Change |
-|---------|--------|
-| `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md` | One new BB file per planned grouping |
-| `{backlog_dir}/{backlog_index}` | Appended row per new BB; `Last Updated` bumped |
-| Scoring | `python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml` is invoked after writes to compute Score columns |
-| Lesson files | MODIFIED at capture — fully-captured lessons flip `documented` → `promoted`, gain `promoted-to:`, `git mv` to `Archive/`, Master Table updated |
+New backlog-item files, appended and re-scored backlog-index rows, and — at capture — modified lesson files. The authoritative write scope is the Write column of [Part-1 §1](../references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md#1-inputs-and-outputs), with the capture-time lesson writes specified in [Part-2 §6.6](../references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#66-capture-the-in-scope-lessons-archive-on-capture). As with Curate Mode above, it is deliberately not restated here. Under `--dry-run` the workflow short-circuits after Phase 2 and writes nothing.
 
 The single-lesson `promote <id>` mode below is preserved verbatim. Batch promotion is a parallel path, not a replacement.
 
@@ -351,7 +346,7 @@ Create a candidate lesson with pre-filled YAML frontmatter:
 
 ```yaml
 ---
-id: LL-{next-available}
+id: LL-{next-available}   # derived in Step 4, never read from the index counter
 title: {auto-generated from context}
 date: {today}
 source: {current session reference}
@@ -377,11 +372,26 @@ Present the draft to the user:
 ### Step 4: Write
 
 If approved:
-1. Read `{lessons_dir}/{lessons_index}` to get the next available ID and the lesson file template
+
+> [!gate] Derive the next ID — never read it from the stored counter
+> The index's `**Next available ID:**` line is a denormalized cache whose only writer is step 6 below. A lesson authored any other way — a hand-written closeout capture, a task-runner producing one as a sprint deliverable — leaves it stale, and reading it here hands back an ID that already exists. Derive the true value:
+>
+> ```bash
+> python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --next-id
+> ```
+>
+> It prints `LL-{NNN}` computed from the union of the working lessons directory, `Archive/`, and the index Master Table; the stated counter is not an input. If that value differs from the counter line, report the gap rather than silently correcting it — some lesson was authored off this path, so its master-table row and its categorisation entry were hand-made too and may carry their own gaps. `/planwise doctor` and `/planwise lessons curate` offer the counter correction on consent.
+
+1. Take `{NNN}` from the `--next-id` command above; read `{lessons_dir}/{lessons_index}` for the lesson file template
 2. Determine `{Domain}` from the first value in the `domain:` field
-3. Write file: `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`
-4. Add a row to the Master Table in `{lessons_dir}/{lessons_index}`
-5. Update the "Next available ID" counter in the index
+3. **Assert `{NNN}` is unused, in BOTH directories, immediately before writing.** Glob `{lessons_dir}/LL-{NNN}-*.md` and `{lessons_dir}/Archive/LL-{NNN}-*.md`. A hit means a concurrent session claimed the ID between derivation and write. FAIL LOUD and STOP — never overwrite, and never silently pick the next free number, because the draft's frontmatter `id:` and any cross-reference already written into the body still name `{NNN}`:
+   ```
+   Lesson ID collision: LL-{NNN} already exists at {path}.
+   The draft was not written. Re-run `/planwise lessons capture` to re-derive the ID.
+   ```
+4. Write file: `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`
+5. Add a row to the Master Table in `{lessons_dir}/{lessons_index}`
+6. Update the "Next available ID" counter in the index to the ID after `{NNN}`
 
 ### Step 5: Skip
 

@@ -20,6 +20,7 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import ARCHIVE_STATUSES
+from markdown_parser import split_row_cells
 
 
 def cleanup_index(index_path: Path) -> int:
@@ -70,7 +71,7 @@ def cleanup_index(index_path: Path) -> int:
 
         # Data row — check status
         if separator_seen and stripped.startswith("|"):
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            cells = split_row_cells(stripped)
             # Status is at index 3 in both 6-col and 7-col formats
             if len(cells) >= 4 and cells[3] in ARCHIVE_STATUSES:
                 removed += 1

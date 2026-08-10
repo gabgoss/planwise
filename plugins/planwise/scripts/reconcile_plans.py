@@ -37,6 +37,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
+from markdown_parser import split_row_cells, split_row_raw
 
 _HEADER_RE = re.compile(r"\|\s*Abbrev\s*\|")
 _SEPARATOR_RE = re.compile(r"\|[-\s|]+\|")
@@ -148,7 +149,7 @@ def parse_plans_index(content: str) -> list[dict]:
         stripped = lines[i].strip()
         if not stripped.startswith("|"):
             break
-        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        cells = split_row_cells(stripped)
         if len(cells) < 6:
             continue
         abbrev = cells[0]
@@ -325,9 +326,12 @@ def reconcile(config: dict) -> int:
         new_last_updated = evaluation["mp_last_updated"] or date.today().isoformat()
 
         line = lines[row["line_number"]]
-        parts = line.split("|")
+        parts = split_row_raw(line)
         if len(parts) < 7:
             continue
+        # parse_plans_index reads status from cell 2 and last_updated from cell
+        # 4; raw segments carry one extra leading element before the opening
+        # pipe, so the write positions are those cell indices plus one.
         parts[3] = _pad_cell(parts[3], new_status)
         parts[5] = _pad_cell(parts[5], new_last_updated)
         lines[row["line_number"]] = "|".join(parts)

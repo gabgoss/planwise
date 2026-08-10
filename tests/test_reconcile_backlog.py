@@ -269,5 +269,51 @@ class TestReconcileBacklog(_BacklogFixtureBase):
         self.assertEqual(self.file_link_for("046"), "Archive/stranded-INFRA-item.md")
 
 
+class TestEscapedPipeRows(_BacklogFixtureBase):
+    """Drift detection reads the Status and Files cells positionally, so an
+    escaped pipe in the Feature cell used to hide a stranded row from the very
+    pass that exists to find it."""
+
+    ESCAPED_FEATURE = r"Run `git diff --name-only \| grep dir` first"
+
+    def test_stranded_escaped_row_is_detected(self):
+        self.write_index(
+            f"| 046 | {self.ESCAPED_FEATURE} | Medium | COMPLETE | INFRA | - "
+            "| [01](stranded-INFRA-item.md) |\n"
+        )
+        self.write_item_file("stranded-INFRA-item.md", archived=False)
+
+        result = detect_drift(self.config)
+
+        self.assertEqual([d["id"] for d in result["drifts"]], ["046"])
+        self.assertEqual(result["anomalies"], [])
+
+    def test_reconcile_archives_the_escaped_row(self):
+        self.write_index(
+            f"| 046 | {self.ESCAPED_FEATURE} | Medium | COMPLETE | INFRA | - "
+            "| [01](stranded-INFRA-item.md) |\n"
+        )
+        self.write_item_file("stranded-INFRA-item.md", archived=False)
+
+        self.assertEqual(reconcile(self.config), 1)
+
+        self.assertTrue((self.archive_dir / "stranded-INFRA-item.md").exists())
+        self.assertEqual(self.file_link_for("046"), "Archive/stranded-INFRA-item.md")
+        # The author's escaping survives the link repoint verbatim.
+        self.assertIn(r"\|", self.read_index_text())
+
+    def test_open_escaped_row_is_not_flagged(self):
+        self.write_index(
+            f"| 046 | {self.ESCAPED_FEATURE} | Medium | NOT_STARTED | INFRA | 30 "
+            "| [01](open-INFRA-item.md) |\n"
+        )
+        self.write_item_file("open-INFRA-item.md", archived=False)
+
+        result = detect_drift(self.config)
+
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(result["anomalies"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

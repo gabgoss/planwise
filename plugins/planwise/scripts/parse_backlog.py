@@ -18,7 +18,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import CLOSED_STATUSES
-from markdown_parser import parse_markdown_table
+from markdown_parser import parse_markdown_table, warn_on_unparsed_rows
 
 
 def _backlog_row_processor(cells: list[str], line_number: int, header_info: dict) -> dict | None:
@@ -51,8 +51,19 @@ def _backlog_row_processor(cells: list[str], line_number: int, header_info: dict
 
 
 def parse_backlog_table(content: str) -> list[dict]:
-    """Parse the Backlog Items markdown table into a list of dicts."""
-    return parse_markdown_table(content, "## Backlog Items", _backlog_row_processor)
+    """Parse the Backlog Items markdown table into a list of dicts.
+
+    Warns loudly if any row present in the table failed to parse. A count that
+    silently omits an unreadable row is indistinguishable from a complete one,
+    which is exactly how a misparsed row stayed invisible to every prioritisation
+    pass — so the shortfall is reported rather than swallowed.
+    """
+    stats: dict = {}
+    items = parse_markdown_table(
+        content, "## Backlog Items", _backlog_row_processor, stats=stats
+    )
+    warn_on_unparsed_rows(stats, "Backlog Items")
+    return items
 
 
 def _dependency_row_processor(cells: list[str], line_number: int, header_info: dict) -> dict | None:

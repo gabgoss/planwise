@@ -179,5 +179,76 @@ class TestIdempotentArchival(_UpdateBacklogFixtureBase):
         self.assertIn("status: COMPLETE", moved.read_text(encoding="utf-8"))
 
 
+class TestEscapedPipeRows(_UpdateBacklogFixtureBase):
+    """A Feature cell may legitimately contain an escaped pipe. Under the old
+    naive split that shifted every column right by one, so the status write
+    landed on Priority and the archival link repoint landed on Score."""
+
+    ESCAPED_FEATURE = r"Run `git diff --name-only \| grep dir` first"
+
+    def test_status_transition_writes_status_not_priority(self):
+        self.write_index(
+            f"| 062 | {self.ESCAPED_FEATURE} | High | NOT_STARTED | DOC | 45 "
+            "| [01](escaped-DOC-item.md) |\n"
+        )
+        self.write_item_file("escaped-DOC-item.md", status="NOT_STARTED", archived=False)
+
+        out = self.run_update("062", "IN_PROGRESS")
+
+        self.assertIn("NOT_STARTED → IN_PROGRESS", out)
+        row = self.row("062")
+        self.assertEqual(row["status"], "IN_PROGRESS")
+        self.assertEqual(row["priority"], "High")     # NOT clobbered
+        self.assertEqual(row["abbrev"], "DOC")
+        # The author's escaping survives the write-back verbatim.
+        self.assertIn(r"\|", self.read_index_text())
+
+    def test_archival_moves_the_file_and_repoints_the_link(self):
+        # extract_file_links used to read the Score cell on a shifted row, find
+        # no links, and archive nothing at all.
+        self.write_index(
+            f"| 062 | {self.ESCAPED_FEATURE} | High | NOT_STARTED | DOC | 45 "
+            "| [01](escaped-DOC-item.md) |\n"
+        )
+        self.write_item_file("escaped-DOC-item.md", status="NOT_STARTED", archived=False)
+
+        self.run_update("062", "COMPLETE")
+
+        self.assertFalse((self.backlog_dir / "escaped-DOC-item.md").exists())
+        self.assertTrue((self.archive_dir / "escaped-DOC-item.md").exists())
+        row = self.row("062")
+        self.assertEqual(row["files"][0]["path"], "Archive/escaped-DOC-item.md")
+        self.assertEqual(row["priority"], "High")
+        self.assertEqual(row["status"], "COMPLETE")
+
+    def test_feature_text_is_readable_and_row_is_not_dropped(self):
+        self.write_index(
+            f"| 062 | {self.ESCAPED_FEATURE} | High | NOT_STARTED | DOC | 45 "
+            "| [01](escaped-DOC-item.md) |\n"
+            "| 063 | Plain feature | Low | NOT_STARTED | DOC | 10 | [01](plain-DOC-item.md) |\n"
+        )
+        rows = parse_backlog_table(self.read_index_text())
+
+        self.assertEqual([r["id"] for r in rows], ["062", "063"])  # neither dropped
+        self.assertEqual(
+            rows[0]["feature"], "Run `git diff --name-only | grep dir` first"
+        )
+
+    def test_sibling_rows_are_unaffected_by_the_write(self):
+        self.write_index(
+            "| 061 | Before | Low | NOT_STARTED | DOC | 10 | [01](before.md) |\n"
+            f"| 062 | {self.ESCAPED_FEATURE} | High | NOT_STARTED | DOC | 45 "
+            "| [01](escaped-DOC-item.md) |\n"
+            "| 063 | After | Low | NOT_STARTED | DOC | 10 | [01](after.md) |\n"
+        )
+        self.write_item_file("escaped-DOC-item.md", status="NOT_STARTED", archived=False)
+
+        self.run_update("062", "BLOCKED")
+
+        self.assertEqual(self.row("061")["status"], "NOT_STARTED")
+        self.assertEqual(self.row("063")["status"], "NOT_STARTED")
+        self.assertEqual(self.row("062")["status"], "BLOCKED")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,9 +29,9 @@ All paths resolve from `config.yaml: project.planwise_root + project.lessons_dir
 
 | File | Role | Read | Write |
 |------|------|------|-------|
-| `{lessons_dir}/{lessons_index}` | Master table; ID range; Rule Promotion Log | Yes | Phase 2 only — append rows to Rule Promotion Log; update Status column in Master Table |
+| `{lessons_dir}/{lessons_index}` | Master table; ID range; Rule Promotion Log | Yes | Phase 1 — bump a stale "Next available ID" counter, on explicit consent only (§3.1). Phase 2 — append rows to Rule Promotion Log (deduplicated, §4.3); update Status column in Master Table; repoint a healed lesson's File link when §4.4 moves it to `Archive/` |
 | `{lessons_dir}/00-Categorization-By-Domain.md` | Domain buckets (one section per `categorization.buckets[]` from `config.yaml`) | Yes | Phase 1 — append rows to relevant bucket tables |
-| `{lessons_dir}/LL-{NNN}-*.md` | Individual lesson frontmatter + body | Yes (in full for new lessons; frontmatter only for promotion check) | Phase 1 — set/refine `promotion-target:`. Phase 2 — flip `promoted`→`rule`/`applied` and set `applied-as`; heal `documented`→`promoted` and set `promoted-to:` (user-gated, §4.1b) |
+| `{lessons_dir}/LL-{NNN}-*.md` | Individual lesson frontmatter + body | Yes (in full for new lessons; frontmatter only for promotion check) | Phase 1 — set/refine `promotion-target:`. Phase 2 — flip `promoted`→`rule`/`applied` and set `applied-as`; heal `documented`→`promoted` and set `promoted-to:` (user-gated, §4.1b). After any archive move, rewrite stale sibling-lesson cross-reference links to their `Archive/` path (§4.5) |
 | `{lessons_dir}/Archive/` | Destination for `promoted`, `applied`, and `rule` lessons (may not exist yet) | List | Optional — move files here only for the heal step (§4.4); `promoted` lessons reaching Phase 2 via `promote-batch` are already archived at capture |
 | `config.yaml: categorization` | Bucket schema, decision-tree order, default bucket | Yes | No |
 
@@ -53,7 +53,24 @@ Report a summary at the end with the new ID ranges processed and any anomalies (
 
 ### 3.1 Identify uncategorised lessons
 
-1. Read `{lessons_dir}/{lessons_index}` and extract every `LL-NNN` row from the Master Table. Note the "Next available ID" line — anything below it is a real lesson.
+> [!gate] Reconcile the "Next available ID" counter before reading the index
+> That counter is a denormalized cache of one fact — the highest lesson ID that exists anywhere — and it has exactly one writer: capture mode. A lesson authored any other way (a hand-written closeout capture, a task-runner producing one as a sprint deliverable) leaves it stale, and curate is the read path best positioned to notice. Never consume the stated value as a boundary; derive the true one:
+>
+> ```bash
+> python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --json
+> ```
+>
+> Read the JSON at the path it prints (`JSON: {path}`), shaped `{"drifts": [...], "anomalies": [...], "next_id": "LL-NNN"}`. `drifts` is non-empty when the counter is BEHIND the true next ID; `anomalies` covers a missing counter line, a counter AHEAD of the true value, a Master-Table row whose file is gone, and a lesson file with no Master-Table row.
+>
+> Report every drift and anomaly under **Anomalies** in the §6 summary — a stale counter is not a fix-in-passing but a signal in its own right: some lesson was authored off the capture path, so its Master-Table row and its categorisation entry were hand-made too and may carry their own gaps. Then offer the correction with `AskUserQuestion`: "Bump the lessons-index counter from {stated} to {expected}?" On agreement:
+>
+> ```bash
+> python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --write
+> ```
+>
+> The script re-reads the index immediately before writing (race-safe against a concurrent capture) and only ever moves the counter FORWARD — a counter ahead of the true max is reported and never lowered, because an ID can be retired deliberately and reusing it would break every cross-reference that still names it. Anomalies are never healed automatically for the same reason: which side is right needs a human. Declining leaves the index untouched — the report already recorded what was found.
+
+1. Read `{lessons_dir}/{lessons_index}` and extract every `LL-NNN` row from the Master Table. The **Master Table section is the boundary**: a row inside it is a real lesson, and the `LL-{NNN}` forms in the Naming Convention and Lesson File Template sections are placeholders, not lessons. Do not use the "Next available ID" line's position or its value to bound the set — it is a counter, not a row.
 2. Read `{lessons_dir}/00-Categorization-By-Domain.md` and extract every `LL-NNN` ID currently listed in any bucket table (every section declared in `config.yaml: categorization.buckets` plus the Classification edge cases table at the bottom).
 3. Compute `uncategorized = master_ids − categorized_ids`. List the result in the chat before reading any lesson body.
 4. If the result is empty, skip to Phase 2 with the message *"All lessons are already categorised."*
@@ -125,7 +142,7 @@ glob: **/LL-*.md
 output_mode: files_with_matches
 ```
 
-Read each match and capture: `id`, `title`, `date`, `status`, `applied-as`, `promoted-to`.
+Read each match and capture: `id`, `title`, `date`, `status`, `applied-as`, `promoted-to`, and the deprecated `rule-as` (a lesson written under the older scheme carries its artifact pointer there — see the Pointer Fields definition in `seed/00-Index-LessonsLearned.md`).
 
 ### 4.1b Heal fully-owned documented lessons
 
@@ -156,16 +173,19 @@ For each lesson found in §4.1 (`status: promoted`), resolve every id in its `pr
    | `src/**` or other code path | Lesson encoded directly in code (with explanatory comment) | `src/{module}/{file}.{ext}` |
    | `.claude/settings.local.json` / `.claude/settings.json` | Lesson encoded as a setting/permission | `.claude/settings.local.json` |
 
-   The list is illustrative: a rule/convention artifact may live outside `.claude/rules/**` (for example, a shared conventions or reference document a project treats as its rule surface). Match the artifact by the landing path the owning item recorded (or the lesson's `applied-as:`), and let the lesson's `promotion-target:` — not the destination folder — determine the `rule` vs `applied` status in §4.3.
+   The list is illustrative: a rule/convention artifact may live outside `.claude/rules/**` (for example, a shared conventions or reference document a project treats as its rule surface). Match the artifact by the landing path the owning item recorded (or the lesson's `applied-as:`, falling back to a deprecated `rule-as:` on a legacy-scheme lesson), and let the lesson's `promotion-target:` — not the destination folder — determine the `rule` vs `applied` status in §4.3.
 
    If the artifact exists, proceed to §4.3 (log + flip). If it does not, flag it as an anomaly — the owning item claims completion but left no verifiable artifact; do NOT append a log row without a verifiable destination.
 
 2. **Any owning item still active (not yet COMPLETE).** Leave the lesson at `status: promoted`. Report it in the chat summary as **"awaiting landing"** — this is NOT an anomaly; a `promoted` lesson with an unshipped owner is the expected resting state (archived ≠ landed).
 
-> [!practice] Anomaly Rules — Do Not Confuse These Two States
-> - **Legitimate, not an anomaly:** `promoted` + `applied-as: null` — the lesson is owned and archived, awaiting its backlog item to ship.
+> [!practice] Anomaly Rules — Resolve the Pointer Before Judging
+> Evaluate "does this lesson carry an artifact pointer?" against **every recognised pointer key** — `applied-as:` first, then the deprecated `rule-as:` — before classifying. A key that is absent entirely counts the same as one set to `null`. Judging on `applied-as:` alone reports a legacy-scheme lesson as landed-without-a-pointer on every run, when the pointer is simply under the older key.
+>
+> - **Legitimate, not an anomaly:** `promoted` + no pointer — the lesson is owned and archived, awaiting its backlog item to ship.
 > - **Legitimate, not an anomaly:** `promoted` + `applied-as: 'PENDING:BB-{NNN}'` — a coarse lesson where some fragments have already landed and others are still only owned.
-> - **NEW ANOMALY:** `rule` or `applied` + `applied-as: null` — the lesson claims to be landed but carries no artifact pointer. Flag this in the chat report.
+> - **Migration suggestion, NOT an anomaly:** `rule` or `applied` with a pointer present **only** under `rule-as:`. The lesson is correctly landed; its frontmatter predates the current scheme. Report it in the chat summary as a migration candidate — remap per the Pointer Fields definition in `seed/00-Index-LessonsLearned.md` — and continue processing it normally.
+> - **ANOMALY:** `rule` or `applied` with no pointer under `applied-as:` **or** `rule-as:` — the lesson claims to be landed but carries no artifact pointer anywhere. Flag this in the chat report.
 
 ### 4.3 Update the Rule Promotion Log, then flip the lesson
 
@@ -187,8 +207,8 @@ Update the Master Table row's Status column to match the lesson frontmatter (`ap
 **After the log row is written**, flip the lesson's own frontmatter to reflect the landing:
 
 1. Set the terminal status from the lesson's **`promotion-target:`** field — the intent recorded at capture is authoritative. A rule / convention / guidance / reusable-artifact target (`rule`, `claude-md`, `agent`, `skill`) → `status: rule`; an implementing code or config change (`code`, `settings`) → `status: applied`. Do NOT gate `rule` on the artifact living under `.claude/rules/**` — a project may site its rule/convention artifacts elsewhere (for example, a shared conventions or reference document it treats as its rule surface), so the `promotion-target:` intent, not the destination folder, decides `rule` vs `applied`. Only if `promotion-target:` is unset, fall back to inferring from the destination path (a rule/convention artifact → `rule`; a code path → `applied`).
-2. Set `applied-as:` to the real, verified destination path — replacing `null` or a `PENDING:BB-{NNN}` placeholder.
-3. Leave `promoted-to:` untouched; it still records which backlog item(s) did the work.
+2. Set `applied-as:` to the real, verified destination path — replacing `null` or a `PENDING:BB-{NNN}` placeholder. If the lesson carried its pointer under the deprecated `rule-as:`, complete the remap here: the artifact path moves into `applied-as:`, any owning-item value previously sitting in `applied-as:` moves into `promoted-to:` in id form, and `rule-as:` is dropped.
+3. Leave `promoted-to:` untouched (unless step 2's legacy remap is populating it); it still records which backlog item(s) did the work.
 
 Write the log row before the frontmatter flip — the log is the durable trail, and the flip only happens once that trail exists.
 
@@ -305,6 +325,7 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 **Awaiting landing (owning item still active):** N
 **Healed (documented → promoted):** K
 **Already logged (deduplicated):** K2  _<!-- per §4.3 gate; pairs already present in the Rule Promotion Log -->_
+**Legacy-scheme migration candidates:** K3  _<!-- per §4.2; pointer present only under the deprecated `rule-as:` — reported, not an anomaly -->_
 
 | ID | Status | Artifact | Date |
 |----|--------|----------|------|
@@ -312,8 +333,11 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 
 ## Anomalies
 
-- LL-NNN `status: applied`/`rule` with `applied-as: null` (claims landed, no artifact pointer)
+- "Next available ID" counter stale: stated LL-NNN, true next LL-NNN — a lesson was authored outside capture mode; corrected / left as-is per §3.1
+- "Next available ID" counter ahead of the true next ID (an ID may have been retired) — reported, never lowered
+- LL-NNN `status: applied`/`rule` with no pointer under `applied-as:` or the deprecated `rule-as:` (claims landed, no artifact pointer anywhere)
 - LL-NNN referenced in master table but file not on disk
+- LL-NNN on disk (or in `Archive/`) with no master-table row
 - LL-NNN in categorisation file but missing from master table
 - LL-NNN missing both `technology:` and `domain:` in frontmatter
 ```

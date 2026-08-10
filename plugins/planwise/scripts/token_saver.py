@@ -19,9 +19,10 @@ Two independent concerns live here:
 Pure functions (parser/derivation/classifier) shell out to nothing, so they are
 unit-testable without a live `claude` binary. Only `capture_context` /
 `calibrate` touch the filesystem or subprocess. No third-party dependency —
-stdlib (re, os, shutil, subprocess, datetime) plus the sibling `config_loader`
-script module for the parse-checked config write; this is a script, not a
-workflow.
+stdlib (re, os, shutil, subprocess, datetime) plus two sibling script modules —
+`config_loader` for the parse-checked config write and `markdown_parser` for the
+escape-aware table split; both are imported behind a partial-install fallback.
+This is a script, not a workflow.
 """
 
 import os
@@ -38,6 +39,23 @@ except ImportError:  # pragma: no cover - partial-install tolerance
         # so a half-synced scripts tree writes unverified rather than failing to
         # import. Same spirit as the no-PyYAML no-op in the real helper.
         config_path.write_text(text, encoding="utf-8")
+
+try:
+    from markdown_parser import split_row_cells
+except ImportError:  # pragma: no cover - partial-install tolerance
+    _UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+
+    def split_row_cells(line: str) -> list:   # noqa: D103
+        # Degraded fallback mirroring markdown_parser.split_row_cells. It must
+        # stay escape-aware: a naive split on `\|` shifts every column right by
+        # one, which is the whole defect this helper exists to prevent.
+        stripped = line.strip()
+        segments = _UNESCAPED_PIPE.split(stripped)
+        if segments and stripped.startswith("|"):
+            segments = segments[1:]
+        if segments and stripped.endswith("|") and not stripped.endswith("\\|"):
+            segments = segments[:-1]
+        return [seg.replace("\\|", "|").strip() for seg in segments]
 
 # ---------------------------------------------------------------------------
 # FIXED Read-tool limit constants (empirically measured 2026-06-23).
@@ -162,7 +180,7 @@ def parse_context_report(text: str) -> dict:
         if not line.startswith("|"):
             continue
 
-        cells = [c.strip() for c in line.strip("|").split("|")]
+        cells = split_row_cells(line)
         # Skip markdown separator rows ( |---|---| ) and header label rows.
         if all(set(c) <= {"-", ":"} and c for c in cells):
             continue

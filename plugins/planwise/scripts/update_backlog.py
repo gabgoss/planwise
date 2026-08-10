@@ -25,6 +25,27 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import VALID_STATUSES, ARCHIVE_STATUSES
+from markdown_parser import split_row_cells, split_row_raw
+
+# A row's raw segments carry one extra leading element — the text before the
+# row's opening pipe, normally empty. So the raw index of cell N is N + 1.
+# Deriving write positions this way (rather than from a `len(parts) >= K`
+# threshold) is what keeps a write aimed at the column it names, whatever the
+# row's width.
+_RAW_OFFSET = 1
+_CELL_STATUS = 3
+
+
+def _files_cell_index(cells: list[str]) -> int:
+    """Return the index of the Files cell — always the row's last cell.
+
+    The index table ships in two widths: 6 columns without a Score, 7 with one.
+    Files is the trailing column in both, so the last cell is the answer for
+    either width. This is only safe because the row was split on unescaped
+    pipes: under a naive split an escaped pipe added a phantom cell and every
+    width-based guess landed one column short.
+    """
+    return len(cells) - 1
 
 
 def update_item_status(content: str, item_id: str, new_status: str) -> tuple[str, str]:
@@ -40,7 +61,7 @@ def update_item_status(content: str, item_id: str, new_status: str) -> tuple[str
         if not line.strip().startswith("|"):
             continue
 
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        cells = split_row_cells(line)
         if len(cells) < 6:
             continue
 
@@ -49,17 +70,18 @@ def update_item_status(content: str, item_id: str, new_status: str) -> tuple[str
             continue
 
         if row_id.lstrip("0") == target_id_num:
-            old_status = cells[3].strip()
+            old_status = cells[_CELL_STATUS].strip()
 
-            parts = line.split("|")
-            if len(parts) >= 5:
-                old_cell = parts[4]
+            parts = split_row_raw(line)
+            status_idx = _CELL_STATUS + _RAW_OFFSET
+            if len(parts) > status_idx:
+                old_cell = parts[status_idx]
                 leading = len(old_cell) - len(old_cell.lstrip())
                 trailing = len(old_cell) - len(old_cell.rstrip())
                 if trailing == 0:
-                    parts[4] = " " * leading + new_status
+                    parts[status_idx] = " " * leading + new_status
                 else:
-                    parts[4] = " " * leading + new_status + " " * trailing
+                    parts[status_idx] = " " * leading + new_status + " " * trailing
 
                 lines[i] = "|".join(parts)
 
@@ -76,14 +98,14 @@ def extract_file_links(content: str, item_id: str) -> list[str]:
     for line in lines:
         if not line.strip().startswith("|"):
             continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        cells = split_row_cells(line)
         if len(cells) < 6:
             continue
         row_id = cells[0].strip()
         if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
             continue
         if row_id.lstrip("0") == target_id_num:
-            files_cell = cells[6] if len(cells) >= 7 else cells[5]
+            files_cell = cells[_files_cell_index(cells)]
             return re.findall(r'\]\(([^)]+)\)', files_cell)
 
     return []
@@ -125,15 +147,15 @@ def update_index_links_to_archive(content: str, item_id: str) -> str:
     for i, line in enumerate(lines):
         if not line.strip().startswith("|"):
             continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        cells = split_row_cells(line)
         if len(cells) < 6:
             continue
         row_id = cells[0].strip()
         if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
             continue
         if row_id.lstrip("0") == target_id_num:
-            parts = line.split("|")
-            files_idx = 7 if len(parts) >= 9 else 6
+            parts = split_row_raw(line)
+            files_idx = _files_cell_index(cells) + _RAW_OFFSET
             if len(parts) > files_idx:
                 files_cell = parts[files_idx]
                 updated_cell = re.sub(
@@ -231,7 +253,7 @@ def _row_id_exists(content: str, item_id: str) -> bool:
         stripped = line.strip()
         if not stripped.startswith("|"):
             continue
-        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        cells = split_row_cells(stripped)
         if len(cells) < 6:  # skips the 2-column Dependencies table
             continue
         row_id = cells[0]

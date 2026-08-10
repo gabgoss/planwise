@@ -426,6 +426,36 @@ class TestContextParser(unittest.TestCase):
         self.assertGreaterEqual(attributed, 450)
         self.assertLessEqual(attributed, 480)
 
+    def test_escaped_pipe_in_a_category_row_does_not_shift_columns(self):
+        # A category label containing an escaped pipe used to split into an
+        # extra cell, so the token figure was read from the percentage column
+        # (or dropped entirely).
+        ts = _engine()
+        report = ts.parse_context_report(
+            CONTEXT_REPORT_FIXTURE.replace(
+                "| Memory files | 2k | 0.2% |",
+                r"| Memory files \| notes | 2k | 0.2% |",
+            )
+        )
+        self.assertEqual(report["categories"].get("Memory files | notes"), 2000)
+        # Sibling rows still read correctly.
+        self.assertEqual(report["categories"].get("System tools"), 19100)
+        self.assertEqual(report["categories"].get("Messages"), 8)
+
+    def test_escaped_pipe_in_an_agent_row_keeps_token_column(self):
+        ts = _engine()
+        report = ts.parse_context_report(
+            CONTEXT_REPORT_FIXTURE.replace(
+                "| planwise:fix-agent | Plugin | 86 |",
+                r"| planwise:fix-agent \| v2 | Plugin | 86 |",
+            )
+        )
+        agent = next(
+            a for a in report["agents"] if a["name"] == "planwise:fix-agent | v2"
+        )
+        self.assertEqual(agent["source"], "Plugin")
+        self.assertEqual(agent["tokens"], 86)
+
 
 # ---------------------------------------------------------------------------
 # Step 7 — Derivation formulas

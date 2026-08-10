@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
 
 **Invocation examples:**
 ```
@@ -12,7 +12,7 @@
 ## Config Gate
 
 1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
-2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, and the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`) plus the pinned `plugin_version`.
+2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.backlog_dir`, `project.lessons_dir` (absent → skip Stage 13), `project.index_files`, and the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`) plus the pinned `plugin_version`.
 3. If NOT found: this install is **not initialized**. Recommend `/planwise init` and **STOP** — `doctor` is read-only and never initializes on the user's behalf. (This is the same "not initialized" outcome the Preflight version-state gate reports; do not auto-init.)
 
 > [!gate] Config Malformed → FAIL LOUD
@@ -385,6 +385,87 @@ The script re-reads the index immediately before writing (race-safe against a
 concurrent closeout), heals only rows still drifted, and never touches an
 anomaly row. Report `Reconciled {N} row(s).` Declining leaves the backlog
 untouched — the report above already recorded what was found.
+
+---
+
+### Stage 13: Lessons Index Counter Drift Audit
+
+> [!constraint] Read-Only — audit only recommends
+> Stage 13 runs `reconcile_lessons.py --json` standalone. It READS the lessons
+> index (`{lessons_dir}/{lessons_index}`), the lesson files in that directory
+> and its `Archive/`, then prints a report. It writes nothing unless the user
+> explicitly consents to reconcile (below) — the audit itself never mutates.
+
+Always-on (independent of Token Saver) — auditing index consistency is doctor's
+purpose, so this check has **no `--no-check` escape hatch**. Skip the stage
+entirely only when `config.yaml` declares no `project.lessons_dir` (a project
+with no lessons scaffolding has no counter to audit); report
+`Lessons index: not configured — audit skipped`.
+
+The `**Next available ID:** LL-{NNN}` line is a denormalized cache of one fact —
+the highest lesson ID that exists anywhere — with exactly one writer: capture
+mode, which bumps it after writing a lesson. Every other route that creates a
+lesson (a hand-written closeout capture, a task-runner producing one as a sprint
+deliverable) leaves it untouched. The next capture then reads a value below the
+true max and either reuses an existing ID — producing two lessons the master
+table cannot both represent — or forces a manual fix. This audit is the
+read-side counterpart, the lessons-index analogue of the Stage 11 plans-index
+and Stage 12 backlog-index drift audits; none re-implements another's
+comparison.
+
+Run the shared script:
+
+```bash
+python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --json
+```
+
+Read the JSON file at the path it prints (`JSON: {path}`), shaped
+`{"drifts": [...], "anomalies": [...], "next_id": "LL-NNN"}`. `drifts` holds at
+most one entry — the counter is a single field — and is non-empty only when the
+counter is BEHIND the true next ID. `anomalies` covers four separate conditions,
+none of which is ever healed automatically:
+
+| Anomaly `kind` | Meaning |
+|----------------|---------|
+| `missing_counter_line` | The index carries no "Next available ID:" line — nothing to reconcile against; never fabricated at a guessed position |
+| `counter_ahead` | The counter is above the true next ID — an ID may have been retired deliberately, and lowering it would let a later capture reuse an ID that cross-references still name |
+| `row_without_file` | A master-table row whose lesson file exists in neither the lessons dir nor `Archive/` (deleted/renamed — reported, never fabricated). Its ID still bounds the counter: a retired ID is not free for reuse |
+| `file_without_row` | A lesson file on disk with no master-table row — the same off-capture authoring signal from the other direction |
+
+Report every drift and anomaly:
+
+```
+planwise doctor — lessons index counter drift audit
+
+Drift detected (the "Next available ID" counter is stale):
+  ! stated {STATED} — expected {EXPECTED}: {reason}
+
+Anomalies ({N}):
+  ? {ID}: {reason}
+```
+
+If both are empty: `No counter drift detected. The lessons index 'Next
+available ID' matches the highest lesson ID on disk and in the master table
+({next_id}).`
+
+A stale counter is worth surfacing beyond the number itself: it means some
+lesson was authored off the capture path, so that lesson's master-table row and
+its categorisation entry were hand-made too and may carry their own gaps. Say so
+in the report rather than presenting the bump as a bookkeeping nit.
+
+**Optional write-on-consent (same contract as Stages 11 and 12):** after
+reporting, doctor MAY offer to reconcile via `AskUserQuestion` ("Bump the
+lessons-index counter from {STATED} to {EXPECTED}?"). On agreement, run:
+
+```bash
+python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --write
+```
+
+The script re-reads the index immediately before writing (race-safe against a
+concurrent capture), rewrites only the counter line's digits — every other line
+and the file's original line endings are preserved — and only ever moves the
+counter FORWARD. Report `Reconciled the counter: {FROM} → {TO}.` Declining
+leaves the index untouched — the report above already recorded what was found.
 
 ---
 
