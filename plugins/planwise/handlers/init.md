@@ -60,7 +60,7 @@ Use `AskUserQuestion` to collect:
 5. **Backlog directory** — Subdirectory name for backlog items within the root (default: `Backlog`)
 6. **Lessons directory** — Subdirectory name for lessons learned within the root (default: `LessonsLearned`)
 7. **Claude plan tier** — Which Claude plan you're on: `pro` (200K context window) or `max` (1M context window). This scales all token budgets, Meta-Plan thresholds, and DELEGATED checks. Default: `pro`. See `references/session-context-budget.md` §4 for tier-specific budget tables.
-8. **Enable Token Saver mode?** — Keeps task sessions under ~150K (avoids the linear carrying-cost of big sessions) and warns when a file is too large to fit a lean task. Recommended: `yes`. See `references/session-context-budget.md` "Token Saver Profile" for the two-tier policy and derivation formulas.
+8. **Enable Token Saver mode?** — Keeps task sessions under ~150K (avoids the linear carrying-cost of big sessions) and warns when a file is too large to fit a lean task. Recommended: `yes`. See `references/token-saver-profile.md` for the two-tier policy and derivation formulas.
 
 Store responses as:
 - `{project_name}` — from question 1
@@ -270,7 +270,7 @@ The grant uses the **version-agnostic plugin-family root** — the parent of the
 
 ### Step 8.5 — Capture Token Saver calibration
 
-Run only when `{token_saver}` is `yes` (skip silently when Token Saver is off). This attempts to capture a real `/context` footprint and writes the **measured** overheads back into `config.yaml` so plans size sessions against this install's actual carrying cost — not a hardcoded guess. See `references/session-context-budget.md` "Token Saver Profile" for how the derived thresholds are consumed.
+Run only when `{token_saver}` is `yes` (skip silently when Token Saver is off). This attempts to capture a real `/context` footprint and writes the **measured** overheads back into `config.yaml` so plans size sessions against this install's actual carrying cost — not a hardcoded guess. See `references/token-saver-profile.md` for how the derived thresholds are consumed.
 
 > **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. When `token_saver.calibrate()` is invoked via headless `claude -p "/context"` (as this step does), the CLI may return conversational text instead of the structured report, and calibration degrades to the conservative fallback (runner ~54K / orchestrator ~60K). This is expected on some platforms — notably Windows, where the `claude` shim may not be reachable from a subprocess without a live shell. The conservative fallback is safe: it is deliberately over-estimated so tasks never exceed the session budget. You can recapture real numbers at any time from an interactive session with `/planwise token-saver on`.
 

@@ -55,7 +55,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 > - [ ] Any single task estimates > 50 K token context load
 > - [ ] Sequential tasks where one task's output is the next task's input (output-chaining)
 >
-> See `references/agent-orchestration.md` §11.1 Mandatory Triggers for the binding rule.
+> See `references/session-plan-requirements.md` § Execution Strategy (Set by Planner) for the binding rule (canonical); `references/agent-orchestration-delegated.md` §1.1 Mandatory Triggers cites it.
 
 ### Context Boundary (DELEGATED mode only)
 

@@ -59,7 +59,7 @@ Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version` — the li
 
 ### Step 1.5 — Offer Token Saver mode
 
-Token Saver is a budget mode that keeps task sessions under ~150K and warns when a file is too large to fit a lean task (see `references/session-context-budget.md` "Token Saver Profile"). Read `context.token_saver` from the user's `config.yaml` (treat absent as `false`).
+Token Saver is a budget mode that keeps task sessions under ~150K and warns when a file is too large to fit a lean task (see `references/token-saver-profile.md`). Read `context.token_saver` from the user's `config.yaml` (treat absent as `false`).
 
 > [!gate] Token Saver Upgrade Prompt
 > If `context.token_saver` is already `true` → skip this prompt; Token Saver stays enabled, store `{token_saver} = yes`.

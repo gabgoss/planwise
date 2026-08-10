@@ -307,7 +307,7 @@ Fix: Add a pre-extraction verification step + fallback hierarchy per references/
 
 ### Check 010 — Task DELEGATED Mandatory Triggers Honored
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/agent-orchestration.md` §11.1 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/agent-orchestration-delegated.md` §1.1 | NEW
 - **What:** When task meets DELEGATED trigger (2+ Opus tasks per session, META Discovery phase, single task >50K context, output-chaining), parent Orchestration MUST declare Execution Strategy = DELEGATED.
 - **Detection:** Grep Orchestration `Execution Strategy:\s*(DIRECT|DELEGATED)`; count Opus tasks; check largest task tokens. ≥2 Opus AND DIRECT → BLOCKER. Any task >50K AND DIRECT → BLOCKER.
 - **Finding template:**
@@ -315,13 +315,13 @@ Fix: Add a pre-extraction verification step + fallback hierarchy per references/
 [BLOCKER] DELEGATED mandatory trigger violated
 File: {Orchestration file path} | Location: Execution Strategy section
 Issue: {count} Opus tasks / {max_tokens}K largest, but strategy = DIRECT
-Fix: Set Execution Strategy = DELEGATED per references/agent-orchestration.md §11.1 | Confidence: HIGH
+Fix: Set Execution Strategy = DELEGATED per references/agent-orchestration-delegated.md §1.1 | Confidence: HIGH
 ```
 - **Insert:** First item under `**New checks (DELEGATED orchestration):**`.
 
 ### Check 011 — Task-File Error Recovery Semantics Declared
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/agent-orchestration.md` §11.2 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/agent-orchestration-delegated.md` §1.2 | NEW
 - **What:** Task files in DELEGATED mode MUST declare error-recovery behavior in Notes for Agent (partial-failure handling, max retries, fallback).
 - **Detection:** Open each DELEGATED task; grep `(?i)error\s+recovery|partial\s+failure|max\s+retries` in Notes for Agent. Absent → BLOCKER.
 - **Finding template:**
@@ -329,13 +329,13 @@ Fix: Set Execution Strategy = DELEGATED per references/agent-orchestration.md §
 [BLOCKER] Task-file error recovery semantics missing
 File: {task file path} | Location: Notes for Agent
 Issue: DELEGATED-mode task lacks error-recovery declaration
-Fix: Add error-recovery block per references/agent-orchestration.md §11.2 | Confidence: HIGH
+Fix: Add error-recovery block per references/agent-orchestration-delegated.md §1.2 | Confidence: HIGH
 ```
 - **Insert:** Second item under `**New checks (DELEGATED orchestration):**`.
 
 ### Check 012 — Orchestration Context Boundary Callout Present
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/agent-orchestration.md` §11.3 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/agent-orchestration-delegated.md` §1.3 | NEW
 - **What:** DELEGATED Orchestration MUST contain `> [!constraint] Context Boundary` callout naming which files appear in Orchestration vs Task file Required Context.
 - **Detection:** Grep Orchestration `> \[!constraint\][^\n]*Context Boundary` (multiline). DELEGATED AND callout absent → BLOCKER.
 - **Finding template:**
@@ -343,7 +343,7 @@ Fix: Add error-recovery block per references/agent-orchestration.md §11.2 | Con
 [BLOCKER] Orchestration Context Boundary callout missing
 File: {Orchestration file path} | Location: Execution Strategy section
 Issue: DELEGATED mode requires Context Boundary callout
-Fix: Add > [!constraint] Context Boundary per references/agent-orchestration.md §11.3 | Confidence: HIGH
+Fix: Add > [!constraint] Context Boundary per references/agent-orchestration-delegated.md §1.3 | Confidence: HIGH
 ```
 - **Insert:** Third item under `**New checks (DELEGATED orchestration):**`.
 
@@ -511,7 +511,7 @@ Fix: Add Schema Pin per references/schema-pin-requirement.md §4 | Confidence: H
 
 ### Check 023 — Task DELEGATED Context Boundary Leak
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/agent-orchestration.md` §11.3 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/agent-orchestration-delegated.md` §1.3 | NEW
 - **What:** In DELEGATED mode, Orchestration Required Context MUST contain ONLY plan files. Heavy context (sources, EIs, references) lives in task file Required Context only.
 - **Detection:** Classify each Orchestration Required Context file as plan-file vs heavy-context. Any heavy-context in Orchestration Required Context → BLOCKER.
 - **Finding template:**
@@ -519,7 +519,7 @@ Fix: Add Schema Pin per references/schema-pin-requirement.md §4 | Confidence: H
 [BLOCKER] DELEGATED Orchestration Required Context boundary leak
 File: {Orchestration file path} | Location: Required Context table
 Issue: Heavy-context file "{file_path}" present in Orchestration; belongs in task file
-Fix: Move per references/agent-orchestration.md §11.3 | Confidence: HIGH
+Fix: Move per references/agent-orchestration-delegated.md §1.3 | Confidence: HIGH
 ```
 - **Insert:** Second item under `**New checks (schema pin & token budget):**`.
 
@@ -879,7 +879,7 @@ Fix: Sanity-check up front per references/verification-gates.md §8.3; execute f
 
 ### Check 037 — Cross-Sprint Required Context Mirrored in Depends On
 
-- **Severity / Role / Source / Type:** BLOCKER | Dependency Reviewer | `references/session-plan-requirements.md` §9 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Dependency Reviewer | `references/task-file-and-tracking-requirements.md` §9 | NEW
 - **What:** Required Context citations to files in OTHER sprints MUST be mirrored in `Depends On` with `cross-sprint:` prefix.
 - **Detection:** Classify Required Context by sprint; grep `Depends On` for `cross-sprint:\s*\{Abbrev\}-S\d+`. Cross-sprint cited without prefix → BLOCKER.
 - **Finding template:**
@@ -887,13 +887,13 @@ Fix: Sanity-check up front per references/verification-gates.md §8.3; execute f
 [BLOCKER] Cross-sprint dependency not mirrored
 File: {task file path} | Location: Depends On field
 Issue: Required Context cites {cross_sprint_file} but Depends On lacks cross-sprint: prefix
-Fix: Add "cross-sprint: {Abbrev}-S{XX}" per references/session-plan-requirements.md §9 | Confidence: HIGH
+Fix: Add "cross-sprint: {Abbrev}-S{XX}" per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
 ```
 - **Insert:** First item under `**New checks (dependency mirroring):**`.
 
 ### Check 038 — Cross-Session Required Context Mirrored in Depends On
 
-- **Severity / Role / Source / Type:** BLOCKER | Dependency Reviewer | `references/session-plan-requirements.md` §9 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Dependency Reviewer | `references/task-file-and-tracking-requirements.md` §9 | NEW
 - **What:** Required Context citations to other sessions (same sprint) MUST use `cross-session:` prefix in `Depends On`.
 - **Detection:** Cross-session cited without `cross-session:` prefix → BLOCKER.
 - **Finding template:**
@@ -901,7 +901,7 @@ Fix: Add "cross-sprint: {Abbrev}-S{XX}" per references/session-plan-requirements
 [BLOCKER] Cross-session dependency not mirrored
 File: {task file path} | Location: Depends On field
 Issue: Required Context cites {cross_session_file} but Depends On lacks cross-session: prefix
-Fix: Add "cross-session: {Abbrev}-S{XX}-{YY}" per references/session-plan-requirements.md §9 | Confidence: HIGH
+Fix: Add "cross-session: {Abbrev}-S{XX}-{YY}" per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
 ```
 - **Insert:** Second item under `**New checks (dependency mirroring):**`.
 
@@ -921,7 +921,7 @@ Fix: Expand per references/session-planning-protocol.md §2 | Confidence: HIGH
 
 ### Check 068 — Deferred Finding Owner Is a CLOSED Task
 
-- **Severity / Role / Source / Type:** BLOCKER | Dependency Reviewer | `references/session-plan-requirements.md` §9 Cross-Sprint Deferred-Finding Ownership | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Dependency Reviewer | `references/task-file-and-tracking-requirements.md` §9 Cross-Sprint Deferred-Finding Ownership | NEW
 - **What:** A dependency or sequencing row that names a COMPLETE/CLOSED task as the owner of still-pending deferred work is stale and MUST be flagged.
 - **Detection:** In the Master Plan and Sprint Plans, find rows whose status is ⏳ Pending and whose owner task is marked COMPLETE/CLOSED. Any such row → BLOCKER.
 - **Finding template:**
@@ -929,7 +929,7 @@ Fix: Expand per references/session-planning-protocol.md §2 | Confidence: HIGH
 [BLOCKER] Deferred-finding owner is CLOSED
 File: {plan file path} | Location: {dependency/sequencing row}
 Issue: Dependency row names {closed_task_id} (CLOSED) as owner of still-pending work
-Fix: Reassign ownership to a live not-yet-run sprint/session per references/session-plan-requirements.md §9 | Confidence: HIGH
+Fix: Reassign ownership to a live not-yet-run sprint/session per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
 ```
 - **Insert:** Fourth item under `**New checks (dependency mirroring):**`.
 
@@ -1109,7 +1109,7 @@ Fix: Re-verify per references/discovery-and-exit-criteria.md §16.3 | Confidence
 
 ### Check 062 — Phase-1 Scope-Expansion Approval Reference Required
 
-- **Severity / Role / Source / Type:** BLOCKER | Design-Extension Reviewer | `references/session-execution-protocol.md` §1.2 + `templates/recovery.md` + `templates/summary-template.md` | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Design-Extension Reviewer | `references/read-confirm-act-protocol.md` §1.2 + `templates/recovery.md` + `templates/summary-template.md` | NEW
 - **What:** When a Recovery file's `Scope-Expansion Decisions` section contains a row (or when the session diff shows changes outside the literal task scope declared in the Orchestration), the row MUST cite a Phase-1 approval reference (AskUserQuestion turn or timestamp), AND the Summary file's Context Notes MUST mirror the row. Recovery without Summary mirror, or Summary without Recovery row, or a Recovery row missing the approval reference → BLOCKER.
 - **Detection:**
   1. Open the session Recovery file; grep `^## Scope-Expansion Decisions` and read the table rows.
@@ -1124,20 +1124,20 @@ Fix: Re-verify per references/discovery-and-exit-criteria.md §16.3 | Confidence
 File: {Recovery file path | Summary file path | session diff}
 Location: {Recovery Scope-Expansion Decisions row N | Summary Context Notes | diff hunks outside literal scope}
 Issue: {silent expansion (no Recovery row) | missing Summary mirror | empty Phase-1 Approval Ref}
-Fix: Add the Phase-1 approval reference + mirror per references/session-execution-protocol.md §1.2 (and templates/recovery.md + templates/summary-template.md) | Confidence: HIGH
+Fix: Add the Phase-1 approval reference + mirror per references/read-confirm-act-protocol.md §1.2 (and templates/recovery.md + templates/summary-template.md) | Confidence: HIGH
 ```
 - **Insert:** Fifth item under Design-Extension Reviewer.
 
 ## Sub-role: Destructive-Path Reviewer (NEW)
 
-- Verify that any task adding or extending a delete/overwrite/migrate/prune/sweep branch carries a spec enumerating the config-interaction matrix (`references/session-plan-requirements.md` §10.1)
-- Confirm the test plan for a non-default-gated change adds a new gated-branch pin class rather than rewriting absent-key pins (`references/session-plan-requirements.md` §10.3)
+- Verify that any task adding or extending a delete/overwrite/migrate/prune/sweep branch carries a spec enumerating the config-interaction matrix (`references/destructive-change-requirements.md` §10.1)
+- Confirm the test plan for a non-default-gated change adds a new gated-branch pin class rather than rewriting absent-key pins (`references/destructive-change-requirements.md` §10.3)
 
 **New checks (destructive-path discipline):**
 
 ### Check 072 — Destructive-Path Spec Missing Interaction Matrix
 
-- **Severity / Role / Source / Type:** ERROR | Plan/Task Reviewer | `references/session-plan-requirements.md` §10.1 | NEW
+- **Severity / Role / Source / Type:** ERROR | Plan/Task Reviewer | `references/destructive-change-requirements.md` §10.1 | NEW
 - **What:** A task that adds or extends a branch which can DELETE, OVERWRITE, or MIGRATE user data MUST have a spec section enumerating the config-gate / opt-out / degraded-state interaction matrix, with a decided outcome per cell (proceed / preserve / report). A spec that names ONLY the failure modes the directive happened to mention, when the target code region has additional gates the sibling branches honor, is an ERROR — an adjacent opt-out the new destructive branch fails to consult is the likeliest silent-loss vector (a more-customized file getting weaker protection than a less-customized one).
 - **Detection:**
   1. Identify tasks whose Objective / Execution Steps add or widen a delete/overwrite/migrate/prune/sweep branch.
@@ -1148,13 +1148,13 @@ Fix: Add the Phase-1 approval reference + mirror per references/session-executio
 [ERROR] Destructive-path spec missing config-interaction matrix
 File: {task file path} | Location: spec / Execution Steps
 Issue: Spec covers only directive-named failure modes; target region has additional gates ({list}) with no decided outcome — adjacent-opt-out silent-loss risk
-Fix: Enumerate every config gate/opt-out/degraded state × the new behavior, decide each cell (proceed/preserve/report), and mirror the matrix in tests per references/session-plan-requirements.md §10.1 | Confidence: HIGH
+Fix: Enumerate every config gate/opt-out/degraded state × the new behavior, decide each cell (proceed/preserve/report), and mirror the matrix in tests per references/destructive-change-requirements.md §10.1 | Confidence: HIGH
 ```
 - **Insert:** First item under `**New checks (destructive-path discipline):**`.
 
 ### Check 073 — Absent-Key Pin Rewrite During Non-Default-Gated Change
 
-- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `references/session-plan-requirements.md` §10.3 | NEW
+- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `references/destructive-change-requirements.md` §10.3 | NEW
 - **What:** When a task's spec gates new behavior on a NON-default config value AND deliberately keeps the default/absent-key path unchanged, the test plan MUST add a new gated-branch pin class — NOT rewrite existing absent-key pin assertions. A task plan that budgets "update the pinning tests" (rather than "verify existing pins still pass unchanged + add gated-branch pins") is a red flag: absent-key pins are load-bearing evidence of default-path stability, and rewriting them during a change that keeps the default path fixed hides a possible default-path regression.
 - **Detection:**
   1. Identify tasks whose spec gates new behavior on a non-default config value while stating the default/absent-key path is unchanged.

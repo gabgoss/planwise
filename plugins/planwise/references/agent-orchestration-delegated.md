@@ -1,15 +1,18 @@
 ---
-description: DELEGATED dispatch discipline — orchestrator protocols (§1.4–§1.15) for spawning task-runner subagents; extracted from agent-orchestration.md §11
+description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.18) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
 ---
 
 # DELEGATED Dispatch Discipline
 
-**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.4–§1.15) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
+**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.18) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
 
-This file continues the DELEGATED contract begun in [`agent-orchestration.md`](agent-orchestration.md) §11. Read [`agent-orchestration.md`](agent-orchestration.md) §11.1–§11.3 first for the foundation — §11.1 Mandatory Triggers, §11.2 Task-File Error Recovery, §11.3 Orchestration Context Boundary — then this file for the full dispatch discipline (§1.4–§1.15). The subsection numbering is preserved (§11.N → §1.N) so existing downstream citations map mechanically.
+This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
 
 ## Table of Contents
 
+- [1.1 Mandatory Triggers](#11-mandatory-triggers)
+- [1.2 Task-File Error Recovery](#12-task-file-error-recovery)
+- [1.3 Orchestration Context Boundary](#13-orchestration-context-boundary)
 - [1.4 Inter-Dispatch Diagnostics Verification](#14-inter-dispatch-diagnostics-verification)
 - [1.5 Live-HTTP-Probing Tool-Use Budget Reservation](#15-live-http-probing-tool-use-budget-reservation)
 - [1.6 Path-Scoped Rule Injection in Spawn Prompts](#16-path-scoped-rule-injection-in-spawn-prompts)
@@ -24,8 +27,81 @@ This file continues the DELEGATED contract begun in [`agent-orchestration.md`](a
 - [1.15 Delegated Code Task-Runners Build LAST](#115-delegated-code-task-runners-build-last)
 - [1.16 Recompute Delegated Verdicts from Primary Evidence — Both Directions](#116-recompute-delegated-verdicts-from-primary-evidence--both-directions)
 - [1.17 Task-Runner Dispatch Failure Modes and Resume Protocol](#117-task-runner-dispatch-failure-modes-and-resume-protocol)
+- [1.18 Verify-Before-Acting on LSP Diagnostics](#118-verify-before-acting-on-lsp-diagnostics)
 
 ---
+
+## 1.1 Mandatory Triggers
+
+DELEGATED mode is REQUIRED when any of the four mandatory triggers is present in a session. The triggers — 2 or more Opus tasks, participation in a META Discovery phase, any single task estimating >50K token context load, or output-chaining between sequential tasks — are normatively defined at [`session-plan-requirements.md`](session-plan-requirements.md) § Execution Strategy (Set by Planner); this section cites that list rather than restating it.
+
+**The Master Plan's Execution Strategy section MUST name the trigger that fired for every DELEGATED session, and `/planwise review` MUST surface as a BLOCKING finding any DELEGATED declaration without a named trigger.**
+
+Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not an execution-time inference.
+
+> [!constraint] DELEGATED Declaration — Planning Time Only
+> WRONG — orchestrator infers DELEGATED at runtime after reading context:
+> ```
+> # Orchestration file: Execution Strategy: DIRECT
+> # (then orchestrator discovers tasks are too large and pivots at runtime)
+> ```
+> CORRECT — planner declares DELEGATED trigger in Orchestration before execution:
+> ```
+> ## Execution Strategy
+> Mode: DELEGATED
+> Trigger: Task 03 estimates >50K context load (output-chaining to Task 04)
+> ```
+
+> [!constraint] Name the Trigger — Not "For Consistency"
+> "Consistency" across a multi-session plan is not a trigger; every DELEGATED session must name one of the four mandatory triggers above.
+> WRONG: plan declares DELEGATED for all 8 sessions "for consistency"; only Sprint 01 meets a trigger (95K Opus task + output-chaining); Sprints 02-08 each have a single 23-41K task within the 100K DIRECT budget — ~378K of subagent-spawn overhead consumed for no gain.
+> CORRECT: Sprint 01 declares DELEGATED (#1 + #4); Sprints 02-08 declare DIRECT.
+
+## 1.2 Task-File Error Recovery
+
+When a DELEGATED subagent fails or produces incomplete output, the orchestrator applies this recovery shape:
+
+1. Read the subagent's partial output (from its output file or Recovery file)
+2. Assess whether partial output is usable as-is or requires retry
+3. If retry needed: spawn a new subagent with explicit "resume from step N" instructions
+4. Cap retries at 3 attempts per task; after 3 failures mark task BLOCKED in Recovery
+
+> [!constraint] Retry Cap — DELEGATED Task Failure
+> WRONG — orchestrator retries indefinitely, consuming budget:
+> ```
+> (Task fails) → retry → (fails again) → retry → (fails again) → retry...
+> ```
+> CORRECT — retry cap of 3; after 3 mark BLOCKED and report:
+> ```
+> Attempt 1: FAILED (output file missing)
+> Attempt 2: FAILED (partial output, <50% coverage)
+> Attempt 3: FAILED (subagent stopped mid-execution)
+> → Mark task BLOCKED in Recovery; report to orchestrator
+> ```
+
+## 1.3 Orchestration Context Boundary
+
+When Execution Strategy is DELEGATED:
+- Orchestration's Required Context MUST list ONLY plan files (Orchestration.md, Recovery.md, task files)
+- Heavy context files (reference docs, codebase modules, large output files) MUST appear ONLY in individual task file Required Context sections
+- The orchestrator reads plan files only; subagents read their full task-specific context with fresh ~100K budget
+
+> [!constraint] DELEGATED Context Boundary
+> WRONG — Orchestration Required Context loads heavy files (orchestrator context fills before dispatching):
+> ```
+> ## Required Context
+> | 1 | references/agent-orchestration.md | ~440 | ~6K | Rule reference |
+> | 2 | src/models/schema.sql | ~1200 | ~15K | Schema for tasks |
+> | 3 | Outputs/research-part-1.md | ~480 | ~6K | Research for tasks |
+> ```
+> CORRECT — Orchestration Required Context contains only plan files; heavy context in task files:
+> ```
+> ## Required Context
+> | 1 | {Abbrev}-S{XX}-{YY}-Orchestration.md | ~80 | ~1K | Task list |
+> | 2 | {Abbrev}-S{XX}-{YY}-Recovery.md | ~40 | ~0.5K | Progress state |
+>
+> (Task 03 Required Context loads schema.sql + research-part-1.md in its own section)
+> ```
 
 ## 1.4 Inter-Dispatch Diagnostics Verification
 
@@ -446,7 +522,32 @@ This is distinct from the two voice+tree failure modes above: those announce the
 
 On any miss, resume the SAME agent to finish (never re-dispatch a fresh one), then re-run the checks before accepting.
 
+## 1.18 Verify-Before-Acting on LSP Diagnostics
+
+> [!practice] LSP Diagnostic Verification
+> LSP diagnostics ({type-checker}/`{linter}`/rust-analyzer/gopls) may go stale when the underlying source file is edited mid-session. Before acting on a diagnostic (e.g., adding an import, fixing a type), verify the diagnostic is still live.
+
+### Stale vs Live Diagnostic Decision Matrix
+
+| Signal | Likely Stale | Likely Live |
+|--------|--------------|-------------|
+| Diagnostic line number > file's actual line count | Yes | — |
+| Diagnostic mentions identifier not present in file | Yes | — |
+| Diagnostic timestamp predates last edit | Yes | — |
+| Diagnostic re-fired after LSP refresh | — | Yes |
+| Same diagnostic appears across multiple unrelated files | Yes (index drift) | — |
+| Diagnostic references a type that was recently renamed | Yes | — |
+
+**When a diagnostic is likely stale:**
+1. Trigger an LSP refresh (close and reopen the file, or run `{lint-cmd}` from CLI)
+2. If diagnostic is gone after refresh → it was stale; do NOT act on it
+3. If diagnostic persists after refresh → it is live; act on it
+
+**When to act without refreshing:**
+- Diagnostic is confirmed live (matches current file content at the reported line)
+- Diagnostic was emitted by a CLI tool run this session (not cached from prior session)
+
 ---
 
-*Continuation of [`agent-orchestration.md`](agent-orchestration.md) §11 — read §11.1–§11.3 there for the DELEGATED foundation (mandatory triggers, task-file error recovery, orchestration context boundary).*
+*Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12 (DELEGATED Dispatch Discipline + Verify-Before-Acting on LSP Diagnostics); that file now carries only a short §11 pointer stub back to this file.*
 *Cross-reference: [agent-orchestration.md](agent-orchestration.md), [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*

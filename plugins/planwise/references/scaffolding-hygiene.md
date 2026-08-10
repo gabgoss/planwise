@@ -5,7 +5,7 @@ description: Nine binding hygiene rules plus three advisory practices for multi-
 
 **Purpose:** Enforce seven mechanical hygiene rules — and apply three advisory scaffolding practices (§8–§10) — when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
 
-This file is the §14 expansion of [session-planning-protocol.md](session-planning-protocol.md). Read it before generating any `Sprint-{XX}-{Name}/` folders.
+This file is the §14 expansion referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols). Read it before generating any `Sprint-{XX}-{Name}/` folders.
 
 ## Table of Contents
 
@@ -446,4 +446,4 @@ Applies to:
 
 ---
 
-*Nine binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from [session-planning-protocol.md](session-planning-protocol.md) §14.*
+*Nine binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*

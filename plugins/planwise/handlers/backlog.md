@@ -376,7 +376,7 @@ output_mode: content
 -A: 20
 ```
 
-Identify candidate recommendations. Also check task files of recently-closed items for inline `> [!followup]` callouts (per `references/session-plan-requirements.md` Declarative Follow-Up Block Convention).
+Identify candidate recommendations. Also check task files of recently-closed items for inline `> [!followup]` callouts (per `references/task-file-and-tracking-requirements.md` Declarative Follow-Up Block Convention).
 
 **Field extraction:** For each `> [!followup]` callout found, parse the body lines for fields in the form:
 

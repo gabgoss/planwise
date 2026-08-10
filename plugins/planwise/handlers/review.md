@@ -509,7 +509,7 @@ These patterns look like errors but are intentional. Discard findings that match
 | Global numbering appearing non-sequential within a single EI | Spec numbers are assigned globally across all sprints. A sprint's EI may reference Spec #1, #3, #7 -- the gaps are other sprints' specs. |
 | Cross-sprint spec reference that appears orphaned to a single-sprint reviewer | An EI reviewer given only one sprint's scope may flag a valid cross-sprint reference as unresolved. EI reviewers must receive ALL spec outputs to avoid this. |
 | Line-count finding where the evidence is a Read-output last line number (not `wc -l`) | `Read` paginates; the last visible line is structurally smaller than the file's true line count. This is a false-positive candidate — verify via `wc -l <path>` before promoting it from `[UNCERTAIN]`. |
-| Doctrinal correction that edits only one named file while sibling files still carry the same claim | Scope was deliberately bounded; the executor surfaced the out-of-scope instances as structural findings per `references/session-execution-protocol.md` §1.2. A non-empty doctrinal grep that returns only classified legitimate-pattern rows is intentional. |
+| Doctrinal correction that edits only one named file while sibling files still carry the same claim | Scope was deliberately bounded; the executor surfaced the out-of-scope instances as structural findings per `references/read-confirm-act-protocol.md` §1.2. A non-empty doctrinal grep that returns only classified legitimate-pattern rows is intentional. |
 
 > [!practice] Check Whitelist Before Reporting
 > Reviewers should verify each finding against the Known Patterns Whitelist before sending it to the team lead. If the pattern matches, discard it. If uncertain, send with `[UNCERTAIN]` prefix rather than discarding outright.
@@ -678,7 +678,7 @@ This check is the mechanical, grep-determinable sibling of catalog row #11 (DELE
 [BLOCKER] DELEGATED declaration without a named trigger
 File: {Master Plan / Orchestration path} | Location: Execution Strategy section
 Issue: Session declares DELEGATED but names no mandatory trigger (2+ Opus / META Discovery / >50K task / output-chaining)
-Fix: Name the trigger that fired, or change to DIRECT per references/agent-orchestration.md §11.1 | Confidence: HIGH
+Fix: Name the trigger that fired, or change to DIRECT per references/agent-orchestration-delegated.md §1.1 | Confidence: HIGH
 ```
 
 | # | Pattern | Severity | Where to Check |
@@ -693,11 +693,11 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 8 | Orphaned spec section (appears in no EI) | WARNING | EI completeness check |
 | 9 | Reviewer prompt missing plan context | ERROR | Reviewer spawn prompt |
 | 10 | Idle teammate treated as error | INFO | Normal behavior -- not a failure |
-| 11 | DELEGATED dispatch mandatory trigger violated (`agent-orchestration.md` §11.1) | BLOCKER | Orchestration Execution Strategy |
-| 12 | Task-file error recovery semantics missing (`agent-orchestration.md` §11.2) | BLOCKER | Task file Notes for Agent |
+| 11 | DELEGATED dispatch mandatory trigger violated (`agent-orchestration-delegated.md` §1.1) | BLOCKER | Orchestration Execution Strategy |
+| 12 | Task-file error recovery semantics missing (`agent-orchestration-delegated.md` §1.2) | BLOCKER | Task file Notes for Agent |
 | 13 | Schema Pin pre-execution form missing (`schema-pin-requirement.md` §4) | BLOCKER | Task file Required Context |
 | 14 | Token estimate uses `~?` placeholder (`task-content-fidelity.md` §9.A.2) | BLOCKER | Task file Estimated Tokens |
-| 15 | Cross-sprint Required Context not mirrored in Depends On (`session-plan-requirements.md` §9 cross-sprint) | BLOCKER | Task file Depends On |
+| 15 | Cross-sprint Required Context not mirrored in Depends On (`task-file-and-tracking-requirements.md` §9 cross-sprint) | BLOCKER | Task file Depends On |
 | 16 | EI bidirectional consistency violation (every Spec in `Extracted from:` MUST appear in ≥ 1 Cross-References row and vice versa) | WARNING (HIGH confidence) | EI header + Cross-References |
 | 17 | DELEGATED inter-dispatch lint/precheck diagnostics missing on shared file (`agent-orchestration-delegated.md` §1.4) | BLOCKER | Orchestration between dispatches |
 | 18 | DELEGATED output `wc -l` verification missing after dispatch (`agent-orchestration-delegated.md` §1.4) | BLOCKER | Orchestration between dispatches |
@@ -715,7 +715,7 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 30 | Sprint Plan has `READY_TO_EXECUTE` at scaffolding time (`scaffolding-hygiene.md` §4) | WARNING | Sprint Plan Status field |
 | 31 | Per-session `Outputs/` directory missing (`scaffolding-hygiene.md` §5) | BLOCKER | Session folder |
 | 32 | Orchestration `**Prerequisite:**` declaration missing for sequential session (`scaffolding-hygiene.md` §6) | ERROR | Orchestration Prerequisites |
-| 33 | Orchestration Context Boundary callout missing (`agent-orchestration.md` §11.3) | BLOCKER | Orchestration Execution Strategy |
+| 33 | Orchestration Context Boundary callout missing (`agent-orchestration-delegated.md` §1.3) | BLOCKER | Orchestration Execution Strategy |
 | 34 | Verification Commands section missing for runnable-artifact task (`verification-gates.md` §3) — exempt if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in task's Notes for Agent | BLOCKER | Task file Verification Commands |
 | 35 | Per-file-type Verification Commands table empty (`verification-gates.md` §3) — applies to runnable-artifact tasks per `templates/task-file.md` §Per-File-Type Commands | BLOCKER | Task file Verification Commands |
 | 36 | Verify Before/After callout missing for runnable artifact (`verification-gates.md` §4) | BLOCKER | Task file Verification Commands |
@@ -734,8 +734,8 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 49 | Binding refinement not echoed across plan layers (`discovery-and-exit-criteria.md` §16.1) | BLOCKER | Multi-layer files |
 | 50 | "Surfaces" used as non-enforceable mention not enforcement claim (`discovery-and-exit-criteria.md` §16.2) | ERROR | EI / Sprint Plan |
 | 51 | Sprint signoff row-count mismatch with EI exit criteria (`discovery-and-exit-criteria.md` §16.3) | BLOCKER | Sprint signoff |
-| 52 | Cross-session dependency not mirrored in task `Depends On` (`session-plan-requirements.md` §9 cross-session) | BLOCKER | Task Depends On |
-| 53 | Post-scaffold back-propagation missed after task edit (`session-plan-requirements.md` §9 post-scaffold sync) | ERROR | Task file + EI section |
+| 52 | Cross-session dependency not mirrored in task `Depends On` (`task-file-and-tracking-requirements.md` §9 cross-session) | BLOCKER | Task Depends On |
+| 53 | Post-scaffold back-propagation missed after task edit (`task-file-and-tracking-requirements.md` §9 post-scaffold sync) | ERROR | Task file + EI section |
 | 54 | BLI-cited audit anchor not re-verified before execution (`verify-against-shipped-artifact.md` §6) | BLOCKER | Orchestration BLI refs |
 | 55 | Cohort token-uplift missing for known high-divergence cohort (`scaffolding-hygiene.md` §10) | WARNING | Master Plan Sprint Overview Notes |
 | 56 | Cross-tier audit-finding triage table missing (`discovery-and-exit-criteria.md` §18) | WARNING | Discovery/audit sessions |
@@ -748,4 +748,4 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 63 | Token Saver large-file ladder not applied — `context.token_saver: true` AND (over-ceiling task without `1M-exception`; OR Warn+ Required Context file with no backlog item; OR a `read`-reason Critical wrongly flagged `1M-exception`; OR a `1M-exception` task on a Sonnet/Haiku agent without override note; OR a runner-read generated artifact past the line/byte/token read gate without a Multi-Part split) (`task-content-fidelity.md` §9.A.8) — no-op when Token Saver is off | ERROR (read-Critical mis-flag / over-ceiling / artifact split) · WARNING (missing backlog item / uncovered read gate) | Task Required Context + Notes for Agent ([Token Saver Compliance Check](#token-saver-compliance-check)) |
 | 64 | Orchestrator consumes sub-agent verdict label without recomputing from reported finding counts — systematic under-classification risk (`agent-orchestration-delegated.md` §1.16.1) | ERROR | Orchestration synthesis step; rollup tables |
 | 65 | Orchestrator accepts cross-file control-flow claim ("symbol X never used → feature Y is broken") without tracing the full consumer call path — false-positive over-classification risk (`agent-orchestration-delegated.md` §1.16.2) | WARNING | Orchestration finding acceptance; release-signoff verdicts |
-| 66 | DELEGATED declaration without a named trigger (`agent-orchestration.md` §11.1) — grep `Execution Strategy:\s*DELEGATED`; each match MUST carry an adjacent named trigger from the four | BLOCKER | Master Plan / Orchestration Execution Strategy |
+| 66 | DELEGATED declaration without a named trigger (`agent-orchestration-delegated.md` §1.1) — grep `Execution Strategy:\s*DELEGATED`; each match MUST carry an adjacent named trigger from the four | BLOCKER | Master Plan / Orchestration Execution Strategy |

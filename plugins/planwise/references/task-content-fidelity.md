@@ -4,9 +4,9 @@ description: Required Context fidelity (measured estimates, freshness across fil
 
 # Task Content Fidelity
 
-**Purpose:** Required Context fidelity rules and verify-before-cite discipline for task files. Extends [session-plan-requirements.md](session-plan-requirements.md) §9 (Task File Template) with the §9.A and §9.B subsections; extracted into this sibling file to keep both rule files under the project's 500-line limit.
+**Purpose:** Required Context fidelity rules and verify-before-cite discipline for task files. Extends [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template) with the §9.A and §9.B subsections; extracted into this sibling file to keep both rule files under the project's 500-line limit.
 
-**Companion files:** [session-plan-requirements.md](session-plan-requirements.md) (Task File Template, Orchestration linkage, completion tracking), [schema-pin-requirement.md](schema-pin-requirement.md) (DB-table-specific verify-before-cite for SQL-bearing tasks).
+**Companion files:** [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Task File Template, Orchestration linkage, completion tracking), [schema-pin-requirement.md](schema-pin-requirement.md) (DB-table-specific verify-before-cite for SQL-bearing tasks).
 
 ---
 
@@ -610,7 +610,7 @@ Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Notes f
 > struct / dataclass, a typed record, a deserialized payload), the task file MUST
 > include a field-mapping table showing which fields are consumed and how — per
 > the Interface Consumption guidance in
-> [session-plan-requirements.md](session-plan-requirements.md) §9. The subagent
+> [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9. The subagent
 > must not infer the consumed fields from the type's name. For **MERGE / upsert**
 > task briefs specifically, the field-mapping table MUST also state the Row↔DDL
 > alignment strategy — which row field maps to which target column, and how name
@@ -640,7 +640,7 @@ Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Notes f
 >    per §9.A.7 if not).
 > ```
 
-Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Interface Consumption block) and [session-plan-requirements.md](session-plan-requirements.md) §9 (Task File Template).
+Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Interface Consumption block) and [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template).
 
 ### 9.B.9 Tiered-fetch tactics for large external sources
 
@@ -695,4 +695,4 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 
 ---
 
-*Companion files: [session-plan-requirements.md](session-plan-requirements.md), [schema-pin-requirement.md](schema-pin-requirement.md), [agent-orchestration.md](agent-orchestration.md) §11 (DELEGATED triggers, task-file error recovery, orchestration context boundary) and [agent-orchestration-delegated.md](agent-orchestration-delegated.md) (§1.4–§1.15 DELEGATED dispatch protocols).*
+*Companion files: [session-plan-requirements.md](session-plan-requirements.md), [schema-pin-requirement.md](schema-pin-requirement.md), [agent-orchestration-delegated.md](agent-orchestration-delegated.md) §1.1–§1.3 (DELEGATED triggers, task-file error recovery, orchestration context boundary) and §1.4–§1.15 (DELEGATED dispatch protocols).*

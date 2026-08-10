@@ -250,7 +250,7 @@ Both failures collapse a multi-signal verification surface into a single "looks 
 > ```
 > CORRECT — grep the whole surface for every phrasing of the claim (e.g. `parent.{0,2}tier`, `inherit the parent`, the specific false-assertion text); fix all instances — or, where instances fall outside the literal scope, surface them as a structural finding / scope-expansion gate and let the user decide. Re-run the sweep at the end and confirm only correct/negated phrasings remain.
 >
-> A citation chain is coherent only when the cited source and every consumer agree. When instances fall outside literal task scope, surface them per §1.2 of `session-execution-protocol.md` (structural findings beyond literal scope — surface, don't silently fix or silently ignore), not silently.
+> A citation chain is coherent only when the cited source and every consumer agree. When instances fall outside literal task scope, surface them per §1.2 of `read-confirm-act-protocol.md` (structural findings beyond literal scope — surface, don't silently fix or silently ignore), not silently.
 
 ### 8.5 Normalize an authored-markdown field on BOTH read and write — and test it with annotated, not clean, fixtures
 
@@ -288,7 +288,7 @@ Both failures collapse a multi-signal verification surface into a single "looks 
 > #   read side: index cell already "COMPLETE" vs Master Plan "**COMPLETE**" → assert NO drift (no false positive)
 > ```
 >
-> This is the same "a necessary signal is not sufficient" trap §8 opens with, aimed squarely at the test fixture: a green suite built on clean inputs says nothing about the messy authored strings the code will actually meet. It is a direct instance of the pre-commit adversarial-review discipline in `session-plan-requirements.md` §10.4 ("A green suite is not a review: pre-commit adversarial review for destructive diffs") — the write-side corruption in this class survived a fully green unit suite and fell only to the adversarial review of the destructive write path.
+> This is the same "a necessary signal is not sufficient" trap §8 opens with, aimed squarely at the test fixture: a green suite built on clean inputs says nothing about the messy authored strings the code will actually meet. It is a direct instance of the pre-commit adversarial-review discipline in `destructive-change-requirements.md` §10.4 ("A green suite is not a review: pre-commit adversarial review for destructive diffs") — the write-side corruption in this class survived a fully green unit suite and fell only to the adversarial review of the destructive write path.
 
 ### 8.6 Measure live state before an idempotency-unsafe append/author
 
@@ -314,4 +314,4 @@ Both failures collapse a multi-signal verification surface into a single "looks 
 
 ---
 
-*Cross-references: [session-execution-protocol.md](session-execution-protocol.md) (Recovery-file update discipline at closeout), [session-plan-requirements.md](session-plan-requirements.md) (Sprint exit-gate semantics in Master Plan / Sprint Plan rows).*
+*Cross-references: [session-execution-protocol.md](session-execution-protocol.md) (Recovery-file update discipline at closeout), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Sprint exit-gate semantics in Master Plan / Sprint Plan rows).*

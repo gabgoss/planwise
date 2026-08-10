@@ -6,7 +6,7 @@ description: Discovery scope rigor (deterministic-bug counts, ID persistence), c
 
 **Purpose:** Binding rules covering related plan-fidelity concerns — Discovery scope rigor (§15), cross-layer enforcement of exit-criteria fidelity (§16), design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), and spike-instrument verdict discipline (§20). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
-This file is the §15 + §16 expansion of [session-planning-protocol.md](session-planning-protocol.md). It was extracted into a sibling file to keep both rule files under the project's 500-line limit. Read it before authoring Discovery-phase Consolidated Context, Execution Inputs that name affected records, multi-layer binding refinements, BLOCKING-coverage task files, sprint signoff checklists, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
+This file is the §15 + §16 expansion referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols). It was extracted into a sibling file to keep both rule files under the project's 500-line limit. Read it before authoring Discovery-phase Consolidated Context, Execution Inputs that name affected records, multi-layer binding refinements, BLOCKING-coverage task files, sprint signoff checklists, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
 
 ## Table of Contents
 
@@ -656,4 +656,4 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 
 ---
 
-*Companion files: [session-planning-protocol.md](session-planning-protocol.md) (parent rule, §15 + §16 cross-references), [session-plan-requirements.md](session-plan-requirements.md) (Task File Template, signoff sections), [task-content-fidelity.md](task-content-fidelity.md) (Required Context fidelity, verify-before-cite).*
+*Companion files: [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols) (parent rule, §15 + §16 cross-references from its Companion Files table), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Task File Template), [session-plan-requirements.md](session-plan-requirements.md) (signoff sections), [task-content-fidelity.md](task-content-fidelity.md) (Required Context fidelity, verify-before-cite).*

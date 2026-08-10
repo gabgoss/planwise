@@ -46,6 +46,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 **Run-specific references (always load):**
 1. Read `references/session-execution-protocol.md`
+2. Read `references/read-confirm-act-protocol.md` — source for READ-CONFIRM-ACT, structural findings, and Cross-Task Coordination Flags (cited throughout this handler)
 
 **Conditional references:**
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
@@ -117,7 +118,7 @@ Read these files completely (not skim):
 2. Recovery file -- check for resumption state
 3. All task files listed in the Task Files table (read file headers, objectives, agents)
 
-While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [session-execution-protocol.md §1.2](../references/session-execution-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
+While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [read-confirm-act-protocol.md §1.2](../references/read-confirm-act-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
 
 ### Step 1.1a: RECONCILE (Flag-Reconciliation Preflight)
 
@@ -156,7 +157,7 @@ Output the confirmation block:
 
 #### Step 1.2a: Structural Finding (when READ reveals one)
 
-If Step 1.1 surfaced a structural defect that makes the literal task scope produce a self-inconsistent artifact, the CONFIRM block MUST include a `Structural finding` paragraph AND an explicit Option A (Coherent) / Option B (Literal) block before proceeding. The executor MUST NOT pick a path before the user answers -- see [session-execution-protocol.md §1.2](../references/session-execution-protocol.md#12-structural-findings-beyond-literal-scope) for the template and rationale.
+If Step 1.1 surfaced a structural defect that makes the literal task scope produce a self-inconsistent artifact, the CONFIRM block MUST include a `Structural finding` paragraph AND an explicit Option A (Coherent) / Option B (Literal) block before proceeding. The executor MUST NOT pick a path before the user answers -- see [read-confirm-act-protocol.md §1.2](../references/read-confirm-act-protocol.md#12-structural-findings-beyond-literal-scope) for the template and rationale.
 
 If the user approves Option A (or any expansion beyond the literal scope), the Phase-1 approval reference (the AskUserQuestion turn or timestamp) MUST be recorded in:
 - Recovery's `Scope-Expansion Decisions` section (see [templates/recovery.md](../templates/recovery.md))
@@ -437,7 +438,7 @@ Ask the user: "Were any lessons learned during this session?"
 ### Step 4.4: Propagate Cross-Task Coordination Flags
 
 > [!binding] Downstream-Propagation Gate
-> Every row in the Recovery file's `Cross-Task Coordination Flags` section MUST be propagated into the downstream consumer's plan file BEFORE the Git Commit step. A flag recorded only in upstream Recovery and never propagated is functionally a dropped constraint. See [references/session-execution-protocol.md §1.3](../references/session-execution-protocol.md#13-cross-task-coordination-flags) for the full lifecycle and destination matrix.
+> Every row in the Recovery file's `Cross-Task Coordination Flags` section MUST be propagated into the downstream consumer's plan file BEFORE the Git Commit step. A flag recorded only in upstream Recovery and never propagated is functionally a dropped constraint. See [references/read-confirm-act-protocol.md §1.3](../references/read-confirm-act-protocol.md#13-cross-task-coordination-flags) for the full lifecycle and destination matrix.
 
 1. Read the Recovery file's `Cross-Task Coordination Flags` section. If the section is empty or absent, skip to Step 4.5.
 2. For each flag row, route per the destination table in §1.3:
@@ -508,7 +509,7 @@ Next: {next session from summary, or "Sprint complete"}
 | Task completed | YES | Mark COMPLETE, add timestamp, add findings |
 | Error encountered | YES | Add to Issues section with severity |
 | Partial progress | YES | Add to Key Findings what was done |
-| **Cross-task coordination flag surfaced** | **YES** | **Add row to `Cross-Task Coordination Flags` section IMMEDIATELY (not at closeout) — see [references/session-execution-protocol.md §1.3](../references/session-execution-protocol.md#13-cross-task-coordination-flags)** |
+| **Cross-task coordination flag surfaced** | **YES** | **Add row to `Cross-Task Coordination Flags` section IMMEDIATELY (not at closeout) — see [references/read-confirm-act-protocol.md §1.3](../references/read-confirm-act-protocol.md#13-cross-task-coordination-flags)** |
 | Session complete | YES | Final status, completion timestamp |
 | Before any break | YES | Ensure current state is saved |
 

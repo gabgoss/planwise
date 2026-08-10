@@ -71,7 +71,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 1. Read `references/session-planning-protocol.md`
 2. Read `references/session-plan-requirements.md`
 3. Read `references/session-context-budget.md`
-4. Read `references/session-execution-protocol.md` — source for READ-CONFIRM-ACT, the structural-findings gate, session invariants, and the post-step checklist (cited in this handler's checklists)
+4. Read `references/session-execution-protocol.md` — source for session invariants
+5. Read `references/read-confirm-act-protocol.md` — source for READ-CONFIRM-ACT, the structural-findings gate, and the post-step checklist (cited in this handler's checklists)
 
 **Conditional references:**
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
@@ -382,7 +383,7 @@ Add a row to the plans index so `/planwise list` reflects the new plan:
 For every task file generated in Step 8 whose task touches code, tests, or schemas, populate
 the **Verification Commands** section using a per-file-type command map — never leave the
 section's `{placeholder}` tokens unfilled. The plan-reviewer treats blank, vague, or single-type
-Verification Commands as a finding (`references/session-plan-requirements.md` §Verification
+Verification Commands as a finding (`references/task-file-and-tracking-requirements.md` §Verification
 Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type Commands).
 
 **Procedure:**
@@ -441,7 +442,7 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
 > ```
 >
 > A blank or vague Verification Commands section is a `/planwise review` finding (per the
-> `Verification Commands Plan-Review Enforcement` table in `session-plan-requirements.md`).
+> `Verification Commands Plan-Review Enforcement` table in `task-file-and-tracking-requirements.md`).
 
 **If the task creates no code/test/schema files** (pure documentation, decision-only, or
 research): the Verification Commands section MAY be omitted, but the task file MUST then
