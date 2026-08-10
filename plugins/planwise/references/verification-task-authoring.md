@@ -154,4 +154,4 @@ The verdict-arithmetic check is mechanical: if the comparison operator's evaluat
 
 ---
 
-*Cross-references: [verification-gates.md](verification-gates.md) (cross-process runtime gates — orthogonal concern: round-trip evidence at session-COMPLETE, not match-pattern authoring), [ei-fidelity.md](ei-fidelity.md) §9 (EI completeness and audit-grep-table coverage — feeds the format enumeration §3 relies on).*
+*Cross-references: [verification-gates.md](verification-gates.md) (cross-process runtime gates — orthogonal concern: round-trip evidence at session-COMPLETE, not match-pattern authoring), [ei-completeness.md](ei-completeness.md) §9 (EI completeness and audit-grep-table coverage — feeds the format enumeration §3 relies on).*

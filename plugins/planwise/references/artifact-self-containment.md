@@ -116,7 +116,7 @@ The asymmetry is deliberate. Content-bearing artifacts must read as standalone r
 > CORRECT — agent check definition stands on its own, sourced (if anywhere) from a sibling plugin reference file (`references/*.md §`) or the rule it enforces:
 > ```markdown
 > ### Check 042 — Bidirectional EI Consistency
-> - **Source:** `references/ei-fidelity.md` §8.1
+> - **Source:** `references/ei-citation-and-token-reconciliation.md` §8.1
 > - **What:** every Spec in `Extracted from:` MUST appear in Cross-References.
 > ```
 > A `Source:` value must be a plugin-internal anchor that ships with the plugin — a sibling `references/*.md §` section, or the rule the check enforces. Do NOT use an external bookkeeping ID (`LL-NNN`, `BB-NNN`, `BLI-NNN`, `PLG-NNN`, `D-NNN`): these point at lessons / backlog items / decisions in this or another project's authoring repo that a downstream consumer cannot resolve.
@@ -213,7 +213,7 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 > ```
 > `{PLAN_ABBREV}` is the executing plan's abbreviation, parameterised per plan (substitute the live abbreviation before running).
 >
-> Steps 1–3 are not optional decoration — they are what makes step 4's empty result mean anything. `git diff` does not report untracked files at all, so a promotion that ADDS a file gets an empty result from a pipeline that never saw the file's content, and an empty result that inspected nothing is indistinguishable from one that inspected everything. See `verification-gates.md` §8.7 *Verify the gate's input set before trusting its predicate*.
+> Steps 1–3 are not optional decoration — they are what makes step 4's empty result mean anything. `git diff` does not report untracked files at all, so a promotion that ADDS a file gets an empty result from a pipeline that never saw the file's content, and an empty result that inspected nothing is indistinguishable from one that inspected everything. See `measurement-discipline.md` §8.7 *Verify the gate's input set before trusting its predicate*.
 
 **Gate semantics:**
 

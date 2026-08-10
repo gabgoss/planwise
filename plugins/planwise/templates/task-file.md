@@ -109,7 +109,7 @@ Never leave many-to-many mappings for the agent to infer.
 
 ### Field Mapping (Required for MERGE/upsert tasks)
 
-When this task emits MERGE or upsert SQL, include a Field Mapping subsection with Row↔DDL alignment per `references/task-content-fidelity.md` §9.B.8:
+When this task emits MERGE or upsert SQL, include a Field Mapping subsection with Row↔DDL alignment per `references/verify-before-cite.md` §9.B.8:
 
 | Source Field | DDL Column | Type Cast | Default | Notes |
 |--------------|------------|-----------|---------|-------|
@@ -119,7 +119,7 @@ Missing Field Mapping for MERGE/upsert tasks = BLOCKER at `/planwise review`.
 
 ### USED-Helper Enumeration (Required when copying helpers from reference modules)
 
-When this task copies helpers from a reference module, explicitly enumerate USED helpers and NOT-USED helpers per `references/task-content-fidelity.md` §9.B.7:
+When this task copies helpers from a reference module, explicitly enumerate USED helpers and NOT-USED helpers per `references/verify-before-cite.md` §9.B.7:
 
 **USED helpers** (will be invoked in this task):
 - `{helper_name_1}` — {1-line purpose}
@@ -174,7 +174,7 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 
 ### Verbatim-Copy Line-Count Range (Required when task copies verbatim content from an EI section)
 
-When the task instruction is "copy verbatim from EI §X" (or equivalent), the `wc -l` smoke-check range MUST be computed against the EI's marked verbatim body block only — NOT the surrounding EI section, which typically embeds scaffolding metadata (Substitution Log, EI-only headers, EI-only Notes) the task instructions strip from the written file. Tolerance band ±3-5 lines for renderer differences; a 10%+ delta is NOT a smoke pass. See `references/ei-fidelity.md` §8.2.
+When the task instruction is "copy verbatim from EI §X" (or equivalent), the `wc -l` smoke-check range MUST be computed against the EI's marked verbatim body block only — NOT the surrounding EI section, which typically embeds scaffolding metadata (Substitution Log, EI-only headers, EI-only Notes) the task instructions strip from the written file. Tolerance band ±3-5 lines for renderer differences; a 10%+ delta is NOT a smoke pass. See `references/ei-citation-and-token-reconciliation.md` §8.2.
 
 Example success-criteria phrasing:
 

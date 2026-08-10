@@ -206,7 +206,7 @@ Task file Required Context sections and Execution Steps are subject to the rules
 - §9.B.5: SQL column names MUST be verified against pinned schema before encoding in task brief
 - §9.B.7: USED-helper enumeration: when copying helpers, enumerate USED and NOT-USED explicitly
 - Schema Pin: at planning time MUST be reconciled against deployed-tier schema at execution time (see `schema-pin-requirement.md` §3)
-- §9.B.2 (extended): Env vars, function signatures, and config keys verified against live source (extends `task-content-fidelity.md` §9.B.2 identifier reconciliation)
+- §9.B.2 (extended): Env vars, function signatures, and config keys verified against live source (extends `verify-before-cite.md` §9.B.2 identifier reconciliation)
 - §9.B.8: MERGE/upsert task briefs MUST include Field Mapping subsection (Source Field | DDL Column | Type Cast | Default)
 
 **Cross-sprint dependency mirroring:**
@@ -260,7 +260,7 @@ The `> [!followup]` callout type signals to `handlers/backlog.md` Phase 7 that t
 
 ### Selective Helper Enumeration in Spawn Prompts
 
-When a task brief instructs a subagent to copy helpers from a reference or template module, "verbatim from reference" is ambiguous — the subagent typically copies ALL helpers, triggering unused-symbol diagnostics and pushing borderline files past the line limit. The fix is in the spawn prompt, not the lint rule. This subsection is the canonical anchor for reviewer Check 030 (USED-helper enumeration); it elaborates the spawn-prompt discipline summarized as `task-content-fidelity.md §9.B.7`.
+When a task brief instructs a subagent to copy helpers from a reference or template module, "verbatim from reference" is ambiguous — the subagent typically copies ALL helpers, triggering unused-symbol diagnostics and pushing borderline files past the line limit. The fix is in the spawn prompt, not the lint rule. This subsection is the canonical anchor for reviewer Check 030 (USED-helper enumeration); it elaborates the spawn-prompt discipline summarized as `verify-before-cite.md §9.B.7`.
 
 > [!constraint] Spawn prompts MUST enumerate USED helpers explicitly rather than instruct "verbatim from reference"
 > WRONG — "Helpers — copy verbatim from {reference module}." The subagent copies

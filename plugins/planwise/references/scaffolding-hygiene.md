@@ -306,10 +306,10 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > | None / matching shapes | Standard positional binding — ~200 tokens | Standard estimate |
 > | Minor (≤5 renames, no dispatch) | Aliased positional binding — ~500 tokens | +500 over standard |
 > | Major (>5 renames OR dispatched fields) | Explicit named-param binding — ~2000 tokens | +2000 over standard |
-> | **High-divergence cohort (structural)** | **Explicit named-param binding + Field Mapping subsection (`task-content-fidelity.md` §9.B.8)** — **~3000–4000 tokens** | **+3000–4000 over standard** |
+> | **High-divergence cohort (structural)** | **Explicit named-param binding + Field Mapping subsection (`verify-before-cite.md` §9.B.8)** — **~3000–4000 tokens** | **+3000–4000 over standard** |
 >
 > Mechanical signal: when a cohort's task briefs all share a paste-templated
-> Field Mapping subsection (per `task-content-fidelity.md` §9.B.8), the cohort
+> Field Mapping subsection (per `verify-before-cite.md` §9.B.8), the cohort
 > is divergence-aware by construction; the token-uplift is the budget mechanism
 > that makes the Field Mapping actionable.
 >
@@ -369,14 +369,14 @@ Applies to:
 
 - Any `/planwise plan` invocation that produces 2+ Sprint Plan files in a single pass.
 - Any hand-authored multi-sprint scaffolding session where the same pattern applies (2+ sprints authored in one work-session before any review runs).
-- Reinforces the existing EI bidirectional-consistency rule (`ei-fidelity.md` §9) and the new body⇄citation source-promise rule (`ei-fidelity.md` §10) — both rules exist; this gate ensures the most likely failure pattern (inline mega-scaffold skips both per-sprint self-review and the post-scaffold review) is closed.
+- Reinforces the existing EI bidirectional-consistency rule (`ei-completeness.md` §9) and the new body⇄citation source-promise rule (`ei-source-promise-integrity.md` §10) — both rules exist; this gate ensures the most likely failure pattern (inline mega-scaffold skips both per-sprint self-review and the post-scaffold review) is closed.
 
 Red flags during reviewer audit:
 
 - Master Plan Status is `READY_TO_EXECUTE` AND `n_sprints_scaffolded_this_pass ≥ 2` AND no `/planwise review` report is referenced — gate skipped.
 - The Step-10 confirmation block in the planner's transcript shows a "Skip to /planwise run" choice was offered for a multi-sprint scaffold — gate not enforced by the handler.
 
-See also: `handlers/plan.md` Step 10 (the gate's mechanical enforcement point), `ei-fidelity.md` §9 (EI bidirectional consistency — the rule the inline mega-scaffold most often violates), `ei-fidelity.md` §10 (Source-Promise Integrity — the rule the scaffolder's body⇄citation promises depend on).
+See also: `handlers/plan.md` Step 10 (the gate's mechanical enforcement point), `ei-completeness.md` §9 (EI bidirectional consistency — the rule the inline mega-scaffold most often violates), `ei-source-promise-integrity.md` §10 (Source-Promise Integrity — the rule the scaffolder's body⇄citation promises depend on).
 
 ---
 

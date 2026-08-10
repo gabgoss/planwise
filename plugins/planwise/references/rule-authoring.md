@@ -271,3 +271,4 @@ When total rule content is large, rules may silently fail to load due to context
 ---
 
 *Reference copy — no path scoping. Intended for subagent use and plugin distribution.*
+*Cross-reference: [agent-authoring.md](agent-authoring.md) for agent definition frontmatter, [skill-authoring.md](skill-authoring.md) for skill frontmatter and Auto Mode policy.*

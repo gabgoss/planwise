@@ -32,7 +32,7 @@ Use this template when closing out a sprint as `{Abbrev}-S{XX}-Sprint-Signoff.md
 ## EI Exit Criteria (verbatim quote)
 
 > [!constraint] Verbatim EI Exit Criteria
-> Quote each exit criterion verbatim from this sprint's Execution Input file. NO paraphrasing. See `references/discovery-and-exit-criteria.md` §16.3 for the binding rule.
+> Quote each exit criterion verbatim from this sprint's Execution Input file. NO paraphrasing. See `references/exit-criteria-fidelity.md` §16.3 for the binding rule.
 
 ```
 {verbatim block of EI exit criteria, e.g.:
@@ -45,7 +45,7 @@ Use this template when closing out a sprint as `{Abbrev}-S{XX}-Sprint-Signoff.md
 
 ## Mechanical Anchor Checks
 
-For each exit criterion, document the mechanical anchor (grep / SQL / file presence) that verifies it. One row per criterion. Re-run BLI-cited anchors at signoff time even if previously checked (per `references/discovery-and-exit-criteria.md` §16.3).
+For each exit criterion, document the mechanical anchor (grep / SQL / file presence) that verifies it. One row per criterion. Re-run BLI-cited anchors at signoff time even if previously checked (per `references/exit-criteria-fidelity.md` §16.3).
 
 | # | Exit Criterion (verbatim) | Mechanical Anchor | Result |
 |---|---------------------------|-------------------|--------|
@@ -130,4 +130,4 @@ If actionable follow-ups exist, encode them as declarative `> [!followup]` block
 - Whenever a sprint contains IPC / protocol / codec sessions (round-trip evidence requirement)
 - Whenever exit criteria are quoted and verified mechanically (most multi-sprint scaffolded plans)
 
-For trivial single-sprint plans without exit criteria, the signoff file is optional. For all multi-sprint scaffolded plans, the signoff is REQUIRED per `references/discovery-and-exit-criteria.md` §16.3.
+For trivial single-sprint plans without exit criteria, the signoff file is optional. For all multi-sprint scaffolded plans, the signoff is REQUIRED per `references/exit-criteria-fidelity.md` §16.3.

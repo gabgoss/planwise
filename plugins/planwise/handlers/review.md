@@ -707,10 +707,10 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 22 | DELEGATED spawn prompt missing operational-ceiling disclaimer (`agent-orchestration-delegated.md` §1.11) | BLOCKER | Orchestration spawn prompts |
 | 23 | DELEGATED edit-heavy task missing N>25 resume protocol + tool-use budget estimation (`agent-orchestration-delegated.md` §1.12) | BLOCKER | Orchestration spawn prompts |
 | 24 | DELEGATED shared-edit-target dispatches missing parallelism cap/shard/delta strategy (`agent-orchestration-delegated.md` §1.13) | BLOCKER | Orchestration dispatch matrix |
-| 25 | Verify-before-cite round-2 (`task-content-fidelity.md` §9.B.6..§9.B.9) | BLOCKER (varies by sub-rule) | Task file SQL/MERGE briefs |
+| 25 | Verify-before-cite round-2 (`verify-before-cite.md` §9.B.6..§9.B.9) | BLOCKER (varies by sub-rule) | Task file SQL/MERGE briefs |
 | 26 | Sprint exit-gate verdict not reflecting gate-defining step (`verification-gates.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
 | 27 | Sprint Overview row encoding session-count fraction instead of gate verdict (`verification-gates.md` §4) | ERROR | Master Plan Sprint Overview |
-| 28 | EI Cross-References §-citation format violated (`ei-fidelity.md` §7) | BLOCKER | EI Cross-References table |
+| 28 | EI Cross-References §-citation format violated (`ei-citation-and-token-reconciliation.md` §7) | BLOCKER | EI Cross-References table |
 | 29 | UNCONFIRMED claim missing four-site enforcement (`ei-fidelity.md` §4) | BLOCKER | EI body |
 | 30 | Sprint Plan has `READY_TO_EXECUTE` at scaffolding time (`scaffolding-hygiene.md` §4) | WARNING | Sprint Plan Status field |
 | 31 | Per-session `Outputs/` directory missing (`scaffolding-hygiene.md` §5) | BLOCKER | Session folder |
@@ -721,29 +721,29 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 36 | Verify Before/After callout missing for runnable artifact (`verification-gates.md` §4) | BLOCKER | Task file Verification Commands |
 | 37 | Required Context not updated when a prior task changed file structure (`task-content-fidelity.md` §9.A.1) | ERROR | Task Required Context |
 | 38 | Per-file-type token rate band violation (`task-content-fidelity.md` §9.A.3) | WARNING | Task Required Context |
-| 39 | User-prompt-cited artifact unverified at scaffolding (`task-content-fidelity.md` §9.B.1) | BLOCKER | Task file cited paths |
-| 40 | Identifier not reconciled with live contract (`task-content-fidelity.md` §9.B.2) | BLOCKER | Task Execution Steps |
-| 41 | Helper-function design not categorized in column-presence check (`task-content-fidelity.md` §9.B.4) | WARNING | Task helper refs |
+| 39 | User-prompt-cited artifact unverified at scaffolding (`verify-before-cite.md` §9.B.1) | BLOCKER | Task file cited paths |
+| 40 | Identifier not reconciled with live contract (`verify-before-cite.md` §9.B.2) | BLOCKER | Task Execution Steps |
+| 41 | Helper-function design not categorized in column-presence check (`verify-before-cite.md` §9.B.4) | WARNING | Task helper refs |
 | 42 | EI archival fidelity violated — transform happens at EI not Task layer (`ei-fidelity.md` §1) | ERROR | EI body |
 | 43 | EI source severity vocabulary not preserved (`ei-fidelity.md` §2) | ERROR | EI body |
 | 44 | EI threshold misaligned with operational dispatch contract (`ei-fidelity.md` §3) | BLOCKER | EI vs Sprint Plan |
-| 45 | EI cross-tier duplicate not preserved (`ei-fidelity.md` §5) | ERROR | EI Cross-References |
-| 46 | EI cross-tier citation not propagated to implementation surface (`ei-fidelity.md` §6) | ERROR | EI Cross-References |
-| 47 | EI token reconciliation gate failed (`ei-fidelity.md` §8) | BLOCKER | EI token totals |
+| 45 | EI cross-tier duplicate not preserved (`ei-citation-and-token-reconciliation.md` §5) | ERROR | EI Cross-References |
+| 46 | EI cross-tier citation not propagated to implementation surface (`ei-citation-and-token-reconciliation.md` §6) | ERROR | EI Cross-References |
+| 47 | EI token reconciliation gate failed (`ei-citation-and-token-reconciliation.md` §8) | BLOCKER | EI token totals |
 | 48 | Discovery count missing execution citation (`discovery-and-exit-criteria.md` §15.1) | BLOCKER | Discovery outputs |
-| 49 | Binding refinement not echoed across plan layers (`discovery-and-exit-criteria.md` §16.1) | BLOCKER | Multi-layer files |
-| 50 | "Surfaces" used as non-enforceable mention not enforcement claim (`discovery-and-exit-criteria.md` §16.2) | ERROR | EI / Sprint Plan |
-| 51 | Sprint signoff row-count mismatch with EI exit criteria (`discovery-and-exit-criteria.md` §16.3) | BLOCKER | Sprint signoff |
+| 49 | Binding refinement not echoed across plan layers (`exit-criteria-fidelity.md` §16.1) | BLOCKER | Multi-layer files |
+| 50 | "Surfaces" used as non-enforceable mention not enforcement claim (`exit-criteria-fidelity.md` §16.2) | ERROR | EI / Sprint Plan |
+| 51 | Sprint signoff row-count mismatch with EI exit criteria (`exit-criteria-fidelity.md` §16.3) | BLOCKER | Sprint signoff |
 | 52 | Cross-session dependency not mirrored in task `Depends On` (`task-file-and-tracking-requirements.md` §9 cross-session) | BLOCKER | Task Depends On |
 | 53 | Post-scaffold back-propagation missed after task edit (`task-file-and-tracking-requirements.md` §9 post-scaffold sync) | ERROR | Task file + EI section |
-| 54 | BLI-cited audit anchor not re-verified before execution (`verify-against-shipped-artifact.md` §6) | BLOCKER | Orchestration BLI refs |
+| 54 | BLI-cited audit anchor not re-verified before execution (`verify-discovery-consolidation.md` §6) | BLOCKER | Orchestration BLI refs |
 | 55 | Cohort token-uplift missing for known high-divergence cohort (`scaffolding-hygiene.md` §10) | WARNING | Master Plan Sprint Overview Notes |
-| 56 | Cross-tier audit-finding triage table missing (`discovery-and-exit-criteria.md` §18) | WARNING | Discovery/audit sessions |
-| 57 | EI multi-sprint cumulative state not reconciled (`ei-fidelity.md` §9.1) | BLOCKER | Later-sprint EI Current state block + Sprint Plan Cross-Sprint File Touches + task-file Step-1 prerequisite grep gate |
-| 58 | EI repoint map cluster incomplete — fewer enumerated rows than audit cluster cites (`ei-fidelity.md` §9.2) | BLOCKER | EI repoint map vs audit cluster |
-| 59 | EI audit-grep-table coverage gap — verification scope wider than upstream repair scope (`ei-fidelity.md` §9.3) | BLOCKER | EI verification task vs repair task Required Context |
-| 60 | Consolidated Context body⇄citation promise broken — header names a finding as a Driving Finding (or Cross-References row lists it) but body lacks the prose AND no `[source-doc-only]` marker (`ei-fidelity.md` §10.1) | ERROR | Consolidated Context part body |
-| 61 | Task verbatim-extraction targets a section that does not physically carry the cited prose — pre-extraction verification missing AND no fallback-hierarchy step (`ei-fidelity.md` §10.2 + §10.3) | ERROR | Task file Execution Steps |
+| 56 | Cross-tier audit-finding triage table missing (`execution-time-binding-rules.md` §18) | WARNING | Discovery/audit sessions |
+| 57 | EI multi-sprint cumulative state not reconciled (`ei-completeness.md` §9.1) | BLOCKER | Later-sprint EI Current state block + Sprint Plan Cross-Sprint File Touches + task-file Step-1 prerequisite grep gate |
+| 58 | EI repoint map cluster incomplete — fewer enumerated rows than audit cluster cites (`ei-completeness.md` §9.2) | BLOCKER | EI repoint map vs audit cluster |
+| 59 | EI audit-grep-table coverage gap — verification scope wider than upstream repair scope (`ei-completeness.md` §9.3) | BLOCKER | EI verification task vs repair task Required Context |
+| 60 | Consolidated Context body⇄citation promise broken — header names a finding as a Driving Finding (or Cross-References row lists it) but body lacks the prose AND no `[source-doc-only]` marker (`ei-source-promise-integrity.md` §10.1) | ERROR | Consolidated Context part body |
+| 61 | Task verbatim-extraction targets a section that does not physically carry the cited prose — pre-extraction verification missing AND no fallback-hierarchy step (`ei-source-promise-integrity.md` §10.2 + §10.3) | ERROR | Task file Execution Steps |
 | 62 | Mega-scaffold skipped review gate — `n_sprints_scaffolded_this_pass ≥ 2` AND Master Plan Status is `READY_TO_EXECUTE` AND no `/planwise review` report referenced (`scaffolding-hygiene.md` §11) | BLOCKER | Master Plan / scaffold-session transcript |
 | 63 | Token Saver large-file ladder not applied — `context.token_saver: true` AND (over-ceiling task without `1M-exception`; OR Warn+ Required Context file with no backlog item; OR a `read`-reason Critical wrongly flagged `1M-exception`; OR a `1M-exception` task on a Sonnet/Haiku agent without override note; OR a runner-read generated artifact past the line/byte/token read gate without a Multi-Part split) (`task-content-fidelity.md` §9.A.8) — no-op when Token Saver is off | ERROR (read-Critical mis-flag / over-ceiling / artifact split) · WARNING (missing backlog item / uncovered read gate) | Task Required Context + Notes for Agent ([Token Saver Compliance Check](#token-saver-compliance-check)) |
 | 64 | Orchestrator consumes sub-agent verdict label without recomputing from reported finding counts — systematic under-classification risk (`agent-orchestration-delegated.md` §1.16.1) | ERROR | Orchestration synthesis step; rollup tables |

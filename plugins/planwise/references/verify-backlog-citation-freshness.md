@@ -299,4 +299,4 @@ This is the backlog-execution sibling of `verify-cross-repo-fix-discipline.md` Â
 
 ---
 
-*Companion files: [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md), [verify-discovery-consolidation.md](verify-discovery-consolidation.md), [verify-cross-repo-fix-discipline.md](verify-cross-repo-fix-discipline.md).*
+*Companion files: [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md), [verify-discovery-consolidation.md](verify-discovery-consolidation.md), [verify-cross-repo-fix-discipline.md](verify-cross-repo-fix-discipline.md), [exit-criteria-fidelity.md](exit-criteria-fidelity.md) (companion discipline â€” same re-verification principle, from the sprint-signoff entry point rather than backlog-triage).*

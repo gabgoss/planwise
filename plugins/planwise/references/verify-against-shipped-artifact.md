@@ -45,7 +45,7 @@ A plan or Execution Input pins a third-party identifier — an SDK named paramet
 
 The plan-side cost of verification (one minute of reflection or grep) is two orders of magnitude smaller than the build-cycle cost (build + deviation note + Recovery update + sometimes a Sprint pivot). For internal-placement drift the cost asymmetry is even worse — the failure surfaces only at live invocation time, after a deploy + relaunch + interactive click. For motivating-driver drift the cost asymmetry is the worst of all — the "failure" is sunk planning effort against a non-problem, with no compiler or runtime signal to surface it.
 
-For internal project artifacts (lesson IDs, schema files, function names), see `task-content-fidelity.md §9.B`.
+For internal project artifacts (lesson IDs, schema files, function names), see `verify-before-cite.md §9.B`.
 
 ---
 

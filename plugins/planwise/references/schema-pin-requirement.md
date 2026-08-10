@@ -168,3 +168,5 @@ grep -nE "ALTER TABLE {table}|DROP CONSTRAINT.*{table}|ADD CONSTRAINT.*{table}" 
 ---
 
 *This rule applies to all task files that reference DB tables. The Schema Pin is the single source of truth for column and constraint shape during DELEGATED dispatch — keep it current.*
+
+*Companion files: [verify-before-cite.md](verify-before-cite.md) (§9.B verify-before-cite discipline — the general form of this rule).*

@@ -101,7 +101,7 @@ Fix: Replicate per references/ei-fidelity.md §4 | Confidence: HIGH
 
 ### Check 005 — EI Cross-Tier Duplicate Preservation
 
-- **Severity / Role / Source / Type:** ERROR | EI Reviewer | `references/ei-fidelity.md` §5 | NEW
+- **Severity / Role / Source / Type:** ERROR | EI Reviewer | `references/ei-citation-and-token-reconciliation.md` §5 | NEW
 - **What:** When the same finding appears at multiple Discovery tiers (Tier-1 raw / Tier-2 consolidated / Tier-3 final), EI MUST preserve cross-tier citations rather than dedup to one tier.
 - **Detection:** Open EI; for each Cross-References row, count distinct `Tier-{N}` prefixes. If finding has single-tier prefix BUT source map indicates multiple tiers → ERROR.
 - **Finding template:**
@@ -109,7 +109,7 @@ Fix: Replicate per references/ei-fidelity.md §4 | Confidence: HIGH
 [ERROR] EI cross-tier duplicate not preserved
 File: {EI file path} | Location: Cross-References row {N}
 Issue: Finding appears only at {one_tier}; source map shows {multiple_tiers}
-Fix: Add tier-cross-cite per references/ei-fidelity.md §5 | Confidence: MEDIUM
+Fix: Add tier-cross-cite per references/ei-citation-and-token-reconciliation.md §5 | Confidence: MEDIUM
 ```
 - **Insert:** Fifth item under `**New checks (EI fidelity):**`.
 
@@ -117,7 +117,7 @@ Fix: Add tier-cross-cite per references/ei-fidelity.md §5 | Confidence: MEDIUM
 
 ### Check 006 — EI §-Citation Format Discipline
 
-- **Severity / Role / Source / Type:** BLOCKER | EI Reviewer | `references/ei-fidelity.md` §7 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | EI Reviewer | `references/ei-citation-and-token-reconciliation.md` §7 | NEW
 - **What:** Every Cross-References row MUST use canonical format `Spec #{N} ({filename.md})` with global numbering matching Master Plan Global Source Map.
 - **Detection:** Grep `Spec #\d+ \([^\)]+\.md\)` on Cross-References table; verify each `{N}` against Master Plan Global Source Map. Mismatch → BLOCKER.
 - **Finding template:**
@@ -125,7 +125,7 @@ Fix: Add tier-cross-cite per references/ei-fidelity.md §5 | Confidence: MEDIUM
 [BLOCKER] EI Cross-Reference §-citation format violated
 File: {EI file path} | Location: Cross-References row {N}
 Issue: Citation "{quoted_citation}" does not match Spec #{N} ({filename.md}) format
-Fix: Reformat per references/ei-fidelity.md §7 + verify against Global Source Map | Confidence: HIGH
+Fix: Reformat per references/ei-citation-and-token-reconciliation.md §7 + verify against Global Source Map | Confidence: HIGH
 ```
 - **Insert:** Sixth item under `**New checks (EI fidelity):**`.
 
@@ -133,7 +133,7 @@ Fix: Reformat per references/ei-fidelity.md §7 + verify against Global Source M
 
 ### Check 007 — EI Token Reconciliation Gate
 
-- **Severity / Role / Source / Type:** BLOCKER | EI Reviewer | `references/ei-fidelity.md` §8 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | EI Reviewer | `references/ei-citation-and-token-reconciliation.md` §8 | NEW
 - **What:** EI section token totals MUST reconcile with Sprint Plan Sessions Est. Tokens AND Master Plan Sprint Overview row tokens, deviation ≤10%. Algorithm-sprint EIs additionally MUST recompute numerical exemplars rather than verbatim-copy from source.
 - **Detection:** Compute `abs(EI_total - Sprint_total) / Sprint_total`; >10% → BLOCKER. For algorithm sprints, grep EI for verbatim numerical-exemplar tables from source; unmodified copy → BLOCKER.
 - **Finding template:**
@@ -141,7 +141,7 @@ Fix: Reformat per references/ei-fidelity.md §7 + verify against Global Source M
 [BLOCKER] EI token reconciliation gate failed
 File: {EI file path} | Location: EI token total {EI_total}
 Issue: Deviates {deviation_pct}% from Sprint Plan / Master Plan
-Fix: Recompute per references/ei-fidelity.md §8 (and §8.1 for algorithm sprints) | Confidence: HIGH
+Fix: Recompute per references/ei-citation-and-token-reconciliation.md §8 (and §8.1 for algorithm sprints) | Confidence: HIGH
 ```
 - **Insert:** Seventh item under `**New checks (EI fidelity):**`.
 
@@ -149,7 +149,7 @@ Fix: Recompute per references/ei-fidelity.md §8 (and §8.1 for algorithm sprint
 
 ### Check 008 — EI Extraction Retention Threshold
 
-- **Severity / Role / Source / Type:** BLOCKER/WARNING (tiered) | EI Reviewer | `references/ei-fidelity.md` §5 | NEW
+- **Severity / Role / Source / Type:** BLOCKER/WARNING (tiered) | EI Reviewer | `references/ei-citation-and-token-reconciliation.md` §5 | NEW
 - **What:** Multi-tier Discovery extraction MUST achieve ≥95% retention (pass), 80-95% (WARNING), <80% (BLOCKER auto-reject). Ratio = extraction tokens / source tokens per EI section.
 - **Detection:** For each EI section, compute token count vs cited source Consolidated Context section. Ratio <0.80 → BLOCKER; 0.80-0.95 → WARNING; ≥0.95 → pass.
 - **Finding template:**
@@ -157,7 +157,7 @@ Fix: Recompute per references/ei-fidelity.md §8 (and §8.1 for algorithm sprint
 [{SEVERITY}] EI extraction retention below threshold
 File: {EI file path} | Location: section {section_name} (source: {source_file} §{N})
 Issue: Retention ratio {ratio}% below {threshold}%
-Fix: Re-extract verbatim per references/ei-fidelity.md §5 — extraction ≠ summarization | Confidence: HIGH
+Fix: Re-extract verbatim per references/ei-citation-and-token-reconciliation.md §5 — extraction ≠ summarization | Confidence: HIGH
 ```
 - **Insert:** Eighth item under `**New checks (EI extraction retention):**`.
 
@@ -181,7 +181,7 @@ Fix: Reconcile per references/session-plan-requirements.md §8 | Confidence: HIG
 
 ### Check 055 — EI Multi-Sprint Cumulative File-Touch Reconciliation
 
-- **Severity / Role / Source / Type:** BLOCKER | EI Reviewer | `references/ei-fidelity.md` §9.1 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | EI Reviewer | `references/ei-completeness.md` §9.1 | NEW
 - **What:** When the same file is edited across two or more sprints, the later sprint's EI "Current state" anchor block MUST reflect the cumulative POST-prior-sprint state, not the pre-plan baseline. The later sprint's `Proposed change` MUST cover ONLY the delta this sprint adds. The Sprint Plan SHOULD declare the file under `## Cross-Sprint File Touches`, and the first task that edits the file MUST include a Step-1 prerequisite grep gate.
 - **Detection:**
   1. Build a file-touch matrix across all sprint EIs in the plan: for each file edited, list every (sprint, EI section).
@@ -193,13 +193,13 @@ Fix: Reconcile per references/session-plan-requirements.md §8 | Confidence: HIG
 [BLOCKER] EI multi-sprint cumulative state not reconciled
 File: {later sprint EI file path} | Location: §{section_name} Current state block
 Issue: Current state anchor matches pre-plan baseline; prior sprint {prior_sprint_id} already extended this file
-Fix: Reconcile per references/ei-fidelity.md §9.1 (post-prior-sprint baseline + delta-only Proposed change + Sprint Plan Cross-Sprint File Touches + task-file Step-1 prerequisite grep gate) | Confidence: HIGH
+Fix: Reconcile per references/ei-completeness.md §9.1 (post-prior-sprint baseline + delta-only Proposed change + Sprint Plan Cross-Sprint File Touches + task-file Step-1 prerequisite grep gate) | Confidence: HIGH
 ```
 - **Insert:** First item under `**New checks (EI Completeness — three-axis scope coverage):**`.
 
 ### Check 056 — EI Repoint Map Cluster Completeness
 
-- **Severity / Role / Source / Type:** BLOCKER | EI Reviewer | `references/ei-fidelity.md` §9.2 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | EI Reviewer | `references/ei-completeness.md` §9.2 | NEW
 - **What:** When an EI repoint map addresses an audit-identified range cluster (multiple dangling anchors belonging to the same canonical range or misnumbered series), the EI repoint map MUST enumerate every row of the cluster with explicit source anchor + target anchor per row. Implicit scope expansion via parenthetical hints ("canonical §X.Y.{first}-{last}") is forbidden.
 - **Detection:**
   1. Open the upstream audit document(s) cited by the EI; locate every range table or cluster enumeration (a row that names a range like `§X.Y.{first}-{last}` with multiple `file:line` citations).
@@ -212,13 +212,13 @@ Fix: Reconcile per references/ei-fidelity.md §9.1 (post-prior-sprint baseline +
 [BLOCKER] EI repoint map cluster incomplete
 File: {EI file path} | Location: §{section_name} repoint map
 Issue: Audit cites {cluster_lines} lines in cluster "{cluster_name}" but map enumerates only {mapped_rows} rows
-Fix: Enumerate every cluster row with explicit source+target per references/ei-fidelity.md §9.2 | Confidence: HIGH
+Fix: Enumerate every cluster row with explicit source+target per references/ei-completeness.md §9.2 | Confidence: HIGH
 ```
 - **Insert:** Second item under `**New checks (EI Completeness — three-axis scope coverage):**`.
 
 ### Check 057 — EI Audit-Grep-Table Coverage (Repair Scope ⊇ Verification Scope)
 
-- **Severity / Role / Source / Type:** BLOCKER | EI Reviewer | `references/ei-fidelity.md` §9.3 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | EI Reviewer | `references/ei-completeness.md` §9.3 | NEW
 - **What:** When an audit lists a multi-file defect-class grep table and the EI scopes a final verification sweep across that file set, every file in the grep table MUST appear in at least one upstream repair task's Required Context (with the EI authorizing that task to edit it). Repair scope MUST be a superset of verification scope.
 - **Detection:**
   1. Open the upstream audit document(s); extract every defect-class grep table (file enumeration) the audit produces. Call this set `audit_files`.
@@ -231,7 +231,7 @@ Fix: Enumerate every cluster row with explicit source+target per references/ei-f
 [BLOCKER] EI audit-grep-table coverage gap (verification > repair)
 File: {EI file path} | Location: §{verification_section} vs §{repair_sections}
 Issue: Files in verification scope but not in any repair task scope: {missing_files}
-Fix: Add explicit repair task(s) authorizing edits to {missing_files}, OR remove them from the verification scope — per references/ei-fidelity.md §9.3 | Confidence: HIGH
+Fix: Add explicit repair task(s) authorizing edits to {missing_files}, OR remove them from the verification scope — per references/ei-completeness.md §9.3 | Confidence: HIGH
 ```
 - **Insert:** Third item under `**New checks (EI Completeness — three-axis scope coverage):**`.
 
@@ -239,7 +239,7 @@ Fix: Add explicit repair task(s) authorizing edits to {missing_files}, OR remove
 
 ### Check 061 — EI Verbatim-Copy Task Line-Count Body-Block Scope
 
-- **Severity / Role / Source / Type:** ERROR | EI Reviewer | `references/ei-fidelity.md` §8.2 | NEW
+- **Severity / Role / Source / Type:** ERROR | EI Reviewer | `references/ei-citation-and-token-reconciliation.md` §8.2 | NEW
 - **What:** When a task instruction is "copy verbatim from EI §X" (or equivalent), the task's success-criteria `wc -l` smoke-check range MUST be computed against the EI's marked verbatim body block only — NOT the surrounding EI section, which embeds scaffolding metadata (Substitution Log, EI-only headers, EI-only Notes) the task instructions strip from the written file. The EI section authoring a verbatim block MUST contain explicit body delimiters (start/end markers or an unambiguous demarcating callout) so the task-scaffolder can count the body without inferring the boundary.
 - **Detection:**
   1. Grep the EI for verbatim-copy task references: `copy.*verbatim.*from.*§|Verbatim Body|Body Content runs from|copy verbatim from EI`.
@@ -251,7 +251,7 @@ Fix: Add explicit repair task(s) authorizing edits to {missing_files}, OR remove
 [ERROR] EI verbatim-copy line-count estimate measures EI section, not body block
 File: {task file path} | Location: Success Criteria
 Issue: wc -l range {documented_range} matches EI §{section} section length ({section_lines}) rather than body block ({body_lines})
-Fix: Recompute range against the marked body block per references/ei-fidelity.md §8.2 (and add body delimiters to EI §{section} if missing) | Confidence: MEDIUM
+Fix: Recompute range against the marked body block per references/ei-citation-and-token-reconciliation.md §8.2 (and add body delimiters to EI §{section} if missing) | Confidence: MEDIUM
 ```
 - **Insert:** First item under `**New checks (EI Verbatim-Copy Line-Count Discipline):**`.
 
@@ -259,7 +259,7 @@ Fix: Recompute range against the marked body block per references/ei-fidelity.md
 
 ### Check 063 — Consolidated Context Body⇄Citation Presence
 
-- **Severity / Role / Source / Type:** ERROR | EI Reviewer | `references/ei-fidelity.md` §10.1 | NEW
+- **Severity / Role / Source / Type:** ERROR | EI Reviewer | `references/ei-source-promise-integrity.md` §10.1 | NEW
 - **What:** Every finding named in a Consolidated Context part's header "Driving Findings" list or in a Cross-References row MUST have its full rule prose physically present in the part body — OR the Cross-References row MUST mark the citation explicitly as `[source-doc-only — see {path}]` (or equivalent deferred-marker syntax). Naming a finding in a header or table is a content promise; an unmarked absence in the body fails the promise.
 - **Detection:**
   1. Locate Consolidated Context parts in the plan (typically under `Meta-{Abbrev}/Outputs/*-Consolidated-Context-Part-*.md`).
@@ -271,26 +271,26 @@ Fix: Recompute range against the marked body block per references/ei-fidelity.md
 [ERROR] Consolidated Context body⇄citation promise broken
 File: {Consolidated Context part path} | Location: Cross-References row {N} / header Driving Findings
 Issue: Finding {finding-identifier} named as a source but no body prose found AND no [source-doc-only] marker
-Fix: Either fold {finding-identifier}'s prose into the part body OR amend the Cross-References row with [source-doc-only — see {path}] per references/ei-fidelity.md §10.1 | Confidence: HIGH
+Fix: Either fold {finding-identifier}'s prose into the part body OR amend the Cross-References row with [source-doc-only — see {path}] per references/ei-source-promise-integrity.md §10.1 | Confidence: HIGH
 ```
 - **Insert:** First item under `**New checks (Source-Promise Integrity):**`.
 
 ### Check 064 — Pre-Extraction Verification (Task Cites Section That Does Not Carry the Cited Prose)
 
-- **Severity / Role / Source / Type:** ERROR | EI Reviewer | `references/ei-fidelity.md` §10.2 | NEW
+- **Severity / Role / Source / Type:** ERROR | EI Reviewer | `references/ei-source-promise-integrity.md` §10.2 | NEW
 - **What:** When a task file's Execution Steps include "extract verbatim from {EI Section}", "apply the Consolidated Context prose verbatim", or equivalent verbatim-extraction language, the cited EI/Consolidated Context section MUST physically carry the cited prose. If the cited section is absent or carries divergent prose (e.g., the same defect an upstream audit flagged), the task is at risk of either re-publishing the divergence or inventing replacement content.
 - **Detection:**
   1. Grep task files in the plan for verbatim-extraction language: `extract verbatim|copy verbatim|apply.*verbatim|verbatim from §|prose verbatim`.
   2. For each match: parse the cited EI/Consolidated Context section (`§X.Y`, `Spec #N`, or explicit Part path).
   3. Open the cited section; verify the prose the task expects to extract is physically present and not a divergent variant.
   4. If absent → ERROR. If divergent (the section carries prose that contradicts the task brief's stated intent or an upstream audit's described intent) → ERROR.
-  5. If the task brief includes an explicit fallback-hierarchy reference (per `references/ei-fidelity.md` §10.3) or pre-extraction-verification step in its Execution Steps, downgrade to WARNING (the task is verification-aware; the gap may be intentional).
+  5. If the task brief includes an explicit fallback-hierarchy reference (per `references/ei-source-promise-integrity.md` §10.3) or pre-extraction-verification step in its Execution Steps, downgrade to WARNING (the task is verification-aware; the gap may be intentional).
 - **Finding template:**
 ```
 [ERROR] Task verbatim-extraction targets a section that does not carry the cited prose
 File: {task file path} | Location: Execution Step {N}
 Issue: Cites {section-ref} as authoritative for verbatim extraction; section is {absent/divergent}
-Fix: Add a pre-extraction verification step + fallback hierarchy per references/ei-fidelity.md §10.2 + §10.3, OR repoint the citation to the actually-authoritative source (audit description, EI directive, recorded project-rule preference) | Confidence: MEDIUM
+Fix: Add a pre-extraction verification step + fallback hierarchy per references/ei-source-promise-integrity.md §10.2 + §10.3, OR repoint the citation to the actually-authoritative source (audit description, EI directive, recorded project-rule preference) | Confidence: MEDIUM
 ```
 - **Insert:** Second item under `**New checks (Source-Promise Integrity):**`.
 
@@ -423,7 +423,7 @@ Fix: Recompute per references/task-content-fidelity.md §9.A.3 | Confidence: MED
 
 ### Check 018 — Task Verify-Before-Cite (User-Cited Artifacts)
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/task-content-fidelity.md` §9.B.1 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/verify-before-cite.md` §9.B.1 | NEW
 - **What:** When task brief cites a user-introduced artifact (file path, function name, table name), task MUST verify it exists on disk before authoring dependent instructions.
 - **Detection:** Identify cited file paths in Required Context + Execution Steps; Glob each. If 0 matches → BLOCKER.
 - **Finding template:**
@@ -431,13 +431,13 @@ Fix: Recompute per references/task-content-fidelity.md §9.A.3 | Confidence: MED
 [BLOCKER] Task cites unverified artifact
 File: {task file path} | Location: {Required Context | Execution Steps}
 Issue: Cited path "{cited_path}" does not resolve on disk
-Fix: Verify artifact exists or correct citation per references/task-content-fidelity.md §9.B.1 | Confidence: HIGH
+Fix: Verify artifact exists or correct citation per references/verify-before-cite.md §9.B.1 | Confidence: HIGH
 ```
 - **Insert:** Third item under `**New checks (task content fidelity — Required Context):**`.
 
 ### Check 019 — Task Field-Name Reconciliation
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/task-content-fidelity.md` §9.B.2 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/verify-before-cite.md` §9.B.2 | NEW
 - **What:** Identifiers in task brief (`{column}`, `{symbol}`, `{config-field}`, env vars) MUST match live contracts. Detect drift between `{long_form_identifier}` and `{abbreviated_identifier}`.
 - **Detection:** Extract identifiers from Execution Steps; grep referenced contract file. 0 matches → BLOCKER.
 - **Finding template:**
@@ -445,13 +445,13 @@ Fix: Verify artifact exists or correct citation per references/task-content-fide
 [BLOCKER] Task identifier not reconciled with live contract
 File: {task file path} | Location: Execution Steps
 Issue: Identifier "{identifier}" not found in cited contract {contract_path}
-Fix: Reconcile per references/task-content-fidelity.md §9.B.2 | Confidence: HIGH
+Fix: Reconcile per references/verify-before-cite.md §9.B.2 | Confidence: HIGH
 ```
 - **Insert:** Fourth item under `**New checks (task content fidelity — Required Context):**`.
 
 ### Check 020 — Task Facade Re-Export Verification
 
-- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/task-content-fidelity.md` §9.B.3 | NEW
+- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/verify-before-cite.md` §9.B.3 | NEW
 - **What:** When task imports/calls a symbol expected to be re-exported by a facade module, task MUST verify the re-export exists.
 - **Detection:** Identify imports from facade (e.g., `{src/module/__init__.ext}`); grep facade for re-export. Absent → ERROR.
 - **Finding template:**
@@ -459,13 +459,13 @@ Fix: Reconcile per references/task-content-fidelity.md §9.B.2 | Confidence: HIG
 [ERROR] Task facade re-export unverified
 File: {task file path} | Location: Execution Steps import statement
 Issue: Symbol "{symbol}" not re-exported by facade "{facade_path}"
-Fix: Verify per references/task-content-fidelity.md §9.B.3 | Confidence: HIGH
+Fix: Verify per references/verify-before-cite.md §9.B.3 | Confidence: HIGH
 ```
 - **Insert:** Fifth item under `**New checks (task content fidelity — Required Context):**`.
 
 ### Check 021 — Task Helper-Function Design Categorization
 
-- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `references/task-content-fidelity.md` §9.B.4 | NEW
+- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `references/verify-before-cite.md` §9.B.4 | NEW
 - **What:** Tasks copying/referencing helpers from another module MUST categorize each as `{copy}`, `{adapt}`, or `{call-via-import}` before authoring presence checks.
 - **Detection:** Grep Execution Steps for helper references; check for category tag adjacent. Untagged → WARNING.
 - **Finding template:**
@@ -473,7 +473,7 @@ Fix: Verify per references/task-content-fidelity.md §9.B.3 | Confidence: HIGH
 [WARNING] Task helper-function design not categorized
 File: {task file path} | Location: Execution Steps helper reference
 Issue: Helper "{symbol}" referenced without {copy|adapt|call-via-import} category
-Fix: Categorize per references/task-content-fidelity.md §9.B.4 | Confidence: MEDIUM
+Fix: Categorize per references/verify-before-cite.md §9.B.4 | Confidence: MEDIUM
 ```
 - **Insert:** Sixth item under `**New checks (task content fidelity — Required Context):**`.
 
@@ -577,7 +577,7 @@ Fix: Increase per references/task-content-fidelity.md §9.A.5 | Confidence: MEDI
 [BLOCKER] Task generator-script pattern missing
 File: {task file path} | Location: Execution Steps
 Issue: Task walks {N} files (≥100) without generator-script architecture
-Fix: Add per references/task-content-fidelity.md §9.A.6 / §9.B.9 | Confidence: HIGH
+Fix: Add per references/verify-before-cite.md §9.B.9 / references/task-content-fidelity.md §9.A.6 | Confidence: HIGH
 ```
 - **Insert:** Third item under `**New checks (task content fidelity — large walks & splits):**`.
 
@@ -597,7 +597,7 @@ Fix: Declare split per references/task-content-fidelity.md §9.A.7 | Confidence:
 
 ### Check 029 — Task `wc -l` Pre-COMPLETE Gate
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/task-content-fidelity.md` §9.B.8 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/verify-before-cite.md` §9.B.8 | NEW
 - **What:** Task Success Criteria MUST include `wc -l` (or equivalent line-count) verification gate before COMPLETE. Orchestrator-level `wc -l` between dispatches also required.
 - **Detection:** Grep Success Criteria for `wc -l|line.*count|line-count`. File-producing task lacking line-count gate → BLOCKER.
 - **Finding template:**
@@ -605,13 +605,13 @@ Fix: Declare split per references/task-content-fidelity.md §9.A.7 | Confidence:
 [BLOCKER] Task wc -l pre-COMPLETE gate missing
 File: {task file path} | Location: Success Criteria checklist
 Issue: File-producing task lacks line-count verification
-Fix: Add wc -l gate per references/task-content-fidelity.md §9.B.8 | Confidence: HIGH
+Fix: Add wc -l gate per references/verify-before-cite.md §9.B.8 | Confidence: HIGH
 ```
 - **Insert:** Fifth item under `**New checks (task content fidelity — large walks & splits):**`.
 
 ### Check 030 — Task USED-Helper Enumeration
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/task-content-fidelity.md` §9.B.7 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/verify-before-cite.md` §9.B.7 | NEW
 - **What:** Tasks copying helpers from reference modules MUST enumerate USED helpers (exactly which functions are called) — not "all helpers from module X".
 - **Detection:** Check for `## USED-Helper Enumeration` section. Reference to helper module without enumeration → BLOCKER.
 - **Finding template:**
@@ -627,7 +627,7 @@ Fix: Add enumeration per templates/task-file.md | Confidence: HIGH
 
 ### Check 031 — Task Planning-Tier Schema Pin Reconciliation
 
-- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/task-content-fidelity.md` §9.B.6 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Task Reviewer | `references/verify-before-cite.md` §9.B.6 | NEW
 - **What:** Schema Pins in planning-tier docs MUST reconcile against deployed-tier schema (`{schema-file}` / `{schema_glob_path}`).
 - **Detection:** Extract Schema Pin block; grep deployed schema for pinned column/constraint names. Unknown → BLOCKER.
 - **Finding template:**
@@ -635,13 +635,13 @@ Fix: Add enumeration per templates/task-file.md | Confidence: HIGH
 [BLOCKER] Task Schema Pin planning-vs-deployed drift
 File: {task file path} | Location: Schema Pin section
 Issue: Pinned identifier "{name}" not found in deployed {schema-file}
-Fix: Reconcile per references/task-content-fidelity.md §9.B.6 + schema-pin-requirement.md | Confidence: HIGH
+Fix: Reconcile per references/verify-before-cite.md §9.B.6 + schema-pin-requirement.md | Confidence: HIGH
 ```
 - **Insert:** First item under `**New checks (task content fidelity — schema & field mapping):**`.
 
 ### Check 032 — Task Env Var / Function Signature / Config Key Drift
 
-- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/task-content-fidelity.md` §9.B.7 | NEW
+- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/verify-before-cite.md` §9.B.7 | NEW
 - **What:** Env vars (`{ENV_VAR_NAME}`), function signatures (`{symbol}`), config keys (`{config-field}`) cited in tasks MUST match live source.
 - **Detection:** Extract references; grep live source. Absent → ERROR.
 - **Finding template:**
@@ -649,13 +649,13 @@ Fix: Reconcile per references/task-content-fidelity.md §9.B.6 + schema-pin-requ
 [ERROR] Task env/signature/config-key drift
 File: {task file path} | Location: Execution Steps
 Issue: Reference "{name}" not found in live source "{source_path}"
-Fix: Verify per references/task-content-fidelity.md §9.B.7 | Confidence: HIGH
+Fix: Verify per references/verify-before-cite.md §9.B.7 | Confidence: HIGH
 ```
 - **Insert:** Second item under `**New checks (task content fidelity — schema & field mapping):**`.
 
 ### Check 033 — Task MERGE/Upsert Field Mapping Subsection
 
-- **Severity / Role / Source / Type:** BLOCKER (MERGE/upsert tasks) | Task Reviewer | `references/task-content-fidelity.md` §9.B.8 | NEW
+- **Severity / Role / Source / Type:** BLOCKER (MERGE/upsert tasks) | Task Reviewer | `references/verify-before-cite.md` §9.B.8 | NEW
 - **What:** Tasks performing MERGE/upsert MUST include `### Field Mapping` subsection with Row↔DDL alignment.
 - **Detection:** Grep Execution Steps for `MERGE|UPSERT|ON CONFLICT`; check for `^### Field Mapping`. MERGE present + Field Mapping absent → BLOCKER.
 - **Finding template:**
@@ -801,7 +801,7 @@ Fix: Constrain verdict per references/verification-task-authoring.md §5 (FAIL o
 
 ### Check 066 — Fix-Task Execution-Time Fidelity (§7.3a–§7.3d)
 
-- **Severity / Role / Source / Type:** BLOCKER/WARNING (tiered) | Task Reviewer | `references/verify-against-shipped-artifact.md` §7.3a–§7.3d | NEW
+- **Severity / Role / Source / Type:** BLOCKER/WARNING (tiered) | Task Reviewer | `references/verify-cross-repo-fix-discipline.md` §7.3a–§7.3d | NEW
 - **What:** For any fix task whose target file lives cross-repo (a Required Context row annotated `BINDING SOURCE — full read required`), the Execution Steps MUST exhibit execution-time fidelity discipline: (a) a Step-1 canonical-file full-read gate (also enforced by the §7.5 compliance grep); (b) re-locate-by-content language — later steps locate edits by heading text / function name / unique anchor string, with no naked recipe line/step number presented as the authoritative edit target; (c) for any YAML/JSON/TOML edit, a parser-load success criterion (e.g. a `yaml.safe_load` / `json.load` gate) in Success Criteria, not just a content grep. Non-cross-repo fix tasks are out of scope (§7.6 exemptions).
 - **Detection:**
   1. Identify fix tasks with a Required Context row annotated `BINDING SOURCE` (cross-repo canonical target). If none, the check is a no-op for that task.
@@ -813,7 +813,7 @@ Fix: Constrain verdict per references/verification-task-authoring.md §5 (FAIL o
 [{BLOCKER|WARNING}] Fix-task execution-time fidelity gap
 File: {task file path} | Location: Execution Steps / Success Criteria
 Issue: {Step-1 full-read gate missing on BINDING SOURCE task | naked recipe line/step reference used as edit target without content anchor | structured-data edit lacks parser-load success criterion}
-Fix: Apply the §7.3a–§7.3d execution-time discipline per references/verify-against-shipped-artifact.md (Step-1 full read / re-locate by content / verify data shapes / system-consistent value / parser-load before close) | Confidence: HIGH
+Fix: Apply the §7.3a–§7.3d execution-time discipline per references/verify-cross-repo-fix-discipline.md (Step-1 full read / re-locate by content / verify data shapes / system-consistent value / parser-load before close) | Confidence: HIGH
 ```
 - **Insert:** First item under `**New checks (Cross-repo execution-time fidelity):**`.
 
@@ -837,7 +837,7 @@ Fix: Add recompute gate per references/agent-orchestration-delegated.md §1.16 |
 
 ### Check 069 — File Line-Count Finding Requires `wc -l`
 
-- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/verification-gates.md` §8.1 | NEW
+- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/measurement-discipline.md` §8.1 | NEW
 - **What:** Any reviewer finding that claims a file's line count is overstated or understated MUST be backed by a `wc -l` measurement, NOT by the last line number observed in a `Read` tool output. A finding citing a Read-output line number as its evidence is a false-positive candidate — `Read` paginates and partial reads always produce a number smaller than the true count.
 - **Detection:**
   1. For each line-count finding in the reviewer's own draft output, verify the evidence method: was `Bash wc -l <path>` run? If the evidence is "Read output showed last line N" or "file appears to be N lines" without a `wc -l` invocation → ERROR (promote to FALSE POSITIVE candidate, discard with note).
@@ -853,7 +853,7 @@ Fix: Run `wc -l {file_path}` and compare against the plan's declared value befor
 
 ### Check 070 — Plan Headline Metric vs Fixed Extraction Scope Reconciliation
 
-- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `references/verification-gates.md` §8.3 | NEW
+- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `references/measurement-discipline.md` §8.3 | NEW
 - **What:** When a task's Success Criteria carry a derived numeric target (post-edit line count, token savings, retention ratio) AND the same task spec fixes an extraction scope, the two MUST be arithmetically consistent (`original − extracted_block ?= projected_remainder`). A plan that states both a fixed scope and an incompatible headline metric will either produce spec-violating scope creep or a misleading savings report.
 - **Detection:**
   1. For each task with Success Criteria containing `~{N} lines` or `~{N}K tokens` AND an extraction scope that names specific sections (keep §X, extract §Y, leave §Z): compute `original_lines − extracted_section_lines` and compare against the stated remainder target.
@@ -864,7 +864,7 @@ Fix: Run `wc -l {file_path}` and compare against the plan's declared value befor
 [WARNING] Plan headline metric incompatible with fixed extraction scope
 File: {task file path} | Location: Success Criteria + extraction scope
 Issue: Fixed scope implies ~{computed} lines remainder; plan targets ~{declared} — {pct}% gap
-Fix: Sanity-check up front per references/verification-gates.md §8.3; execute fixed scope, measure wc -l, report actual delta as Issue | Confidence: MEDIUM
+Fix: Sanity-check up front per references/measurement-discipline.md §8.3; execute fixed scope, measure wc -l, report actual delta as Issue | Confidence: MEDIUM
 ```
 - **Insert:** Second item under `**New checks (empirical-verification discipline):**`.
 
@@ -972,7 +972,7 @@ Fix: Persist IDs per references/discovery-and-exit-criteria.md §15.2 | Confiden
 
 ### Check 042 — §16.1 Binding Refinements Echo Across Layers
 
-- **Severity / Role / Source / Type:** BLOCKER | Coverage Reviewer | `references/discovery-and-exit-criteria.md` §16.1 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Coverage Reviewer | `references/exit-criteria-fidelity.md` §16.1 | NEW
 - **What:** Binding refinements (added enforcement language at one layer) MUST echo at all dependent layers (rule → reference → handler → agent → template).
 - **Detection:** For each refinement, identify dependent layers; verify presence. Missing from any dependent layer → BLOCKER.
 - **Finding template:**
@@ -980,13 +980,13 @@ Fix: Persist IDs per references/discovery-and-exit-criteria.md §15.2 | Confiden
 [BLOCKER] Binding refinement not echoed across layers
 File: {layer file path} | Location: {section}
 Issue: Refinement "{quoted_text}" missing from dependent layer {layer_path}
-Fix: Echo per references/discovery-and-exit-criteria.md §16.1 | Confidence: HIGH
+Fix: Echo per references/exit-criteria-fidelity.md §16.1 | Confidence: HIGH
 ```
 - **Insert:** Third item under `**New checks (coverage & discovery):**`.
 
 ### Check 043 — §16.3 EI Exit Criteria With Mechanical Anchors
 
-- **Severity / Role / Source / Type:** BLOCKER | Coverage Reviewer | `references/discovery-and-exit-criteria.md` §16.3 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Coverage Reviewer | `references/exit-criteria-fidelity.md` §16.3 | NEW
 - **What:** EI Exit Criteria MUST verbatim-quote source exit-criteria AND include mechanical anchor (grep pattern / file path).
 - **Detection:** Quote present but no mechanical anchor → BLOCKER. Quote not verbatim → BLOCKER.
 - **Finding template:**
@@ -994,13 +994,13 @@ Fix: Echo per references/discovery-and-exit-criteria.md §16.1 | Confidence: HIG
 [BLOCKER] EI Exit Criteria missing mechanical anchor
 File: {EI file path} | Location: Exit Criteria section
 Issue: Exit criterion lacks {grep_pattern}/{file_anchor}
-Fix: Add mechanical anchor per references/discovery-and-exit-criteria.md §16.3 | Confidence: HIGH
+Fix: Add mechanical anchor per references/exit-criteria-fidelity.md §16.3 | Confidence: HIGH
 ```
 - **Insert:** Fourth item under `**New checks (coverage & discovery):**`.
 
 ### Check 045 — §15/§16 Cross-Layer Cohort Discovery Scope
 
-- **Severity / Role / Source / Type:** ERROR | Coverage Reviewer | `references/discovery-and-exit-criteria.md` §15/§16 | NEW
+- **Severity / Role / Source / Type:** ERROR | Coverage Reviewer | `references/exit-criteria-fidelity.md` §16 / `references/discovery-and-exit-criteria.md` §15 | NEW
 - **What:** Discovery scope in Master Plan/Sprint Plan MUST match actual coverage produced by Discovery sessions (no orphaned spec sections, no unscoped findings).
 - **Detection:** Compare Master Plan declared scope vs Discovery outputs. Declared cohort with 0 outputs OR outputs covering undeclared cohort → ERROR.
 - **Finding template:**
@@ -1008,7 +1008,7 @@ Fix: Add mechanical anchor per references/discovery-and-exit-criteria.md §16.3 
 [ERROR] Discovery scope mismatch
 File: {Master Plan path} | Location: Discovery cohort declaration
 Issue: Cohort "{name}" declared but no outputs (or outputs not scoped)
-Fix: Reconcile per references/discovery-and-exit-criteria.md §15/§16 | Confidence: HIGH
+Fix: Reconcile per references/exit-criteria-fidelity.md §16 / references/discovery-and-exit-criteria.md §15 | Confidence: HIGH
 ```
 - **Insert:** Sixth item under `**New checks (coverage & discovery):**`.
 
@@ -1016,7 +1016,7 @@ Fix: Reconcile per references/discovery-and-exit-criteria.md §15/§16 | Confide
 
 ### Check 044 — §16.3 BLI-Cited Audit Anchor Re-Verification
 
-- **Severity / Role / Source / Type:** BLOCKER | Coverage Reviewer | `references/discovery-and-exit-criteria.md` §16.3 | NEW
+- **Severity / Role / Source / Type:** BLOCKER | Coverage Reviewer | `references/exit-criteria-fidelity.md` §16.3 | NEW
 - **What:** BLI-cited audit anchors MUST be re-verified at session start (anchor may have moved due to upstream edits).
 - **Detection:** For each BLI-cited anchor (`{file_path}:{line_range}` or `{file_path}#{section}`), open referenced file and verify content. Stale → BLOCKER.
 - **Finding template:**
@@ -1024,7 +1024,7 @@ Fix: Reconcile per references/discovery-and-exit-criteria.md §15/§16 | Confide
 [BLOCKER] BLI-cited audit anchor stale
 File: {Orchestration file path} | Location: BLI reference {BLI_id}
 Issue: Anchor "{anchor}" no longer resolves; expected content not found
-Fix: Re-verify per references/discovery-and-exit-criteria.md §16.3 | Confidence: HIGH
+Fix: Re-verify per references/exit-criteria-fidelity.md §16.3 | Confidence: HIGH
 ```
 - **Insert:** Fifth item under `**New checks (audit-anchor re-verification):**`.
 
@@ -1081,9 +1081,9 @@ Fix: Re-verify per references/discovery-and-exit-criteria.md §16.3 | Confidence
 
 ### Check 051 — Undocumented Design Extension
 
-- **Severity / Role / Source:** WARNING | Design-Extension Reviewer | `references/discovery-and-exit-criteria.md` §17 | NEW
+- **Severity / Role / Source:** WARNING | Design-Extension Reviewer | `references/execution-time-binding-rules.md` §17 | NEW
 - **Detection:** Grep execution-time files for design extensions (new sections / new callouts) not documented in EI or source spec. Undocumented → WARNING.
-- **Finding template:** `[WARNING] Undocumented design extension during execution | Fix per references/discovery-and-exit-criteria.md §17 (inline What/Why/Source comment)`
+- **Finding template:** `[WARNING] Undocumented design extension during execution | Fix per references/execution-time-binding-rules.md §17 (inline What/Why/Source comment)`
 - **Insert:** First item under Design-Extension Reviewer.
 
 ### Check 052 — DELEGATED Round-2 Compliance (`references/agent-orchestration-delegated.md` §1.4-§1.13)
@@ -1095,16 +1095,16 @@ Fix: Re-verify per references/discovery-and-exit-criteria.md §16.3 | Confidence
 
 ### Check 053 — Cross-Tier Audit Triage Table Presence
 
-- **Severity / Role / Source:** WARNING | Design-Extension Reviewer | `references/discovery-and-exit-criteria.md` §18 | NEW
+- **Severity / Role / Source:** WARNING | Design-Extension Reviewer | `references/execution-time-binding-rules.md` §18 | NEW
 - **Detection:** For Discovery/audit sessions, verify `## Cross-Tier Audit Finding Triage` table presence with three buckets (remediation / pre-emptive flag / combo). Absent → WARNING.
-- **Finding template:** `[WARNING] Cross-tier audit triage table missing | Fix per references/discovery-and-exit-criteria.md §18`
+- **Finding template:** `[WARNING] Cross-tier audit triage table missing | Fix per references/execution-time-binding-rules.md §18`
 - **Insert:** Third item under Design-Extension Reviewer.
 
 ### Check 054 — BLI-Cited Anchor Re-Verification (Session-Start)
 
-- **Severity / Role / Source:** BLOCKER | Design-Extension Reviewer | `references/discovery-and-exit-criteria.md` §16.3 | NEW
+- **Severity / Role / Source:** BLOCKER | Design-Extension Reviewer | `references/exit-criteria-fidelity.md` §16.3 | NEW
 - **Detection:** At session-start, re-verify all BLI-cited audit anchors (also covered as Coverage Check 044; duplicated here for design-extension scope at session start).
-- **Finding template:** `[BLOCKER] Session-start BLI anchor re-verification missing/failing | Fix per references/discovery-and-exit-criteria.md §16.3`
+- **Finding template:** `[BLOCKER] Session-start BLI anchor re-verification missing/failing | Fix per references/exit-criteria-fidelity.md §16.3`
 - **Insert:** Fourth item under Design-Extension Reviewer.
 
 ### Check 062 — Phase-1 Scope-Expansion Approval Reference Required
@@ -1171,14 +1171,14 @@ Fix: Phrase as "verify existing pins still pass unchanged (default path untouche
 
 ## Sub-role: Verification-Gate Reviewer (NEW)
 
-- Verify that any task gate deriving its input from a change set registers untracked files and asserts its input set was non-empty (`references/verification-gates.md` §8.7 sub-rule A)
-- Confirm that any task with a compaction/consolidation objective pairs its size gate with a content-conservation gate (`references/verification-gates.md` §8.7 sub-rule B)
+- Verify that any task gate deriving its input from a change set registers untracked files and asserts its input set was non-empty (`references/measurement-discipline.md` §8.7 sub-rule A)
+- Confirm that any task with a compaction/consolidation objective pairs its size gate with a content-conservation gate (`references/measurement-discipline.md` §8.7 sub-rule B)
 
 **New checks (gates-that-cannot-fail discipline):**
 
 ### Check 074 — Diff-Derived Gate Without Input-Set Assertion
 
-- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/verification-gates.md` §8.7 | NEW
+- **Severity / Role / Source / Type:** ERROR | Task Reviewer | `references/measurement-discipline.md` §8.7 | NEW
 - **What:** A task verification gate whose input comes from a change set — `git diff`, a changelog, a CI touched-files list, a migration delta — MUST carry BOTH an untracked-file registration step (`git add -N`) and an input-set assertion proving the diff actually covered the intended files. Without them the gate returns the same empty result whether it inspected everything or nothing, and every downstream reader consumes that empty result as evidence of cleanliness. The defect is worst on tasks that CREATE files: `git diff` does not report untracked paths at all, so a gate over a newly-authored file inspects zero bytes and reports PASS.
 - **Detection:**
   1. Identify every Success Criterion / verification step whose command pipes a change set into a matcher (`git diff … | grep`, `git diff --name-only`, a touched-files list).
@@ -1191,13 +1191,13 @@ Fix: Phrase as "verify existing pins still pass unchanged (default path untouche
 [ERROR] Diff-derived gate without input-set assertion
 File: {task file path} | Location: Success Criteria / verification step {n}
 Issue: Gate derives input from {git diff | change set} with no {git add -N registration | input-set assertion | unfiltered sweep}; task authors {N} new file(s) whose content never enters the pipeline — empty result is unfalsifiable
-Fix: Add `git add -N` for each new file, assert `git status --porcelain <scope> | grep -c '^??'` == 0 and `git diff --name-only $BASE -- <scope> | wc -l` == expected count, and dry-run the gate against known-bad input per references/verification-gates.md §8.7 | Confidence: HIGH
+Fix: Add `git add -N` for each new file, assert `git status --porcelain <scope> | grep -c '^??'` == 0 and `git diff --name-only $BASE -- <scope> | wc -l` == expected count, and dry-run the gate against known-bad input per references/measurement-discipline.md §8.7 | Confidence: HIGH
 ```
 - **Insert:** First item under `**New checks (gates-that-cannot-fail discipline):**`.
 
 ### Check 075 — Size Gate Without Content-Conservation Gate
 
-- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `references/verification-gates.md` §8.7 | NEW
+- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `references/measurement-discipline.md` §8.7 | NEW
 - **What:** When a task's objective is compaction, consolidation, collapsing, deduplication, or summarisation, its gates MUST include a content-conservation check derived from the **pre-edit** file — not only size gates (`wc -l` bands) and absence gates (`grep -c` for removed headings). Size and absence gates are both satisfied by destroying the payload: the metric improves monotonically with the amount of content lost, and there is no size at which the gate objects. The payload at risk is usually a pointer's coordinates — target section numbers and exact heading names — which a paraphrase drops while keeping the prose intact.
 - **Detection:**
   1. Identify tasks whose Objective contains a compaction verb (collapse, consolidate, merge, dedupe, compress, summarise, trim, "reduce to N lines").
@@ -1209,20 +1209,20 @@ Fix: Add `git add -N` for each new file, assert `git status --porcelain <scope> 
 [WARNING] Compaction task gated on size only — no content-conservation check
 File: {task file path} | Location: Objective / Success Criteria
 Issue: Objective is {collapse|consolidate|dedupe} but all gates are size/absence-shaped; payload ({section numbers | exact heading names | coordinates}) can be discarded with every gate green
-Fix: Add a pre-edit-derived conservation gate (`for s in '<coordinate>' '<exact heading>'; do grep -cF "$s" $FILE; done`, every count >= 1), run it case-sensitively then case-insensitively, and require its output in the completion report re-run by a second party per references/verification-gates.md §8.7 | Confidence: MEDIUM
+Fix: Add a pre-edit-derived conservation gate (`for s in '<coordinate>' '<exact heading>'; do grep -cF "$s" $FILE; done`, every count >= 1), run it case-sensitively then case-insensitively, and require its output in the completion report re-run by a second party per references/measurement-discipline.md §8.7 | Confidence: MEDIUM
 ```
 - **Insert:** Second item under `**New checks (gates-that-cannot-fail discipline):**`.
 
 ## Sub-role: Change-Surface Reviewer (NEW)
 
-- Verify that a plan pairing a new diagnostic with a new repair path also carries a deliverable editing the caller — code or document — that routes between them (`references/verification-gates.md` §8.8 sub-rule B)
-- Confirm that any deliverable changing a behavior described by a manifest, schema or frontmatter field also updates that structured field, not only the adjacent free-text prose (`references/verification-gates.md` §8.8 sub-rule A)
+- Verify that a plan pairing a new diagnostic with a new repair path also carries a deliverable editing the caller — code or document — that routes between them (`references/measurement-discipline.md` §8.8 sub-rule B)
+- Confirm that any deliverable changing a behavior described by a manifest, schema or frontmatter field also updates that structured field, not only the adjacent free-text prose (`references/measurement-discipline.md` §8.8 sub-rule A)
 
 **New checks (change-surface discipline):**
 
 ### Check 076 — Detection + Repair With No Routing Deliverable
 
-- **Severity / Role / Source / Type:** WARNING | Plan Reviewer | `references/verification-gates.md` §8.8 | NEW
+- **Severity / Role / Source / Type:** WARNING | Plan Reviewer | `references/measurement-discipline.md` §8.8 | NEW
 - **What:** When a plan's deliverables include BOTH a new diagnostic (a check, warning, doctor stage, lint, drift detector) AND a new repair path (a fixer, migration, self-heal, reconcile-on-consent branch), it MUST also carry a deliverable that edits the **caller** which routes from the diagnostic's recommendation to the repair's execution. Without it, both halves ship, both are tested, the suite is green — and the loop is still open: the diagnostic's advice is a dead end. **The caller is frequently a document**, not code. Where a handler, runbook or documented command sequence is the caller of record, its gate conditions are as load-bearing as an `if`, and a prose gate that exits on the very condition the repair path serves cannot be caught by any test. A secondary signal: a plan that makes a previously-unreachable branch live without a deliverable auditing that branch against every input the newly-routed caller can supply — the branch's age and test count are not evidence, since until now it never ran.
 - **Detection:**
   1. Classify each deliverable as diagnostic (detects/reports a bad state), repair (corrects it), or routing (connects a recommendation to an invocation).
@@ -1235,7 +1235,7 @@ Fix: Add a pre-edit-derived conservation gate (`for s in '<coordinate>' '<exact 
 [WARNING] Detection and repair ship with nothing routing between them
 File: {plan or sprint file path} | Location: Deliverables / Sprint scope
 Issue: Plan adds {diagnostic} and {repair} but no deliverable edits the caller ({handler|runbook|entry point}) that routes between them; documented flow exits on {condition} — the repair path is unreachable and the diagnostic's recommendation is a dead end
-Fix: Add a deliverable editing the caller's gate to route the detected state to the repair (naming what is skipped and why), and audit the newly-reachable branch against every caller-suppliable input per references/verification-gates.md §8.8 | Confidence: MEDIUM
+Fix: Add a deliverable editing the caller's gate to route the detected state to the repair (naming what is skipped and why), and audit the newly-reachable branch against every caller-suppliable input per references/measurement-discipline.md §8.8 | Confidence: MEDIUM
 ```
 - **Insert:** First item under `**New checks (change-surface discipline):**`.
 
