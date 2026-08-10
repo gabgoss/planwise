@@ -12,11 +12,7 @@
   - [Steps 1-9: Standard Plan](#step-1-gather-information)
   - [Step 10: Plan Review Gate](#step-10-plan-review-gate)
 - [Validation Checklist](#validation-checklist)
-- [Discovery Workflow](#discovery-workflow)
-- [Scaffolding Workflow](#scaffolding-workflow)
 - [Naming Conventions](#naming-conventions)
-- [Token Budget Rules](#token-budget-rules)
-- [Agent Assignment](#agent-assignment)
 - [Additional Resources](#additional-resources)
 
 ---
@@ -100,7 +96,7 @@ Before gathering information, check the user's prompt for **Discovery Mode** and
 
 #### Discovery Mode (Meta-Plan Creation)
 
-**Explicit indicators** (go directly to Discovery Workflow):
+**Explicit indicators** (go directly to Discovery mode):
 
 | Indicator | Action |
 |-----------|--------|
@@ -122,20 +118,22 @@ If **any Discovery implicit indicator** is detected without an explicit indicato
 
 > "Your project appears to require more context than fits in a single session (above ~{meta_plan_threshold} tokens for this plan tier). The **Meta-Plan Discovery** workflow reads source material across multiple sessions, consolidates findings into structured Consolidated Context Parts, and then scaffolds an Execution Plan from those parts. **Recommended: use Discovery (Meta-Plan).** Proceed with Discovery, Scaffolding (if you already have Consolidated Context parts), or Standard?"
 
-- If user chooses **Discovery** → follow the [Discovery Workflow](#discovery-workflow) below
-- If user chooses **Scaffolding** → follow the [Scaffolding Workflow](#scaffolding-workflow) below
+- If user chooses **Discovery** → Read `handlers/plan-discovery.md` and follow it
+- If user chooses **Scaffolding** → Read `handlers/plan-scaffolding.md` and follow it
 - If user chooses **Standard** → proceed to Step 1
 
-**If Discovery Mode (explicit):** Follow the [Discovery Workflow](#discovery-workflow) section below instead of Steps 1-9.
+**If Discovery Mode (explicit):** Read `handlers/plan-discovery.md` and follow it instead of Steps 1-9.
 
 #### Scaffolding Mode (Execution Plan from Discovery Outputs)
 
-**Explicit indicators** (go directly to Scaffolding Workflow):
+**Explicit indicators** (go directly to Scaffolding mode):
 
 | Indicator | Action |
 |-----------|--------|
 | `--scaffold` flag present in arguments | **Scaffolding** |
 | User says "scaffold", "scaffolding phase", or "from Discovery" | **Scaffolding** |
+
+**If Scaffolding Mode (explicit):** Read `handlers/plan-scaffolding.md` and follow it instead of Steps 1-9.
 
 **Optional Scaffolding flag — `--scaffold-per-sprint`:**
 
@@ -167,7 +165,7 @@ If **any Scaffolding implicit indicator** is detected without an explicit indica
 
 > "Your source material references Meta-Plan Discovery outputs. The Scaffolding workflow creates focused per-sprint Execution Inputs from this research, preventing subagents from reading entire Discovery docs. **Recommended: use Scaffolding.** Proceed with Scaffolding or Standard?"
 
-- If user chooses **Scaffolding** → follow the [Scaffolding Workflow](#scaffolding-workflow) below
+- If user chooses **Scaffolding** → Read `handlers/plan-scaffolding.md` and follow it
 - If user chooses **Standard** → proceed to Step 1
 
 #### No Mode Detected
@@ -304,7 +302,7 @@ Where `{lessons_dir}` and `{lessons_index}` come from `config.yaml`.
 For each task in the session, compute a bottom-up token estimate:
 
 1. **Measure Required Context files:** For each file in the task's Required Context table, estimate line count (check actual size with Glob/Read or use domain heuristics)
-2. **Convert to tokens:** Apply ~13 tokens/line (see [Token Estimation Reference](#token-estimation-reference))
+2. **Convert to tokens:** Apply ~13 tokens/line (see [Per-Operation Cost Reference](../references/session-context-budget.md#per-operation-cost-reference))
 3. **Add output cost:** Estimate output generation tokens from the operation-level table
 4. **Compare:** If the bottom-up estimate exceeds the qualitative category estimate, use the higher number
 5. **DELEGATED check:** For DELEGATED tasks, verify `(task estimate + injected path-rule tokens + 54K overhead) < the dispatched model's window` per subagent. A subagent's window is set by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M), NOT the parent tier — a Sonnet runner is 200K even when the orchestrator is on Max. See `references/session-context-budget.md` [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window).
@@ -574,376 +572,7 @@ Before completing `/planwise plan`, verify:
 ```
 
 > [!practice] Plan the Right Fix, Not the Easy Fix
-> When scoping reveals two treatments — a complete one that touches more surface (a full renumber, a schema migration, propagating a change through every consumer) and a narrower patch that leaves known incoherence behind — scope the complete treatment and cost it honestly. Budget pressure is answered by SPLITTING the coherent fix across tasks or sessions (see Token Budget Rules), never by shrinking it into a partial fix that is cheaper to execute. If a real constraint genuinely forces the partial path (an interface external consumers depend on, an irreversible boundary, a user-set deadline), record the constraint and the residual defect in the plan so the gap is a visible decision, not an accident. Overall project quality comes from doing the hard thing once, not the easy thing twice. Full principle, exception clause, and stage table: [do-the-hard-things.md](../references/do-the-hard-things.md).
-
----
-
-## Discovery Workflow
-
-**When:** Total context exceeds ~100K tokens, or the user explicitly requests a Meta-Plan. The Discovery phase reads source material, cross-references it, and produces Consolidated Context Parts — structured, full-detail specification documents organized by execution scope.
-
-**Output:** `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md` files
-
-> [!constraint] Discovery ≠ Standard Planning
-> WRONG: Create a standard execution plan inside `Meta-{Abbrev}/` with implementation tasks and a different abbreviation.
->
-> CORRECT: Create a **discovery plan** inside `Meta-{Abbrev}/` with **reading and consolidation tasks** that produce Consolidated Context Parts. The abbreviation MUST match the parent project. The purpose is context discovery and consolidation — NOT implementation.
-
-### Discovery Step 1: Gather Source Inventory
-
-**CONFIRM block (per `references/scaffolding-hygiene.md` §1):**
-
-Before gathering source inventory, output the Discovery context confirmation:
-
-> [!template] Discovery Context Confirmation
-> ```
-> CONTEXT LOADED — DISCOVERY MODE
-> Workflow: Discovery (Meta-Plan creation)
-> Trigger: {indicator that triggered Discovery mode}
-> Plugin references loaded: {list of loaded conditional refs}
-> Next Action: Gather source inventory for {abbreviation}
-> ```
-
-<!-- AUTO-MODE: critical -->
-Use `AskUserQuestion`: "Confirm Discovery mode for this plan?"
-(Auto-default: proceed; user can switch to Standard or Scaffolding.)
-
-Then proceed with the source inventory questions below.
-
-<!-- AUTO-MODE: critical -->
-<!-- All Discovery Step 1 questions (Project name, Abbreviation, Vision, Source files, Domains, Expected output) are CRITICAL per S03-03 audit table — no safe inference. -->
-Use `AskUserQuestion` to collect:
-
-**Question 1: Project Details**
-- What is the project name? (e.g., "DataMigration", "UserAuthentication") — pre-fill from `$1` if provided
-- What is the 2-4 character abbreviation? (e.g., "DM", "UA") — this abbreviation will be used across ALL three phases (Meta, Scaffold, Exec)
-- Briefly describe the project vision (1-2 sentences)
-
-**Question 2: Source Material**
-- What source files/documents need to be read and consolidated? (paths, URLs, or descriptions)
-- Are there specific domains or topics to organize findings by?
-- What should the consolidated output contain? (e.g., schema definitions, API contracts, design decisions)
-
-### Discovery Step 2: Validate and Design
-
-1. **Validate abbreviation:** 2-4 characters, unique (check `{plans_dir}` for existing). Follow the [Abbreviation Validation Protocol](#abbreviation-length-validation) — never silently truncate or adjust
-2. **Inventory source files:** List all source files with estimated line counts and token costs (~13 tokens/line)
-3. **Confirm context exceeds 100K:** Sum total source tokens. If < 100K, recommend Standard plan instead
-4. **Group sources by domain/topic:** Each group becomes a discovery sprint or session focus area
-5. **Define expected Consolidated Context Parts:** One part per execution scope (each part ≤ 500 lines), with anticipated `Scope:` values
-
-### Discovery Step 3: Create Folder Structure
-
-Create the Meta-Plan structure under `{plans_dir}`:
-
-```
-{plans_dir}/{PlanName}/
-└── Meta-{Abbrev}/
-    ├── {Abbrev}-META-Master-Plan.md
-    ├── Sprint-01-Discovery/
-    │   ├── {Abbrev}-META-S01-Sprint-Plan.md
-    │   └── Session-01-{SessionName}/
-    │       ├── {Abbrev}-S01-01-Orchestration.md
-    │       ├── {Abbrev}-S01-01-Recovery.md
-    │       ├── {Abbrev}-S01-01-{##}-{Agent}-{Task}.md
-    │       └── Outputs/
-    └── Outputs/                                # Consolidated Context Parts go here
-```
-
-**Naming rules** (see [Meta-Plan File Naming](#meta-plan-file-naming) for full reference):
-- Master Plan: `{Abbrev}-META-Master-Plan.md` (META infix distinguishes from Execution Plan)
-- Sprint Plans: `{Abbrev}-META-S{XX}-Sprint-Plan.md` (META infix)
-- Orchestration/Recovery: standard naming, no META infix (structural files)
-- Task outputs: `{Abbrev}-META-S{XX}-{YY}-{TaskOutput}.md` (in session `Outputs/`)
-- Consolidated outputs: `{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md` (in `Meta-{Abbrev}/Outputs/`)
-
-### Discovery Step 4: Generate Meta-Plan Files
-
-Use standard templates with the following overrides:
-
-**Master Plan overrides:**
-- Vision: "Context discovery and consolidation for {PlanName}" — NOT implementation
-- Purpose: "Read source material, cross-reference findings, and produce Consolidated Context Parts"
-- Success Criteria: Define what each Consolidated Context Part must contain
-- List all source files/documents to be read (by reference, not loaded into the Master Plan)
-- Expected output: Number and topics of Consolidated Context Parts
-
-**Sprint Plan overrides:**
-- Objective: "Gather and consolidate context for {domain/topic}" — NOT "implement"
-- Sessions focused on reading and cross-referencing, not code generation
-
-**Orchestration overrides:**
-- Execution Strategy: **DELEGATED** (mandatory for META sessions — each agent needs fresh context to read sources)
-- Context Boundary: Orchestrator reads plan files only; source material is read by task agents
-
-**Task design rules:**
-- Tasks are **reading and consolidation** tasks, not implementation tasks
-- Each task reads a subset of source files and produces organized findings
-- The **final task** in a session (or a dedicated consolidation session) combines findings into Consolidated Context Parts
-- Agent assignments: Use **Opus** for cross-referencing and consolidation tasks (complex analysis); use **Sonnet** for straightforward reading tasks
-
-### Discovery Step 5: Define Consolidation Tasks
-
-The most critical part of the Discovery plan. The final task(s) must produce Consolidated Context Parts with this structure:
-
-**Each Consolidated Context Part MUST have:**
-- A header with `Scope:` field identifying which execution sprint it feeds
-- A `What This Enables` section describing what downstream work this context supports
-- Cross-references to other parts where topics overlap
-- Full substantive detail — consolidation means organize and deduplicate, NOT summarize
-- ≤ 500 lines per part; use multiple parts as needed
-
-**Task file for a consolidation task should specify:**
-- **Objective:** "Consolidate findings from {sources} into Consolidated Context Part(s) for {scope}"
-- **Required Context:** The reading task outputs from earlier tasks in the session
-- **Expected Output:** `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md`
-- **Success Criteria:** All source material covered, no substantive content lost, organized by execution scope
-
-### Discovery Step 6: Validation
-
-Standard checklist applies, plus:
-
-```
-[ ] Plan is inside Meta-{Abbrev}/ folder
-[ ] Master Plan and Sprint Plans include META infix (e.g., {Abbrev}-META-Master-Plan.md)
-[ ] Orchestration and Recovery files use standard naming (no META infix)
-[ ] Abbreviation matches the project abbreviation (not a new one)
-[ ] Master Plan purpose is "discovery and consolidation" (NOT implementation)
-[ ] Tasks are reading/consolidation tasks (NOT implementation tasks)
-[ ] Execution Strategy is DELEGATED
-[ ] Final task(s) produce Consolidated Context Parts in Meta-{Abbrev}/Outputs/
-[ ] Expected Consolidated Context Parts are defined with Scope values
-[ ] Source files are listed by reference in Master Plan
-[ ] Each Consolidated Context Part target is ≤ 500 lines
-[ ] Plans index updated with new row
-```
-
-### Discovery Step 7: Output Confirmation
-
-```
-META-PLAN CREATED: {PlanName} (Discovery Phase)
-
-**Abbreviation:** {ABBREV}
-**Location:** {plans_dir}/{PlanName}/Meta-{Abbrev}/
-**Phase:** 1 of 3 (Discovery → Scaffolding → Execution)
-
-**Source Files:** {N} files (~{X}K total tokens)
-**Expected Output:** {N} Consolidated Context Parts in Meta-{Abbrev}/Outputs/
-
-**Files Created:**
-- {Abbrev}-META-Master-Plan.md
-- Sprint-01-Discovery/{Abbrev}-META-S01-Sprint-Plan.md
-- Sprint-01-Discovery/Session-01-{Name}/{Abbrev}-S01-01-Orchestration.md
-- Sprint-01-Discovery/Session-01-{Name}/{Abbrev}-S01-01-Recovery.md
-- Sprint-01-Discovery/Session-01-{Name}/{Abbrev}-S01-01-{##}-{Agent}-{Task}.md (x{N} task files)
-- Sprint-01-Discovery/Session-01-{Name}/Outputs/ (folder)
-- Outputs/ (folder for Consolidated Context Parts)
-
-**Next Steps:**
-1. Review the Meta-Plan files
-2. Execute Discovery sessions with `/planwise run`
-3. After Discovery completes, scaffold the Execution Plan with `/planwise plan --scaffold`
-```
-
-After the confirmation, proceed to [Step 10: Plan Review Gate](#step-10-plan-review-gate).
-
----
-
-## Scaffolding Workflow
-
-**When:** A Meta-Plan Discovery phase produced Consolidated Context parts, and you need to create the Execution Plan from those parts.
-
-**Input:** `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md` files
-
-### Scaffolding Step 1: Read Consolidated Context Parts
-
-**CONFIRM block (per `references/scaffolding-hygiene.md` §1):**
-
-Before reading Consolidated Context parts, output the Scaffolding context confirmation:
-
-> [!template] Scaffolding Context Confirmation
-> ```
-> CONTEXT LOADED — SCAFFOLDING MODE
-> Workflow: Scaffolding (Execution Plan from Discovery outputs)
-> Source Meta-Plan: Meta-{Abbrev}/
-> Plugin references loaded: {list of loaded conditional refs}
-> Consolidated Context Parts detected: {list of part filenames}
-> Next Action: Read all parts and design sprints from Scope: fields
-> ```
-
-<!-- AUTO-MODE: critical -->
-Use `AskUserQuestion`: "Confirm Scaffolding mode for this plan?"
-(Auto-default: proceed.)
-
-Then proceed with the original steps below.
-
-1. Find all `{Abbrev}-Consolidated-Context-Part-*.md` files in `Meta-{Abbrev}/Outputs/`
-2. Read EVERY part completely -- each part's header has `Scope:` (the sprint it feeds) and a `What This Enables` section
-3. Note: Part headers contain cross-references between parts
-4. Read Tier 1 raw task outputs from `Meta-{Abbrev}/Sprint-XX-Discovery/Session-YY-*/Outputs/` and Tier 3 final consolidated layer (if produced). Tier 2 Consolidated Context Parts (above) are the primary input; Tier 1 + Tier 3 supply detail that Tier 2 shed. See Step 4.5 for the binding extraction rules.
-
-### Scaffolding Step 2: Determine Plan Details
-
-From the user's prompt or by asking:
-- **Abbreviation:** Same as the Meta-Plan's abbreviation (e.g., `GCW`)
-- **Root:** `{plans_dir}/{PlanName}/Exec-{Abbrev}/` (resolved from config.yaml)
-- **Scaffold folder:** Always create `{plans_dir}/{PlanName}/Scaffold-{Abbrev}/` to maintain the three-phase convention (`Meta-{Abbrev}/`, `Scaffold-{Abbrev}/`, `Exec-{Abbrev}/`), even when scaffolding is done inline in the same session as planning
-- **Sprints:** Derived from each part's `Scope:` field (one sprint per execution-scoped part)
-- If stale `Exec-{Abbrev}/` files exist from a placeholder, **delete them first**
-
-### Scaffolding Step 3: Design Sprints from Parts
-
-Map each Consolidated Context part to a sprint. Each part's `Scope:` and `What This Enables` section defines that sprint's work.
-
-**Rules:**
-- Parts with `Scope: Cross-sprint reference` are NOT sprints -- they're referenced by all sprints
-- Parts with a specific scope (e.g., "Schema Implementation Sprint") become sprints
-- Sprint ordering follows dependency logic (schema before registration before queries)
-- The user may suggest a sprint structure -- respect it but validate against part content
-
-**Global Source Map:** If using global numbering for source specs (recommended for multi-sprint plans), add a Global Source Map table to the Master Plan. This table assigns each spec output a global number and shows which sprints use it. See the [scaffolding master plan template](../templates/scaffolding-master-plan.md) for the table format.
-
-### Scaffolding Step 4: Create Execution Inputs
-
-For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extraction of the Consolidated Context parts. Use the [execution-input.md](../templates/execution-input.md) template.
-
-**Process:**
-1. Identify which Consolidated Context parts feed this sprint (from Step 3 mapping)
-2. Read those parts and identify which sections each task in the sprint needs
-3. **Extract** the relevant content into sections, noting which tasks use each section
-4. From cross-sprint reference parts, extract ONLY the decisions/conventions this sprint needs
-5. Add Cross-References table tracing each section back to its source
-6. If over 500 lines, split into parts: `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md`
-
-**Output:** One `{Abbrev}-S{XX}-Execution-Input.md` per sprint, placed in the sprint folder.
-
-**This is extraction, not summarization.** Copy substantive content verbatim -- only reorganize by sprint scope.
-
-**Cross-sprint content handling:**
-- **Cross-sprint reference parts** (e.g., DesignDecisions with `Scope: Cross-sprint reference`): Extract relevant portions into each sprint's EI
-- **Sprint-scoped sources with cross-relevant sections**: If Sprint 02 needs content from a source primarily assigned to Sprint 01, list that source in the EI's `Extracted from:` header like any other source. The Global Source Map in the Master Plan tracks which sources are shared
-
-### Scaffolding Step 4.5: Multi-Tier Discovery Extraction
-
-When extracting from Meta-Plan Discovery outputs, scaffolding agent MUST consume THREE tiers of source material — Tier 1 raw outputs carry detail that Tier 2/3 consolidated parts shed; skipping any tier is BLOCKER at `/planwise review`:
-
-| Tier | Location | Content |
-|------|----------|---------|
-| **Tier 1** | `Meta-{Abbrev}/Sprint-XX-Discovery/Session-YY-*/Outputs/{Abbrev}-META-S{XX}-{YY}-{TaskOutput}*.md` | Raw task outputs (per-task detail) |
-| **Tier 2** | `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md` | Per-sprint consolidated context parts |
-| **Tier 3** | `Meta-{Abbrev}/Outputs/{Abbrev}-Triage-*.md` or `*-Cross-Reference-*.md` (if produced) | Final consolidated layer |
-
-**Extraction rules** (cross-reference `references/session-plan-requirements.md` §8 Multi-Tier extension):
-
-1. The EI's `Extracted from:` header MUST list all three tiers when applicable.
-2. Tier 1 raw outputs carry detail that Tier 2/3 consolidated parts shed; skipping Tier 1 is BLOCKER.
-3. Every sprint's EI MUST include a **Deferred / Out-of-Scope Log** at `{Abbrev}-S{XX}-Deferred-OutOfScope-Log.md` enumerating:
-   - Content from Tier 1/2/3 NOT extracted into this sprint's EI
-   - Rationale for deferral (e.g., "covered by Sprint-03", "out of scope per Master Plan §X")
-   - Target sprint or "Out of scope"
-
-**Deferred / Out-of-Scope Log template:**
-
-```markdown
-# {Abbrev}-S{XX}-Deferred-OutOfScope-Log
-
-**Sprint:** {XX} - {SprintName}
-**Generated:** {ISO date during scaffolding}
-
-## Deferred (covered elsewhere)
-
-| Source | Tier | Content | Target |
-|--------|------|---------|--------|
-| {Spec #N (filename.md)} | T{1,2,3} | {1-line description} | {Sprint-YY \| Out of scope} |
-
-## Out-of-Scope (no future coverage planned)
-
-| Source | Tier | Content | Rationale |
-|--------|------|---------|-----------|
-| {Spec #N (filename.md)} | T{1,2,3} | {1-line description} | {why excluded} |
-```
-
-**Reviewer retention threshold** (enforced by `agents/plan-reviewer.md` Coverage Reviewer role):
-- < 80 % retention → auto-reject
-- 80 – 95 % retention → warn
-- ≥ 95 % retention → pass
-
-Retention = `(sum of EI section tokens + Deferred/OOS log tokens) / (sum of Tier 1+2+3 source tokens)`.
-
-### Scaffolding Step 5: Generate Plan Files
-
-Use the [scaffolding master plan template](../templates/scaffolding-master-plan.md) for the Master Plan.
-
-Use standard templates for all other files (sprint plans, orchestrations, recovery, task files).
-
-**Critical difference from standard planning:** Every task file's `Required Context` table MUST reference the sprint's **Execution Input** file (with section numbers), NOT the original Consolidated Context parts. The Execution Input replaces the parts for execution purposes.
-
-**Status rule:** Set ALL Sprint Plan files to `**Status:** PLANNED`. Only the Master Plan gets `READY_TO_EXECUTE`. Do NOT copy the Master Plan's status into Sprint Plans — each Sprint Plan starts as PLANNED and transitions to IN_PROGRESS → COMPLETE during execution.
-
-**`.gitkeep` emission (mirrors standard [Step 3](#step-3-create-folder-structure)):** For EVERY session folder created during scaffolding, write an empty `Outputs/.gitkeep` placeholder file inside the session's `Outputs/` directory. Empty directories are not tracked by git, so a missing `.gitkeep` means the `Outputs/` folder disappears on clone and downstream `/planwise run` cannot write summary or task-output files into the expected path. Apply to every sprint × every session — same per-session `.gitkeep` rule as the standard Step 3 constraint. Also populate each task file's Verification Commands per the [Step 8e per-file-type command map](#step-8e-populate-verification-commands-per-file-type-map) — scaffolded plans must NOT ship with blank verification placeholders any more than standard plans do.
-
-**Token Saver large-file scan (mirrors standard [Step 8c](#step-8c-validate-token-estimates-bottom-up)):** When the **effective** Token Saver value is `true` (resolve it via the plan's Master-Plan `Token Saver:` field over the project default — `get_effective_token_saver_config(config, plan_override)`, exactly as Step 8c does), run the same per-file warning ladder over every scaffolded task file's Required Context, with one scaffolding-specific addition — a scaffolded task's Required Context references the sprint's **Execution Input** (per the Critical-difference rule above), so scan the **EI-section sizes** the task cites (not the original Consolidated Context parts) plus any direct code references in the task. Derive thresholds via `token_saver.derive_thresholds(...)` and classify each cited file/section with `token_saver.classify_file(path, model=<task's Agent>, projected_added_lines=<delta if the task edits it>, thresholds=...)`, then emit the graduated ladder (Notice/Warn/Critical), file a backlog item at Warn+, and flag the task `1M-exception` only for a **cost-reason** Critical — identical contract to Step 8c (`reason=read` Critical → paged read / refactor, never `1M-exception`). The Execution Input itself is a **generated artifact a runner reads**, so its read-gate ceiling is HARD: if a sprint's EI trips the line, byte, OR token gate, split it into `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md` parts at scaffold time rather than letting a runner hit a truncated read.
-
-**Shared-context single measurement (mirrors the standard [Step 8c](#step-8c-validate-token-estimates-bottom-up) pre-pass):** The measure-once/fan-out rule applies equally to scaffolded plans. A sprint's **Execution Input** is by construction cited in every task of the sprint — measure it (or each cited EI section) **ONCE** with `wc -l` on the live file, and write the **IDENTICAL** `Est. Lines` / `Est. Tokens` into every citing task's Required Context row. The same applies to any cross-sprint shared doc (design pins, shared reference files). Never re-guess a shared file's size per task: one wrong guess otherwise replicates into every task subtotal, header, orchestration total, and the sprint total. If an EI or shared doc changes during scaffolding (e.g., a Multi-Part split), re-measure and re-fan the new value into all citing rows.
-
-**Sprint-signoff scaffold (multi-session sprints):** For each sprint with multi-session work, add a sprint-signoff scaffold using the [sprint-signoff.md](../templates/sprint-signoff.md) template per `references/exit-criteria-fidelity.md` §16.3. Place the signoff file at `{plans_dir}/{PlanName}/Sprint-{XX}-{Name}/Sprint-Signoff.md`. The signoff quotes the sprint's EI exit-criteria verbatim — one row per criterion, one mechanical anchor per row — giving a multi-session sprint a single closeout checkpoint before it is marked COMPLETE. Single-session sprints MAY omit it.
-
-> [!constraint] Agent Prompts Must Include Exact Headers
-> Subagents start with fresh context (no inherited file reads). Saying "follow the template" forces a subagent to discover and read the template — an extra hop that may be skipped or interpreted loosely.
->
-> WRONG: `"Follow the orchestration template to generate the orchestration file."`
->
-> CORRECT: Include exact section headers and required formatting lines inline in the Task `prompt` parameter:
-> ```
-> "Generate the orchestration file with these exact section headers in order:
-> ## Session Objective, ## Required Context Files, ## Execution Strategy,
-> ## Session Task List, ## Success Criteria, ## Recovery Protocol,
-> ## Task Files, ## Post-Session Checklist.
-> Include the **Total Estimated:** line after the Session Task List table.
-> Include the **Mode:** line in Execution Strategy."
-> ```
->
-> This applies to ALL file-generation agent prompts during scaffolding: sprint plans, orchestrations, task files.
-
-### Scaffolding Step 6: Validation
-
-Same checklist as standard mode, plus:
-
-```
-[ ] Every Consolidated Context part is covered by at least one sprint
-[ ] Every sprint has an Execution Input file (or multi-part set)
-[ ] Execution Inputs contain extracted content (not just references)
-[ ] Execution Input sections map to specific tasks (noted in headers)
-[ ] Every Execution Input has a Cross-References table
-[ ] Every task file references its sprint's Execution Input (NOT the original parts)
-[ ] Cross-sprint reference content is extracted into relevant sprint Execution Inputs
-[ ] No Consolidated Context content is orphaned (uncovered by any Execution Input)
-[ ] Cross-References use Spec #{N} (filename.md) format -- number + filename together
-[ ] Cross-References cite only files listed in "Extracted from:" header
-[ ] Task file Required Context enumerates individual section numbers with purpose (no ranges)
-[ ] Cross-sprint task references use full Task ID format ({Abbrev}-S{XX}-{YY}-{##})
-[ ] If global numbering used, Global Source Map exists in Master Plan
-[ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
-[ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
-[ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
-[ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
-[ ] If effective Token Saver on (plan Master-Plan `Token Saver:` field over the project `context.token_saver` default) — Token Saver large-file scan run over each task's cited EI sections + code refs; Warn+ files have a backlog item; cost-reason Critical tasks flagged 1M-exception (read-reason → paged-read/refactor, never 1M-exception); each sprint EI under the line/byte/token read gates (split into Parts if not)
-```
-
-### Scaffolding Step 7: Output Confirmation
-
-Same as Step 9 in standard mode, plus include:
-
-```
-SCAFFOLDED FROM: Meta-{Abbrev} Discovery Phase
-Parts consumed: {N} Consolidated Context parts
-Execution Inputs created: {N} (one per sprint)
-Sprints created: {N}
-```
-
-For a complete scaffolding example, see [sample-scaffolding-output.md](../examples/sample-scaffolding-output.md).
-
-After the scaffolding confirmation, proceed to [Step 10: Plan Review Gate](#step-10-plan-review-gate).
+> When scoping reveals two treatments — a complete one that touches more surface (a full renumber, a schema migration, propagating a change through every consumer) and a narrower patch that leaves known incoherence behind — scope the complete treatment and cost it honestly. Budget pressure is answered by SPLITTING the coherent fix across tasks or sessions (see `references/session-context-budget.md` § Task-Level Estimation / Task Sizing Categories), never by shrinking it into a partial fix that is cheaper to execute. If a real constraint genuinely forces the partial path (an interface external consumers depend on, an irreversible boundary, a user-set deadline), record the constraint and the residual defect in the plan so the gap is a visible decision, not an accident. Overall project quality comes from doing the hard thing once, not the easy thing twice. Full principle, exception clause, and stage table: [do-the-hard-things.md](../references/do-the-hard-things.md).
 
 ---
 
@@ -990,96 +619,11 @@ Orchestration and Recovery files inside `Meta-{Abbrev}/` use the standard naming
 
 ---
 
-## Token Budget Rules
-
-### Session Limits
-
-**Available for work:** scales by tier. On Pro: ~100K. On Max: ~900K (with a 400K practical session cap). See `references/session-context-budget.md` §5 Tier-Specific Budget Table.
-
-The pattern thresholds below are expressed for the Pro tier (the backward-compatible default). On Max, multiply by `available_for_work / 100_000` and cap "Too Large" at `meta_plan_threshold` (500K, not 9×).
-
-| Pattern | Initial Load (Pro) | Growth | Total (Pro) | Guideline |
-|---------|--------------------|--------|-------------|-----------|
-| Discovery | < 30K | +40-50K | ~70-80K | Don't know files upfront |
-| Planned | 30-70K | +10-20K | ~80-90K | Know most files upfront |
-| Front-loaded | 70-90K | +5-10K | ~95-100K | Know all files upfront |
-| **Too Large** | > `meta_plan_threshold` | - | - | **MUST use Meta-Plan** |
-
-### Task Sizing Categories
-
-The task-size thresholds below are expressed for the Pro tier. On Max, scale by the same ratio used for session limits — a "Too Large" task on Pro is ~80% of `practical_session_limit`. The "always split a task above 80% of one session" principle is tier-invariant.
-
-| Task Size | Token Estimate (Pro) | Guideline |
-|-----------|---------------------|-----------|
-| Small | < 20K | Single file, simple lookup |
-| Medium | 20-50K | Multi-file, code generation |
-| Large | 50-80K | Complex analysis, multiple entities |
-| Too Large | > 80K (Pro) / > 320K (Max practical) | **MUST SPLIT** |
-
-**These categories are a cross-check, not the primary estimate.** Always compute the bottom-up estimate first, then compare against the category. Use the HIGHER of the two.
-
-**Note:** Session limits apply to DIRECT mode in the main conversation. In DELEGATED mode, each task-runner subagent gets a fresh context window sized by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M — NOT the parent tier; a Sonnet runner is 200K even when the orchestrator is on Max). Verify: `(task estimate + injected path-rule tokens + 54K overhead) < the dispatched model's window` per subagent.
-
-### Token Estimation Reference
-
-Use this table to compute bottom-up token estimates for each task.
-
-**File Read Costs:**
-
-| Operation | Approx. Tokens | Heuristic |
-|-----------|----------------|-----------|
-| Read file | ~13 tokens/line | Measure or estimate actual line count |
-| Read 100-line file | ~1.3K | Small config, helper |
-| Read 200-line file | ~2.6K | Medium file |
-| Read 500-line file | ~6.5K | Large reference doc or entity |
-| Read 1000-line file | ~13K | Very large file -- consider if full read is needed |
-
-**Output Generation Costs:**
-
-| Operation | Approx. Tokens | Scaling Factor |
-|-----------|----------------|----------------|
-| Generate C# entity | ~3-5K per entity | Scale by property count |
-| Generate controller | ~5-8K | Scale by action count |
-| Generate Razor view | ~3-6K | Scale by complexity |
-| Generate migration | ~2-4K | Scale by entity count |
-| Error analysis + fix | ~5-10K | Includes iteration |
-| Complex decision (Opus) | ~10-20K | Architecture/trade-offs |
-
-**Overhead Costs (DELEGATED mode):**
-
-| Component | Approx. Tokens | Notes |
-|-----------|----------------|-------|
-| System prompt | ~4K | Fixed per subagent |
-| System tools | ~22K | Fixed per subagent |
-| Global rules + CLAUDE.md | ~27K | Always loaded |
-| Skills + agents (descriptions) | ~1K | Always loaded |
-| **Total subagent overhead** | **~54K** | Empirical (from /context on fresh session) |
-
-**Bottom-Up Estimation Formula:**
-
-```
-Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)
-DELEGATED check: Task Estimate + injected path-rule tokens + 54K overhead
-                 < the DISPATCHED model's window (Sonnet/Haiku 200K, Opus 1M)
-```
-
-A subagent's window is set by its **dispatched model** — Sonnet/Haiku 200K, Opus 1M — NOT the parent tier (a Sonnet runner is 200K even when the orchestrator is on Max). See `references/session-context-budget.md` [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window).
-
----
-
-## Agent Assignment
-
-| Task Type | Agent | Examples |
-|-----------|-------|----------|
-| Lookups, validation | **Haiku** | Counts, find files, verify |
-| Code generation | **Sonnet** | Entities, controllers, views |
-| Architecture/decisions | **Opus** | Design, trade-offs, analysis |
-
----
-
 ## Additional Resources
 
 - [session-planning-protocol.md](../references/session-planning-protocol.md) -- Detailed protocol: plan hierarchy, naming conventions, agent delegation, recovery, checklists, git workflow, READ-CONFIRM-ACT
 - [templates/](../templates/) -- All plan templates (including scaffolding master plan)
 - [examples/sample-plan-output.md](../examples/sample-plan-output.md) -- Example standard plan
 - [examples/sample-scaffolding-output.md](../examples/sample-scaffolding-output.md) -- Example scaffolding from Discovery
+- [plan-discovery.md](plan-discovery.md) -- Discovery Workflow (Meta-Plan creation); loaded by Step 0 when Discovery mode is detected
+- [plan-scaffolding.md](plan-scaffolding.md) -- Scaffolding Workflow (Execution Plan from Discovery outputs); loaded by Step 0 when Scaffolding mode is detected

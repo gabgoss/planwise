@@ -262,7 +262,7 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
 
 ### Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)
 
-`_run_upgrade()` performs the lessons-scaffolding backfill itself (numbered item 2 in [Step 2.4](#step-24--invoke-the-upgrade-script)) whenever PyYAML is available — the normal case, since `--upgrade` hard-requires PyYAML and otherwise exits with `Upgrade failed: PyYAML is required for --upgrade`. Run this handler-side fallback **only** when the upgrade script aborted for that reason, so the categorization gate that protects `/planwise lessons curate` and `promote-batch` is still unblocked. Mirrors [init.md](init.md) Step 5 / 5.1 — the same render, reached from the upgrade path.
+`_run_upgrade()` performs the lessons-scaffolding backfill itself (numbered item 2 in [Step 2.4](#step-24--invoke-the-upgrade-script)) whenever PyYAML is available — the normal case, since `--upgrade` hard-requires PyYAML and otherwise exits with `Upgrade failed: PyYAML is required for --upgrade`. Run this handler-side fallback **only** when the upgrade script aborted for that reason, so the categorization gate that protects `/planwise lessons curate` and `promote-batch` is still unblocked. Mirrors [init-fallback.md](init-fallback.md) Step 5 / [init.md](init.md) Step 5.1 — the same render, reached from the upgrade path.
 
 1. Use **Glob** to check whether `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` already exists — **skip this step if it does** (idempotent; never overwrite a populated file).
 2. **Read** the template: [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md).

@@ -72,7 +72,7 @@ If no rules are flagged, the script prints `No overscoped rules found.` — repo
 
 ### Step 3: Explain the why (only when rules were flagged)
 
-Briefly note: a rule scoped to `planwise/Plans/**` is injected into EVERY context that reads a plan brief — including a DELEGATED `task-runner` subagent, whose 200K window can overflow ("Prompt is too long") when the flagged surface is large. The fix is to re-scope the rule's `paths:` to the code directories it actually governs, or to load it on demand (handler / `references/`) rather than installing it path-scoped. The `run.md` Model-Floor Bridge is the temporary dispatch safety-net that keeps declared-Sonnet runners alive until the flagged surface is brought down.
+Briefly note: a rule scoped to `planwise/Plans/**` is injected into EVERY context that reads a plan brief — including a DELEGATED `task-runner` subagent, whose 200K window can overflow ("Prompt is too long") when the flagged surface is large. The fix is to re-scope the rule's `paths:` to the code directories it actually governs, or to load it on demand (handler / `references/`) rather than installing it path-scoped. The Model-Floor Bridge (see [`references/agent-orchestration-delegated.md §1.19`](../references/agent-orchestration-delegated.md)) is the temporary dispatch safety-net that keeps declared-Sonnet runners alive until the flagged surface is brought down.
 
 ---
 
@@ -272,129 +272,50 @@ none of the formerly mirrored agents left, or they already match shipped.`
 ### Stage 11: Plans Index Drift Audit
 
 > [!constraint] Read-Only — audit only recommends
-> Stage 11 runs `reconcile_plans.py --json` standalone. It READS the plans
-> index (`{plans_dir}/{plans_index}`) and each row's Master Plan `Status:`
-> field, then prints a report. It writes nothing unless the user explicitly
-> consents to reconcile (below) — the audit itself never mutates.
+> Stage 11 runs `reconcile_plans.py --json` standalone, reading the plans
+> index (`{plans_dir}/{plans_index}`). It writes nothing unless the user
+> explicitly consents to reconcile — the audit itself never mutates.
 
 Always-on (independent of Token Saver) — auditing plans-index consistency is
 doctor's purpose, so this check has **no `--no-check` escape hatch** (contrast
 `/planwise list`, where the same detect pass IS skippable for a fast glance).
-The plans index is a denormalized cache: each row's Status column is a copy
-of its Master Plan's own `Status:` field, written at closeout by run.md's
-Step 4.3 "Update Plan Status" (sub-step 5). Nothing else re-checks the cache
-against the source of truth between closeouts, so a plan completed outside
-that step — or before it existed — can carry a stale row indefinitely. This
-audit runs the same detect pass `/planwise list` runs, reused here as one
-more health check alongside doctor's existing over-scope/divergence/
-self-containment scans; neither handler re-implements the comparison.
 
-Run the shared script:
-
-```bash
-python "{plugin_root}/scripts/reconcile_plans.py" --config "{planwise_root}/config.yaml" --json
-```
-
-Read the JSON file at the path it prints (`JSON: {path}`), shaped
-`{"drifts": [...], "anomalies": [...]}`. Report every drift and anomaly:
-
-```
-planwise doctor — plans index drift audit
-
-Drift detected ({K} row(s) out of sync with Master Plan status):
-  ! {ABBR}: index={X}  ->  Master Plan={Y}
-
-Anomalies ({N}):
-  ? {ABBR}: Master Plan not found at {path}
-```
-
-If both are empty: `No drift detected. All index rows match their Master
-Plan status.`
-
-**Optional write-on-consent (same contract as `/planwise list`):** after
-reporting, doctor MAY offer to reconcile via `AskUserQuestion` ("Reconcile
-{K} drifted row(s) in the plans index to match their Master Plan status?").
-On agreement, run:
-
-```bash
-python "{plugin_root}/scripts/reconcile_plans.py" --config "{planwise_root}/config.yaml" --write
-```
-
-The script re-reads the index immediately before writing (race-safe against
-a concurrent closeout), reconciles only rows still drifted, and never writes
-an anomaly row. Report `Reconciled {N} row(s).` Declining leaves the index
-untouched — the report above already recorded what was found.
+Run the index-drift audit procedure in
+[`references/index-drift-audit.md`](../references/index-drift-audit.md)
+against the **plans** index (`reconcile_plans.py`, banner `planwise doctor —
+plans index drift audit`). This is the same detect pass `/planwise list`
+runs, reused here alongside doctor's other health checks — neither handler
+re-implements the comparison.
 
 ---
 
 ### Stage 12: Backlog Index Archival Drift Audit
 
 > [!constraint] Read-Only — audit only recommends
-> Stage 12 runs `reconcile_backlog.py --json` standalone. It READS the backlog
-> index (`{backlog_dir}/{backlog_index}`) and the on-disk location of each
-> closed item's file, then prints a report. It writes nothing unless the user
-> explicitly consents to reconcile (below) — the audit itself never mutates.
+> Stage 12 runs `reconcile_backlog.py --json` standalone, reading the backlog
+> index (`{backlog_dir}/{backlog_index}`). It writes nothing unless the user
+> explicitly consents to reconcile — the audit itself never mutates.
 
 Always-on (independent of Token Saver) — auditing backlog-index consistency is
 doctor's purpose, so this check has **no `--no-check` escape hatch** (contrast
 `/planwise backlog`, where the same detect pass IS skippable for a fast triage).
-Archival is **state-coupled, not transition-coupled**: a COMPLETE/CLOSED item's
-file must live under `Archive/` and its index link must point there.
-`update_backlog.py` reconciles that on every `--status COMPLETE`/`CLOSED` call,
-but an item that reaches a closed status by another path — a session closeout
-that hand-edits the index row + frontmatter — leaves the file stranded in the
-top-level backlog dir with an index link that never repointed. This audit is the
-read-side counterpart, the backlog-index analogue of the Stage 11 plans-index
-drift audit; neither re-implements the other's comparison.
 
-Run the shared script:
-
-```bash
-python "{plugin_root}/scripts/reconcile_backlog.py" --config "{planwise_root}/config.yaml" --json
-```
-
-Read the JSON file at the path it prints (`JSON: {path}`), shaped
-`{"drifts": [...], "anomalies": [...]}`. `drifts` are closed rows whose file is
-not archived (or whose index link is not repointed); `anomalies` are closed rows
-whose linked file exists in neither the top-level backlog dir nor `Archive/`
-(deleted/renamed — reported, never fabricated). Report every drift and anomaly:
-
-```
-planwise doctor — backlog index archival drift audit
-
-Drift detected ({K} closed row(s) whose file is not archived):
-  ! {ID} ({STATUS}): {file} — {reason}
-
-Anomalies ({N}):
-  ? {ID} ({STATUS}): {file} — linked file not found in backlog dir or Archive/
-```
-
-If both are empty: `No archival drift detected. All closed backlog rows are
-archived.`
-
-**Optional write-on-consent (same contract as `/planwise backlog`):** after
-reporting, doctor MAY offer to reconcile via `AskUserQuestion` ("Archive {K}
-stranded closed row(s) — move the file(s) into `Archive/` and repoint the index
-link(s)?"). On agreement, run:
-
-```bash
-python "{plugin_root}/scripts/reconcile_backlog.py" --config "{planwise_root}/config.yaml" --write
-```
-
-The script re-reads the index immediately before writing (race-safe against a
-concurrent closeout), heals only rows still drifted, and never touches an
-anomaly row. Report `Reconciled {N} row(s).` Declining leaves the backlog
-untouched — the report above already recorded what was found.
+Run the index-drift audit procedure in
+[`references/index-drift-audit.md`](../references/index-drift-audit.md)
+against the **backlog** index (`reconcile_backlog.py`, banner `planwise
+doctor — backlog index archival drift audit`) — the archival state-coupling
+rationale lives there. This is the backlog-index analogue of the Stage 11
+plans-index drift audit; neither re-implements the other's comparison.
 
 ---
 
 ### Stage 13: Lessons Index Counter Drift Audit
 
 > [!constraint] Read-Only — audit only recommends
-> Stage 13 runs `reconcile_lessons.py --json` standalone. It READS the lessons
+> Stage 13 runs `reconcile_lessons.py --json` standalone, reading the lessons
 > index (`{lessons_dir}/{lessons_index}`), the lesson files in that directory
-> and its `Archive/`, then prints a report. It writes nothing unless the user
-> explicitly consents to reconcile (below) — the audit itself never mutates.
+> and its `Archive/`. It writes nothing unless the user explicitly consents
+> to reconcile — the audit itself never mutates.
 
 Always-on (independent of Token Saver) — auditing index consistency is doctor's
 purpose, so this check has **no `--no-check` escape hatch**. Skip the stage
@@ -402,70 +323,13 @@ entirely only when `config.yaml` declares no `project.lessons_dir` (a project
 with no lessons scaffolding has no counter to audit); report
 `Lessons index: not configured — audit skipped`.
 
-The `**Next available ID:** LL-{NNN}` line is a denormalized cache of one fact —
-the highest lesson ID that exists anywhere — with exactly one writer: capture
-mode, which bumps it after writing a lesson. Every other route that creates a
-lesson (a hand-written closeout capture, a task-runner producing one as a sprint
-deliverable) leaves it untouched. The next capture then reads a value below the
-true max and either reuses an existing ID — producing two lessons the master
-table cannot both represent — or forces a manual fix. This audit is the
-read-side counterpart, the lessons-index analogue of the Stage 11 plans-index
-and Stage 12 backlog-index drift audits; none re-implements another's
-comparison.
-
-Run the shared script:
-
-```bash
-python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --json
-```
-
-Read the JSON file at the path it prints (`JSON: {path}`), shaped
-`{"drifts": [...], "anomalies": [...], "next_id": "LL-NNN"}`. `drifts` holds at
-most one entry — the counter is a single field — and is non-empty only when the
-counter is BEHIND the true next ID. `anomalies` covers four separate conditions,
-none of which is ever healed automatically:
-
-| Anomaly `kind` | Meaning |
-|----------------|---------|
-| `missing_counter_line` | The index carries no "Next available ID:" line — nothing to reconcile against; never fabricated at a guessed position |
-| `counter_ahead` | The counter is above the true next ID — an ID may have been retired deliberately, and lowering it would let a later capture reuse an ID that cross-references still name |
-| `row_without_file` | A master-table row whose lesson file exists in neither the lessons dir nor `Archive/` (deleted/renamed — reported, never fabricated). Its ID still bounds the counter: a retired ID is not free for reuse |
-| `file_without_row` | A lesson file on disk with no master-table row — the same off-capture authoring signal from the other direction |
-
-Report every drift and anomaly:
-
-```
-planwise doctor — lessons index counter drift audit
-
-Drift detected (the "Next available ID" counter is stale):
-  ! stated {STATED} — expected {EXPECTED}: {reason}
-
-Anomalies ({N}):
-  ? {ID}: {reason}
-```
-
-If both are empty: `No counter drift detected. The lessons index 'Next
-available ID' matches the highest lesson ID on disk and in the master table
-({next_id}).`
-
-A stale counter is worth surfacing beyond the number itself: it means some
-lesson was authored off the capture path, so that lesson's master-table row and
-its categorisation entry were hand-made too and may carry their own gaps. Say so
-in the report rather than presenting the bump as a bookkeeping nit.
-
-**Optional write-on-consent (same contract as Stages 11 and 12):** after
-reporting, doctor MAY offer to reconcile via `AskUserQuestion` ("Bump the
-lessons-index counter from {STATED} to {EXPECTED}?"). On agreement, run:
-
-```bash
-python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --write
-```
-
-The script re-reads the index immediately before writing (race-safe against a
-concurrent capture), rewrites only the counter line's digits — every other line
-and the file's original line endings are preserved — and only ever moves the
-counter FORWARD. Report `Reconciled the counter: {FROM} → {TO}.` Declining
-leaves the index untouched — the report above already recorded what was found.
+Run the index-drift audit procedure in
+[`references/index-drift-audit.md`](../references/index-drift-audit.md)
+against the **lessons** index (`reconcile_lessons.py`, banner `planwise
+doctor — lessons index counter drift audit`) — the lessons-index binding
+there carries the counter-drift specifics (the `next_id` JSON key, the four
+anomaly kinds, forward-only reconcile). This is the lessons-index analogue of
+Stages 11 and 12; none re-implements another's comparison.
 
 ---
 
@@ -491,7 +355,7 @@ When Token Saver is on, append the three audits below to the doctor report. All 
      Derived per-task ceiling (critical): ~{available_per_task − 10000} tokens
    ```
 
-   Derive `available_per_task = token_saver_session_target − token_saver_runner_overhead − 6000` (the engine's `derive_thresholds`); never hardcode the ceiling.
+   Derive `available_per_task` and the ceiling per the threshold formulas in [`references/token-saver-profile.md`](../references/token-saver-profile.md) § Token Saver Threshold Derivation; never hardcode the ceiling.
 
 2. **Flag staleness** when EITHER signal fires (the measured overheads no longer reflect this install's real `/context` footprint):
 
@@ -516,7 +380,7 @@ When Token Saver is on, append the three audits below to the doctor report. All 
 
 ### Step 5: Read-gate scan
 
-Run `token_saver.classify_file(path, model, projected_added_lines, thresholds)` (from `scripts/token_saver.py`) across BOTH (a) the active plan's Required-Context files AND (b) the plan's own generated artifacts (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files). Use each file's **assigned-model** rate for the token estimate (`TOKENS_PER_LINE`: Sonnet/Haiku `13`, Opus `19` tok/line). Report:
+Run `token_saver.classify_file(path, model, projected_added_lines, thresholds)` (from `scripts/token_saver.py`) across BOTH (a) the active plan's Required-Context files AND (b) the plan's own generated artifacts (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files). Use each file's **assigned-model** rate for the token estimate (`TOKENS_PER_LINE`, per [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits). Report:
 
 | Finding | Gate | Recommendation |
 |---------|------|----------------|
@@ -526,21 +390,18 @@ Run `token_saver.classify_file(path, model, projected_added_lines, thresholds)` 
 | Task estimate ≥ `critical` (cost) | cost gate | **cost-Critical** → `1M-exception` (raise dispatch to Opus/1M) OR split the task |
 
 > [!constraint] read-Critical → paged-read/refactor, NOT `1M-exception`
-> The read gates apply on EVERY model — Opus's heavier tokenizer trips the page cap *sooner* (~1,340 lines vs ~1,920). A `read`-reason Critical (`classify_file` → `reason: read`) is NOT resolved by routing to Opus; recommend paged reads / refactor. Reserve the `1M-exception` recommendation for a `cost`-reason Critical only (`reason: cost`), where the larger window genuinely absorbs the carrying cost. See [run.md](run.md) 1M-Exception Dispatch.
+> Applies the read-vs-cost Critical distinction canonical in [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits (full WRONG/CORRECT box there — not restated here): a `read`-reason Critical is a mechanical Read failure, resolved by paging or refactor, never by routing to a larger window. Only a `cost`-reason Critical is `1M-exception`-eligible — see [`references/agent-orchestration-delegated.md §1.20`](../references/agent-orchestration-delegated.md) 1M-Exception Dispatch.
 
 ### Step 6: Read-constant drift tripwire
 
 Report the FIXED Read-tool constants and flag them stale when the harness CLI has moved past the measured version — the analogue of the overhead-staleness check, but for the hardcoded read limits (the harness may have changed the caps):
 
-1. Report the constants and their provenance from `scripts/token_saver.py`:
+1. Report the constants' provenance and measured baseline — the values themselves are the read-gate canonical in [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits; this step never restates them:
 
    ```
-   Fixed Read-tool limits (token_saver.py):
-     READ_FILE_BYTE_CAP:   262144 bytes (256 KiB)   [warn 245760]
-     READ_PAGE_CAP_TOKENS: 25000 tokens             [warn 22000]
-     TOKENS_PER_LINE:      haiku 13, sonnet 13, opus 19
-     Measured on:          {READ_LIMITS_MEASURED_ON}
-     Measured CLI:         {READ_LIMITS_MEASURED_CLI}
+   Fixed Read-tool limits (token_saver.py) — see references/session-context-budget.md § Read-Tool Hard Limits for the current values
+     Measured on:           {READ_LIMITS_MEASURED_ON}
+     Measured CLI:          {READ_LIMITS_MEASURED_CLI}
    ```
 
 2. Compare the live CLI version against the measured one:
@@ -560,7 +421,7 @@ Report the FIXED Read-tool constants and flag them stale when the harness CLI ha
 
    This is the drift tripwire for the hardcoded read constants. It is advisory — `doctor` never edits the constants; it surfaces the mismatch so the one-shot live re-probe can be run.
 
-The read-constant tripwire is paired with a cross-model ratio-band assertion: `scripts/test_token_saver.py::TestReadLimits::test_cross_model_ratio_band` asserts `1.4 ≤ opus_tokens / sonnet_tokens ≤ 1.55` for the same file. A ratio drift outside this band signals a tokenizer-weight change in the `TOKENS_PER_LINE` constants.
+The read-constant tripwire is paired with a cross-model ratio-band assertion: the plugin's test suite asserts the cross-model ratio band holds for the same file. A ratio drift outside that band signals a tokenizer-weight change in the `TOKENS_PER_LINE` constants.
 
 ---
 
@@ -602,4 +463,4 @@ This is advisory only — a pointer that merely *supplements* inlined content is
 
 ---
 
-*Cross-reference: [run.md](run.md) (Model-Floor Bridge, 1M-Exception Dispatch, Step 4.3 Update Plan Status), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py), [reconcile_plans.py](../scripts/reconcile_plans.py) (plans index drift detect/reconcile, shared with [list.md](list.md)), [reconcile_backlog.py](../scripts/reconcile_backlog.py) (backlog index archival-drift detect/reconcile, shared with [backlog.md](backlog.md)).*
+*Cross-reference: [run.md](run.md) (Step 4.3 Update Plan Status), [`references/agent-orchestration-delegated.md §1.19`](../references/agent-orchestration-delegated.md) (Model-Floor Bridge), [`references/agent-orchestration-delegated.md §1.20`](../references/agent-orchestration-delegated.md) (1M-Exception Dispatch), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py), [reconcile_plans.py](../scripts/reconcile_plans.py) (plans index drift detect/reconcile, shared with [list.md](list.md)), [reconcile_backlog.py](../scripts/reconcile_backlog.py) (backlog index archival-drift detect/reconcile, shared with [backlog.md](backlog.md)), [reconcile_lessons.py](../scripts/reconcile_lessons.py) (lessons index counter-drift detect/reconcile).*

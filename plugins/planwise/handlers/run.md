@@ -19,7 +19,6 @@
 - [Phase 3: Task Execution Loop](#phase-3-task-execution-loop)
 - [Phase 4: Post-Session Integration](#phase-4-post-session-integration)
 - [Recovery Protocol](#recovery-protocol)
-- [Delegated Execution Protocol](#delegated-execution-protocol)
 - [Error Handling](#error-handling)
 - [Context Recovery](#context-recovery)
 
@@ -143,7 +142,7 @@ Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the fla
 
 ### Step 1.2: CONFIRM
 
-Output the confirmation block:
+Output the confirmation block. See [examples/confirmation-block.md](../examples/confirmation-block.md) for correctly formatted examples (standard, multiple files, fresh session, recovery, and structural-finding variants).
 
 > [!template] Context Confirmation
 > ```
@@ -248,7 +247,9 @@ Read the orchestration's `## Execution Strategy` section.
 
 #### DELEGATED Mode
 
-Launch the `task-runner` agent via Task tool. See [Delegated Execution Protocol](#delegated-execution-protocol) for full details.
+You are the ORCHESTRATOR. Choose dispatch mode for the current dependency layer (tasks whose `Depends On` are all COMPLETE): **Sequential** for 1-2 tasks, or when any task in the layer targets a file another layer task also targets (output-file collision); **Parallel** for 3+ tasks with no inter-dependencies and disjoint output files.
+
+Before dispatching, read `references/agent-orchestration-delegated.md`: §1.3 (context boundary), §1.6 (path-rule injection), §1.8 (HARD CONSTRAINTS skeleton), §1.13 (shared-edit-target strategy; parallel-dispatch Recovery contract), §1.17 (classify every return before consuming it — a `completed` status alone is not a deliverable check), §1.19 (Model-Floor Bridge), §1.20 (1M-Exception Dispatch), §1.21 (Background vs Foreground Gate), §1.22 (Anti-Patterns checklist).
 
 ```
 Task(
@@ -268,56 +269,20 @@ Task(
 )
 ```
 
-**Model override:** The `model:` parameter in the Task tool call MUST match the Agent field declared in the task file (e.g., if task file says `Agent: Haiku`, use `model: "haiku"`) — except when the Model-Floor Bridge below raises it.
+**Model override:** The `model:` parameter in the Task tool call MUST match the Agent field declared in the task file (e.g., if task file says `Agent: Haiku`, use `model: "haiku"`) — except when `references/agent-orchestration-delegated.md` §1.19 (Model-Floor Bridge) or §1.20 (1M-Exception Dispatch) raises it for this dispatch only; log the raise per those sections, never silent.
 
-#### Model-Floor Bridge (DELEGATED) — Temporary
+**Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Task tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. After all runners return, classify each per §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
 
-> [!constraint] Raise a 200K-window model to 1M when the plan-path rule surface is large
-> This guard governs EVERY DELEGATED dispatch — both the Sequential and Parallel branches in the [Delegated Execution Protocol](#delegated-execution-protocol). It is a **temporary bridge**, not a permanent override (see self-deactivation below). It never changes the model for a healthy (small) rule surface.
->
-> **Before dispatching a DELEGATED task whose `Agent:` maps to a 200K-window model (Sonnet or Haiku):**
-> 1. **Measure the plan-path rule surface.** Reuse the engine's linter: run `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` and sum the `approx_tokens` of the flagged (over-scoped) rules — those `.claude/rules/**` whose `paths:` target `planwise/Plans/**` (or sibling plan/backlog/lessons paths). If `--doctor` is unavailable, fall back to summing those rule files' sizes at ~13 tokens/line.
-> 2. **Project the subagent's worst-case load:** `flagged-rule tokens + ~54K fixed overhead`. If that **approaches the 200K window** — rule of thumb: flagged surface ≳ ~110K, leaving < ~35K of working headroom — the declared 200K-window model will overflow ("Prompt is too long") the instant it reads a plan brief that triggers those path rules.
-> 3. **Raise and log.** In that case, raise the dispatch `model` to the **1M tier** (Opus, or a 1M-window Sonnet where available) for THIS dispatch only, and emit a one-line log — never silent:
->    ```
->    MODEL FLOOR: raised {task-id} {declared}→1M (plan-path rule surface ~{N}K exceeds safe {declared} budget)
->    ```
-> 4. **Otherwise dispatch verbatim.** If the threshold is NOT tripped, pass the declared `Agent:` model through unchanged — the floor is inert for a small surface.
-
-> [!practice] Self-Deactivating Bridge — Not Permanent
-> This floor exists only to keep declared-Sonnet/Haiku runners alive while a project still carries a large author-time rule surface scoped to plan paths. Once the project is de-scoped — plugin author-time rules handler-loaded from `references/` (not installed), and any project-local domain rules re-scoped to code paths per `/planwise doctor` — the flagged surface shrinks toward ~0, step 2's threshold is never tripped, and declared-Sonnet tasks dispatch unchanged. When `--doctor` reports no over-scoped rules for a project, this bridge is already inert; it can be retired entirely once no supported project trips it.
-
-#### 1M-Exception Dispatch (DELEGATED) — Token Saver
-
-> [!constraint] Raise a `1M-exception`-flagged task to Opus/1M — a COST remedy ONLY
-> This guard governs EVERY DELEGATED dispatch (both Sequential and Parallel branches), exactly like the Model-Floor Bridge above and using the **same override mechanism** — it raises the dispatch `model`, it does NOT rewrite the task file. It is triggered by the task's own flag, not by the plan-path rule surface.
->
-> **Effective Token Saver gate.** The `1M-exception` flags were stamped at plan time under whatever Token Saver value was effective for THIS plan — the plan's Master-Plan `Token Saver:` field (`on`/`off`) over the project `context.token_saver` default, resolved via `config_loader.get_effective_token_saver_config(config, plan_override)`. At dispatch time, read that same effective value (the plan's Master-Plan field, falling back to `config.yaml`); when it resolves `false`, no task carries a Token-Saver `1M-exception` and this guard is inert. The runner does NOT re-resolve — it dispatches the flags the plan already baked in.
->
-> **When a task is flagged `1M-exception`** (the warning engine sets this in the task header's `Token Budget:` exception field for a single oversized **indivisible** file whose `cost`-reason estimate exceeds a 200K-window runner's budget):
-> 1. **Raise and log.** Raise the dispatch `model` to the **1M tier** (Opus) for THIS dispatch only — a Sonnet/Haiku runner's window is **200K**, so the 1M-exception is the ONLY way an oversized single-file task fits *the window*. Emit a one-line log, never silent:
->    ```
->    1M EXCEPTION: raised {task-id} {declared}→1M (oversized indivisible file — cost-reason Critical, cannot be split)
->    ```
-> 2. **Non-flagged tasks dispatch verbatim** on their declared `Agent:` model. The exception is inert for every task the engine did not flag.
-
-> [!constraint] Window ≠ Readability — 1M-Exception Does NOT Fix a `read`-reason Critical
-> WRONG — a task's Required Context file is `read`-reason Critical (≥ 256 KiB byte gate, or above the per-Read 25K-token page cap) and the orchestrator routes the dispatch to Opus/1M assuming the larger window absorbs it:
-> ```
-> read-reason Critical context file  → raise dispatch to 1M  → "the bigger window reads it"  ← FALSE
-> ```
-> CORRECT — the Read tool's **25K-token page cap** and **256 KiB byte refusal** apply on EVERY model; Opus's tokenizer is ~1.44× heavier so it trips the page cap *sooner* (~1,340 lines vs ~1,920 for Sonnet/Haiku). The 1M-exception covers **only** a `cost`-reason Critical (a context-window/carrying-cost overflow). It does NOT cover a `read`-reason Critical — that file must be **paged** by the runner (`offset`/`limit`/Grep) even on Opus, or refactored:
-> ```
-> read-reason Critical context file  → log `paged-read required` (NOT 1M-exception)  → runner pages it (offset/limit/Grep) on its declared model
-> ```
-> The warning engine (Token Saver) does NOT set `1M-exception` for a `read`-reason Critical, and `run.md` MUST NOT infer it. Log such a task with a `paged-read required` note and dispatch it on its declared model — keep the two reasons distinct in the dispatch log: `1M-exception` for `cost`-Critical, `paged-read required` for `read`-Critical.
+> [!pitfall] Mixed-Mode Layer
+> **Problem:** A dependency layer where two tasks share an output file. Dispatching the whole layer in parallel races on that shared file (separate from the Recovery-file question).
+> **Solution:** Apply `references/agent-orchestration-delegated.md` §1.13 to the *output files*: if any two tasks in the layer share an output target, the layer is NOT parallel-eligible — fall back to Sequential dispatch for the whole layer, or split the offending pair into a separate sub-layer.
 
 ### Step 3.3: Post-Task Update
 
 > [!binding] Recovery Update After EVERY Task
 > Update the recovery file AFTER EACH TASK completes -- never batch updates.
 >
-> **Parallel-dispatch exception:** When dispatching 3+ task-runners in parallel within a DELEGATED session, the runners do NOT write Recovery — the orchestrator (you) reconciles Recovery centrally after the parallel batch returns. See [Parallel Dispatch Branch](#parallel-dispatch-branch-delegated) below and `references/agent-orchestration-delegated.md` §1.13 Recovery-file subsection. The "after EVERY task" rule still holds at batch granularity: reconcile Recovery once before dispatching the next dependency layer.
+> **Parallel-dispatch exception:** When dispatching 3+ task-runners in parallel within a DELEGATED session, the runners do NOT write Recovery — the orchestrator (you) reconciles Recovery centrally after the parallel batch returns. See Phase 3 Step 3.2's DELEGATED Mode (Parallel dispatch) above and `references/agent-orchestration-delegated.md` §1.13 Recovery-file subsection. The "after EVERY task" rule still holds at batch granularity: reconcile Recovery once before dispatching the next dependency layer.
 
 After each task completes (DIRECT or DELEGATED, sequential):
 
@@ -524,154 +489,6 @@ The recovery file follows [templates/recovery.md](../templates/recovery.md). Req
 - Key Findings section
 - Files Modified section
 - Change Log
-
----
-
-## Delegated Execution Protocol
-
-When the orchestration's Execution Strategy section declares DELEGATED mode, you are the orchestrator -- not the executor.
-
-### Background vs Foreground Gate
-
-> [!constraint] Write-Producing Agents MUST Run in Foreground
-> Background subagents auto-deny any permission not explicitly pre-approved at launch — including Write, Edit, and Bash. The `bypassPermissions` mode does NOT override this gate. Tool calls fail silently: the agent continues executing but produces no output files.
->
-> WRONG: Launch task-runner in background when it writes output files:
-> ```
-> Task(
->   subagent_type: "planwise:task-runner",
->   run_in_background: true,
->   prompt: "Execute task 01..."
-> )
-> ```
-> CORRECT: Launch task-runner in foreground (default) — background is only safe for read-only agents:
-> ```
-> Task(
->   subagent_type: "planwise:task-runner",
->   prompt: "Execute task 01..."
-> )
-> ```
-
-| Task Produces | Launch Mode | Rationale |
-|---------------|-------------|-----------|
-| File output (Write, Edit) | **Foreground** | Permissions resolved interactively |
-| Shell commands (Bash) | **Foreground** | Bash permission needs interactive approval |
-| Read-only research (Explore) | Background OK | No write permissions needed |
-
-### Context Boundary Rules
-
-> [!binding] Context Boundaries
-> These boundaries are MANDATORY. Violating them wastes the orchestrator's context budget.
-
-| Actor | Reads | Never Reads |
-|-------|-------|-------------|
-| Orchestrator (you) | Orchestration, Recovery, task files | Consolidated Context parts, Execution Inputs, reference docs, source code |
-| Task-runner agent (sequential dispatch) | Task Required Context files, task file | Other tasks' context, Recovery file (except for its own update) |
-| Task-runner agent (parallel dispatch, 3+ runners) | Task Required Context files, task file | Other tasks' context, **the Recovery file (do NOT read or write — return a status block instead)** |
-
-### Step-by-Step (DELEGATED)
-
-1. Read plan files only: Orchestration + Recovery + all task files
-2. Output CONTEXT LOADED confirmation block
-3. Ask user to proceed (standard READ-CONFIRM-ACT)
-4. Identify the next dependency layer (group of tasks whose `Depends On` are all COMPLETE)
-5. Choose dispatch mode for that layer:
-   - **Sequential** — 1 or 2 tasks in the layer, OR any layer task targets a file another layer task also targets (output-file collision)
-   - **Parallel** — 3+ tasks in the layer with no inter-dependencies and disjoint output files (see [Parallel Dispatch Branch](#parallel-dispatch-branch-delegated))
-6. Dispatch the layer per the chosen mode (see subsections below)
-7. After the layer completes, return to step 4 for the next layer
-8. Cleanup: generate summary, prompt for lessons, git commit (Phase 4)
-
-#### Sequential Branch (DELEGATED)
-
-For each task in the layer (respecting any intra-layer dependencies):
-
-a. Build spawn prompt with all task parameters (see Phase 3, Step 3.2)
-b. Launch `task-runner` agent:
-   ```
-   Task(
-     subagent_type: "planwise:task-runner",
-     description: "Execute task {task-num}: {task-name}",
-     model: "{agent-from-task-file}",
-     prompt: |
-       Execute the following task YOURSELF, directly, with your own tool calls.
-       Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
-       tool calls) — you ARE the task-runner.
-
-       Task file: {task-file-absolute-path}
-       Session ID: {session-id}
-       Abbreviation: {abbrev}
-       Recovery file: {recovery-file-absolute-path}
-       Output directory: {output-dir-absolute-path}
-   )
-   ```
-c. Wait for task-runner to return
-d. **Classify the return before consuming it** — apply the diagnosis table in [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md). A return is a real completion only when it carries a structured report (status + verification results) AND its deliverables verify on disk — gate acceptance on the on-disk check, never on the `completed` status alone (§1.17.4). The three failure signals — and their resume, never a fresh dispatch:
-   - **Fast return + dispatch-voice reply ("I've dispatched… I'll report back") + clean tree** = self-delegation → resume the SAME agent with the execute-yourself directive (§1.17.2).
-   - **Mid-work narration ending in a colon/next-step phrase + dirty tree with partial edits** = message-boundary stall → resume the SAME agent with a continuation message (quote its last line, forbid re-editing completed work, enumerate only the remaining items, restate the report format) (§1.17.3).
-   - **`completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits report fields** = mid-action stall masquerading as completion → run the on-disk acceptance gate (grep the edit target for the symbol that was supposed to change; `git status --short` for the expected file set; confirm the Recovery step row flipped), then resume the SAME agent to finish rather than re-dispatch (§1.17.4).
-   After any resume — and before accepting any `completed` return — verify on disk: `git status` / diff on the edit target, the changed symbol is present, and Recovery advanced.
-e. Read updated recovery file -- check task status
-f. If BLOCKED: decide proceed or halt based on dependencies
-g. If COMPLETE: update TaskList, proceed to next task
-
-#### Parallel Dispatch Branch (DELEGATED)
-
-Trigger: a dependency layer has 3+ tasks with no inter-dependencies and disjoint output files. (For 1-2 tasks, use the Sequential Branch — coordination overhead outweighs the gain.)
-
-a. For each task in the layer, build a spawn prompt that includes the **PARALLEL DISPATCH addendum** below in addition to the standard parameters.
-b. Launch all task-runners in the layer in a single message (multiple Task tool calls in one assistant turn — they run concurrently):
-   ```
-   Task(
-     subagent_type: "planwise:task-runner",
-     description: "Execute task {task-num} (parallel batch): {task-name}",
-     model: "{agent-from-task-file}",
-     prompt: |
-       Execute the following task YOURSELF, directly, with your own tool calls.
-       Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
-       tool calls) — you ARE the task-runner.
-
-       Task file: {task-file-absolute-path}
-       Session ID: {session-id}
-       Abbreviation: {abbrev}
-       Output directory: {output-dir-absolute-path}
-
-       ## PARALLEL DISPATCH — Recovery Handling
-       Do NOT read, edit, or write the Recovery file during this task.
-       Return your completion as the structured status block below in your FINAL message.
-       The orchestrator reconciles Recovery centrally after all parallel runners return.
-
-       ## Status Block (required final-message format)
-       TASK_STATUS:    COMPLETE | BLOCKED | PARTIAL
-       TASK_ID:        {task-id}
-       OUTPUT_FILES:   {comma-separated absolute paths actually written}
-       LINES_PRODUCED: {sum of lines across output files}
-       KEY_FINDINGS:   {2-5 short bullets — preserved across compaction}
-       ISSUES:         {one line per issue, or "none"}
-   )
-   ```
-
-   Note that the spawn prompt for parallel-mode runners OMITS the `Recovery file:` parameter — the runner must not touch it.
-c. Wait for ALL parallel runners to return their status blocks. Classify each return per [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md): a runner whose final message is dispatch-voice with no status block (self-delegation), or mid-work narration on a dirty tree (message-boundary stall), or a status-block/`completed` return whose claimed `OUTPUT_FILES` do not verify on disk or whose final message ends mid-action (mid-action stall masquerading as completion) must be resumed as the SAME agent per that protocol — never redispatched — before reconciling. Gate acceptance of each status block on its `OUTPUT_FILES` actually being present on disk (§1.17.4), not on the reported `COMPLETE` status alone.
-d. Reconcile Recovery centrally per Step 3.3 "After a parallel batch" instructions: parse each status block, verify OUTPUT_FILES on disk, write Recovery ONCE for the whole batch.
-e. If any task returned BLOCKED or PARTIAL: decide proceed or halt based on downstream dependencies. Mark BLOCKED tasks IN_PROGRESS in TaskList (do NOT mark `completed`).
-f. Advance to the next dependency layer.
-
-> [!pitfall] Mixed-Mode Layer
-> **Problem:** A dependency layer with 4 tasks where two write the same output file. Dispatching all 4 in parallel races on the shared output file (separate from the Recovery-file question). Splitting into "3 parallel + 1 sequential" is awkward and error-prone.
-> **Solution:** Apply `references/agent-orchestration-delegated.md` §1.13 to the *output files*: if any two tasks in the layer share an output target, the layer is NOT parallel-eligible — fall back to the Sequential Branch for the whole layer, or split the offending task pair into a separate sub-layer.
-
-### Anti-Patterns
-
-> [!antipattern] Delegated Mode Anti-Patterns
-> - **Orchestrator reads Consolidated Context:** Blows context budget; task-runners duplicate the read
-> - **Skip Recovery between tasks (sequential dispatch):** Context compaction loses progress
-> - **Skip Recovery reconciliation after a parallel batch:** Context compaction loses the entire batch; status blocks were returned but never persisted
-> - **Combine tasks in one task-runner:** Defeats fresh-context purpose
-> - **Launch sequential Task N+1 before Recovery updated:** Compaction loses Task N completion
-> - **Allow parallel task-runners to write Recovery:** Last-write-wins races silently drop completion rows
-> - **Orchestrator produces task outputs:** Context accumulates; no fresh budget benefit
-> - **Infer DELEGATED at runtime:** Planning should have set this; warn user and re-plan if needed
 
 ---
 

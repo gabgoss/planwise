@@ -229,7 +229,53 @@ Task token estimates MUST be computed bottom-up from measured or estimated file 
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
 **DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Sonnet/Haiku 200K, Opus 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
 
-For detailed per-operation costs, see the [Token Estimation Reference](../handlers/plan.md#token-estimation-reference) in the planwise plugin.
+### Task Sizing Categories
+
+The task-size thresholds below are expressed for the Pro tier. On Max, scale by the same ratio used for session limits — a "Too Large" task on Pro is ~80% of `practical_session_limit`. The "always split a task above 80% of one session" principle is tier-invariant.
+
+| Task Size | Token Estimate (Pro) | Guideline |
+|-----------|---------------------|-----------|
+| Small | < 20K | Single file, simple lookup |
+| Medium | 20-50K | Multi-file, code generation |
+| Large | 50-80K | Complex analysis, multiple entities |
+| Too Large | > 80K (Pro) / > 320K (Max practical) | **MUST SPLIT** |
+
+**These categories are a cross-check, not the primary estimate.** Always compute the bottom-up estimate first, then compare against the category. Use the HIGHER of the two.
+
+### Per-Operation Cost Reference
+
+Use these tables to compute bottom-up token estimates for each task.
+
+**File Read Costs:**
+
+| Operation | Approx. Tokens | Heuristic |
+|-----------|----------------|-----------|
+| Read file | ~13 tokens/line | Measure or estimate actual line count |
+| Read 100-line file | ~1.3K | Small config, helper |
+| Read 200-line file | ~2.6K | Medium file |
+| Read 500-line file | ~6.5K | Large reference doc or entity |
+| Read 1000-line file | ~13K | Very large file -- consider if full read is needed |
+
+**Output Generation Costs:**
+
+| Operation | Approx. Tokens | Scaling Factor |
+|-----------|----------------|----------------|
+| Generate C# entity | ~3-5K per entity | Scale by property count |
+| Generate controller | ~5-8K | Scale by action count |
+| Generate Razor view | ~3-6K | Scale by complexity |
+| Generate migration | ~2-4K | Scale by entity count |
+| Error analysis + fix | ~5-10K | Includes iteration |
+| Complex decision (Opus) | ~10-20K | Architecture/trade-offs |
+
+**Overhead Costs (DELEGATED mode):** see the [Tier-Specific Budget Table](#tier-specific-budget-table) above (System prompt ~4K, System tools ~22K, Global rules + CLAUDE.md ~27K, Skills + agents ~1K — ~54K subagent overhead total).
+
+### Agent Assignment
+
+| Task Type | Agent | Examples |
+|-----------|-------|----------|
+| Lookups, validation | **Haiku** | Counts, find files, verify |
+| Code generation | **Sonnet** | Entities, controllers, views |
+| Architecture/decisions | **Opus** | Design, trade-offs, analysis |
 
 ### Token Estimate Reconciliation (BINDING)
 

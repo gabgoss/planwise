@@ -1,12 +1,12 @@
 ---
-description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.18) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
+description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.22) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
 ---
 
 # DELEGATED Dispatch Discipline
 
-**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.18) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
+**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.22) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
 
-This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
+This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics; §1.19–§1.22 cover DELEGATED task-runner dispatch mechanics — model-tier overrides, launch-mode gating, and an anti-patterns checklist. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
 
 ## Table of Contents
 
@@ -28,6 +28,10 @@ This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Trigger
 - [1.16 Recompute Delegated Verdicts from Primary Evidence — Both Directions](#116-recompute-delegated-verdicts-from-primary-evidence--both-directions)
 - [1.17 Task-Runner Dispatch Failure Modes and Resume Protocol](#117-task-runner-dispatch-failure-modes-and-resume-protocol)
 - [1.18 Verify-Before-Acting on LSP Diagnostics](#118-verify-before-acting-on-lsp-diagnostics)
+- [1.19 Model-Floor Bridge (DELEGATED) — Temporary](#119-model-floor-bridge-delegated--temporary)
+- [1.20 1M-Exception Dispatch (DELEGATED) — Token Saver](#120-1m-exception-dispatch-delegated--token-saver)
+- [1.21 Background vs Foreground Gate](#121-background-vs-foreground-gate)
+- [1.22 Delegated Mode Anti-Patterns Checklist](#122-delegated-mode-anti-patterns-checklist)
 
 ---
 
@@ -547,7 +551,96 @@ On any miss, resume the SAME agent to finish (never re-dispatch a fresh one), th
 - Diagnostic is confirmed live (matches current file content at the reported line)
 - Diagnostic was emitted by a CLI tool run this session (not cached from prior session)
 
+## 1.19 Model-Floor Bridge (DELEGATED) — Temporary
+
+Applies to every DELEGATED task-runner launch, sequential or parallel.
+
+> [!constraint] Raise a 200K-window model to 1M when the plan-path rule surface is large
+> This guard governs EVERY DELEGATED dispatch — both sequential and parallel task-runner launches (see `handlers/run.md` § DELEGATED Mode; §1.13 and §1.17 above for dispatch-return handling). It is a **temporary bridge**, not a permanent override (see self-deactivation below). It never changes the model for a healthy (small) rule surface.
+>
+> **Before dispatching a DELEGATED task whose `Agent:` maps to a 200K-window model (Sonnet or Haiku):**
+> 1. **Measure the plan-path rule surface.** Reuse the engine's linter: run `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` and sum the `approx_tokens` of the flagged (over-scoped) rules — those `.claude/rules/**` whose `paths:` target `planwise/Plans/**` (or sibling plan/backlog/lessons paths). If `--doctor` is unavailable, fall back to summing those rule files' sizes at ~13 tokens/line.
+> 2. **Project the subagent's worst-case load:** `flagged-rule tokens + ~54K fixed overhead`. If that **approaches the 200K window** — rule of thumb: flagged surface ≳ ~110K, leaving < ~35K of working headroom — the declared 200K-window model will overflow ("Prompt is too long") the instant it reads a plan brief that triggers those path rules.
+> 3. **Raise and log.** In that case, raise the dispatch `model` to the **1M tier** (Opus, or a 1M-window Sonnet where available) for THIS dispatch only, and emit a one-line log — never silent:
+>    ```
+>    MODEL FLOOR: raised {task-id} {declared}→1M (plan-path rule surface ~{N}K exceeds safe {declared} budget)
+>    ```
+> 4. **Otherwise dispatch verbatim.** If the threshold is NOT tripped, pass the declared `Agent:` model through unchanged — the floor is inert for a small surface.
+
+> [!practice] Self-Deactivating Bridge — Not Permanent
+> This floor exists only to keep declared-Sonnet/Haiku runners alive while a project still carries a large author-time rule surface scoped to plan paths. Once the project is de-scoped — plugin author-time rules handler-loaded from `references/` (not installed), and any project-local domain rules re-scoped to code paths per `/planwise doctor` — the flagged surface shrinks toward ~0, step 2's threshold is never tripped, and declared-Sonnet tasks dispatch unchanged. When `--doctor` reports no over-scoped rules for a project, this bridge is already inert; it can be retired entirely once no supported project trips it.
+
+## 1.20 1M-Exception Dispatch (DELEGATED) — Token Saver
+
+Applies to every DELEGATED task-runner launch, sequential or parallel; uses the same override mechanism as §1.19 above.
+
+> [!constraint] Raise a `1M-exception`-flagged task to Opus/1M — a COST remedy ONLY
+> This guard governs EVERY DELEGATED dispatch — both sequential and parallel task-runner launches (see `handlers/run.md` § DELEGATED Mode) — exactly like the Model-Floor Bridge (§1.19 above) and using the **same override mechanism** — it raises the dispatch `model`, it does NOT rewrite the task file. It is triggered by the task's own flag, not by the plan-path rule surface.
+>
+> **Effective Token Saver gate.** The `1M-exception` flags were stamped at plan time under whatever Token Saver value was effective for THIS plan — the plan's Master-Plan `Token Saver:` field (`on`/`off`) over the project `context.token_saver` default, resolved via `config_loader.get_effective_token_saver_config(config, plan_override)`. At dispatch time, read that same effective value (the plan's Master-Plan field, falling back to `config.yaml`); when it resolves `false`, no task carries a Token-Saver `1M-exception` and this guard is inert. The runner does NOT re-resolve — it dispatches the flags the plan already baked in.
+>
+> **When a task is flagged `1M-exception`** (the warning engine sets this in the task header's `Token Budget:` exception field for a single oversized **indivisible** file whose `cost`-reason estimate exceeds a 200K-window runner's budget):
+> 1. **Raise and log.** Raise the dispatch `model` to the **1M tier** (Opus) for THIS dispatch only — a Sonnet/Haiku runner's window is **200K**, so the 1M-exception is the ONLY way an oversized single-file task fits *the window*. Emit a one-line log, never silent:
+>    ```
+>    1M EXCEPTION: raised {task-id} {declared}→1M (oversized indivisible file — cost-reason Critical, cannot be split)
+>    ```
+> 2. **Non-flagged tasks dispatch verbatim** on their declared `Agent:` model. The exception is inert for every task the engine did not flag.
+
+> [!constraint] Window ≠ Readability — 1M-Exception Does NOT Fix a `read`-reason Critical
+> WRONG — a task's Required Context file is `read`-reason Critical (≥ 256 KiB byte gate, or above the per-Read 25K-token page cap) and the orchestrator routes the dispatch to Opus/1M assuming the larger window absorbs it:
+> ```
+> read-reason Critical context file  → raise dispatch to 1M  → "the bigger window reads it"  ← FALSE
+> ```
+> CORRECT — the Read tool's **25K-token page cap** and **256 KiB byte refusal** apply on EVERY model; Opus's tokenizer is ~1.44× heavier so it trips the page cap *sooner* (~1,340 lines vs ~1,920 for Sonnet/Haiku). The 1M-exception covers **only** a `cost`-reason Critical (a context-window/carrying-cost overflow). It does NOT cover a `read`-reason Critical — that file must be **paged** by the runner (`offset`/`limit`/Grep) even on Opus, or refactored:
+> ```
+> read-reason Critical context file  → log `paged-read required` (NOT 1M-exception)  → runner pages it (offset/limit/Grep) on its declared model
+> ```
+> The warning engine (Token Saver) does NOT set `1M-exception` for a `read`-reason Critical, and `run.md` MUST NOT infer it. Log such a task with a `paged-read required` note and dispatch it on its declared model — keep the two reasons distinct in the dispatch log: `1M-exception` for `cost`-Critical, `paged-read required` for `read`-Critical.
+
+## 1.21 Background vs Foreground Gate
+
+Governs whether a DELEGATED task-runner launches in foreground or background.
+
+> [!constraint] Write-Producing Agents MUST Run in Foreground
+> Background subagents auto-deny any permission not explicitly pre-approved at launch — including Write, Edit, and Bash. The `bypassPermissions` mode does NOT override this gate. Tool calls fail silently: the agent continues executing but produces no output files.
+>
+> WRONG: Launch task-runner in background when it writes output files:
+> ```
+> Task(
+>   subagent_type: "planwise:task-runner",
+>   run_in_background: true,
+>   prompt: "Execute task 01..."
+> )
+> ```
+> CORRECT: Launch task-runner in foreground (default) — background is only safe for read-only agents:
+> ```
+> Task(
+>   subagent_type: "planwise:task-runner",
+>   prompt: "Execute task 01..."
+> )
+> ```
+
+| Task Produces | Launch Mode | Rationale |
+|---------------|-------------|-----------|
+| File output (Write, Edit) | **Foreground** | Permissions resolved interactively |
+| Shell commands (Bash) | **Foreground** | Bash permission needs interactive approval |
+| Read-only research (Explore) | Background OK | No write permissions needed |
+
+## 1.22 Delegated Mode Anti-Patterns Checklist
+
+Quick-reference checklist for common DELEGATED-mode mistakes; several map to fuller rules elsewhere in this file.
+
+> [!antipattern] Delegated Mode Anti-Patterns
+> - **Orchestrator reads Consolidated Context:** Blows context budget; task-runners duplicate the read (full rule: §1.3)
+> - **Skip Recovery between tasks (sequential dispatch):** Context compaction loses progress
+> - **Skip Recovery reconciliation after a parallel batch:** Context compaction loses the entire batch; status blocks were returned but never persisted (full rule: §1.13)
+> - **Combine tasks in one task-runner:** Defeats fresh-context purpose
+> - **Launch sequential Task N+1 before Recovery updated:** Compaction loses Task N completion
+> - **Allow parallel task-runners to write Recovery:** Last-write-wins races silently drop completion rows (full rule: §1.13)
+> - **Orchestrator produces task outputs:** Context accumulates; no fresh budget benefit
+> - **Infer DELEGATED at runtime:** Planning should have set this; warn user and re-plan if needed (full rule: §1.1)
+
 ---
 
-*Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12 (DELEGATED Dispatch Discipline + Verify-Before-Acting on LSP Diagnostics); that file now carries only a short §11 pointer stub back to this file.*
+*Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12 (DELEGATED Dispatch Discipline + Verify-Before-Acting on LSP Diagnostics); §1.19–§1.22 folded from `handlers/run.md`'s Delegated Execution Protocol (2026-08-10). That file now carries only a short §11 pointer stub back to this file.*
 *Cross-reference: [agent-orchestration.md](agent-orchestration.md), [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*
