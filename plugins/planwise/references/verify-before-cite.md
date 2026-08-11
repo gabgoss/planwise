@@ -67,6 +67,19 @@ For third-party SDK identifiers and shipped artifacts, see `verify-against-shipp
 
 A complementary `/planwise plan` enhancement: insert a Step 1.5 ("Verify cited artifacts") between Gather Information and Validate.
 
+#### Reviewer Check 018 — Task Verify-Before-Cite (User-Cited Artifacts)
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** When task brief cites a user-introduced artifact (file path, function name, table name), task MUST verify it exists on disk before authoring dependent instructions.
+- **Detection:** Identify cited file paths in Required Context + Execution Steps; Glob each. If 0 matches → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Task cites unverified artifact
+File: {task file path} | Location: {Required Context | Execution Steps}
+Issue: Cited path "{cited_path}" does not resolve on disk
+Fix: Verify artifact exists or correct citation per references/verify-before-cite.md §9.B.1 | Confidence: HIGH
+```
+
 ### 9.B.2 Identifier reconciliation against the live contract
 
 **Note:** Both scaffold-time (§9.B.1) AND dispatch-time verification are mandatory for DELEGATED tasks. This rule extends §9.B.1, it does not replace it.
@@ -122,6 +135,19 @@ A complementary `/planwise plan` enhancement: insert a Step 1.5 ("Verify cited a
 
 A complementary `/planwise review` check: structural reviewer greps the target artifact for each field name mentioned in task files before execution; mismatches are flagged as pre-flight blockers.
 
+#### Reviewer Check 019 — Task Field-Name Reconciliation
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** Identifiers in task brief (`{column}`, `{symbol}`, `{config-field}`, env vars) MUST match live contracts. Detect drift between `{long_form_identifier}` and `{abbreviated_identifier}`.
+- **Detection:** Extract identifiers from Execution Steps; grep referenced contract file. 0 matches → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Task identifier not reconciled with live contract
+File: {task file path} | Location: Execution Steps
+Issue: Identifier "{identifier}" not found in cited contract {contract_path}
+Fix: Reconcile per references/verify-before-cite.md §9.B.2 | Confidence: HIGH
+```
+
 ### 9.B.3 Pipeline facade re-export verification (architecture-rule plans)
 
 *Generalizes to any single-entry-point contract — a package facade, a barrel / index module, or a declared public API surface.*
@@ -148,6 +174,19 @@ A complementary `/planwise review` check: structural reviewer greps the target a
 > 1. Adds an "Update facade" task as a prerequisite step in Sprint 01, OR
 > 2. Adds a "Verify facade re-export; add if missing" step to each downstream
 >    task and budgets extra tokens per task to cover it.
+
+#### Reviewer Check 020 — Task Facade Re-Export Verification
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** When task imports/calls a symbol expected to be re-exported by a facade module, task MUST verify the re-export exists.
+- **Detection:** Identify imports from facade (e.g., `{src/module/__init__.ext}`); grep facade for re-export. Absent → ERROR.
+- **Finding template:**
+```
+[ERROR] Task facade re-export unverified
+File: {task file path} | Location: Execution Steps import statement
+Issue: Symbol "{symbol}" not re-exported by facade "{facade_path}"
+Fix: Verify per references/verify-before-cite.md §9.B.3 | Confidence: HIGH
+```
 
 ### 9.B.4 Upsert-helper design verification before authoring column-presence checks
 
@@ -181,6 +220,19 @@ A complementary `/planwise review` check: structural reviewer greps the target a
 >   record in Recovery Key Findings that no code change is needed; the column
 >   flows through the dynamic mapping.
 > ```
+
+#### Reviewer Check 021 — Task Helper-Function Design Categorization
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** Tasks copying/referencing helpers from another module MUST categorize each as `{copy}`, `{adapt}`, or `{call-via-import}` before authoring presence checks.
+- **Detection:** Grep Execution Steps for helper references; check for category tag adjacent. Untagged → WARNING.
+- **Finding template:**
+```
+[WARNING] Task helper-function design not categorized
+File: {task file path} | Location: Execution Steps helper reference
+Issue: Helper "{symbol}" referenced without {copy|adapt|call-via-import} category
+Fix: Categorize per references/verify-before-cite.md §9.B.4 | Confidence: MEDIUM
+```
 
 ### 9.B.5 SQL column-name verification for SQL-emitting tasks
 
@@ -294,6 +346,19 @@ rules. Do not renumber these sections. -->
 
 Applies to any task whose brief cites an external examples / cookbook / sample repository for an API usage pattern — verify the example against the project's pinned dependency version.
 
+#### Reviewer Check 031 — Task Planning-Tier Schema Pin Reconciliation
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** Schema Pins in planning-tier docs MUST reconcile against deployed-tier schema (`{schema-file}` / `{schema_glob_path}`).
+- **Detection:** Extract Schema Pin block; grep deployed schema for pinned column/constraint names. Unknown → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Task Schema Pin planning-vs-deployed drift
+File: {task file path} | Location: Schema Pin section
+Issue: Pinned identifier "{name}" not found in deployed {schema-file}
+Fix: Reconcile per references/verify-before-cite.md §9.B.6 + schema-pin-requirement.md | Confidence: HIGH
+```
+
 ### 9.B.7 Enumerate the specific helpers a spawn prompt tells an agent to use
 
 > [!constraint] A spawn prompt that says "use the project's helpers" MUST enumerate the specific helpers — name, location, signature
@@ -324,6 +389,32 @@ Applies to any task whose brief cites an external examples / cookbook / sample r
 > ```
 
 Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Notes for Agent guidance) and the `/planwise review` reviewer check for blanket-helper references.
+
+#### Reviewer Check 030 — Task USED-Helper Enumeration
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** Tasks copying helpers from reference modules MUST enumerate USED helpers (exactly which functions are called) — not "all helpers from module X".
+- **Detection:** Check for `## USED-Helper Enumeration` section. Reference to helper module without enumeration → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Task USED-Helper enumeration missing
+File: {task file path} | Location: Expected USED-Helper Enumeration section
+Issue: Task references helper module without enumerating USED helpers
+Fix: Add enumeration per templates/task-file.md | Confidence: HIGH
+```
+
+#### Reviewer Check 032 — Task Env Var / Function Signature / Config Key Drift
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** Env vars (`{ENV_VAR_NAME}`), function signatures (`{symbol}`), config keys (`{config-field}`) cited in tasks MUST match live source.
+- **Detection:** Extract references; grep live source. Absent → ERROR.
+- **Finding template:**
+```
+[ERROR] Task env/signature/config-key drift
+File: {task file path} | Location: Execution Steps
+Issue: Reference "{name}" not found in live source "{source_path}"
+Fix: Verify per references/verify-before-cite.md §9.B.7 | Confidence: HIGH
+```
 
 ### 9.B.8 Field-mapping table for consumed data models; `wc -l ≤ 500` output gate
 
@@ -365,6 +456,32 @@ Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Notes f
 > ```
 
 Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Interface Consumption block) and [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template).
+
+#### Reviewer Check 029 — Task `wc -l` Pre-COMPLETE Gate
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** Task Success Criteria MUST include `wc -l` (or equivalent line-count) verification gate before COMPLETE. Orchestrator-level `wc -l` between dispatches also required.
+- **Detection:** Grep Success Criteria for `wc -l|line.*count|line-count`. File-producing task lacking line-count gate → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Task wc -l pre-COMPLETE gate missing
+File: {task file path} | Location: Success Criteria checklist
+Issue: File-producing task lacks line-count verification
+Fix: Add wc -l gate per references/verify-before-cite.md §9.B.8 | Confidence: HIGH
+```
+
+#### Reviewer Check 033 — Task MERGE/Upsert Field Mapping Subsection
+
+- **Severity / Role / Type:** BLOCKER (MERGE/upsert tasks) | Task Reviewer | NEW
+- **What:** Tasks performing MERGE/upsert MUST include `### Field Mapping` subsection with Row↔DDL alignment.
+- **Detection:** Grep Execution Steps for `MERGE|UPSERT|ON CONFLICT`; check for `^### Field Mapping`. MERGE present + Field Mapping absent → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] MERGE/upsert task Field Mapping subsection missing
+File: {task file path} | Location: Expected ### Field Mapping section
+Issue: Task performs MERGE/upsert without Field Mapping
+Fix: Add Field Mapping per templates/task-file.md | Confidence: HIGH
+```
 
 ### 9.B.9 Tiered-fetch tactics for large external sources
 

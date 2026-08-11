@@ -233,6 +233,32 @@ When a task's Required Context cites files from another sprint or session, the t
 > | 2 | Plans/{PlanName}/Sprint-{XX}/Session-{YY}/Outputs/{Abbrev}-S{XX}-{YY}-ResearchOutput.md | ... |
 > ```
 
+#### Reviewer Check 037 — Cross-Sprint Required Context Mirrored in Depends On
+
+- **Severity / Role / Type:** BLOCKER | Dependency Reviewer | NEW
+- **What:** Required Context citations to files in OTHER sprints MUST be mirrored in `Depends On` with `cross-sprint:` prefix.
+- **Detection:** Classify Required Context by sprint; grep `Depends On` for `cross-sprint:\s*\{Abbrev\}-S\d+`. Cross-sprint cited without prefix → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Cross-sprint dependency not mirrored
+File: {task file path} | Location: Depends On field
+Issue: Required Context cites {cross_sprint_file} but Depends On lacks cross-sprint: prefix
+Fix: Add "cross-sprint: {Abbrev}-S{XX}" per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
+```
+
+#### Reviewer Check 038 — Cross-Session Required Context Mirrored in Depends On
+
+- **Severity / Role / Type:** BLOCKER | Dependency Reviewer | NEW
+- **What:** Required Context citations to other sessions (same sprint) MUST use `cross-session:` prefix in `Depends On`.
+- **Detection:** Cross-session cited without `cross-session:` prefix → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Cross-session dependency not mirrored
+File: {task file path} | Location: Depends On field
+Issue: Required Context cites {cross_session_file} but Depends On lacks cross-session: prefix
+Fix: Add "cross-session: {Abbrev}-S{XX}-{YY}" per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
+```
+
 **Post-scaffold back-propagation rule:**
 
 When a task file is edited AFTER scaffolding (adding a Required Context entry, extending Execution Steps, or changing Expected Output), the corresponding EI section MUST be back-propagated:
@@ -355,6 +381,19 @@ When task briefs reference adapter modules, verify the field count before author
 > ```
 >
 > Two reinforcing safeguards: (1) a deferral note that names a CLOSED task as the future owner is a red flag — reassign to a live, not-yet-run sprint/session; (2) verify the artifact's live state before trusting "deferred" bookkeeping (a grep that returns 0 confirms the finding is genuinely unapplied, not just mis-tracked).
+
+#### Reviewer Check 068 — Deferred Finding Owner Is a CLOSED Task
+
+- **Severity / Role / Type:** BLOCKER | Dependency Reviewer | NEW
+- **What:** A dependency or sequencing row that names a COMPLETE/CLOSED task as the owner of still-pending deferred work is stale and MUST be flagged.
+- **Detection:** In the Master Plan and Sprint Plans, find rows whose status is ⏳ Pending and whose owner task is marked COMPLETE/CLOSED. Any such row → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Deferred-finding owner is CLOSED
+File: {plan file path} | Location: {dependency/sequencing row}
+Issue: Dependency row names {closed_task_id} (CLOSED) as owner of still-pending work
+Fix: Reassign ownership to a live not-yet-run sprint/session per references/task-file-and-tracking-requirements.md §9 | Confidence: HIGH
+```
 
 ---
 

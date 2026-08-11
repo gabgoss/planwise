@@ -79,6 +79,19 @@ For files that may legitimately not exist (conditional reads via `Glob`), use `c
 
 A complementary `/planwise review` check rejects any plan whose task files contain `~?`, `~TBD`, or `~?K` literals in Required Context numerical cells.
 
+#### Reviewer Check 016 — Task Required Context Est. Lines / Tokens Numeric
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** Required Context table MUST have NUMERIC values in Est. Lines / Est. Tokens columns. No `~?`, no `TBD`, no blank cells.
+- **Detection:** Open Required Context table; grep `\|\s*(~?\?|TBD|—)\s*\|` within Est. columns. Any match → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Task Required Context Est. Lines/Tokens non-numeric
+File: {task file path} | Location: Required Context row {N}
+Issue: Column {Est. Lines|Est. Tokens} contains "{value}" instead of numeric estimate
+Fix: Compute and write numeric estimate per references/task-content-fidelity.md §9.A.2 | Confidence: HIGH
+```
+
 ### 9.A.3 Per-file-type token rate
 
 > [!constraint] Use `~13 tokens/line` as the universal estimate; denser file types may run higher — measure if uncertain
@@ -122,6 +135,19 @@ A complementary `/planwise review` check rejects any plan whose task files conta
 >
 > The `Est. Lines` value fed to the token rate band MUST come from `wc -l <path>` on the actual file — NOT from the last line number observed in a `Read` tool output. `Read` may paginate (default cap ~2000 lines / ~25K tokens); a partial read produces a lower number that underestimates the token cost and silently misroutes the file in the §9.A.8 Large-File Ladder.
 
+#### Reviewer Check 017 — Task Token-Rate Band Conformance
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** Per-file-type ratio (Est. Tokens / Est. Lines) MUST fall within universal `~13 tokens/line` band, with allowed deviation for `{notebook-file}` or minified files.
+- **Detection:** For each Required Context row, compute ratio. Outside `[10, 16]` AND extension not in `{notebook, minified}` → WARNING.
+- **Finding template:**
+```
+[WARNING] Task token-rate band violation
+File: {task file path} | Location: Required Context row {N} (file: {cited_file})
+Issue: Ratio {ratio} tok/line outside [10,16] band
+Fix: Recompute per references/task-content-fidelity.md §9.A.3 | Confidence: MEDIUM
+```
+
 ### 9.A.4 Re-glob file-set counts at task-author time
 
 > [!constraint] Glob-cited file-set counts MUST be re-globbed when the task file is authored, not copied from an upstream estimate
@@ -150,6 +176,19 @@ A complementary `/planwise review` check rejects any plan whose task files conta
 
 Applies to any task whose Required Context references files by glob rather than by individual path — especially plans where earlier tasks create or split files that the glob matches.
 
+#### Reviewer Check 025 — Task Re-Glob Live Counts Before Authoring
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** Required Context citing file-glob counts (e.g., "12 adapter modules") MUST reflect a recent re-glob within session — not copy from prior task.
+- **Detection:** Grep Purpose column for `(\d+)\s+(modules?|files?|tasks?|sessions?)`; perform Glob; compare. Mismatch → WARNING.
+- **Finding template:**
+```
+[WARNING] Task Required Context glob count stale
+File: {task file path} | Location: Required Context row {N} Purpose column
+Issue: Declared count "{N}" differs from live disk count "{actual_N}"
+Fix: Re-glob per references/task-content-fidelity.md §9.A.4 | Confidence: HIGH
+```
+
 ### 9.A.5 Budget 1.5-2× the naive sum for consolidation tasks
 
 > [!constraint] A consolidation task reading N upstream outputs MUST budget 1.5-2× the naive token sum
@@ -175,6 +214,19 @@ Applies to any task whose Required Context references files by glob rather than 
 > ```
 
 Applies to Meta-Plan Discovery consolidation tasks, Execution-Input extraction tasks, and any task that merges multiple upstream outputs into one cross-referenced artifact.
+
+#### Reviewer Check 026 — Task Consolidation 1.5-2× Budgeting
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** Consolidation/synthesis tasks MUST budget 1.5-2× source-input tokens for output (consolidation expands).
+- **Detection:** For tasks with "consolidate" / "synthesize" Objective, compute output/input ratio. <1.5 → WARNING.
+- **Finding template:**
+```
+[WARNING] Task consolidation under-budgeted
+File: {task file path} | Location: Required Context subtotal vs Output estimate
+Issue: Ratio {ratio}x below 1.5-2× consolidation band
+Fix: Increase per references/task-content-fidelity.md §9.A.5 | Confidence: MEDIUM
+```
 
 ### 9.A.6 Cite the generator, not the walked file-set, for large generated inputs
 
@@ -202,6 +254,19 @@ Applies to Meta-Plan Discovery consolidation tasks, Execution-Input extraction t
 > the subagent actually reads), not the sum of the walked tree.
 
 Applies to tasks fed by codebase-scan scripts, doc-index generators, manifest builders, or any tool whose input is a directory walk of ≥100 files or ≥10K total lines.
+
+#### Reviewer Check 027 — Task Generator-Script Pattern (≥100-file Walks)
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** Tasks walking ≥100 files MUST use generator-script pattern. Generator-script architecture MUST be verified before encoding "re-run" instructions.
+- **Detection:** Count file references in Required Context. ≥100 AND no generator-script reference in Execution Steps → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Task generator-script pattern missing
+File: {task file path} | Location: Execution Steps
+Issue: Task walks {N} files (≥100) without generator-script architecture
+Fix: Add per references/verify-before-cite.md §9.B.9 / references/task-content-fidelity.md §9.A.6 | Confidence: HIGH
+```
 
 ### 9.A.7 Declare multi-artifact output splits at plan-author time
 
@@ -231,6 +296,19 @@ Applies to tasks fed by codebase-scan scripts, doc-index generators, manifest bu
 > Convention.
 
 Applies to any task — spec authoring, consolidation, large code generation — whose Expected Output is projected past the 500-line soft limit.
+
+#### Reviewer Check 028 — Task Multi-Artifact Pre-Split Shape
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** Tasks producing outputs >500 lines MUST declare pre-split shape (which parts, content per part).
+- **Detection:** Check Expected Output; if output tokens > ~6500 AND no `-Part-{N}` declaration → ERROR.
+- **Finding template:**
+```
+[ERROR] Task multi-artifact pre-split shape missing
+File: {task file path} | Location: Expected Output
+Issue: Output >500 lines but no Part-{N} split declared
+Fix: Declare split per references/task-content-fidelity.md §9.A.7 | Confidence: HIGH
+```
 
 ### 9.A.8 Token Saver Large-File Ladder
 
@@ -266,6 +344,32 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan.m
 **Single oversized file vs. per-task sum.** On a default/light install the cost bands sit *above* the FIXED 25K read cap (`warn` is 40K, derived `critical` higher still), so any single file large enough to be cost-Warn/Critical has already crossed the read gate — it classifies `reason=read` (paged-read/refactor), **never** cost-`1M-exception`. Cost-`1M-exception` therefore surfaces for a single file only on a **heavy** install where derived `critical` drops below 25K; otherwise it fires on a **per-task sum** of several mid-size files whose combined estimate trips `critical` while no single file trips the read cap. Do **not** expect a lone giant file to be `1M-exception`'d on a default install — that is the intended `max(cost, read)` + ties-go-to-`read` behavior, not a miss.
 
 **Generated-artifact hard-split (§9.A.7 trigger extension).** §9.A.7 declares multi-part splits when output exceeds the 500-line soft limit. When Token Saver is on, the split trigger for **generated artifacts a runner MUST read** (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files) is **line OR byte OR token gate** — whichever fires first forces a Multi-Part split, and the read-gate ceiling is **HARD**, not advisory. External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics). See `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](session-context-budget.md#file-size-limits--generated-artifacts-binding-when-token-saver-is-on).
+
+#### Reviewer Check 065 — Task Token Saver Large-File Ladder Applied
+
+- **Severity / Role / Type:** ERROR / WARNING (tiered) | Task Reviewer | NEW
+- **Gate:** Runs ONLY when `context.token_saver: true` in `config.yaml`. When Token Saver is off this check is a **no-op** — skip it (zero behavior change). Read §9.A.8 for level definitions, the `reason=cost|read` contract, and the FIXED Read-tool gates before authoring findings.
+- **What:** When Token Saver is on, every task's Required Context MUST obey the folded cost + read ladder. Six failure modes, each tiered:
+  1. **Over-ceiling without exception** (ERROR) — `task_estimate + context.token_saver_runner_overhead > context.token_saver_session_target` AND the task is not flagged `1M-exception`.
+  2. **Warn+ file with no backlog item** (WARNING) — a Required Context file classifies Warn or Critical (cost or read) but the task records no large-file recommendation / backlog item.
+  3. **`1M-exception` on a 200K-window agent** (ERROR) — a `1M-exception` task is declared `Agent: Sonnet`/`Haiku` without the run-time override note (the flag dispatches on Opus/1M).
+  4. **Uncovered read-gate crossing** (WARNING) — a Required Context file crosses a FIXED read gate (`wc -c` bytes ≥ 256 KiB OR `lines × {assigned-model tok/line}` ≥ 25K) and the task records neither a paged-read note (`offset`/`limit`/Grep) nor a refactor+backlog item.
+  5. **Read-reason Critical mis-flagged `1M-exception`** (ERROR) — a file classifying Critical with `reason=read` is flagged `1M-exception`. The 1M window does not raise the per-Read page cap / byte refusal, and Opus (19 tok/line) trips the token gate *sooner* than Sonnet/Haiku — read-Critical is paged or refactored, never `1M-exception`'d. Only `reason=cost` Critical earns the flag.
+  6. **Oversized generated artifact not split** (ERROR) — a plan-generated artifact a runner MUST read (task file, Orchestration, Recovery, Consolidated Context part, Execution Input, task Output file) exceeds the HARD read ceiling (`wc -c` ≥ 256 KiB OR `lines × {reading-model tok/line}` ≥ 25K) without a Multi-Part split. External source files the runner reads but does not generate stay advisory (sub-checks 2 and 4).
+- **Detection:**
+  1. Read `context.token_saver` from `config.yaml`. If false → emit no findings (no-op).
+  2. Derive ceilings (never hardcode): `available_per_task = token_saver_session_target − token_saver_runner_overhead − 6000`; `critical = available_per_task − 10000`; `warn = min(40000, round(0.5 × available_per_task))`. Read gates are FIXED: byte ≥ 262144 (warn 245760, via `wc -c`); page-cap ≥ 25000 model-tok (warn 22000), `tokens = lines × {haiku 13, sonnet 13, opus 19}`.
+  3. For each task: recompute the bottom-up estimate and apply sub-check 1.
+  4. For each Required Context file: classify against the task's assigned-Agent tokenizer (`level = max(cost_level, read_level)`, with `reason`); apply sub-checks 2, 4, 5.
+  5. Apply sub-check 3 to any task flagged `1M-exception`.
+  6. For each generated artifact the plan authors and a runner reads: apply sub-check 6 against the HARD read ceiling.
+- **Finding template:**
+```
+[{ERROR|WARNING}] Token Saver large-file ladder not applied
+File: {task file path} | Location: Required Context row {N} / Notes for Agent / Estimated Tokens
+Issue: {over-ceiling task lacks 1M-exception | Warn+ file {cited_file} has no backlog item | 1M-exception task on {Sonnet|Haiku} without override note | {cited_file} crosses read gate ({bytes}B / {tokens}tok) with no paged-read or refactor+backlog | read-reason Critical {cited_file} wrongly flagged 1M-exception | generated artifact {artifact} past HARD read gate without Multi-Part split}
+Fix: Apply the §9.A.8 remedy — flag 1M-exception (cost-Critical) / file a backlog item (Warn+) / page or refactor (read-Critical) / Multi-Part split (generated artifact) per references/task-content-fidelity.md §9.A.8 | Confidence: HIGH
+```
 
 ---
 

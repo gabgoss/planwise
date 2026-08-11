@@ -143,6 +143,19 @@ Master Plan ({Abbrev}-Master-Plan.md)
 > CI-S03-01-03-Opus-DesignModel.md
 > ```
 
+#### Reviewer Check 039 — Full Task ID Format in Cross-Sprint References
+
+- **Severity / Role / Type:** ERROR | Dependency Reviewer | NEW
+- **What:** Cross-sprint task references MUST use full Task ID format: `{Abbrev}-S{XX}-{YY}-{##}`.
+- **Detection:** Validate cross-sprint references against `^\{Abbrev\}-S\d{2}-\d{2}-\d{2}$`. Short-form (e.g., `Task 03`) → ERROR.
+- **Finding template:**
+```
+[ERROR] Cross-sprint reference missing full Task ID format
+File: {task file path} | Location: Depends On field
+Issue: Reference "{short_form}" lacks full {Abbrev}-S{XX}-{YY}-{##} format
+Fix: Expand per references/session-planning-protocol.md §2 | Confidence: HIGH
+```
+
 ### Folder Structure
 
 #### Standard Plan (< 100K context)

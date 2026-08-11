@@ -153,6 +153,26 @@ The audit trail is NOT optional when the expansion is approved. A scope-expanded
 > [!practice] Doctrinal Sweep Before Declaring a Claim Fixed
 > When the session's scope involves correcting a factual claim (a rule, a parameter, a threshold, an assertion) that is stated in a source file and cited by consumers, do NOT declare it fixed after editing the source alone. First grep the entire plugin surface for every phrasing of the claim (the exact assertion text, common paraphrases, and any regex that catches the misconception). If instances fall outside the literal task scope, surface them as a structural finding and let the user decide (Option A / Option B above). Re-run the sweep at the end of the session and confirm only correct/negated phrasings remain. A citation chain is coherent only when the source and every consumer agree.
 
+#### Reviewer Check 062 — Phase-1 Scope-Expansion Approval Reference Required
+
+- **Severity / Role / Type:** BLOCKER | Design-Extension Reviewer | NEW
+- **What:** When a Recovery file's `Scope-Expansion Decisions` section contains a row (or when the session diff shows changes outside the literal task scope declared in the Orchestration), the row MUST cite a Phase-1 approval reference (AskUserQuestion turn or timestamp), AND the Summary file's Context Notes MUST mirror the row. Recovery without Summary mirror, or Summary without Recovery row, or a Recovery row missing the approval reference → BLOCKER.
+- **Detection:**
+  1. Open the session Recovery file; grep `^## Scope-Expansion Decisions` and read the table rows.
+  2. For each row, verify the `Phase-1 Approval Ref` column is populated with a non-`-` value (AskUserQuestion turn or timestamp).
+  3. Open the session Summary file; grep `^### Scope-Expansion Decisions` under Context Notes. Verify a mirroring row exists for each Recovery row (same Step number).
+  4. If the Orchestration task scope and the session diff show file/heading/line changes outside the literal scope AND Recovery has no `Scope-Expansion Decisions` row → BLOCKER (silent expansion).
+  5. If a Recovery row exists but Summary mirror is absent → BLOCKER (audit-trail gap).
+  6. If a Recovery row exists but `Phase-1 Approval Ref` is `-` or empty → BLOCKER (untraceable expansion).
+- **Finding template:**
+```
+[BLOCKER] Phase-1 scope-expansion approval reference missing
+File: {Recovery file path | Summary file path | session diff}
+Location: {Recovery Scope-Expansion Decisions row N | Summary Context Notes | diff hunks outside literal scope}
+Issue: {silent expansion (no Recovery row) | missing Summary mirror | empty Phase-1 Approval Ref}
+Fix: Add the Phase-1 approval reference + mirror per references/read-confirm-act-protocol.md §1.2 (and templates/recovery.md + templates/summary-template.md) | Confidence: HIGH
+```
+
 ### 1.3 Cross-Task Coordination Flags
 
 > [!binding] Downstream-Propagation Gate

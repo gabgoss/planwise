@@ -29,6 +29,22 @@ description: Destructive-path and config-gated change requirements — interacti
 > 3. **Tests mirror the matrix, not the directive.** The regression class should have one case per cell, including the adjacent-gate cells — not just the failure modes the directive happened to name.
 > 4. **Guard the mid-session path.** A spec authored from a chat directive under time pressure is exactly where adjacent-gate enumeration gets skipped. Make the grep-for-gates step mandatory before the spec is dispatched.
 
+#### Reviewer Check 072 — Destructive-Path Spec Missing Interaction Matrix
+
+- **Severity / Role / Type:** ERROR | Plan/Task Reviewer | NEW
+- **What:** A task that adds or extends a branch which can DELETE, OVERWRITE, or MIGRATE user data MUST have a spec section enumerating the config-gate / opt-out / degraded-state interaction matrix, with a decided outcome per cell (proceed / preserve / report). A spec that names ONLY the failure modes the directive happened to mention, when the target code region has additional gates the sibling branches honor, is an ERROR — an adjacent opt-out the new destructive branch fails to consult is the likeliest silent-loss vector (a more-customized file getting weaker protection than a less-customized one).
+- **Detection:**
+  1. Identify tasks whose Objective / Execution Steps add or widen a delete/overwrite/migrate/prune/sweep branch.
+  2. For each, check the task spec (or its Execution Input section) for an enumeration of the target region's config gates / opt-outs / degraded states with a per-cell outcome. Absence, or coverage of only the directive-named failure modes → ERROR.
+  3. Apply the precedence rule: any cell where the new destructive branch is more aggressive than a sibling preserve/skip branch, without an explicit ruling, is a spec bug.
+- **Finding template:**
+```
+[ERROR] Destructive-path spec missing config-interaction matrix
+File: {task file path} | Location: spec / Execution Steps
+Issue: Spec covers only directive-named failure modes; target region has additional gates ({list}) with no decided outcome — adjacent-opt-out silent-loss risk
+Fix: Enumerate every config gate/opt-out/degraded state × the new behavior, decide each cell (proceed/preserve/report), and mirror the matrix in tests per references/destructive-change-requirements.md §10.1 | Confidence: HIGH
+```
+
 ### 10.2 Schedule tests as an independent same-sprint task with a surface-don't-patch brief
 
 > [!constraint] For a new primitive/module with a written contract, schedule its test suite as its own same-sprint task (fresh runner context, spec-first), before any consumer sprint wires it in
@@ -48,6 +64,22 @@ description: Destructive-path and config-gated change requirements — interacti
 > - At plan/spec time, phrase the requirement as "verify existing pins still pass unchanged (default path untouched) + add gated-branch pins," never "update the pinning tests" — the latter invites a runner to modify load-bearing default-path evidence.
 >
 > For review synthesis: a diff that rewrites absent-key pin assertions during a non-default-gated change is a red flag, not diligence.
+
+#### Reviewer Check 073 — Absent-Key Pin Rewrite During Non-Default-Gated Change
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** When a task's spec gates new behavior on a NON-default config value AND deliberately keeps the default/absent-key path unchanged, the test plan MUST add a new gated-branch pin class — NOT rewrite existing absent-key pin assertions. A task plan that budgets "update the pinning tests" (rather than "verify existing pins still pass unchanged + add gated-branch pins") is a red flag: absent-key pins are load-bearing evidence of default-path stability, and rewriting them during a change that keeps the default path fixed hides a possible default-path regression.
+- **Detection:**
+  1. Identify tasks whose spec gates new behavior on a non-default config value while stating the default/absent-key path is unchanged.
+  2. Inspect the task's test plan / Success Criteria. If it directs rewriting existing absent-key pin assertions rather than adding a new pinned class that sets the gating value → WARNING.
+  3. Invert the signal: if the plan expects existing absent-key pins to break, flag it — a broken absent-key pin means the default path changed (a spec violation to investigate), not routine pin churn.
+- **Finding template:**
+```
+[WARNING] Absent-key pins rewritten during non-default-gated change
+File: {task file path} | Location: test plan / Success Criteria
+Issue: Spec keeps default path fixed but plan rewrites absent-key pin assertions instead of adding a gated-branch pin class — default-path evidence disturbed
+Fix: Phrase as "verify existing pins still pass unchanged (default path untouched) + add gated-branch pins"; investigate any absent-key pin that breaks as a default-path regression | Confidence: MEDIUM
+```
 
 ### 10.4 A green suite is not a review: pre-commit adversarial review for destructive diffs
 

@@ -297,6 +297,19 @@ Sprint Plan header Estimated Tokens
 
 **Enforcement:** The `/planwise plan` handler's Step 8c computes estimates bottom-up. The `/planwise review` handler checks reconciliation as part of structural review. Template comments in orchestration, sprint plan, and task file templates remind the planner to verify.
 
+#### Reviewer Check 024 — Task Token-Estimate Arithmetic Gate
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** Task header `Estimated Tokens` = Required Context subtotal + output tokens. No `~?` placeholders. Deviation ≤10%.
+- **Detection:** Extract header value + subtotal line. `abs(header - subtotal) / header > 0.10` → BLOCKER. Any `~?` → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Task token-estimate arithmetic gate failed
+File: {task file path} | Location: Header Estimated Tokens vs Required Context subtotal
+Issue: Header "{header_value}" deviates {deviation_pct}% from subtotal "{subtotal_value}"
+Fix: Reconcile per references/session-context-budget.md Token Estimate Reconciliation | Confidence: HIGH
+```
+
 ### Context Accumulation Formula
 
 > [!gate] Context Budget Gate

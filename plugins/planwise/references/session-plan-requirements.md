@@ -160,6 +160,19 @@ Every Spec listed in the EI's `Extracted from:` header MUST appear in at least o
 
 **Reviewer note:** `/planwise review` Phase 2 reports EI header ↔ Cross-References inconsistency as WARNING with HIGH confidence.
 
+#### Reviewer Check 009 — EI Bidirectional Source/Cross-Reference Consistency
+
+- **Severity / Role / Type:** WARNING (HIGH confidence) | EI Reviewer | NEW
+- **What:** Every Spec in EI header `Extracted from:` MUST appear in ≥1 Cross-References row AND vice versa.
+- **Detection:** Open EI; extract header source list; extract Cross-References rows; set-diff bidirectionally. Header → row missing = WARNING. Row → header missing = WARNING.
+- **Finding template:**
+```
+[WARNING] EI bidirectional consistency violation
+File: {EI file path} | Location: EI header Extracted from vs Cross-References
+Issue: {direction_description} (e.g., "Spec #N in header but absent from Cross-References")
+Fix: Reconcile per references/session-plan-requirements.md §8 | Confidence: HIGH
+```
+
 **Execution Input ≠ Summary.** Extraction means: select, reorganize, and scope. If source content is needed by the sprint, it MUST appear in the Execution Input verbatim. Only omit content irrelevant to that sprint's tasks.
 
 **Scaffolding Session MUST Have:**

@@ -61,6 +61,19 @@ Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not
 > WRONG: plan declares DELEGATED for all 8 sessions "for consistency"; only Sprint 01 meets a trigger (95K Opus task + output-chaining); Sprints 02-08 each have a single 23-41K task within the 100K DIRECT budget — ~378K of subagent-spawn overhead consumed for no gain.
 > CORRECT: Sprint 01 declares DELEGATED (#1 + #4); Sprints 02-08 declare DIRECT.
 
+#### Reviewer Check 010 — Task DELEGATED Mandatory Triggers Honored
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** When task meets DELEGATED trigger (2+ Opus tasks per session, META Discovery phase, single task >50K context, output-chaining), parent Orchestration MUST declare Execution Strategy = DELEGATED.
+- **Detection:** Grep Orchestration `Execution Strategy:\s*(DIRECT|DELEGATED)`; count Opus tasks; check largest task tokens. ≥2 Opus AND DIRECT → BLOCKER. Any task >50K AND DIRECT → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] DELEGATED mandatory trigger violated
+File: {Orchestration file path} | Location: Execution Strategy section
+Issue: {count} Opus tasks / {max_tokens}K largest, but strategy = DIRECT
+Fix: Set Execution Strategy = DELEGATED per references/agent-orchestration-delegated.md §1.1 | Confidence: HIGH
+```
+
 ## 1.2 Task-File Error Recovery
 
 When a DELEGATED subagent fails or produces incomplete output, the orchestrator applies this recovery shape:
@@ -82,6 +95,19 @@ When a DELEGATED subagent fails or produces incomplete output, the orchestrator 
 > Attempt 3: FAILED (subagent stopped mid-execution)
 > → Mark task BLOCKED in Recovery; report to orchestrator
 > ```
+
+#### Reviewer Check 011 — Task-File Error Recovery Semantics Declared
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** Task files in DELEGATED mode MUST declare error-recovery behavior in Notes for Agent (partial-failure handling, max retries, fallback).
+- **Detection:** Open each DELEGATED task; grep `(?i)error\s+recovery|partial\s+failure|max\s+retries` in Notes for Agent. Absent → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Task-file error recovery semantics missing
+File: {task file path} | Location: Notes for Agent
+Issue: DELEGATED-mode task lacks error-recovery declaration
+Fix: Add error-recovery block per references/agent-orchestration-delegated.md §1.2 | Confidence: HIGH
+```
 
 ## 1.3 Orchestration Context Boundary
 
@@ -106,6 +132,32 @@ When Execution Strategy is DELEGATED:
 >
 > (Task 03 Required Context loads schema.sql + research-part-1.md in its own section)
 > ```
+
+#### Reviewer Check 012 — Orchestration Context Boundary Callout Present
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** DELEGATED Orchestration MUST contain `> [!constraint] Context Boundary` callout naming which files appear in Orchestration vs Task file Required Context.
+- **Detection:** Grep Orchestration `> \[!constraint\][^\n]*Context Boundary` (multiline). DELEGATED AND callout absent → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Orchestration Context Boundary callout missing
+File: {Orchestration file path} | Location: Execution Strategy section
+Issue: DELEGATED mode requires Context Boundary callout
+Fix: Add > [!constraint] Context Boundary per references/agent-orchestration-delegated.md §1.3 | Confidence: HIGH
+```
+
+#### Reviewer Check 023 — Task DELEGATED Context Boundary Leak
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** In DELEGATED mode, Orchestration Required Context MUST contain ONLY plan files. Heavy context (sources, EIs, references) lives in task file Required Context only.
+- **Detection:** Classify each Orchestration Required Context file as plan-file vs heavy-context. Any heavy-context in Orchestration Required Context → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] DELEGATED Orchestration Required Context boundary leak
+File: {Orchestration file path} | Location: Required Context table
+Issue: Heavy-context file "{file_path}" present in Orchestration; belongs in task file
+Fix: Move per references/agent-orchestration-delegated.md §1.3 | Confidence: HIGH
+```
 
 ## 1.4 Inter-Dispatch Diagnostics Verification
 
@@ -359,6 +411,12 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 > **Problem:** A session that runs 3+ parallel runners followed by a single sequential verification task. If the verifier follows the standard Recovery-write protocol (§4 of task-runner contract), Recovery gets written twice — once by the orchestrator's reconciliation, once by the verifier — and the second write may clobber the first if the verifier read Recovery before reconciliation completed.
 > **Solution:** Reconcile Recovery centrally BEFORE dispatching the sequential tail. The tail task may then write Recovery directly per the normal §4 protocol — it runs alone, so no race exists.
 
+#### Reviewer Check 052 — DELEGATED Round-2 Compliance
+
+- **Severity / Role / Type:** BLOCKER (bundled 8 sub-checks) | Design-Extension Reviewer | NEW
+- **Detection:** For each DELEGATED Orchestration spawn prompt verify: (a) orchestrator `wc -l` between dispatches; (b) HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause; (c) tier-rank-by-invasiveness ordering; (d) forward-looking-verb detection; (e) operational-ceiling disclaimers; (f) N>25 Edit-task resume protocol with tool-use budget estimation; (g) shared-edit-target parallelism cap; (h) inter-dispatch diagnostics verification.
+- **Finding template:** `[BLOCKER] DELEGATED dispatch round-2 sub-rule {N} violated | Fix per references/agent-orchestration-delegated.md §1.{N}`
+
 ## 1.14 Orchestrator-Only Review Commands
 
 Slash-commands that themselves spawn review agents (`/simplify`, `/code-review`, and similar multi-agent review skills) CANNOT run inside a task-runner subagent. Per Constraint 1 (`agent-orchestration.md` §10), the Task tool is stripped from all non-main contexts at spawn time, so a subagent has no way to spawn the review agents the command depends on; the call resolves to "Unknown subcommand" or fails silently.
@@ -452,6 +510,19 @@ A claim of the form "symbol X is declared but never used in this file, therefore
 Highest false-positive risk patterns — any of these warrants an independent code-read before accepting the verdict: "declared-but-unused," "never called," "dead code," "flag has no effect," "interface mismatch," "unreferenced in this file."
 
 Cost note: a false positive in a release-signoff verdict either blocks a shippable tag or spawns phantom backlog work; the verification is a few targeted reads of the disputed call path — NOT a full re-review.
+
+#### Reviewer Check 067 — Orchestration Delegated Verdict Recompute Gate
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** When a DELEGATED session's Orchestration file synthesizes sub-agent verdicts (GREEN/YELLOW/RED, MUST_FIX/SHOULD_FIX/DEFER, READY/READY-WITH-NOTES, or equivalent), the synthesis step or rollup table MUST declare a recompute-from-counts gate — i.e. explicitly state that the orchestrator will recompute each verdict from the agent's reported finding counts rather than consuming the verdict label verbatim. The gate covers both directions: under-classification (the agent softens the verdict against its own counts) and over-classification (a cross-file control-flow claim accepted without tracing the full consumer call path).
+- **Detection:** In DELEGATED Orchestration files, grep the synthesis steps for `recompute|canonical.*verdict|verdict.*count|count.*verdict`. If absent AND the session dispatches sub-agents that produce verdict labels → ERROR.
+- **Finding template:**
+```
+[ERROR] Orchestration delegated verdict recompute gate missing
+File: {Orchestration file path} | Location: Synthesis / rollup section
+Issue: DELEGATED session synthesizes sub-agent verdicts but lacks recompute-from-counts gate
+Fix: Add recompute gate per references/agent-orchestration-delegated.md §1.16 | Confidence: MEDIUM
+```
 
 ## 1.17 Task-Runner Dispatch Failure Modes and Resume Protocol
 

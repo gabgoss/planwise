@@ -43,6 +43,12 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > research into focused per-sprint content. Subagents read the EI for the
 > sprint they are executing, not the raw Meta-Plan outputs.
 
+#### Reviewer Check 046 — Meta-Plan Source Detection
+
+- **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
+- **Detection:** Glob `**/Consolidated-Context-Part-*.md` under `Meta-{Abbrev}/Outputs/`. Absent for Meta-Plan → BLOCKER.
+- **Finding template:** `[BLOCKER] Meta-Plan Consolidated Context parts missing | File: {Meta folder} | Fix: Generate per references/scaffolding-hygiene.md §1`
+
 ---
 
 ## 2. Execution-Plan Folder Naming Inherits Parent Abbreviation
@@ -67,6 +73,12 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > CORRECT — `Plans/{PlanName}/Exec-{Abbrev}/` with abbreviation `{Abbrev}`. The
 > folder name and abbreviation make the Discovery → Execution lineage visible
 > at a glance.
+
+#### Reviewer Check 047 — Execution-Folder Naming Discipline
+
+- **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
+- **Detection:** Glob `Plans/{PlanName}/Exec-{Abbrev}/`. Folder name not matching `Exec-{Abbrev}` → BLOCKER.
+- **Finding template:** `[BLOCKER] Execution folder naming non-conformant | Fix: Rename to Exec-{Abbrev}/ per references/scaffolding-hygiene.md §2`
 
 ---
 
@@ -97,6 +109,12 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > The general principle: when a user-provided value violates a constraint, ask
 > rather than silently adjusting. Silent decisions that change user-visible
 > naming always cause confusion.
+
+#### Reviewer Check 048 — Abbreviation Validation
+
+- **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
+- **Detection:** Extract `{Abbrev}` from Master Plan filename; validate 2-4 chars uppercase; check uniqueness across `Plans/` siblings. Invalid/non-unique → BLOCKER.
+- **Finding template:** `[BLOCKER] Abbreviation invalid or non-unique | Fix: Choose 2-4 char unique abbrev per references/scaffolding-hygiene.md §3`
 
 ---
 
@@ -244,6 +262,12 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > harmonizes section headers, restores the optional formatting lines, and
 > creates the Scaffold folder if appropriate.
 
+#### Reviewer Check 049 — Parallel-Scaffold Deviation Classes
+
+- **Severity / Role:** ERROR/WARNING/BLOCKER (by class) | Scaffolding Hygiene Reviewer | NEW
+- **Detection:** Compare scaffolded sprint outputs against template; classify deviations: A (section-header drift = WARNING), B (optional-formatting omission = ERROR), C (Scaffold-folder absence = BLOCKER).
+- **Finding template:** `[{SEVERITY}] Parallel-scaffold deviation class {A|B|C} | Fix per references/scaffolding-hygiene.md §8`
+
 ---
 
 ## 9. Multi-Shape Integration Plan-Sizing Expansion Ratio
@@ -317,6 +341,12 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > to exhibit MAX divergence, for instance — belong in project-local rule files,
 > not in this plugin reference. This reference defines the *principle* and the
 > *signal*; a project's own rules name the *cohorts*.
+
+#### Reviewer Check 050 — Cohort Token-Uplift Practice
+
+- **Severity / Role:** WARNING | Scaffolding Hygiene Reviewer | NEW
+- **Detection:** Open Master Plan Sprint Overview Notes column; for high-divergence cohorts, verify cohort token-uplift entry present. Absent → WARNING.
+- **Finding template:** `[WARNING] High-divergence cohort missing token-uplift entry | Fix per references/scaffolding-hygiene.md §10`
 
 ---
 

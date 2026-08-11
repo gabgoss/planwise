@@ -63,6 +63,12 @@ Plan execution often introduces parameters, thresholds, or behaviors that do not
 > - [ ] Each new parameter is added to the project's config catalog
 > - [ ] Each new parameter is mentioned in the sprint signoff under a "Design Extensions" sub-section (per [exit-criteria-fidelity.md](exit-criteria-fidelity.md#163-sprint-signoff-must-quote-ei-exit-criteria-verbatim-with-one-mechanical-anchor-per-row) §16.3's verbatim-quote conventions)
 
+#### Reviewer Check 051 — Undocumented Design Extension
+
+- **Severity / Role:** WARNING | Design-Extension Reviewer | NEW
+- **Detection:** Grep execution-time files for design extensions (new sections / new callouts) not documented in EI or source spec. Undocumented → WARNING.
+- **Finding template:** `[WARNING] Undocumented design extension during execution | Fix per references/execution-time-binding-rules.md §17 (inline What/Why/Source comment)`
+
 ---
 
 ## 18. Cross-Tier Audit-Finding Triage (BINDING)
@@ -99,6 +105,12 @@ A cross-tier audit with a Discovery → Audit gap longer than one sprint produce
 > 2. If ALL downstream artifacts exist and are in deployed code → Remediation bucket (next sprint).
 > 3. If ANY downstream artifact is in a planned-but-unauthored sprint → pre-emptive flag bucket (defer to that sprint's author).
 > 4. The pre-emptive flag table goes in the Findings doc Part-2 (or an equivalent location near the MEDIUM dispositions); add it to the future sprint's Orchestration prerequisites.
+
+#### Reviewer Check 053 — Cross-Tier Audit Triage Table Presence
+
+- **Severity / Role:** WARNING | Design-Extension Reviewer | NEW
+- **Detection:** For Discovery/audit sessions, verify `## Cross-Tier Audit Finding Triage` table presence with three buckets (remediation / pre-emptive flag / combo). Absent → WARNING.
+- **Finding template:** `[WARNING] Cross-tier audit triage table missing | Fix per references/execution-time-binding-rules.md §18`
 
 ---
 

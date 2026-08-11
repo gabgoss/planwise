@@ -70,6 +70,19 @@ Applies to:
 - Meta-Plan Discovery phases that analyze data corruption scope
 - Execution Input extraction where row counts drive token estimates
 
+#### Reviewer Check 040 — §15.1 Discovery Count-by-Execution
+
+- **Severity / Role / Type:** BLOCKER | Coverage Reviewer | NEW
+- **What:** Discovery outputs citing counts MUST also cite the underlying execution (e.g., `{lint-cmd}` / `{test-cmd}` / SQL query / Glob pattern).
+- **Detection:** Grep Discovery for `\b(\d+)\s+(rows|files|matches|tasks)`. For each count, check for adjacent execution citation. Absent → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Discovery count missing execution citation
+File: {Discovery output path} | Location: {section}
+Issue: Count "{N}" cited without underlying execution
+Fix: Cite per references/discovery-and-exit-criteria.md §15.1 | Confidence: HIGH
+```
+
 ### 15.2 Persist specific IDs, not just counts
 
 > [!constraint] Discovery MUST persist specific IDs (or the deterministic identification query), not count-only placeholders
@@ -105,6 +118,19 @@ Applies to:
 - Any data-repair plan targeting specific records
 - Meta-Plan Discovery phases that identify corruption scope
 - Execution Inputs referencing record subsets by count
+
+#### Reviewer Check 041 — §15.2 Persist IDs Not Just Counts
+
+- **Severity / Role / Type:** BLOCKER | Coverage Reviewer | NEW
+- **What:** Discovery outputs MUST persist actual IDs/keys (not just counts) for downstream tasks to dereference.
+- **Detection:** "N matches" without enumerated ID list → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Discovery output persists count without IDs
+File: {Discovery output path} | Location: {section}
+Issue: "{N} matches" stated without ID enumeration
+Fix: Persist IDs per references/discovery-and-exit-criteria.md §15.2 | Confidence: HIGH
+```
 
 ---
 

@@ -154,6 +154,19 @@ grep -nE "ALTER TABLE {table}|DROP CONSTRAINT.*{table}|ADD CONSTRAINT.*{table}" 
 > [!gate] Pin Required for SQL-Bearing Task Files
 > A task file whose Required Context contains inline SQL OR references a DB table by name MUST include a Schema Pin section. Plan-review fails on absence; DELEGATED execution MUST NOT dispatch a task that lacks a required Pin.
 
+#### Reviewer Check 022 — Task Schema Pin Pre-Execution Form
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** DB-write tasks MUST include Schema Pin section in pre-execution form per `references/schema-pin-requirement.md` §4.
+- **Detection:** Grep task for `^### Schema Pin`. If Execution Steps mention `INSERT|UPDATE|MERGE|UPSERT|ALTER` AND Schema Pin absent → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Schema Pin pre-execution form missing
+File: {task file path} | Location: Expected ### Schema Pin section
+Issue: DB-write task lacks Schema Pin section
+Fix: Add Schema Pin per references/schema-pin-requirement.md §4 | Confidence: HIGH
+```
+
 ### Authoring Checklist
 
 > [!checklist] Pin Authoring (Pre-Dispatch)

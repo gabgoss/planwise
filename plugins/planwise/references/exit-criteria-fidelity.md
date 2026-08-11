@@ -99,6 +99,19 @@ Applies to any refinement where:
 
 NOT applicable when there is only one valid path/value (no ambiguity, no default to override).
 
+#### Reviewer Check 042 — §16.1 Binding Refinements Echo Across Layers
+
+- **Severity / Role / Type:** BLOCKER | Coverage Reviewer | NEW
+- **What:** Binding refinements (added enforcement language at one layer) MUST echo at all dependent layers (rule → reference → handler → agent → template).
+- **Detection:** For each refinement, identify dependent layers; verify presence. Missing from any dependent layer → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Binding refinement not echoed across layers
+File: {layer file path} | Location: {section}
+Issue: Refinement "{quoted_text}" missing from dependent layer {layer_path}
+Fix: Echo per references/exit-criteria-fidelity.md §16.1 | Confidence: HIGH
+```
+
 ### 16.2 "Surfaces" is an enforcement claim, not a mention
 
 > [!constraint] When a task file claims to "surface" a BLOCKING item, the body MUST contain an enforceable check — verbal mentions in Notes do not count
@@ -220,6 +233,19 @@ Binding rule for all sprint signoff tasks:
 > - [ ] Every BLI-cited bug anchor has been re-verified against the audited file's current state at session start; any drift is reflected in the replacement criterion (per the BLI-Cited Anchor Re-Verification clause below)
 > - [ ] Every grep anchor for a column name that may collide across tables in the audit scope is `{table}.{column}`-qualified (per the Qualified-Grep Discipline clause below)
 
+#### Reviewer Check 043 — §16.3 EI Exit Criteria With Mechanical Anchors
+
+- **Severity / Role / Type:** BLOCKER | Coverage Reviewer | NEW
+- **What:** EI Exit Criteria MUST verbatim-quote source exit-criteria AND include mechanical anchor (grep pattern / file path).
+- **Detection:** Quote present but no mechanical anchor → BLOCKER. Quote not verbatim → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] EI Exit Criteria missing mechanical anchor
+File: {EI file path} | Location: Exit Criteria section
+Issue: Exit criterion lacks {grep_pattern}/{file_anchor}
+Fix: Add mechanical anchor per references/exit-criteria-fidelity.md §16.3 | Confidence: HIGH
+```
+
 #### 16.3 Extension — BLI-Cited Audit-Anchor Re-Verification
 
 §16.3 binds sprint signoffs to quote EI exit criteria verbatim with a mechanical anchor per row — but that rule assumes the EI exit criteria still reflect the audited code's *current* state at signoff time. In multi-week plans where the Discovery → Audit gap exceeds one sprint, the audited codebase keeps moving: bugs fixed in passing during other sprints silently invalidate the audit's "I expect to find these bugs" regression anchors.
@@ -289,6 +315,25 @@ Binding rule for all sprint signoff tasks:
 > orchestrator decides; the task's error-recovery clause defaults to "report
 > stale, continue" unless the Sprint Plan binds it to HALT.
 
+#### Reviewer Check 044 — §16.3 BLI-Cited Audit Anchor Re-Verification
+
+- **Severity / Role / Type:** BLOCKER | Coverage Reviewer | NEW
+- **What:** BLI-cited audit anchors MUST be re-verified at session start (anchor may have moved due to upstream edits).
+- **Detection:** For each BLI-cited anchor (`{file_path}:{line_range}` or `{file_path}#{section}`), open referenced file and verify content. Stale → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] BLI-cited audit anchor stale
+File: {Orchestration file path} | Location: BLI reference {BLI_id}
+Issue: Anchor "{anchor}" no longer resolves; expected content not found
+Fix: Re-verify per references/exit-criteria-fidelity.md §16.3 | Confidence: HIGH
+```
+
+#### Reviewer Check 054 — BLI-Cited Anchor Re-Verification (Session-Start)
+
+- **Severity / Role:** BLOCKER | Design-Extension Reviewer | NEW
+- **Detection:** At session-start, re-verify all BLI-cited audit anchors (also covered as Coverage Check 044; duplicated here for design-extension scope at session start).
+- **Finding template:** `[BLOCKER] Session-start BLI anchor re-verification missing/failing | Fix per references/exit-criteria-fidelity.md §16.3`
+
 ### 16.4 Verify the Metric Definition Before Reproduction
 
 > [!constraint] Confirm what N counts before asserting "reproduce N" — metric labelling differences are not data divergences
@@ -325,6 +370,19 @@ Binding rule for all sprint signoff tasks:
 >   exploded-segment census — a distinct, additional metric. Extraction is faithful.
 >   Label both metrics explicitly; do NOT HALT.
 > ```
+
+#### Reviewer Check 045 — §15/§16 Cross-Layer Cohort Discovery Scope
+
+- **Severity / Role / Type:** ERROR | Coverage Reviewer | NEW
+- **What:** Discovery scope in Master Plan/Sprint Plan MUST match actual coverage produced by Discovery sessions (no orphaned spec sections, no unscoped findings).
+- **Detection:** Compare Master Plan declared scope vs Discovery outputs. Declared cohort with 0 outputs OR outputs covering undeclared cohort → ERROR.
+- **Finding template:**
+```
+[ERROR] Discovery scope mismatch
+File: {Master Plan path} | Location: Discovery cohort declaration
+Issue: Cohort "{name}" declared but no outputs (or outputs not scoped)
+Fix: Reconcile per references/exit-criteria-fidelity.md §16 / references/discovery-and-exit-criteria.md §15 | Confidence: HIGH
+```
 
 ---
 

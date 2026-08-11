@@ -18,18 +18,12 @@ maxTurns: 12
 
 ## Startup (BINDING — Required First Action)
 
-When spawned as a teammate you MUST return your verdict via `SendMessage`.
-`SendMessage` is a deferred tool — its schema is not in your context at
-startup, and calling it without loading the schema first raises
-`InputValidationError` and drops your verdict on the floor.
-
-Before reading any file, issue this exact call as your first action:
-
-    ToolSearch(query: "select:SendMessage", max_results: 1)
-
-Only after the `<functions>` block for `SendMessage` appears may you read the
-files and report. If you are spawned in subagent mode (no team), this call is
-harmless — proceed identically and return the verdict as your final message.
+Startup/ToolSearch mandate is defined in `references/review-finding-format.md`
+— read it before your first action. You are a **single-verdict agent** per
+that file's reporting-cadence adaptation: return exactly one verdict via
+`SendMessage` at the end of your comparison. This agent's verdict shape is a
+structured JSON block (Step 5 below), not that file's Finding Report Format
+or Severity Classification, which do not apply here.
 
 ## Inputs (from the spawn prompt)
 

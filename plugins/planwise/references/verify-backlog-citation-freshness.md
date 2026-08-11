@@ -237,21 +237,25 @@ This is the backlog-execution sibling of `verify-cross-repo-fix-discipline.md` �
 
 > [!constraint] A pre-drafted Check number / catalog row / §-number is next-free at DRAFT time only — re-derive it from the live artifact before inserting
 >
-> A backlog item drafted ahead of execution typically pins a **sequential artifact identifier** — a `plan-reviewer.md` Check number, an Error Pattern Catalog row number, a reference §-number — to whatever was next-free *at draft time*. Those numbers are not stable: any other change that lands between drafting and execution consumes the next slot. Before inserting, re-derive the next-free identifier from the **live** artifact and renumber the deliverable (and any in-item self-references — group labels, acceptance criteria) to match.
+> A backlog item drafted ahead of execution typically pins a **sequential artifact identifier** — a reviewer Check number, an Error Pattern Catalog row number, a reference §-number — to whatever was next-free *at draft time*. Those numbers are not stable: any other change that lands between drafting and execution consumes the next slot. Before inserting, re-derive the next-free identifier from the **live** artifact and renumber the deliverable (and any in-item self-references — group labels, acceptance criteria) to match.
 >
-> WRONG — trust the item's drafted number:
+> **Re-derive across every surface the identifier is allocated over, not just the one you remember.** An identifier space can span more than one file, and a recipe that reads a single surface returns a number another surface has already consumed. Reviewer Check numbers are the worked example: each check's body lives under its owning `references/*.md` section as `#### Reviewer Check {NNN}`, while a check whose Source is a handler may be retained **inline** in the agent as `### Check {NNN}`. Reading only the agent returns the one retained inline number and understates next-free by the whole relocated range.
+>
+> WRONG — trust the item's drafted number, or re-derive from a single surface:
 > ```
-> item says "add Check 066" → insert `### Check 066` → the file now has two Check 066 sections.
+> item says "add Check {NNN}" → insert it → two blocks now carry {NNN}.
+> grep '^### Check 0' agents/{reviewer}.md      # only the inline-retained body — next-free looks far lower than it is
 > # A duplicate identifier silently breaks cross-references and any detection grep keyed on the number.
 > ```
 >
-> CORRECT — re-verify against the live artifact, then renumber:
+> CORRECT — take the max across every allocating surface, then renumber:
 > ```
-> grep '^### Check 0' agents/plan-reviewer.md   → max existing = 066
-> next-free = 067 → insert `### Check 067`; update the item's group label + acceptance criteria to 067.
+> grep -rhoE '^#### Reviewer Check [0-9]{3}' references/ | grep -oE '[0-9]{3}' | sort -u | tail -1   # relocated bodies
+> grep -ohE  '^### Check [0-9]{3}' agents/{reviewer}.md | grep -oE '[0-9]{3}' | sort -u | tail -1    # any body retained inline
+> next-free = max(both) + 1 → insert at that number; update the item's group label + acceptance criteria to match.
 > ```
 >
-> The rule generalises to any monotonically-allocated identifier (Check number, Error Pattern Catalog row, reference §-number). Cost: one grep per pinned identifier. Failure it prevents: a duplicate ID shipped in an artifact. In a queue of promotions, the later-executed item MUST re-verify — an earlier-executed sibling may have consumed the slot.
+> The rule generalises to any monotonically-allocated identifier (Check number, Error Pattern Catalog row, reference §-number). Cost: one grep per allocating surface per pinned identifier. Failure it prevents: a duplicate ID shipped in an artifact. Two corollaries: in a queue of promotions, the later-executed item MUST re-verify — an earlier-executed sibling may have consumed the slot; and **whenever a change relocates an identifier's bodies, re-derive this recipe's surface list in the same change** — a decomposition that moves the bodies out from under a recipe leaves that recipe silently allocating into occupied numbers.
 
 ### 9.2 Re-locate cited code anchors by symbol; re-check acceptance criteria against HEAD
 

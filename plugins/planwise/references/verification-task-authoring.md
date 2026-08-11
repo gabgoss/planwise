@@ -48,6 +48,24 @@ Both anti-patterns also share a secondary defect: when Actual contradicts Expect
 
 A count-threshold whose target is structurally unreachable is a **spec bug**, not a verifier failure. The fix is to rewrite the verification step as a per-unit existence assertion, not to relax the threshold.
 
+#### Reviewer Check 058 — Verification Task Anchored Aggregate Count Threshold
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** A verification task MUST NOT ship an anchored aggregate count threshold (e.g., `grep -cE '^…' {file}` paired with `expect ≥N`) as its sole pass/fail gate. If sibling extraction tasks produce more than one output format for the measured construct, the threshold is structurally unreachable and the verifier will either FAIL incorrectly or fudge to PASS. Replace with per-unit existence assertions: enumerate the units the verifier is checking and assert the property holds per unit.
+- **Detection:**
+  1. For each task whose Objective contains verification-style language (`verify`, `count`, `coverage`, `expect ≥/≤`), open the Execution Steps and Verification Commands sections.
+  2. Grep for the anchored-count pattern: a `grep -c…` or `grep -cE…` invocation paired with a comparator (`-ge`, `-le`, `≥`, `≤`) and a numeric threshold.
+  3. Cross-read the sibling extraction tasks that write to the file the verifier scans; enumerate the output formats each produces.
+  4. If ≥2 distinct formats exist AND the verifier's pattern is anchored (`^…` or a single format) → BLOCKER.
+  5. If exactly 1 format exists AND the threshold is exactly equal to the produced count, also flag as WARNING (brittle to format drift).
+- **Finding template:**
+```
+[BLOCKER] Verification task uses structurally unreachable anchored count threshold
+File: {task file path} | Location: Verification Commands / Execution Steps
+Issue: Verifier pattern `{anchored-grep}` paired with `expect {comparator}{N}`; sibling tasks produce {format_count} formats not all matched by the pattern
+Fix: Replace with per-unit existence assertions per references/verification-task-authoring.md §2 (enumerate units, assert per unit, derive aggregate from per-unit results) | Confidence: HIGH
+```
+
 ---
 
 ## 3. Match Patterns Derived From Sibling Extraction Tasks
@@ -100,6 +118,23 @@ A count-threshold whose target is structurally unreachable is a **spec bug**, no
 >
 > If the denominator cannot be made precise (e.g., the construct's invocation shape varies and excluding prose is infeasible), the check is **NOT** a pass/fail gate. Re-classify it as an `INVESTIGATE` signal and surface the ambiguity to the orchestrator instead of emitting FAIL.
 
+#### Reviewer Check 059 — Verification Task Keyword-Proximity Coverage Gate
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** A verification task MUST NOT ship a keyword-proximity heuristic (e.g., `grep -B{N} keyword {file} | grep -c tag`) paired with a coverage-ratio denominator from a bare keyword grep (`grep -c keyword`) as its pass/fail gate. The denominator is inflated by prose, table headers, and fenced pseudo-code that mention the keyword without invoking the construct, and the proximity bound (`-B1`, `-A1`) misses correctly-tagged sites whose tag sits 2+ lines away. Replace with explicit-site enumeration: verify the spec's enumerated anchors are tagged, do not re-derive the site set from a keyword grep.
+- **Detection:**
+  1. Grep Verification Commands and Execution Steps for the proximity-gate shape: `grep -[BA]\d+ '{keyword}'` piped to `grep -c '{tag}'`, paired with a denominator `grep -c '{keyword}'` and a coverage comparator (`-ge`, `-eq`).
+  2. If the bare denominator `grep -c '{keyword}'` is used AND the file under scan is a prose document (`.md`) — denominator includes prose / table rows / fenced code → BLOCKER.
+  3. If the spec lists the explicit sites (e.g., an EI repoint map or an edit-group list) AND the verifier instead uses a keyword grep → BLOCKER (the spec's enumerated sites are the ground truth; verify them by anchor).
+  4. Also flag: any verification step that maps `Actual<Expected` to BLOCKER directly without an `INVESTIGATE` escalation path → ERROR (denominator may be inflated; missing adjudication path forces false rework).
+- **Finding template:**
+```
+[BLOCKER] Verification task uses keyword-proximity coverage gate with inflated denominator
+File: {task file path} | Location: Verification Commands / Execution Steps
+Issue: Verifier uses `grep -B{N} '{keyword}' | grep -c '{tag}'` over denominator `grep -c '{keyword}'`; denominator counts prose/table/fenced-code mentions, proximity bound misses tags ≥2 lines away
+Fix: Replace with explicit-site enumeration per references/verification-task-authoring.md §4 (verify the spec's enumerated anchors by name, scope denominator to real construct instances, or re-classify as INVESTIGATE if denominator cannot be made precise) | Confidence: HIGH
+```
+
 ---
 
 ## 5. PASS Requires Actual = Expected — No Arithmetic Fudging
@@ -140,6 +175,23 @@ The verdict-arithmetic check is mechanical: if the comparison operator's evaluat
 >    - **Format gap** (§3) — the site IS tagged in a format the verifier's pattern did not match; rewrite the verification step's pattern, do NOT route to rework.
 >    - **Denominator inflation** (§4) — the site is prose / table / fenced code, not a real call site; rewrite the denominator, do NOT route to rework.
 > 3. If ≥1 site is a format gap or denominator inflation, the verification step is defective — block the task chain on fixing the verifier, not on rework.
+
+#### Reviewer Check 060 — Verification Task Verdict-Arithmetic Contract
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** A verification task spec MUST require the verifier to return FAIL or `[UNCERTAIN]` when Actual contradicts Expected per the comparison operator — never PASS. The spec MUST also declare an orchestrator adjudication path for BLOCKER-from-heuristic findings (the orchestrator validates flagged sites against source before routing rework, per the rules above).
+- **Detection:**
+  1. Open Verification Commands and any output-template the verifier task instructs the subagent to emit (e.g., a results table with `Actual` / `Expected` / `Verdict` columns).
+  2. If the template permits a PASS verdict on a row where the `Actual` value does not satisfy the `Expected` comparator → BLOCKER (verdict-arithmetic contract violation enabled).
+  3. If the spec emits BLOCKER directly to downstream rework without an `INVESTIGATE` / orchestrator-adjudication branch → ERROR (denies the adjudication path required when a heuristic produces a false signal).
+  4. If the spec contains language like "approximate", "close enough", or "within tolerance" without a numeric tolerance band → WARNING (arithmetic-fudging risk).
+- **Finding template:**
+```
+[BLOCKER] Verification task spec permits PASS on contradicted comparator
+File: {task file path} | Location: Verification Commands / output template
+Issue: Spec permits Verdict=PASS when Actual does not satisfy Expected; orchestrator adjudication path for BLOCKER-from-heuristic not declared
+Fix: Constrain verdict per references/verification-task-authoring.md §5 (FAIL or [UNCERTAIN] when Actual contradicts Expected) and §6 (orchestrator adjudicates BLOCKER-from-heuristic against source before routing rework) | Confidence: HIGH
+```
 
 ---
 

@@ -41,6 +41,21 @@ paths: {planwise_root}/{plans_dir}/**
 >
 > This rule also governs the line-count input to the `task-content-fidelity.md` §9.A.3 per-file-type token rate bands: the `Est. Lines` value fed to a band MUST come from `wc -l`, not from a Read-output last line number. Read-output line numbers are decorative, not authoritative.
 
+#### Reviewer Check 069 — File Line-Count Finding Requires `wc -l`
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** Any reviewer finding that claims a file's line count is overstated or understated MUST be backed by a `wc -l` measurement, NOT by the last line number observed in a `Read` tool output. A finding citing a Read-output line number as its evidence is a false-positive candidate — `Read` paginates and partial reads always produce a number smaller than the true count.
+- **Detection:**
+  1. For each line-count finding in the reviewer's own draft output, verify the evidence method: was `Bash wc -l <path>` run? If the evidence is "Read output showed last line N" or "file appears to be N lines" without a `wc -l` invocation → ERROR (promote to FALSE POSITIVE candidate, discard with note).
+  2. Applies to any plan check that compares a task's `Required Context` `Est. Lines` value against the cited file's actual length.
+- **Finding template:**
+```
+[ERROR] Line-count finding sourced from Read output, not wc -l
+File: {reviewed file path} | Location: {task Required Context row / reviewer draft finding}
+Issue: Claimed line count {N} derived from last Read-output line, not wc -l — false positive candidate
+Fix: Run `wc -l {file_path}` and compare against the plan's declared value before promoting the finding | Confidence: HIGH
+```
+
 ### 8.2 A broad verification gate is authoritative over an audit's enumerated file list
 
 > [!constraint] Run the full gate; classify every residual match — do NOT trust the audit's file enumeration as the boundary
@@ -83,6 +98,22 @@ paths: {planwise_root}/{plans_dir}/**
 > ```
 >
 > Before starting, run the up-front sanity check: `original − extracted_block ?= projected_remainder`. If they don't reconcile, surface it before execution, not at verification time. The extraction is correct; only the projection was optimistic. This is the plan-level headline-metric sibling of the "structurally unreachable threshold" concept (Check 058 / `verification-task-authoring.md` §2), which targets grep-count thresholds inside verification tasks — a different surface, no overlap.
+
+#### Reviewer Check 070 — Plan Headline Metric vs Fixed Extraction Scope Reconciliation
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** When a task's Success Criteria carry a derived numeric target (post-edit line count, token savings, retention ratio) AND the same task spec fixes an extraction scope, the two MUST be arithmetically consistent (`original − extracted_block ?= projected_remainder`). A plan that states both a fixed scope and an incompatible headline metric will either produce spec-violating scope creep or a misleading savings report.
+- **Detection:**
+  1. For each task with Success Criteria containing `~{N} lines` or `~{N}K tokens` AND an extraction scope that names specific sections (keep §X, extract §Y, leave §Z): compute `original_lines − extracted_section_lines` and compare against the stated remainder target.
+  2. If the implied remainder differs from the target by >10% → WARNING.
+  3. If the task spec also includes language like "if actual differs significantly from target, use the actual" — downgrade to INFO (task already acknowledges the gap).
+- **Finding template:**
+```
+[WARNING] Plan headline metric incompatible with fixed extraction scope
+File: {task file path} | Location: Success Criteria + extraction scope
+Issue: Fixed scope implies ~{computed} lines remainder; plan targets ~{declared} — {pct}% gap
+Fix: Sanity-check up front per references/measurement-discipline.md §8.3; execute fixed scope, measure wc -l, report actual delta as Issue | Confidence: MEDIUM
+```
 
 ### 8.4 Grep the entire artifact surface for every phrasing of a doctrinal claim before declaring it fixed
 
@@ -219,6 +250,41 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 >
 > **Generalisation:** applies to any consolidation carrying a size objective — merging docs, deduping rules, collapsing config, summarising logs, compressing prompts. Ask what the artifact's *payload* is as distinct from its *prose*, and gate on the payload.
 
+#### Reviewer Check 074 — Diff-Derived Gate Without Input-Set Assertion
+
+- **Severity / Role / Type:** ERROR | Task Reviewer | NEW
+- **What:** A task verification gate whose input comes from a change set — `git diff`, a changelog, a CI touched-files list, a migration delta — MUST carry BOTH an untracked-file registration step (`git add -N`) and an input-set assertion proving the diff actually covered the intended files. Without them the gate returns the same empty result whether it inspected everything or nothing, and every downstream reader consumes that empty result as evidence of cleanliness. The defect is worst on tasks that CREATE files: `git diff` does not report untracked paths at all, so a gate over a newly-authored file inspects zero bytes and reports PASS.
+- **Detection:**
+  1. Identify every Success Criterion / verification step whose command pipes a change set into a matcher (`git diff … | grep`, `git diff --name-only`, a touched-files list).
+  2. For each, check whether the task's Execution Steps also register untracked files (`git add -N`) before the gate runs. Absent, on a task whose deliverables include NEW files → ERROR.
+  3. Check for an input-set assertion (`git status --porcelain <scope> | grep -c '^??'` expecting 0, and/or `git diff --name-only $BASE -- <scope> | wc -l` compared against an expected file count). Absent → ERROR.
+  4. If the task is a whole-tree audit or release battery, also require one unfiltered on-disk sweep — a `^\+`-filtered gate cannot answer "does X exist", only "did this change introduce X". Absent on an audit-scoped task → ERROR.
+  5. Inspect the matcher pattern against the forms it must catch. A pattern matching only the hyphen-digit citation spelling of an identifier while the leak also appears glued into file names → ERROR (too narrow to discriminate).
+- **Finding template:**
+```
+[ERROR] Diff-derived gate without input-set assertion
+File: {task file path} | Location: Success Criteria / verification step {n}
+Issue: Gate derives input from {git diff | change set} with no {git add -N registration | input-set assertion | unfiltered sweep}; task authors {N} new file(s) whose content never enters the pipeline — empty result is unfalsifiable
+Fix: Add `git add -N` for each new file, assert `git status --porcelain <scope> | grep -c '^??'` == 0 and `git diff --name-only $BASE -- <scope> | wc -l` == expected count, and dry-run the gate against known-bad input per references/measurement-discipline.md §8.7 | Confidence: HIGH
+```
+
+#### Reviewer Check 075 — Size Gate Without Content-Conservation Gate
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** When a task's objective is compaction, consolidation, collapsing, deduplication, or summarisation, its gates MUST include a content-conservation check derived from the **pre-edit** file — not only size gates (`wc -l` bands) and absence gates (`grep -c` for removed headings). Size and absence gates are both satisfied by destroying the payload: the metric improves monotonically with the amount of content lost, and there is no size at which the gate objects. The payload at risk is usually a pointer's coordinates — target section numbers and exact heading names — which a paraphrase drops while keeping the prose intact.
+- **Detection:**
+  1. Identify tasks whose Objective contains a compaction verb (collapse, consolidate, merge, dedupe, compress, summarise, trim, "reduce to N lines").
+  2. Inspect their Success Criteria. If every gate is size-shaped (`wc -l`, line band, token count) or absence-shaped (`grep -c` of what was removed) → WARNING.
+  3. Require an explicit conservation term list — section numbers, exact heading names, coordinates — checked by exact string (`grep -cF`), with the list stated as derived from the pre-edit file. A list derived after the edit inherits whatever was lost; flag that phrasing specifically.
+  4. Check that the task requires the conservation gate's OUTPUT in the completion report, and that a party other than the editing runner re-runs it. Self-certified conservation → WARNING.
+- **Finding template:**
+```
+[WARNING] Compaction task gated on size only — no content-conservation check
+File: {task file path} | Location: Objective / Success Criteria
+Issue: Objective is {collapse|consolidate|dedupe} but all gates are size/absence-shaped; payload ({section numbers | exact heading names | coordinates}) can be discarded with every gate green
+Fix: Add a pre-edit-derived conservation gate (`for s in '<coordinate>' '<exact heading>'; do grep -cF "$s" $FILE; done`, every count >= 1), run it case-sensitively then case-insensitively, and require its output in the completion report re-run by a second party per references/measurement-discipline.md §8.7 | Confidence: MEDIUM
+```
+
 ### 8.8 After a behavior change, sweep the surfaces that describe and call it
 
 A behavior change lands on surfaces beyond the code that implements it. **The tests cover the code. Nothing covers the metadata that *describes* the code, or the document that *invokes* it.** Both can therefore be left asserting the old behavior with the suite fully green — and both are read as authoritative: the metadata by tooling and by the next author, the document by the user following it.
@@ -309,6 +375,24 @@ A behavior change lands on surfaces beyond the code that implements it. **The te
 > A non-empty difference is either a bug or a decision that needs stating — never a silent no-op.
 
 **Applies-to surface.** Any change to behavior that a manifest, schema, frontmatter field or capability table also describes — **including when the field is documentation-only and no test can fail.** Any change pairing a new diagnostic with a new remediation. Any change relaxing a gate, guard or early return so a previously-dead branch begins executing. And any codebase where prose — a handler, a runbook, a documented command sequence — is the caller of record for a script: there the document's conditions must be edited in the same change as the code's, or the code's new capability is unreachable in practice.
+
+#### Reviewer Check 076 — Detection + Repair With No Routing Deliverable
+
+- **Severity / Role / Type:** WARNING | Plan Reviewer | NEW
+- **What:** When a plan's deliverables include BOTH a new diagnostic (a check, warning, doctor stage, lint, drift detector) AND a new repair path (a fixer, migration, self-heal, reconcile-on-consent branch), it MUST also carry a deliverable that edits the **caller** which routes from the diagnostic's recommendation to the repair's execution. Without it, both halves ship, both are tested, the suite is green — and the loop is still open: the diagnostic's advice is a dead end. **The caller is frequently a document**, not code. Where a handler, runbook or documented command sequence is the caller of record, its gate conditions are as load-bearing as an `if`, and a prose gate that exits on the very condition the repair path serves cannot be caught by any test. A secondary signal: a plan that makes a previously-unreachable branch live without a deliverable auditing that branch against every input the newly-routed caller can supply — the branch's age and test count are not evidence, since until now it never ran.
+- **Detection:**
+  1. Classify each deliverable as diagnostic (detects/reports a bad state), repair (corrects it), or routing (connects a recommendation to an invocation).
+  2. If the plan has ≥1 diagnostic and ≥1 repair but zero routing deliverables → WARNING.
+  3. Where a routing deliverable exists, check it names the caller **and** its gate condition. A deliverable that only adds a note *describing* the repair capability alongside an unchanged gate does not route — flag it.
+  4. Check the handler / runbook / command-sequence docs among the plan's touched files. If the documented flow exits early on the state the repair addresses and no deliverable edits that gate → WARNING.
+  5. If any deliverable relaxes a gate, guard or early return so a dormant branch begins executing, require a deliverable that walks that branch against the caller-suppliable inputs (flags, options, environment). Anything set up after the branch's return point is not applied there. Absent → WARNING.
+- **Finding template:**
+```
+[WARNING] Detection and repair ship with nothing routing between them
+File: {plan or sprint file path} | Location: Deliverables / Sprint scope
+Issue: Plan adds {diagnostic} and {repair} but no deliverable edits the caller ({handler|runbook|entry point}) that routes between them; documented flow exits on {condition} — the repair path is unreachable and the diagnostic's recommendation is a dead end
+Fix: Add a deliverable editing the caller's gate to route the detected state to the repair (naming what is skipped and why), and audit the newly-reachable branch against every caller-suppliable input per references/measurement-discipline.md §8.8 | Confidence: MEDIUM
+```
 
 ---
 

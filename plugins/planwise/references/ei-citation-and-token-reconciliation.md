@@ -58,6 +58,32 @@ Applies to:
 
 NOT applicable when only a single source cites the finding — the note adds no value.
 
+#### Reviewer Check 005 — EI Cross-Tier Duplicate Preservation
+
+- **Severity / Role / Type:** ERROR | EI Reviewer | NEW
+- **What:** When the same finding appears at multiple Discovery tiers (Tier-1 raw / Tier-2 consolidated / Tier-3 final), EI MUST preserve cross-tier citations rather than dedup to one tier.
+- **Detection:** Open EI; for each Cross-References row, count distinct `Tier-{N}` prefixes. If finding has single-tier prefix BUT source map indicates multiple tiers → ERROR.
+- **Finding template:**
+```
+[ERROR] EI cross-tier duplicate not preserved
+File: {EI file path} | Location: Cross-References row {N}
+Issue: Finding appears only at {one_tier}; source map shows {multiple_tiers}
+Fix: Add tier-cross-cite per references/ei-citation-and-token-reconciliation.md §5 | Confidence: MEDIUM
+```
+
+#### Reviewer Check 008 — EI Extraction Retention Threshold
+
+- **Severity / Role / Type:** BLOCKER/WARNING (tiered) | EI Reviewer | NEW
+- **What:** Multi-tier Discovery extraction MUST achieve ≥95% retention (pass), 80-95% (WARNING), <80% (BLOCKER auto-reject). Ratio = extraction tokens / source tokens per EI section.
+- **Detection:** For each EI section, compute token count vs cited source Consolidated Context section. Ratio <0.80 → BLOCKER; 0.80-0.95 → WARNING; ≥0.95 → pass.
+- **Finding template:**
+```
+[{SEVERITY}] EI extraction retention below threshold
+File: {EI file path} | Location: section {section_name} (source: {source_file} §{N})
+Issue: Retention ratio {ratio}% below {threshold}%
+Fix: Re-extract verbatim per references/ei-citation-and-token-reconciliation.md §5 — extraction ≠ summarization | Confidence: HIGH
+```
+
 ---
 
 ## 6. Cross-Tier Citation Propagation to Implementation Surface
@@ -164,6 +190,19 @@ Count-claim reconciliation grep — hunt for drift risk in scaffolded plans:
 
 NOT applicable when the task is explicitly producing the verbatim content for the first time (e.g., the EI-drafting task itself).
 
+#### Reviewer Check 006 — EI §-Citation Format Discipline
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** Every Cross-References row MUST use canonical format `Spec #{N} ({filename.md})` with global numbering matching Master Plan Global Source Map.
+- **Detection:** Grep `Spec #\d+ \([^\)]+\.md\)` on Cross-References table; verify each `{N}` against Master Plan Global Source Map. Mismatch → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] EI Cross-Reference §-citation format violated
+File: {EI file path} | Location: Cross-References row {N}
+Issue: Citation "{quoted_citation}" does not match Spec #{N} ({filename.md}) format
+Fix: Reformat per references/ei-citation-and-token-reconciliation.md §7 + verify against Global Source Map | Confidence: HIGH
+```
+
 ---
 
 ## 8. Token Reconciliation Gate — Arithmetic Beats Summary
@@ -224,6 +263,19 @@ Downstream propagation check (Sprint Plan / task scaffolding tasks MUST apply):
 Fidelity-review verification: a designated checkpoint confirms per-task estimates in task files sum to Orchestration totals, which sum to the Sprint total, which matches the design task's reconciliation block.
 
 NOT applicable when there is only one token-estimate layer (no divergence possible).
+
+#### Reviewer Check 007 — EI Token Reconciliation Gate
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** EI section token totals MUST reconcile with Sprint Plan Sessions Est. Tokens AND Master Plan Sprint Overview row tokens, deviation ≤10%. Algorithm-sprint EIs additionally MUST recompute numerical exemplars rather than verbatim-copy from source.
+- **Detection:** Compute `abs(EI_total - Sprint_total) / Sprint_total`; >10% → BLOCKER. For algorithm sprints, grep EI for verbatim numerical-exemplar tables from source; unmodified copy → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] EI token reconciliation gate failed
+File: {EI file path} | Location: EI token total {EI_total}
+Issue: Deviates {deviation_pct}% from Sprint Plan / Master Plan
+Fix: Recompute per references/ei-citation-and-token-reconciliation.md §8 (and §8.1 for algorithm sprints) | Confidence: HIGH
+```
 
 ---
 
@@ -324,6 +376,23 @@ Red flags during review:
 - Task-runner Status Block reports a 10%+ negative line-count delta on a verbatim-copy task whose downstream content-fidelity verification PASSes.
 
 NOT applicable when the task is producing transformed content (extraction + restructure), where line counts are expected to diverge from any single source section.
+
+#### Reviewer Check 061 — EI Verbatim-Copy Task Line-Count Body-Block Scope
+
+- **Severity / Role / Type:** ERROR | EI Reviewer | NEW
+- **What:** When a task instruction is "copy verbatim from EI §X" (or equivalent), the task's success-criteria `wc -l` smoke-check range MUST be computed against the EI's marked verbatim body block only — NOT the surrounding EI section, which embeds scaffolding metadata (Substitution Log, EI-only headers, EI-only Notes) the task instructions strip from the written file. The EI section authoring a verbatim block MUST contain explicit body delimiters (start/end markers or an unambiguous demarcating callout) so the task-scaffolder can count the body without inferring the boundary.
+- **Detection:**
+  1. Grep the EI for verbatim-copy task references: `copy.*verbatim.*from.*§|Verbatim Body|Body Content runs from|copy verbatim from EI`.
+  2. For each verbatim-copy task: open the cited EI §X and confirm explicit body delimiters are present (start-line + end-line markers, or a callout that demarcates the body block from surrounding EI metadata). Absent → ERROR.
+  3. Open the corresponding task file's Success Criteria; extract the `wc -l` range (e.g., `~{min}-{max} lines`).
+  4. Count the marked body block of EI §X (between the delimiters). Count the full EI §X section. If the documented range is within ±5% of the FULL section line count AND >10% above the body-block line count → ERROR (estimate measured the EI section, not the body block).
+- **Finding template:**
+```
+[ERROR] EI verbatim-copy line-count estimate measures EI section, not body block
+File: {task file path} | Location: Success Criteria
+Issue: wc -l range {documented_range} matches EI §{section} section length ({section_lines}) rather than body block ({body_lines})
+Fix: Recompute range against the marked body block per references/ei-citation-and-token-reconciliation.md §8.2 (and add body delimiters to EI §{section} if missing) | Confidence: MEDIUM
+```
 
 ---
 

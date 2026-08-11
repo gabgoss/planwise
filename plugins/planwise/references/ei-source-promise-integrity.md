@@ -67,6 +67,23 @@ NOT applicable when the part is explicitly marked as an index / map / scope-only
 
 See also: [ei-citation-and-token-reconciliation.md](ei-citation-and-token-reconciliation.md) §5 (Cross-Tier Duplicate Preservation — what to do when N sources cite the same finding), §10.2 (the downstream pre-extraction protocol that catches a broken promise at execution time).
 
+#### Reviewer Check 063 — Consolidated Context Body⇄Citation Presence
+
+- **Severity / Role / Type:** ERROR | EI Reviewer | NEW
+- **What:** Every finding named in a Consolidated Context part's header "Driving Findings" list or in a Cross-References row MUST have its full rule prose physically present in the part body — OR the Cross-References row MUST mark the citation explicitly as `[source-doc-only — see {path}]` (or equivalent deferred-marker syntax). Naming a finding in a header or table is a content promise; an unmarked absence in the body fails the promise.
+- **Detection:**
+  1. Locate Consolidated Context parts in the plan (typically under `Meta-{Abbrev}/Outputs/*-Consolidated-Context-Part-*.md`).
+  2. For each part: extract the list of findings named in the header "Driving Findings" line(s) AND in every Cross-References row.
+  3. For each named finding: grep the part body for the finding's rule prose (a heading match, a callout, or a recognizable paragraph keyed off the finding identifier).
+  4. If no body match AND no `[source-doc-only]` / `[deferred]` / equivalent marker on the Cross-References row → ERROR.
+- **Finding template:**
+```
+[ERROR] Consolidated Context body⇄citation promise broken
+File: {Consolidated Context part path} | Location: Cross-References row {N} / header Driving Findings
+Issue: Finding {finding-identifier} named as a source but no body prose found AND no [source-doc-only] marker
+Fix: Either fold {finding-identifier}'s prose into the part body OR amend the Cross-References row with [source-doc-only — see {path}] per references/ei-source-promise-integrity.md §10.1 | Confidence: HIGH
+```
+
 ---
 
 ### 10.2 Pre-Extraction Verification Protocol (Task Execution)
@@ -126,6 +143,24 @@ Applies to:
 - Audit-driven remediation sessions where the audit *describes* a lost rule but no intermediate Consolidated Context artifact carries the rule's prose — the audit description IS the authoritative source under §10.3.
 
 See also: §10.1 (the Consolidated Context tier where the promise is made), §10.3 (the priority-ordered fallback chain), [ei-citation-and-token-reconciliation.md](ei-citation-and-token-reconciliation.md) §8 (token reconciliation — a related arithmetic-beats-summary discipline).
+
+#### Reviewer Check 064 — Pre-Extraction Verification (Task Cites Section That Does Not Carry the Cited Prose)
+
+- **Severity / Role / Type:** ERROR | EI Reviewer | NEW
+- **What:** When a task file's Execution Steps include "extract verbatim from {EI Section}", "apply the Consolidated Context prose verbatim", or equivalent verbatim-extraction language, the cited EI/Consolidated Context section MUST physically carry the cited prose. If the cited section is absent or carries divergent prose (e.g., the same defect an upstream audit flagged), the task is at risk of either re-publishing the divergence or inventing replacement content.
+- **Detection:**
+  1. Grep task files in the plan for verbatim-extraction language: `extract verbatim|copy verbatim|apply.*verbatim|verbatim from §|prose verbatim`.
+  2. For each match: parse the cited EI/Consolidated Context section (`§X.Y`, `Spec #N`, or explicit Part path).
+  3. Open the cited section; verify the prose the task expects to extract is physically present and not a divergent variant.
+  4. If absent → ERROR. If divergent (the section carries prose that contradicts the task brief's stated intent or an upstream audit's described intent) → ERROR.
+  5. If the task brief includes an explicit fallback-hierarchy reference (per `references/ei-source-promise-integrity.md` §10.3) or pre-extraction-verification step in its Execution Steps, downgrade to WARNING (the task is verification-aware; the gap may be intentional).
+- **Finding template:**
+```
+[ERROR] Task verbatim-extraction targets a section that does not carry the cited prose
+File: {task file path} | Location: Execution Step {N}
+Issue: Cites {section-ref} as authoritative for verbatim extraction; section is {absent/divergent}
+Fix: Add a pre-extraction verification step + fallback hierarchy per references/ei-source-promise-integrity.md §10.2 + §10.3, OR repoint the citation to the actually-authoritative source (audit description, EI directive, recorded project-rule preference) | Confidence: MEDIUM
+```
 
 ---
 

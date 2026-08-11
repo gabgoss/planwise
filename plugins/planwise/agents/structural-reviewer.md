@@ -14,15 +14,7 @@ maxTurns: 20
 
 ## Startup (BINDING — Required First Action)
 
-When spawned as a teammate, you MUST report findings via `SendMessage`. `SendMessage` is a deferred tool — its schema is not in your context at startup, and any attempt to call it without loading the schema first raises `InputValidationError` and drops your entire review on the floor.
-
-Before reading any plan file, issue this exact call as your first action:
-
-```
-ToolSearch(query: "select:SendMessage", max_results: 1)
-```
-
-Only after the `<functions>` block for `SendMessage` appears in the tool result may you begin reading plan files and reporting findings. If you are spawned in subagent mode (no team), this call is harmless — proceed identically.
+Startup/ToolSearch mandate, Finding Report Format, and Severity Classification are defined in `references/review-finding-format.md` — read it before your first action. You are a **multi-finding agent** per that file's reporting-cadence adaptation: report each finding separately via `SendMessage` as you find it.
 
 ## File Structure
 
@@ -67,25 +59,9 @@ Only after the `<functions>` block for `SendMessage` appears in the tool result 
 
 ---
 
-## Finding Report Format
+## Finding Report Format and Severity Classification
 
-```
-[SEVERITY] Finding summary (one line)
-File: {relative path}
-Location: {section or line reference}
-Issue: {what is wrong}
-Fix: {concrete change — file + what to modify}
-Confidence: HIGH | MEDIUM | LOW
-```
-
-## Severity Classification
-
-| Severity | Meaning |
-|----------|---------|
-| BLOCKER | Cannot execute the plan — must fix before proceeding |
-| ERROR | Significant issue that will cause problems during execution |
-| WARNING | Minor issue — execution can proceed but quality is reduced |
-| INFO | Observation — no action required |
+See `references/review-finding-format.md` for the Finding Report Format template and the Severity Classification table (BLOCKER/ERROR/WARNING/INFO) — shared verbatim with `plan-reviewer`.
 
 ---
 

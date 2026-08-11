@@ -75,6 +75,23 @@ Red flags during review:
 - Sprint-N "Proposed change" overlaps numerically with a delta already applied by Sprint-M < N.
 - Sprint-N task file edits a cross-sprint-touched file with no Step-1 prerequisite grep.
 
+#### Reviewer Check 055 — EI Multi-Sprint Cumulative File-Touch Reconciliation
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** When the same file is edited across two or more sprints, the later sprint's EI "Current state" anchor block MUST reflect the cumulative POST-prior-sprint state, not the pre-plan baseline. The later sprint's `Proposed change` MUST cover ONLY the delta this sprint adds. The Sprint Plan SHOULD declare the file under `## Cross-Sprint File Touches`, and the first task that edits the file MUST include a Step-1 prerequisite grep gate.
+- **Detection:**
+  1. Build a file-touch matrix across all sprint EIs in the plan: for each file edited, list every (sprint, EI section).
+  2. For each file edited by ≥2 sprints: extract the later sprint's `Current state` anchor quote and grep the earlier sprint's `Proposed change` block for the same content. If the later sprint's "Current state" matches the pre-plan baseline (i.e., does NOT include the earlier sprint's appended rows/lines) → BLOCKER.
+  3. For each file edited by ≥2 sprints: open the later sprint's Sprint Plan; grep `## Cross-Sprint File Touches`. Absent → BLOCKER (the prerequisite-gate authoring rule cannot fire without the declaration).
+  4. For each file edited by ≥2 sprints: open the first task file in the later sprint that edits it; grep Step 1 for a prerequisite grep gate naming the prior task ID. Absent → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] EI multi-sprint cumulative state not reconciled
+File: {later sprint EI file path} | Location: §{section_name} Current state block
+Issue: Current state anchor matches pre-plan baseline; prior sprint {prior_sprint_id} already extended this file
+Fix: Reconcile per references/ei-completeness.md §9.1 (post-prior-sprint baseline + delta-only Proposed change + Sprint Plan Cross-Sprint File Touches + task-file Step-1 prerequisite grep gate) | Confidence: HIGH
+```
+
 ---
 
 ### 9.2 Cluster Enumeration in EI Repoint Maps
@@ -121,6 +138,24 @@ Red flags during review:
 - EI repoint map has fewer rows than the audit's cited-line count for the same cluster.
 - EI prose references a "canonical range" without enumerating every line in that range.
 - Downstream verification task references anchors no upstream repoint task enumerated.
+
+#### Reviewer Check 056 — EI Repoint Map Cluster Completeness
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** When an EI repoint map addresses an audit-identified range cluster (multiple dangling anchors belonging to the same canonical range or misnumbered series), the EI repoint map MUST enumerate every row of the cluster with explicit source anchor + target anchor per row. Implicit scope expansion via parenthetical hints ("canonical §X.Y.{first}-{last}") is forbidden.
+- **Detection:**
+  1. Open the upstream audit document(s) cited by the EI; locate every range table or cluster enumeration (a row that names a range like `§X.Y.{first}-{last}` with multiple `file:line` citations).
+  2. For each cluster: count the cited lines in the audit (cluster_lines).
+  3. Open the EI repoint map(s); count the rows referencing the cluster's canonical range or any of its misnumbered anchors (mapped_rows).
+  4. If `mapped_rows < cluster_lines` → BLOCKER.
+  5. If the EI map contains a parenthetical "canonical §X.Y.{first}-{last}" hint but enumerates fewer rows than the cluster → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] EI repoint map cluster incomplete
+File: {EI file path} | Location: §{section_name} repoint map
+Issue: Audit cites {cluster_lines} lines in cluster "{cluster_name}" but map enumerates only {mapped_rows} rows
+Fix: Enumerate every cluster row with explicit source+target per references/ei-completeness.md §9.2 | Confidence: HIGH
+```
 
 ---
 
@@ -173,6 +208,24 @@ Red flags during review:
 - Audit `## Dangling Anchors` (or equivalent) grep table lists N files; EI repair sections cover M < N of them.
 - Final-sweep verification task names files no upstream repair task was authorized to edit.
 - The phrase "verification only — do not edit" appears in a sweep that covers files the EI's earlier sections did not scope for repair.
+
+#### Reviewer Check 057 — EI Audit-Grep-Table Coverage (Repair Scope ⊇ Verification Scope)
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** When an audit lists a multi-file defect-class grep table and the EI scopes a final verification sweep across that file set, every file in the grep table MUST appear in at least one upstream repair task's Required Context (with the EI authorizing that task to edit it). Repair scope MUST be a superset of verification scope.
+- **Detection:**
+  1. Open the upstream audit document(s); extract every defect-class grep table (file enumeration) the audit produces. Call this set `audit_files`.
+  2. Open the EI; identify the final verification task (or sweep) — typically the last task in the sprint, with Objective containing "verify" / "sweep" / "0 dangling" / equivalent exit-gate language. Extract the files named in its scope. Call this set `verify_files`.
+  3. Open every other EI section that authorizes a repair task; extract the files named in each repair task's Required Context (with edit authority). Call the union `repair_files`.
+  4. Compute `verify_files − repair_files`. If non-empty → BLOCKER (the missing files are in the verification scope but no upstream repair task is authorized to edit them).
+  5. Also flag: if `audit_files − repair_files` is non-empty AND any of those files are cited in the EI (even outside the verification task) → BLOCKER (the EI scoped verification beyond repair).
+- **Finding template:**
+```
+[BLOCKER] EI audit-grep-table coverage gap (verification > repair)
+File: {EI file path} | Location: §{verification_section} vs §{repair_sections}
+Issue: Files in verification scope but not in any repair task scope: {missing_files}
+Fix: Add explicit repair task(s) authorizing edits to {missing_files}, OR remove them from the verification scope — per references/ei-completeness.md §9.3 | Confidence: HIGH
+```
 
 ---
 

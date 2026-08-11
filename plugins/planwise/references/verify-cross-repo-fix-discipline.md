@@ -146,6 +146,23 @@ When writing new entries to a self-describing structured file (YAML/JSON/TOML): 
 > # of the enum block declared at the top of the file.
 > ```
 
+#### Reviewer Check 066 — Fix-Task Execution-Time Fidelity (§7.3a–§7.3d)
+
+- **Severity / Role / Type:** BLOCKER/WARNING (tiered) | Task Reviewer | NEW
+- **What:** For any fix task whose target file lives cross-repo (a Required Context row annotated `BINDING SOURCE — full read required`), the Execution Steps MUST exhibit execution-time fidelity discipline: (a) a Step-1 canonical-file full-read gate (also enforced by the §7.5 compliance grep); (b) re-locate-by-content language — later steps locate edits by heading text / function name / unique anchor string, with no naked recipe line/step number presented as the authoritative edit target; (c) for any YAML/JSON/TOML edit, a parser-load success criterion (e.g. a `yaml.safe_load` / `json.load` gate) in Success Criteria, not just a content grep. Non-cross-repo fix tasks are out of scope (§7.6 exemptions).
+- **Detection:**
+  1. Identify fix tasks with a Required Context row annotated `BINDING SOURCE` (cross-repo canonical target). If none, the check is a no-op for that task.
+  2. (a) Grep Execution Step 1 for the full-read gate (`Read .* in full before any fix reasoning`). Absent → BLOCKER.
+  3. (b) Grep later Execution Steps for a naked recipe line/step reference (`line \d+`, `Step \d+\.\d+`, `L\d+`) used as the edit target without an accompanying content anchor (heading text / function name / unique string). Present without anchor → WARNING.
+  4. (c) If Expected Output or Execution Steps touch a `.yaml`/`.yml`/`.json`/`.toml` file, grep Success Criteria for a parser-load gate (`safe_load`, `json.load`, `tomllib`, or equivalent). Absent → WARNING.
+- **Finding template:**
+```
+[{BLOCKER|WARNING}] Fix-task execution-time fidelity gap
+File: {task file path} | Location: Execution Steps / Success Criteria
+Issue: {Step-1 full-read gate missing on BINDING SOURCE task | naked recipe line/step reference used as edit target without content anchor | structured-data edit lacks parser-load success criterion}
+Fix: Apply the §7.3a–§7.3d execution-time discipline per references/verify-cross-repo-fix-discipline.md (Step-1 full read / re-locate by content / verify data shapes / system-consistent value / parser-load before close) | Confidence: HIGH
+```
+
 ### 7.4 Why task-level enforcement, not reference-level
 
 Documenting canonical-source discipline only in a reference file (such as this one) has historically produced variable adherence — "the agent should know to do this" devolves into the agent NOT doing it whenever the reference doesn't load into the agent's context window at execution time. By forcing the rule into every fix-task file's Required Context table AND Execution Steps Step 1, the discipline becomes:

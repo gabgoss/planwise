@@ -100,6 +100,19 @@ Red flags:
 - EI Open Questions section has tags not traceable to source files
 - Template fidelity checks mandate a vocabulary without checking if source uses it
 
+#### Reviewer Check 001 — EI Severity Tag Catalog Present
+
+- **Severity / Role / Type:** ERROR | EI Reviewer | NEW
+- **What:** Every EI body MUST declare the source severity tag catalog (BLOCKER/ERROR/WARNING/INFO/UNCONFIRMED vocabulary).
+- **Detection:** Open each `*-Execution-Input*.md`; grep `^##\s+Severity\s+Vocabulary` heading. If absent AND EI contains `\[(BLOCKER|ERROR|WARNING|INFO|UNCONFIRMED)\]` references → ERROR.
+- **Finding template:**
+```
+[ERROR] EI severity tag catalog missing
+File: {EI file path} | Location: EI body — expected Severity Vocabulary section
+Issue: EI cites severity-tagged claims but does not declare the catalog
+Fix: Append "## Severity Vocabulary" per references/ei-fidelity.md §2 | Confidence: HIGH
+```
+
 ---
 
 ## 3. Threshold Alignment with Operational Dispatch Contract
@@ -138,6 +151,19 @@ Red flags during template authoring:
 - Two different retention percentages in the same task file
 - Threshold in task file does not match threshold in Sprint Plan
 - "Floor" defined without pointing to the source that sets it
+
+#### Reviewer Check 002 — EI Threshold Alignment With Operational Dispatch Contracts
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** Numerical thresholds in an EI (retention bands, token budgets, `{numeric-threshold}` values) MUST match operational dispatch contracts in companion Sprint Plan / Orchestration.
+- **Detection:** Open EI + Sprint Plan + Orchestration; extract numeric values from EI "Threshold" / "Budget" sections; compare against Sprint Plan Sessions table + Orchestration Total Estimated. Deviation >10% → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] EI threshold misaligned with dispatch contract
+File: {EI file path} | Location: EI section {section_name}, value {EI_value}
+Issue: EI threshold {EI_value} differs from {plan_file} {plan_value} by >10%
+Fix: Reconcile per references/ei-fidelity.md §3 | Confidence: HIGH
+```
 
 ---
 
@@ -199,6 +225,19 @@ Red flags during template authoring:
 
 Apply order: when a fidelity-review task computes retention >100% for an algorithm sprint, FIRST check the legitimate-driver checklist; flag bloat only after a non-legitimate category surfaces.
 
+#### Reviewer Check 003 — EI Algorithm-Sprint Retention Band Calibration
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** Algorithm sprints (Objective declares algorithmic / numerical-design work) MUST apply algorithm-band retention threshold (tighter than generic band).
+- **Detection:** Open Sprint Plan Objective; check keywords (`algorithm`, `numerical design`, `model`). Open EI §3.1 retention-band declaration. If Sprint Plan matches keywords AND EI uses generic band → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Algorithm-sprint retention band miscalibrated
+File: {EI file path} | Location: EI §3.1 retention band
+Issue: Sprint Plan declares algorithm work but EI applies generic band
+Fix: Apply algorithm-band per references/ei-fidelity.md §3.1 | Confidence: HIGH
+```
+
 ---
 
 ## 4. UNCONFIRMED Caveats — Four-Site Redundant Enforcement
@@ -248,6 +287,19 @@ Red flags during review:
 - UNCONFIRMED item appears only in the EI's primary section (Data Quality Caveats subsection missing the entry)
 - Source file says "unverified" but EI shows the field as normal (verification status dropped)
 - Design document lists the table/field but no session/task is tagged as enforcing the exclusion
+
+#### Reviewer Check 004 — EI UNCONFIRMED Four-Site Enforcement
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** Every UNCONFIRMED claim MUST appear at all four sites: (a) EI header note, (b) inline `> [!constraint]` callout (NOT `> [!practice]`), (c) Cross-References annotation column, (d) Exit-Criteria caveat.
+- **Detection:** Grep EI for `UNCONFIRMED`. For each occurrence, verify presence at all four sites. If `> [!practice]` callout used → BLOCKER. If missing from any site → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] UNCONFIRMED claim missing four-site enforcement
+File: {EI file path} | Location: claim "{quoted_claim_text}"
+Issue: Flagged UNCONFIRMED but absent from {missing_site_name}
+Fix: Replicate per references/ei-fidelity.md §4 | Confidence: HIGH
+```
 
 ---
 
