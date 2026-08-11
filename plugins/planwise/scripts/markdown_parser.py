@@ -55,6 +55,43 @@ def count_cells(line: str) -> int:
     return len(split_row_cells(line))
 
 
+def find_row_by_id(lines: list[str], item_id: str) -> tuple[int, list[str]] | None:
+    """Locate a table row by its ID column, matched with leading zeros stripped.
+
+    Walks an already-split line list (``content.split("\\n")``), skipping
+    non-row lines, the header row, and the separator row, and returns the
+    index and cell values (the ``split_row_cells`` view) of the first row
+    whose ID column matches — or ``None`` if no row matches.
+
+    A caller that needs to write the row back should re-split
+    ``lines[index]`` with ``split_row_raw`` rather than mutate the cells
+    returned here: the cell view has already unescaped the row for reading,
+    which is not the round-trip-safe view a write-back needs.
+    """
+    target = item_id.lstrip("0")
+    for i, line in enumerate(lines):
+        if not line.strip().startswith("|"):
+            continue
+        cells = split_row_cells(line)
+        if len(cells) < 6:
+            continue
+        row_id = cells[0].strip()
+        if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
+            continue
+        if row_id.lstrip("0") == target:
+            return i, cells
+    return None
+
+
+def pad_cell(old_cell: str, new_value: str) -> str:
+    """Replace a table cell's value while preserving its surrounding whitespace padding."""
+    leading = len(old_cell) - len(old_cell.lstrip())
+    trailing = len(old_cell) - len(old_cell.rstrip())
+    if trailing == 0:
+        return " " * leading + new_value
+    return " " * leading + new_value + " " * trailing
+
+
 def warn_on_unparsed_rows(stats: dict, table_name: str) -> int:
     """Report rows that were present in the table but did not survive parsing.
 

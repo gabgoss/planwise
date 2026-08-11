@@ -95,6 +95,164 @@ def write_config_checked(config_path, text: str) -> None:
         ) from exc
 
 
+def find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
+    """Locate the top-level `context:` block in a list of YAML lines.
+
+    Returns (header_index, block_end_exclusive, subkey_indent) where:
+      * header_index is the index of the `context:` line,
+      * block_end_exclusive is the index of the first line AFTER the block
+        (the next top-level key, or len(lines) at EOF),
+      * subkey_indent is the leading whitespace string used for the block's
+        sub-keys (taken from the first indented member, or "  " if none).
+
+    Returns None when no top-level `context:` block exists.
+
+    This is the shared LOCATE half of the config.yaml `context:`-block text
+    surgery: every writer that targets the block — the additive,
+    skip-if-present sub-key merge and the replace-or-append splice below —
+    locates it this same way, so this is their one shared home. Callers that
+    need the SPLICE half (replace-or-append) use splice_context_block(); a
+    caller that instead must never overwrite an existing sub-key locates the
+    block here and keeps its own skip-if-present loop local.
+    """
+    header_idx = None
+    for i, line in enumerate(lines):
+        if re.match(r"^context:\s*$", line):
+            header_idx = i
+            break
+    if header_idx is None:
+        return None
+
+    subkey_indent = "  "
+    found_indent = False
+    end = len(lines)
+    for j in range(header_idx + 1, len(lines)):
+        line = lines[j]
+        if line.strip() == "" or line.lstrip().startswith("#"):
+            # Blank/comment lines belong to the block only if more content
+            # follows at sub-key indent; tentatively include and keep scanning.
+            continue
+        indent_match = re.match(r"^(\s+)\S", line)
+        if indent_match:
+            if not found_indent:
+                subkey_indent = indent_match.group(1)
+                found_indent = True
+            continue
+        # A non-indented, non-blank, non-comment line ends the block.
+        end = j
+        break
+
+    # Trim trailing blank/comment lines back out of the block so insertions
+    # land directly after the last real sub-key.
+    while end - 1 > header_idx:
+        prev = lines[end - 1]
+        if prev.strip() == "" or prev.lstrip().startswith("#"):
+            end -= 1
+        else:
+            break
+
+    return header_idx, end, subkey_indent
+
+
+def _block_value_end(text: str, line_end: int, key_indent: int) -> int:
+    """Return the offset just past a block-mapping value following a key line.
+
+    `line_end` is the end offset of the matched `key:` line (the position of its
+    newline, or EOF); `key_indent` is that line's indent width. Consumes each
+    following line indented STRICTLY deeper than the key — deeper-indented
+    comment lines included, since they sit inside the block. Stops at the first
+    blank line or any line indented at or below the key, so a trailing blank
+    line and a comment introducing the NEXT key are never swallowed.
+
+    Returns `line_end` unchanged unless at least one deeper-indented NON-comment
+    child was found — a lone comment under a valueless key is the user's note on
+    an empty value, not a block mapping, and must survive the rewrite.
+    """
+    end = line_end
+    pos = line_end
+    saw_child = False
+    while pos < len(text) and text[pos] == "\n":
+        nxt = text.find("\n", pos + 1)
+        line = text[pos + 1:] if nxt == -1 else text[pos + 1:nxt]
+        if not line.strip():
+            break
+        indent = len(line) - len(line.lstrip())
+        if indent <= key_indent:
+            break
+        if not line.lstrip().startswith("#"):
+            saw_child = True
+        end = pos + 1 + len(line)
+        pos = end
+    return end if saw_child else line_end
+
+
+def splice_context_block(text: str, values: dict) -> str:
+    """Replace-or-append each (key, value) pair against a `context:` block.
+
+    For every key in `values`:
+      * If a `key:` line exists ANYWHERE in `text` (the search is a plain
+        whole-text regex, not scoped to inside the block — matching a
+        top-level key like `plugin_version` works the same way), its value is
+        REPLACED IN PLACE. A trailing inline comment on that line is
+        preserved. When the key's own line carries no value (the real value
+        lives in an indented block below it — either hand-authored or
+        produced by an earlier whole-file re-dump), the entire child block is
+        consumed and replaced too, so no orphaned children are left behind.
+      * If the key is absent, `{subkey_indent}{key}: {value}` is appended
+        directly under the `context:` block (or at end-of-text when no
+        `context:` block exists).
+
+    This is a targeted text splice — never a YAML round-trip — so comments,
+    key order, and flow styles everywhere else in `text` survive untouched.
+    Each value in `values` is rendered VERBATIM (an already-formatted YAML
+    literal), not Python-to-YAML converted.
+
+    This function ALWAYS replaces an existing key — it is the opposite policy
+    from an additive, skip-if-present merge. A caller that must never
+    overwrite an existing sub-key (e.g. a --migrate that must not clobber a
+    user's already-calibrated values) does not use this function for that
+    policy; it locates the block via find_context_block() and keeps its own
+    skip-if-present loop local.
+    """
+    lines = text.split("\n")
+    block = find_context_block(lines)
+    subkey_indent = block[2] if block is not None else "  "
+
+    appended: list[str] = []
+    for key, value in values.items():
+        pattern = re.compile(
+            rf"^(?P<indent>\s*){re.escape(key)}:(?P<rest>[^\n]*)$", re.MULTILINE
+        )
+        m = pattern.search(text)
+        if m:
+            # Preserve a trailing inline comment on the line (the value is
+            # everything up to an unquoted `#`). Splice via slicing rather than
+            # re.sub so the replacement is never re-interpreted for backrefs.
+            cm = re.search(r"(\s+#.*)$", m.group("rest"))
+            comment = cm.group(1) if cm else ""
+            replacement = f"{m.group('indent')}{key}: {value}{comment}"
+            end = m.end()
+            # An empty value on the key line (once its inline comment is set
+            # aside) means the real value may live in an indented block below —
+            # consume that block along with the parent line.
+            value_part = m.group("rest")[: cm.start(1)] if cm else m.group("rest")
+            if not value_part.strip():
+                end = _block_value_end(text, m.end(), len(m.group("indent")))
+            text = text[: m.start()] + replacement + text[end:]
+        else:
+            appended.append(f"{subkey_indent}{key}: {value}")
+
+    if appended:
+        lines = text.split("\n")
+        # Recompute the insertion point on the (possibly) mutated text.
+        block2 = find_context_block(lines)
+        insert_at = block2[1] if block2 is not None else len(lines)
+        lines = lines[:insert_at] + appended + lines[insert_at:]
+        text = "\n".join(lines)
+
+    return text
+
+
 def _parse_yaml_simple(text: str) -> dict:
     """Minimal YAML parser for flat and one-level-nested structures.
 

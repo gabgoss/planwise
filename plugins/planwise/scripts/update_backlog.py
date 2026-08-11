@@ -25,7 +25,7 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import VALID_STATUSES, ARCHIVE_STATUSES
-from markdown_parser import split_row_cells, split_row_raw
+from markdown_parser import find_row_by_id, pad_cell, split_row_raw
 
 # A row's raw segments carry one extra leading element — the text before the
 # row's opening pipe, normally empty. So the raw index of cell N is N + 1.
@@ -55,60 +55,32 @@ def update_item_status(content: str, item_id: str, new_status: str) -> tuple[str
     Raises ValueError if item not found.
     """
     lines = content.split("\n")
-    target_id_num = item_id.lstrip("0")
 
-    for i, line in enumerate(lines):
-        if not line.strip().startswith("|"):
-            continue
+    match = find_row_by_id(lines, item_id)
+    if match is None:
+        raise ValueError(f"Item ID '{item_id}' not found in backlog index.")
+    i, cells = match
+    old_status = cells[_CELL_STATUS].strip()
 
-        cells = split_row_cells(line)
-        if len(cells) < 6:
-            continue
+    parts = split_row_raw(lines[i])
+    status_idx = _CELL_STATUS + _RAW_OFFSET
+    if len(parts) > status_idx:
+        parts[status_idx] = pad_cell(parts[status_idx], new_status)
+        lines[i] = "|".join(parts)
 
-        row_id = cells[0].strip()
-        if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
-            continue
-
-        if row_id.lstrip("0") == target_id_num:
-            old_status = cells[_CELL_STATUS].strip()
-
-            parts = split_row_raw(line)
-            status_idx = _CELL_STATUS + _RAW_OFFSET
-            if len(parts) > status_idx:
-                old_cell = parts[status_idx]
-                leading = len(old_cell) - len(old_cell.lstrip())
-                trailing = len(old_cell) - len(old_cell.rstrip())
-                if trailing == 0:
-                    parts[status_idx] = " " * leading + new_status
-                else:
-                    parts[status_idx] = " " * leading + new_status + " " * trailing
-
-                lines[i] = "|".join(parts)
-
-            return "\n".join(lines), old_status
-
-    raise ValueError(f"Item ID '{item_id}' not found in backlog index.")
+    return "\n".join(lines), old_status
 
 
 def extract_file_links(content: str, item_id: str) -> list[str]:
     """Extract file paths from the Files column of a backlog index row."""
     lines = content.split("\n")
-    target_id_num = item_id.lstrip("0")
 
-    for line in lines:
-        if not line.strip().startswith("|"):
-            continue
-        cells = split_row_cells(line)
-        if len(cells) < 6:
-            continue
-        row_id = cells[0].strip()
-        if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
-            continue
-        if row_id.lstrip("0") == target_id_num:
-            files_cell = cells[_files_cell_index(cells)]
-            return re.findall(r'\]\(([^)]+)\)', files_cell)
-
-    return []
+    match = find_row_by_id(lines, item_id)
+    if match is None:
+        return []
+    _, cells = match
+    files_cell = cells[_files_cell_index(cells)]
+    return re.findall(r'\]\(([^)]+)\)', files_cell)
 
 
 def archive_item_files(
@@ -142,30 +114,21 @@ def archive_item_files(
 def update_index_links_to_archive(content: str, item_id: str) -> str:
     """Update file links in the index row to point to Archive/ subfolder."""
     lines = content.split("\n")
-    target_id_num = item_id.lstrip("0")
 
-    for i, line in enumerate(lines):
-        if not line.strip().startswith("|"):
-            continue
-        cells = split_row_cells(line)
-        if len(cells) < 6:
-            continue
-        row_id = cells[0].strip()
-        if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
-            continue
-        if row_id.lstrip("0") == target_id_num:
-            parts = split_row_raw(line)
-            files_idx = _files_cell_index(cells) + _RAW_OFFSET
-            if len(parts) > files_idx:
-                files_cell = parts[files_idx]
-                updated_cell = re.sub(
-                    r'\]\((?!Archive/)([^)]+)\)',
-                    r'](Archive/\1)',
-                    files_cell,
-                )
-                parts[files_idx] = updated_cell
-                lines[i] = "|".join(parts)
-            break
+    match = find_row_by_id(lines, item_id)
+    if match is not None:
+        i, cells = match
+        parts = split_row_raw(lines[i])
+        files_idx = _files_cell_index(cells) + _RAW_OFFSET
+        if len(parts) > files_idx:
+            files_cell = parts[files_idx]
+            updated_cell = re.sub(
+                r'\]\((?!Archive/)([^)]+)\)',
+                r'](Archive/\1)',
+                files_cell,
+            )
+            parts[files_idx] = updated_cell
+            lines[i] = "|".join(parts)
 
     return "\n".join(lines)
 
@@ -248,20 +211,7 @@ def reconcile_archival(
 
 def _row_id_exists(content: str, item_id: str) -> bool:
     """Return True if a Backlog Items row already uses this item ID."""
-    target = item_id.lstrip("0")
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if not stripped.startswith("|"):
-            continue
-        cells = split_row_cells(stripped)
-        if len(cells) < 6:  # skips the 2-column Dependencies table
-            continue
-        row_id = cells[0]
-        if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
-            continue
-        if row_id.lstrip("0") == target:
-            return True
-    return False
+    return find_row_by_id(content.split("\n"), item_id) is not None
 
 
 def append_backlog_row(

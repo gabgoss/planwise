@@ -31,7 +31,7 @@ from enum import Enum
 from pathlib import Path
 
 try:
-    from config_loader import get_upgrade_config, write_config_checked
+    from config_loader import find_context_block, get_upgrade_config, write_config_checked
 except ImportError:
     # Partial-install tolerance, mirroring the structural_compare guard below:
     # a half-synced scripts tree must not kill the whole CLI at import time.
@@ -48,6 +48,17 @@ except ImportError:
         # so a half-synced scripts tree writes unverified rather than failing
         # to start. Same spirit as the no-PyYAML no-op in the real helper.
         Path(config_path).write_text(text, encoding="utf-8")
+
+    def find_context_block(lines: list) -> "tuple[int, int, str] | None":   # noqa: D103
+        # Unlike the two degraded-but-safe fallbacks above, this helper's own
+        # job IS config.yaml write correctness. Duplicating (and risking drift
+        # from) the block-extent logic here would let a half-synced scripts
+        # tree silently rewrite a user's config.yaml with no signal something
+        # is wrong. Fail loudly instead — config_loader is a required sibling.
+        raise ImportError(
+            "config_loader is required for config.yaml context-block editing; "
+            "the scripts/ directory appears to be partially installed"
+        )
 from constants import InstallScope
 
 try:
@@ -229,57 +240,6 @@ FORMERLY_MIRRORED_AGENTS = [
 ]
 
 
-def _find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
-    """Locate the top-level `context:` block in a list of YAML lines.
-
-    Returns (header_index, block_end_exclusive, subkey_indent) where:
-      * header_index is the index of the `context:` line,
-      * block_end_exclusive is the index of the first line AFTER the block
-        (the next top-level key, or len(lines) at EOF),
-      * subkey_indent is the leading whitespace string used for the block's
-        sub-keys (taken from the first indented member, or "  " if none).
-
-    Returns None when no top-level `context:` block exists.
-    """
-    header_idx = None
-    for i, line in enumerate(lines):
-        if re.match(r"^context:\s*$", line):
-            header_idx = i
-            break
-    if header_idx is None:
-        return None
-
-    subkey_indent = "  "
-    found_indent = False
-    end = len(lines)
-    for j in range(header_idx + 1, len(lines)):
-        line = lines[j]
-        if line.strip() == "" or line.lstrip().startswith("#"):
-            # Blank/comment lines belong to the block only if more content
-            # follows at sub-key indent; tentatively include and keep scanning.
-            continue
-        indent_match = re.match(r"^(\s+)\S", line)
-        if indent_match:
-            if not found_indent:
-                subkey_indent = indent_match.group(1)
-                found_indent = True
-            continue
-        # A non-indented, non-blank, non-comment line ends the block.
-        end = j
-        break
-
-    # Trim trailing blank/comment lines back out of the block so insertions
-    # land directly after the last real sub-key.
-    while end - 1 > header_idx:
-        prev = lines[end - 1]
-        if prev.strip() == "" or prev.lstrip().startswith("#"):
-            end -= 1
-        else:
-            break
-
-    return header_idx, end, subkey_indent
-
-
 def _existing_context_subkeys(lines: list[str], start: int, end: int) -> set[str]:
     """Return the set of sub-key names already present in a context block."""
     keys: set[str] = set()
@@ -298,8 +258,8 @@ def _context_subkeys_delta(before: str, after: str) -> list[str]:
     """
     before_lines = before.split("\n")
     after_lines = after.split("\n")
-    before_block = _find_context_block(before_lines)
-    after_block = _find_context_block(after_lines)
+    before_block = find_context_block(before_lines)
+    after_block = find_context_block(after_lines)
     before_keys: set[str] = set()
     after_keys: set[str] = set()
     if before_block is not None:
@@ -323,12 +283,20 @@ def merge_context_subkeys(text: str, token_saver_value: str = "false") -> str:
     unchanged when there is no top-level `context:` block (the caller handles
     the whole-block-add path).
 
+    Delegates locating the block to the shared config_loader editor
+    (find_context_block) but keeps this function's own additive-only,
+    skip-if-present policy local — the opposite of config_loader's
+    splice_context_block, which ALWAYS replaces an existing key.
+    token_saver._write_back() rides that replace-if-present policy instead;
+    routing this function through it would silently overwrite a user's
+    already-calibrated Token Saver values on every --migrate.
+
     `token_saver_value` overrides the literal written for the `token_saver`
     toggle (so generation can honour --token-saver while migration defaults to
     "false").
     """
     lines = text.split("\n")
-    block = _find_context_block(lines)
+    block = find_context_block(lines)
     if block is None:
         return text
     header_idx, end, subkey_indent = block
