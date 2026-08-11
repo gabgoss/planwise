@@ -86,4 +86,4 @@ The script re-reads the index immediately before writing (race-safe against a co
 
 ---
 
-*Consumed by [`handlers/doctor.md`](../handlers/doctor.md) Stages 11/12/13 (all three index bindings, always-on — no `--no-check` escape hatch). `list.md` and `backlog.md` carry their own plans/backlog restatements pending repoint to this canonical.*
+*Consumed by [`handlers/doctor.md`](../handlers/doctor.md) Stages 11/12/13 (all three index bindings, always-on — no `--no-check` escape hatch), [`handlers/list.md`](../handlers/list.md) (plans), [`handlers/backlog.md`](../handlers/backlog.md) (backlog) and [`lessons-curate-workflow.md`](lessons-curate-workflow.md) (lessons) — each citing this canonical instead of restating the detect/reconcile flow.*

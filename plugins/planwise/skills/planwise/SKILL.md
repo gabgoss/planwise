@@ -29,7 +29,7 @@ Parse `$ARGUMENTS`:
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
 | `list` | Read [handlers/list.md](../../handlers/list.md) |
 | `lessons` | Read [handlers/lessons.md](../../handlers/lessons.md) |
-| `help` | Read [handlers/help.md](../../handlers/help.md) |
+| `help` | Display the Help section below (inline) |
 
 If `$0` is empty, display help (below).
 If `$0` is not in the table, respond: "Unknown subcommand: {$0}. Run `/planwise` for usage."
@@ -37,6 +37,8 @@ If `$0` is not in the table, respond: "Unknown subcommand: {$0}. Run `/planwise`
 ## Help
 
 ```
+planwise — Your AI project manager that never forgets.
+
 Usage: /planwise <subcommand> [args]
 
 Available subcommands:
@@ -46,7 +48,7 @@ Available subcommands:
   review [plan-path]           Review plan before execution
   run [@orchestration-file]    Execute a planned session
   upgrade                      Refresh installed rules/agents after a plugin update
-  doctor                       Report rules over-scoped to plan/backlog paths (injection-budget risks)
+  doctor                       Audit rule scope + (Token Saver) overhead staleness, read-gate scan, read-limit drift
   doctor --prune-stale         Delete stale de-scoped rules flagged REMOVABLE (writer; opt-in)
   token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
   backlog [item-id]            Triage backlog items; capture follow-up BLIs from resolution outputs
@@ -58,6 +60,8 @@ Available subcommands:
   lessons promote-batch <scope>  Batch-draft promotion BBs
   help                         Show this help message
 ```
+
+> For the full user guide, visit: https://github.com/gabgoss/planwise/tree/main/plugins/planwise
 
 ## Argument Forwarding
 
@@ -85,9 +89,19 @@ ARGUMENTS: $ARGUMENTS
 
 - [Scaffolding hygiene](../../references/scaffolding-hygiene.md)
 - [Discovery and exit criteria](../../references/discovery-and-exit-criteria.md)
+- [Exit-criteria fidelity](../../references/exit-criteria-fidelity.md)
+- [Execution-time binding rules](../../references/execution-time-binding-rules.md)
 - [EI fidelity](../../references/ei-fidelity.md)
+- [EI citation and token reconciliation](../../references/ei-citation-and-token-reconciliation.md)
+- [EI completeness](../../references/ei-completeness.md)
+- [EI source-promise integrity](../../references/ei-source-promise-integrity.md)
 - [Schema pin requirement](../../references/schema-pin-requirement.md)
 - [Task content fidelity](../../references/task-content-fidelity.md)
+- [Verify-before-cite](../../references/verify-before-cite.md)
 - [Verification gates](../../references/verification-gates.md)
+- [Measurement discipline](../../references/measurement-discipline.md)
 - [Verify against shipped artifact](../../references/verify-against-shipped-artifact.md)
+- [Verify discovery-phase consolidation](../../references/verify-discovery-consolidation.md)
+- [Cross-repo fix-task discipline](../../references/verify-cross-repo-fix-discipline.md)
+- [Backlog-item citation freshness](../../references/verify-backlog-citation-freshness.md)
 - [Artifact self-containment](../../references/artifact-self-containment.md)

@@ -54,21 +54,11 @@ Report a summary at the end with the new ID ranges processed and any anomalies (
 ### 3.1 Identify uncategorised lessons
 
 > [!gate] Reconcile the "Next available ID" counter before reading the index
-> That counter is a denormalized cache of one fact — the highest lesson ID that exists anywhere — and it has exactly one writer: capture mode. A lesson authored any other way (a hand-written closeout capture, a task-runner producing one as a sprint deliverable) leaves it stale, and curate is the read path best positioned to notice. Never consume the stated value as a boundary; derive the true one:
+> That counter is a denormalized cache of one fact — the highest lesson ID that exists anywhere — and it has exactly one writer: capture mode. A lesson authored any other way (a hand-written closeout capture, a task-runner producing one as a sprint deliverable) leaves it stale, and curate is the read path best positioned to notice. Never consume the stated value as a boundary; derive the true one.
 >
-> ```bash
-> python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --json
-> ```
+> Run the index-drift audit procedure in [`index-drift-audit.md`](index-drift-audit.md) against the **lessons** index (`reconcile_lessons.py`, banner `planwise lessons curate — lessons index counter drift audit`) — the lessons-index binding there carries the counter-drift specifics (the `next_id` JSON key, the four anomaly kinds, forward-only reconcile). This is the lessons-index analogue of `/planwise doctor` Stage 13; neither re-implements the other's comparison.
 >
-> Read the JSON at the path it prints (`JSON: {path}`), shaped `{"drifts": [...], "anomalies": [...], "next_id": "LL-NNN"}`. `drifts` is non-empty when the counter is BEHIND the true next ID; `anomalies` covers a missing counter line, a counter AHEAD of the true value, a Master-Table row whose file is gone, and a lesson file with no Master-Table row.
->
-> Report every drift and anomaly under **Anomalies** in the §6 summary — a stale counter is not a fix-in-passing but a signal in its own right: some lesson was authored off the capture path, so its Master-Table row and its categorisation entry were hand-made too and may carry their own gaps. Then offer the correction with `AskUserQuestion`: "Bump the lessons-index counter from {stated} to {expected}?" On agreement:
->
-> ```bash
-> python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --write
-> ```
->
-> The script re-reads the index immediately before writing (race-safe against a concurrent capture) and only ever moves the counter FORWARD — a counter ahead of the true max is reported and never lowered, because an ID can be retired deliberately and reusing it would break every cross-reference that still names it. Anomalies are never healed automatically for the same reason: which side is right needs a human. Declining leaves the index untouched — the report already recorded what was found.
+> Report every drift and anomaly under **Anomalies** in the §6 summary — a stale counter is not a fix-in-passing but a signal in its own right: some lesson was authored off the capture path, so its Master-Table row and its categorisation entry were hand-made too and may carry their own gaps.
 
 1. Read `{lessons_dir}/{lessons_index}` and extract every `LL-NNN` row from the Master Table. The **Master Table section is the boundary**: a row inside it is a real lesson, and the `LL-{NNN}` forms in the Naming Convention and Lesson File Template sections are placeholders, not lessons. Do not use the "Next available ID" line's position or its value to bound the set — it is a counter, not a row.
 2. Read `{lessons_dir}/00-Categorization-By-Domain.md` and extract every `LL-NNN` ID currently listed in any bucket table (every section declared in `config.yaml: categorization.buckets` plus the Classification edge cases table at the bottom).
