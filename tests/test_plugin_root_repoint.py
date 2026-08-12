@@ -57,6 +57,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 import config_loader  # noqa: E402
 import init_project as ip  # noqa: E402
+import artifact_upgrade  # noqa: E402 -- patch-target home for _run_upgrade()
 
 try:
     import yaml  # noqa: E402
@@ -106,7 +107,7 @@ class _RepointFixtureBase(unittest.TestCase):
         # Scope the rule-refresh loop to nothing, mirroring
         # _UpgradeArtifactsFixtureBase — this test suite is about the
         # config-write commit point, not artifact disposition.
-        rules_patch = mock.patch.object(ip, "INSTALLED_RULES", [])
+        rules_patch = mock.patch.object(artifact_upgrade, "INSTALLED_RULES", [])
         rules_patch.start()
         self.addCleanup(rules_patch.stop)
 
@@ -276,7 +277,7 @@ class TestAbortedUpgradeLeavesPairUntouched(_RepointFixtureBase):
         before = self.config_text(self.old_plugin_root, self.OLD_VERSION)
         self.write_config(before)
 
-        with mock.patch.object(ip, "HAS_YAML", False):
+        with mock.patch.object(artifact_upgrade, "HAS_YAML", False):
             exit_code = self.run_upgrade_quiet()
 
         self.assertEqual(exit_code, 2)
