@@ -10,7 +10,7 @@ Use this template when creating sprint-scoped Execution Input files during scaff
 # Sprint {XX} Execution Input: {Sprint Name}
 
 **Sprint:** {ABBREV}-S{XX}
-**Extracted from:** Part {N} ({Topic}), Part {N} ({Topic})
+**Extracted from:** Spec #{N} ({exact-source-filename.md}), Spec #{M} ({exact-source-filename.md})
 **Source lines:** {total from source parts} → Extracted: {lines in this file}
 
 ---

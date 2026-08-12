@@ -1,3 +1,10 @@
+# Session Summary Template
+
+Use this template when generating the session summary at session closeout, written to `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` (per [orchestration.md](orchestration.md)'s Post-Session Checklist).
+
+---
+
+```markdown
 # Session Summary: {Abbrev}-SXX-YY - {Session Name}
 
 **Completed:** {YYYY-MM-DD HH:MM}
@@ -90,3 +97,14 @@ The `Propagated To` column MUST name the destination file (task / orchestration 
 ## 8. Lessons Learned
 
 {Bullet list of LL-{NNN} entries created this session, OR the literal text "No lessons captured this session." if none captured.}
+```
+
+---
+
+## Naming Convention
+
+**Pattern:** `{Abbrev}-S{XX}-{YY}-Summary.md`
+
+**Location:** `Outputs/` (same session folder as the task files it summarizes).
+
+**Example:** `PI-S01-01-Summary.md`

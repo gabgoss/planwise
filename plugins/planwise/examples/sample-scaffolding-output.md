@@ -148,7 +148,7 @@ This shows the structure of a sprint-scoped Execution Input file:
 # Sprint 01 Execution Input: Schema & Foundation
 
 **Sprint:** MPW-S01
-**Extracted from:** Part 2 (SchemaDesign), Part 5 (DesignDecisions)
+**Extracted from:** Spec #2 (MPW-Consolidated-Context-Part-2-SchemaDesign.md), Spec #5 (MPW-Consolidated-Context-Part-5-DesignDecisions.md)
 **Source lines:** 890 → Extracted: 280
 
 ---
@@ -214,12 +214,12 @@ Task files reference specific sections below by number. Agents executing tasks s
 
 ## Cross-References
 
-| Section | Source Part | Source Section(s) |
+| Section | Source | Source Section(s) |
 |---------|------------|-------------------|
-| 1 | Part 2 (SchemaDesign) | Section 1: Common Metadata Fields |
-| 2 | Part 2 (SchemaDesign) | Section 2: Type Extension Schemas |
-| 3 | Part 2 (SchemaDesign) | Section 4: Recommended Master Schema |
-| 4 | Part 5 (DesignDecisions) | Decisions 1, 6, 7 |
+| 1 | Spec #2 (MPW-Consolidated-Context-Part-2-SchemaDesign.md) | Section 1: Common Metadata Fields |
+| 2 | Spec #2 (MPW-Consolidated-Context-Part-2-SchemaDesign.md) | Section 2: Type Extension Schemas |
+| 3 | Spec #2 (MPW-Consolidated-Context-Part-2-SchemaDesign.md) | Section 4: Recommended Master Schema |
+| 4 | Spec #5 (MPW-Consolidated-Context-Part-5-DesignDecisions.md) | Decisions 1, 6, 7 |
 
 ---
 
@@ -252,13 +252,15 @@ defined in the Execution Input.
 
 ## Required Context
 
-| Priority | File | Purpose |
-|----------|------|---------|
-| 1 | `MPW-S01-Execution-Input.md` — Section 1 | Base schema fields (17 common metadata) |
-| 2 | `MPW-S01-Execution-Input.md` — Section 2 | Extension schemas (rule, skill, hook, agent, plugin) |
-| 3 | `MPW-S01-Execution-Input.md` — Section 3 | YAML templates (copy-paste ready blocks) |
-| 4 | `MPW-S01-Execution-Input.md` — Section 4 | Design conventions (ID format, versioning) |
-| 5 | Task 1 output | Directory verification results |
+| Priority | File | Est. Lines | Est. Tokens | Purpose |
+|----------|------|-----------|-------------|---------|
+| 1 | `MPW-S01-Execution-Input.md` — Section 1 | ~50 | ~0.7K | Base schema fields (17 common metadata) |
+| 2 | `MPW-S01-Execution-Input.md` — Section 2 | ~65 | ~0.8K | Extension schemas (rule, skill, hook, agent, plugin) |
+| 3 | `MPW-S01-Execution-Input.md` — Section 3 | ~45 | ~0.6K | YAML templates (copy-paste ready blocks) |
+| 4 | `MPW-S01-Execution-Input.md` — Section 4 | ~40 | ~0.5K | Design conventions (ID format, versioning) |
+| 5 | Task 1 output | ~15 | ~0.2K | Directory verification results |
+
+**Context subtotal:** ~3K tokens (reads) + ~27K (output) = ~30K total
 
 ---
 

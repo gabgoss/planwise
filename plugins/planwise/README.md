@@ -396,7 +396,7 @@ When a new plugin version is published, upgrading happens in two stages:
 /planwise help
 ```
 
-Shows all available commands and links to this full user guide.
+Shows all available commands and links to this full user guide — served inline by the `/planwise` skill router rather than a separate handler file.
 
 #### How `help` works
 
@@ -469,7 +469,7 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 11 subcommand handlers (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, help)
+  handlers/                         # 10 subcommand handlers across 13 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons; help is served inline by the skill router)
   agents/                           # 5 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates

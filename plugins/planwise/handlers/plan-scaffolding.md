@@ -118,7 +118,7 @@ When extracting from Meta-Plan Discovery outputs, scaffolding agent MUST consume
 | {Spec #N (filename.md)} | T{1,2,3} | {1-line description} | {why excluded} |
 ```
 
-**Reviewer retention threshold** (enforced by `agents/plan-reviewer.md` Coverage Reviewer role):
+**Reviewer retention threshold** (enforced by `agents/plan-reviewer.md` EI Reviewer role):
 - < 80 % retention → auto-reject
 - 80 – 95 % retention → warn
 - ≥ 95 % retention → pass
