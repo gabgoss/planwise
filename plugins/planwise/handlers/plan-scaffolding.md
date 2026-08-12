@@ -1,7 +1,3 @@
----
-description: Scaffolding Workflow (Execution Plan from Discovery outputs) for /planwise plan — extracts sprint-scoped Execution Inputs from Consolidated Context parts
----
-
 # Handler: /planwise plan — Scaffolding Workflow
 
 **Loaded by:** [`handlers/plan.md`](plan.md) Step 0, when Scaffolding mode is detected.

@@ -26,7 +26,7 @@ Read the JSON file at the path it prints (`JSON: {path}`), shaped `{"drifts": [.
 ## Banner
 
 ```
-planwise {command} — {index} index drift audit
+planwise {command} — {index} index {qualifier }drift audit
 
 Drift detected ({K} row(s) out of sync):
   ! {row-identifier}: {index-value}  ->  {source-value}
@@ -35,7 +35,7 @@ Anomalies ({N}):
   ? {row-identifier}: {reason}
 ```
 
-If both are empty: `No drift detected. {index} matches its source of truth.` `{command}` is the invoking handler (`doctor`, `list`, `backlog`); `{index}` and the row/value wording take the per-index binding below.
+If both are empty: `No drift detected. {index} matches its source of truth.` `{command}` is the invoking handler (`doctor`, `list`, `backlog`); `{index}` and the row/value wording take the per-index binding below. `{qualifier}` is optional and is omitted entirely (along with the trailing space) for a plain row-drift audit; when present it names the audit's sub-kind — e.g. `archival ` (backlog archival state-coupling) or `counter ` (lessons-index counter drift) — immediately before `drift audit`.
 
 ## Write-on-Consent
 

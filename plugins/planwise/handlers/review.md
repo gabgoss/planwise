@@ -13,7 +13,7 @@
 
 ## Table of Contents
 
-- [Config Gate](#config-gate)
+- [Config Gate](#config-gate-auto-init-fallback)
 - [Phase 0: Plan Discovery](#phase-0-plan-discovery)
 - [Scale Detection](#scale-detection)
 - [No-Team Path (Trivial / Small)](#no-team-path-trivial--small)

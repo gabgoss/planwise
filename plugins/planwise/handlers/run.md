@@ -12,7 +12,7 @@
 
 ## Table of Contents
 
-- [Config Gate](#config-gate)
+- [Config Gate](#config-gate-auto-init-fallback)
 - [Phase 0: Pre-Execution Setup](#phase-0-pre-execution-setup)
 - [Phase 1: Execution Gate (READ-CONFIRM-ACT)](#phase-1-execution-gate-read-confirm-act)
 - [Phase 2: Always-TaskList Setup](#phase-2-always-tasklist-setup)

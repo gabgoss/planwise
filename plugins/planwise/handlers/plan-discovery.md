@@ -1,7 +1,3 @@
----
-description: Discovery Workflow (Meta-Plan creation) for /planwise plan — reads source material, cross-references it, and produces Consolidated Context Parts
----
-
 # Handler: /planwise plan — Discovery Workflow
 
 **Loaded by:** [`handlers/plan.md`](plan.md) Step 0, when Discovery mode is detected.

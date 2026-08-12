@@ -4,7 +4,7 @@
 
 ## Table of Contents
 
-- [Config Gate](#config-gate)
+- [Config Gate](#config-gate-auto-init-fallback)
 - [Required References](#required-references)
 - [Status Field](#status-field)
 - [Workflow](#workflow)
