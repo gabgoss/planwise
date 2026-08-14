@@ -20,6 +20,8 @@ merely different.
 Run with:  python -m pytest tests/test_score_backlog.py -q
 """
 
+import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -160,6 +162,112 @@ class TestWriteBackInsertingScoreColumn(unittest.TestCase):
         )
         for idx in (0, 2, 3, 4, 5, 6):
             self.assertEqual(clean[idx], escaped[idx], f"column {idx} diverged")
+
+
+class TestBoundaryFirstWalker(unittest.TestCase):
+    """A1 -- the boundary check must run BEFORE any skip branch, so the walker
+    terminates cleanly at a section boundary instead of running off the end of
+    the table. A blank line inside the table body is NOT a boundary."""
+
+    def test_blank_line_inside_table_body_does_not_truncate(self):
+        # Every row below the blank line must still be scored.
+        content = (
+            HEADER_WITH_SCORE
+            + "| 061 | First | Low | NOT_STARTED | DOC | - | [01](a.md) |\n"
+            + "\n"
+            + "| 062 | Second | High | NOT_STARTED | DOC | - | [01](b.md) |\n"
+        )
+        out = write_scores_to_index(content, {"061": 10, "062": 20})
+        self.assertEqual(_row_cells(out, "061")[5], "10")
+        self.assertEqual(_row_cells(out, "062")[5], "20")
+
+    def test_write_back_does_not_cross_into_a_following_table(self):
+        # Two tables separated by a blank line, a blockquote, and a "---":
+        # the walker must terminate at the "---" boundary and never touch the
+        # second table's rows.
+        content = (
+            HEADER_WITH_SCORE
+            + "| 061 | First | Low | NOT_STARTED | DOC | - | [01](a.md) |\n"
+            + "\n"
+            + "> A note about the table above.\n"
+            + "\n"
+            + "---\n"
+            + "\n"
+            + "| ID  | Other | Value |\n"
+            + "|-----|-------|-------|\n"
+            + "| 900 | Should | NotBeTouched |\n"
+        )
+        second_table_before = content[content.index("| ID  | Other |"):]
+
+        out = write_scores_to_index(content, {"061": 10})
+
+        self.assertEqual(_row_cells(out, "061")[5], "10")
+        second_table_after = out[out.index("| ID  | Other |"):]
+        self.assertEqual(
+            second_table_after, second_table_before,
+            "the second table must be byte-unchanged after write-back",
+        )
+
+
+class TestReconciliationWarning(unittest.TestCase):
+    """A2 -- write_scores_to_index compares computed vs written counts and
+    warns loudly on stderr when they diverge. The warning is a data-shape
+    signal about the caller's index, not a script failure: it never raises
+    SystemExit, so the caller's exit code stays 0."""
+
+    def _clean_index(self) -> str:
+        return (
+            HEADER_WITH_SCORE
+            + "| 061 | First | Low | NOT_STARTED | DOC | - | [01](a.md) |\n"
+        )
+
+    def test_no_warning_on_a_clean_write(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            write_scores_to_index(self._clean_index(), {"061": 10})
+        self.assertEqual(err.getvalue(), "")
+
+    def test_warning_fires_verbatim_on_a_shortfall(self):
+        # scores names an item the walker never reaches -- exactly the
+        # "computed N, wrote M" shortfall the reconciliation check exists to
+        # surface. Assert the exact shipped warning text.
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            write_scores_to_index(self._clean_index(), {"061": 10, "062": 20})
+        self.assertEqual(
+            err.getvalue().strip(),
+            "WARNING: computed 2 score(s) but wrote 1. "
+            "1 row(s) did not receive a Score cell -- the table walk "
+            "terminated early. Check for a malformed row or a stray section "
+            "boundary inside the table body.",
+        )
+
+    def test_shortfall_does_not_raise_systemexit(self):
+        try:
+            write_scores_to_index(self._clean_index(), {"061": 10, "062": 20})
+        except SystemExit:
+            self.fail(
+                "write_scores_to_index must not sys.exit on a reconciliation "
+                "shortfall -- exit code stays 0"
+            )
+
+    def test_shortfall_on_the_two_table_boundary_fixture(self):
+        # A realistic source of the shortfall: the walker terminates at the
+        # section boundary before reaching a row in a following table.
+        content = (
+            HEADER_WITH_SCORE
+            + "| 061 | First | Low | NOT_STARTED | DOC | - | [01](a.md) |\n"
+            + "\n"
+            + "---\n"
+            + "\n"
+            + "| ID  | Other | Value |\n"
+            + "|-----|-------|-------|\n"
+            + "| 900 | Should | NotBeTouched |\n"
+        )
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            write_scores_to_index(content, {"061": 10, "900": 5})
+        self.assertIn("WARNING: computed 2 score(s) but wrote 1.", err.getvalue())
 
 
 if __name__ == "__main__":

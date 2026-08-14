@@ -324,6 +324,57 @@ If a task fails or returns BLOCKED:
 
 After all tasks complete (or all non-blocked tasks complete):
 
+### Step 4.0: Prior-Sprint Outputs Guard
+
+A session must not leave a **completed prior sprint's** `Outputs/` artifact modified or deleted. Those files are the artifact of record that later sprints adjudicate against and that signoffs quote; mutating one rewrites the evidence a past decision was made on, after the fact. Any re-executed producer — a notebook, a generator script, an `--inplace` formatter, a doc emitter — can do this and still exit 0, and per-task verification never catches it because every task checks only its own outputs.
+
+Run the guard BEFORE generating the summary, so a violation halts closeout while the session state is still intact:
+
+```bash
+python {plugin_root}/scripts/check_prior_sprint_outputs.py \
+  --config {planwise_root}/config.yaml \
+  --current-session {session-folder-path}
+```
+
+The script exits 0 when clean and 1 when it finds a BLOCKING violation, printing one block per finding:
+
+```
+BLOCKING: modified file under a COMPLETE sprint's Outputs/
+  path:          {plans_dir}/{Plan}/{Exec-Abbrev}/Sprint-{XX}-{Name}/Session-{YY}-{Name}/Outputs/{file}
+  owning sprint: {Abbrev} Sprint-{XX} Session-{YY}  (Status: COMPLETE)
+  change:        M   (+{ins} -{del})
+```
+
+**On a clean result** — continue to Step 4.1.
+
+**On a BLOCKING result** — do NOT proceed to Step 4.1. Present the findings to the user and resolve one of two ways:
+
+| Resolution | Action |
+|---|---|
+| The mutation was unintended | Restore the file (`git checkout -- {path}`), fix the producer so it no longer writes to that path, and re-run the guard. Closeout resumes only after a clean run. |
+| The mutation is a genuine correction to a past artifact | Record the override in the Recovery file (format below), then proceed. The override is never silent and never inferred — it requires explicit user acknowledgement. |
+
+Recovery file override entry:
+
+```markdown
+### Prior-Sprint Outputs Override
+
+| Path | Owning sprint | Change | Acknowledged by | Reason |
+|------|---------------|--------|-----------------|--------|
+| {path} | {Abbrev} S{XX}-{YY} | M (+{ins} -{del}) | user | {why this correction is intended} |
+```
+
+> [!verify] Prior-sprint Outputs are unmodified at closeout
+> ```bash
+> python {plugin_root}/scripts/check_prior_sprint_outputs.py --config {planwise_root}/config.yaml
+> # MUST exit 0, OR every reported path MUST have a corresponding
+> # "Prior-Sprint Outputs Override" row in this session's Recovery file.
+> ```
+
+**Untracked new files are not findings.** Adding a new file to a completed sprint's `Outputs/` is not the hazard this guard exists for; only mutation or deletion of an existing tracked artifact is.
+
+**Not a git repo / no Master Plan tracking table** — the guard reports what it could not cover and exits 0. It never fails closed on an absent input, but it never stays silent about reduced coverage either (see the script's coverage line).
+
 ### Step 4.1: Generate Session Summary
 
 Read recovery file and orchestration file. Generate the summary document using [templates/summary-template.md](../templates/summary-template.md).
@@ -444,6 +495,7 @@ git push
 - Stage specific files -- never use `git add .` or `git add -A`
 - Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), plans index (if updated), **any downstream plan files that received propagated coordination flags in Step 4.4**
 - Commit types: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
+- Step 4.0's prior-sprint Outputs guard MUST have passed (or carry a recorded Recovery override) before staging — a commit is what makes a silent overwrite of a completed sprint's artifact of record permanent
 
 ### Step 4.6: Output Completion
 

@@ -17,7 +17,7 @@ description: Backlog Schema Reference for /planwise backlog -- the backlog index
 
 | Column | Type | Description |
 |--------|------|-------------|
-| ID | 3-digit zero-padded (001-999) | Unique backlog item number |
+| ID | 3-digit zero-padded (001-999) | Unique backlog item number; both bare (`002`) and prefixed (`PFX-002`) ID-cell forms are accepted, matched on the numeric component (leading zeros and any alpha prefix are ignored) — a new row's written form follows the index's predominant existing form, or an explicit `id_format` config key (`"prefixed" \| "bare"`) |
 | Feature | Free text | Short description of the item |
 | Priority | High, Medium, Low | Item priority level |
 | Status | See status values below | Current item state |
@@ -207,7 +207,7 @@ NOT_STARTED --[select in Phase 2]--> IN_PROGRESS
 |-----------|--------|
 | `config.yaml` not found | Print "Project not initialized. Run `/planwise init` first." and STOP |
 | Index file not found | Script exits with error; print path and STOP |
-| Item ID not found | Print error; ask user to verify ID (IDs are zero-padded: 002, not 2) |
+| Item ID not found | Print error; ask user to verify ID (bare and prefixed forms both match on the numeric component; verify the numeric id exists) |
 | Item file not found | Warn user; skip scope analysis, ask for manual route |
 | Fix agent returns BLOCKED | Report blocker to user; offer Route C (Session Planning) |
 | Status update fails | Print error; continue to next item |

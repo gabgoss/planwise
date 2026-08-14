@@ -25,7 +25,13 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import VALID_STATUSES, ARCHIVE_STATUSES
-from markdown_parser import find_row_by_id, pad_cell, split_row_raw
+from markdown_parser import (
+    find_row_by_id,
+    infer_predominant_id_form,
+    pad_cell,
+    render_id,
+    split_row_raw,
+)
 
 # A row's raw segments carry one extra leading element — the text before the
 # row's opening pipe, normally empty. So the raw index of cell N is N + 1.
@@ -350,7 +356,6 @@ def create_backlog_item(args) -> None:
         )
         sys.exit(1)
 
-    item_id = args.id.zfill(3)
     feature = args.feature.strip()
     priority = args.priority
     abbrev = args.abbrev.strip()
@@ -368,6 +373,19 @@ def create_backlog_item(args) -> None:
         sys.exit(1)
 
     content = index_path.read_text(encoding="utf-8")
+
+    # Stored ID form: an explicit id_format config key wins; otherwise infer
+    # the index's own predominant existing form (bare on an empty index). A
+    # bare config.get() is enough here -- id_format is a plain optional
+    # string with no coercion/validation beyond "key present or not", so a
+    # config_loader accessor would add a layer with nothing to do.
+    id_format = config.get("id_format")  # "prefixed" | "bare" | None
+    prefix = ""
+    if id_format is None:
+        id_format, prefix = infer_predominant_id_form(content)  # "bare" on an empty index
+    elif id_format == "prefixed":
+        _, prefix = infer_predominant_id_form(content)
+    item_id = render_id(args.id, id_format, prefix=prefix)
 
     if _row_id_exists(content, item_id):
         print(

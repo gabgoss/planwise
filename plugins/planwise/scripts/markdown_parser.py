@@ -55,8 +55,104 @@ def count_cells(line: str) -> int:
     return len(split_row_cells(line))
 
 
+def is_section_boundary(stripped: str, *, separator_seen: bool = True) -> bool:
+    """True when a stripped line ends the current markdown table's section.
+
+    A blank line is NOT a boundary -- it is whitespace inside the table body.
+    """
+    if stripped.startswith("## "):
+        return True
+    return stripped.startswith("---") and separator_seen
+
+
+_ID_TRAILING_NUM = re.compile(r"(\d+)\s*$")
+
+
+def normalize_id(raw: str | None) -> str:
+    """Canonicalize a backlog ID for equality matching.
+
+    The index ID column and a CLI --id argument may each be written bare
+    ("NNN", "0NNN") or prefixed (e.g. "PFX-NNN"). Reduce both forms to the same
+    bare, non-zero-padded numeric key so they compare equal. Falls back to the
+    zero-stripped string when the value carries no trailing digits, so a
+    non-numeric ID scheme still compares consistently with itself.
+    """
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    m = _ID_TRAILING_NUM.search(s)
+    return (m.group(1).lstrip("0") or "0") if m else s.lstrip("0")
+
+
+def id_number(raw: str) -> int | None:
+    """Numeric component of an index ID cell, or None when it carries no digits."""
+    n = normalize_id(raw)
+    return int(n) if n.isdigit() else None
+
+
+def infer_predominant_id_form(content: str) -> tuple[str, str]:
+    """Infer the Backlog Items index's predominant stored ID form.
+
+    Walks the data rows with the same row filtering ``find_row_by_id`` uses
+    (skip non-row lines, the header, and the separator) and counts prefixed
+    vs bare ID cells. The majority wins; a tie -- including a genuinely
+    empty or unparseable index -- falls back to ``"bare"``, the historical,
+    regression-safe default.
+
+    Returns ``(id_format, prefix)``: ``id_format`` is ``"bare"`` or
+    ``"prefixed"``; ``prefix`` is the index's own most common alpha prefix
+    among the prefixed cells (the text before the trailing numeric
+    component that ``normalize_id`` also splits on, e.g. ``"PFX-"``), or
+    ``""`` when ``id_format`` is ``"bare"``. A ``"prefixed"`` verdict always
+    carries the index's own observed prefix, never an invented one, so a
+    caller can hand it straight to ``render_id``.
+    """
+    bare = prefixed = 0
+    prefix_counts: dict[str, int] = {}
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = split_row_cells(stripped)
+        if len(cells) < 6:
+            continue
+        row_id = cells[0].strip()
+        if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
+            continue
+        m = _ID_TRAILING_NUM.search(row_id)
+        cell_prefix = row_id[: m.start()].strip() if m else ""
+        if cell_prefix:
+            prefixed += 1
+            prefix_counts[cell_prefix] = prefix_counts.get(cell_prefix, 0) + 1
+        else:
+            bare += 1
+    if prefixed > bare:
+        return "prefixed", max(prefix_counts, key=prefix_counts.get)
+    return "bare", ""
+
+
+def render_id(raw_id: str, id_format: str, prefix: str = "") -> str:
+    """Render raw_id in the given stored ID form.
+
+    The numeric component -- via ``id_number``, the same trailing-digit span
+    ``normalize_id`` matches -- is zero-padded to 3 digits either way
+    (today's convention). When raw_id carries no trailing digits
+    (``id_number`` returns None), it is zero-padded as a bare string instead,
+    preserving the pre-existing ``args.id.zfill(3)`` behavior for a
+    non-numeric ID so the bare-form default stays byte-identical to today's
+    output. prefix is attached only when id_format == "prefixed", and only
+    ever the caller-supplied, observed prefix -- render_id never invents one.
+    """
+    raw = str(raw_id).strip()
+    n = id_number(raw)
+    padded = f"{n:03d}" if n is not None else raw.zfill(3)
+    if id_format == "prefixed" and prefix:
+        return f"{prefix}{padded}"
+    return padded
+
+
 def find_row_by_id(lines: list[str], item_id: str) -> tuple[int, list[str]] | None:
-    """Locate a table row by its ID column, matched with leading zeros stripped.
+    """Locate a table row by its ID column, matched on the numeric component.
 
     Walks an already-split line list (``content.split("\\n")``), skipping
     non-row lines, the header row, and the separator row, and returns the
@@ -68,7 +164,7 @@ def find_row_by_id(lines: list[str], item_id: str) -> tuple[int, list[str]] | No
     returned here: the cell view has already unescaped the row for reading,
     which is not the round-trip-safe view a write-back needs.
     """
-    target = item_id.lstrip("0")
+    target = normalize_id(item_id)
     for i, line in enumerate(lines):
         if not line.strip().startswith("|"):
             continue
@@ -78,7 +174,7 @@ def find_row_by_id(lines: list[str], item_id: str) -> tuple[int, list[str]] | No
         row_id = cells[0].strip()
         if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
             continue
-        if row_id.lstrip("0") == target:
+        if normalize_id(row_id) == target:
             return i, cells
     return None
 
@@ -177,7 +273,7 @@ def parse_markdown_table(
         # Stop conditions
         if stop_before and stripped.startswith(stop_before):
             break
-        if stripped.startswith("## ") or (stripped.startswith("---") and separator_seen):
+        if is_section_boundary(stripped, separator_seen=separator_seen):
             break
 
         # Header row

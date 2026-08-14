@@ -255,6 +255,7 @@ Detailed reference material for this project. Documents with a **Must Read** con
 > - If session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before committing
 > - **Push** automatically (no confirmation needed)
 > - **git add** specific files (never `git add .` or `git add -A`)
+> - **Prior-sprint Outputs guard** (run handler Step 4.0) must have passed before the session-end commit, or carry a recorded Recovery override
 
 ---
 

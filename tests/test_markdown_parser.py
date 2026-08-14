@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 from markdown_parser import (  # noqa: E402
     count_cells,
+    is_section_boundary,
     parse_markdown_table,
     split_row_cells,
     split_row_raw,
@@ -412,6 +413,52 @@ class TestFindRowById(unittest.TestCase):
         self.assertEqual(index, 0)
         self.assertEqual(cells[3], "NOT_STARTED")
         self.assertEqual(cells[4], "DOC")
+
+    def test_prefixed_row_matches_a_bare_lookup(self):
+        # normalize_id reduces both forms to the same numeric key: a caller
+        # passing the bare form must still match a row stored in prefixed form.
+        lines = [
+            "| ID  | Feature | Priority | Status | Abbrev | Files |",
+            "|-----|---------|----------|--------|--------|-------|",
+            "| PFX-002 | second | Low | COMPLETE | DOC | [01](BB-002.md) |",
+        ]
+        index, cells = find_row_by_id(lines, "002")
+        self.assertEqual(index, 2)
+        self.assertEqual(cells[0], "PFX-002")
+
+    def test_bare_row_matches_a_prefixed_lookup(self):
+        # And the reverse: a bare-form row must match a prefixed --id lookup.
+        lines = [
+            "| ID  | Feature | Priority | Status | Abbrev | Files |",
+            "|-----|---------|----------|--------|--------|-------|",
+            "| 002 | second | Low | COMPLETE | DOC | [01](BB-002.md) |",
+        ]
+        index, cells = find_row_by_id(lines, "PFX-002")
+        self.assertEqual(index, 2)
+        self.assertEqual(cells[0], "002")
+
+
+class TestIsSectionBoundary(unittest.TestCase):
+    """The shared boundary predicate `parse_markdown_table` and
+    `write_scores_to_index`'s walker both terminate a table section on."""
+
+    def test_blank_line_is_not_a_boundary(self):
+        self.assertFalse(is_section_boundary(""))
+
+    def test_heading_is_always_a_boundary(self):
+        self.assertTrue(is_section_boundary("## Dependencies"))
+
+    def test_dashes_are_a_boundary_once_the_table_separator_has_been_seen(self):
+        self.assertTrue(is_section_boundary("---", separator_seen=True))
+
+    def test_dashes_are_not_a_boundary_before_the_table_separator_row(self):
+        # separator_seen=False means the table's own header separator row
+        # ("|---|---|") has not been consumed yet -- a "---" text line before
+        # that point must not be mistaken for a section-ending rule.
+        self.assertFalse(is_section_boundary("---", separator_seen=False))
+
+    def test_ordinary_table_row_is_not_a_boundary(self):
+        self.assertFalse(is_section_boundary("| 001 | Feature | High |"))
 
 
 class TestPadCell(unittest.TestCase):

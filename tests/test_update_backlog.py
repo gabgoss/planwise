@@ -381,6 +381,42 @@ class TestBacklogCliSurface(_UpdateBacklogFixtureBase):
         self.assertEqual(self.read_index_text(), before)  # no second row appended
         self.assertFalse((self.backlog_dir / "dup-TEST-item.md").exists())
 
+    def test_create_rejects_a_bare_duplicate_against_an_existing_prefixed_row(self):
+        # The existing row is stored in PREFIXED form. Pin id_format
+        # explicitly to "bare" so the new item's ID renders bare ("099")
+        # instead of following the index's own predominant (prefixed) form --
+        # otherwise the duplicate guard could pass for the wrong reason (an
+        # exact string match on "PFX-099" == "PFX-099"). With the new ID
+        # forced bare, the guard can only catch the clash by normalizing
+        # "PFX-099" and "099" to the same numeric component
+        # (find_row_by_id -> normalize_id), which is exactly the contract
+        # under regression here.
+        self.config_path.write_text(
+            CONFIG_YAML_FIXTURE + "id_format: bare\n", encoding="utf-8"
+        )
+        self.write_index(
+            "| PFX-099 | Existing | High | NOT_STARTED | TEST | - | "
+            "[01](existing-TEST-item.md) |\n"
+        )
+        before = self.read_index_text()
+
+        _, err, code = self._run_main(
+            [
+                "--config", str(self.config_path),
+                "--create",
+                "--id", "099",
+                "--feature", "Duplicate attempt",
+                "--priority", "Low",
+                "--abbrev", "TEST",
+                "--files", "dup-TEST-item.md",
+            ]
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("already exists", err)
+        self.assertEqual(self.read_index_text(), before)  # no second row appended
+        self.assertFalse((self.backlog_dir / "dup-TEST-item.md").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

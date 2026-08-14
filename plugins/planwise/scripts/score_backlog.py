@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config, get_scoring_weights
 from constants import OPEN_STATUSES
 from markdown_parser import (
+    is_section_boundary,
     parse_markdown_table,
     split_row_cells,
     split_row_raw,
@@ -250,12 +251,18 @@ def write_scores_to_index(content: str, scores: dict[str, int]) -> str:
         sparts.insert(-2, "------")
         lines[separator_idx] = "|".join(sparts)
 
+    scored = len(scores)
+    written = 0  # incremented once per row actually rewritten below
+
     for i in range(separator_idx + 1, len(lines)):
         stripped = lines[i].strip()
+
+        if is_section_boundary(stripped, separator_seen=True):
+            break
+        if not stripped:
+            continue
         if not stripped.startswith("|"):
-            break
-        if stripped.startswith("## ") or stripped.startswith("---"):
-            break
+            continue
 
         parts = split_row_raw(lines[i])
         cells = split_row_cells(lines[i])
@@ -281,10 +288,21 @@ def write_scores_to_index(content: str, scores: dict[str, int]) -> str:
             if score_idx >= 0 and len(parts) > score_idx + 1:
                 parts[score_idx + 1] = f" {score_val} "
                 lines[i] = "|".join(parts)
+                written += 1
         else:
             if len(cells) >= 6:
                 parts.insert(-2, f" {score_val} ")
                 lines[i] = "|".join(parts)
+                written += 1
+
+    if written < scored:
+        print(
+            f"WARNING: computed {scored} score(s) but wrote {written}. "
+            f"{scored - written} row(s) did not receive a Score cell -- the table walk "
+            f"terminated early. Check for a malformed row or a stray section boundary "
+            f"inside the table body.",
+            file=sys.stderr,
+        )
 
     return "\n".join(lines)
 

@@ -79,6 +79,7 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 
 - `score_backlog.py` computes priority scores (8 configurable factors, weights from `config.yaml`) and writes the Score column to the index
   - Items that block other open items get a blocker bonus per blocked item
+  - If it prints a stderr `WARNING: computed … score(s) but wrote …` (a computed-vs-written shortfall), the warning MUST be surfaced to the user verbatim rather than swallowed — it means rows below a malformed row kept stale Score cells; recommend inspecting the index body before trusting the displayed ranking
 - `parse_backlog.py` reads the backlog index at `{backlog_dir}/{backlog_index}`
 - Outputs a formatted table of **selectable** items (excludes COMPLETE, CLOSED, and items blocked by open dependencies)
 - Blocked items appear in a separate summary below the main table
