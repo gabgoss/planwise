@@ -4,7 +4,7 @@ description: Discovery scope rigor (deterministic-bug counts, ID persistence) an
 
 # Discovery Scope Rigor & Exit-Criteria Fidelity
 
-**Purpose:** Binding rules covering related plan-fidelity concerns, split across three files. This file (the anchor) covers Discovery scope rigor (§15) and carries the shared 11-row `/planwise review` BLOCKING-findings table for the whole family — kept whole here rather than split, so review tooling scans one table for all 11 checks. Cross-layer enforcement of exit-criteria fidelity (§16) lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md); design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), and spike-instrument verdict discipline (§20) live in [execution-time-binding-rules.md](execution-time-binding-rules.md). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
+**Purpose:** Binding rules covering related plan-fidelity concerns, split across three files. This file (the anchor) covers Discovery scope rigor (§15) and carries the shared 12-row `/planwise review` BLOCKING-findings table for the whole family — kept whole here rather than split, so review tooling scans one table for all 12 checks. Cross-layer enforcement of exit-criteria fidelity (§16) lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md); design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), and spike-instrument verdict discipline (§20) live in [execution-time-binding-rules.md](execution-time-binding-rules.md). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
 This file is the §15 segment of a 3-way split of what was originally referenced as the "§15 + §16 expansion" from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols); §16 and §17-§20 were subsequently split into the two sibling files named above to keep all three files under the project's 500-line limit. Read this file before authoring Discovery-phase Consolidated Context or Execution Inputs that name affected records. Read the siblings before authoring multi-layer binding refinements, BLOCKING-coverage task files, or sprint signoff checklists (`exit-criteria-fidelity.md`); or design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures (`execution-time-binding-rules.md`).
 
@@ -165,7 +165,7 @@ Fix: Persist IDs per references/discovery-and-exit-criteria.md §15.2 | Confiden
 
 ## Plan-Review Enforcement Summary
 
-The structural and content reviewers in `/planwise review` MUST surface BLOCKING findings for the following violations. Kept whole on this anchor file (rather than split across the three segments), so review tooling scans one table for all 11 checks; each row's Source rule column names the file that now carries the cited rule.
+The structural and content reviewers in `/planwise review` MUST surface BLOCKING findings for the following violations. Kept whole on this anchor file (rather than split across the three segments), so review tooling scans one table for all 12 checks; each row's Source rule column names the file that now carries the cited rule.
 
 | # | Check | Trigger | Source rule |
 |---|-------|---------|-------------|
@@ -180,6 +180,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 9 | Systemic gap resolved inline or under-fixed | A bug-fix session whose fix surfaces a recurring defect class either builds the whole framework inline (scope explosion) OR pins only the observed instances (no severity-class handling, no seeding catalog, no separate Discovery/Meta-Plan) | execution-time-binding-rules.md §19 |
 | 10 | Metric HALT on labelling difference | A signoff or consolidation agent declares FAIL / HALT because a probe column does not match the baseline, without first doing the cheap arithmetic check to confirm whether a different probe column (or combination) reproduces the baseline exactly | exit-criteria-fidelity.md §16.4 |
 | 11 | Synthetic-fixture magnitude claim | A spike reports tolerance or threshold magnitudes as "confirmed" based on synthetic-fixture sweep results alone, without deferring the magnitude verdict to real-input data | execution-time-binding-rules.md §20.1 |
+| 12 | Unsatisfiable absence criterion (enactor or ownership) | A removal/absence Success Criterion asserts a zero-match grep AND either the removal artifact is not excluded from the search scope (enactor cause) OR the searched token is a bare symbol/identifier with no pasted occurrence count (ownership cause) | exit-criteria-fidelity.md §16.9 |
 
 ---
 

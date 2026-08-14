@@ -39,6 +39,10 @@ Use this template when creating `{Abbrev}-S{XX}-Sprint-Plan.md`.
 
 ## Success Criteria <!-- REQUIRED -->
 
+<!-- Prefer a relationship the pipeline maintains (after == before, "equals the count the
+     upstream step disposed X") over a literal. If a literal is used, cite the measurement
+     that produced it in the same bullet. -->
+
 - [ ] {Measurable criterion 1}
 - [ ] {Measurable criterion 2}
 - [ ] {Measurable criterion 3}
@@ -46,6 +50,11 @@ Use this template when creating `{Abbrev}-S{XX}-Sprint-Plan.md`.
 ---
 
 ## Deliverables <!-- REQUIRED -->
+
+<!-- Removal / retirement deliverables: paste the sweep output that PRODUCED the list and cite
+     the command. Do not enumerate from memory — see scaffolding-hygiene.md §13, and note that
+     the creator artifact (schema/DDL, migration, generator, packaging declaration) is the member
+     whose omission silently undoes the retirement. -->
 
 1. **{Deliverable 1}:** {Description of what will be produced}
 2. **{Deliverable 2}:** {Description of what will be produced}
@@ -79,6 +88,21 @@ List every file this sprint edits that was ALSO edited by an earlier sprint of t
 |------|-------------------|----------------------------------|------------------|
 | `{path/to/file.ext}` | {Abbrev}-S{XX_prior}-{YY}-{##} | `{grep-anchor text the prior sprint inserted}` | {delta this sprint adds} |
 | `{path/to/file2.ext}` | {Abbrev}-S{XX_prior}-{YY}-{##} | `{grep-anchor text}` | {delta this sprint adds} |
+
+<!-- Declaring a row here mechanically implies three obligations in the consuming task:
+     (a) Step-1 prerequisite grep gate — see templates/task-file.md "Cross-Sprint
+         Prerequisite Grep Gate" (already enforced).
+     (b) A `cross-sprint:` entry in Depends On — see task-file-and-tracking-requirements.md
+         §9 "Cross-sprint dependency mirroring" (Reviewer Check 037; already enforced
+         generally — this row is what triggers it for THIS file).
+     (c) Required Context for this file anchored by grep SYMBOL, never by line range —
+         see scaffolding-hygiene.md §12.1. Any line number in a brief predates the prior
+         sprint's edit; treat every cited line number as a cost hint only. -->
+
+<!-- WRONG:   | src/{shared_module} | lines 890-905 (the export entries to delete) | 0.3K |
+     CORRECT: | src/{shared_module} | grep -n '"{SymbolA}"\|"{SymbolB}"' then read ±10 lines | 0.3K |
+              > Any line number in this brief predates {Abbrev}-S01-01-03's insertion. Locate by
+              > symbol; treat every cited line number as a cost hint only. -->
 
 The first task in this sprint that edits each listed file MUST include a Step-1 prerequisite grep gate verifying the prior delta marker is present (see `templates/task-file.md` "Cross-Sprint Prerequisite Grep Gate"). If the marker is missing, HALT — the prior sprint is incomplete and this sprint cannot run against the outdated baseline.
 

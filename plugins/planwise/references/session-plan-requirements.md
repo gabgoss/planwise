@@ -263,4 +263,10 @@ These gates bind the Verification Commands section of ingestion-shaped, load-sha
 
 ---
 
+## 10. Decision-Registry Citation Resolution
+
+Any `\bD[0-9]+\b` citation across a plan's own files MUST resolve to a definition inside that plan's own Master Plan `## Decisions (Locked)` section (see `templates/master-plan.md`) — the plans-index row does not count as resolution, because it is a bookkeeping artifact no task runner opens.
+
+---
+
 *Companion files: [session-planning-protocol.md](session-planning-protocol.md), [session-context-budget.md](session-context-budget.md), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (§9 Task Files and Completion Tracking), [destructive-change-requirements.md](destructive-change-requirements.md) (§10 Destructive-Path & Config-Gated Change Requirements)*

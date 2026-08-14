@@ -464,6 +464,44 @@ Cross-reference: `measurement-discipline.md` §8.6 covers cross-route APPEND saf
 >
 > Catalog row: "Comparison task sized without reference coverage" → WARNING.
 
+### 9.A.13 Assertion labels and validation cells need a 1:1 table
+
+> [!constraint] Every validation cell a task file enumerates MUST resolve to exactly one assertion label, including cells deliberately left unlabelled
+> When a plan names its validation assertions at one tier (Master Plan / Sprint Plan / Orchestration: `A1`…`AN`) but the cells implementing them are enumerated later at task level, the two registers can drift. If there are more cells than labels, the unlabelled cell attracts a reused label — and the reuse can silently flip a gate's semantics, hardening a report-only cell into an assert or the reverse.
+>
+> Any task file enumerating validation cells (assertion labels, gate IDs, check cells) MUST carry a 1:1 assertion-label ↔ cell-ID table, listing every cell — including deliberately unlabelled ones, which are marked `*(none — deliberately un-numbered)*` so a blank reads as a statement, not an invitation to fill in.
+>
+> WRONG — a validation-cell list with one cell left blank and the disposition carried only in prose, three lines from the citation that gets it wrong:
+> ```
+> | Cell | Purpose | Label |
+> |------|---------|-------|
+> | 8a   | row count | A2 |
+> | 8b   | spine completeness | A1 |
+> | 8c   | column / rename integrity | *(none)* |
+> | 8d   | duplicated-flag agreement | A3 — report-only, must NOT assert |
+> | 8e   | preseason NULL classification | A4 |
+> ```
+> The blank at `8c` invites reuse. `8d`'s report-only disposition lives only in a prose aside, and a later Success Criterion cites "**A3 (8c)** passes" — contradicting the Master Plan, the Sprint Plan, the Orchestration, and the task's own Notes-for-Agent, all of which say A3 reports and must not assert.
+>
+> CORRECT — a dedicated Disposition column, and the deliberately-unlabelled marking instead of a blank:
+> ```
+> | Cell | Purpose | Label | Disposition |
+> |------|---------|-------|-------------|
+> | 8a   | row count | A2 | assert |
+> | 8c   | column integrity | *(none — deliberately un-numbered)* | assert |
+> | 8d   | flag agreement | A3 | **report only — do NOT assert** |
+> ```
+>
+> Review check: within a task file, every assertion label appears exactly once; and every label named in the Master Plan / Sprint Plan / Orchestration resolves to exactly one cell. Duplicate label → ERROR.
+>
+> Review check: a label whose assert-vs-report disposition differs between two files → ERROR — the failure mode with real execution consequences, since one file treats the label as asserted and a sibling treats it as merely reported.
+
+> [!practice] A deliberately unlabelled cell must say so
+> The gap that invites reuse is a cell with an empty Label column. An author scanning the table reads the blank as "not yet filled in" and fills it. Mark it `*(none — deliberately un-numbered)*` so the blank is a statement rather than an invitation.
+
+Catalog row: "Duplicate assertion label within a task file" → ERROR.
+Catalog row: "Assert-vs-report disposition mismatch for one label across two files" → ERROR.
+
 ---
 
 ## Plan-Review Enforcement Summary
@@ -480,6 +518,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 6 | Cross-file enumeration not swept | A plan's item-set change leaves stale cardinality words or a superseded enumerated ID list in a sibling file (Orchestration, Master-Plan row, task file) | §9.A.10 |
 | 7 | Action tier contradicts its own evidence tier | A derived status cell in the action tier disagrees with the evidence section's recorded observation for the same item | §9.A.11 |
 | 8 | Comparison task sized without reference coverage | A comparison/reconciliation task brief omits the reference-side coverage measurement that should set its size and shape | §9.A.12 |
+| 9 | Assertion label and validation cell not 1:1 | A task file enumerating validation cells carries no assertion-label ↔ cell-ID table; or a label appears twice within one task file; or one label's assert-vs-report disposition differs between two files | §9.A.13 |
 
 For the Verify-Before-Cite checks (§9.B: cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / Pre-SQL verification), see [verify-before-cite.md](verify-before-cite.md)'s Plan-Review Enforcement Summary.
 

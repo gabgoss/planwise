@@ -1,5 +1,5 @@
 ---
-description: Error Pattern Catalog for /planwise review -- the 85-row quick-reference table of common plan-authoring defects and their severity classification, plus the mechanical DELEGATED-trigger-named check. Row numbers are cited externally and MUST NOT be renumbered.
+description: Error Pattern Catalog for /planwise review -- the 95-row quick-reference table of common plan-authoring defects and their severity classification, plus the mechanical DELEGATED-trigger-named check. Row numbers are cited externally and MUST NOT be renumbered.
 ---
 
 # Error Pattern Catalog
@@ -118,3 +118,13 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 83 | Bare column-count claim in a Pin with no catalog reconciliation (`schema-pin-requirement.md` §5.2 + §5.4) | ERROR | Task file Schema Pin vs live schema catalog |
 | 84 | Constraint-adding deploy with no data-side pre-flight (`session-plan-requirements.md` §9) | BLOCKER | Task file pre-flight / Verification Commands |
 | 85 | External-service task with no probe step (`verify-before-cite.md` §9.B.16) | ERROR | Task Execution Steps vs live service probe |
+| 86 | Line-anchored Required Context row for a file listed in Cross-Sprint File Touches, instead of a grep-symbol anchor (`templates/sprint-plan.md` Cross-Sprint File Touches) | ERROR | Task file Required Context vs Sprint Plan Cross-Sprint File Touches |
+| 87 | Unresolvable `D{N}` citation — resolves to no entry in the plan's own Master Plan `Decisions (Locked)` section; a plans-index row does not count (`templates/master-plan.md` Decisions (Locked) + `session-plan-requirements.md` §10) | ERROR | Plan files' `D{N}` citations vs Master Plan Decisions (Locked) |
+| 88 | Duplicate assertion label within a task file (`task-content-fidelity.md` §9.A.13) | ERROR | Task file assertion-label ↔ validation-cell table |
+| 89 | Assert-vs-report disposition mismatch for one label across two files (`task-content-fidelity.md` §9.A.13) | ERROR | Task file vs sibling file assertion-label disposition |
+| 90 | Removal deliverable enumerated, not derived — no Creator-role member and no explicit retained-creator statement (`scaffolding-hygiene.md` §13.1 + §13.2) | BLOCKER | Deliverables section vs sweep-derived deletion set |
+| 91 | Unsatisfiable absence criterion — zero-match assertion on a token the removal artifact must itself contain (`exit-criteria-fidelity.md` §16.9.1) | ERROR | Success criteria absence-grep vs removal artifact |
+| 92 | Success criterion asserts a bare literal with no provenance cited (`exit-criteria-fidelity.md` §16.10.1) | ERROR | Success Criteria literal counts |
+| 93 | Derived-ratio gate omits column, grain, denominator, or the re-derivation prohibition (`exit-criteria-fidelity.md` §16.10.2) | WARNING | Success Criteria / Verification Commands ratio gates |
+| 94 | Producer-artifact criterion with no reads-its-subject assertion (`exit-criteria-fidelity.md` §16.10.3) | WARNING | Success Criteria producer-artifact claims |
+| 95 | Symbol-keyed absence criterion with no measured count — a bare identifier scoped instead of the module/import path being removed (`exit-criteria-fidelity.md` §16.9.2) | ERROR | Success criteria deletion-scoped grep target |

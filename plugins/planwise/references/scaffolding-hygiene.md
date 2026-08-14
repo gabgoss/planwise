@@ -1,5 +1,5 @@
 ---
-description: Nine binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, and run-time-sound verification commands and context pointers
+description: Ten binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, run-time-sound verification commands and context pointers, and retirement-deliverables deletion-set derivation
 ---
 # Scaffolding Hygiene
 
@@ -21,6 +21,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 - [10. Pre-Allocate Tokens for Known High-Divergence Cohorts](#10-pre-allocate-tokens-for-known-high-divergence-cohorts)
 - [11. Mega-Scaffold Review-Gate — Non-Skippable for 2+ Sprints In One Pass](#11-mega-scaffold-review-gate--non-skippable-for-2-sprints-in-one-pass)
 - [12. Verification Commands and Context Pointers Must Be Run-Time Sound](#12-verification-commands-and-context-pointers-must-be-run-time-sound)
+- [13. Retirement Deliverables Must Derive the Deletion Set](#13-retirement-deliverables-must-derive-the-deletion-set)
 
 ---
 
@@ -474,6 +475,59 @@ Applies to:
 - Scaffolding authoring Verification Commands into task files, wherever the target lives in a nested or cloned sub-repo.
 - Plan review: reviewers spot-check both surfaces — one symbol-vs-line pointer and one `git -C` depth per scaffolded sprint — against the live tree.
 
+## 13. Retirement Deliverables Must Derive the Deletion Set
+
+A Deliverables list that removes a persistent artifact is produced by a sweep, not written from memory: run the sweep first, paste its output into the plan, and let that output be the list. Two sweep passes are needed because they catch different misses, and the hits must then be classified by ROLE — not file type — because exactly one role can silently undo the retirement.
+
+### 13.1 Derive the Deletion Set Before Authoring Deliverables
+
+> [!constraint] Run the sweep first, paste its output into the plan, and let that output be the list
+> A Deliverables list that **removes** a persistent artifact is produced by a sweep, not written from memory.
+
+```bash
+# Run BEFORE writing the Deliverables section. Two passes, because they miss different things.
+grep -rln --exclude-dir={vcs,cache dirs} "{qualified_artifact_name}" {source_roots} {docs}
+find {source_roots} -name "*{artifact_name}*"   # catches members that never mention the name in prose
+```
+
+WRONG — the Deliverables section names the files the author remembers touching:
+
+```markdown
+6. **Deletions:** `{path}/refresh_helper.{ext}`, `{path}/driving_notebook.{ext}`
+```
+
+Both entries correct; the creator artifact absent; nothing in the plan detects the absence, because every gate the plan wrote checks the work that *was* scheduled.
+
+CORRECT — the Deliverables section cites the command and pastes what it returned:
+
+```markdown
+6. **Deletions** — derived by `grep -rln "{qualified_name}" {roots}` + `find {roots} -name "*{name}*"`
+   (run {date}; full output in `Outputs/{...}-DeletionSweep.md`):
+   - `{path}/schema_definition.{ext}`   ← CREATOR (see §13.2 — omission undoes the retirement)
+   - `{path}/refresh_helper.{ext}`      ← REFRESHER
+   - `{path}/driving_notebook.{ext}`    ← DRIVER
+   - 5 citer-only references listed in §13.3 (edit, do not delete)
+```
+
+### 13.2 Classify Sweep Hits by ROLE, Not by File Type
+
+The sweep returns paths. What matters is what each path *does* to the artifact, because exactly one role can undo the retirement:
+
+| Role | What it does | Typical members | Cost of omitting it |
+|---|---|---|---|
+| **Creator** | Re-creates the artifact from nothing | schema DDL, migration, generator script, seed/fixture loader, packaging or re-export declaration | **UNDOES the retirement** — the next routine run resurrects the artifact as an orphan nothing refreshes and nothing drives |
+| Refresher | Populates or updates it | helper module, transform, ETL step | Inert dead code — fails or no-ops |
+| Driver | Invokes the refresher | notebook, CLI entry point, scheduled job | Inert dead code |
+| Citer | Names it in prose | docstrings, comments, docs, index rows, cross-references | Misleads the next reader toward a file that is gone (§13.3) |
+
+The Deliverables list MUST either contain a Creator-role member, or state explicitly which creator is being **kept** and why (a shared file that also defines artifacts staying alive is a legitimate keep — but it must be named as a decision, not omitted as an oversight).
+
+> A deletion list holding a Refresher and a Driver but no Creator is the failure signature. It reads complete — the two things a human remembers touching — and it schedules the artifact's return.
+
+### 13.3 Citers Are Edited, Not Deleted
+
+The same grep that derives the deletion set also finds every Citer. Citers are **edited, not deleted** — a docstring naming a deleted module as a precedent needs the precedent restated or the sentence dropped, not the docstring removed. Enumerate citers in the Deliverables list as a separate group with an explicit count, so the executor can verify the count rather than judge completeness by eye.
+
 ---
 
-*Nine binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*
+*Ten binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*

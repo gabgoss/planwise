@@ -19,6 +19,8 @@ This file is the §16 segment of a 3-way split of `discovery-and-exit-criteria.m
   - [16.6 Every Audit States the Defect Classes It Did Not Check](#166-every-audit-states-the-defect-classes-it-did-not-check)
   - [16.7 Re-Verify at Fix Time Obligates a Full Re-Characterization](#167-re-verify-at-fix-time-obligates-a-full-re-characterization)
   - [16.8 Sample-Stop Permitted on Converged Validation, With Annotation](#168-sample-stop-permitted-on-converged-validation-with-annotation)
+  - [16.9 An Absence Criterion Must Exclude Its Enactor and Prove Its Ownership](#169-an-absence-criterion-must-exclude-its-enactor-and-prove-its-ownership)
+  - [16.10 A Mechanical Anchor Checks the Form of the Check, Not the Truth of the Claim](#1610-a-mechanical-anchor-checks-the-form-of-the-check-not-the-truth-of-the-claim)
 
 ---
 
@@ -421,6 +423,152 @@ Fix: Reconcile per references/exit-criteria-fidelity.md §16 / references/discov
 
 > [!constraint] Sample-stop is permitted on a converged validation, with an annotation
 > A validation iteration MAY stop early when its verdict is already determined by parent state — denominator known, threshold crossed, or set membership confirmed. Document with a `**Deviation:**` annotation recording what stopped, the convergence proof, and the schedule for any residual. Not applicable when the iteration IS the validation (a per-row drift check has no convergence point).
+
+### 16.9 An Absence Criterion Must Exclude Its Enactor and Prove Its Ownership
+
+An absence criterion becomes unsatisfiable in two ways, needing different detections. The **enactor** cause: the artifact that performs the removal must name what it removes — an `--exclude` on the removal artifact fixes this. The **ownership** cause: the searched token is not owned by what is being deleted, so occurrences survive in code the plan never touched — an exclusion qualifier cannot reach this, because the artifact excluded was never the source of the surviving matches.
+
+#### 16.9.1 The Enactor Cause — Exclude the Artifact That Enacts the Absence
+
+> [!constraint] An absence criterion MUST exclude the artifact that enacts the absence
+> WRONG — the criterion cannot be satisfied by any correct execution:
+>
+> ```markdown
+> - [ ] `grep -rn "{retired_name}" {roots}` returns **zero matches**
+> ```
+>
+> The removal artifact must name what it removes. The executor's choices are an impossible literal pass, or deleting the very artifact that performs the retirement to make the number reach zero.
+>
+> CORRECT — scope the absence to everything except the enactor, and say so in the prose as well as in the command:
+>
+> ```markdown
+> - [ ] `grep -rn "{retired_name}" {roots} --exclude={removal_artifact}` returns zero matches —
+>       i.e. zero references **outside the removal script**, which necessarily names its target
+> ```
+
+Generalizes beyond retirement: this applies to any absence criterion whose subject necessarily appears in the artifact that enacts the absence — a deprecation notice naming the deprecated symbol, a changelog entry naming a removed flag, a migration naming a dropped column, a lint-suppression registry naming the rule being suppressed.
+
+#### 16.9.2 The Ownership Cause — A Symbol-Keyed Absence Criterion Asserts Ownership; Measure It First
+
+> [!constraint] A deletion criterion keyed on a symbol name asserts ownership; measure it first
+> Before writing a success criterion of the form *"symbol X no longer appears anywhere in `{scope}`"*, **grep for X across `{scope}` and paste the count into the criterion.**
+>
+> If the count is non-zero, one of two things is true and the criterion MUST say which:
+>
+> 1. **X is owned** by what you are deleting and the other occurrences are also in scope → enumerate them in the criterion.
+> 2. **X is shared by convention** → the criterion is about the *deleted module's* references, not about the symbol name. Re-key it.
+>
+> ```bash
+> # WRONG — unsatisfiable; a symbol name is not owned by one module
+> grep -rn "{helper}" {scope}          # MUST be 0
+>
+> # CORRECT — scope to the artifact actually being removed
+> grep -rn "{helper_module}" {scope}   # MUST be 0
+> ```
+>
+> **Prefer module / import-path scoping over symbol-name scoping for every deletion criterion.** An import path is genuinely unique to the thing being deleted; a helper name in a family of modules written from a shared template almost never is.
+>
+> Three corollaries:
+>
+> - **A single-file grep proves local ownership, not global.** *"This is the only definition I can see from here"* is not *"this is the only definition."*
+> - **Convention-driven codebases replicate helper names by design.** Any project with a *"every module provides the same private helpers"* rule — and such a rule is often the very rule governing the modules in scope — will have N copies of every helper name. Deletion criteria in such a codebase MUST key on modules, not symbols.
+> - **A prohibition on new code is not a claim about existing code.** *"No new module may use X"* is a forward-looking rule and can be entirely correct while *"X does not appear in the codebase"* is false. Inferring the second from the first is the specific move that produced the observed defect.
+>
+> **Where the claim acquires its authority.** In the observed instance the confidence grew at every hop — *"sole home"* in a brief, *"the ONLY consumer"* in a sprint-plan headline, then an executable gate — with nothing measuring it at any hop. A success criterion is the moment a factual claim gains the authority to make people change working code. That is the moment it must be measured.
+
+### 16.10 A Mechanical Anchor Checks the Form of the Check, Not the Truth of the Claim
+
+§16.3 requires every criterion to carry a mechanical anchor. §16.10 governs what that anchor is allowed to assert — it checks form, not truth. A criterion can name a command, name an expected value, satisfy §16.3 completely — and still be false, because nothing in the system produces the value it expects.
+
+That combination is worse than a vague criterion, not better. A prose-only row gets interpreted; a mechanically anchored false row gets **executed**, and a red gate on a stated success criterion reads as a defect in the work rather than a defect in the criterion. The natural remediation is to change correct work until the gate goes green.
+
+#### 16.10.1 A Literal in a Criterion Carries Its Provenance or It Is Not a Literal
+
+> [!constraint] A literal in a criterion carries its provenance or it is not a literal
+> State criteria as **relationships the system maintains**, not as literal counts — unless the count was measured at authoring time and **the measurement is cited in the criterion**.
+>
+> - WRONG: `{flag} = 1` reaches **5**
+> - CORRECT: `{flag} = 1` equals the number of known instances the upstream step disposed `resolved` — read from `{artifact}`, with a reconciliation table accounting for all five
+>
+> **Every literal needs a provenance**, because the same number is usually true of a different fact. In the observed instance "six tables" was correct for tables that carry the column and was silently reinterpreted as tables that contribute unresolved values. Two facts, one number, and nothing recorded which one the criterion meant.
+>
+> **Prefer `after == before` to `after == {literal}`.** An invariant the pipeline maintains is checkable without predicting a value; a predicted value is a forecast wearing a gate's clothing. When a plan already asserts "this table is unchanged" rather than "this table has N rows", that discipline generalises to every criterion in the plan.
+>
+> The two failure directions are opposites and both are silent:
+>
+> | Direction | What happens |
+> |---|---|
+> | **Quietly ticked** | The criterion is unmeetable and nobody re-counts a checkbox at signoff |
+> | **Met by harm** | A conscientious runner satisfies the number by doing the thing the plan exists to prevent |
+>
+> The second is the reason this is a MUST and not a practice. In the observed instance the only way to reach the stated count was to persist a row referencing an entity the reference catalog deliberately omits — the exact violation the sprint had been scoped to prevent.
+
+#### 16.10.2 A Gate on a Derived Ratio Names Its Column, Grain and Denominator, and Forbids Re-Derivation
+
+> [!constraint] A gate on a derived ratio names its column, grain and denominator, and forbids re-derivation
+> When a gate threshold reads a **derived** value — a ratio, share, fraction, or rate — specifying the formula and the threshold is **not enough**. The criterion MUST name:
+>
+> 1. the **exact column** to read,
+> 2. the **grain** that column is emitted at,
+> 3. the **denominator**, as a number, and
+> 4. an explicit prohibition on re-deriving the value from a neighbouring number that looks like the same thing.
+>
+> WRONG — formula and threshold only, grain left implicit:
+> ```markdown
+> If `{ratio} > {threshold}`, report PRECONDITION-FAILED and HALT.
+> {ratio} = {category} count / total {entities}.
+> ```
+> The artifact contains a column literally labelled for the category, at a **different grain**. A reader takes it, divides by the entity count, and halts a healthy plan. Nothing in the brief tells them they read the wrong grain.
+>
+> CORRECT — name the column, the grain, the denominator; forbid the alternative; require the other grain be reported separately:
+> ```markdown
+> `{ratio}` = count of {entities} with `{entity}_exercised = 0` ÷ **{N}**, read DIRECTLY from
+> the `{entity}_exercised` column emitted at {entity} grain by {upstream task}.
+>
+> Do NOT re-aggregate the {alias}-grain rows. The {alias}-grain denominator is {M} and the
+> {entity}-grain denominator is {N}; they are different numbers about different things.
+> Report the {alias}-grain count alongside, labelled separately.
+> ```
+>
+> Four corollaries, each independently load-bearing:
+>
+> - **A producer emitting multi-grain data MUST emit the rollup, not leave it derivable.** "Derivable in principle" is exactly how the wrong derivation happens. The consumer should never have to aggregate.
+> - **Say which error the gate is tuned against.** Halting a healthy plan and proceeding on a bad corpus are not symmetric costs. Where they are asymmetric, prefer the fail-open input and state the choice — **a HALT looks like diligence, and nobody re-checks the input of a gate that stopped the work.**
+> - **Pre-verify a cheap gate input at the orchestrator before dispatch.** When the input is one query, computing it and shipping it in the spawn prompt as orchestrator-validated context spends the runner's judgement on the verdict rather than on a number that can invert the outcome.
+> - **A magnitude estimate inside a warning is still an estimate.** A warning that quantifies a hazard as an approximation (*"differ by ~1.7x"*) when the real ratio is materially larger (*7.4x*, in the observed instance) has quietly misrepresented the risk. If a warning quantifies a hazard, measure the quantity or drop it.
+
+#### 16.10.3 A Criterion Naming an Artifact as the Producer of a Result Must Assert the Artifact Reads Its Subject
+
+> [!constraint] A criterion naming an artifact as the producer of a result MUST assert the artifact reads its subject
+> When a criterion names an artifact as the producer of a result — *"re-run `{artifact}` and record the delta"*, *"(it produces the headline metric)"* — that parenthetical is a **claim about the artifact's capability**, and it is exactly the kind of claim that gets written as context and never verified.
+>
+> Before trusting a measurement, verify the instrument reads the thing it measures. **One grep.** Do it when the measurement is authored, and again whenever a criterion names it as a producer:
+>
+> ```bash
+> grep -c '{subject_table_or_source}' {measurement_artifact}   # MUST be > 0
+> ```
+>
+> **A null result deserves more scrutiny than a positive one, not less.** *"No change detected"* is what both *"nothing changed"* and *"I cannot see the change"* look like — and only one of them is a finding. An instrument blind to its subject does not crash; it returns a precise, plausible, internally consistent number from the canonical tool, which is the most credible possible form of a wrong answer.
+>
+> A plan that says *"re-run X and record the delta"* must also say **"…and X must read Y."**
+
+#### 16.10.4 Changing How Something Is Measured Makes Baseline Reproduction a Hard Gate
+
+> [!constraint] Changing how something is measured makes baseline reproduction a hard gate
+> When a measurement method changes — a repaired instrument, a new source, a different code path — the new method MUST reproduce the **old baseline exactly** before any delta against that baseline is reported. Baseline reproduction is a hard gate that halts on mismatch, not a formality — and the baseline itself is never adjusted to fit the new method.
+>
+> Without it, the reported delta measures *the difference between two methods* rather than the effect of the work — and it is reported as the result.
+>
+> Prefer **one code path with a scope parameter** over two implementations of "before" and "after". Two implementations cannot be proven equivalent by inspection:
+>
+> ```text
+> SCOPE = "all"          # "{baseline_scope}" reproduces the prior baseline
+> predicate = {baseline_predicate} if SCOPE == "{baseline_scope}" else {always_true}
+> ```
+>
+> In the observed instance the baseline pass had to reproduce two prior figures to **4 decimal places** before the full pass was permitted to run. That single gate proves three things at once: the new source is faithful to the old one, the new index is equivalent to the one it replaced, and the "before" figure is like-for-like rather than a second method quietly substituted for the first.
+>
+> This is the counterpart to §16.4 and the two should be read together. §16.4 prevents a **false FAIL** — do the arithmetic before declaring a labelling difference a data divergence. §16.10.4 prevents a **false PASS** — no delta is reported until baseline reproduction succeeds against the old number.
 
 ---
 
