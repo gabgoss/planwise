@@ -1,5 +1,5 @@
 ---
-description: Error Pattern Catalog for /planwise review -- the 66-row quick-reference table of common plan-authoring defects and their severity classification, plus the mechanical DELEGATED-trigger-named check. Row numbers are cited externally and MUST NOT be renumbered.
+description: Error Pattern Catalog for /planwise review -- the 85-row quick-reference table of common plan-authoring defects and their severity classification, plus the mechanical DELEGATED-trigger-named check. Row numbers are cited externally and MUST NOT be renumbered.
 ---
 
 # Error Pattern Catalog
@@ -57,7 +57,7 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 22 | DELEGATED spawn prompt missing operational-ceiling disclaimer (`agent-orchestration-delegated.md` §1.11) | BLOCKER | Orchestration spawn prompts |
 | 23 | DELEGATED edit-heavy task missing N>25 resume protocol + tool-use budget estimation (`agent-orchestration-delegated.md` §1.12) | BLOCKER | Orchestration spawn prompts |
 | 24 | DELEGATED shared-edit-target dispatches missing parallelism cap/shard/delta strategy (`agent-orchestration-delegated.md` §1.13) | BLOCKER | Orchestration dispatch matrix |
-| 25 | Verify-before-cite round-2 (`verify-before-cite.md` §9.B.6..§9.B.9) | BLOCKER (varies by sub-rule) | Task file SQL/MERGE briefs |
+| 25 | Verify-before-cite round-2 (`verify-before-cite.md` §9.B.6 examples-repo pin verification, §9.B.7 spawn-prompt helper enumeration, §9.B.8 field-mapping + `wc -l` output gate, §9.B.9 tiered-fetch ladder) | BLOCKER (varies by sub-rule) | Task file spawn prompts, Required Context, and Verification Commands |
 | 26 | Sprint exit-gate verdict not reflecting gate-defining step (`verification-gates.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
 | 27 | Sprint Overview row encoding session-count fraction instead of gate verdict (`verification-gates.md` §4) | ERROR | Master Plan Sprint Overview |
 | 28 | EI Cross-References §-citation format violated (`ei-citation-and-token-reconciliation.md` §7) | BLOCKER | EI Cross-References table |
@@ -99,3 +99,22 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 64 | Orchestrator consumes sub-agent verdict label without recomputing from reported finding counts — systematic under-classification risk (`agent-orchestration-delegated.md` §1.16.1) | ERROR | Orchestration synthesis step; rollup tables |
 | 65 | Orchestrator accepts cross-file control-flow claim ("symbol X never used → feature Y is broken") without tracing the full consumer call path — false-positive over-classification risk (`agent-orchestration-delegated.md` §1.16.2) | WARNING | Orchestration finding acceptance; release-signoff verdicts |
 | 66 | DELEGATED declaration without a named trigger (`agent-orchestration-delegated.md` §1.1) — grep `Execution Strategy:\s*DELEGATED`; each match MUST carry an adjacent named trigger from the four | BLOCKER | Master Plan / Orchestration Execution Strategy |
+| 67 | Rule/reference citation not re-verified against live state after the cited file changed (`verify-before-cite.md` §9.B.18) | WARNING | Change-closeout back-propagation grep |
+| 68 | Prose count disagrees with the list it summarises (`task-content-fidelity.md` §9.A.9) | WARNING (ERROR when it feeds a parameter binding or schema decision) | Task file prose counts vs enumerated list |
+| 69 | Risk-Mitigation assertion not implemented in any task file (`exit-criteria-fidelity.md` §16.2) | ERROR | Master Plan Risk-Mitigation cell vs Task files |
+| 70 | Action tier contradicts its own evidence tier (`task-content-fidelity.md` §9.A.11) | BLOCKER | Derived status cells vs evidence-tier observations |
+| 71 | Defect heuristic stated without its exclusions (`verification-task-authoring.md` §9) | ERROR | Task file bare heuristic wording |
+| 72 | Comparison task sized without reference coverage (`task-content-fidelity.md` §9.A.12) | WARNING | Task Required Context / Comparison-Task Coverage row |
+| 73 | Schema Pin consumed at dispatch without dispatch-day live re-verification (`schema-pin-requirement.md` §5) | BLOCKER | Task file Schema Pin section at dispatch |
+| 74 | Multi-outcome Schema Pin whose consuming task does not open with the discovery query (`schema-pin-requirement.md` §5) | ERROR | Task file Execution Steps (Step 1) |
+| 75 | Data literal inline-copied from a design artifact instead of §-cited and reconciled at execution (`ei-citation-and-token-reconciliation.md` §7.1) | WARNING | Task file literal construction vs cited design artifact |
+| 76 | Ingestion/load task verified by exit code alone — no post-run row-count assertion (`session-plan-requirements.md` §9) | ERROR | Task file Verification Commands |
+| 77 | Data-state criterion anchored to an upstream Status field instead of a live query (`exit-criteria-fidelity.md` §16.5) | ERROR | Exit criteria / signoff data-state anchor |
+| 78 | Audit verdict does not state the defect classes it did NOT check (`exit-criteria-fidelity.md` §16.6) | WARNING | Audit / sweep report verdict statement |
+| 79 | Absence-grep criterion whose token is not scrubbed from the gate's own prose/legend (`verification-task-authoring.md` §8.1) | ERROR | Verification Commands absence-grep gate |
+| 80 | Schema Pin sourced from a design artifact, not reconciled against deployed state before SQL emission (`verify-before-cite.md` §9.B.13) | BLOCKER | Task file Schema Pin vs deployed DDL |
+| 81 | Template or brief cites env var / function signature / config key with no grep-backed `file:line` citation (`verify-before-cite.md` §9.B.14) | ERROR | Template / task brief cited symbols |
+| 82 | Brief says "re-run script X" with no architecture classification (parser / static-data / config-loader) (`verify-before-cite.md` §9.B.15) | WARNING (ERROR when X's output is Required Context to a later task) | Task brief generator-script instruction |
+| 83 | Bare column-count claim in a Pin with no catalog reconciliation (`schema-pin-requirement.md` §5.2 + §5.4) | ERROR | Task file Schema Pin vs live schema catalog |
+| 84 | Constraint-adding deploy with no data-side pre-flight (`session-plan-requirements.md` §9) | BLOCKER | Task file pre-flight / Verification Commands |
+| 85 | External-service task with no probe step (`verify-before-cite.md` §9.B.16) | ERROR | Task Execution Steps vs live service probe |

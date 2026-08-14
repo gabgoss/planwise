@@ -350,13 +350,13 @@ Applies to any task whose brief cites an external examples / cookbook / sample r
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** Schema Pins in planning-tier docs MUST reconcile against deployed-tier schema (`{schema-file}` / `{schema_glob_path}`).
-- **Detection:** Extract Schema Pin block; grep deployed schema for pinned column/constraint names. Unknown → BLOCKER.
+- **Detection:** Extract Schema Pin block; run the §9.B.13 three-step protocol — (1) grep deployed DDL for CREATE/ALTER on the pinned table, (2) grep the consumer-side data model for any Pin column an adapter populates, (3) confirm the reconciliation is recorded via a `> [!binding] Schema Pin reconciled to live deployed DDL` callout naming both source files. A pinned identifier unresolved against deployed DDL, or a reconciliation missing its callout → BLOCKER.
 - **Finding template:**
 ```
 [BLOCKER] Task Schema Pin planning-vs-deployed drift
 File: {task file path} | Location: Schema Pin section
 Issue: Pinned identifier "{name}" not found in deployed {schema-file}
-Fix: Reconcile per references/verify-before-cite.md §9.B.6 + schema-pin-requirement.md | Confidence: HIGH
+Fix: Reconcile per references/verify-before-cite.md §9.B.13 + schema-pin-requirement.md | Confidence: HIGH
 ```
 
 ### 9.B.7 Enumerate the specific helpers a spawn prompt tells an agent to use
@@ -413,7 +413,7 @@ Fix: Add enumeration per templates/task-file.md | Confidence: HIGH
 [ERROR] Task env/signature/config-key drift
 File: {task file path} | Location: Execution Steps
 Issue: Reference "{name}" not found in live source "{source_path}"
-Fix: Verify per references/verify-before-cite.md §9.B.7 | Confidence: HIGH
+Fix: Verify per references/verify-before-cite.md §9.B.14 | Confidence: HIGH
 ```
 
 ### 9.B.8 Field-mapping table for consumed data models; `wc -l ≤ 500` output gate
@@ -515,6 +515,205 @@ Fix: Add Field Mapping per templates/task-file.md | Confidence: HIGH
 > ```
 
 Applies to tasks that fetch from web pages, paginated APIs, large remote documents, or external registries.
+
+### 9.B.10 Reconcile the design tier against deployed state before authoring
+
+> [!constraint] Reconcile a design artifact's claims about deployed shape before authoring any statement that binds to it
+> When Discovery precedes Execution by more than a few days, a design artifact's
+> claims about a data structure are a hypothesis. Before authoring any statement
+> that binds to a deployed shape, grep the deployed definition (CREATE + every
+> subsequent ALTER) and the consuming code's data model. The live shape wins;
+> record any divergence in Recovery rather than silently conforming.
+>
+> WRONG — author a MERGE from the design artifact's stated field count/names
+> without checking deployed state; discover the mismatch at smoke-test time.
+>
+> CORRECT:
+> ```bash
+> grep -nE "CREATE TABLE|ALTER TABLE" {ddl_glob}
+> ```
+> and grep the consuming adapter's field list BEFORE authoring; reconcile to
+> the live shape; log the delta.
+
+### 9.B.11 Locate the mechanism before editing it
+
+> [!constraint] Open the live artifact and locate the mechanism before editing it
+> When a brief says "modify" or "retire" an existing workaround, open the live
+> artifact and locate the mechanism first. Briefs drift on WHERE a mechanism
+> lives, not only on whether it exists — an edit aimed at the wrong location is
+> a silent no-op that reports success.
+>
+> WRONG — brief says the workaround is a set of aliases in a MERGE statement;
+> editor rewrites the MERGE; the actual mechanism (an attribute reference in a
+> closure) is untouched — exit 0, nothing changed.
+>
+> CORRECT — grep for the symbol the workaround acts on, read the surrounding
+> block, confirm the mechanism, then edit. If the brief's stated location
+> disagrees with the live artifact, the live artifact wins and the brief is
+> corrected in the same change.
+
+### 9.B.12 Split a ratification item rather than widening it
+
+> [!constraint] A ratification item stays inside its own acceptance criteria; code reconciliation gets a follow-up item
+> When triage finds deployed code authored ahead of schedule under provisional
+> markers that now disagree with a ratified design, stay inside the
+> ratification item's acceptance criteria and spawn a follow-up item for the
+> code reconciliation, citing the design source of truth.
+>
+> WRONG — do everything in one pass, drifting outside the item's stated
+> acceptance criteria; the item closes claiming work its criteria never
+> described.
+>
+> CORRECT — the ratification item lands the plan-demote chain only; a new item
+> owns the code reconciliation, sized to what triage actually found.
+
+### 9.B.13 Reconcile a planning-tier Schema Pin against deployed state before emitting SQL
+
+*Database-schema instance of the general verify-before-cite rule (see §9.B intro).*
+
+> [!constraint] A Schema Pin MUST be reconciled against deployed state via a three-step protocol before any SQL is authored against it
+> A Pin sourced from an upstream design artifact inherits that artifact's
+> authoring date; between authoring and consumer-task execution, the deployed
+> table can change. A well-formed, honestly-cited Pin can still be wrong. The
+> orchestrator HALTS before authoring SQL and runs a three-step reconciliation:
+> (1) grep CREATE + ALTER for the table in deployed DDL; (2) grep the
+> consumer-side data model whenever the Pin describes columns an adapter
+> populates; (3) when deployed DDL and the consumer-side model agree, that
+> pairing is canonical regardless of what the design artifact says — reconcile
+> to deployed reality and record an inline `> [!binding] Schema Pin reconciled
+> to live deployed DDL ({date})` callout naming both source files. When they
+> disagree with the design artifact, the design artifact is stale — reconcile
+> forward and file a back-propagation item; never silently conform the code to
+> the plan. Include a brief-vs-deployed comparison table (column / brief says /
+> deployed says / verdict) as the auditable artifact.
+>
+> WRONG — author a 15-column INSERT against a well-formed Pin; the deployed
+> table has 17 columns (renames + additions); the helper is imported by dozens
+> of downstream consumers and fails at runtime on every one.
+>
+> CORRECT — grep the deployed DDL and the adapter's dataclass; reconcile;
+> annotate; then author.
+
+### 9.B.14 Verify-before-cite applies to every deployed symbol, not only SQL columns
+
+> [!constraint] Grep the live source-of-truth and cite `file:line` for every deployed symbol a template, brief, or reference doc names
+> A template, brief, or reference doc that names an environment variable,
+> function signature, file path, helper name, config key, or dataclass field
+> MUST grep the live source-of-truth at authoring time and cite it with
+> `file:line`. The grep is the discipline; the citation is the binding
+> artifact. A one-character defect in a widely-inherited template is worth a
+> binding rule precisely because it is never escalated — each consumer fixes
+> it locally and the true cost (paid N times) stays invisible.
+>
+> WRONG — paste an env-var name from memory into a template that N notebooks
+> will inherit.
+>
+> CORRECT:
+> ```bash
+> grep -nE "os\.environ\.get\(.\w+_SQL_\w+.\)" {connection_helper}
+> ```
+> — the set of names the grep returns IS the canonical list; the template
+> cites exactly that set with its `file:line`.
+
+### 9.B.15 Open a cited generator script during scaffolding and classify its architecture
+
+> [!constraint] Open a cited generator script and classify it as parser, static-data, or config-loader before encoding "re-run it"
+> When a brief says "re-run X to refresh Y", the planner MUST open X and
+> determine whether it READS the upstream dynamically (parser), CONTAINS a
+> snapshot of it (static-data), or LOADS it from config (config-loader) —
+> encode the answer in the brief. If X contains a snapshot, the task is NOT a
+> re-run; it is "edit X" or "write a sibling that emits a delta". If X is a
+> parser, confirm the parsing logic actually keys on the structures the
+> upstream added. For a multi-session pipeline with one canonical generated
+> artifact, settle the generator's architecture in the Master Plan.
+>
+> WRONG:
+> ```markdown
+> Step 4: re-run build_matrix.py to pick up the new rows.
+> ```
+>
+> CORRECT:
+> ```markdown
+> Step 4: build_matrix.py is STATIC DATA (hardcoded baseline, not a parser) —
+> re-running it is a no-op. Author a sibling parser that reads the new blocks
+> and emits the delta.
+> ```
+
+### 9.B.16 Probe the live service before authoring against its shape
+
+> [!constraint] Probe the live service before authoring code, queries, or iteration structure bound to it
+> When a task authors code, queries, or iteration structure bound to an
+> external service, the design artifact's claims about that service are
+> hypotheses, not specifications — the service is the authority, and drift
+> accumulates fastest here because nothing in the repository moves when the
+> service does. Before authoring: (1) call the target endpoint with a
+> representative request and record status code + response container shape +
+> error body; (2) record the exact request shape that worked, including which
+> parameters the endpoint rejects; (3) record the endpoint's cardinality (what
+> granularity it accepts) — field-level reconciliation cannot surface a
+> rejected-parameter or wrong-granularity defect; (4) reconcile against the
+> design artifact — where they disagree, the live shape wins, and the
+> divergence is recorded in Recovery for back-propagation. Applies when a
+> design phase preceded execution by more than a couple of weeks AND the task
+> binds to an external service.
+>
+> WRONG — author an iteration loop and dual-target write template straight
+> from the spec; the endpoint rejects the per-item filter the spec assumed.
+>
+> CORRECT — probe first (period-scoped request succeeds; per-item-filtered
+> request 4xx); confirm the schema is one table with a discriminator, not two;
+> author two loops, one write template, one upsert closure.
+
+### 9.B.17 A canonical helper's signature is a claim about shape, not a guarantee
+
+> [!constraint] Verify a canonical helper's signature assumption against the actual producer per task; a genuine mismatch earns a purpose-built helper, not a forced workaround
+> When a plan standardizes on a shared helper, its signature encodes an
+> assumption about the shape of what it receives. Verify the assumption per
+> task against the actual producer. When the canonical helper genuinely cannot
+> take a producer's shape, the purpose-built helper is the correct answer, not
+> a workaround — forcing conformance just moves the divergence somewhere less
+> visible. Three obligations on divergence: (1) verify the incompatibility by
+> reading the producer's actual output shape, don't assume it; (2) record the
+> divergence in Recovery, naming which property forced it; (3) flag it for
+> cross-artifact review so a reviewer sees a justified exception, not an
+> unexplained inconsistency. Target constraints (e.g. a uniqueness constraint
+> forbidding identical per-batch stamps) are part of the shape too.
+
+### 9.B.18 A rule/reference-file edit triggers closeout re-verification of open plans citing it
+
+> [!constraint] Any change that edits a file cited by plans MUST run a closeout back-propagation grep, with a non-negotiable COMPLETE-is-archival carve-out
+> Add to the change-closeout flow: any change which edits a file cited by
+> plans runs, at closeout:
+> ```bash
+> # For each file the change touched:
+> grep -rl "{changed_file_basename}" {plans_dir}/ {backlog_dir}/
+> # For every hit whose plan Status is PLANNED / READY_TO_EXECUTE / IN_PROGRESS,
+> # re-run verify-before-cite on that plan's citations of that file.
+> # Plans with Status COMPLETE are ARCHIVAL -- do NOT rewrite them.
+> ```
+> State the COMPLETE-is-archival carve-out explicitly and non-negotiably: a
+> plan whose Status is COMPLETE is ARCHIVAL — do NOT rewrite it. A completed
+> plan's brief is a record of what the runner was told; rewriting it to match
+> current reality destroys the audit trail and makes the plan's own outputs
+> unexplainable. This is the non-obvious half — an implementer of only the
+> grep will get it wrong in the safe-looking direction. Back-propagation
+> targets `PLANNED`, `READY_TO_EXECUTE`, and `IN_PROGRESS`; it stops at
+> `COMPLETE`.
+
+### 9.B.19 Cite by contract, not by condition
+
+> [!practice] A brief should assert invariants, not the current state of someone else's file
+> A brief that says "rule X is broken, don't trust it" is a claim about a
+> mutable external file and rots the moment the file is fixed. A brief that
+> says "an `.ipynb` is JSON, so never anchor a grep with `^`" states the
+> underlying invariant and never rots.
+>
+> WRONG — "rule X is broken, don't trust it": a claim about someone else's
+> file's current, mutable state.
+>
+> CORRECT — "an `.ipynb` is JSON, so never anchor a grep with `^`": states the
+> underlying invariant; never rots regardless of what the cited file does
+> next.
 
 ---
 

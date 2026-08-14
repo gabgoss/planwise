@@ -258,14 +258,14 @@ Applies to tasks fed by codebase-scan scripts, doc-index generators, manifest bu
 #### Reviewer Check 027 — Task Generator-Script Pattern (≥100-file Walks)
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
-- **What:** Tasks walking ≥100 files MUST use generator-script pattern. Generator-script architecture MUST be verified before encoding "re-run" instructions.
+- **What:** Tasks walking ≥100 files MUST use generator-script pattern.
 - **Detection:** Count file references in Required Context. ≥100 AND no generator-script reference in Execution Steps → BLOCKER.
 - **Finding template:**
 ```
 [BLOCKER] Task generator-script pattern missing
 File: {task file path} | Location: Execution Steps
 Issue: Task walks {N} files (≥100) without generator-script architecture
-Fix: Add per references/verify-before-cite.md §9.B.9 / references/task-content-fidelity.md §9.A.6 | Confidence: HIGH
+Fix: Add per references/verify-before-cite.md §9.B.15 / references/task-content-fidelity.md §9.A.6 | Confidence: HIGH
 ```
 
 ### 9.A.7 Declare multi-artifact output splits at plan-author time

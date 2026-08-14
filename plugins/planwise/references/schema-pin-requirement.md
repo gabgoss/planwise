@@ -13,6 +13,12 @@ Any task file whose Required Context references a DB table — directly (inline 
 - [3. Pin Format](#3-pin-format)
   - [3.1 Abbreviated Pre-Execution Pin Form](#31-abbreviated-pre-execution-pin-form)
 - [4. Plan-Review Enforcement](#4-plan-review-enforcement)
+- [5. Pin Freshness and Drift Shapes](#5-pin-freshness-and-drift-shapes)
+  - [§5.1 Omission Is the Silent Drift Shape](#51-omission-is-the-silent-drift-shape)
+  - [§5.2 A Count in a Pin Is a Claim, Not a Label](#52-a-count-in-a-pin-is-a-claim-not-a-label)
+  - [§5.3 A Recorded Shape Change Obligates a Pin Sweep](#53-a-recorded-shape-change-obligates-a-pin-sweep)
+  - [§5.4 Reconcile Against the Catalog, Never a Sibling Brief](#54-reconcile-against-the-catalog-never-a-sibling-brief)
+  - [§5.5 Prefer a Verification That Would Fail If the Column Were Absent](#55-prefer-a-verification-that-would-fail-if-the-column-were-absent)
 
 ---
 
@@ -177,6 +183,66 @@ Fix: Add Schema Pin per references/schema-pin-requirement.md §4 | Confidence: H
 > - [ ] Cited CREATE range AND every contributing ALTER range
 > - [ ] Dated the Pin (`verified {YYYY-MM-DD}`)
 > - [ ] Re-ran the grep on the day of dispatch if the pin was authored more than 7 days prior
+
+---
+
+## 5. Pin Freshness and Drift Shapes
+
+A Schema Pin's staleness risk does not end at authoring — it resurfaces at dispatch and at every reconciliation after a shape change. The two dispatch-day requirements below are unnumbered lead constraints (they bind regardless of which sub-rule below they trigger); the five drift-shape sub-rules that follow keep their filed §5.1-§5.5 identities, since the Error Pattern Catalog cites them by number.
+
+> [!constraint] Dispatch-Day Live Re-Verification Is Unconditional
+> A Schema Pin authored at scaffold time records design intent. On dispatch day, re-verify every pinned column AND the table name itself against the live catalog — unconditionally, never gated on "if migrations shipped since". Two reasons the conditional form fails: drift can be design-vs-original-CREATE (not just a later ALTER), and a column-only check cannot detect a table invented in the design tier that was never built. Verify existence first, then columns.
+> ```sql
+> SELECT 1 FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id
+>  WHERE s.name = '{schema}' AND t.name = '{table}';
+> SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
+>  WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}' ORDER BY ORDINAL_POSITION;
+> ```
+
+> [!constraint] A Multi-Outcome Pin Makes Discovery the First Execution Step
+> When a Pin enumerates alternative deployed states (outcome A/B/C), the consuming task's first Execution Step MUST be the discovery query, never a mechanical action premised on one outcome. Success Criteria are phrased "count determined at Discovery", never a hard-coded count. Gate wording must accommodate "zero because none ever existed" as distinct from "zero because all were already handled".
+
+### 5.1 Omission Is the Silent Drift Shape
+
+A Pin can be wrong in three ways, not equally detectable:
+
+| Drift shape | Failure mode | When you find out |
+|---|---|---|
+| Names a column that does not exist | LOUD — Invalid column name | First execution |
+| States the wrong type | LOUD-ish — data/type error on first incompatible row | First incompatible row, possibly much later |
+| Omits columns that exist and are nullable/defaulted | SILENT — every row inserts; omitted columns hold DEFAULT/NULL forever | Never, unless something downstream reads them |
+
+A statement authored from an under-declared Pin executes cleanly against the wider table — no driver, engine, linter, or row-count validation objects. A Pin's column list is not documentation of the shape; it IS the shape the derived statement will bind, and a short list quietly narrows the write.
+
+### 5.2 A Count in a Pin Is a Claim, Not a Label
+
+A bare number (`14 columns`) is a load-bearing factual claim about live state and must be verified the same way a cited line range is — a wrong count carries no signal of being wrong. When a Pin's shape includes columns whose omission would be silent per §5.1, the Pin MUST name those columns explicitly rather than relying on the count to imply them.
+- WRONG: `| {table} (WRITE) | 14 columns; UNIQUE ({key_cols}) | {ddl_file} |`
+- CORRECT: `| {table} (WRITE) | **16** columns; UNIQUE ({key_cols}). Includes **{flag_col} BIT NOT NULL DEFAULT 0** and **{reason_col} NVARCHAR(256) NULL** — a 14-column statement drops them silently | {ddl_file} |`
+
+### 5.3 A Recorded Shape Change Obligates a Pin Sweep
+
+When a plan's change log, decision register, or revision note records a table-shape change, the corresponding edit is a sweep of every Pin in the plan naming that table, not a single-row edit — Pins are scattered across sibling task files by design (write once, quote into every touching task file), which is exactly what makes the sweep necessary.
+```bash
+grep -rln "{schema}\.{table}" {plans_dir}/{plan}/**/*.md
+# Every hit carrying a Pin row for this table must be reconciled in the same edit.
+```
+
+### 5.4 Reconcile Against the Catalog, Never a Sibling Brief
+
+A Pin is reconciled against the deployed catalog, never another planning document — not the sibling task that authored the DDL, not the design artifact, not the change log. A file's intent and a database's state are separable; only the second is what a derived statement will meet.
+```sql
+SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS
+ WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}' ORDER BY ORDINAL_POSITION;
+SELECT name, definition FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID('{schema}.{table}');
+SELECT name, is_unique FROM sys.indexes WHERE object_id = OBJECT_ID('{schema}.{table}');
+```
+
+### 5.5 Prefer a Verification That Would Fail If the Column Were Absent
+
+A criterion phrased as an implication over a column is satisfied trivially when nothing ever populates that column — precisely the state an under-declared write produces. It cannot distinguish "the mechanism works" from "the mechanism never ran."
+- WRONG: `SELECT COUNT(*) FROM {table} WHERE {flag_col}=1 AND {reason_col} IS NULL; -- expect 0. Returns 0 when the write never set {flag_col}=1 for any row.`
+- CORRECT: assert the column is bound (count where `{flag_col}=1` > 0) AND then the invariant over it (count where `{flag_col}=1 AND {reason_col} IS NULL` = 0). General form: a criterion whose pass condition is reachable by doing nothing is not a criterion.
 
 ---
 

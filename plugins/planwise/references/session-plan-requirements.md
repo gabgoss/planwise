@@ -242,4 +242,25 @@ The planner (`/planwise plan`) MUST evaluate Execution Strategy triggers and dec
 
 ---
 
+## 9. Data-Persistence Verification Gates
+
+These gates bind the Verification Commands section of ingestion-shaped, load-shaped, and constraint-adding deploy tasks. See `templates/task-file.md` §Per-File-Type Commands for where per-file-type verification rows live, and [verification-gates.md](verification-gates.md) for the broader build-clean-is-not-runtime-correct discipline this section extends into the data-persistence case.
+
+> **Exit code 0 does not prove data was persisted.** A verification command that runs a notebook or script and checks only its exit code proves the process ran, not that it wrote. Every ingestion-shaped or load-shaped task's Verification Commands MUST include a row-count assertion against the target, executed after the run.
+> - WRONG: `{exec-cmd} {notebook}   # exit 0 -> declared complete` — a silent empty fetch, skipped persist branch, or rolled-back transaction all exit 0.
+> - CORRECT: follow the exec command with a query asserting the target row count is > 0.
+
+> **Pre-flight the uniqueness design before the first load.** When a target carries a uniqueness constraint, the task's pre-flight MUST assert that the natural key the loader upserts on matches the constraint the target declares. A mismatch surfaces as a duplicate-key failure mid-batch, after partial writes.
+
+> **Data-side pre-flight for constraint-adding deploy tasks on populated targets.** A deploy task whose Execution Steps add a UNIQUE (or any row-level) constraint to a populated target MUST carry a pre-flight that asks the DATA whether it satisfies the constraint — placed after the row-count baseline (so a zero result means "no duplicates" not "no rows") and before the deploy step (so a failure costs a query, not a half-deployed schema). This is a different assertion than a design-side check (loader's natural key matches the declared constraint) — both sides can agree perfectly while the rows, which predate the design, do not.
+> ```sql
+> -- Gate {N}.5 — pre-flight uniqueness check. Run BEFORE the constraint-adding step.
+> SELECT TOP (20) {natural_key_columns}, COUNT(*) AS dup_count FROM {schema}.{table}
+>  GROUP BY {natural_key_columns} HAVING COUNT(*) > 1 ORDER BY dup_count DESC;
+> -- Expected: zero rows. Non-zero = HALT before the constraint is added.
+> ```
+> On a non-zero result: HALT and surface the duplicate count + top offending tuples. Do NOT silently de-duplicate — pivoting the constraint's key composition, or surfacing upstream as a data-quality defect, is a design decision, not a runner decision. Not redundant with an idempotency re-run gate (which proves the script doesn't re-apply changes, not that the data satisfies the constraint).
+
+---
+
 *Companion files: [session-planning-protocol.md](session-planning-protocol.md), [session-context-budget.md](session-context-budget.md), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (§9 Task Files and Completion Tracking), [destructive-change-requirements.md](destructive-change-requirements.md) (§10 Destructive-Path & Config-Gated Change Requirements)*

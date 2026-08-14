@@ -33,6 +33,7 @@ The custom agents (`structural-reviewer` and `plan-reviewer`) carry their own ch
 ### Task Reviewer (Phase 2)
 
 - Required Context section references are individual with purpose -- NOT ranges (e.g., "Section 2 (entity fields), Section 4 (validation rules)" is correct; "Sections 2-5" is a BLOCKER)
+- Every rule/reference file the plan cites has been opened and the plan's description of it re-verified against the live file (a citation is a claim that rots when the cited file changes — re-verify, don't trust the brief's snapshot)
 - Execution steps are concrete actions (not vague directives)
 - Success criteria are measurable checkboxes
 - Declared dependencies match actual data flow between tasks

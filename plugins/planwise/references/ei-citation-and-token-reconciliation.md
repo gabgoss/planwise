@@ -175,6 +175,20 @@ If any of the four is missing, the propagation is incomplete and the cross-tier 
 > 3. Apply §Z.W {related logic}.
 > ```
 
+> [!constraint] Every `Spec #N (filename)` citation MUST resolve to the Global Source Map as a pair — the number alone is not the citation
+> Every `Spec #N (filename)` citation in an EI Cross-References table MUST
+> resolve to the Master Plan's Global Source Map **as a pair** — both the
+> number AND the filename. A scaffolding agent MUST validate every cell
+> against the live register at scaffold time, and re-validate after any pass
+> that adds, removes, splits, or renumbers a source.
+> **The number alone is not the citation:** a number pointing at the wrong
+> filename, and the right filename carrying the wrong number, are the same
+> defect and both must fail.
+>
+> This is a different assertion than the existing non-sequential-numbering
+> allowance (which stays valid) — sparse numbering is fine; a
+> number-to-filename mismatch is not.
+
 When restatement IS acceptable:
 
 - The restated value is MORE authoritative than the cited source (rare — typically the design task itself producing the EI for the first time).
@@ -194,7 +208,7 @@ NOT applicable when the task is explicitly producing the verbatim content for th
 
 - **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
 - **What:** Every Cross-References row MUST use canonical format `Spec #{N} ({filename.md})` with global numbering matching Master Plan Global Source Map.
-- **Detection:** Grep `Spec #\d+ \([^\)]+\.md\)` on Cross-References table; verify each `{N}` against Master Plan Global Source Map. Mismatch → BLOCKER.
+- **Detection:** Grep `Spec #\d+ \([^\)]+\.md\)` on Cross-References table; verify each `{N}` **and its paired filename together** against Master Plan Global Source Map — a number matching the wrong filename, or the right filename carrying the wrong number, is a Mismatch → BLOCKER.
 - **Finding template:**
 ```
 [BLOCKER] EI Cross-Reference §-citation format violated
@@ -202,6 +216,30 @@ File: {EI file path} | Location: Cross-References row {N}
 Issue: Citation "{quoted_citation}" does not match Spec #{N} ({filename.md}) format
 Fix: Reformat per references/ei-citation-and-token-reconciliation.md §7 + verify against Global Source Map | Confidence: HIGH
 ```
+
+### 7.1 Cite Data Literals by §-Reference — the Temporal-Freshness Sibling
+
+> [!constraint] Cite data literals by §-reference; do not inline-copy them
+> A set, list, threshold, or ID list copied into a task file at scaffold time
+> is a point-in-time snapshot of a design artifact that continues to change.
+> Cite the design artifact's §-reference and reconcile at execution — this
+> matters most for literals gating PASS/FAIL/DEFERRED logic, where a stale
+> copy silently changes the verdict. Position the session's first design or
+> inventory task as the **reconciliation firewall**: it reads the live design
+> artifact and emits the resolved literal for downstream tasks.
+>
+> WRONG — `DEFERRED_TABLES = {"a", "b", "c"}   # copied from source §-ref at
+> scaffold time` — the source artifact gained a fourth entry after
+> scaffolding; downstream processes a table the plan had since deferred.
+>
+> CORRECT — build the set from the cited §-reference AT EXECUTION TIME, and
+> state the citation next to the construction so provenance is checkable.
+
+Distinguished from §7's core rule in one line: §7 above is the
+copy-paste-drift argument (restated content silently diverges from an
+EDITED source); this extension is the temporal-freshness argument (the
+cited artifact keeps changing even with no edit to the copy) plus the
+reconciliation-firewall task-positioning pattern.
 
 ---
 
