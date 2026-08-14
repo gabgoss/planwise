@@ -15,6 +15,10 @@ This file is the §16 segment of a 3-way split of `discovery-and-exit-criteria.m
   - [16.2 "Surfaces" is an enforcement claim, not a mention](#162-surfaces-is-an-enforcement-claim-not-a-mention)
   - [16.3 Sprint signoff MUST quote EI exit criteria verbatim with one mechanical anchor per row](#163-sprint-signoff-must-quote-ei-exit-criteria-verbatim-with-one-mechanical-anchor-per-row)
   - [16.4 Verify the Metric Definition Before Reproduction](#164-verify-the-metric-definition-before-reproduction)
+  - [16.5 Verify Data-State Criteria by Query, Not by a Status Field](#165-verify-data-state-criteria-by-query-not-by-a-status-field)
+  - [16.6 Every Audit States the Defect Classes It Did Not Check](#166-every-audit-states-the-defect-classes-it-did-not-check)
+  - [16.7 Re-Verify at Fix Time Obligates a Full Re-Characterization](#167-re-verify-at-fix-time-obligates-a-full-re-characterization)
+  - [16.8 Sample-Stop Permitted on Converged Validation, With Annotation](#168-sample-stop-permitted-on-converged-validation-with-annotation)
 
 ---
 
@@ -170,6 +174,17 @@ The distinction matters because BLOCKING items are BLOCKING. A non-enforceable m
 > fidelity-review task distinguishes SURFACES from MENTIONS — verbal-only
 > claims are GAPs, not PASS. Multi-layer enforcement (test SURFACE + signoff
 > SURFACE) is more robust than a single layer.
+
+> [!constraint] Extend SURFACE-vs-MENTION to Master-Plan Risk-Mitigation cells and task Success Criteria, with an `Implemented by` column
+> Extend the SURFACE-vs-MENTION enforceability requirement from EI exit criteria to Master-Plan Risk-Mitigation cells and task Success Criteria. Any mitigation that names an assertion MUST cite the task file **and** the Verification Command / Success Criterion that implements it:
+>
+> | Risk | Impact | Mitigation | Implemented by |
+> |---|---|---|---|
+> | (example row shape) | (impact) | (named assertion) | `{task-id}` §{section} + §Verification Commands |
+>
+> A criterion no command can check is not a criterion; it is a wish — one row per criterion, one mechanical anchor per row, applied upstream at authoring time. Prefer a deterministic structural gate over a runtime value tripwire: when a risk is "two orderings drift apart," compare the two orderings directly rather than asserting a value a drift would only sometimes disturb. A Risk-Mitigation cell is a claim about an artifact that does not exist yet, written by someone who will not be the one writing it — bind it to the artifact, or do not write it.
+>
+> Review gate: every assertion named in a Master-Plan Risk-Mitigation cell must appear in a task file; zero hits means the mitigation is a promise, not a fact. Catalog row: "Risk-Mitigation assertion not implemented in any task file" → ERROR.
 
 ### 16.3 Sprint signoff MUST quote EI exit criteria verbatim with one mechanical anchor per row
 
@@ -383,6 +398,29 @@ File: {Master Plan path} | Location: Discovery cohort declaration
 Issue: Cohort "{name}" declared but no outputs (or outputs not scoped)
 Fix: Reconcile per references/exit-criteria-fidelity.md §16 / references/discovery-and-exit-criteria.md §15 | Confidence: HIGH
 ```
+
+### 16.5 Verify Data-State Criteria by Query, Not by a Status Field
+
+> [!constraint] A data-state criterion is verified by query, never by a Status field
+> When a prerequisite or exit criterion is a data-state claim ("tables populated", "N rows ingested"), its mechanical anchor MUST be a query against live data — never an upstream plan's `Status: COMPLETE`. An authoring sprint whose smoke tests were blocked is artifact-complete, not data-complete; say so explicitly rather than letting COMPLETE imply both. This is the data-state analogue of the existing one-mechanical-anchor-per-criterion discipline.
+
+### 16.6 Every Audit States the Defect Classes It Did Not Check
+
+> [!constraint] Every audit states the defect classes it did NOT check
+> An audit MUST enumerate the defect classes outside its scope and scope its verdict vocabulary accordingly — "no defect of class X", never bare "clean". A "works" verdict requires the positive test (run it, assert the result), never the absence of one negative pattern.
+>
+> WRONG — "12 of 17 audited clean" from a single-lens column diff that could not have seen type mismatches, nullability drift, or an absent table.
+> CORRECT — "12 of 17 show no column-name divergence. Not checked: types, nullability, table existence, constraint shape."
+
+### 16.7 Re-Verify at Fix Time Obligates a Full Re-Characterization
+
+> [!constraint] "Re-verify at fix time" obligates a full re-characterization
+> A single-lens audit under-reports in two directions: false-clean, and under-specified-defect. A finding tagged provisional/unconfirmed/"re-verify at fix time" obligates a full re-characterization of the artifact at fix time — the whole-object catalog query, the complete live probe — not a re-run of the one-line check that produced the tag.
+
+### 16.8 Sample-Stop Permitted on Converged Validation, With Annotation
+
+> [!constraint] Sample-stop is permitted on a converged validation, with an annotation
+> A validation iteration MAY stop early when its verdict is already determined by parent state — denominator known, threshold crossed, or set membership confirmed. Document with a `**Deviation:**` annotation recording what stopped, the convergence proof, and the schedule for any residual. Not applicable when the iteration IS the validation (a per-row drift check has no convergence point).
 
 ---
 

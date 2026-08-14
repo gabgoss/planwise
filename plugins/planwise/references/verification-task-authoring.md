@@ -16,6 +16,11 @@ paths: {planwise_root}/{plans_dir}/**
 - [5. PASS Requires Actual = Expected — No Arithmetic Fudging](#5-pass-requires-actual--expected--no-arithmetic-fudging)
 - [6. Orchestrator Adjudication of BLOCKER-From-Heuristic](#6-orchestrator-adjudication-of-blocker-from-heuristic)
 - [7. Authoring Checklist](#7-authoring-checklist)
+- [8. Absence and Consistency Gates — Scrub, Scope, and Sync](#8-absence-and-consistency-gates--scrub-scope-and-sync)
+  - [8.1 An absence-grep requires scrubbing the token everywhere](#81-an-absence-grep-requires-scrubbing-the-token-everywhere)
+  - [8.2 Assert against the right population](#82-assert-against-the-right-population)
+  - [8.3 One file encoding a fact twice — every mutation updates both](#83-one-file-encoding-a-fact-twice--every-mutation-updates-both)
+- [9. A bare heuristic in a task brief must state its exclusions](#9-a-bare-heuristic-in-a-task-brief-must-state-its-exclusions)
 
 ---
 
@@ -203,6 +208,45 @@ Fix: Constrain verdict per references/verification-task-authoring.md §5 (FAIL o
 > - [ ] Coverage denominators scope-restricted to real construct instances; prose, table rows, and fenced code excluded — OR check re-classified as `INVESTIGATE` (§4).
 > - [ ] Verdict-arithmetic contract honored: if Actual contradicts Expected per the comparison operator, the verdict is FAIL or `[UNCERTAIN]`, never PASS (§5).
 > - [ ] BLOCKER-from-heuristic adjudication protocol declared in the orchestration — orchestrator validates flagged sites against source before routing rework (§6).
+
+---
+
+## 8. Absence and Consistency Gates — Scrub, Scope, and Sync
+
+### 8.1 An absence-grep requires scrubbing the token everywhere
+
+> [!constraint] An absence-grep criterion MUST scrub the literal token from every surface, not just data cells
+> A criterion of the form `grep -c 'TOKEN' {file} == 0` proves absence of a TOKEN-class item. Satisfying it requires the literal token to appear nowhere — not merely absent from data cells. It must be scrubbed from the classification legend, count-block labels, section headers, descriptive prose, and any self-referential mention of the grep itself. Replace with a synonym. Grep is case-sensitive, so lowercase variants are safe; run the exact anchor command yourself before declaring the criterion met.
+>
+> Observed false-FAIL: the criterion's own grep returned 8 against a file with zero unresolved data cells — every hit was the legend, the label, and the criterion's own description.
+
+### 8.2 Assert against the right population
+
+> [!constraint] A consistency check MUST assert against the right population, not a conditional/optional set against an observed/union artifact
+> A consistency check asserting a conditional/optional annotation set is a subset of an observed/union artifact encodes the wrong invariant — conditional annotations exist precisely to document things absent from the observed set. Assert "the root is a declared field" instead — skipping glob, brace, and condition-expression entries, failing only on an undeclared root. Scope comment-marker checks to comment-only lines so inline annotations are not matched.
+>
+> Observed false-FAIL: a `conditional ⊆ observed` assertion failed on 22 legitimate conditional fields.
+
+### 8.3 One file encoding a fact twice — every mutation updates both
+
+> [!constraint] When a file encodes one fact in two representations, every mutation MUST update both and verify against the file
+> When a single file encodes the same fact in both a machine-checked form and a human-readable form, a passing gate only ever sees the form it parses. Every mutation MUST update every representation, and the change MUST then verify the written counts against the file.
+>
+> Observed false-PASS: a status flip updated the parsed code block to a new count but left the prose bullets, summary line, and callout's stated counts stale. The mechanical check stayed green while the document contradicted itself.
+
+---
+
+## 9. A bare heuristic in a task brief must state its exclusions
+
+> [!constraint] A bare "condition X ⇒ defect" heuristic handed to a runner MUST state its exclusions in the same block
+> A rule of the form "condition X ⇒ defect" is normally correct only after exclusions are applied. Stated bare in a task brief, it fires on every legitimately-excluded case, and each firing reads as a defect in work that is correct. When a brief hands a runner a rule of this shape, it MUST state, in the same block, the conditions under which X is expected and is **not** a bug.
+>
+> WRONG: "Any newly-wired column at 0 non-NULL is a wrong-key finding."
+> CORRECT: "Any newly-wired column at 0 non-NULL is a wrong-key finding, EXCEPT where: the source is recorded absent in the reconciliation's evidence tier (expected NULL, not a failed fix); the value is conditional on state not present in the sampled window; the column is wired ahead of a producer that has not yet run. For each exclusion the runner cites the evidence row that establishes it."
+>
+> A runner who hits an excluded case with the bare rule in hand has three options, two of them bad: report a false defect, silently ignore the rule, or spend an investigation re-deriving the exclusion. Only the third is safe, and it is the most expensive.
+
+**Applies to:** task briefs that hand a runner a bare "condition ⇒ defect" heuristic — distinct from §1's failure-shape table, which covers heuristic *verifiers* (structurally-unreachable count thresholds, keyword-proximity coverage gates) living inside verification commands. §9 covers a *correct* heuristic applied without its exclusions — a different failure shape, arising in task briefs rather than verification commands. This section reserves no further top-level number.
 
 ---
 

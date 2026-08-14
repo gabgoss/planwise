@@ -371,6 +371,99 @@ Issue: {over-ceiling task lacks 1M-exception | Warn+ file {cited_file} has no ba
 Fix: Apply the §9.A.8 remedy — flag 1M-exception (cost-Critical) / file a backlog item (Warn+) / page or refactor (read-Critical) / Multi-Part split (generated artifact) per references/task-content-fidelity.md §9.A.8 | Confidence: HIGH
 ```
 
+### 9.A.9 Count re-derivation for enumerated lists
+
+> [!constraint] A count summarising an enumerated list MUST be re-derived at authoring time and stated exactly once
+> A count that summarises an enumerated list MUST be re-derived by counting the list at authoring time, and MUST appear exactly once. Do not restate it in a heading and again in the body — a count stated twice is a count that will disagree with itself.
+>
+> WRONG: `MERGE column list — 26 columns:`
+> CORRECT: `MERGE column list — must match the DDL order exactly:` (or, where the number is genuinely load-bearing: "…one `?` per column below; count them.")
+>
+> A count of sibling tables, adapters, or notebooks is a claim about the repository, not about the task — it belongs to the verify-against-shipped-artifact discipline, and a plan may not count an artifact that a different, unshipped plan is going to create.
+>
+> Review check: `grep -rnE '\b[0-9]+ (columns?|fields?|placeholders?|symbols?|tables?|rows?)\b'` over task files; for each hit, locate the list it refers to and count it — they must agree. Catalog row: "Prose count disagrees with the list it summarises" → WARNING (ERROR when the count feeds a parameter binding or a schema decision).
+
+> [!practice] The list is the source of truth — prefer no cached count
+> The list is the source of truth; the number is a cache with no invalidation. Every count typed next to a list is correct at the instant it is written and decays on the next edit to either side. Prefer no cache.
+
+Applies to: the narrower glob-cited file-set case is §9.A.4 — this rule generalises it to any prose count adjacent to an enumerated list.
+
+### 9.A.10 Cross-file enumeration sweep on item-set change
+
+> [!constraint] A plan item-set change is a cross-file sweep, not a single-file edit
+> When a plan's item set changes after task files, Orchestrations or Master-Plan rows already enumerate it, the change is a cross-file sweep — not a single-file edit. Two things must be swept: the old cardinality words, and the old enumerated ID list. The preceding count rule alone cannot reach this failure, for two reasons: it is scoped within one document (here the count is restated across several self-consistent files, and the drift is between them), and an enumerated ID list is not a count — there is no adjacent list to check a short enumeration against; the authoritative set lives in a different file.
+>
+> WRONG — an Expected Output template that caches the item set the runner will author from:
+> ```
+> ## Verified Known-Issue State   (per-claim ledger, three items)
+> ## Verified Work Items   (the three filed defects: verdicts, fix recipes, landing surfaces)
+> ```
+> CORRECT — the template refers to the set by contract; the Objective remains the single source of truth:
+> ```
+> ## Verified Known-Issue State   (per-claim ledger — one row per atomic claim of every filed defect named in the Objective)
+> ## Verified Work Items   (one per filed defect named in the Objective: verdict, fix recipe, landing surface)
+> ```
+>
+> The sweep recipe:
+> ```bash
+> # 1. Old cardinality words, anywhere in the plan tree
+> grep -rniE '\b(one|two|three|four|five|six|seven|eight|nine|ten|[0-9]+)\b' \
+>   {plan_dir}/ | grep -iE '(item|defect|task|part|cluster|famil)'
+>
+> # 2. The OLD enumerated ID list — the half a count rule cannot catch
+> grep -rn '<superseded enumeration>' {plan_dir}/
+> grep -rn '<superseded boundary set>' {plan_dir}/
+>
+> # 3. Reconcile every hit against the Objective's set, and against any
+> #    sibling file that states the same set (Master Plan rows, Sprint Plan
+> #    Success Criteria, other tasks' Required Context).
+> ```
+>
+> Two supporting practices: **Expected Output templates are the highest-risk site** — a runner authors its deliverable's section structure from the template verbatim, so a narrower set there silently beats a broader Objective on the same page; sweep templates first. And **enumerations restated across files need one owner** — when the same set appears in a task file, a Sprint Plan and a Master-Plan row, name the owning file and have the others refer to it by contract rather than re-listing: the same no-cache-without-invalidation argument, extended from counts to membership.
+
+### 9.A.11 Derived status cells are generated, not restated
+
+> [!constraint] A status cell derived from an evidence section MUST be generated from it, never hand-typed
+> This rule generalises the preceding count-re-derivation rule from numerals to status cells. An artifact with an evidence section and an action/findings/prescription section has two tiers, not two documents. Every status cell in the second tier (`VERIFIED`, `UNVERIFIED`, `CONFIRMED`, `ABSENT`, `PRESENT`) is a function of an observation recorded in the first. When an author re-types the tag instead of deriving it, the two tiers drift — and the action tier is the one everyone downstream actually executes.
+>
+> Generate each action row's status from the evidence section's observation count for that item; do not hand-type it:
+>
+> | Observations recorded in the evidence tier | Status the action tier MUST carry |
+> |---|---|
+> | 0 across all probed seeds / samples / sources | `UNVERIFIED — absent at source` |
+> | ≥1 | `VERIFIED` |
+> | not probed at all | `UNVERIFIED — not observed` (distinct from *absent*; do not collapse the two) |
+>
+> An item the evidence section records as absent cannot carry a bare confirmation in the action list — that is an internal contradiction, detectable from the file alone, with no external access. The CORRECT form cites its derivation in the cell: `UNVERIFIED — absent at source (0/4 seeds, §3). Expect continued NULL after wiring; that is not a failed fix.`
+>
+> Before dispatching an artifact with an action tier, scan for rows on equal evidentiary footing that carry different statuses. When sibling rows on equal footing disagree, one of them is wrong — you do not need to know which one to know that.
+>
+> A task that produces an evidence-plus-action artifact MUST, as its final step, cross-check every action row's status against the evidence section's observation for that item, and record the check in its Recovery. Any row asserting presence for an item the evidence records as absent or unobserved is a **blocking** contradiction — resolve it before the artifact is written.
+>
+> Catalog row: "Action tier contradicts its own evidence tier" → BLOCKER.
+
+Cross-reference: `measurement-discipline.md` §8.6 covers cross-route APPEND safety against a live target that moved — an adjacent but distinct concern. This rule governs intra-document tier consistency at authoring time, with no external state involved; cite §8.6, do not merge it into this rule.
+
+### 9.A.12 Size comparison tasks by reference coverage
+
+> [!constraint] Size and shape a comparison task by the reference side's coverage, not the subject side's population
+> When a task's deliverable is a comparison — enumerate discrepancies, reconcile A against B, find drift between a spec and an implementation — its size and shape are set by the coverage of the **reference** side, not by the population of the subject side. Measure that coverage before writing the brief: `coverage = (items the reference makes a claim about) / N sampled subject items`.
+>
+> | Reference coverage | What the task actually is | How the brief must read |
+> |---|---|---|
+> | High | A genuine reconciliation; discrepancies are the output | "Enumerate the discrepancies between A and B" |
+> | Low (e.g. <1%) | A census with a small actionable tail | "Enumerate the N classes of actionable finding, and tally coverage" |
+>
+> Three obligations when coverage is low: (1) budget for the listing volume, not the analysis volume — the token cost is dominated by emitting uncovered rows, not classifying covered ones; (2) lead the output with the actionable section and put the census in a separate part; (3) name the coverage in the brief — its absence is why the default framing survives.
+>
+> Applicability boundary: this does NOT apply where the reference genuinely covers the subject (a well-documented vendor API, a spec-governed service, a schema with an authoritative published type source) — there, the ordinary framing is correct. The rule fires on measured low coverage, never on a hunch.
+>
+> Corollary: when a reference makes no claim, the observation is the authority — downstream tasks should consume the observed inventory rather than re-consulting a reference already measured at near-zero coverage.
+>
+> Cross-reference: distinct from the cohort token-uplift discipline (divergence-triggered budgeting overhead between two artifacts that both exist) — this rule fires on a different measurement and re-shapes the deliverable rather than its overhead.
+>
+> Catalog row: "Comparison task sized without reference coverage" → WARNING.
+
 ---
 
 ## Plan-Review Enforcement Summary
@@ -383,6 +476,10 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 2 | Placeholder in numerical cell | Any Required Context cell contains `~?`, `~TBD`, or `~?K` | §9.A.2 |
 | 3 | Notebook upper-bound budget | A notebook Required Context entry uses 13 tok/line and the resulting subtotal places the subagent budget within 60K of the 200K ceiling | §9.A.3 |
 | 4 | Token Saver large-file ladder not applied | `context.token_saver: true` AND a Required Context file classifies Warn+ (cost or read) but the task carries no recommendation/backlog item; OR a read-reason Critical task is wrongly flagged `1M-exception`; OR a runner-read generated artifact trips the line/byte/token gate without a Multi-Part split | §9.A.8 |
+| 5 | Prose count disagrees with the list it summarises | A prose count adjacent to an enumerated list does not match a recount of that list | §9.A.9 |
+| 6 | Cross-file enumeration not swept | A plan's item-set change leaves stale cardinality words or a superseded enumerated ID list in a sibling file (Orchestration, Master-Plan row, task file) | §9.A.10 |
+| 7 | Action tier contradicts its own evidence tier | A derived status cell in the action tier disagrees with the evidence section's recorded observation for the same item | §9.A.11 |
+| 8 | Comparison task sized without reference coverage | A comparison/reconciliation task brief omits the reference-side coverage measurement that should set its size and shape | §9.A.12 |
 
 For the Verify-Before-Cite checks (§9.B: cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / Pre-SQL verification), see [verify-before-cite.md](verify-before-cite.md)'s Plan-Review Enforcement Summary.
 

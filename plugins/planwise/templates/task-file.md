@@ -48,6 +48,10 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 | `EI.md (Sections 2-5)` | **NO** — agent doesn't know which section provides what |
 | `EI.md — Section 2 (event types), Section 3 (patterns)` | **YES** — each section annotated with purpose |
 
+### Comparison-Task Coverage Row (Required when the task's deliverable is a comparison or reconciliation)
+
+Where the task's deliverable is a comparison or reconciliation (enumerate discrepancies, reconcile A against B, find drift between a spec and an implementation), the Required Context table MUST carry the reference source's **measured coverage** as its own row — the sample size, the coverage fraction, and the date measured. The brief's framing follows the measurement (per `references/task-content-fidelity.md` §9.A.12 — Size comparison tasks by reference coverage): high coverage → a reconciliation; near-zero coverage → a census with an actionable tail, budgeted for listing volume.
+
 ### Schema Pin (Required when task touches DB writes)
 
 When this task emits SQL touching `{table_name}`, include a Schema Pin block per `references/schema-pin-requirement.md` §3:
