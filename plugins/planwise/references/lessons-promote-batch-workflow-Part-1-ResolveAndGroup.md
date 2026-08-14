@@ -78,7 +78,7 @@ If the user only wants Phase 1+2 (a grouping plan without draft BBs), accept `--
 | `--category=X` (X is a top-level `bucket.id` from `config.yaml: categorization.buckets`) | All `documented` lessons currently listed under bucket X in the categorisation file |
 | `--category=Cn` (a sub-bucket id from `bucket.sub_buckets[]`) | All `documented` lessons under that specific sub-bucket. Sub-buckets are first-class scope targets — they are addressed identically to top-level buckets. |
 | `LL-001,LL-002,LL-003` (comma-separated) | Exactly those lessons |
-| `--all-documented` | Every `documented` lesson across all buckets — likely produces multiple BBs |
+| `--all-documented` | Every `documented` lesson across all buckets — likely produces multiple BBs. `orphaned` lessons are swept first, ahead of `documented`, as re-bundle candidates (§3.2 step 3) |
 | (no arguments) | Ask the user what scope to use via `AskUserQuestion`; do NOT assume `--all-documented` |
 
 The `--dry-run` flag is orthogonal to scope — it stops execution after Phase 2 regardless of which scope argument was used.
@@ -89,12 +89,12 @@ For each resolved lesson ID, run all five checks:
 
 1. **File exists.** Confirm `{lessons_dir}/LL-{NNN}-*.md` exists. If missing, flag as anomaly and exclude from this run.
 2. **NOT archived.** Confirm the file is in `{lessons_dir}/` (active) and NOT in `{lessons_dir}/Archive/`. Archived lessons are already promoted; exclude with the note *"already in {lessons_dir}/Archive/; skipping"*.
-3. **Frontmatter status check.** Read the YAML frontmatter (body load is deferred to §3.4 after this gate). If `status` is already `applied` or `rule`, exclude with the note *"already promoted to {applied-as}; skipping"*. If `status` is already `promoted`, exclude with the note *"already captured via {promoted-to}; awaiting landing; skipping"* — the lesson is fully owned by a drafted backlog item and needs no further promotion work.
+3. **Frontmatter status check.** Read the YAML frontmatter (body load is deferred to §3.4 after this gate). If `status` is already `applied` or `rule`, exclude with the note *"already promoted to {applied-as}; skipping"*. If `status` is already `promoted`, exclude with the note *"already captured via {promoted-to}; awaiting landing; skipping"* — the lesson is fully owned by a drafted backlog item and needs no further promotion work. If `status` is `orphaned`, **include it in scope** — its prior owner closed without landing it, so it is a re-bundle candidate; capture (§6.6 mirrors this on the Part-2 side) flips it `orphaned → promoted` under the new owning item.
 4. **Categorised.** Verify the lesson is listed in `00-Categorization-By-Domain.md` under its expected bucket (or sub-bucket). If not, flag as anomaly: *"LL-NNN is not in `00-Categorization-By-Domain.md`; run `/planwise lessons curate --phase=categorize` first."*
 5. **NOT owned by an existing BB (fragment-aware).** Run `Grep 'LL-{NNN}' {backlog_dir}/` (recursive — covers active + Archive). If any BB cites this lesson, determine ownership at the fragment level — a lesson may have some fragments owned and others not (see §4.4 decomposition):
    - **Fully-owned** (every fragment of the lesson is cited by an active BB): exclude with the note *"already owned by BB-{NNN} ({status}); will be promoted via that BB"*.
    - **Partially-owned** (an active BB cites only some fragment(s) of the lesson; other fragment(s) are un-cited): include the lesson in scope, but restrict Phase 2 grouping to the un-owned fragment(s) — the owned fragment stays with its existing BB. Note in the scope report (§3.3): *"LL-{NNN}: fragment {X} owned by BB-{NNN} ({status}); fragment {Y} in scope"*.
-   - **Archived BB whose owning item is COMPLETE** (`COMPLETE` / `CLOSED`, in `{backlog_dir}/Archive/`): if the lesson's frontmatter was never flipped to `rule`/`applied`/`promoted`, this is an **owner-anomaly** — flag it (do not silently exclude): *"already promoted via archived BB-{NNN} (COMPLETE) but lesson frontmatter still shows `{status}`; flag as anomaly"* — recommend the user run `/planwise lessons curate --phase=promote` to reconcile.
+   - **Archived BB whose owning item is COMPLETE** (`COMPLETE` / `CLOSED`, in `{backlog_dir}/Archive/`): if the lesson's frontmatter was never flipped to `rule`/`applied`/`promoted`, this is an **owner-anomaly**. Do not merely flag it in chat: set `status: orphaned`, write the `owner-anomaly:` frontmatter key with the evidence (owner id, absence evidence, date), and surface it in the scope report (§3.3) so it sorts as actionable work rather than hiding.
 
 > [!gate] Categorisation Gate
 > If any in-scope lesson is missing from `00-Categorization-By-Domain.md`, STOP. Tell the user to run `/planwise lessons curate --phase=categorize` first. Do NOT attempt to grouping-decision a lesson whose bucket is unknown — silent default-bucketing distorts the BB clustering.
@@ -115,6 +115,7 @@ Before doing any further work, emit a short table to the chat:
 | LL-... | B | MEDIUM | excluded — owned by BB-{Y} (IN_PROGRESS) | ... |
 | LL-... | C | LOW | excluded — status `promoted` (already captured via BB-{Y}); awaiting landing | ... |
 | LL-... | D | MEDIUM | partial — fragment owned by BB-{Y} ({status}); remaining fragment in scope | ... |
+| LL-... | E | HIGH | orphaned — owner BB-{Z} (COMPLETE) closed without landing; in scope as re-bundle candidate | ... |
 ```
 
 ### 3.4 Read every in-scope lesson body in full (BINDING)

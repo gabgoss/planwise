@@ -29,6 +29,7 @@
 | `promoted` | Fully captured into actionable backlog item(s); archived; awaiting landing; the backlog item is the live owner. **archived ≠ landed.** |
 | `applied` | Lesson applied to improve a process or pattern |
 | `rule` | Lesson promoted to a `.claude/` artifact |
+| `orphaned` | Content was fully captured into an owning item that has since closed without landing it, and no live item currently owns it. Work-surfacing: resurfaces ahead of `documented` in the next promotion pass. |
 
 ---
 

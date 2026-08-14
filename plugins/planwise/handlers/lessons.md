@@ -55,6 +55,14 @@ Parse `$1` to determine the mode. If `$1` is `curate`, enter curate mode and par
 
 ---
 
+## Lessons-Index Write Convention
+
+Any write to the lessons index — a Master Table row, a Status-cell flip, a Rule Promotion Log row, or the next-available-ID counter — updates the file's `Last Updated:` header to today's date in the same edit, with a short parenthetical naming what changed (matching the convention the categorization file already uses). A stale `Last Updated` is worse than an absent one: an absent field prompts a reader to check; a stale one answers them incorrectly.
+
+This binds every mode below that writes `{lessons_dir}/{lessons_index}` — Curate, Batch-Promote, Promote, and Capture — and is stated here once rather than restated per mode.
+
+---
+
 ## List Mode (no arguments)
 
 Read `{lessons_dir}/{lessons_index}` and display the Master Table.
@@ -119,7 +127,7 @@ Halt without modifying any files.
 
 ### Workflow
 
-Curate runs two phases against the lesson set. **Phase 1** diffs the master index against the categorisation file, reads uncategorised `LL-*` files in full, applies the config-driven decision tree, appends rows to the matching bucket tables, and tags each lesson's `promotion-target` from its body using its existing callout/markdown conventions (a fenced code block or diff reads as `code`; a `MUST`/`NEVER` callout reads as `rule`; and so on) — a lesson whose body maps to more than one target type is flagged as a split candidate. **Phase 2** finds `status: promoted`, lands those whose owning backlog item has shipped — reconciling `applied-as` and flipping status to `rule`/`applied` with a Rule Promotion Log row — and also heals any `documented` lesson that turns out to be fully owned by a backlog item forward to `promoted`. Optional file moves to `Archive/` require explicit user approval.
+Curate runs two phases against the lesson set. **Phase 1** diffs the master index against the categorisation file, reads uncategorised `LL-*` files in full, applies the config-driven decision tree, appends rows to the matching bucket tables, and tags each lesson's `promotion-target` from its body using its existing callout/markdown conventions (a fenced code block or diff reads as `code`; a `MUST`/`NEVER` callout reads as `rule`; and so on) — a lesson whose body maps to more than one target type is flagged as a split candidate. **Phase 2** finds `status: promoted`, lands each lesson whose content is verified present in its destination artifact (per lesson, by content, never per item by status) — reconciling `applied-as` and flipping status to `rule`/`applied` with a Rule Promotion Log row — and also heals any `documented` lesson that turns out to be fully owned by a backlog item forward to `promoted`. Optional file moves to `Archive/` require explicit user approval.
 
 See `references/lessons-curate-workflow.md` for the binding step-by-step protocol (bucket selection algorithm, reporting format, anomaly detection, and constraint set).
 
@@ -138,6 +146,8 @@ If `$2` is absent or not a recognised `--phase=` value, default to `both`.
 ### Output
 
 Chat report only (markdown summary with Phase 1 / Phase 2 / Anomalies sections per the reference doc's §6). The authoritative write scope — which files each phase writes, and what it writes to them — is the Write column of [`references/lessons-curate-workflow.md`](../references/lessons-curate-workflow.md) §1. It is deliberately not restated here: a restated list is a cache with no invalidation, and it drifts the moment either phase gains a write. Note that Phase 1 writes lesson frontmatter (`promotion-target:`, per §3.6) and Phase 2 writes lesson status/`applied-as`/`promoted-to:` — read the table rather than assuming lesson files are read-only. No new `LL-*` files are created (§7, Do Not Author Lessons).
+
+Any phase that writes the lessons index also bumps its `Last Updated:` header in the same edit — see [Lessons-Index Write Convention](#lessons-index-write-convention).
 
 ---
 
@@ -181,6 +191,8 @@ The `--dry-run` flag is orthogonal to scope. When present, the workflow short-ci
 ### Output
 
 New backlog-item files, appended and re-scored backlog-index rows, and — at capture — modified lesson files. The authoritative write scope is the Write column of [Part-1 §1](../references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md#1-inputs-and-outputs), with the capture-time lesson writes specified in [Part-2 §6.6](../references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#66-capture-the-in-scope-lessons-archive-on-capture). As with Curate Mode above, it is deliberately not restated here. Under `--dry-run` the workflow short-circuits after Phase 2 and writes nothing.
+
+Writes that touch the lessons index also bump its `Last Updated:` header in the same edit — see [Lessons-Index Write Convention](#lessons-index-write-convention).
 
 The single-lesson `promote <id>` mode below is preserved verbatim. Batch promotion is a parallel path, not a replacement.
 
@@ -303,6 +315,8 @@ Add a row to the Rule Promotion Log in `{lessons_dir}/{lessons_index}`:
 
 Also update the lesson's `Status` column in the Master Table from `documented` to `rule` (or `applied`).
 
+Then bump the index's `Last Updated:` header to today's date in the same edit, with a short parenthetical naming what changed (see [Lessons-Index Write Convention](#lessons-index-write-convention)).
+
 ### Promotion Error Handling
 
 | Failure | Recovery |
@@ -392,6 +406,7 @@ If approved:
 4. Write file: `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`
 5. Add a row to the Master Table in `{lessons_dir}/{lessons_index}`
 6. Update the "Next available ID" counter in the index to the ID after `{NNN}`
+7. Bump the index's `Last Updated:` header to today's date in the same edit, with a short parenthetical naming what changed (see [Lessons-Index Write Convention](#lessons-index-write-convention))
 
 ### Step 5: Skip
 
@@ -401,7 +416,7 @@ If skipped, discard the draft. No file is written.
 
 ## Lesson Status Lifecycle
 
-Lessons graduate through a branching set of four statuses:
+Lessons graduate through a branching set of five statuses:
 
 ```
                   ┌─ single-lesson promote / already-landed ──────────────────────┐
@@ -410,19 +425,27 @@ Lessons graduate through a branching set of four statuses:
                   │                                                                ▲
                   └─ promote-batch (fully captured into backlog item[s]) ─→ promoted ┘
                          (archive-on-capture)                    (curate --phase=promote:
-                                                                  owning item shipped → land)
+                                                                  content verified present → land)
+
+   promoted ─→ orphaned    (owner closed without landing this content)
+   orphaned ─→ promoted    (re-bundled into a new owning item)
 ```
 
 - `documented → applied | rule` directly: single-lesson promote, or a lesson already landed at capture time (capture and landing simultaneous; never enters `promoted`).
 - `documented → promoted`: promote-batch, when every fragment is owned by a drafted backlog item (archive-on-capture).
-- `promoted → applied | rule`: curate `--phase=promote`, when the owning backlog item ships (landing).
+- `promoted → applied | rule`: curate `--phase=promote`, when its content is verified present in the destination artifact (landing).
+- `promoted → orphaned`: the owning backlog item closed without this content ever landing, and no other live item owns it.
+- `orphaned → promoted`: re-bundled into a new owning backlog item.
 
 | Status | Meaning |
 |--------|---------|
 | `documented` | Captured; not yet owned by any backlog item. |
 | `promoted` | Fully captured into actionable backlog item(s); archived; awaiting landing; the backlog item is the live owner. **archived ≠ landed.** |
+| `orphaned` | Owner closed without landing this content; no live owner. Work-surfacing: resurfaces ahead of `documented` in the next promotion pass. |
 | `applied` | Lesson has been manually applied in practice (proven useful) |
 | `rule` | Lesson promoted to a Claude Code artifact |
+
+The fifth status, `orphaned`, covers content that was fully captured into an owning backlog item, but where that item closed without the content ever landing and no other live item owns it. `orphaned` is a work-surfacing state, not a resting one — it sorts ahead of `documented` in the next batch-promotion scope resolution rather than hiding inside `documented`. Pair it with an `owner-anomaly:` frontmatter key carrying the evidence: which owner closed, what grep proved the content absent, and the date.
 
 ### Promotion Criteria
 
