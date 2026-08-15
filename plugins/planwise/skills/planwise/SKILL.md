@@ -4,7 +4,7 @@ description: >
   Agentic project management — plan, execute, review, and track projects
   with structured workflows. Use when user wants to create plans, run sessions,
   review plans, manage backlog items, or search lessons learned.
-argument-hint: "<init|plan|review|run|upgrade|doctor|token-saver|backlog|list|lessons|help> [args]"
+argument-hint: "<init|plan|review|run|upgrade|doctor|token-saver|backlog|list|lessons|feedback|help> [args]"
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -29,6 +29,7 @@ Parse `$ARGUMENTS`:
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
 | `list` | Read [handlers/list.md](../../handlers/list.md) |
 | `lessons` | Read [handlers/lessons.md](../../handlers/lessons.md) |
+| `feedback` | Read [handlers/feedback.md](../../handlers/feedback.md) |
 | `help` | Display the Help section below (inline) |
 
 If `$0` is empty, display help (below).
@@ -58,10 +59,13 @@ Available subcommands:
   lessons promote <id>         Promote lesson to artifact
   lessons curate [--phase=X]   Categorise lessons and track promotions
   lessons promote-batch <scope>  Batch-draft promotion BBs
+  feedback [bug|lesson|idea]   Report a planwise bug, lesson, or idea upstream
   help                         Show this help message
 ```
 
 > For the full user guide, visit: https://github.com/gabgoss/planwise/tree/main/plugins/planwise
+
+> Found a bug or have an idea? Run `/planwise feedback`, or open an issue at https://github.com/gabgoss/planwise/issues
 
 ## Argument Forwarding
 

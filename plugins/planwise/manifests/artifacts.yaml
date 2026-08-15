@@ -249,6 +249,16 @@ artifacts:
       pair so a reader can never see a new version against a superseded
       install path (see `_commit_upgrade_pin()` in `scripts/init_project.py`).
 
+  - id: feedback_block
+    on_disk: "{planwise_root}/config.yaml (block: feedback)"
+    config_keys:
+      - "feedback.enabled"
+    producer: "generate_config() / --migrate"
+    consumers:
+      - "/planwise feedback"
+    missing_key_behavior: migrate_only
+    upgrade_behavior: preserve
+
   - id: planwise_skill
     on_disk: "plugin in-place (skills/planwise/SKILL.md)"
     config_keys: []

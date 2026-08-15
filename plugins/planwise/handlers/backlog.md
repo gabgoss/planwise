@@ -406,6 +406,7 @@ Use `AskUserQuestion`: "Create backlog item from this candidate?"
 - Option 1: Yes — create BLI
 - Option 2: No — skip
 - Option 3: Edit — modify before creating
+- Option 4: Yes — create item + report upstream — creates the BLI as in Option 1, then routes into `references/feedback-submission.md`'s own `critical` gate, where outward consent is actually taken. This convenience-classified site takes no consent language of its own; the skip-all default above is untouched and can never post.
 
 ### Step 7.3: Auto-Create BLI Files
 

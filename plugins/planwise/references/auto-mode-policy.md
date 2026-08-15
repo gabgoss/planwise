@@ -52,6 +52,8 @@ When a call site is classified as **critical**:
      Re-issue `/planwise {handler}` with argument `{arg}={value}` inline."
    - STOP — do not proceed past the gate.
 
+**Exception:** outward-facing posts with a complete fallback degrade to the fallback rather than fail loud — see [feedback-submission.md](feedback-submission.md).
+
 <!-- AUTO-MODE: critical -->
 
 ### § Convenience Question Behavior

@@ -107,6 +107,18 @@ upgrade:
   github_issue: false                  # opt-in gh issue for "upstream" entries (interactive only)
   descope_preserve_paths_edits: true   # true = keep today's preserve-on-paths-only-edit behavior; false opts in to removal
 
+feedback:
+  # Opt-in. Nothing is ever sent upstream without BOTH this flag AND an
+  # explicit interactive confirmation of the exact issue body.
+  enabled: false
+  # Upstream target passed to the issue-create command's explicit -R flag.
+  # NEVER derived from your own git remote — that would file planwise
+  # issues in your project's repo.
+  repo: "gabgoss/planwise"
+  # Include the auto-filled Environment block (plugin version, subcommand).
+  # No project file contents, paths, or config values are ever attached.
+  include_environment: true
+
 scoring:
   priority_high: 30
   priority_medium: 20

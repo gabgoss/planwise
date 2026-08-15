@@ -383,7 +383,8 @@ promotion-target: [rule|code|claude-md|agent|skill|settings]   # one or more tar
 Present the draft to the user:
 - Show pre-filled frontmatter and draft Context/Lesson/Applies To sections
 - **Self-containment check:** confirm the draft inlines every block, example, or command output the lesson depends on — a reference may add context, but the substance required to promote it later is pasted in, not only linked. (Apply the durability test in Step 2.)
-- Ask: "Capture this lesson? (approve / edit / skip)" <!-- AUTO-MODE: critical -->
+- Ask: "Capture this lesson? (approve / edit / skip / approve + report upstream)" <!-- AUTO-MODE: critical -->
+  - **approve + report upstream:** writes the local lesson first, same as plain approve (Step 4, unchanged — the consumer keeps their own record regardless), then passes the draft to `references/feedback-submission.md` to submit it upstream. Surface this option prominently when the draft's `technology:`/`domain:` frontmatter carries a planwise-ish token, but it is ALWAYS selectable — a non-match never hides it, and no heuristic decides on the user's behalf.
 
 ### Step 4: Write
 

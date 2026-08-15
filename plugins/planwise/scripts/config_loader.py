@@ -577,6 +577,31 @@ def get_upgrade_config(config: dict) -> dict:
     }
 
 
+def get_feedback_config(config: dict) -> dict:
+    """Extract the `feedback:` block from config, with conservative defaults.
+
+    Mirrors get_upgrade_config: reads the three `feedback.*` keys and falls
+    back to documented backward-compatible defaults when the block (or a key)
+    is absent, explicitly null, or malformed — a config that predates the
+    feedback surface. Defaults are the safe status quo:
+
+      * enabled             -> False                  (opt-in, interactive only)
+      * repo                -> "gabgoss/planwise"      (upstream target)
+      * include_environment -> True                    (auto-filled Environment block)
+    """
+    feedback = config.get("feedback", {})
+    if not isinstance(feedback, dict):
+        feedback = {}
+    repo = feedback.get("repo", "gabgoss/planwise")
+    if not isinstance(repo, str) or not repo.strip():
+        repo = "gabgoss/planwise"
+    return {
+        "enabled": _as_bool_flag(feedback.get("enabled"), False),
+        "repo": repo,
+        "include_environment": _as_bool_flag(feedback.get("include_environment"), True),
+    }
+
+
 def get_effective_token_saver_config(config: dict, plan_override=None) -> dict:
     """Overlay an optional per-plan on/off decision onto the project surface.
 

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: planwise user guide
+    url: https://github.com/gabgoss/planwise/tree/main/plugins/planwise
+    about: Read the README before opening an issue — many questions are already answered there.

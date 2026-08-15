@@ -1,0 +1,36 @@
+name: Lesson or idea
+description: Share something you learned using planwise, or an idea for improving it
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing — please keep the description self-contained.
+  - type: textarea
+    id: what-i-learned
+    attributes:
+      label: What I learned
+      description: The lesson or idea itself.
+    validations:
+      required: true
+  - type: textarea
+    id: why-it-matters
+    attributes:
+      label: Why it matters
+      description: The impact or benefit.
+    validations:
+      required: true
+  - type: textarea
+    id: where-it-would-apply
+    attributes:
+      label: Where it would apply
+      description: The situations or workflows this affects.
+    validations:
+      required: true
+  - type: input
+    id: planwise-version
+    attributes:
+      label: planwise version
+      description: From your config.yaml, if known.
+    validations:
+      required: false

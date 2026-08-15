@@ -20,7 +20,12 @@ except ImportError:
 
 
 try:
-    from config_loader import find_context_block, get_upgrade_config, write_config_checked
+    from config_loader import (
+        find_context_block,
+        get_feedback_config,
+        get_upgrade_config,
+        write_config_checked,
+    )
 except ImportError:
     # Partial-install tolerance, mirroring the structural_compare guard in rule_divergence.py:
     # a half-synced scripts tree must not kill the whole CLI at import time.
@@ -30,6 +35,14 @@ except ImportError:
             "customization_handoff": "report",
             "github_issue": False,
             "descope_preserve_paths_edits": True,
+        }
+
+    # Mirrors config_loader.get_feedback_config()'s conservative defaults.
+    def get_feedback_config(config: dict) -> dict:   # noqa: D103
+        return {
+            "enabled": False,
+            "repo": "gabgoss/planwise",
+            "include_environment": True,
         }
 
     def write_config_checked(config_path, text: str) -> None:   # noqa: D103
@@ -66,6 +79,7 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
     "context",
     "categorization",
     "upgrade",          # HAS_UNIQUE handoff routing + de-scope paths-only-edit policy
+    "feedback",         # opt-in upstream issue-create block
 ]
 
 

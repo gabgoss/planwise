@@ -193,9 +193,10 @@ Write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to
 >    Claude Code session — expected to be unavailable on some platforms; the
 >    inline path is the intended fallback, not an error.)
 > 3. **`gh` absent, or `upgrade.github_issue: false`, or non-interactive** → the
->    upstream handoff degrades from a live `gh issue create` to a written
->    issue-body draft file under `upgrade-conflicts/{from}-to-{to}/issue-drafts/`.
->    Never blocks the upgrade.
+>    upstream handoff degrades from a live upstream post
+>    (`references/feedback-submission.md`) to a written issue-body draft file
+>    under `upgrade-conflicts/{from}-to-{to}/issue-drafts/`. Never blocks the
+>    upgrade.
 >
 > The inline primitive plus the automated transfer-first writer is the floor:
 > every path yields a complete, idempotent, headless-safe disposition that never
@@ -400,19 +401,17 @@ The handler's write surface in both cases stays within its documented boundary �
 
 ### Step 4.2 — Opt-in upstream GitHub issue
 
-For any customization — whether already transferred to `{planwise_root}/upgrade-transfers/{from}-to-{to}/` (Step 2.4) or still preserved in place under a Step 4 conflict — that the human confirms `upstream`, generate a `gh` issue. Gated by **ALL** of:
+For any customization — whether already transferred to `{planwise_root}/upgrade-transfers/{from}-to-{to}/` (Step 2.4) or still preserved in place under a Step 4 conflict — that the human confirms `upstream`, submit the issue **through the shared submission engine**: `references/feedback-submission.md` owns the invocation — its gate chain, draft-first render, explicit `-R` target repo, and fallback posture. Do NOT write a `gh` call here: a locally improvised invocation resolves its target from the consumer's own git remote and files planwise issues in the consumer's own project. Gated by **ALL** of:
 
-- `upgrade.github_issue: true` (config key — read via `get_upgrade_config()`), **AND**
+- `upgrade.github_issue: true` (config key — read via `get_upgrade_config()`) — an **additional** precondition owned by this step, layered on top of the engine's own gates and never a substitute for them, **AND**
 - interactive confirm (`AskUserQuestion`, `<!-- AUTO-MODE: critical -->`), **AND**
-- `gh` resolvable on PATH.
+- the engine's own gate chain (`references/feedback-submission.md`), whose gate 3 is the `gh`-on-PATH check this step used to restate.
 
 If **any** gate fails (flag off, declined, non-interactive, or `gh` absent) → write an issue-body **draft file** to `upgrade-conflicts/{from}-to-{to}/issue-drafts/{filename}.md` instead of calling out. Never automatic; never blocks the upgrade.
 
 Issue body (project-agnostic template):
 
 ```markdown
-Title: [planwise] Customization diverged from shipped: {filename}
-
 ## Diverged artifact
 - File: `{filename}`  ({kind})
 - Verdict: HAS_UNIQUE  (confidence: {confidence}, source: {inline|agent})

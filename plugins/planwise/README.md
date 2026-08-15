@@ -407,6 +407,29 @@ flowchart LR
 
 ---
 
+## 12. `/planwise feedback`
+
+**Report a planwise bug, lesson, or idea upstream.**
+
+```
+/planwise feedback
+```
+
+Walks you through a short prompt — bug, lesson, or idea — and drafts a submission from what you type. Only your answers to the prompt go into the draft; file contents, repo paths, and config values are never included.
+
+**Opt-in, off by default.** Posting upstream requires `feedback.enabled: true` in your `config.yaml` AND an interactive confirmation that shows you the exact body before anything is sent — nothing goes out without both. In Auto Mode, `feedback` never posts: it always saves the draft to disk and prints the file path instead.
+
+**Privacy.** The submitted body never contains your file contents, repo paths, or config values — only what you wrote in the prompt. If `gh` isn't installed, isn't authenticated, or you decline the post, your draft is preserved locally and the issues URL is printed so you can file it by hand.
+
+#### How `feedback` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Answer bug/lesson/idea<br/>prompt] --> C[Review draft] --> D([Confirm &amp; post,<br/>or save locally])
+```
+
+---
+
 ## Quick reference
 
 | Command | What it does |
@@ -427,6 +450,7 @@ flowchart LR
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
+| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream |
 
 ---
 
@@ -520,6 +544,9 @@ To remove the marketplace:
 
 **Not sure which command to use?**
 - Run `/planwise help` to see all available commands and a link to the full user guide
+
+**Something in planwise itself looks broken, or you have an idea**
+- Run `/planwise feedback`, or open an issue directly at https://github.com/gabgoss/planwise/issues
 
 ---
 
