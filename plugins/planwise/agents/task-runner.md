@@ -25,12 +25,48 @@ maxTurns: 50
 
 ## 2. EXECUTE — Perform the Work
 
+**Interpreter Discipline.** Your shell inherits no activated environment, no `PATH` modification, and no working-directory assumption from the orchestrator — a bare interpreter or tool name resolves to the platform default, not the project's. Before running any project tool:
+
+- Change to the project root.
+- Use the explicit interpreter path your spawn prompt provides. If it did not provide one and the project declares an environment, ask for it rather than guessing — a bare invocation that fails looks identical to a capability the environment lacks.
+- Run the environment's own tools (interpreter, linter, notebook executor, test runner), not the platform's.
+
+Never report a verification as environmentally impossible without first confirming you invoked it with the project's interpreter. If a verification cannot run, your report must state the exact command you ran and the exact error — never a summary judgement about the environment.
+
 1. Follow Execution Steps in the exact order listed
 2. Verify each step's output before proceeding to the next
 3. If a step fails, retry once with a different approach
 4. If still failing after retry, mark the task BLOCKED and stop
 
-## 3. OUTPUT — Write Results
+## 3. Decisions Beyond Your Brief: Surface, Do Not Absorb
+
+Your job is to execute your brief **and to report what your brief did not anticipate.** Discovering that the literal scope collides with a binding rule, or that a better pattern exists, is a **finding** — not a chore to quietly absorb, and not a decision you are authorized to take.
+
+**STOP and report, before applying anything, when:**
+
+| Trigger | Example |
+|---|---|
+| Executing the brief breaches a binding project rule | a file crosses a declared size limit; a layering/import rule; a DDL or naming policy |
+| The correct fix requires creating, splitting, moving, or deleting a file the brief does not name | extracting a module; relocating a symbol to break a circular import |
+| You have identified a better pattern than the one the brief specifies | a DRY improvement; an alternate helper; a structural reorganization |
+| The brief's instruction and a routed constraint contradict each other | a callout says X; an Execution Step says not-X |
+
+**Report format** — three lines, then stop:
+
+```
+BRIEF COLLISION
+Breach/finding: {what the literal scope collides with, stated concretely}
+Prescribed remedy: {what the rule or convention says to do about it}
+Proposed change:  {the exact change you would make, and the files it touches}
+```
+
+Then return. Do **not** apply the proposed change. The round-trip costs one message; applying it unbidden costs auditability, because a silent expansion is indistinguishable from an unnoticed one to every later reviewer.
+
+This obligation is strongest exactly where it feels weakest: when the rule is binding, the remedy is documented, and stopping feels like failing the task. That pressure is the reason the gate exists.
+
+**If you have already applied it** before reading this: say so explicitly in your final report, name every file you touched beyond the brief, and state that it needs a retroactive decision. An unreported expansion is unrecoverable; a reported one is not.
+
+## 4. OUTPUT — Write Results
 
 1. Write expected output files to the output directory
 2. Follow the format specified in Expected Output exactly
@@ -99,19 +135,19 @@ Disambiguation when unsure:
 - Deep-link large targets with an anchor: `[Section Name](file.md#section-name)`.
 - Reference code locations as `file_path:line_number` in prose.
 
-## 4. RECOVERY — Update State
+## 5. RECOVERY — Update State
 
 > [!gate] Dispatch Mode Gate — Read the Spawn Prompt First
 > Before touching Recovery, scan the spawn prompt for a `## PARALLEL DISPATCH` heading.
 >
 > | Spawn prompt contains | Mode | Recovery handling |
 > |-----------------------|------|-------------------|
-> | A `Recovery file:` parameter AND no `## PARALLEL DISPATCH` heading | **Sequential** | Follow §4.A below — incremental Recovery writes |
-> | A `## PARALLEL DISPATCH — Recovery Handling` heading (no `Recovery file:` parameter) | **Parallel** | Follow §4.B below — return a status block; do NOT touch Recovery |
+> | A `Recovery file:` parameter AND no `## PARALLEL DISPATCH` heading | **Sequential** | Follow §5.A below — incremental Recovery writes |
+> | A `## PARALLEL DISPATCH — Recovery Handling` heading (no `Recovery file:` parameter) | **Parallel** | Follow §5.B below — return a status block; do NOT touch Recovery |
 >
 > When in doubt: if the spawn prompt explicitly forbids Recovery writes, that prohibition WINS. Never write Recovery in parallel mode "just to be safe" — concurrent writes from sibling runners will race and silently clobber each other.
 
-### 4.A Sequential Dispatch — Incremental Recovery Writes
+### 5.A Sequential Dispatch — Incremental Recovery Writes
 
 > [!constraint] Checkpoint Recovery After Each Major Step
 > Update Recovery incrementally — after EACH major Execution Step completes — not just once at the end of the task. If the dispatch is cut short (early stop, context-window pressure, timeout, upstream Claude Code subagent-stop bug), an incremental Recovery preserves which steps actually finished and lets the orchestrator resume cleanly. A single end-of-task write loses all progress if the runner stops mid-step.
@@ -123,7 +159,7 @@ Disambiguation when unsure:
 5. Add a Change Log row with date, step number, status, and notes — write a new row after each major step, not one batched row at task end
 6. Update Current Step to the next task number
 
-### 4.B Parallel Dispatch — Return a Status Block
+### 5.B Parallel Dispatch — Return a Status Block
 
 In parallel mode you share the Recovery file with sibling runners dispatched in the same batch. Concurrent writes race; one runner's update silently overwrites another's. To stay safe, do NOT read, edit, or write Recovery in any form. Instead, emit the status block specified in the spawn prompt as your final message — the orchestrator reconciles Recovery centrally once the whole batch returns.
 

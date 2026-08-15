@@ -32,6 +32,11 @@ This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Trigger
 - [1.20 1M-Exception Dispatch (DELEGATED) — Token Saver](#120-1m-exception-dispatch-delegated--token-saver)
 - [1.21 Background vs Foreground Gate](#121-background-vs-foreground-gate)
 - [1.22 Delegated Mode Anti-Patterns Checklist](#122-delegated-mode-anti-patterns-checklist)
+- [1.23 Triple-Scope the Single-Task Dispatch](#123-triple-scope-the-single-task-dispatch)
+- [1.24 Structure Contracts Need a Literal Template, Not Prose](#124-structure-contracts-need-a-literal-template-not-prose)
+- [1.25 Adjudicating Runner-Surfaced Decisions](#125-adjudicating-runner-surfaced-decisions)
+- [1.26 The Ownership Window — Orchestrator Verification Is Read-Only](#126-the-ownership-window--orchestrator-verification-is-read-only)
+- [1.27 Interpreter Discipline in Every Spawn Prompt](#127-interpreter-discipline-in-every-spawn-prompt)
 
 ---
 
@@ -95,6 +100,24 @@ When a DELEGATED subagent fails or produces incomplete output, the orchestrator 
 > Attempt 3: FAILED (subagent stopped mid-execution)
 > → Mark task BLOCKED in Recovery; report to orchestrator
 > ```
+
+### The HALT Cluster Is an Upstream-Scope Signal
+
+The retry cap and BLOCKED contract above stop a runner from cascading a fix it is not authorized to make. The HALTs they produce are also **data about the task that ran before this one.**
+
+When a batch of work classified as *mechanical* produces **3 or more HALTs of the same failure mode**, across one batch or consecutive batches, the orchestrator MUST stop treating them as individual exceptions and surface the cluster to the user:
+
+```
+{N} of {M} items in this family HALTed with the same upstream-incomplete pattern.
+This is a scope measurement of {upstream-task}, not a batch failure.
+Recommend a follow-up item scoped to the HALT inventory rather than re-opening {upstream-task}.
+```
+
+Three rules follow:
+
+1. **Do not tactical-fix between batches.** Mid-session normalization is the cascade-fix anti-pattern wearing a different hat — *"I'll just patch this one caller before the next batch."* It bypasses whatever architectural review the upstream task performed (was that task's decision the same for this item?) and bleeds upstream scope into a batch that was never scoped for it. The cluster is an **upstream-scope signal, not a patch-through**: each HALT stays HALTed until the follow-up executes.
+2. **Size the follow-up from the HALT inventory verbatim — do not re-derive it.** The HALTs collectively *define* the follow-up's scope; the cluster's existence proves the cluster. Each HALTed item's specific non-canonical form becomes one row in the follow-up's brief. Re-opening the upstream task to "find more" re-runs the criterion that already missed them.
+3. **The count is the signal even when every individual HALT was handled correctly.** In the measured case the contract held on all six batches and no fix cascaded — and the cluster still revealed that the upstream task had covered 7 of 16. A clean batch is not evidence of complete upstream scope.
 
 #### Reviewer Check 011 — Task-File Error Recovery Semantics Declared
 
@@ -710,6 +733,203 @@ Quick-reference checklist for common DELEGATED-mode mistakes; several map to ful
 > - **Allow parallel task-runners to write Recovery:** Last-write-wins races silently drop completion rows (full rule: §1.13)
 > - **Orchestrator produces task outputs:** Context accumulates; no fresh budget benefit
 > - **Infer DELEGATED at runtime:** Planning should have set this; warn user and re-plan if needed (full rule: §1.1)
+
+## 1.23 Triple-Scope the Single-Task Dispatch
+
+A DELEGATED runner is handed the Recovery file, whose Step Completion Status table enumerates every task in the session. A capable runner reads that list and can adopt *finishing the session* as its goal. A single instruction stating otherwise is not enough — it has been measured losing to a session-scoped opening line in the same prompt.
+
+**Every DELEGATED spawn prompt MUST state the single-task scope in all three of these positions:**
+
+| Position | Required content |
+|---|---|
+| **Opener** (first sentence — the frame that competes) | `You are dispatched to execute ONE task: {task-id}. The session has other tasks; you DO NOT execute them.` |
+| **Hard-constraint block** | `Execute ONLY {task-id}. Do not start any other task in the session even if the Recovery file lists it as PENDING. Files you may write: {explicit list}.` |
+| **Return instructions** | `Return after writing the single expected output file. Do NOT proceed to task {n+1}.` |
+
+Never open with a session-scoped identity (*"You are a task-runner in session {session-id}"*) without the task-scoped clause in the same sentence. That framing is the specific signal measured to override a correctly-stated single-task constraint stated only once.
+
+**Detection.** The over-run is visible before the next dispatch: the returned Recovery shows more than one step flipped to COMPLETE, the session's `Outputs/` directory holds more files than the task declared, or the final message references content belonging to a later task. Check all three; the runner's own report will describe the extra work as success.
+
+**Recovery from a detected over-run — trust but verify.** Do NOT redo the extra work; it is usually genuine. Verify the landed state, then re-dispatch only the genuinely incomplete tail. For a large over-run, dispatch **verification-only** runners (read the existing output, fact-check it against its source artifacts, report discrepancies) rather than re-executing the tasks; this converts N re-executions into N cheaper reads.
+
+> [!constraint] One Instruction Stating Scope Is Not Scoping
+> WRONG — scope stated once, under a session-scoped opener that outranks it:
+> ```
+> "You are a DELEGATED task-runner subagent in planwise session {session-id}.
+>  Execute exactly one task and return. …"
+> # Measured: the runner executed all 11 remaining tasks, wrote a Summary, and
+> # flipped the session status to COMPLETE — reporting it as success.
+> ```
+> CORRECT — scoped at the opener, in the hard constraints, and in the return instructions:
+> ```
+> "You are dispatched to execute ONE task: {task-id}. The session has other tasks;
+>  you DO NOT execute them.
+>  … HARD CONSTRAINTS: Execute ONLY {task-id}. Do not start any other task even if
+>    Recovery lists it as PENDING. Files you may write: {explicit list}.
+>  … RETURN: after writing {output-file}, return. Do NOT proceed to task {n+1}."
+> ```
+
+This is the over-run counterpart to §1.7's idle-mid-step wake-up. Both break the one-task-per-dispatch contract — one by doing too little, one by doing too much — and §1.17's diagnosis table covers only the first.
+
+## 1.24 Structure Contracts Need a Literal Template, Not Prose
+
+When a downstream task consumes a runner's output **by structure** — an aggregator reading a named section, a table cell read by column position, a script parsing headers — the phrase "with this EXACT structure" followed by an illustrative code block is not a sufficient contract. Measured deviation rate on a 12-runner batch given exactly that instruction: **4 of 12 (33%)**, with content complete and structure reorganized in every failing case. The same batch run with a template file, a checklist, and a pre-acceptance grep produced none.
+
+Three requirements, in order of durability:
+
+1. **Check in a literal template file; do not inline the example.** Replace *"Write `{output}` with this EXACT structure: {code block}"* with *"Write `{output}` by reading the template at `{template-path}` and substituting each `{placeholder}` — preserve every heading and every table column verbatim."* A checked-in template is an artifact the reviewer can diff against; an inline code block is read as illustration.
+2. **Encode the required headings as a checklist in the task file**, not only as a code block: *"the output MUST contain these sections, in this order: `## A`, `## B`, …"*. A checklist is read as an obligation; a code block is read as an example. Where the consumer reads a table by column position, list the exact column headers in the same checklist.
+3. **Grep the output before marking the task COMPLETE.** The post-dispatch gate greps the produced file for every required heading and every required table-column header. On a miss, re-dispatch the SAME runner with a **single corrective instruction** — *"normalize `{output}` to the structure in {section} of the task file"* — rather than accepting and reconciling downstream.
+
+**Aggregator-side defence.** A task that consumes N such files locates content by **keyword, not by heading position**, and emits a canonical-shape **shadow file** before aggregating. This costs one pass and makes the aggregation robust to the residual drift the three requirements above do not eliminate.
+
+> [!constraint] A Column-Position Contract Must Be Stated as Columns
+> WRONG — the consumer reads a verdict by column position; the spec shows the table only inside an illustrative block:
+> ```
+> "Write the file with this EXACT structure:
+>  ## Verdict Summary  (table: Artifact | Verdict | Severity)"
+> # One of twelve runners emitted `Dimension | Status | Notes` — complete content,
+> # wrong columns; the aggregator reads cell 2 and gets "Status", not a verdict.
+> ```
+> CORRECT — the columns are a named checklist item and the template is a real file:
+> ```
+> "Fill `templates/{name}-template.md`. The Verdict Summary table MUST have exactly
+>  these column headers, in this order: `Artifact`, `Verdict`, `Severity`.
+>  A downstream task reads the Verdict cell by column position."
+> ```
+
+## 1.25 Adjudicating Runner-Surfaced Decisions
+
+A runner that returns a `BRIEF COLLISION` report — a breach, a better pattern, or a contradiction its brief did not anticipate — has done the right thing. The orchestrator, not the runner, owns the decision. Two classes, decided differently.
+
+### 1.25.1 Binding-rule breach → Option A / Option B gate
+
+Treat it exactly as a Phase-1 structural finding, except that it surfaced mid-execution: present the user an explicit **Option A (coherent — apply the prescribed remedy, naming the files and the structural impact)** vs **Option B (literal — ship the breach, naming the residual defect)**, call `AskUserQuestion`, and record the outcome as a `Scope-Expansion Decisions` row in Recovery plus its Summary mirror. Do not pick before the user answers.
+
+### 1.25.2 Pattern-divergence proposal → decide by sibling existence AND correctness
+
+When a runner proposes a pattern that differs from what siblings in the same batch already use, the discriminator is whether correct siblings exist — **not the proposal's merit**:
+
+| Situation | Action |
+|---|---|
+| Proposed pattern diverges from siblings **already authored in this session or batch** | **Redirect** to the sibling pattern; file the proposal as a post-session backlog item scoped to the whole batch |
+| The convention is **not yet established** (no siblings authored) | **Accept** — this pattern is now canonical; subsequent siblings follow it |
+| A sibling pattern is **broken** (wrong field name, wrong constant, wrong signature) | **Fix in-session**; back-patch affected siblings |
+
+If siblings exist **and** work correctly, mid-session divergence is net-negative regardless of the proposal's merit. Refactor at the batch level, never one artifact at a time — a partially applied refactor forces every later attempt to re-grep and re-decide, and the natural endpoint of batch-wide consistency is never reached.
+
+**Redirect protocol** — resume the SAME runner via `SendMessage` (its context holds the task) with the rationale stated, not just the verdict: the sibling-grep evidence, the downstream cross-artifact review contract the divergence would break, and the fact that the batch-wide refactor is its own item. Then verify the final output preserves the sibling pattern with a post-task grep.
+
+> [!constraint] Do Not Accept a Mid-Batch Pattern Change Because It Is Correct
+> WRONG — the proposal is technically valid, so the orchestrator accepts it:
+> ```
+> Task 04 → adopts the new pattern
+> Tasks 01-03 + N pre-existing artifacts → still use the old one
+> # 1-of-N divergence; cross-artifact grep gates weaken to "match A or match B";
+> # the refactor is now partially applied and nobody owns finishing it.
+> ```
+> CORRECT — redirect to sibling parity; file the batch-wide refactor as its own item:
+> ```
+> Task 04 → sibling pattern preserved (post-task grep confirms)
+> Recovery "Next Session" → candidate item: apply the new pattern across all N artifacts,
+>                           one session, one batch edit, one consistency review
+> ```
+
+### 1.25.3 Smallest sufficient fix — rank the remedy, not just the dispatch
+
+When a runner surfaces a constraint violation together with a proposed remedy, the orchestrator directs it to the **smallest fix that resolves the violation** — not the first fix that would.
+
+| Rank | Remedy class | Try before escalating |
+|---|---|---|
+| 1 | In-place edit within the existing structure (compression, inlining, removing dead weight) | always first |
+| 2 | Single-file change that alters structure locally | only if rank 1 cannot resolve it |
+| 3 | Multi-file structural change (splits, moves, dependency rework) | only if rank 2 cannot, and only with an Option A/B gate per §1.25.1 |
+
+Capability inverts here: a more capable runner reaches for a more elaborate remedy, because it can see one. In the measured case a 564-line module was brought under a 500-line limit by **docstring compression** (rank 1, final 494 lines) after the runner had proposed a **parser split with lazy imports to break the resulting circular dependency** (rank 3). The rank-3 proposal was competent and unnecessary.
+
+**This is distinct from §1.9**, which ranks how a follow-up fix is **dispatched** (inline message / targeted dispatch / new session). This section ranks **which remedy is applied**. A correctly-dispatched over-invasive fix is still an over-invasive fix.
+
+## 1.26 The Ownership Window — Orchestrator Verification Is Read-Only
+
+A file named in a task's `Output:` line is **owned by that runner** from the moment of dispatch until the runner reports and the orchestrator accepts. Inside that window the orchestrator's verification toolkit is `Read`, `Grep`, `git status`, `git diff` — and nothing else.
+
+**Executing an artifact is a WRITE.** So are `{formatter}`, an in-place `{notebook-executor}`, an output-clear, and most build and lint commands. They *feel* like inspection because they answer a question; they answer it by rewriting the file. Running one against a file another agent is actively writing produces a two-writer measurement — and a two-writer measurement is indistinguishable from a settled one, because it yields a number, not an error.
+
+| Rule | |
+|---|---|
+| **Establish ownership at dispatch** | Every file in the task's `Output:` line is the runner's until acceptance. State it explicitly in the Orchestration when several runners hold adjacent files. |
+| **Verify by reading; delegate the re-run** | If a mutating check is genuinely required — a notebook must actually execute to prove it works — `SendMessage` the owner to re-run it and report the result. Do not run it yourself in parallel. |
+| **Any measurement taken inside the window is void** | Re-take it after the runner reports and the file has settled. Do not average, reconcile, or reason about the intermediate readings; they are not data. |
+| **Task briefs name the owner of every verification command** | An unattributed `{build-cmd}` or in-place executor in a brief is an invitation for the runner AND the orchestrator to run it. |
+
+Highest-risk shapes: notebooks and any artifact where **execution is the verification**, and high-fanout batches where several runners hold adjacent files.
+
+> [!constraint] Do Not Run a Mutating Verification Against a File a Runner Still Owns
+> WRONG — the orchestrator verifies by executing the runner's in-flight artifact:
+> ```
+> runner (mid-task) → writing {artifact}
+> orchestrator      → {notebook-executor} --execute --inplace {artifact}   # a WRITE
+> # Four different measurements of one logical file across the session; only the
+> # post-settlement reading meant anything. No error was raised at any point.
+> ```
+> CORRECT — read the landed state, or delegate the mutating check to the owner:
+> ```
+> orchestrator → Read / Grep / git status / git diff {artifact}          # read-only
+> orchestrator → SendMessage(owner, "re-run {cmd} on {artifact}; report the result")
+> orchestrator → re-measure only after the runner reports and the file has settled
+> ```
+
+**Near-neighbours, neither superseded.** This is the orchestrator-vs-runner form of the contention hazard §1.13 addresses between runners — same collision, different pair, and unlike §1.13's case no strategy matrix applies, because the orchestrator does not write here at all. §1.17.4's acceptance-gate checks stay in force and remain compatible: every check it names (`grep` the target, `git status --short`, read Recovery) is already read-only, which is why it is a gate the orchestrator may run inside the window.
+
+## 1.27 Interpreter Discipline in Every Spawn Prompt
+
+Spawned contexts inherit no shell state — the interpreter on `PATH` is the platform default, never the project's. That harness fact is recorded at [`agent-orchestration.md`](agent-orchestration.md) §10 row 11 and is not restated here; what follows is the dispatch-side consequence.
+
+When the project declares an isolated environment, **every** DELEGATED spawn prompt whose task invokes a project tool MUST name the interpreter and tool paths explicitly. The orchestrator emits paths matching the project's OS — never one canonical shape.
+
+```markdown
+## ENVIRONMENT DISCIPLINE
+Change to the project root first. Use these paths — a bare tool name resolves to the
+platform default, not this project's environment:
+  interpreter:  {env-interpreter-path}
+  linter:       {env-linter-path}
+  test/notebook runner: {env-runner-path}
+Confirm connectivity/setup with `{env-interpreter-path} {project-precheck}` BEFORE
+doing dependent work.
+```
+
+Emit the POSIX (`./.venv/bin/{tool}`) or the Windows (`.\.venv\Scripts\{tool}.exe`) form per the project's platform; do not emit both and leave the runner to choose.
+
+**Spawn prompts are not the only surface.** A task file's own **Verification Commands** carry the project-relative interpreter path too — a dispatched bare interpreter resolves against the subagent's ambient environment wherever it appears, and a command copied out of a brief inherits that defect verbatim. Long-lived repository scripts SHOULD additionally self-heal: when a script detects it is running under the wrong interpreter, it re-executes itself under the project's rather than failing or, worse, succeeding against the wrong one.
+
+**First-spawn diagnostic.** The first dispatch of a session confirms its interpreter before doing other work — one line, once per session, that converts a silent gap into a loud one:
+
+```
+{env-interpreter-path} -c "import sys; print(sys.executable)"
+```
+
+HALT if the output does not resolve inside the project environment.
+
+**Treat an "environment unavailable" report as UNVERIFIED, not as a completed check.** Before accepting one, confirm the runner was given an interpreter path at all. A runner claiming a verification *could not* run deserves the scrutiny of one claiming it *failed* — the second is loud, the first is silent, and both leave the same gate unrun.
+
+> [!constraint] A Bare Tool Name in a Spawn Prompt Is an Unrun Gate
+> WRONG — the prompt inherits the orchestrator's environment implicitly:
+> ```
+> "…then run the connectivity precheck and the smoke test."
+> # Runner executes the precheck with the platform default interpreter,
+> # hits a module-resolution error, and reports: "smoke tests NOT RUN —
+> # requires a live connection unavailable in this environment."
+> # File-level work reported PASS. The gate never ran. No error surfaced.
+> ```
+> CORRECT — the prompt names the paths and the first dispatch proves them:
+> ```
+> "## ENVIRONMENT DISCIPLINE
+>  interpreter: {env-interpreter-path} … Confirm with
+>  `{env-interpreter-path} -c \"import sys; print(sys.executable)\"` and HALT
+>  if it does not resolve inside the project environment."
+> # Cost: ~50 tokens per dispatch. Cost of omitting it: one lost verification
+> # cycle per dispatch, plus a false PASS on every gate that silently did not run.
+> ```
 
 ---
 

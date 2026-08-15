@@ -140,6 +140,13 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 
 {What the subagent should produce - be specific about format and content}
 
+<!-- Structure-as-checklist + template pointer: when this task's output is consumed
+     structurally by a named downstream task (an aggregator reading a named section, a
+     script parsing headers, a table cell read by column position), point at a template file
+     rather than inlining the shape, and list every required heading and table-column header
+     here as an explicit checklist. State that the post-dispatch acceptance step greps the
+     produced file for these headings/columns before accepting it. -->
+
 ---
 
 ## Verification Commands <!-- CONDITIONAL — required if task touches code, tests, or schemas -->
@@ -169,6 +176,9 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > [!practice] Connectivity Precheck Placement
 > When the task requires network/DB connectivity, the connectivity precheck command MUST appear in the **Before** block (not inline in Execution Steps).
 
+> [!constraint] Every Verification Command Names Its Owner
+> Each command in the Before/After blocks MUST name its owner — **runner** or **orchestrator** — the one who runs it. An unattributed command that mutates the artifact it checks is the specific shape that invites a double execution: both the runner and the orchestrator may run it, and a mutating check run against a file the runner still owns produces a two-writer measurement that is indistinguishable from a settled one.
+
 ---
 
 ## Success Criteria <!-- REQUIRED -->
@@ -191,6 +201,12 @@ EI-section-length estimates for verbatim-copy tasks (instead of body-block estim
 ## Notes for Agent
 
 {Special instructions, edge cases, or context the agent needs}
+
+<!-- Anticipated-breach prompt: if this task's work predictably collides with a binding
+     rule — a file already near a size limit, a change that would push a module across a
+     layering boundary — name the collision and the required halt-and-report instruction
+     here explicitly. A brief that anticipates the breach routes it; a brief that is silent
+     leaves the runner to decide. -->
 
 **DELEGATED retry-limited error recovery:** When this task runs as a delegated task-runner subagent, retry a failed step up to 3 times before reporting BLOCKED in the Recovery file (per `handlers/run.md` Self-Correction Pattern — never loop indefinitely).
 ```
