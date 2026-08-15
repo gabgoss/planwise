@@ -199,6 +199,11 @@ When a task surfaces a coordination flag during execution, the orchestrator adds
 > | 1      | {abbrev}-S{XX}-{YY}-{##} | {abbrev}-S{XX}-{YY}-{##} or {sprint} or {plan} | {one-paragraph description of the constraint / dependency / opportunity} | {what the downstream agent should do — sequence, route, resolve, evaluate} |
 > ```
 
+#### Checking the Lessons Index Before Recording
+
+> [!constraint] Search Before You Record
+> The duplicate check conventionally attaches to lesson capture at session end; coordination flags are authored earlier and propagate immediately, so an unchecked flag can reach downstream plan files before anyone consults the index. Before recording a flag, search the lessons index for the artifact class it concerns. Where the flag and an existing lesson agree, cite the lesson rather than restating it. Where they disagree, treat the lesson as the considered position and the flag as a fresh, unreviewed reaction — reconcile toward the lesson, or argue explicitly why the lesson should change and amend it in the same edit rather than shipping its opposite alongside it. Re-deriving a documented decision is not free and does not reliably reproduce it: the second derivation sees one incident; the original saw the incident and its consequences.
+
 #### Authoring the Flag (Spec Delta, Not Observation)
 
 > [!constraint] A Flag That Must Change Behaviour Is a Spec Delta
@@ -218,6 +223,11 @@ When a task surfaces a coordination flag during execution, the orchestrator adds
 > The distinguishing test: does the flag tell the runner something, or tell it to do something differently? If the second, it must name the step.
 
 A Coordination Flag Row is either **informational** — safe to deliver as context; spawn-prompt injection alone suffices — or a **binding contract**, which must be reconciled against the receiving task's own Execution Steps, Success Criteria, and Schema Pins before dispatch, and must be authored as a spec delta per the callout above. See [handlers/run.md](../handlers/run.md) Step 1.1a's Flag-Reconciliation Preflight — its "a binding contract belongs in the task file so it survives session resumption and is visible to reviewers" sentence is the vocabulary source for this distinction; it is not re-derived here.
+
+#### Conditional Spec Branches Are Flags
+
+> [!constraint] An Unresolved Conditional Branch Is a Flag, Not a Finished Spec
+> A task-file criterion of the form "expect X if the upstream step found Y; otherwise Z" is a flag-shaped hole, not a finished specification. Writing both branches at scaffold time is correct — the author declined to guess a fact nobody had measured. But the branch is an open dependency, and resolving it once the measurement lands is the orchestrator's job at post-task time, not the runner's job at read time. Being present in an artifact the task lists as Required Context is NOT sufficient — Required Context establishes the runner MAY read it, not that they will connect a number in an unrelated table to a conditional several sections away. The default (assert) branch is not the safe one: on a false positive it manufactures a defect report against correct work, at exactly the moment the team is primed to believe it. Resolve the branch from the landed measurement and write it into the consuming task as a binding contract with evidence inline.
 
 #### Propagating the Flag (At Closeout)
 

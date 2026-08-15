@@ -356,7 +356,7 @@ This file covers §1-§5 — the core SDK/identifier verification recipes, the p
 |---------|---------|------|
 | §6 | Discovery-Phase Consolidation — Verify Citations and SDK Premises Against Live Source | [verify-discovery-consolidation.md](verify-discovery-consolidation.md) |
 | §7 (.1-.7) | Cross-Repo Canonical Source — Fix-Task Authoring Discipline | [verify-cross-repo-fix-discipline.md](verify-cross-repo-fix-discipline.md) |
-| §3h, §3h.untested-axes, §3h.cluster, §3i, §8, §9 (.1-.3) | BLI triage-time recipes + verifying source edits under an older installed plugin + backlog-item citation freshness at execution time | [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) |
+| §3h, §3h.untested-axes, §3h.cluster, §3i, §8, §9 (.1-.3), §10, §11 | BLI triage-time recipes + verifying source edits under an older installed plugin + backlog-item citation freshness at execution time + backlog-item claim verification at filing time + re-alignment verb premise probing | [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) |
 
 ---
 

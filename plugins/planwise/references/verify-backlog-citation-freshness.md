@@ -4,7 +4,7 @@ description: BLI triage-time verification recipes (motivating-driver still-activ
 
 # BLI Triage-Time Recipes and Backlog-Item Citation Freshness
 
-Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md) §1-§5 (the Exec-phase SDK/identifier verification core). This file carries two co-located disciplines that both operate on the backlog-item (BLI) surface: the BLI triage-time recipes peeled from that file's §3 ladder (§3h, §3h.untested-axes, §3h.cluster, §3i) plus its §8 (installed-plugin-version skew) and §9 (.1-.3) (backlog-item citation freshness at execution time) — original §-numbers preserved.
+Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md) §1-§5 (the Exec-phase SDK/identifier verification core). This file carries two co-located disciplines that both operate on the backlog-item (BLI) surface: the BLI triage-time recipes peeled from that file's §3 ladder (§3h, §3h.untested-axes, §3h.cluster, §3i) plus its §8 (installed-plugin-version skew) and §9 (.1-.3) (backlog-item citation freshness at execution time) — original §-numbers preserved — plus this file's own §10 (backlog-item claim verification at filing time) and §11 (re-alignment verb premise probing), native to this file rather than peeled from the parent.
 
 ## Table of Contents
 
@@ -17,6 +17,13 @@ Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifac
   - [9.1 Re-derive pinned sequential identifiers from the live artifact](#91-re-derive-pinned-sequential-identifiers-from-the-live-artifact)
   - [9.2 Re-locate cited code anchors by symbol; re-check acceptance criteria against HEAD](#92-re-locate-cited-code-anchors-by-symbol-re-check-acceptance-criteria-against-head)
   - [9.3 Verify pre-drafted narrative attributions against the live file](#93-verify-pre-drafted-narrative-attributions-against-the-live-file)
+- [10. Backlog-Item Claim Verification at Filing Time](#10-backlog-item-claim-verification-at-filing-time)
+  - [10.1 An item is a factual claim about the current repository](#101-an-item-is-a-factual-claim-about-the-current-repository)
+  - [10.2 "File N items" specifies scope, not that N conditions hold](#102-file-n-items-specifies-scope-not-that-n-conditions-hold)
+  - [10.3 Distinguish "already resolved" from "someone else has this in flight"](#103-distinguish-already-resolved-from-someone-else-has-this-in-flight)
+  - [10.4 Reconcile the source, or it permanently asserts something false](#104-reconcile-the-source-or-it-permanently-asserts-something-false)
+- [11. Re-Alignment Verb Premise Probing](#11-re-alignment-verb-premise-probing)
+  - [11.1 Probe the premise at the family level before accepting a re-target framing](#111-probe-the-premise-at-the-family-level-before-accepting-a-re-target-framing)
 
 ---
 
@@ -300,6 +307,63 @@ This is the backlog-execution sibling of `verify-cross-repo-fix-discipline.md` �
 > ```
 >
 > Rule of thumb: a "paste verbatim" mandate covers the rule content and its WRONG/CORRECT examples; it never covers a factual claim about which test / section / function / check carries a behavior — those must match the live artifact.
+
+---
+
+## 10. Backlog-Item Claim Verification at Filing Time
+
+§9 governs the citations an item carries, re-proven when the item is worked. §10 governs the claim an item makes, verified when the item is written. They are the same principle pointed in opposite directions; the second is more expensive to get wrong — a stale citation inside a real item wastes a lookup, a stale premise creates an item describing a condition that does not exist.
+
+### 10.1 An item is a factual claim about the current repository
+
+> [!constraint] An item is a factual claim about the current repository
+>
+> A backlog item asserts that some condition holds right now. Filing a false one is worse than filing nothing: it costs a future reader a full investigation to discover the condition is gone, and until they do, it distorts every prioritization pass reading the backlog. Before creating an item from a pre-computed list — a plan's out-of-scope table, an audit's findings, a prior session's deferred-work section — re-verify each condition against the live repository at filing time. The evidence line in the source is a pointer to how to check, not a substitute for checking. The freshness window is far shorter than it feels — treat any dated evidence as a statement about that date only, and treat "the plan was authored last week" as a strong signal, not a mild one.
+
+### 10.2 "File N items" specifies scope, not that N conditions hold
+
+> [!constraint] "File N items" specifies scope, not that N conditions hold
+>
+> A brief that says "file N items" specifies which gaps are in play, not that N conditions are still true. When the evidence for one has evaporated, filing N−1 with the discrepancy surfaced is the correct execution of that brief, not a shortfall against it. Surface, do not absorb: filing the item anyway pollutes the backlog with a false claim; dropping it wordlessly makes the next reader re-derive the whole question with no record anyone looked. The correct shape is: the runner reports, the orchestrator verifies independently, the decision is recorded.
+
+### 10.3 Distinguish "already resolved" from "someone else has this in flight"
+
+> [!constraint] Distinguish "already resolved" from "someone else has this in flight"
+>
+> Discovering a condition no longer holds is only half the verdict.
+>
+> ```bash
+> git log -n 5 --format='%h %ad %an %s' --date=short -- {artifact_path}
+> grep -rln "{artifact_or_symbol}" {backlog_dir}/*.md
+> ```
+>
+> A fix landed by a differently-scoped change, and no existing item references the artifact → already resolved, do not file, record the finding. A fix in progress, or an existing item already covering it → coordinate rather than duplicate.
+
+### 10.4 Reconcile the source, or it permanently asserts something false
+
+> [!constraint] Reconcile the source, or it permanently asserts something false
+>
+> When re-verification retires a gap, the source document must be reconciled in the same change: mark the retired gap RESOLVED with the evidence and date, and amend any success criterion whose count the change invalidates. A count stated in a criterion is the same class of load-bearing claim as a count stated anywhere else.
+
+---
+
+## 11. Re-Alignment Verb Premise Probing
+
+Some verbs assert. *Reconcile*, *re-target*, *re-align*, *align to the live shape*, *update to match* — each presupposes the thing being aligned to exists. The premise is never written down, so it is never checked, and it is the difference between a mechanical edit and a decision that needs a human. The preceding sections verify what an item cites and what an item claims; this one verifies what an item's instruction assumes.
+
+### 11.1 Probe the premise at the family level before accepting a re-target framing
+
+> [!constraint] Probe the premise at the family level before accepting a re-target framing
+>
+> When a backlog item, audit finding, or task brief prescribes reconciling/re-targeting/re-aligning something to "the live shape," treat the existence of that shape as UNVERIFIED until probed — before accepting the prescription's framing as mechanical. Probe at the family level, not the specific failing path: (1) the bare target — no parameters, no qualifiers; (2) representative variants across the parameter space, not only the one named; (3) the siblings the item groups it with — a shared prefix is not a shared contract.
+>
+> | Probe result | The task is |
+> |---|---|
+> | Bare target and variants respond | The mechanical reconciliation described. Proceed. |
+> | Bare target and all variants absent | Not a re-target. A scope decision — what happens to consumers, columns, code that pointed at it — goes to the user. |
+> | Siblings respond under a different contract | Two tasks of different kinds. Split them; route the design half. |
+>
+> Do not silently re-target to a guessed replacement, and do not silently delete the consumer half — both convert a decision into an edit and destroy the record that a decision was ever available. Only once the premise holds do further verification dimensions (key presence, shape, type alignment) apply — they all assume the thing responds. Generalizes past endpoints: any prescription aimed at an authority outside the repository — a vendor SDK surface, a published schema, an external registry — carries the same unstated premise. The rule is the verb, not the transport.
 
 ---
 

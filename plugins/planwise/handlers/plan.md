@@ -272,6 +272,20 @@ Use templates from `{plugin_root}/templates/`:
 
 ### Step 8: Generate Task Files
 
+**Search the lessons index for the artifact classes this plan will touch, before authoring task files.**
+
+A plan that will author schema definitions, verification greps, generated notebooks, module docstrings, or any other recurring artifact class should search the lessons index for each class before writing task files, and cite the hits inline in the Required Context or Verification Commands of the tasks that touch them:
+
+```bash
+grep -rliE "{artifact_class_keyword}" {lessons_dir}/**/LL-*.md
+```
+
+Capture is a store, not a channel — a lesson reaches a runner only when it is cited in the artifact that runner actually reads (a task file's Required Context, its Verification Commands, or a coordination-flag block).
+
+A lesson sitting correctly indexed and uncited is delivered to nobody.
+
+The payoff scales with repetition: a plan that repeats one task chain across several sprints misses the same lesson once per repetition unless it is cited.
+
 **CRITICAL:** Create ONE task file per task in the Orchestration task list.
 
 For each task, create a file using the [task-file.md](../templates/task-file.md) template.

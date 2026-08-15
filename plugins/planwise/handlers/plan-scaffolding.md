@@ -123,6 +123,20 @@ Retention = `(sum of EI section tokens + Deferred/OOS log tokens) / (sum of Tier
 
 ## Scaffolding Step 5: Generate Plan Files
 
+**Search the lessons index for the artifact classes this plan will touch, before authoring task files.**
+
+A plan that will author schema definitions, verification greps, generated notebooks, module docstrings, or any other recurring artifact class should search the lessons index for each class before writing task files, and cite the hits inline in the Required Context or Verification Commands of the tasks that touch them:
+
+```bash
+grep -rliE "{artifact_class_keyword}" {lessons_dir}/**/LL-*.md
+```
+
+Capture is a store, not a channel — a lesson reaches a runner only when it is cited in the artifact that runner actually reads (a task file's Required Context, its Verification Commands, or a coordination-flag block).
+
+A lesson sitting correctly indexed and uncited is delivered to nobody.
+
+The payoff scales with repetition: a plan that repeats one task chain across several sprints misses the same lesson once per repetition unless it is cited.
+
 Use the [scaffolding master plan template](../templates/scaffolding-master-plan.md) for the Master Plan.
 
 Use standard templates for all other files (sprint plans, orchestrations, recovery, task files).

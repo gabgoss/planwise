@@ -50,6 +50,8 @@ Where `{inferred_project_name}` = current git repo name or `cwd` basename (strip
 
 All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Backlog`). All script invocations should pass `--config {planwise_root}/config.yaml`.
 
+The optional top-level `id_format` key (`prefixed` or `bare`) controls how a newly created item's ID is rendered in the index's canonical stored form; when the key is absent, the index's predominant form is inferred. Any other value is treated as `bare` — a typo in this key silently yields the legacy form.
+
 ---
 
 ## Required References
@@ -59,6 +61,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
 **Conditional references:**
+- Loaded at Phase 3, step 3a (pivot check), for High-priority / top-scored / aged items or multi-item cohorts: Read `references/backlog-triage-pivot-detection.md`
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
 - If a task creates or modifies skills: Read `references/skill-authoring.md`
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
@@ -136,7 +139,11 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
 1. Get the item's file paths from the JSON data (the `files` array)
 2. Read each backlog item file (files have YAML frontmatter with `created`, `blocks`, and `status` fields)
-3. **Citation-Freshness Preflight (run before scoping or routing):** A backlog item's body is a snapshot — every reference it pins (a sequential identifier, a `file:line` anchor, an acceptance criterion, a "test/section X does Y" note) is a hypothesis about a live artifact that rots between authoring and execution. Re-prove each against the current artifact before scoping. See `references/verify-backlog-citation-freshness.md` §9.
+3. **Pre-Routing Existence Gates** (run before the Citation-Freshness Preflight — two sequential checks with separate applicability conditions, never merged):
+   - **3a. Pivot check** (High-priority / top-scored / aged items, or multi-item cohorts): skim `git log --oneline -20` for domains adjacent to the item and ask the framing question if a signal lights up, per `references/backlog-triage-pivot-detection.md` §1. If a pivot is confirmed, sweep the cohort to BLOCKED per that reference's §2 and STOP for this item — do not proceed to 3b or to step 4.
+   - **3b. Existence-premise probe** (items whose deliverable applies a re-alignment verb — reconcile, re-target, re-align, align to the live shape, update to match — to a target outside the repo): probe the family (bare target, representative variants, siblings) before accepting the re-target framing, per `references/verify-backlog-citation-freshness.md` §11. If the premise fails (bare target and all variants absent), route to SURFACE — commit the probe evidence and route the scope decision to the user — and STOP for this item.
+
+4. **Citation-Freshness Preflight (run before scoping or routing):** A backlog item's body is a snapshot — every reference it pins (a sequential identifier, a `file:line` anchor, an acceptance criterion, a "test/section X does Y" note) is a hypothesis about a live artifact that rots between authoring and execution. Re-prove each against the current artifact before scoping. See `references/verify-backlog-citation-freshness.md` §9.
 
    > [!checklist] Citation-Freshness Preflight (run before scoping or routing a backlog item)
    > - [ ] For every pinned sequential identifier the item cites (Check NNN, [`references/error-pattern-catalog.md`](../references/error-pattern-catalog.md) row N, reference §N.N), grep the live target for the current max and re-derive the next-free value; renumber the item's deliverables + self-references to match
@@ -144,12 +151,12 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
    > - [ ] For every acceptance criterion, run the cheapest proof it is still unsatisfied before writing a fix; mark any already-satisfied criterion "already satisfied — verified"
    > - [ ] For every pre-drafted note/callout that asserts "test/section/function X does Y", verify against the live file and re-word to name the artifact that actually carries the behavior
 
-4. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
+5. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
    - If the BLI's motivating driver is a runtime symptom (keywords: collision, race, hang, missing endpoint, intermittent), run a `grep -rn` for the symptom in `src/` and cross-check against recent session summaries in `Plans/**/Sessions/**/Outputs/`. If the driver is no longer active (no recent matches, fix landed), mark the BLI as STALE per `verify-backlog-citation-freshness.md §3h` and skip routing. Include §3h.untested-axes and §3h.cluster signal checks per the same reference.
 
-5. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
+6. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
 
-6. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
+7. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
 
    ```bash
    grep -rn "paths:" .claude/rules/
@@ -161,7 +168,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
    This gate applies regardless of route (Route A or Route B) — do not skip it.
 
-7. Present the scope assessment to the user:
+8. Present the scope assessment to the user:
 
 > [!template] Scope Assessment Block
 > ```
@@ -412,6 +419,9 @@ Use `AskUserQuestion`: "Create backlog item from this candidate?"
 
 For each accepted candidate:
 
+> [!important] Pre-filing re-verification gate (before any file is written)
+> For each candidate, re-prove the condition it asserts against the live repository, per `references/verify-backlog-citation-freshness.md` §10. Candidates sourced from a plan's out-of-scope table, an audit's findings, or a prior session's deferred-work section carry their source's authoring date, not today's state. A candidate whose condition no longer holds is not filed — it is reported with the evidence that retired it, and the source document is reconciled per §10.4.
+
 1. **Get next BLI ID:**
    ```bash
    python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --next-id
@@ -445,6 +455,8 @@ Skipped: {N - M}
 
 New BLI IDs: BLI-{NNN}, BLI-{NNN+1}, ...
 ```
+
+When the number of items filed differs from the number of candidates surfaced, name each candidate that was retired rather than filed, with the evidence that retired it (from the Step 7.3 pre-filing gate) — a silent count difference is indistinguishable from a dropped candidate.
 
 ---
 
@@ -481,6 +493,7 @@ Use this logic to determine the recommended route in Phase 3.
 
 | Signal | How to Detect | Weight |
 |--------|---------------|--------|
+| Item predates active work in its own domain, or is cohort-shaped (siblings by period/abbrev/`blocks:`) | Pivot check per `references/backlog-triage-pivot-detection.md` | Gate → run before any routing weight is assigned |
 | "Bug" in feature name | Case-insensitive check on Feature column | Strong → Direct Fix |
 | Item file < 50 lines | Line count on read | Moderate → Direct Fix (a *proxy* for a small fix — a file that is long only because it is thoroughly documented is NOT large scope) |
 | Exact fix evidence: named files + line anchors + before/after content + scope-confinement bound | BB body supplies concrete, bounded edit targets | Strong → Direct Fix — sets `HAS_CLEAR_FIX` regardless of file length |
@@ -501,6 +514,13 @@ Use this logic to determine the recommended route in Phase 3.
    and an explicit scope-confinement bound ("do NOT touch X"). Route on the
    *measured* edit scope, never on file length alone: a BB that is long only
    because it is thoroughly documented still has a clear, surgical fix.
+
+0.  Pivot check (High-priority / top-scoring / aged items only).
+    IF pivot confirmed -> COHORT SWEEP: batch BLOCKED transition, shared rationale. Do NOT route.
+
+0.5 Existence-premise probe (re-alignment-verb items only).
+    IF premise fails (bare target + all variants absent) -> SURFACE: commit probe evidence,
+    route the scope decision to the user. Do NOT route to Direct Fix, regardless of edit size.
 
 IF HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6):
     -> DIRECT FIX (Route A)          # IS_BUG strengthens this signal but is not required

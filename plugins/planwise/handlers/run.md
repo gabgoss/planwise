@@ -332,7 +332,12 @@ After each task completes (DIRECT or DELEGATED, sequential):
 2. **TaskList** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
 3. **Verify output** -- confirm expected output files were written (if applicable)
 4. **Verify structure** -- if the task's Expected Output declared required headings or table-column headers, grep the produced file for every one of them; on a miss, re-dispatch the same runner with a single corrective instruction rather than accepting and reconciling downstream (keep this step list cleanly extensible -- a later sprint adds a resolve-and-route step here)
-5. **THEN** proceed to next task
+5. **Resolve gated conditional branches** -- when a gating task completes, resolve every conditional branch it was gating. Runs at post-task reconciliation, not at scaffold time -- the measurement does not exist at scaffold time, which is why the branch was written conditionally. Procedure: (1) re-read the completed task's output against every downstream task file that declared it as a dependency; (2) grep those task files for conditional language:
+   ```bash
+   grep -nEi "if the probe|expect .* if|unless|otherwise|print rather than assert|if .* found" {session_dir}/*-Task-*.md
+   ```
+   (3) resolve each hit from the landed measurement and write the resolved branch in as a binding contract, with the evidence inline. Cheap, and it survives a session halt -- a routed branch sits in the downstream task file until the session resumes.
+6. **THEN** proceed to next task
 
 After a **parallel batch** of 3+ task-runners returns:
 
