@@ -199,6 +199,26 @@ When a task surfaces a coordination flag during execution, the orchestrator adds
 > | 1      | {abbrev}-S{XX}-{YY}-{##} | {abbrev}-S{XX}-{YY}-{##} or {sprint} or {plan} | {one-paragraph description of the constraint / dependency / opportunity} | {what the downstream agent should do — sequence, route, resolve, evaluate} |
 > ```
 
+#### Authoring the Flag (Spec Delta, Not Observation)
+
+> [!constraint] A Flag That Must Change Behaviour Is a Spec Delta
+> A flag that must change behaviour is a spec delta, not an observation. Name the step it supersedes and give the replacement. A flag phrased as a measurement reads as background and loses to the step it sits beside.
+>
+> ```markdown
+> WRONG (advisory — reads as context, loses to the step):
+> > [!binding] The mechanical {X} split badly understates what is decidable.
+>
+> CORRECT (spec delta — names the step and its replacement):
+> > [!binding] Task {NN} Execution Step {N} — "{term}" is REDEFINED
+> > Step {N} as written ("{old definition}") is the defect this flag exists to prevent:
+> > {the measurement}. Replace the definition with {new definition}.
+> > The original wording is superseded, not supplemented.
+> ```
+>
+> The distinguishing test: does the flag tell the runner something, or tell it to do something differently? If the second, it must name the step.
+
+A Coordination Flag Row is either **informational** — safe to deliver as context; spawn-prompt injection alone suffices — or a **binding contract**, which must be reconciled against the receiving task's own Execution Steps, Success Criteria, and Schema Pins before dispatch, and must be authored as a spec delta per the callout above. See [handlers/run.md](../handlers/run.md) Step 1.1a's Flag-Reconciliation Preflight — its "a binding contract belongs in the task file so it survives session resumption and is visible to reviewers" sentence is the vocabulary source for this distinction; it is not re-derived here.
+
 #### Propagating the Flag (At Closeout)
 
 At Phase 4 closeout, the orchestrator MUST add each flag to the downstream consumer's task file (preferred) or orchestration file. The destination depends on who the consumer is:

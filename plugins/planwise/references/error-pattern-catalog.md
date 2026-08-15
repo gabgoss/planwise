@@ -1,5 +1,5 @@
 ---
-description: Error Pattern Catalog for /planwise review -- the 95-row quick-reference table of common plan-authoring defects and their severity classification, plus the mechanical DELEGATED-trigger-named check. Row numbers are cited externally and MUST NOT be renumbered.
+description: Error Pattern Catalog for /planwise review -- the 105-row quick-reference table of common plan-authoring defects and their severity classification, plus the mechanical DELEGATED-trigger-named check. Row numbers are cited externally and MUST NOT be renumbered.
 ---
 
 # Error Pattern Catalog
@@ -128,3 +128,13 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 93 | Derived-ratio gate omits column, grain, denominator, or the re-derivation prohibition (`exit-criteria-fidelity.md` §16.10.2) | WARNING | Success Criteria / Verification Commands ratio gates |
 | 94 | Producer-artifact criterion with no reads-its-subject assertion (`exit-criteria-fidelity.md` §16.10.3) | WARNING | Success Criteria producer-artifact claims |
 | 95 | Symbol-keyed absence criterion with no measured count — a bare identifier scoped instead of the module/import path being removed (`exit-criteria-fidelity.md` §16.9.2) | ERROR | Success criteria deletion-scoped grep target |
+| 96 | Task whose steps predictably breach a binding rule, with no halt-and-report instruction in its Notes for Agent (`agent-orchestration-delegated.md` §1.25) | ERROR | Task file Notes for Agent |
+| 97 | DELEGATED spawn prompt opening with a session-scoped identity frame ("You are a task-runner in session {session-id}") and no task-scoped clause in the same sentence — the framing measured to override a correctly-stated single-task constraint (`agent-orchestration-delegated.md` §1.23) | ERROR | Orchestration spawn prompts (opener framing) |
+| 98 | DELEGATED spawn prompt naming the task scope in fewer than three positions — the mechanical, grep-countable tally across Opener / Hard-constraint block / Return instructions (`agent-orchestration-delegated.md` §1.23) | BLOCKER | Orchestration spawn prompts (position count) |
+| 99 | Structurally-consumed output specified only as prose + illustrative code block — no template pointer, no heading/column checklist (`agent-orchestration-delegated.md` §1.24) | ERROR | Task file Expected Output |
+| 100 | Verification command that mutates the artifact it checks, unattributed, where that artifact is a runner's declared output (`agent-orchestration-delegated.md` §1.26) | ERROR | Task file Verification Commands |
+| 101 | Task file's own Verification Commands invoking a project tool by bare name, in a project declaring an isolated environment, with no interpreter path present (`agent-orchestration-delegated.md` §1.27) | ERROR | Task file Verification Commands |
+| 102 | DELEGATED spawn prompt's dispatched command invoking a bare interpreter rather than the project-relative path (`agent-orchestration-delegated.md` §1.27) | WARNING | Orchestration spawn prompts / ENVIRONMENT DISCIPLINE block |
+| 103 | Normalization-before-mechanical-batch task scoped by inherited severity/triage tier rather than the blocking property (`discovery-and-exit-criteria.md` §15.3) | ERROR | Discovery/audit sessions |
+| 104 | Task file carries a routed coordination flag whose text contradicts an Execution Step / Success Criterion / Schema Pin stated verbatim in the same file (`handlers/run.md` Step 1.1a + `read-confirm-act-protocol.md` §1.3) | BLOCKER | Task file vs routed coordination flag |
+| 105 | Plan with a task whose declared Output is under `.claude/**` and no Orchestration declares the expected permission round-trip, or one task batching edits across multiple config files with no smallest-coherent-set scoping (`scaffolding-hygiene.md` §14) | ERROR | Orchestration Execution Strategy / Task file Output |

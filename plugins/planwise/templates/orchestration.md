@@ -82,6 +82,15 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 > **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + injected path-rule tokens + ~54K < the **dispatched model's** window (Sonnet/Haiku 200K, Opus 1M — NOT the parent `context_window`; see [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window)). See [Task-Level Estimation](../references/session-context-budget.md#task-level-estimation-binding) for the bottom-up estimation formula and conversion factor.
 
+<!-- Uncomment when any task's declared Output is under `.claude/**` — declares the
+     expected permission round-trip (see references/scaffolding-hygiene.md):
+> [!note] Task {NN} edits `.claude/**`
+> The harness permission classifier gates these writes independently of planwise
+> authorization. `/planwise run` invocation does not pre-clear it: expect a user
+> permission prompt mid-task, expect per-call (not all-or-nothing) denials, and
+> expect that some denials may not be clearable at all. Recovery records the
+> applied-vs-denied list on first denial. -->
+
 ---
 
 ## Session Task List <!-- REQUIRED -->

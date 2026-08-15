@@ -14,6 +14,7 @@ paths: {planwise_root}/{plans_dir}/**
 - [3. Match Patterns Derived From Sibling Extraction Tasks](#3-match-patterns-derived-from-sibling-extraction-tasks)
 - [4. Denominator Scoping — Count Real Instances Only](#4-denominator-scoping--count-real-instances-only)
 - [5. PASS Requires Actual = Expected — No Arithmetic Fudging](#5-pass-requires-actual--expected--no-arithmetic-fudging)
+  - [5.1 A Check That Could Not Be Run Returns UNCERTAIN, Never PASS](#51-a-check-that-could-not-be-run-returns-uncertain-never-pass)
 - [6. Orchestrator Adjudication of BLOCKER-From-Heuristic](#6-orchestrator-adjudication-of-blocker-from-heuristic)
 - [7. Authoring Checklist](#7-authoring-checklist)
 - [8. Absence and Consistency Gates — Scrub, Scope, and Sync](#8-absence-and-consistency-gates--scrub-scope-and-sync)
@@ -159,6 +160,11 @@ Fix: Replace with explicit-site enumeration per references/verification-task-aut
 > ```
 
 The verdict-arithmetic check is mechanical: if the comparison operator's evaluation against `(Actual, Expected)` returns false, the verdict cannot be PASS. A reviewer flagging this anti-pattern can grep the verifier's reported rows for `(Actual, Expected, Verdict)` triples where the arithmetic does not hold and flag every such row.
+
+### 5.1 A Check That Could Not Be Run Returns UNCERTAIN, Never PASS
+
+> [!constraint] A verifier reporting that a check could not be run MUST NOT return PASS or a bare narrative claim about the environment
+> This is the adjacent case to arithmetic fudging above — not a check that ran and produced a contradicting Actual, but one that never ran at all. The verifier returns `[UNCERTAIN]` for orchestrator adjudication — never PASS, and never a bare narrative claim about the environment (e.g. "not available here," "the tool doesn't support it"). The report MUST carry the exact command attempted and the exact error observed; the orchestrator adjudicates from that evidence, not from a summary judgement.
 
 ---
 

@@ -1,12 +1,12 @@
 ---
-description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.22) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
+description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.27) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
 ---
 
 # DELEGATED Dispatch Discipline
 
-**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.22) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
+**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.27) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
 
-This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics; §1.19–§1.22 cover DELEGATED task-runner dispatch mechanics — model-tier overrides, launch-mode gating, and an anti-patterns checklist. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
+This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics; §1.19–§1.22 cover DELEGATED task-runner dispatch mechanics — model-tier overrides, launch-mode gating, and an anti-patterns checklist; §1.23–§1.27 cover cross-cutting dispatch-prompt and orchestrator discipline — triple-scoping every single-task dispatch, requiring a literal template (not prose) for structure contracts, adjudicating runner-surfaced decisions, keeping orchestrator verification read-only inside a runner's ownership window, and naming interpreter/tool paths explicitly in every spawn prompt. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
 
 ## Table of Contents
 

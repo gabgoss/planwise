@@ -129,7 +129,8 @@ While reading, watch for structural findings beyond the literal task scope -- la
 > - [ ] For each flag recorded ON OR AFTER this session's scaffold date: check it appears in the orchestration's `Pre-Known Cross-Task Coordination Flags` AND in every affected task file
 > - [ ] Route each missing flag: write it into the affected task file(s) under `## Pre-Known Cross-Task Coordination Flags`, and carry it into that task's spawn prompt at dispatch
 > - [ ] Record the routing in Recovery (one Change Log row: "flag preflight — N flags routed to tasks X, Y")
-> - [ ] If a routed flag CONTRADICTS a task spec or EI verbatim block → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first
+> - [ ] If a routed flag CONTRADICTS an **Execution Step**, **Success Criterion**, or **Schema Pin** stated in a task file → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first
+> - [ ] A flag whose text is an unresolved fork must be pinned before dispatch — leaving a "pick one and say so" open means each runner resolves it ad hoc, with no recorded decision for downstream sessions to inherit
 
 **The two-hop propagation model (why the receiver routes the last hop):**
 
@@ -251,12 +252,17 @@ You are the ORCHESTRATOR. Choose dispatch mode for the current dependency layer 
 
 Before dispatching, read `references/agent-orchestration-delegated.md`: §1.3 (context boundary), §1.6 (path-rule injection), §1.8 (HARD CONSTRAINTS skeleton), §1.13 (shared-edit-target strategy; parallel-dispatch Recovery contract), §1.17 (classify every return before consuming it — a `completed` status alone is not a deliverable check), §1.19 (Model-Floor Bridge), §1.20 (1M-Exception Dispatch), §1.21 (Background vs Foreground Gate), §1.22 (Anti-Patterns checklist).
 
+The spawn prompt states the single-task scope in three positions — the opener, a hard-constraint line, and the return instruction — so the scope is stated even against a session-scoped identity that would otherwise outrank a single mention. When the project declares an isolated environment (Config Gate), it also adds an environment-discipline block naming interpreter/linter/runner paths in the platform-matched form (POSIX `./.venv/bin/{tool}` or Windows `.\.venv\Scripts\{tool}.exe` — emit the one matching the project's platform, never both), and on the session's FIRST dispatch only, a one-line interpreter diagnostic:
+
 ```
 Task(
   subagent_type: "planwise:task-runner",
   description: "Execute task {task-num}: {task-name}",
   model: "{model-override-from-task-file-Agent-field}",
   prompt: |
+    You are dispatched to execute ONE task: {task-id}. The session has other
+    tasks; you DO NOT execute them.
+
     Execute the following task YOURSELF, directly, with your own tool calls.
     Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
     tool calls) — you ARE the task-runner.
@@ -266,6 +272,28 @@ Task(
     Abbreviation: {abbrev}
     Recovery file: {recovery-file-absolute-path}
     Output directory: {output-dir-absolute-path}
+
+    HARD CONSTRAINTS: Execute ONLY {task-id}. Do not start any other task in
+    the session even if the Recovery file lists it as PENDING. Files you may
+    write: {explicit list from the task file's Output}.
+
+    (If the project declares an isolated environment, add:)
+    ## ENVIRONMENT DISCIPLINE
+    Change to the project root first. Use these paths — a bare tool name
+    resolves to the platform default, not this project's environment:
+      interpreter:  {env-interpreter-path}
+      linter:       {env-linter-path}
+      test/notebook runner: {env-runner-path}
+    Confirm connectivity/setup with `{env-interpreter-path} {project-precheck}`
+    BEFORE doing dependent work.
+
+    (On this session's first dispatch only, add:)
+    First-spawn diagnostic — run `{env-interpreter-path} -c "import sys;
+    print(sys.executable)"` and HALT if the output does not resolve inside
+    the project environment.
+
+    Return after writing the single expected output file. Do NOT proceed to
+    task {n+1}.
 )
 ```
 
@@ -276,6 +304,15 @@ Task(
 > [!pitfall] Mixed-Mode Layer
 > **Problem:** A dependency layer where two tasks share an output file. Dispatching the whole layer in parallel races on that shared file (separate from the Recovery-file question).
 > **Solution:** Apply `references/agent-orchestration-delegated.md` §1.13 to the *output files*: if any two tasks in the layer share an output target, the layer is NOT parallel-eligible — fall back to Sequential dispatch for the whole layer, or split the offending pair into a separate sub-layer.
+
+### Step 3.2a: Handle Permission Denial
+
+If a tool-permission prompt denies a write during dispatch or execution (DIRECT or DELEGATED) -- most commonly a `.claude/**` target, which the harness permission classifier gates independently of planwise authorization -- follow this protocol, in order:
+
+1. Write the applied-vs-denied edit list to Recovery BEFORE anything else.
+2. STOP and surface the precise file plus the remaining edits to the user.
+3. Never re-issue the identical batch in the same mode.
+4. On resumption, apply only the remainder, recording any unclearable edit as a non-blocking residual in the Summary.
 
 ### Step 3.3: Post-Task Update
 
@@ -294,7 +331,8 @@ After each task completes (DIRECT or DELEGATED, sequential):
    - Update "Current Step" to next task number
 2. **TaskList** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
 3. **Verify output** -- confirm expected output files were written (if applicable)
-4. **THEN** proceed to next task
+4. **Verify structure** -- if the task's Expected Output declared required headings or table-column headers, grep the produced file for every one of them; on a miss, re-dispatch the same runner with a single corrective instruction rather than accepting and reconciling downstream (keep this step list cleanly extensible -- a later sprint adds a resolve-and-route step here)
+5. **THEN** proceed to next task
 
 After a **parallel batch** of 3+ task-runners returns:
 

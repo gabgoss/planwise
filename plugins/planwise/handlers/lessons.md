@@ -273,6 +273,8 @@ grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' {generated-artifact-path}
 
 If grep returns matches, revise the artifact to inline the cited content and re-run the grep. Do NOT proceed to Stage 5 (Update Frontmatter) until the grep returns zero. The `applied-as:` and Rule Promotion Log entries written in Stage 5 and Stage 7 ARE permitted to carry the `LL-NNN` reference — those are bookkeeping artifacts whose purpose is traceability.
 
+The artifact write itself may prompt for permission; if denied, record what was written and stop rather than retrying the write.
+
 ### Stage 5: Update Frontmatter
 
 Edit the lesson file's YAML frontmatter:

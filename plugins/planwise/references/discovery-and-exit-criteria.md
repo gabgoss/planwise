@@ -1,10 +1,10 @@
 ---
-description: Discovery scope rigor (deterministic-bug counts, ID persistence) and the shared 11-row plan-review BLOCKING-findings table for the discovery/exit-criteria rule family; cross-layer exit-criteria fidelity lives in exit-criteria-fidelity.md and execution-time binding rules (design-extension traceability, audit-finding triage, bounded-temp-fix, spike-instrument verdict discipline) live in execution-time-binding-rules.md
+description: Discovery scope rigor (deterministic-bug counts, ID persistence, upstream-normalization scoping) and the shared 13-row plan-review BLOCKING-findings table for the discovery/exit-criteria rule family; cross-layer exit-criteria fidelity lives in exit-criteria-fidelity.md and execution-time binding rules (design-extension traceability, audit-finding triage, bounded-temp-fix, spike-instrument verdict discipline) live in execution-time-binding-rules.md
 ---
 
 # Discovery Scope Rigor & Exit-Criteria Fidelity
 
-**Purpose:** Binding rules covering related plan-fidelity concerns, split across three files. This file (the anchor) covers Discovery scope rigor (§15) and carries the shared 12-row `/planwise review` BLOCKING-findings table for the whole family — kept whole here rather than split, so review tooling scans one table for all 12 checks. Cross-layer enforcement of exit-criteria fidelity (§16) lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md); design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), and spike-instrument verdict discipline (§20) live in [execution-time-binding-rules.md](execution-time-binding-rules.md). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
+**Purpose:** Binding rules covering related plan-fidelity concerns, split across three files. This file (the anchor) covers Discovery scope rigor (§15) and carries the shared 13-row `/planwise review` BLOCKING-findings table for the whole family — kept whole here rather than split, so review tooling scans one table for all 13 checks. Cross-layer enforcement of exit-criteria fidelity (§16) lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md); design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), and spike-instrument verdict discipline (§20) live in [execution-time-binding-rules.md](execution-time-binding-rules.md). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
 This file is the §15 segment of a 3-way split of what was originally referenced as the "§15 + §16 expansion" from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols); §16 and §17-§20 were subsequently split into the two sibling files named above to keep all three files under the project's 500-line limit. Read this file before authoring Discovery-phase Consolidated Context or Execution Inputs that name affected records. Read the siblings before authoring multi-layer binding refinements, BLOCKING-coverage task files, or sprint signoff checklists (`exit-criteria-fidelity.md`); or design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures (`execution-time-binding-rules.md`).
 
@@ -13,6 +13,7 @@ This file is the §15 segment of a 3-way split of what was originally referenced
 - [15. Discovery Scope Rigor](#15-discovery-scope-rigor-binding)
   - [15.1 Deterministic-bug scope MUST be counted by execution, not estimated](#151-deterministic-bug-scope-must-be-counted-by-execution-not-estimated)
   - [15.2 Persist specific IDs, not just counts](#152-persist-specific-ids-not-just-counts)
+  - [15.3 Scope an Upstream Normalization Task by Failure Mode, Not by Audit Tier](#153-scope-an-upstream-normalization-task-by-failure-mode-not-by-audit-tier)
 - [16. Cross-Layer Enforcement & Exit-Criteria Fidelity](exit-criteria-fidelity.md#16-cross-layer-enforcement--exit-criteria-fidelity-binding) — `exit-criteria-fidelity.md`
   - [16.1 Binding refinements MUST be echoed as `> [!binding]` callouts across plan layers](exit-criteria-fidelity.md#161-binding-refinements-must-be-echoed-as--binding-callouts-across-plan-layers)
   - [16.2 "Surfaces" is an enforcement claim, not a mention](exit-criteria-fidelity.md#162-surfaces-is-an-enforcement-claim-not-a-mention)
@@ -132,6 +133,29 @@ Issue: "{N} matches" stated without ID enumeration
 Fix: Persist IDs per references/discovery-and-exit-criteria.md §15.2 | Confidence: HIGH
 ```
 
+### 15.3 Scope an Upstream Normalization Task by Failure Mode, Not by Audit Tier
+
+When one task is scaffolded to normalize a set of items *before* a mechanical batch processes the rest, the scoping criterion MUST be the **failure mode the mechanical batch cannot handle** — not a severity tier, priority band, or triage bucket inherited from an earlier audit.
+
+A triage tier answers "how much attention does this need?" The mechanical batch asks a different question: "does this item have the property that makes the mechanical transform unsafe?" Those two questions have different answers, and where they diverge the upstream task ships incomplete while reporting success.
+
+> [!constraint] The Upstream Scope Criterion Must Name the Blocking Property
+> WRONG — scope inherited from an audit's severity tier:
+> ```
+> Upstream task: "normalize the SEVERE-tier {N} items"
+> # SEVERE = "needs manual attention". But the property that blocks the mechanical
+> # transform — a non-canonical calling site — occurs at COSMETIC tier too.
+> # Result: 7 normalized, 9 missed, all 9 surfacing later as batch HALTs.
+> ```
+> CORRECT — scope derived by executing the discriminating check against the full population:
+> ```
+> Upstream task: "normalize every item whose caller does not match the canonical
+>                 signature" — enumerated by running that check over all {M} items
+>                 at Discovery time, independent of any audit tier.
+> ```
+
+The general form: when an upstream task's scope is a *subset* named by an inherited classification, verify at scaffold time that the classification and the blocking property select the same set. If they do not, scope by the property.
+
 ---
 
 ## Scaffolding Templates (canonical paste-ready blocks)
@@ -165,7 +189,7 @@ Fix: Persist IDs per references/discovery-and-exit-criteria.md §15.2 | Confiden
 
 ## Plan-Review Enforcement Summary
 
-The structural and content reviewers in `/planwise review` MUST surface BLOCKING findings for the following violations. Kept whole on this anchor file (rather than split across the three segments), so review tooling scans one table for all 12 checks; each row's Source rule column names the file that now carries the cited rule.
+The structural and content reviewers in `/planwise review` MUST surface BLOCKING findings for the following violations. Kept whole on this anchor file (rather than split across the three segments), so review tooling scans one table for all 13 checks; each row's Source rule column names the file that now carries the cited rule.
 
 | # | Check | Trigger | Source rule |
 |---|-------|---------|-------------|
@@ -181,6 +205,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 10 | Metric HALT on labelling difference | A signoff or consolidation agent declares FAIL / HALT because a probe column does not match the baseline, without first doing the cheap arithmetic check to confirm whether a different probe column (or combination) reproduces the baseline exactly | exit-criteria-fidelity.md §16.4 |
 | 11 | Synthetic-fixture magnitude claim | A spike reports tolerance or threshold magnitudes as "confirmed" based on synthetic-fixture sweep results alone, without deferring the magnitude verdict to real-input data | execution-time-binding-rules.md §20.1 |
 | 12 | Unsatisfiable absence criterion (enactor or ownership) | A removal/absence Success Criterion asserts a zero-match grep AND either the removal artifact is not excluded from the search scope (enactor cause) OR the searched token is a bare symbol/identifier with no pasted occurrence count (ownership cause) | exit-criteria-fidelity.md §16.9 |
+| 13 | Upstream normalization task scoped by tier, not property | A task scaffolded to normalize a set of items before a mechanical batch processes the rest names its scope via an inherited severity/triage tier rather than the specific property that blocks the mechanical transform | §15.3 |
 
 ---
 
