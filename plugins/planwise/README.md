@@ -18,6 +18,8 @@ planwise is a plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude
 - [9. `token-saver` — toggle Token Saver mode](#9-planwise-token-saver)
 - [10. `upgrade` — update planwise](#10-planwise-upgrade)
 - [11. `help` — show all commands](#11-planwise-help)
+- [12. `feedback` — report a bug, lesson, or idea upstream](#12-planwise-feedback)
+- [13. `harvest` — run the lesson-to-artifact chain end to end](#13-planwise-harvest)
 - [Quick reference](#quick-reference)
 - [How it works under the hood](#how-it-works-under-the-hood)
 - [Uninstalling](#uninstalling)
@@ -432,6 +434,33 @@ flowchart LR
 
 ---
 
+## 13. `/planwise harvest`
+
+**Run the lesson-to-artifact chain end to end, unattended.**
+
+```
+/planwise harvest [<scope>] [--dry-run] [--resume] [--max-items=N]
+                  [--include-existing] [--no-auto-approve]
+```
+
+`harvest` chains four stages together so you don't have to run each by hand: it categorises your documented lessons into their domain buckets, promotes them in batch into backlog items, processes each resulting item through the triage handler, then lands the lessons whose owning items shipped. The order is forced — the final stage can't land a lesson until the per-item stage has flipped its owning item to COMPLETE.
+
+1. **Categorise** — sync the categorisation file and refine each lesson's promotion target.
+2. **Promote** — resolve the scope, group lessons by bucket, draft the backlog items, and capture each lesson.
+3. **Process** — pre-flight, triage, route, and dispatch a foreground agent for every item this run created.
+4. **Land** — set the final status and artifact pointer on every lesson whose owning item reached COMPLETE.
+
+A bare `/planwise harvest` is a **read-only report** — the uncategorised lessons, whether the promotion gate would block, and the exact invocation to run next. `--dry-run` plans the whole run and writes nothing; `--resume` picks back up at the last completed stage. Advance approval is on by default so the chain can run unattended (`--no-auto-approve` turns it off) — the safety net either way is the same one: `harvest` makes no commits, ever, so every change it lands sits in your working tree for a single `git diff` review at the end of the run.
+
+#### How `harvest` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Categorise<br/>lessons] --> C[Promote to<br/>backlog items] --> D[Process &amp;<br/>route each item] --> E[Land completed<br/>lessons] --> F([Working-tree diff<br/>to review])
+```
+
+---
+
 ## Quick reference
 
 | Command | What it does |
@@ -453,6 +482,7 @@ flowchart LR
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
 | `/planwise feedback` | Report a planwise bug, lesson, or idea upstream |
+| `/planwise harvest` | Run the lesson-to-artifact chain end to end, unattended |
 
 ---
 
@@ -462,7 +492,7 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses five specialized AI agents behind the scenes:
+planwise uses six specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
@@ -471,8 +501,9 @@ planwise uses five specialized AI agents behind the scenes:
 | **task-runner** | Executes individual tasks during plan runs |
 | **fix-agent** | Applies targeted code fixes for small backlog items |
 | **rule-comparator** | Classifies a diverged installed rule against the shipped version during `/planwise upgrade` — stale copy vs. genuine customization |
+| **backlog-planner** | Authors a session plan for large-scope or architectural backlog items routed to a new plan |
 
-You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, and `/planwise upgrade`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
+You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
 
 ### Configuration
 
@@ -495,8 +526,8 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 10 subcommand handlers across 13 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons; help is served inline by the skill router)
-  agents/                           # 5 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
+  handlers/                         # 12 subcommand handlers across 15 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
+  agents/                           # 6 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init

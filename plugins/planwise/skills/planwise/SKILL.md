@@ -4,7 +4,7 @@ description: >
   Agentic project management — plan, execute, review, and track projects
   with structured workflows. Use when user wants to create plans, run sessions,
   review plans, manage backlog items, or search lessons learned.
-argument-hint: "<init|plan|review|run|upgrade|doctor|token-saver|backlog|list|lessons|feedback|help> [args]"
+argument-hint: "<init|plan|review|run|upgrade|doctor|token-saver|backlog|list|lessons|feedback|harvest|help> [args]"
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -30,6 +30,7 @@ Parse `$ARGUMENTS`:
 | `list` | Read [handlers/list.md](../../handlers/list.md) |
 | `lessons` | Read [handlers/lessons.md](../../handlers/lessons.md) |
 | `feedback` | Read [handlers/feedback.md](../../handlers/feedback.md) |
+| `harvest` | Read [handlers/harvest.md](../../handlers/harvest.md) |
 | `help` | Display the Help section below (inline) |
 
 If `$0` is empty, display help (below).
@@ -60,6 +61,8 @@ Available subcommands:
   lessons curate [--phase=X]   Categorise lessons and track promotions
   lessons promote-batch <scope>  Batch-draft promotion BBs
   feedback [bug|lesson|idea]   Report a planwise bug, lesson, or idea upstream
+  harvest [<scope>] [--dry-run] [--resume] [--max-items=N] [--include-existing] [--no-auto-approve]
+          Run the lesson-to-artifact chain end to end, unattended.
   help                         Show this help message
 ```
 
