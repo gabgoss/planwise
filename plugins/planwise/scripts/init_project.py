@@ -9,7 +9,8 @@ unchanged: upgrade_io (backup/disposition/transfer primitives), config_gen
 (InitConfig + config.yaml generation/migration), rule_divergence (installed-
 vs-shipped structural classification), rule_descope_migration (rule de-scope
 migration), artifact_upgrade (the --upgrade writer), doctor_sweeps + doctor_cli
-(the --doctor/--list-diverged/--prune-stale diagnostics), and lessons_bootstrap
+(the --doctor/--list-diverged/--prune-stale/--prune-upgrade-leftovers
+diagnostics), and lessons_bootstrap
 (the categorization schema + lessons-scaffolding routine).
 
 Creates directories, copies seed files, generates config.yaml,
@@ -56,6 +57,7 @@ try:
     from upgrade_io import (
         _load_verdicts_cache,  # noqa: F401 -- re-exported for callers of init_project
         _load_verdict_override,  # noqa: F401 -- re-exported for callers of init_project
+        _installed_hash,
         _write_backup_preimage,  # noqa: F401 -- re-exported for callers of init_project
         _append_disposition_log,  # noqa: F401 -- re-exported for callers of init_project
         _record_disposition,  # noqa: F401 -- re-exported for callers of init_project
@@ -330,6 +332,7 @@ try:
     from doctor_cli import (
         _run_doctor,
         _run_prune_stale,
+        _run_prune_upgrade_leftovers,
         _run_list_diverged,
         _list_diverged_rows,  # noqa: F401 -- re-exported for callers of init_project
         _doctor_version_gate,  # noqa: F401 -- re-exported for callers of init_project
@@ -534,14 +537,51 @@ def main():
                              "REMOVABLE, logging every removal to "
                              "upgrade-backups/prune-<date>[-N]/PRUNED.md. Never deletes a "
                              "customized (PRESERVE) rule or agent.")
+    parser.add_argument("--prune-upgrade-leftovers", action="store_true",
+                        help="WRITER (opt-in): delete the leftover upgrade recovery "
+                             "directories --doctor's read-only sweep classifies as "
+                             "safe-to-discard or inert, logging every removal to "
+                             "upgrade-prune-logs/upgrade-leftovers-<date>[-N]/"
+                             "PRUNED-LEFTOVERS.md. Distinct from --prune-stale, which "
+                             "targets de-scoped rules and orphaned agent mirrors: this "
+                             "flag never touches rules or agents, and never deletes an "
+                             "action-required or review-then-discard artifact.")
+    parser.add_argument("--prune-classes", default=None, metavar="LIST",
+                        help="Comma-separated disposition classes to prune, narrowing "
+                             "--prune-upgrade-leftovers to the classes the caller "
+                             "confirmed (e.g. 'inert' to drop only consumed verdict "
+                             "caches while keeping backups). Omit to prune both "
+                             "prunable classes. Can only narrow: action-required and "
+                             "review-then-discard are never deletable, whatever is passed.")
+    parser.add_argument("--hash-installed", default=None, metavar="PATH",
+                        help="Read-only diagnostic: print the sha256 digest of PATH's "
+                             "normalized-text pre-image (BOM stripped, line endings "
+                             "normalized to \\n) and exit. This is the SAME pre-image "
+                             "the verdict-override cache reader hashes against, so a "
+                             "verdicts.json entry's installed_sha256 must be computed "
+                             "with this flag to be trusted. Does not require --name.")
     args = parser.parse_args()
 
-    # --doctor, --list-diverged, and --prune-stale are read-only/self-scoped
-    # diagnostics that do not use the project name; every other mode
+    if args.hash_installed:
+        # The upgrade handler interpolates an absolute path here once per verdict
+        # entry, so a typo'd or moved path must surface as a one-line error, not a
+        # stack trace mid-fan-out. OSError covers missing/dir/permission cases;
+        # UnicodeDecodeError covers a non-text file reaching a text-mode read.
+        try:
+            print(_installed_hash(Path(args.hash_installed)))
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"error: cannot hash {args.hash_installed}: {exc}", file=sys.stderr)
+            sys.exit(2)
+        sys.exit(0)
+
+    # --doctor, --list-diverged, and the two --prune-* writers are self-scoped
+    # modes that do not use the project name; every other mode
     # (init / --migrate / --upgrade) requires it.
-    if not args.doctor and not args.prune_stale and not args.list_diverged and not args.name:
+    if (not args.doctor and not args.prune_stale and not args.prune_upgrade_leftovers
+            and not args.list_diverged and not args.name):
         parser.error("--name is required (omit it only for the read-only --doctor "
-                     "or --list-diverged diagnostics, or --prune-stale)")
+                     "or --list-diverged diagnostics, or --prune-stale / "
+                     "--prune-upgrade-leftovers)")
 
     _plugin_root = get_plugin_root()
     cfg = InitConfig(
@@ -560,6 +600,11 @@ def main():
 
     if args.prune_stale:
         sys.exit(_run_prune_stale(cfg))
+
+    if args.prune_upgrade_leftovers:
+        _classes = ({c.strip() for c in args.prune_classes.split(",") if c.strip()}
+                    if args.prune_classes else None)
+        sys.exit(_run_prune_upgrade_leftovers(cfg, _classes))
 
     if args.doctor:
         sys.exit(_run_doctor(cfg))

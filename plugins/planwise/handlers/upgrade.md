@@ -18,6 +18,7 @@
   - [Step 4 — Resolve conflicts](#step-4--resolve-conflicts)
   - [Step 4.1 — Assisted relocation](#step-41--assisted-relocation)
   - [Step 4.2 — Opt-in upstream GitHub issue](#step-42--opt-in-upstream-github-issue)
+  - [Step 4.3 — Interactive per-class cleanup offer](#step-43--interactive-per-class-cleanup-offer)
 - [Conflict Resolution Reference](#conflict-resolution-reference)
 - [Auto-Init Fallback](#auto-init-fallback)
 
@@ -164,8 +165,9 @@ Write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to
 > WRONG: omit the hash, or hash the shipped file.
 > CORRECT — one command per entry, hashing the installed path:
 > ```bash
-> python -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "{absolute installed path}"
+> python "{plugin_root}/scripts/init_project.py" --hash-installed "{absolute installed path}"
 > ```
+> The digest is computed over a normalized pre-image, matching the writer's recompute by construction.
 >
 > After a successful `--upgrade` run consumes the cache, the script renames
 > `verdicts.json` to `verdicts.json.consumed` so a stale verdict can never fire
@@ -323,6 +325,10 @@ De-scoped rules preserved (action required): {N} (headless-inconclusive, paths: 
       reason: reorg-inconclusive, paths: customised with the preserve opt-out enabled, could not be analyzed (structural comparison unavailable — no evidence to act on), customised but `customization_handoff` is `report`/`report+issue` (or absent), or a transfer/backup write failed
       action: re-home as a project-local rule, OR re-scope paths: to the code dirs it governs, OR upstream the change
 
+Recovery artifacts:
+  {path} ({N} file(s)) — {class}: {class description}
+  …   ("  None found." when no surface has any content — report-what-exists, never assumes all four surfaces exist)
+
 Over-scope advisory: {N} rule(s) still scoped to plan/backlog paths (~{X}K injected per task-runner)
   run `/planwise doctor` for the full report
 
@@ -331,6 +337,9 @@ Plugin root repointed: {live_plugin_root}
 
 Upgrade complete.
 ```
+
+> [!practice] Recovery-artifact disposition classes
+> `action-required` — unresolved conflict sidecars. `review-then-discard` — transferred customizations awaiting re-homing. `safe-to-discard` — pre-change backups, once you are satisfied with the upgrade. `inert` — a consumed verdict cache. Step 4.3 offers per-class cleanup for `safe-to-discard` and `inert` only; `action-required` and `review-then-discard` are reported here but resolved through Step 4 / Step 4.1 / Step 4.2.
 
 > [!practice] Interactive elaboration — home hints (when `verdicts.json` exists)
 > Raw stdout has no `home_hints` access (handler-side cache only). When `verdicts.json` exists, append to the
@@ -357,6 +366,7 @@ Over-scope advisory:     {N}        (rules still plan/backlog-scoped — run `/p
 
 Plugin version pinned:   {to}
 Plugin root repointed:   {live_plugin_root}
+Recovery artifacts:      {N} dir(s) across {M} version pair(s) — run /planwise doctor for disposition
 
 Upgrade complete.
 ```
@@ -376,7 +386,7 @@ For each conflict in `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` (files 
 2. If the changes are acceptable → overwrite the installed file with the sidecar content (or merge selectively) → delete the `.new` file
 3. If the user wants to keep their local edits → run the Step 4.1 case B relocation (the customization was never moved for this file) instead of merging in place
 
-The `upgrade-conflicts/` directory and its `INDEX.md` can be cleaned up once all sidecars are resolved.
+The `upgrade-conflicts/` directory and its `INDEX.md` can be cleaned up once all sidecars are resolved. See Step 4.3 for the aggregated view of this and every other recovery-artifact surface — the consumed verdict cache in this same directory is offered for cleanup there (`inert`), but the sidecars and any `issue-drafts/` stay `action-required` and must be resolved above first.
 
 ---
 
@@ -390,7 +400,7 @@ Under `upgrade.customization_handoff: report+relocate`, the Step 2.4 writer alre
 2. On confirm, `AskUserQuestion` for the code-path glob the new rule should scope to (`paths:`). **Default when the user skips:** write `paths: # TODO scope` plus an advisory comment (`# TODO: scope this rule to the code dirs it governs — do NOT use plan/backlog/lessons globs`).
 3. **Copy, strip, scope.** Read the transfer file and extract ONLY the original transferred body: drop everything above it — the provenance frontmatter block (`source_filename:` … `classification:`), the `# Transferred customization: {filename}` heading, the "review and re-home" boilerplate paragraph, and the `---` separator line that precedes the body. What remains must be exactly the original installed file content (which may open with its own `---` frontmatter — that one STAYS; it is the rule's real frontmatter, not the wrapper's).
 4. Apply `update_frontmatter(content, paths_value)` to the stripped body so the promoted file carries a real `paths:` line, and **Write** the result to `.claude/rules/{project_name}/{filename}`. The promoted file must be a clean, valid, `paths:`-scoped rule — no provenance keys, no wrapper heading, no doubled frontmatter fences. (If the transferred body is an **agent** file, its frontmatter is agent-shaped — tell the user and let them adapt it into rule form or keep it dormant instead; do not blind-promote.)
-5. The transfer file itself stays in place as the preservation record; tell the user it can be deleted once they are satisfied with the promoted rule.
+5. The transfer file itself stays in place as the preservation record; tell the user it can be deleted once they are satisfied with the promoted rule. Step 4.3 lists this surface (`review-then-discard`) alongside every other recovery-artifact class for visibility, but never offers it for deletion there — a genuine customization needs this human read before it is discarded, so the delete stays a manual step here.
 
 **B. File is listed under "Conflicts (preserved in place — action required)"** — the customization was never moved; secure it FIRST, then resolve the conflict through the existing sidecar mechanism. The installed location is **kind-aware**: rules live at `.claude/rules/planwise/{filename}`, agents at `.claude/agents/{filename}` — never assume the rules path for an agent.
 
@@ -432,6 +442,26 @@ Preserved in place during a `1.0.x` → `1.0.y` planwise upgrade; home hint =
 `upstream` (a generic improvement, not project-specific). Consider folding it
 into the shipped artifact so future consumers benefit.
 ```
+
+---
+
+### Step 4.3 — Interactive per-class cleanup offer
+
+Runs after the Step 3 banner has reported which `Recovery artifacts:` surfaces currently exist. For **each surface class that exists** — one confirm per disposition class, never one per file, since a per-file prompt loop is exactly the UX this aggregation exists to replace:
+
+| Class | Surface(s) | Offered for deletion here? |
+|---|---|---|
+| `action-required` | `{planwise_root}/upgrade-conflicts/*/` (unresolved `.new` sidecars); `{planwise_root}/upgrade-conflicts/*/issue-drafts/` | Never — resolve the sidecars via Step 4, the issue drafts via Step 4.2 |
+| `review-then-discard` | `{planwise_root}/upgrade-transfers/*/` | Never — a genuine customization needs a human read before it is discarded; promote or delete by hand via Step 4.1 case A |
+| `safe-to-discard` | `{planwise_root}/upgrade-backups/*/` | Yes |
+| `inert` | `{planwise_root}/upgrade-conflicts/*/verdicts.json.consumed` | Yes |
+
+For each of the two deletable classes that has at least one match:
+
+1. `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->` — a plain confirm-to-delete, not structural; inferred default is **skip**, so an unattended/non-interactive run never deletes a recovery artifact): "Delete the {N} `{class}` recovery artifact(s) at `{path}`?" — state the class's plain-language reason inline (`safe-to-discard`: "pre-change backups, once you are satisfied with the upgrade"; `inert`: "a consumed verdict cache").
+2. On confirm → delete the matched files and print each removed path as it goes. On decline, or when no interactive answer is available → skip that class; nothing under it is touched.
+
+`action-required` and `review-then-discard` are listed alongside the two deletable classes so the offer gives a complete picture, but deletion never covers them — see the table above for where each is actually resolved. The default across every class, every run, is **skip-all**: deletion is opt-in and per-class, never assumed.
 
 ---
 

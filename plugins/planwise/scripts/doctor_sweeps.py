@@ -9,6 +9,7 @@ configurable warn ceiling, reusing lint_rule_overscope()'s per-file discovery
 rather than re-deriving it.
 """
 
+import datetime
 import re
 from pathlib import Path  # noqa: F401 -- used by the nested _check() helper below
 
@@ -543,6 +544,105 @@ def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
         row = _check(rules_dst_dir / filename, refs_dir / filename, "rule", normalize_rule_for_diff)
         if row:
             findings.append(row)
+    return findings
+
+
+def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
+    """Post-boundary sweep of leftover version-pair recovery directories.
+    Read-only — report-only by default; NEVER writes or deletes anything.
+
+    Enumerates upgrade-backups/*-to-*/, upgrade-transfers/*-to-*/, and
+    upgrade-conflicts/*-to-*/ (plus the latter's nested issue-drafts/
+    subfolder), one finding per (version pair, surface) row rather than one
+    aggregated total — a pair-scoped report is what lets a caller decide
+    "prune the 1.0.3-to-1.0.4 leftovers but keep 1.0.4-to-1.0.5" instead of
+    an all-or-nothing count. Every finding's `klass` is one of the four
+    RECOVERY_ARTIFACT_CLASSES keys ("action-required" | "review-then-discard"
+    | "safe-to-discard" | "inert", defined once in artifact_upgrade.py) —
+    the literal strings are reused verbatim here rather than redefined, so
+    this sweep's vocabulary stays grep-identical to the `Recovery
+    artifacts:` banner's. `doctor_cli.py`'s report printer imports the dict
+    itself to render each class's description alongside these findings.
+
+    upgrade-conflicts/{pair}/ holds THREE separately-classified content
+    kinds and is never reported as a single row for the whole pair dir:
+    unresolved `*.new` sidecars ("action-required"), the nested
+    issue-drafts/ subfolder ("action-required" — an unfiled draft still
+    needs the user's review, same class as the sidecars but a distinct
+    row/path), and a `verdicts.json.consumed` marker ("inert"). Getting
+    this split right matters beyond reporting: the opt-in prune writer
+    (`_run_prune_upgrade_leftovers` in doctor_cli.py) prunes ONLY "inert"
+    and "safe-to-discard" findings from this sweep, so a row misclassified
+    as one unit would either make live action-required data prunable or
+    make genuinely inert data unprunable.
+
+    Each finding is a dict:
+      {pair (the "{from}-to-{to}" directory name), surface
+       ("upgrade-backups" | "upgrade-transfers" | "upgrade-conflicts" |
+       "upgrade-conflicts/issue-drafts" | "upgrade-conflicts (consumed
+       verdict cache)"), path, count (file(s) at that surface), age_days
+       (days since the surface's directory/file was last modified),
+       klass (a RECOVERY_ARTIFACT_CLASSES key)}
+
+    A surface with zero matching files is omitted entirely — report what
+    exists, never assume all surfaces are present (backups fire on every
+    overwrite; transfers only on a genuine-customization verdict; conflict
+    sidecars only on an unresolved divergence).
+    """
+    root = cfg.project_root / cfg.planwise_root
+    today = datetime.date.today()
+    findings: list[dict] = []
+
+    def _age_days(target: Path) -> int:
+        try:
+            mtime = target.stat().st_mtime
+        except OSError:
+            return 0
+        return (today - datetime.date.fromtimestamp(mtime)).days
+
+    backups_root = root / "upgrade-backups"
+    for pair_dir in sorted(p for p in backups_root.glob("*-to-*") if p.is_dir()):
+        count = sum(
+            1 for f in pair_dir.rglob("*") if f.is_file() and f.name != "DISPOSITIONS.md"
+        )
+        if count:
+            findings.append({"pair": pair_dir.name, "surface": "upgrade-backups",
+                             "path": str(pair_dir), "count": count,
+                             "age_days": _age_days(pair_dir), "klass": "safe-to-discard"})
+
+    transfers_root = root / "upgrade-transfers"
+    for pair_dir in sorted(p for p in transfers_root.glob("*-to-*") if p.is_dir()):
+        count = sum(1 for f in pair_dir.rglob("*") if f.is_file())
+        if count:
+            findings.append({"pair": pair_dir.name, "surface": "upgrade-transfers",
+                             "path": str(pair_dir), "count": count,
+                             "age_days": _age_days(pair_dir), "klass": "review-then-discard"})
+
+    conflicts_root = root / "upgrade-conflicts"
+    for pair_dir in sorted(p for p in conflicts_root.glob("*-to-*") if p.is_dir()):
+        sidecar_count = sum(1 for f in pair_dir.rglob("*.new") if f.is_file())
+        if sidecar_count:
+            findings.append({"pair": pair_dir.name, "surface": "upgrade-conflicts",
+                             "path": str(pair_dir), "count": sidecar_count,
+                             "age_days": _age_days(pair_dir), "klass": "action-required"})
+
+        issue_drafts_dir = pair_dir / "issue-drafts"
+        if issue_drafts_dir.is_dir():
+            draft_count = sum(1 for f in issue_drafts_dir.rglob("*") if f.is_file())
+            if draft_count:
+                findings.append({"pair": pair_dir.name,
+                                 "surface": "upgrade-conflicts/issue-drafts",
+                                 "path": str(issue_drafts_dir), "count": draft_count,
+                                 "age_days": _age_days(issue_drafts_dir),
+                                 "klass": "action-required"})
+
+        consumed_cache = pair_dir / "verdicts.json.consumed"
+        if consumed_cache.exists():
+            findings.append({"pair": pair_dir.name,
+                             "surface": "upgrade-conflicts (consumed verdict cache)",
+                             "path": str(consumed_cache), "count": 1,
+                             "age_days": _age_days(consumed_cache), "klass": "inert"})
+
     return findings
 
 

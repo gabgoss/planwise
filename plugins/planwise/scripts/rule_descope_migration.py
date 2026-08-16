@@ -319,7 +319,7 @@ def migrate_installed_rules(
             else:
                 verdict = _classify_diverged(
                     installed_norm, shipped_norm,
-                    override=_load_verdict_override(verdicts, filename, installed_raw),
+                    override=_load_verdict_override(verdicts, filename, installed_raw, dst),
                 )
                 verdict_notes = getattr(verdict, "notes", "") or ""
                 if _destructively_removable(verdict):

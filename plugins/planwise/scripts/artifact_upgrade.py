@@ -252,7 +252,7 @@ def upgrade_artifacts(
                 verdict = _classify_diverged(
                     normalize_rule_for_diff(installed_raw),
                     normalize_rule_for_diff(shipped_raw),
-                    override=_load_verdict_override(verdicts, filename, installed_raw),
+                    override=_load_verdict_override(verdicts, filename, installed_raw, dst),
                 )
                 sidecar_dst = (
                     conflict_dir / ".claude" / "rules" / "planwise" / f"{filename}.new")
@@ -456,6 +456,137 @@ def _same_path(a: "str | Path", b: "str | Path") -> bool:
     return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(os.path.normpath(str(b)))
 
 
+# Recovery-artifact disposition classes — see _scan_recovery_artifacts() /
+# _emit_recovery_artifacts_banner() below. Two of these previously had NO
+# stated end-of-life anywhere (pre-change backups, the consumed verdict
+# cache) — this taxonomy is that end-of-life.
+RECOVERY_ARTIFACT_CLASSES: dict[str, str] = {
+    "action-required": "unresolved conflict sidecars",
+    "review-then-discard": "transferred customizations awaiting re-homing",
+    "safe-to-discard": "pre-change backups, once you are satisfied with the upgrade",
+    "inert": "a consumed verdict cache",
+}
+
+
+def _scan_recovery_artifacts(cfg: "InitConfig") -> list[tuple[str, int, str]]:
+    """Scan every on-disk recovery-artifact surface across every upgrade pair
+    found — the current pair AND any prior pairs left over from earlier
+    upgrades, since these leftovers accumulate per upgrade COUNT, not
+    version distance, and nothing has swept them before now.
+
+    Returns one (path, count, disposition_class) entry per surface that
+    actually has content; a surface with zero matches is omitted entirely.
+    Report-what-exists: pre-change backups fire on every overwrite, but
+    transfers only fire on a genuine-customization verdict and conflict
+    sidecars only on an unresolved divergence, so a typical run populates a
+    subset — never assume all surfaces exist.
+    """
+    root = cfg.project_root / cfg.planwise_root
+    surfaces: list[tuple[str, int, str]] = []
+
+    backups_root = root / "upgrade-backups"
+    backup_count = sum(
+        1
+        for pair_dir in backups_root.glob("*-to-*")
+        if pair_dir.is_dir()
+        for f in pair_dir.rglob("*")
+        if f.is_file() and f.name != "DISPOSITIONS.md"
+    )
+    if backup_count:
+        surfaces.append((f"{backups_root}/*/", backup_count, "safe-to-discard"))
+
+    transfers_root = root / "upgrade-transfers"
+    transfer_count = sum(
+        1
+        for pair_dir in transfers_root.glob("*-to-*")
+        if pair_dir.is_dir()
+        for f in pair_dir.rglob("*")
+        if f.is_file()
+    )
+    if transfer_count:
+        surfaces.append((f"{transfers_root}/*/", transfer_count, "review-then-discard"))
+
+    # upgrade-conflicts/{pair}/ carries THREE distinct artifact kinds that
+    # do not share a disposition class: unresolved sidecars (action-
+    # required), a dormant issue-body draft subfolder (also action-required
+    # — an unfiled draft still needs the user's review), and the retired
+    # verdict cache (inert) — each reported as its own surface line rather
+    # than one rolled-up "conflicts" count that could not carry one class.
+    conflicts_root = root / "upgrade-conflicts"
+    sidecar_count = 0
+    issue_draft_count = 0
+    consumed_cache_count = 0
+    for pair_dir in conflicts_root.glob("*-to-*"):
+        if not pair_dir.is_dir():
+            continue
+        sidecar_count += sum(1 for f in pair_dir.rglob("*.new") if f.is_file())
+        issue_drafts_dir = pair_dir / "issue-drafts"
+        if issue_drafts_dir.is_dir():
+            issue_draft_count += sum(1 for f in issue_drafts_dir.rglob("*") if f.is_file())
+        if (pair_dir / "verdicts.json.consumed").exists():
+            consumed_cache_count += 1
+
+    if sidecar_count:
+        surfaces.append((f"{conflicts_root}/*/", sidecar_count, "action-required"))
+    if issue_draft_count:
+        surfaces.append(
+            (f"{conflicts_root}/*/issue-drafts/", issue_draft_count, "action-required")
+        )
+    if consumed_cache_count:
+        surfaces.append(
+            (f"{conflicts_root}/*/verdicts.json.consumed", consumed_cache_count, "inert")
+        )
+
+    return surfaces
+
+
+def _emit_recovery_artifacts_banner(surfaces: list[tuple[str, int, str]]) -> None:
+    """Print the `Recovery artifacts:` banner: report-what-exists, one line
+    per surface with its count and disposition class, so leftovers that
+    scale with upgrade COUNT never go unreported (see
+    RECOVERY_ARTIFACT_CLASSES for what each class means and when it is safe
+    to act).
+    """
+    print("Recovery artifacts:")
+    if not surfaces:
+        print("  None found.")
+        print()
+        return
+    for path, count, klass in surfaces:
+        print(f"  {path} ({count} file(s)) — {klass}: {RECOVERY_ARTIFACT_CLASSES[klass]}")
+    print()
+
+
+def _split_formerly_managed(
+    cfg: "InitConfig", untracked: list[str]
+) -> tuple[list[str], list[str]]:
+    """Partition an `untracked` list into (still-untracked, formerly-managed).
+
+    A file counts as formerly managed only when a PRIOR upgrade's pre-change
+    backup mirror exists for it under upgrade-backups/*-to-*/ — concrete
+    evidence the plugin actively refreshed this exact path before it dropped
+    out of the current shipped set. That backup mirror is the only durable
+    prior-managed-set record this codebase persists: there is no snapshot of
+    a past manifest or rule allowlist to diff against directly, so the
+    detection stays evidence-based rather than guessing — a file with no
+    matching backup mirror stays in the generic untracked bucket instead of
+    being assumed formerly managed.
+    """
+    backups_root = cfg.project_root / cfg.planwise_root / "upgrade-backups"
+    pair_dirs = [d for d in backups_root.glob("*-to-*") if d.is_dir()]
+    still_untracked: list[str] = []
+    formerly_managed: list[str] = []
+    for path_str in untracked:
+        dst = Path(path_str)
+        try:
+            rel = dst.relative_to(cfg.project_root)
+        except ValueError:
+            rel = Path(dst.name)
+        was_managed = any((pair_dir / rel).exists() for pair_dir in pair_dirs)
+        (formerly_managed if was_managed else still_untracked).append(path_str)
+    return still_untracked, formerly_managed
+
+
 def _run_upgrade(cfg: "InitConfig") -> int:
     """Execute the --upgrade flow and print a banner. Returns exit code."""
     if not HAS_YAML:
@@ -565,10 +696,18 @@ def _run_upgrade(cfg: "InitConfig") -> int:
             print(f"  + {r}")
     if unchanged:
         print(f"Unchanged: {len(unchanged)} (installed body already matches shipped)")
-    if untracked:
-        print(f"Untracked preserved: {len(untracked)}")
-        for u in untracked:
+    still_untracked, formerly_managed = _split_formerly_managed(cfg, untracked)
+    if still_untracked:
+        print(f"Untracked preserved: {len(still_untracked)}")
+        for u in still_untracked:
             print(f"  = {u}")
+    if formerly_managed:
+        # Distinct from generic untracked: these files were once refreshed by
+        # the plugin (a prior upgrade's backup mirror proves it) and have
+        # since dropped out of the shipped set — a clarity gap, not data loss.
+        print(f"Formerly managed (dropped from the shipped set): {len(formerly_managed)}")
+        for u in formerly_managed:
+            print(f"  ~ {u}")
     print()
 
     if transferred:
@@ -634,6 +773,13 @@ def _run_upgrade(cfg: "InitConfig") -> int:
                 f"  Warning: could not retire consumed verdict cache {verdicts_path}: {exc}",
                 file=sys.stderr,
             )
+
+    # 4c. Recovery-artifact aggregation: report every leftover surface still
+    # on disk across every upgrade pair found (not just this run's), each
+    # with its disposition class. Placed AFTER the verdict-cache retirement
+    # above so a cache this run just consumed is picked up as inert rather
+    # than missed as still-active.
+    _emit_recovery_artifacts_banner(_scan_recovery_artifacts(cfg))
 
     # 5. Post-upgrade advisory: flag any installed rule still scoped to
     # plan/backlog/lessons globs (read-only — never mutates).

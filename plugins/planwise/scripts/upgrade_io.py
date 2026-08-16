@@ -59,8 +59,31 @@ def _load_verdicts_cache(cfg: "InitConfig", from_version: str, to_version: str) 
     return loaded if isinstance(loaded, dict) else {}
 
 
+def _installed_hash(source: "Path | str") -> str:
+    """Return the sha256 hex digest of an installed file's normalized-text pre-image.
+
+    `source` is either a filesystem `Path` (read here, BOM-stripped via
+    `utf-8-sig`) or an already-decoded `str` — a caller that has already read
+    the file (e.g. via its own `read_text(encoding="utf-8-sig")`) passes the
+    text directly rather than re-reading it. Either way, ALL line endings are
+    normalized to `\n` EXPLICITLY before the text is re-encoded `utf-8` and
+    hashed — never left to incidental universal-newline behavior, because the
+    source tree itself is mixed-ending. This is the ONE pre-image every
+    caller in this module hashes against, so the `--hash-installed`
+    subcommand and the verdict-override recompute below cannot drift apart
+    again.
+
+    Preservation paths (`_write_backup_preimage`, `_transfer_customization`)
+    intentionally do the opposite — they copy/write bytes exactly — and are
+    untouched by this helper.
+    """
+    raw = source.read_text(encoding="utf-8-sig") if isinstance(source, Path) else source
+    normalized = raw.replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def _load_verdict_override(
-    verdicts: dict, filename: str, installed_raw: str
+    verdicts: dict, filename: str, installed_raw: str, installed_path: "Path | None" = None
 ) -> "StructuralVerdict | None":
     """Return a StructuralVerdict built from a verdicts.json cache entry, or None.
 
@@ -75,12 +98,24 @@ def _load_verdict_override(
     partial/malformed agent verdict must NEVER crash the `--upgrade` run).
 
     Freshness-bound: each entry must also carry `installed_sha256` — the
-    sha256 hex digest of the installed file's bytes at the time the
-    comparator analyzed it. It is re-hashed against `installed_raw` here; a
-    missing or mismatched hash means the cached verdict was computed against
-    different bytes than what's on disk NOW (a later edit, a partial rerun, a
-    stale carried-over cache) — the override is ignored (one-line stderr
-    note) rather than trusted against content it doesn't provably describe.
+    digest of the installed file's normalized-text pre-image (see the
+    shared hash helper above) at the time the comparator analyzed it. It is
+    re-hashed against `installed_raw` here via that same helper; a missing or
+    mismatched hash means the cached verdict was computed against different
+    content than what's on disk NOW (a later edit, a partial rerun, a stale
+    carried-over cache) — the override is ignored (one-line stderr note)
+    rather than trusted against content it doesn't provably describe.
+
+    When the caller also has `installed_path` (the installed file's location
+    on disk) available, a mismatch is additionally checked against the
+    file's RAW-BYTE digest (the pre-image an older recipe used before this
+    module standardized on normalized text). A raw-byte match means the
+    cached digest isn't stale — it was simply computed with the old recipe —
+    so the stderr note names that condition and its remedy instead of the
+    generic "stale" wording. Both `--upgrade` writer sites pass it, so the
+    hint is live on the production path; it stays optional so a caller
+    holding only pre-read text can still call this, and the diagnosis then
+    degrades to the generic note.
 
     A well-formed SUBSET verdict may legitimately carry a non-empty `notes`
     field (installed-only sub-noise-floor fragments) — that is not malformed
@@ -96,12 +131,24 @@ def _load_verdict_override(
             file=sys.stderr,
         )
         return None
-    current_hash = hashlib.sha256(installed_raw.encode("utf-8")).hexdigest()
+    current_hash = _installed_hash(installed_raw)
     cached_hash = entry.get("installed_sha256")
     if not cached_hash or cached_hash != current_hash:
+        hint = ""
+        if installed_path is not None and cached_hash:
+            try:
+                raw_byte_hash = hashlib.sha256(installed_path.read_bytes()).hexdigest()
+            except OSError:
+                raw_byte_hash = None
+            if raw_byte_hash == cached_hash:
+                hint = (
+                    " (this digest was written by the OLD raw-byte hash recipe, not "
+                    "the current normalized-text one — re-run the fan-out, or refresh "
+                    "it with --hash-installed)"
+                )
         print(
             f"  Warning: verdicts.json entry for {filename} has a missing or "
-            "stale installed_sha256 — ignoring cached verdict",
+            f"stale installed_sha256 — ignoring cached verdict{hint}",
             file=sys.stderr,
         )
         return None

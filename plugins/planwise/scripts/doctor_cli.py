@@ -8,6 +8,7 @@ owns the plugin version-state gate every dispatcher runs first.
 import datetime
 import json
 import re
+import shutil
 from pathlib import Path
 
 try:
@@ -42,11 +43,21 @@ try:
         sweep_stale_descoped_rules,
         sweep_orphaned_agent_mirrors,
         lint_installed_divergence,
+        sweep_upgrade_leftovers,
     )
 except ImportError:
     raise ImportError(
         "doctor_sweeps is required for doctor_cli's report dispatchers; the "
         "scripts/ directory appears to be partially installed"
+    )
+
+try:
+    from artifact_upgrade import RECOVERY_ARTIFACT_CLASSES
+except ImportError:
+    raise ImportError(
+        "artifact_upgrade is required for doctor_cli's leftover-sweep report "
+        "and prune writer (RECOVERY_ARTIFACT_CLASSES); the scripts/ "
+        "directory appears to be partially installed"
     )
 
 try:
@@ -130,6 +141,194 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
 
     print(f"Pruned {len(removed)} stale de-scoped rule(s)/orphaned agent mirror(s); "
           f"preserved {len(kept)}. Log: {out_dir / 'PRUNED.md'}")
+    return 0
+
+
+PRUNABLE_CLASSES = {"inert", "safe-to-discard"}
+
+
+def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" = None) -> int:
+    """WRITER (opt-in): delete ONLY the *inert* and *safe-to-discard* upgrade
+    recovery-leftovers Stage 14's read-only sweep reports, log to a
+    dedicated PRUNED-LEFTOVERS.md.
+
+    DISTINCT from `_run_prune_stale` above (the `--prune-stale` writer):
+    that flag targets a completely different artifact class — de-scoped
+    rules and orphaned agent mirrors under `.claude/rules|agents/` — and
+    already logs into `upgrade-backups/prune-{date}/`. Giving this writer
+    the same flag name would make one flag mean two unrelated things; it
+    targets version-pair recovery leftovers instead (`upgrade-backups/
+    *-to-*/`, `upgrade-transfers/*-to-*/`, `upgrade-conflicts/*-to-*/`) and
+    logs into its own `upgrade-prune-logs/upgrade-leftovers-{date}/` root,
+    so the two prune logs never collide.
+
+    That separate root is load-bearing, not cosmetic: this writer prunes
+    surfaces that live INSIDE `upgrade-backups/`, so logging there would
+    copy a pruned pair to `upgrade-backups/<log>/upgrade-backups/{pair}`
+    and delete the original — reclaiming nothing, and hiding the copy from
+    the sweep's `*-to-*` glob forever. Keeping the log root disjoint from
+    every swept root is what makes "pruned" actually mean pruned.
+
+    `classes` may NARROW the scope to the subset the caller confirmed (the
+    doctor handler asks once per PRESENT prunable class and passes only the
+    approved ones); it can never widen it — the intersection with the two
+    prunable classes is taken, so an action-required or review-then-discard
+    finding is unreachable regardless of what is passed.
+
+    KNOWN INTERACTION, deliberately not silently resolved here: pruning the
+    `safe-to-discard` backups also removes the pre-image mirrors that the
+    refresh loop's formerly-managed detection uses as its ONLY durable
+    prior-managed-set evidence. After a prune, a file the plugin stopped
+    managing reports as generic untracked rather than formerly managed. The
+    copies survive under this writer's log root, so nothing is destroyed —
+    but the detector does not look there. Callers who rely on that
+    detection should defer pruning the backups class.
+
+    Scope is taxonomy-bound (RECOVERY_ARTIFACT_CLASSES, defined once in
+    artifact_upgrade.py and reused here for a grep-identical vocabulary):
+    only findings from `sweep_upgrade_leftovers()` classed "inert" (a
+    consumed verdict cache) or "safe-to-discard" (pre-change backups) are
+    ever eligible. An "action-required" finding (unresolved conflict
+    sidecars, or the nested issue-drafts/ subfolder) or a
+    "review-then-discard" one (transferred customizations awaiting
+    re-homing) is NEVER deleted by this writer, regardless of what the
+    caller passes — pruning either of those classes is exactly the mistake
+    the taxonomy exists to prevent. The interactive per-class confirm
+    (mirroring the upgrade handler's Step 4.3 contract: one AskUserQuestion
+    per present prunable class, tagged AUTO-MODE: convenience, inferred
+    default skip-all in unattended runs) happens in the /planwise doctor
+    handler BEFORE this writer is invoked — this function performs the
+    already-confirmed deletion, it does not itself prompt.
+
+    Runs the plugin version-state gate first (mirroring _run_prune_stale):
+    an uninitialized or version-drifted install refuses to prune and
+    returns 0 with the tree untouched.
+
+    Each pruned path (file or directory) is copied into the run's own log
+    folder before removal, mirroring its original location relative to the
+    planwise root (e.g. upgrade-backups/{pair}/... stays
+    upgrade-backups/{pair}/... under the log folder) — so a prune is
+    recoverable. A failed copy leaves the original in place
+    (REMOVE_FAILED, not pruned) rather than risk deleting without a
+    backup. If the REMOVAL then fails part-way — `shutil.rmtree` is not
+    atomic and a locked or read-only file routinely stops it mid-tree — the
+    copy is NOT rolled back: it is by then the only surviving record of
+    whatever was already deleted, and the log names its path so the user
+    restores from it instead of re-running. Exits 0.
+    """
+    gate = _doctor_version_gate(cfg)
+    if gate["state"] != "ok":
+        print(gate["report"])
+        print()
+        print("Nothing pruned — see the version-state gate above.")
+        return 0
+
+    findings = sweep_upgrade_leftovers(cfg)
+    # Never widen beyond the two prunable classes, whatever the caller asks for:
+    # `classes` may NARROW the scope (the handler's per-class confirm passes only
+    # the classes the user approved), never extend it to action-required or
+    # review-then-discard.
+    prunable_classes = PRUNABLE_CLASSES if classes is None else (set(classes) & PRUNABLE_CLASSES)
+    prunable = [f for f in findings if f["klass"] in prunable_classes]
+    kept = [f for f in findings if f["klass"] not in prunable_classes]
+
+    today = datetime.date.today().isoformat()  # YYYY-MM-DD
+    planwise_root = cfg.project_root / cfg.planwise_root
+
+    if not prunable:
+        # Return BEFORE creating anything. Creating the log folder up front made
+        # every no-op run leave a numbered empty dir (`…-2`, `…-3`, …) behind,
+        # accumulating clutter inside the very tree this feature exists to tidy.
+        print("Nothing to prune — no inert or safe-to-discard recovery leftovers "
+              f"in scope. Preserved {len(kept)} surface(s) (never pruned).")
+        return 0
+
+    # The log folder lives in its OWN root, NOT under `upgrade-backups/`. A
+    # pruned `upgrade-backups/{pair}` copied to a destination inside
+    # `upgrade-backups/` would reclaim nothing — it would relocate the pair to
+    # `upgrade-backups/<log>/upgrade-backups/{pair}`, where the sweep's
+    # `*-to-*` glob can never see it again, so the surface would be neither
+    # gone nor reportable. A separate root keeps "pruned" and "swept" disjoint,
+    # and makes non-collision with the de-scoped-rule prune log structural
+    # rather than a matter of naming.
+    logs_root = planwise_root / "upgrade-prune-logs"
+    out_dir = logs_root / f"upgrade-leftovers-{today}"
+    suffix = 2
+    while out_dir.exists():
+        out_dir = logs_root / f"upgrade-leftovers-{today}-{suffix}"
+        suffix += 1
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    removed: list[dict] = []
+    for f in prunable:
+        src = Path(f["path"])
+        # Mirror src's path relative to the planwise root (e.g.
+        # upgrade-backups/{pair}/ or upgrade-conflicts/{pair}/
+        # verdicts.json.consumed) rather than hand-building {pair}/{name} —
+        # a whole-pair-directory surface's src.name IS the pair name, so
+        # {pair}/{src.name} would double-nest it (…/{pair}/{pair}/file).
+        try:
+            rel = src.relative_to(planwise_root)
+        except ValueError:
+            rel = Path(f["pair"]) / src.name  # fallback if src ever lands outside planwise_root
+        backup_dst = out_dir / rel
+
+        # STEP 1 — copy. A failure here is safe to roll back: nothing has been
+        # removed yet, so discarding a half-written copy loses nothing.
+        try:
+            backup_dst.parent.mkdir(parents=True, exist_ok=True)
+            if src.is_dir():
+                shutil.copytree(src, backup_dst, dirs_exist_ok=True)
+            else:
+                backup_dst.write_bytes(src.read_bytes())
+        except OSError as exc:
+            kept.append({**f, "klass": "REMOVE_FAILED",
+                         "reason": f"could not back up ({exc}) — left in place, not removed"})
+            if backup_dst.is_dir():
+                shutil.rmtree(backup_dst, ignore_errors=True)
+            else:
+                backup_dst.unlink(missing_ok=True)
+            continue
+
+        # STEP 2 — remove, in its OWN try. Once this starts, the copy is the
+        # ONLY surviving record of anything already deleted, so the rollback
+        # above MUST NOT run here: `shutil.rmtree` is not atomic and routinely
+        # fails part-way on a locked or read-only file, which would leave the
+        # source partially deleted. Deleting the backup in that state destroys
+        # the sole copy of the files that are already gone.
+        try:
+            if src.is_dir():
+                shutil.rmtree(src)
+            else:
+                src.unlink()
+            removed.append(f)
+        except OSError as exc:
+            kept.append({**f, "klass": "REMOVE_FAILED",
+                         "reason": f"removal failed part-way ({exc}) — a complete "
+                                   f"pre-removal copy is preserved at `{backup_dst}`; "
+                                   "the original may be partially deleted, restore from "
+                                   "that copy rather than re-running"})
+
+    lines = [f"# Upgrade recovery-leftover prune — {today}", ""]
+    lines.append(f"## Removed ({len(removed)})")
+    for f in removed:
+        lines.append(f"- `{f['path']}` ({f['count']} file(s), {f['age_days']}d old) — "
+                     f"{f['klass']}: {RECOVERY_ARTIFACT_CLASSES[f['klass']]}")
+    lines.append("")
+    lines.append(f"## Preserved ({len(kept)})")
+    for f in kept:
+        reason = f.get("reason", RECOVERY_ARTIFACT_CLASSES.get(f["klass"], "out of prune scope"))
+        lines.append(f"- `{f['path']}` [{f['klass']}] — {reason}")
+    if removed:
+        lines.append("")
+        lines.append("Pre-removal copies of every pruned path above sit alongside this "
+                      "log in this same folder, mirroring each path's original location "
+                      "relative to the planwise root.")
+    (out_dir / "PRUNED-LEFTOVERS.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    print(f"Pruned {len(removed)} recovery-leftover surface(s) (inert/safe-to-discard); "
+          f"preserved {len(kept)} (action-required/review-then-discard, never pruned). "
+          f"Log: {out_dir / 'PRUNED-LEFTOVERS.md'}")
     return 0
 
 
@@ -387,7 +586,12 @@ def _run_doctor(cfg: "InitConfig") -> int:
     Stage 9, the installed rule divergence lint (lint_installed_divergence()),
     and prints its report — also always-on. Then runs Stage 10, the orphaned
     agent-mirror sweep (sweep_orphaned_agent_mirrors()), and prints its report
-    too — also always-on. Always exits 0 (diagnostic, not a gate).
+    too — also always-on. Then runs Stage 14, the upgrade recovery-leftover
+    sweep (sweep_upgrade_leftovers()), and prints its report — also
+    always-on; a DISTINCT surface from Stages 8/10 (version-pair recovery
+    directories, not installed rules/agents), pruned by a DISTINCT opt-in
+    writer (`--prune-upgrade-leftovers`, never `--prune-stale`). Always exits
+    0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
     Saver): an uninitialized or version-drifted install is surfaced with a
@@ -396,7 +600,8 @@ def _run_doctor(cfg: "InitConfig") -> int:
     deliberately BEFORE that early return: a config that no longer parses is
     the reason every other command is failing, and the version gate cannot see
     it (it reads the pin with a regex). Read-only throughout; init/upgrade
-    (and the separate opt-in `--prune-stale` writer) are the only writers.
+    (and the two separate opt-in writers, `--prune-stale` and
+    `--prune-upgrade-leftovers`) are the only writers.
     """
     gate = _doctor_version_gate(cfg)
     print(gate["report"])
@@ -513,6 +718,32 @@ def _run_doctor(cfg: "InitConfig") -> int:
         print()
         print(f"Total REMOVABLE orphaned agent mirror(s): {len(removable_agents)} of "
               f"{len(orphaned_agents)} found.")
+
+    # Stage 14: upgrade recovery-leftover sweep — read-only, always-on.
+    print()
+    print("planwise doctor — upgrade recovery-leftover sweep")
+    print()
+    leftovers = sweep_upgrade_leftovers(cfg)
+    if not leftovers:
+        print("No leftover recovery directories found — no version-pair backups, "
+              "transfers, or conflict artifacts on disk.")
+    else:
+        pairs = sorted({f["pair"] for f in leftovers})
+        print(f"Leftover recovery artifacts across {len(pairs)} version pair(s):")
+        for f in leftovers:
+            mark = "!" if f["klass"] == "action-required" else "~"
+            print(f"  {mark} {f['pair']}   {f['surface']}   {f['klass']}")
+            print(f"      path:    {f['path']}")
+            print(f"      size:    {f['count']} file(s), {f['age_days']}d old")
+            print(f"      meaning: {RECOVERY_ARTIFACT_CLASSES[f['klass']]}")
+            if f["klass"] in ("inert", "safe-to-discard"):
+                print("      action:  remove with /planwise doctor --prune-upgrade-leftovers")
+            else:
+                print("      action:  resolve per handlers/upgrade.md Step 4 — never auto-pruned")
+        prunable = [f for f in leftovers if f["klass"] in ("inert", "safe-to-discard")]
+        print()
+        print(f"Total prunable (inert/safe-to-discard) leftover(s): {len(prunable)} of "
+              f"{len(leftovers)} found.")
     return 0
 
 

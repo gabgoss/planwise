@@ -343,6 +343,132 @@ Stages 11 and 12; none re-implements another's comparison.
 
 ---
 
+### Stage 14: Upgrade recovery-leftover sweep (post-boundary)
+
+> [!constraint] Read-Only — bare doctor only recommends
+> Stage 14 runs `sweep_upgrade_leftovers()` standalone. It READS
+> `{planwise_root}/upgrade-backups/`, `upgrade-transfers/`, and
+> `upgrade-conflicts/` (including the latter's nested `issue-drafts/`
+> subfolder), then prints a report. It writes nothing and deletes nothing.
+> To actually remove what it reports, the user opts in with the separate
+> writer `/planwise doctor --prune-upgrade-leftovers` (Stage 14b below) — a
+> DISTINCT flag from `/planwise doctor --prune-stale` (Stage 8b above):
+> that writer targets a completely different artifact class (de-scoped
+> rules and orphaned agent mirrors under `.claude/rules|agents/`) and
+> already logs into `upgrade-backups/prune-{date}/`; reusing that name
+> here would make one flag mean two unrelated things.
+
+Always-on (independent of Token Saver). The sweep walks every version-pair
+directory a completed `/planwise upgrade` may have left behind — these
+accumulate per upgrade COUNT, not version distance, since nothing purges
+them on its own — and classifies each one (or, for
+`upgrade-conflicts/{pair}/`, each of its three separately-tracked content
+kinds — they never share one class) into one of the four disposition
+classes the `Recovery artifacts:` banner (`/planwise upgrade` Step 3)
+already reports at upgrade time:
+
+- **action-required** — unresolved conflict sidecars (`*.new` files under
+  `upgrade-conflicts/{pair}/`) and the pair's `issue-drafts/` subfolder.
+  *Never offered for deletion here* — resolve per `handlers/upgrade.md`
+  Step 4.
+- **review-then-discard** — transferred customizations under
+  `upgrade-transfers/{pair}/`, awaiting the user's re-homing decision.
+  *Never offered for deletion here.*
+- **safe-to-discard** — pre-change backups under `upgrade-backups/{pair}/`,
+  once the user is satisfied with the upgrade. *Prunable.*
+- **inert** — a consumed verdict cache (`verdicts.json.consumed`) under
+  `upgrade-conflicts/{pair}/`. *Prunable.*
+
+Print verbatim:
+
+```
+planwise doctor — upgrade recovery-leftover sweep
+
+Leftover recovery artifacts across {N} version pair(s):
+  ~ {pair}   {surface}   {klass}
+      path:    {absolute path}
+      size:    {N} file(s), {D}d old
+      meaning: {the class's one-line meaning}
+      action:  {remove with /planwise doctor --prune-upgrade-leftovers | resolve per handlers/upgrade.md Step 4 — never auto-pruned}
+
+Total prunable (inert/safe-to-discard) leftover(s): {N} of {M} found.
+```
+
+If the sweep returns nothing: `No leftover recovery directories found — no
+version-pair backups, transfers, or conflict artifacts on disk.`
+
+### Stage 14b: `--prune-upgrade-leftovers` (opt-in writer)
+
+When `$ARGUMENTS` contains `--prune-upgrade-leftovers`, this is the other
+doctor path that mutates (alongside `--prune-stale`, Stage 8b). Run the
+writer:
+
+```bash
+python "{plugin_root}/scripts/init_project.py" --prune-upgrade-leftovers --project-root "{project_root}"
+```
+
+Before invoking it, ask one `AskUserQuestion` per PRESENT prunable class
+(*inert*, *safe-to-discard* — never per file), tagged
+`<!-- AUTO-MODE: convenience -->` with an inferred default of **skip-all**
+in unattended runs (state the inference inline) — the same per-class
+confirm contract `handlers/upgrade.md` Step 4.3 uses for its own cleanup
+offer. *action-required* and *review-then-discard* findings are never
+offered here at all; they only ever route to Step 4.
+
+It deletes ONLY the *inert* and *safe-to-discard* findings from Stage 14's
+sweep — an *action-required* or *review-then-discard* finding is never
+touched, no matter what. **This is the one-sentence distinction from
+`--prune-stale` (Stage 8b): that writer prunes de-scoped rules and orphaned
+agent mirrors under `.claude/rules|agents/`, logging into
+`{planwise_root}/upgrade-backups/prune-{YYYY-MM-DD}/`; this writer prunes
+version-pair recovery leftovers under `upgrade-backups/`,
+`upgrade-transfers/`, and `upgrade-conflicts/`, logging into its own
+`{planwise_root}/upgrade-prune-logs/upgrade-leftovers-{YYYY-MM-DD}/`
+root — the two logs never collide, and neither opt-in flag is an alias
+for the other.**
+
+> [!constraint] The log root is deliberately OUTSIDE every swept root
+> This writer prunes surfaces that live *inside* `upgrade-backups/`, so a log
+> folder placed there would copy a pruned pair to
+> `upgrade-backups/{log}/upgrade-backups/{pair}` and delete the original —
+> reclaiming no space and hiding the copy from the Stage-14 sweep's `*-to-*`
+> glob permanently, leaving the surface neither gone nor reportable. Keeping
+> the log root disjoint from every swept root is what makes a prune actually
+> prune. Do not "tidy" it back under `upgrade-backups/`.
+
+If an `upgrade-leftovers-{YYYY-MM-DD}/` folder already exists (a second run
+the same day), the run gets its own `-2`, `-3`, ... suffix instead — an
+earlier run's log is never overwritten. A run with nothing prunable creates
+no folder at all.
+
+Every pruned path is first copied into that same run's folder (mirroring
+its original location relative to `{planwise_root}`), so a prune is
+recoverable. A failed **copy** leaves the original in place
+(`REMOVE_FAILED`) rather than risk deleting without a backup. A **removal**
+that fails part-way keeps the copy — `rmtree` is not atomic, and on a
+locked or read-only file it can stop mid-tree, at which point that copy is
+the only surviving record of whatever was already deleted; the log names
+its path so the user restores from it rather than re-running.
+
+Pass `--prune-classes` to narrow the run to the classes the user actually
+confirmed (e.g. `--prune-classes inert` to drop consumed verdict caches
+while keeping backups). It can only narrow: *action-required* and
+*review-then-discard* stay undeletable whatever is passed.
+
+> [!practice] Pruning backups costs the formerly-managed signal
+> The *safe-to-discard* backups double as the pre-image mirrors that the
+> refresh loop's formerly-managed detection uses as its only durable
+> prior-managed-set evidence. After they are pruned, a file the plugin stopped
+> managing reports as generic untracked instead. The copies survive under the
+> prune log root, but the detector does not look there — so when a user is
+> still reconciling what the upgrade changed, offer `--prune-classes inert`
+> and leave the backups for a later pass.
+
+Pass the script's stdout through and point the user at the
+`PRUNED-LEFTOVERS.md` audit log.
+
+---
+
 ## Token Saver Audit
 
 > [!gate] Run only when `context.token_saver` is `true`
