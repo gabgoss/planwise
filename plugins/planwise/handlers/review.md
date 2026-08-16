@@ -68,6 +68,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If reviewing a DELEGATED-orchestration plan: Read `references/agent-orchestration-delegated.md`
 - If the **effective** Token Saver value is `true` for the plan under review (its Master-Plan `Token Saver:` field over the project `context.token_saver` default — `get_effective_token_saver_config(config, plan_override)`): Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](../references/review-classification.md#token-saver-compliance-check))
 - When citing Error Pattern Catalog rows during synthesis or in a finding's Fix field: Read `references/error-pattern-catalog.md` (on demand -- not loaded up front)
+- For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 
 ---
 
@@ -372,6 +373,51 @@ Task(
 
     Your assigned role: Design-Extension Reviewer
     Execute Checks 051-054 and 062 from your protocol.
+    ...
+)
+```
+
+**Destructive-Path Reviewer** (LARGE/VERY LARGE — when destructive-path or config-gated-change findings expected):
+```
+Task(
+  team_name: "plan-review-{abbrev}",
+  name: "destructive-path-reviewer",
+  subagent_type: "planwise:plan-reviewer",
+  prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
+    Your assigned role: Destructive-Path Reviewer
+    Execute Checks 072-073 from your protocol.
+    ...
+)
+```
+
+**Verification-Gate Reviewer** (LARGE/VERY LARGE — when verification-gate findings expected):
+```
+Task(
+  team_name: "plan-review-{abbrev}",
+  name: "verification-gate-reviewer",
+  subagent_type: "planwise:plan-reviewer",
+  prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
+    Your assigned role: Verification-Gate Reviewer
+    Execute Checks 074-075 from your protocol.
+    ...
+)
+```
+
+**Change-Surface Reviewer** (LARGE/VERY LARGE — when change-surface findings expected):
+```
+Task(
+  team_name: "plan-review-{abbrev}",
+  name: "change-surface-reviewer",
+  subagent_type: "planwise:plan-reviewer",
+  prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
+    Your assigned role: Change-Surface Reviewer
+    Execute Check 076 from your protocol.
     ...
 )
 ```

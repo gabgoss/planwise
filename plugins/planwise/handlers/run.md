@@ -54,12 +54,13 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task involves DB writes or MERGE/upsert briefs: Read `references/task-content-fidelity.md`, `references/schema-pin-requirement.md`
 - If a session is IPC/protocol/codec: Read `references/verification-gates.md`
 - If executing in DELEGATED mode (orchestrator dispatches task-runner subagents): Read `references/agent-orchestration-delegated.md`
+- If a session runs verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
 
 ---
 
 ## AUTO-MODE Annotations
 
-`<!-- AUTO-MODE: critical|convenience -->` HTML comments classify the `AskUserQuestion` call site that immediately follows them, per `references/skill-authoring.md` §4b (Auto Mode Policy):
+`<!-- AUTO-MODE: critical|convenience -->` HTML comments classify the `AskUserQuestion` call site that immediately follows them, per `references/auto-mode-policy.md` (canonical) and `references/skill-authoring.md` §4b (summary):
 
 - **`critical`** — the gate MUST always prompt the user; never auto-infer (e.g., scope decisions, destructive actions, a missing required argument).
 - **`convenience`** — in Auto Mode the handler MAY skip the prompt and proceed with the documented default; in normal interactive use it still prompts as written.

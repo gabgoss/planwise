@@ -68,6 +68,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If resolving a backlog item that touches task files: Read `references/task-content-fidelity.md`
 - If resolving a BLI cluster (≥ 2 BLIs same Surfaced by + created): Read `references/verify-against-shipped-artifact.md`
 - For the backlog index format, item file schema, scoring formula, script interfaces, status flow, or error handling: Read `references/backlog-schema.md`
+- For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 
 ---
 

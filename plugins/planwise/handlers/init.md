@@ -332,7 +332,7 @@ Auto-Init Fallback, the init handler runs in **subroutine mode**:
 - All other steps execute normally (directories, seeds, config, rules, settings).
 - If Auto Mode is active in the caller, all convenience questions in Step 1
   (project name, install scope, directories) use their inferred defaults
-  (see Auto Mode Policy in `references/auto-mode-policy.md` §4b). If Auto Mode is NOT
+  (see Auto Mode Policy in `references/auto-mode-policy.md` § Inference Defaults). If Auto Mode is NOT
   active, Step 1 runs interactively as normal.
 - After the subroutine returns, the calling handler RE-RESOLVES `config.yaml` and
   resumes at its own Step 1.
