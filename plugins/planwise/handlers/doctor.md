@@ -15,8 +15,9 @@
 2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.backlog_dir`, `project.lessons_dir` (absent → skip Stage 13), `project.index_files`, and the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`) plus the pinned `plugin_version`.
 3. If NOT found: this install is **not initialized**. Recommend `/planwise init` and **STOP** — `doctor` is read-only and never initializes on the user's behalf. (This is the same "not initialized" outcome the Preflight version-state gate reports; do not auto-init.)
 
-> [!gate] Config Malformed → FAIL LOUD
-> If `config.yaml` is present but malformed, DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise doctor." STOP.
+> [!gate] Config Malformed → diagnose FIRST, then FAIL LOUD
+> If `config.yaml` is present but malformed, DO NOT auto-init — and do NOT stop before diagnosing. Run the Step 1 command below against the **currently-executing** plugin's own `scripts/` path (not the unreadable config's `plugin_root:`): the script resolves its own root from its file location and never parses `config.yaml` to dispatch, so it still runs and prints a `Config parse check` block that names the offending key and the fix when the cause is a recognised one. Pass that block through verbatim.
+> Then FAIL LOUD: "config.yaml parse error at {path}: {error}. The Config parse check above names the offending key — fix the reported line, then re-run /planwise doctor." STOP.
 
 `{project_root}` is the absolute path of the project root (the directory containing `{planwise_root}/`).
 
@@ -466,6 +467,53 @@ while keeping backups). It can only narrow: *action-required* and
 
 Pass the script's stdout through and point the user at the
 `PRUNED-LEFTOVERS.md` audit log.
+
+### Stage 15: Settings-grant sweep (post-boundary)
+
+> [!constraint] Read-Only — bare doctor only recommends
+> Stage 15 runs `_sweep_settings_grants()` standalone. It READS
+> `.claude/settings.json` and `.claude/settings.local.json` (when present),
+> then prints a report. It writes nothing and rewrites nothing. To actually
+> normalize a grant, run `/planwise upgrade` — its Step 4.4 offer is the only
+> writer; doctor never mutates.
+
+Always-on, independent of Token Saver. **This is DISTINCT from the Preflight
+plugin version-state gate above: that gate reads `config.yaml`'s
+`plugin_root:` pin and checks whether the one root the plugin currently
+resolves scripts through is live and current; this stage instead reads
+`.claude/settings.json`'s `permissions.additionalDirectories` — the
+consumer's own Claude Code read-permission grants — for entries in the
+plugin-cache path family.** It mirrors `handlers/upgrade.md` Step 4.4's
+classification and never restates the target-shape doctrine already
+documented at `handlers/init-fallback.md`'s grant step / `handlers/init.md`:
+
+- **version-agnostic parent** — the entry already grants the plugin-family
+  root. Correct target shape; no finding reported.
+- **version-pinned live** — the entry names a version-pinned child directory
+  that still exists on disk. Reported with a normalization recommendation.
+- **version-pinned dangling or orphan-marked** — the entry names a
+  version-pinned child directory that no longer exists on disk, or that
+  exists but is superseded by the currently-pinned version. Reported with
+  the dangling/orphaned path named and the same normalization
+  recommendation.
+
+Print verbatim:
+
+```
+planwise doctor — settings-grant sweep
+
+Plugin-cache grants needing normalization across {N} settings file(s):
+  ~ {settings_path}   {entry}
+      class:     {klass}
+      detail:    {detail}
+      recommend: run /planwise upgrade (offers normalization to the parent grant) — doctor is read-only and never rewrites settings
+
+Total grant(s) needing normalization: {N} found.
+```
+
+If the sweep returns nothing: `No plugin-cache grants found needing
+normalization — settings already grant the version-agnostic parent, or no
+plugin-cache grant exists yet.`
 
 ---
 

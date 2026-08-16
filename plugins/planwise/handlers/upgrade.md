@@ -19,6 +19,7 @@
   - [Step 4.1 — Assisted relocation](#step-41--assisted-relocation)
   - [Step 4.2 — Opt-in upstream GitHub issue](#step-42--opt-in-upstream-github-issue)
   - [Step 4.3 — Interactive per-class cleanup offer](#step-43--interactive-per-class-cleanup-offer)
+  - [Step 4.4 — Settings-grant normalization offer](#step-44--settings-grant-normalization-offer)
 - [Conflict Resolution Reference](#conflict-resolution-reference)
 - [Auto-Init Fallback](#auto-init-fallback)
 
@@ -52,6 +53,9 @@ Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version` — the li
 > If `pinned == shipped` **but** the stored `plugin_root` differs → do NOT exit; skip the comparator fan-out (Steps 2.1–2.3 have nothing to compare — no artifact changed) and run the Step 2.4 script invocation, which repoints the root on its own. Report the result as "Plugin root repointed", not as a version change. See the mismatch note below.
 > If `pinned < shipped` (or `pinned` is absent) → proceed to Step 2.1.
 > If `pinned > shipped` → emit a warning ("Your config pins {pinned} but the installed plugin is {shipped} — did you downgrade?") and ask the user with `AskUserQuestion` whether to proceed.
+
+> [!note] "Already up to date" is a local comparison only
+> This check compares the pinned `plugin_version:` against the live plugin's own `.claude-plugin/plugin.json` in your local install cache — no step in this handler reads the marketplace source, so "already up to date" reflects your local cache, not necessarily the newest published release; keep the cache itself current with the two-stage refresh described in README.md's upgrade section.
 
 > [!practice] A `plugin_root` mismatch is itself upgrade-indicating
 > If the config's stored `plugin_root` differs from the live `{plugin_root}` resolved above, that is a defect to act on even when the version pin looks current: it means an earlier upgrade pinned the version without repointing the root (a config written before the writer's commit point started repointing both together), or the directory it still names was later removed. Left alone it does not heal — every handler that resolves scripts through the stored value keeps running a superseded install, or fails outright once that directory is reaped. The script's `--upgrade` invocation (Step 2.4) repoints `plugin_root` to the live root even when the version pin is already current, and does nothing else in that state, so the gate above routes this case to it rather than exiting.
@@ -465,6 +469,27 @@ For each of the two deletable classes that has at least one match:
 
 ---
 
+### Step 4.4 — Settings-grant normalization offer
+
+After a successful upgrade, read the project's `.claude/settings.json` (and `.claude/settings.local.json`, if present) for `permissions.additionalDirectories` entries that fall in the plugin-cache path family (the plugin-family root and any of its version-pinned children). Consumer settings files are DATA, never a ship-boundary artifact — this step READS and OFFERS, it never silently rewrites.
+
+> [!practice] Target shape — cross-referenced, not restated
+> Grant the plugin-family root once, version-agnostic, never a version-pinned leaf. This doctrine is already landed prose — see `handlers/init-fallback.md`'s grant step ("Apply parent-aware, normalized dedup before modifying `additionalDirectories`") and `handlers/init.md`, which references the same grant. This step is the upgrade-time audit/offer sequel to that init-time writer, not a second, differently-worded copy of its rule.
+
+Classify every matching entry:
+
+| Class | Shape | Offered action |
+|---|---|---|
+| `version-agnostic parent` | Entry already equals (or covers) the plugin-family root | None — already the correct target shape |
+| `version-pinned live` | Entry names a version-pinned child directory that still exists on disk | Offer normalization to the parent grant |
+| `version-pinned dangling or orphan-marked` | Entry names a version-pinned child directory that no longer exists on disk, or exists but is superseded by the currently-pinned version | Offer normalization to the parent grant, naming the dangling/orphaned path |
+
+The **report always renders**, regardless of consent — every matching entry and its class is printed even when the user declines to act. The **write happens only on explicit interactive approval**: `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`), inferred default **report-only, change nothing** (stated inline — an unattended/non-interactive run never rewrites `additionalDirectories`). On confirm, apply the same parent-aware, normalized dedup the init-time writer uses — prune the superseded version-pinned entries, append the family root — then read the file back to confirm the write landed. On decline, or when no interactive answer is available, print the report and leave every settings file untouched.
+
+When no `additionalDirectories` entry falls in the plugin-cache path family at all (a pre-parent-aware-writer install, or the family root is already the only entry present), report "No plugin-cache grants found needing normalization." and skip the offer — there is nothing to act on.
+
+---
+
 ## Conflict Resolution Reference
 
 > [!practice] Why transfer-then-adopt, and not silent overwrite
@@ -496,6 +521,45 @@ This project doesn't have a planwise config yet. Run `/planwise init` first.
 ```
 
 Offer to run `/planwise init` via `AskUserQuestion` and, on confirmation, dispatch to `init.md`'s Step 1. Once init completes, the upgrade is unnecessary (the freshly-generated config pins the current plugin version).
+
+---
+
+## Mid-Upgrade Failure
+
+If an unexpected error interrupts the script anywhere after the config-merge step — during artifact refresh, rule de-scope migration, verdict-cache retirement, the advisory banner, or the version-pin commit itself — the script prints:
+
+```
+partial upgrade — re-run to resume; already-refreshed files are idempotent and the version pin is unchanged.
+```
+
+and exits non-zero, with the underlying error still surfaced for diagnosis. Re-running is safe, not just convenient: a per-file failure during artifact refresh is caught and reported individually without aborting the run, and the version pin plus the plugin-root path are written together, LAST, in one atomic commit — so a run that fails before reaching that commit leaves the pin at its pre-upgrade value while every file already refreshed keeps its new (idempotent) content. Simply re-run `/planwise upgrade`: already-current files are skipped as no-ops and the run picks up from where it stopped.
+
+---
+
+## Config Recovery
+
+The two recoveries below apply when the Config Gate itself cannot complete — before any Workflow step runs. Both are manual repairs; the second requires no working handler at all.
+
+### Bricked config after an older upgrade
+
+**Symptom:** `config.yaml` fails to parse — the Config Gate can't extract `plugin_root`, `plugin_version`, or any `project.*` value, so every command that resolves through it fails.
+
+**Cause:** plugin versions before 1.0.5 wrote new or migrated keys into `config.yaml` without a parse-health check afterward. A flow-style value (`key: {...}`) rewritten by an older writer could be left with its previous block-style child lines still indented beneath it — a shape that isn't valid YAML.
+
+**Repair:**
+1. Get the current plugin version first: run the Stage 1 refresh (`/plugin marketplace update` then `/plugin install planwise@planwise-marketplace`) so you're diagnosing with 1.0.5 or later, which added the check below.
+2. If `config.yaml` no longer parses, run `/planwise doctor` — it prints a `Config parse check` block naming the offending key and the fix when the corruption is a recognised one, before failing loud.
+3. Hand-repair: open `config.yaml` and find the parent line the report names. The corruption signature is a single-line flow-style value (`{...}`) with its old block-style children still indented beneath it — delete those leftover indented lines; the flow-style value on the parent line already carries them. Save, then re-run `/planwise doctor` to confirm the file parses cleanly.
+
+### Dangling `plugin_root` pin
+
+**Symptom:** `/planwise upgrade` or `/planwise doctor` fails outright trying to read its own scripts, because `config.yaml`'s `plugin_root:` pin still names a version-specific cache directory that a later cache reap removed.
+
+**Repair — an out-of-band, manual pin repair; requires no working handler.** This is the bootstrap for exactly the state where the handler cannot start, since the handler's own commands live under the path that no longer resolves:
+1. Locate the live plugin cache — the version-agnostic plugin-family root (e.g. `~/.claude/plugins/cache/planwise-marketplace/planwise`) or the current version's directory beneath it.
+2. Edit `config.yaml` directly and set `plugin_root:` to that path.
+3. Verify by reading `.claude-plugin/plugin.json` at that path directly — its `version` field confirms which release you just pointed at (no handler required).
+4. Once confirmed, run `/planwise upgrade` normally — Step 1 resolves the live root itself and Step 2.4's repoint keeps `plugin_root:` and `plugin_version:` in sync going forward.
 
 ---
 

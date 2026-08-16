@@ -386,6 +386,8 @@ When a new plugin version is published, upgrading happens in two stages:
 
 > Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
 
+**A note on "already up to date":** this comparison is entirely local — it checks your pinned `plugin_version:` against the plugin files already sitting in your local cache, never the marketplace source directly. If you haven't run Stage 1's refresh in a while, `/planwise upgrade` can report "already up to date" even though a newer release exists upstream, because fetching new versions into the local cache is Claude Code's own job, not this plugin's. Run `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace` periodically so the comparison has something current to compare against.
+
 ---
 
 ## 11. `/planwise help`
@@ -538,6 +540,12 @@ To remove the marketplace:
 
 **Plans or backlog seem out of date after a plugin update**
 - Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules into your project
+
+**`config.yaml` won't parse after an upgrade**
+- Versions before 1.0.5 could leave `config.yaml` with a corrupted key after an upgrade. First get 1.0.5 or later (`/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`). If `config.yaml` no longer parses, run `/planwise doctor` — it prints a `Config parse check` block naming the offending key and the fix when the corruption is a recognised one, before failing loud. Open `config.yaml`, find the line the report names, and delete any leftover indented lines still sitting beneath a single-line `{...}` value on that line — the value already carries them. Re-run `/planwise doctor` to confirm the file parses.
+
+**`/planwise upgrade` or `/planwise doctor` can't find its own scripts**
+- Your `config.yaml`'s `plugin_root:` still points at a cache directory that's been removed — a version-pinned path a later plugin update reaped. This is a manual pin repair and needs no working handler: edit `config.yaml` directly, set `plugin_root:` to your current plugin cache path (under `~/.claude/plugins/cache/planwise-marketplace/planwise` — either the version-agnostic parent or the current version's subdirectory), confirm the version by reading that path's `.claude-plugin/plugin.json` directly, then run `/planwise upgrade` normally — it repoints `plugin_root:` for you from then on.
 
 **Token Saver always shows "uncalibrated" on Windows**
 - The `/context` capture needs a real console; run `/planwise token-saver on` from an interactive Claude Code session so the measured overheads can be captured

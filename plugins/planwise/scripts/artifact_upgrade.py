@@ -662,149 +662,170 @@ def _run_upgrade(cfg: "InitConfig") -> int:
             print(f"  + {key}")
         print()
 
-    # 2a. Honor --token-saver: flip context.token_saver false->true when the
-    # user opts in this run. Runs AFTER migrate so the key is guaranteed to be
-    # present (migrate seeds it as "false" when absent). Never flips true->false;
-    # idempotent when the config already reads true.
-    if cfg.token_saver and _flip_token_saver_on(config_path):
-        print("Token Saver enabled.")
-        print()
-
-    # 2b. Backfill lessons scaffolding (index seed + categorization file).
-    # Fresh init renders these, but the legacy fresh-init-only path meant an
-    # upgrade-adopted project never got 00-Categorization-By-Domain.md — the
-    # file that hard-gates /planwise lessons curate and promote-batch. Runs
-    # AFTER migrate_config so a freshly-migrated `categorization:` block is
-    # picked up; idempotent and non-destructive — a no-op (silent) when both
-    # files already exist, preserving any user-customised content verbatim.
-    lessons_boot = bootstrap_lessons_artifacts(cfg)
-    _emit_lessons_bootstrap_banner(lessons_boot)
-
-    # 3. Refresh artifacts.
-    manifest = load_artifact_manifest(cfg.plugin_root)
-    refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = upgrade_artifacts(
-        cfg, manifest, pinned_version, target_version
-    )
-
-    if refreshed:
-        print(f"Refreshed: {len(refreshed)}")
-        if refreshed_subsets:
-            print(
-                f"  ({len(refreshed_subsets)} were stale subsets, auto-adopted shipped)"
-            )
-        for r in refreshed:
-            print(f"  + {r}")
-    if unchanged:
-        print(f"Unchanged: {len(unchanged)} (installed body already matches shipped)")
-    still_untracked, formerly_managed = _split_formerly_managed(cfg, untracked)
-    if still_untracked:
-        print(f"Untracked preserved: {len(still_untracked)}")
-        for u in still_untracked:
-            print(f"  = {u}")
-    if formerly_managed:
-        # Distinct from generic untracked: these files were once refreshed by
-        # the plugin (a prior upgrade's backup mirror proves it) and have
-        # since dropped out of the shipped set — a clarity gap, not data loss.
-        print(f"Formerly managed (dropped from the shipped set): {len(formerly_managed)}")
-        for u in formerly_managed:
-            print(f"  ~ {u}")
-    print()
-
-    if transferred:
-        print(f"Customizations transferred before adoption: {len(transferred)}")
-        for dst, transfer_path in transferred:
-            print(f"  ~ {dst}")
-            print(f"      moved to: {transfer_path}")
-        print("  Review each transferred file and re-home it (project-local rule, "
-              "re-scope, or upstream the change).")
-        print()
-
-    if conflicts:
-        print("Conflicts (preserved in place — action required):")
-        for dst, sidecar in conflicts:
-            print(f"  ! {dst}")
-            print("      reason:      installed body diverged and was not auto-adopted "
-                  "(conservative handoff mode, a transfer/backup/adoption write failed, "
-                  "or the file could not be analyzed)")
-            print(f"      sidecar:     {sidecar}")
-            print("      remediation: diff the sidecar against the installed file, merge manually, then delete the .new")
-        index_path = (
-            cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
-            / f"{pinned_version}-to-{target_version}" / "INDEX.md"
-        )
-        print(f"  See {index_path} for the full conflict list.")
-        print()
-
-    # 4. De-scope migration — remove install-set rules that are now
-    # handler-loaded, but only the untouched copies. Runs AFTER artifact
-    # refresh and BEFORE the version bump so it executes exactly once, on the
-    # upgrade that crosses RESCOPE_MIGRATION_VERSION.
-    migration = migrate_installed_rules(cfg, pinned_version, target_version)
-    if migration["removed"]:
-        print("De-scoped rules removed (now handler-loaded from references/):")
-        for entry in migration["removed"]:
-            print(f"  - {entry}")
-        print()
-    if migration["preserved"]:
-        print("De-scoped rules preserved (customized — action recommended):")
-        for entry in migration["preserved"]:
-            print(f"  ! {entry}")
-        print()
-
-    # 4b. Retire the consumed verdict cache. A verdicts.json entry is bound to
-    # the exact (upgrade pair, installed bytes) it was computed against; once
-    # this run has consumed it, leaving it in place would let a stale verdict
-    # fire on a later re-run or a different pair. Renamed (not deleted) so the
-    # analysis remains inspectable next to INDEX.md.
-    verdicts_path = (
-        cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
-        / f"{pinned_version}-to-{target_version}" / "verdicts.json"
-    )
-    if verdicts_path.exists():
-        try:
-            consumed_path = verdicts_path.with_name("verdicts.json.consumed")
-            if consumed_path.exists():
-                consumed_path.unlink()
-            verdicts_path.rename(consumed_path)
-            print(f"Verdict cache consumed: renamed to {consumed_path.name}")
+    # 3-6. Everything from here through the version-pin commit point is
+    # guarded top-level. State-corruption risk is LOW by construction: the
+    # artifact-refresh loop below catches OSError per file (an unreadable or
+    # locked file is reported and skipped, never aborts the run), and the
+    # pin commit is the LAST statement in this block, written in one atomic,
+    # parse-checked call that rolls back whole on failure. So any exception
+    # raised anywhere in this block still leaves already-refreshed files
+    # idempotent and the version pin untouched — re-running is always safe.
+    try:
+        # 2a. Honor --token-saver: flip context.token_saver false->true when
+        # the user opts in this run. Runs AFTER migrate so the key is
+        # guaranteed to be present (migrate seeds it as "false" when absent).
+        # Never flips true->false; idempotent when the config already reads
+        # true.
+        if cfg.token_saver and _flip_token_saver_on(config_path):
+            print("Token Saver enabled.")
             print()
-        except OSError as exc:
-            print(
-                f"  Warning: could not retire consumed verdict cache {verdicts_path}: {exc}",
-                file=sys.stderr,
-            )
 
-    # 4c. Recovery-artifact aggregation: report every leftover surface still
-    # on disk across every upgrade pair found (not just this run's), each
-    # with its disposition class. Placed AFTER the verdict-cache retirement
-    # above so a cache this run just consumed is picked up as inert rather
-    # than missed as still-active.
-    _emit_recovery_artifacts_banner(_scan_recovery_artifacts(cfg))
+        # 2b. Backfill lessons scaffolding (index seed + categorization file).
+        # Fresh init renders these, but the legacy fresh-init-only path meant
+        # an upgrade-adopted project never got 00-Categorization-By-Domain.md
+        # — the file that hard-gates /planwise lessons curate and
+        # promote-batch. Runs AFTER migrate_config so a freshly-migrated
+        # `categorization:` block is picked up; idempotent and
+        # non-destructive — a no-op (silent) when both files already exist,
+        # preserving any user-customised content verbatim.
+        lessons_boot = bootstrap_lessons_artifacts(cfg)
+        _emit_lessons_bootstrap_banner(lessons_boot)
 
-    # 5. Post-upgrade advisory: flag any installed rule still scoped to
-    # plan/backlog/lessons globs (read-only — never mutates).
-    overscoped = lint_rule_overscope(cfg)
-    if overscoped:
-        total_tokens = sum(item["approx_tokens"] for item in overscoped)
-        print("Advisory — rules scoped to plan/backlog/lessons globs:")
-        for item in overscoped:
-            print(
-                f"  ~ {item['path']} ({item['line_count']} lines, "
-                f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
-            )
-            print("      hint: re-scope to code paths or convert to a handler-loaded reference")
-        print(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
+        # 3. Refresh artifacts.
+        manifest = load_artifact_manifest(cfg.plugin_root)
+        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = upgrade_artifacts(
+            cfg, manifest, pinned_version, target_version
+        )
+
+        if refreshed:
+            print(f"Refreshed: {len(refreshed)}")
+            if refreshed_subsets:
+                print(
+                    f"  ({len(refreshed_subsets)} were stale subsets, auto-adopted shipped)"
+                )
+            for r in refreshed:
+                print(f"  + {r}")
+        if unchanged:
+            print(f"Unchanged: {len(unchanged)} (installed body already matches shipped)")
+        still_untracked, formerly_managed = _split_formerly_managed(cfg, untracked)
+        if still_untracked:
+            print(f"Untracked preserved: {len(still_untracked)}")
+            for u in still_untracked:
+                print(f"  = {u}")
+        if formerly_managed:
+            # Distinct from generic untracked: these files were once refreshed
+            # by the plugin (a prior upgrade's backup mirror proves it) and
+            # have since dropped out of the shipped set — a clarity gap, not
+            # data loss.
+            print(f"Formerly managed (dropped from the shipped set): {len(formerly_managed)}")
+            for u in formerly_managed:
+                print(f"  ~ {u}")
         print()
 
-    # 6. Commit point: pin plugin_version AND repoint plugin_root together, in
-    # ONE write, LAST — see _commit_upgrade_pin(). Never split into two
-    # writes here: a config left with a bumped version but a stale root (or
-    # vice versa) is exactly the defect this closes.
-    _commit_upgrade_pin(config_path, target_version, cfg.plugin_root)
-    print(f"Plugin version pinned: {target_version}")
-    print(f"Plugin root repointed: {cfg.plugin_root}")
-    print()
-    print("Upgrade complete.")
-    return 0
+        if transferred:
+            print(f"Customizations transferred before adoption: {len(transferred)}")
+            for dst, transfer_path in transferred:
+                print(f"  ~ {dst}")
+                print(f"      moved to: {transfer_path}")
+            print("  Review each transferred file and re-home it (project-local rule, "
+                  "re-scope, or upstream the change).")
+            print()
+
+        if conflicts:
+            print("Conflicts (preserved in place — action required):")
+            for dst, sidecar in conflicts:
+                print(f"  ! {dst}")
+                print("      reason:      installed body diverged and was not auto-adopted "
+                      "(conservative handoff mode, a transfer/backup/adoption write failed, "
+                      "or the file could not be analyzed)")
+                print(f"      sidecar:     {sidecar}")
+                print("      remediation: diff the sidecar against the installed file, merge manually, then delete the .new")
+            index_path = (
+                cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
+                / f"{pinned_version}-to-{target_version}" / "INDEX.md"
+            )
+            print(f"  See {index_path} for the full conflict list.")
+            print()
+
+        # 4. De-scope migration — remove install-set rules that are now
+        # handler-loaded, but only the untouched copies. Runs AFTER artifact
+        # refresh and BEFORE the version bump so it executes exactly once, on
+        # the upgrade that crosses RESCOPE_MIGRATION_VERSION.
+        migration = migrate_installed_rules(cfg, pinned_version, target_version)
+        if migration["removed"]:
+            print("De-scoped rules removed (now handler-loaded from references/):")
+            for entry in migration["removed"]:
+                print(f"  - {entry}")
+            print()
+        if migration["preserved"]:
+            print("De-scoped rules preserved (customized — action recommended):")
+            for entry in migration["preserved"]:
+                print(f"  ! {entry}")
+            print()
+
+        # 4b. Retire the consumed verdict cache. A verdicts.json entry is
+        # bound to the exact (upgrade pair, installed bytes) it was computed
+        # against; once this run has consumed it, leaving it in place would
+        # let a stale verdict fire on a later re-run or a different pair.
+        # Renamed (not deleted) so the analysis remains inspectable next to
+        # INDEX.md.
+        verdicts_path = (
+            cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
+            / f"{pinned_version}-to-{target_version}" / "verdicts.json"
+        )
+        if verdicts_path.exists():
+            try:
+                consumed_path = verdicts_path.with_name("verdicts.json.consumed")
+                if consumed_path.exists():
+                    consumed_path.unlink()
+                verdicts_path.rename(consumed_path)
+                print(f"Verdict cache consumed: renamed to {consumed_path.name}")
+                print()
+            except OSError as exc:
+                print(
+                    f"  Warning: could not retire consumed verdict cache {verdicts_path}: {exc}",
+                    file=sys.stderr,
+                )
+
+        # 4c. Recovery-artifact aggregation: report every leftover surface
+        # still on disk across every upgrade pair found (not just this
+        # run's), each with its disposition class. Placed AFTER the
+        # verdict-cache retirement above so a cache this run just consumed is
+        # picked up as inert rather than missed as still-active.
+        _emit_recovery_artifacts_banner(_scan_recovery_artifacts(cfg))
+
+        # 5. Post-upgrade advisory: flag any installed rule still scoped to
+        # plan/backlog/lessons globs (read-only — never mutates).
+        overscoped = lint_rule_overscope(cfg)
+        if overscoped:
+            total_tokens = sum(item["approx_tokens"] for item in overscoped)
+            print("Advisory — rules scoped to plan/backlog/lessons globs:")
+            for item in overscoped:
+                print(
+                    f"  ~ {item['path']} ({item['line_count']} lines, "
+                    f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
+                )
+                print("      hint: re-scope to code paths or convert to a handler-loaded reference")
+            print(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
+            print()
+
+        # 6. Commit point: pin plugin_version AND repoint plugin_root
+        # together, in ONE write, LAST — see _commit_upgrade_pin(). Never
+        # split into two writes here: a config left with a bumped version but
+        # a stale root (or vice versa) is exactly the defect this closes.
+        _commit_upgrade_pin(config_path, target_version, cfg.plugin_root)
+        print(f"Plugin version pinned: {target_version}")
+        print(f"Plugin root repointed: {cfg.plugin_root}")
+        print()
+        print("Upgrade complete.")
+        return 0
+    except Exception as exc:
+        print(f"\nUpgrade failed: {exc}", file=sys.stderr)
+        print(
+            "partial upgrade — re-run to resume; already-refreshed files are "
+            "idempotent and the version pin is unchanged.",
+            file=sys.stderr,
+        )
+        raise
 
 

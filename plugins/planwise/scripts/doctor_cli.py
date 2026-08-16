@@ -7,6 +7,7 @@ owns the plugin version-state gate every dispatcher runs first.
 
 import datetime
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -570,6 +571,97 @@ def _doctor_config_parse_check(cfg: "InitConfig") -> dict | None:
     return {"state": "ok", "report": "\n".join(lines)}
 
 
+def _norm_path(p: "str | Path") -> str:
+    """Normalize a path string for comparison: canonicalize separators and
+    case (Windows-insensitive), mirroring init_project.py's configure_settings()
+    `_norm()` helper so the two stay comparable without importing a writer
+    into a read-only diagnostic."""
+    return os.path.normcase(os.path.normpath(str(p)))
+
+
+def _grant_covers(existing: "str | Path", target: "str | Path") -> bool:
+    """True when `existing` equals `target` or is an ancestor directory of it.
+    Read-only twin of init_project.py's configure_settings() `_covers()` —
+    identical normalization and semantics, kept as a separate copy here since
+    doctor never imports the writer."""
+    e, t = _norm_path(existing), _norm_path(target)
+    return e == t or t.startswith(e + os.sep)
+
+
+def _resolve_settings_paths(cfg: "InitConfig") -> list[Path]:
+    """Return the project-scope settings files to sweep for plugin-cache
+    grants: `.claude/settings.json` and `.claude/settings.local.json`, in
+    that order, whichever exist on disk. Read-only — these are the same two
+    files `handlers/upgrade.md` Step 4.4 reads for its normalization offer."""
+    claude_dir = cfg.project_root / ".claude"
+    candidates = (claude_dir / "settings.json", claude_dir / "settings.local.json")
+    return [p for p in candidates if p.exists()]
+
+
+def _sweep_settings_grants(cfg: "InitConfig") -> list[dict]:
+    """Read-only sweep of `.claude/settings*.json` for plugin-cache
+    `additionalDirectories` grants, classifying each into one of three
+    classes (mirroring `handlers/upgrade.md` Step 4.4 and the target-shape
+    doctrine at `handlers/init-fallback.md`'s grant step — never restated
+    here):
+      "version-agnostic parent"                   — already the correct
+                                                      target shape; NOT
+                                                      returned (no finding).
+      "version-pinned live"                        — names a version-pinned
+                                                      child of the family
+                                                      root that still exists
+                                                      on disk.
+      "version-pinned dangling or orphan-marked"    — names a version-pinned
+                                                      child that no longer
+                                                      exists, or exists but
+                                                      is superseded by the
+                                                      currently-pinned
+                                                      version.
+    Only the latter two are returned — findings needing normalization.
+    Entries outside the plugin-cache path family (unrelated user grants) are
+    never touched or reported. This is DISTINCT from the Preflight plugin
+    version-state gate: that gate reads config.yaml's plugin_root: pin; this
+    reads settings.json's directory grants. Never mutates — `/planwise
+    upgrade` Step 4.4 is the only writer, and only on explicit interactive
+    approval.
+    """
+    family_root = str(cfg.plugin_root.parent)
+    live_root = str(cfg.plugin_root)
+    findings = []
+    for settings_path in _resolve_settings_paths(cfg):
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        entries = settings.get("permissions", {}).get("additionalDirectories", [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, str):
+                continue
+            if _grant_covers(entry, family_root):
+                continue  # version-agnostic parent (or broader) — correct shape
+            if not _grant_covers(family_root, entry):
+                continue  # outside the plugin-cache path family — untouched
+            entry_path = Path(entry)
+            if _norm_path(entry) == _norm_path(live_root) and entry_path.exists():
+                klass = "version-pinned live"
+                detail = "still the currently-pinned version"
+            elif not entry_path.exists():
+                klass = "version-pinned dangling or orphan-marked"
+                detail = "path does not exist"
+            else:
+                klass = "version-pinned dangling or orphan-marked"
+                detail = f"superseded by the currently-pinned {live_root}"
+            findings.append({
+                "settings_path": settings_path,
+                "entry": entry,
+                "klass": klass,
+                "detail": detail,
+            })
+    return findings
+
+
 def _run_doctor(cfg: "InitConfig") -> int:
     """Run the read-only overscope linter + stale-rule sweep and print a report.
 
@@ -590,8 +682,13 @@ def _run_doctor(cfg: "InitConfig") -> int:
     sweep (sweep_upgrade_leftovers()), and prints its report — also
     always-on; a DISTINCT surface from Stages 8/10 (version-pair recovery
     directories, not installed rules/agents), pruned by a DISTINCT opt-in
-    writer (`--prune-upgrade-leftovers`, never `--prune-stale`). Always exits
-    0 (diagnostic, not a gate).
+    writer (`--prune-upgrade-leftovers`, never `--prune-stale`). Then runs
+    Stage 15, the settings-grant sweep (_sweep_settings_grants()), and prints
+    its report — also always-on; DISTINCT from the Preflight version-state
+    gate below (that gate reads config.yaml's plugin_root: pin, this stage
+    reads settings.json's additionalDirectories grants), and read-only —
+    normalization is offered only by `/planwise upgrade` Step 4.4. Always
+    exits 0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
     Saver): an uninitialized or version-drifted install is surfaced with a
@@ -744,6 +841,27 @@ def _run_doctor(cfg: "InitConfig") -> int:
         print()
         print(f"Total prunable (inert/safe-to-discard) leftover(s): {len(prunable)} of "
               f"{len(leftovers)} found.")
+
+    # Stage 15: settings-grant sweep — read-only, always-on.
+    print()
+    print("planwise doctor — settings-grant sweep")
+    print()
+    grants = _sweep_settings_grants(cfg)
+    if not grants:
+        print("No plugin-cache grants found needing normalization — settings "
+              "already grant the version-agnostic parent, or no plugin-cache "
+              "grant exists yet.")
+    else:
+        files = sorted({str(f["settings_path"]) for f in grants})
+        print(f"Plugin-cache grants needing normalization across {len(files)} settings file(s):")
+        for f in grants:
+            print(f"  ~ {f['settings_path']}   {f['entry']}")
+            print(f"      class:     {f['klass']}")
+            print(f"      detail:    {f['detail']}")
+            print("      recommend: run /planwise upgrade (offers normalization to "
+                  "the parent grant) — doctor is read-only and never rewrites settings")
+        print()
+        print(f"Total grant(s) needing normalization: {len(grants)} found.")
     return 0
 
 
