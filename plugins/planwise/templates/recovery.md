@@ -15,11 +15,13 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 
 ## Step Completion Status
 
-| Step | Task | Agent | Status | Completed |
-|------|------|-------|--------|-----------|
-| 1 | {Task 1} | {Agent} | PENDING | - |
-| 2 | {Task 2} | {Agent} | PENDING | - |
-| 3 | {Task 3} | {Agent} | PENDING | - |
+| Step | Task | Agent | Status | Completed | Dispatch ID | Tokens (self-reported, per-window) |
+|------|------|-------|--------|-----------|-------------|-------------------------------------|
+| 1 | {Task 1} | {Agent} | PENDING | - | - | - |
+| 2 | {Task 2} | {Agent} | PENDING | - | - | - |
+| 3 | {Task 3} | {Agent} | PENDING | - | - | - |
+
+`Dispatch ID` and `Tokens (self-reported, per-window)` cite the Consumption Record field definitions in [summary-template.md § Consumption Record](summary-template.md#consumption-record) (`dispatch_ids` and the per-window token fields) — semantics are not restated here. The `per-window` label is deliberate: this cell is one dispatched agent's own window, never summed across rows into a session total.
 
 ---
 

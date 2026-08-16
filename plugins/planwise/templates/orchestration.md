@@ -121,6 +121,31 @@ Update `{Abbrev}-S{XX}-{YY}-Recovery.md` after EACH task completion.
 
 ---
 
+## Status Block Return Contract <!-- REQUIRED -->
+
+> [!constraint] DELEGATED parallel-mode runners MUST bound their return
+> Full contract, derivation, and the over-tight failure mode: `references/agent-orchestration-delegated.md` §1.28. A dispatched runner's status block re-enters the orchestrator's own context window whole on return — bound it so that does not accumulate across N dispatches:
+> - **No re-quoted file content** — cite `OUTPUT_FILES` by path + line count, never paste an edited file's body into the block.
+> - **No restated task text** — `TASK_ID` is the reference; never re-explain the brief.
+> - **18-line ceiling** on the whole block, derived from the field enumeration below — see §1.28 for the full per-field table and derivation. The ceiling never cuts a field reconciliation needs.
+> - **Bulk output routed to files** — anything a field cannot carry within its allocation goes to the session `Outputs/` folder; name the path instead of inlining the content.
+
+| Field | Max lines |
+|---|---|
+| `TASK_STATUS` | 1 |
+| `TASK_ID` | 1 |
+| `ROUTE/FLAGS` | 1 |
+| `OUTPUT_FILES` | 1 |
+| `LINES_PRODUCED` | 1 |
+| `VERIFY_RESULTS` | 5 |
+| `KEY_FINDINGS` | 5 |
+| `ISSUES` | 3 |
+| **Total** | **18** |
+
+See `agents/task-runner.md` §5.B for the runnable schema.
+
+---
+
 ## Task Files <!-- REQUIRED -->
 
 | # | Task File | Agent |

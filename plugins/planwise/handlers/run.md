@@ -332,13 +332,14 @@ After each task completes (DIRECT or DELEGATED, sequential):
    - Update "Current Step" to next task number
 2. **TaskList** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
 3. **Verify output** -- confirm expected output files were written (if applicable)
-4. **Verify structure** -- if the task's Expected Output declared required headings or table-column headers, grep the produced file for every one of them; on a miss, re-dispatch the same runner with a single corrective instruction rather than accepting and reconciling downstream (keep this step list cleanly extensible -- a later sprint adds a resolve-and-route step here)
+4. **Verify structure** -- if the task's Expected Output declared required headings or table-column headers, grep the produced file for every one of them; on a miss, re-dispatch the same runner with a single corrective instruction rather than accepting and reconciling downstream
 5. **Resolve gated conditional branches** -- when a gating task completes, resolve every conditional branch it was gating. Runs at post-task reconciliation, not at scaffold time -- the measurement does not exist at scaffold time, which is why the branch was written conditionally. Procedure: (1) re-read the completed task's output against every downstream task file that declared it as a dependency; (2) grep those task files for conditional language:
    ```bash
    grep -nEi "if the probe|expect .* if|unless|otherwise|print rather than assert|if .* found" {session_dir}/*-Task-*.md
    ```
    (3) resolve each hit from the landed measurement and write the resolved branch in as a binding contract, with the evidence inline. Cheap, and it survives a session halt -- a routed branch sits in the downstream task file until the session resumes.
-6. **THEN** proceed to next task
+6. **Session-length checkpoint** -- evaluate the configured thresholds now that Recovery is current, and on a trip recommend a session boundary. See [Step 3.5](#step-35-session-length-checkpoint). It observes and recommends; it never halts the loop on its own.
+7. **THEN** proceed to next task
 
 After a **parallel batch** of 3+ task-runners returns:
 
@@ -351,7 +352,8 @@ After a **parallel batch** of 3+ task-runners returns:
    - One Change Log row per task (or one batch row noting the parallel group)
    - Update "Current Step" to the next dependency layer
 4. **TaskList** -- mark every batch task `completed`
-5. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch)
+5. **Session-length checkpoint** -- evaluate ONCE for the whole batch, after the central Recovery reconciliation above. See [Step 3.5](#step-35-session-length-checkpoint). A batch boundary is the safest place in a delegated session to take a split, because no runner is in flight.
+6. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch)
 
 ### Step 3.4: Handle Task Failure
 
@@ -361,6 +363,36 @@ If a task fails or returns BLOCKED:
 2. Update TaskList: leave as in_progress (do not mark completed)
 3. Decide: if remaining tasks depend on the blocked task, halt execution. If independent tasks remain, continue with those.
 4. Report to user: "Task {N} is BLOCKED: {reason}. Continue with remaining tasks?"
+
+### Step 3.5: Session-Length Checkpoint
+
+The orchestrator's context window grows monotonically across a session — nothing in the task loop resets it, and compaction is rare (observed once in 99 measured sessions). The driver is session **length in turns**, not task count: the task-count correlation is weak, while every measured session above 500,000 tokens ran at least 194 turns and every session below 150,000 ran at most 89. This checkpoint is the one place the run flow observes that growth and offers to act on it.
+
+**Evaluate at each task boundary** — sequential Step 3.3 item 6, or once per parallel batch at the batch list's item 5 — and trip on whichever threshold is reached first:
+
+| Threshold | Config sub-key | Shipped default |
+|-----------|----------------|-----------------|
+| Projected window size | `context.token_saver_session_checkpoint.window` | 400,000 |
+| Turn count | `context.token_saver_session_checkpoint.turns` | 194 |
+
+Read both values through `scripts/config_loader.py::get_token_saver_extension_config()` — never hardcode them. The numbers above are the shipped defaults; a project may configure its own, and the configured value is the one that governs. The projected window is the same figure the orchestrator-window advisory reports (see [token-saver-profile.md](../references/token-saver-profile.md) "Orchestrator-Window Expectation"). When `context.token_saver_orchestrator_advisory` is `off`, skip the evaluation entirely.
+
+> [!constraint] State the defaults' provenance accurately — they are chosen operating points, not a statistical boundary
+> Both figures are operating defaults derived from measured accumulation bands, and the prose that ships with them must not upgrade that claim. **194** is the measured minimum turn count of the above-500,000 band (22 of the 99 sessions), not a decile boundary. **400,000** is a level the heaviest sessions *cross*, not their onset — the measured 90th percentile is 565,189 across all sessions and 586,726 across delegated ones. 400,000 is chosen because the delegated median of roughly 455,000 is already too late to act on.
+
+**On a trip, in order:**
+
+1. **Complete the in-flight task.** Never interrupt a dispatch — a half-finished runner is precisely the incomplete handoff this checkpoint exists to avoid.
+2. **Write complete resume state.** Recovery current through the last completed task; every Cross-Task Coordination Flag routed per Step 4.4; and a session-boundary note naming the **exact next dispatch** (task id, its agent, and the dependency layer it belongs to). This write is the load-bearing half of the feature — the completeness checklist is in [session-execution-protocol.md](../references/session-execution-protocol.md#session-length-checkpoint) §4 Session-Length Checkpoint.
+3. **Recommend a boundary — never force one.**
+   <!-- AUTO-MODE: convenience -->
+   <!-- Default: Continue (log the advisory and proceed). A split is disruptive, and an unattended run must not self-truncate on an advisory. -->
+   Use `AskUserQuestion`: "Projected window is {current} against a {threshold} checkpoint ({which} tripped). Continue this session, or split here?" — options **Continue** and **Split here**.
+4. **Log the carrying-cost arithmetic either way** — the projected window, the threshold that tripped, and the break-even below — in Recovery's Key Findings. Both branches get logged; a declined split is evidence too.
+
+**Break-even.** A split is not free: the next session pays a fresh session-start load, measured at medians of 43,724 and 68,224 tokens in two corpora. One split per session therefore breaks even at roughly 200,000 tokens, so splitting a light session is a net loss. A boundary taken where the heaviest sessions crossed 400,000 would roughly halve their peaks.
+
+**Risk.** This is the highest-risk lever in the loop, and the risk sits entirely in the handoff: a boundary mid-plan is safe only when resume state is genuinely complete, and an incomplete handoff costs more than the tokens it saved. The checkpoint therefore **recommends and records** — it never force-terminates, and the only writes it mandates are the resume-state writes the Recovery protocol already requires.
 
 ---
 

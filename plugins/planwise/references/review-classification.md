@@ -39,6 +39,7 @@ The custom agents (`structural-reviewer` and `plan-reviewer`) carry their own ch
 - Declared dependencies match actual data flow between tasks
 - Agent assignment is appropriate: Haiku for lookups, Sonnet for code, Opus for decisions
 - [Token Saver on] Each task's Required Context obeys the §9.A.8 large-file ladder: no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split (see [Token Saver Compliance Check](#token-saver-compliance-check))
+- Session Summary's Consumption Record present with `measured|estimated` tags; orchestrator-window total kept distinct from summed dispatch budgets
 
 ### Dependency Reviewer (Phase 2, LARGE/VERY LARGE)
 

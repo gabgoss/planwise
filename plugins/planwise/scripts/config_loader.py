@@ -673,7 +673,7 @@ def get_token_saver_extension_config(config: dict) -> dict:
     docstring and existing callers assume exactly the original six-key
     shape. Defaults are conservative / uncalibrated sentinels:
 
-      * token_saver_injection_ceiling       -> 40000 (R1 -- the doctor
+      * token_saver_injection_ceiling       -> 40000 (the doctor
         sweep's per-glob-family worst-case warning ceiling. MUST agree with
         `doctor_sweeps.py`'s `_INJECTION_CEILING_DEFAULT`. Two default sites
         are intentional: doctor_sweeps.py reads the key through a
@@ -682,14 +682,14 @@ def get_token_saver_extension_config(config: dict) -> dict:
         to import. The two sites must AGREE on the value, not collapse to
         one.)
       * token_saver_session_start_range     -> {min: 0, median: 0, max: 0}
-        (R2 -- calibrate()-written; zeros are the uncalibrated sentinel)
+        (calibrate()-written; zeros are the uncalibrated sentinel)
       * token_saver_injected_rules_estimate -> 0
-        (R2 -- calibrate()-written; 0 is the uncalibrated sentinel)
+        (calibrate()-written; 0 is the uncalibrated sentinel)
       * token_saver_orchestrator_advisory   -> "measured"
-        (R3 -- enum "measured" | "off"; any other value falls back to
+        (enum "measured" | "off"; any other value falls back to
         "measured" rather than silently disabling the advisory)
       * token_saver_session_checkpoint      -> {window: 400000, turns: 194}
-        (R6 -- sprint-chosen operating defaults derived from the measured
+        (chosen operating defaults derived from the measured
         accumulation bands, NOT a "top-decile onset" threshold; read by the
         run-handler's session-length checkpoint lever)
     """

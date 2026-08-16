@@ -36,29 +36,29 @@ context:
   token_saver_orchestrator_overhead: 0  # measured orchestrator footprint (calibrated)
   token_saver_context_breakdown: {}   # measured per-category /context breakdown
   token_saver_overhead_measured_on: ""  # ISO date of the last calibration
-  # R1: worst-case per-glob-family rule-injection ceiling; the doctor sweep
+  # Worst-case per-glob-family rule-injection ceiling; the doctor sweep
   # warns when a single path match would co-inject rule content above this.
   # Default 40000 -- set below the measured ~56,000-tokens-per-affected-
   # session average so a broad-rule-surface install still warns. MUST agree
   # with scripts/doctor_sweeps.py's _INJECTION_CEILING_DEFAULT (a separate
   # fallback site by necessity -- see that constant's own comment).
   token_saver_injection_ceiling: 40000
-  # R2: calibrated session-start /context capture range (min/median/max
+  # Calibrated session-start /context capture range (min/median/max
   # across captures, right-skewed). Zeros are the uncalibrated sentinel;
   # `/planwise calibrate` overwrites this in place.
   token_saver_session_start_range: {min: 0, median: 0, max: 0}
-  # R2: calibrated estimate of injected path-scoped rule content (the
+  # Calibrated estimate of injected path-scoped rule content (the
   # "Memory files" category of a /context capture). 0 is the uncalibrated
   # sentinel.
   token_saver_injected_rules_estimate: 0
-  # R3: gates the orchestrator-window advisory band in reports.
+  # Gates the orchestrator-window advisory band in reports.
   # measured = surface the measured session-length advisory; off = suppress
   # it (the model floor still enforces regardless of this setting). See
   # references/token-saver-profile.md "Orchestrator-Window Expectation".
   token_saver_orchestrator_advisory: measured
-  # R6: session-length checkpoint (window token count / turn count) read by
+  # Session-length checkpoint (window token count / turn count) read by
   # the run-handler's session-length checkpoint lever. These are
-  # SPRINT-CHOSEN OPERATING DEFAULTS derived from the measured accumulation
+  # CHOSEN OPERATING DEFAULTS derived from the measured accumulation
   # bands -- not a "top-decile onset" threshold.
   token_saver_session_checkpoint: {window: 400000, turns: 194}
 

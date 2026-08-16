@@ -51,6 +51,7 @@ Startup/ToolSearch mandate, Finding Report Format, and Severity Classification a
 - Confirm agent assignment is appropriate (Haiku for lookups, Sonnet for code, Opus for decisions)
 - Check Execution Steps are ordered correctly and complete
 - [Token Saver on only] Each task's Required Context obeys the §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split
+- Session Summary's Consumption Record present with `measured|estimated` tags; orchestrator-window total kept distinct from summed dispatch budgets
 
 - Check 010 — Task DELEGATED Mandatory Triggers Honored → references/agent-orchestration-delegated.md §1.1
 - Check 011 — Task-File Error Recovery Semantics Declared → references/agent-orchestration-delegated.md §1.2

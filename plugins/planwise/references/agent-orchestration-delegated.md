@@ -1,12 +1,12 @@
 ---
-description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.27) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
+description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.28) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
 ---
 
 # DELEGATED Dispatch Discipline
 
-**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.27) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
+**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.28) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
 
-This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics; §1.19–§1.22 cover DELEGATED task-runner dispatch mechanics — model-tier overrides, launch-mode gating, and an anti-patterns checklist; §1.23–§1.27 cover cross-cutting dispatch-prompt and orchestrator discipline — triple-scoping every single-task dispatch, requiring a literal template (not prose) for structure contracts, adjudicating runner-surfaced decisions, keeping orchestrator verification read-only inside a runner's ownership window, and naming interpreter/tool paths explicitly in every spawn prompt. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
+This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics; §1.19–§1.22 cover DELEGATED task-runner dispatch mechanics — model-tier overrides, launch-mode gating, and an anti-patterns checklist; §1.23–§1.27 cover cross-cutting dispatch-prompt and orchestrator discipline — triple-scoping every single-task dispatch, requiring a literal template (not prose) for structure contracts, adjudicating runner-surfaced decisions, keeping orchestrator verification read-only inside a runner's ownership window, and naming interpreter/tool paths explicitly in every spawn prompt; §1.28 bounds what a dispatch-completion return carries back into the orchestrator's own window. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
 
 ## Table of Contents
 
@@ -37,6 +37,7 @@ This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Trigger
 - [1.25 Adjudicating Runner-Surfaced Decisions](#125-adjudicating-runner-surfaced-decisions)
 - [1.26 The Ownership Window — Orchestrator Verification Is Read-Only](#126-the-ownership-window--orchestrator-verification-is-read-only)
 - [1.27 Interpreter Discipline in Every Spawn Prompt](#127-interpreter-discipline-in-every-spawn-prompt)
+- [1.28 Status-Block Return Contract](#128-status-block-return-contract)
 
 ---
 
@@ -929,6 +930,52 @@ HALT if the output does not resolve inside the project environment.
 >  if it does not resolve inside the project environment."
 > # Cost: ~50 tokens per dispatch. Cost of omitting it: one lost verification
 > # cycle per dispatch, plus a false PASS on every gate that silently did not run.
+> ```
+
+## 1.28 Status-Block Return Contract
+
+When a dispatched task-runner completes, its final-message status block re-enters the orchestrator's own context window whole — in one measured instance this single re-entry cost **+27,008 tokens** in one turn (an upper bound on one event, never a per-dispatch rate; an earlier raw-content proxy overstated the same event ~4×). A session with N dispatches carries N such re-entries plus N dispatch prompts. **This section binds every parallel-mode runner return** (`agents/task-runner.md` §5.B); the status block is the token-cost lever the plugin's own contract controls, because the orchestrator cannot bound what a subagent thinks — only what it is contracted to return.
+
+**This bound sits inside a directional finding, not a point fact.** Dispatching sessions measure heavier than direct-mode sessions (1.68× on median window size), but mode classification is a **lower bound** on delegated: a session that only continued an already-dispatched agent, issuing no fresh dispatch call, would classify as direct. Spot-checks found none such — not exhaustively ruled out. Any prose in this file or its siblings citing the ratio, or a "100% of delegated sessions" figure, carries this hedge.
+
+**Four binding clauses, in every parallel-mode return:**
+
+1. **No re-quoted file content.** Cite a changed file by path and line count; never paste its body back into the orchestrator's window. The orchestrator already has the file on disk — quoting it a second time is the accumulation this section exists to stop.
+2. **No restated task text.** The orchestrator dispatched the task and already holds the task file. A return references `TASK_ID` only — it never re-explains what the task was or re-summarizes the brief.
+3. **An explicit line ceiling — 18 lines total**, derived by enumerating what central reconciliation actually consumes and capping each field at its worst case (not chosen for roundness — a supplied starting figure is the mechanism by which a derivation returns that figure, so none is supplied here):
+
+   | Field | Max lines | Basis |
+   |---|---|---|
+   | `TASK_STATUS` | 1 | single enum value |
+   | `TASK_ID` | 1 | single id string |
+   | `ROUTE/FLAGS` | 1 | a coordination-flag pointer, or "none" — a flag needing more than a one-line pointer belongs in its own routed file, not the status block |
+   | `OUTPUT_FILES` | 1 | comma-separated paths |
+   | `LINES_PRODUCED` | 1 | single sum |
+   | `VERIFY_RESULTS` | 5 | one summary line per gate category, capped at the same magnitude as `KEY_FINDINGS` below |
+   | `KEY_FINDINGS` | 5 | existing "2-5 short bullets" cap (`agents/task-runner.md` §5.B), unchanged |
+   | `ISSUES` | 3 | mirrors `agents/task-runner.md`'s own Error Handling cap — "do NOT exceed 3 attempts per operation" |
+   | **Total** | **18** | sum of per-field worst case — a ceiling, not a typical-case average |
+
+4. **Bulk output routed to files.** Anything a field cannot carry within its allocation goes to the session `Outputs/` folder; the return names the path, and the orchestrator reads the file only if reconciliation needs it.
+
+**Over-tight is a named failure mode.** The field enumeration above is the floor — the ceiling never cuts a field reconciliation needs. A runner that drops or blanks a required field (e.g., omits `ISSUES` instead of writing "none", or truncates `KEY_FINDINGS` mid-bullet) to fit under 18 lines converts a token saving into a correctness problem: reconciliation cannot act on information that was never returned. When a genuine return needs more than a field's allocation — six findings instead of five, a long coordination flag — the remedy is clause 4 (route the overflow to `Outputs/`), never silent truncation.
+
+> [!constraint] Cite the id, route to the file — never re-quote or restate
+> WRONG — the return pastes the edited section back into the orchestrator's window and re-explains the task it was given:
+> ```
+> TASK_STATUS: COMPLETE
+> I finished the task of adding a new status-block return contract section.
+> Here is the full section text I landed, for your review:
+> ## 1.28 Status-Block Return Contract
+> When a dispatched task-runner completes... [60 more lines]
+> ```
+> CORRECT — path + line count, task id only, bulk detail stays on disk:
+> ```
+> TASK_STATUS:    COMPLETE
+> TASK_ID:        {task-id}
+> OUTPUT_FILES:   references/agent-orchestration-delegated.md (+40L)
+> KEY_FINDINGS:
+> - New §1.28 landed at live-max+1; ceiling=18 derived from field enumeration
 > ```
 
 ---

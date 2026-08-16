@@ -468,10 +468,10 @@ These constraints are empirically verified. The enforcement mechanism column exp
 
 ## 11. DELEGATED Dispatch Discipline
 
-When the Execution Strategy is DELEGATED (orchestrator spawns task-runner subagents), dispatch behavior — mandatory triggers, task-file error recovery, orchestration context boundary, and the full dispatch protocol set — is governed by [`references/agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.1–§1.27. The four mandatory DELEGATED triggers are canonical at [`references/session-plan-requirements.md`](session-plan-requirements.md) § Execution Strategy (Set by Planner); do not restate the trigger list here or in the extract — cite that section.
+When the Execution Strategy is DELEGATED (orchestrator spawns task-runner subagents), dispatch behavior — mandatory triggers, task-file error recovery, orchestration context boundary, and the full dispatch protocol set — is governed by [`references/agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.1–§1.28. The four mandatory DELEGATED triggers are canonical at [`references/session-plan-requirements.md`](session-plan-requirements.md) § Execution Strategy (Set by Planner); do not restate the trigger list here or in the extract — cite that section.
 
 Verify-Before-Acting on LSP Diagnostics has similarly moved to `agent-orchestration-delegated.md` §1.18. Large-File Read Tactics (the paged-read ladder for files exceeding a Read-tool gate) has moved to [`references/session-context-budget.md` § Large-File Read Tactics](session-context-budget.md#large-file-read-tactics), the read-gate canonical.
 
 ---
 
-*Cross-reference: [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md), [agent-orchestration-delegated.md](agent-orchestration-delegated.md) (§1.1–§1.27 DELEGATED dispatch discipline), [session-context-budget.md](session-context-budget.md) (read-gate canonical + Large-File Read Tactics)*
+*Cross-reference: [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md), [agent-orchestration-delegated.md](agent-orchestration-delegated.md) (§1.1–§1.28 DELEGATED dispatch discipline), [session-context-budget.md](session-context-budget.md) (read-gate canonical + Large-File Read Tactics)*

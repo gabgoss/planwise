@@ -133,6 +133,26 @@ Detailed reference material for this project. Documents with a **Must Read** con
 > - src/models/User.ts - added missing fields
 > ```
 
+### Session-Length Checkpoint
+
+> [!binding] Resume State Must Be Complete Before a Boundary Is Offered
+> A session-length boundary is a net win only when the next session can resume without re-deriving anything. An incomplete handoff costs more than the tokens the split saved. The checkpoint therefore **recommends and records** — it never force-terminates a session, and the only writes it mandates are the resume-state writes required above. `handlers/run.md` Step 3.5 evaluates it at each task boundary.
+
+The thresholds are read from config, never hardcoded: `context.token_saver_session_checkpoint.window` (shipped default 400,000 projected window) and `context.token_saver_session_checkpoint.turns` (shipped default 194 turns), both through `scripts/config_loader.py::get_token_saver_extension_config()`. Whichever is reached first trips the checkpoint, and `context.token_saver_orchestrator_advisory: off` disables the evaluation entirely.
+
+Those two defaults are chosen operating points derived from measured accumulation bands, not statistical boundaries. 194 is the measured minimum turn count of the above-500,000 band (22 of the 99 measured sessions). 400,000 is a level the heaviest sessions *cross* rather than their onset — the measured 90th percentile is 565,189 across all sessions — and it is chosen because the delegated median of roughly 455,000 is already too late to act on.
+
+> [!checklist] Resume-State Completeness — every box before a boundary is offered
+> - [ ] The in-flight task is COMPLETE — a boundary never interrupts a dispatch
+> - [ ] Recovery is current through that last completed task: status, timestamp, Key Findings, Files Modified, Change Log row
+> - [ ] `Current Step` names the NEXT task, not the one just finished
+> - [ ] Every coordination flag surfaced so far is recorded and routed to its destination
+> - [ ] A session-boundary note names the **exact next dispatch** — task id, its agent, and the dependency layer it belongs to
+> - [ ] Every output Recovery claims exists on disk at the path claimed for it
+> - [ ] The carrying-cost arithmetic is logged — projected window, the threshold that tripped, the break-even — on both branches, since a declined split is evidence too
+>
+> An unchecked box means the resume state is not yet complete: finish it, then offer the boundary. If a box cannot be checked at all, do not offer the boundary — continue the session and record why.
+
 ### Session-End Lesson Capture
 
 > [!protocol] Lesson Capture
@@ -143,6 +163,14 @@ Detailed reference material for this project. Documents with a **Must Read** con
 > 2. Create lesson file: `LessonsLearned/LL-{NNN}-{Domain}-{Name}.md`
 > 3. Add row to master table in `00-Index-LessonsLearned.md`
 > 4. Commit lesson file and updated index
+
+### Post-Session Artifact Completeness
+
+> [!checklist] Post-Session Artifact Completeness
+> - [ ] The session Summary's Consumption Record is filled with the `measured|estimated` tag on every measured field
+> - [ ] `orchestrator_window_total` and `summed_dispatch_budgets` are recorded as distinct values, never summed into one figure
+>
+> See [templates/summary-template.md § Consumption Record](../templates/summary-template.md#consumption-record) for field semantics — this checklist verifies completeness, it does not restate the field list.
 
 ### Iteration Loop
 

@@ -178,6 +178,13 @@ In parallel mode you share the Recovery file with sibling runners dispatched in 
 3. The status block MUST be the last content in your response — no trailing prose, no follow-up paragraphs. The orchestrator parses it by reading your final message.
 4. If you hit a partial-completion ceiling (early stop, edit ceiling, context pressure): emit `TASK_STATUS: PARTIAL` with OUTPUT_FILES listing what was written so far and ISSUES describing what remains. Do NOT write a recovery-style partial-progress note to Recovery — the orchestrator handles partials by re-dispatching from your status block.
 
+> [!constraint] Status-Block Return Contract — bound the whole block to 18 lines
+> Full contract, derivation, and the over-tight failure mode: `references/agent-orchestration-delegated.md` §1.28. The status block re-enters the orchestrator's own context window whole on return — it is bounded so that does not accumulate:
+> - **No re-quoted file content** — cite `OUTPUT_FILES` by path + `LINES_PRODUCED`, never paste an edited file's body into the block.
+> - **No restated task text** — `TASK_ID` is the reference; never re-explain the brief.
+> - **18-line ceiling on the whole block** — derived from enumerating what central reconciliation consumes (status, task id, route/flags, output files, lines produced, verify results, key findings, issues) and capping each field at its worst case; see §1.28 for the per-field table. The ceiling is a floor-preserving cap, not a target to shrink toward — it never cuts a field reconciliation needs.
+> - **Bulk output routed to files** — anything a field cannot carry within its allocation goes to the session `Outputs/` folder; name the path in the block instead of inlining the content.
+
 > [!constraint] No Sneaky Recovery Writes in Parallel Mode
 > WRONG — runner "helpfully" appends its own row to Recovery before returning:
 > ```

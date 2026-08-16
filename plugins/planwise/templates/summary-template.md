@@ -86,6 +86,30 @@ The `Propagated To` column MUST name the destination file (task / orchestration 
 
 ---
 
+## Consumption Record
+
+<!-- Field semantics defined ONCE here; every citing surface (the Recovery template's per-task rows,
+     session-execution-protocol.md's post-session checklist, agents/plan-reviewer.md's Task Reviewer
+     checklist, and its references/review-classification.md mirror) cites this section by name and
+     never restates the field list.
+     Every measured field carries the tag `measured|estimated` (spelled exactly this way) so a reader
+     can tell a harness-reported number from a self-estimated one at a glance.
+     `orchestrator_window_total` and `summed_dispatch_budgets` are STRUCTURALLY SEPARATE fields and are
+     NEVER summed — one is the orchestrator's own window, the other is the sum of what was handed to
+     dispatched agents; conflating them is the aggregate-vs-window confusion this record exists to end. -->
+
+| Field | Value |
+|-------|-------|
+| `orchestrator_window_total` | {N} tokens ({measured\|estimated}) |
+| `summed_dispatch_budgets` | {N} tokens ({measured\|estimated}) — kept distinct from `orchestrator_window_total`, never summed with it |
+| `subcommand` | {plan / run / review / backlog / ...} |
+| `execution_mode` | {DIRECT / DELEGATED} |
+| `injected_rule_volume` | {N} tokens / Not observed |
+| `turn_count` | {N} |
+| `dispatch_ids` | {one id per dispatched agent, comma-separated — the join key the transcript side lacks / None (DIRECT mode)} |
+
+---
+
 ## Next Session
 
 **Ready for:** Session-{YY+1}-{NextSessionName}
