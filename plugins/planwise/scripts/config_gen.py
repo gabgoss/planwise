@@ -85,10 +85,11 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
 
 # Sub-keys under `context:` that `--migrate` adds to an EXISTING context block.
 # The top-level merge above skips `context` whenever the user's config already
-# has it (every installed config does), so the six Token Saver sub-keys would
-# never reach an existing install without this nested merge. Each tuple is
-# (sub_key, default_value_literal) where the literal is rendered verbatim into
-# the YAML line. Existing sub-keys are NEVER overwritten — purely additive.
+# has it (every installed config does), so the eleven Token Saver sub-keys
+# below would never reach an existing install without this nested merge. Each
+# tuple is (sub_key, default_value_literal) where the literal is rendered
+# verbatim into the YAML line. Existing sub-keys are NEVER overwritten —
+# purely additive.
 MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
     ("token_saver", "false"),
     ("token_saver_session_target", "150000"),
@@ -96,6 +97,14 @@ MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
     ("token_saver_orchestrator_overhead", "0"),
     ("token_saver_context_breakdown", "{}"),
     ("token_saver_overhead_measured_on", '""'),
+    # Token Saver extension keys: injection ceiling, calibration range +
+    # estimate, orchestrator advisory, session checkpoint. See
+    # config_loader.get_token_saver_extension_config for defaults/coercion.
+    ("token_saver_injection_ceiling", "40000"),
+    ("token_saver_session_start_range", "{min: 0, median: 0, max: 0}"),
+    ("token_saver_injected_rules_estimate", "0"),
+    ("token_saver_orchestrator_advisory", "measured"),
+    ("token_saver_session_checkpoint", "{window: 400000, turns: 194}"),
 ]
 
 

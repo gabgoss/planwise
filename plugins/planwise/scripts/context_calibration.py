@@ -7,6 +7,18 @@ captured `/context` report into a per-task token ceiling, and `calibrate`
 captures a live report, derives those values, and writes them back into
 config.yaml. These numbers are MEASURED, not hardcoded.
 
+Migration note: `derive_overheads` now filters through `attribution()` —
+`runner_overhead` / `orchestrator_overhead` measure THIS plugin's own
+footprint (the attribution-filtered Agents + Skills sum), not the whole
+installation's ambient `total_active`. The injected-rule component (the
+"Memory files" category) is broken out into its own
+`token_saver_injected_rules_estimate` key rather than folded into the flat
+overhead, and the session-start snapshot is stored as a
+`token_saver_session_start_range` `{min, median, max}` instead of a single
+scalar. Stored values shift on the next calibration — a project that tuned
+its budgets around the pre-migration numbers should recalibrate rather than
+carry the old thresholds forward.
+
 Pure functions (parser/derivation) shell out to nothing, so they are
 unit-testable without a live `claude` binary. Only `capture_context` /
 `calibrate` touch the filesystem or subprocess. No third-party dependency —
@@ -211,21 +223,58 @@ def attribution(report: dict, plugin: str = "") -> int:
 # Overhead + threshold derivation
 # ---------------------------------------------------------------------------
 def derive_overheads(report: dict) -> dict:
-    """Derive runner/orchestrator overheads from a parsed report.
+    """Derive runner/orchestrator overheads (and related reporting figures)
+    from a parsed report.
 
-    runner_overhead       = total_active (a subagent loads <= the orchestrator
-                            surface, so the full active footprint is a
-                            conservative proxy for the runner's overhead).
-    orchestrator_overhead = total_active - Messages (the orchestrator's own
-                            conversation grows; subtract the already-counted
-                            Messages so the two overheads differ by exactly the
-                            Messages footprint).
+    runner_overhead / orchestrator_overhead are derived from the
+    attribution-filtered sum (Agents + Skills rows whose Source starts with
+    "Plugin"), not from the whole snapshot's total_active. The prior formula
+    (runner_overhead = total_active) measured the whole installation's ambient
+    cost rather than this tool's own contribution, and folded the
+    injected-rule component into a single flat number instead of reporting it
+    separately.
+
+    runner_overhead       = attribution(report) — the plugin-sourced Agents +
+                            Skills sum (this tool's own footprint; a subagent
+                            loads <= the orchestrator surface, so this remains
+                            a conservative proxy for the runner's overhead).
+    orchestrator_overhead = runner_overhead - Messages (unchanged
+                            relationship: the orchestrator's own conversation
+                            grows, so the already-counted Messages footprint is
+                            subtracted, and the two overheads differ by
+                            exactly the Messages footprint).
+    total_active_unfiltered = the unfiltered whole-installation active
+                            footprint (total_active) — reported alongside the
+                            filtered figures for visibility, but never itself
+                            stored in a threshold-driving key.
+    injected_rules_estimate = the "Memory files" category row — auto-injected
+                            path-scoped rule / nested-memory content, broken
+                            out as its own figure instead of being folded
+                            into the flat overhead (where it was understated).
+    session_start_range   = {min, median, max} built from the single captured
+                            total_active reading. A real distribution needs a
+                            capture series this module does not collect yet;
+                            a single capture stores the one value in all
+                            three — callers should treat it as an
+                            uncalibrated-range single sample, not a measured
+                            spread.
     """
     total_active = int(report.get("total_active", 0))
-    messages = int(report.get("categories", {}).get("Messages", 0))
+    categories = report.get("categories", {})
+    messages = int(categories.get("Messages", 0))
+    injected_rules = int(categories.get("Memory files", 0))
+    runner_overhead = attribution(report)
+    orchestrator_overhead = runner_overhead - messages
     return {
-        "runner_overhead": total_active,
-        "orchestrator_overhead": total_active - messages,
+        "runner_overhead": runner_overhead,
+        "orchestrator_overhead": orchestrator_overhead,
+        "total_active_unfiltered": total_active,
+        "injected_rules_estimate": injected_rules,
+        "session_start_range": {
+            "min": total_active,
+            "median": total_active,
+            "max": total_active,
+        },
     }
 
 
@@ -274,6 +323,12 @@ def capture_context(plugin_root, cwd) -> str | None:
     `stdin` is `DEVNULL` so the child never blocks waiting on input; console
     attachment — not stdin — governs whether `/context` renders.
     """
+    # Regression guard: `/context` MUST remain the SOLE content of the prompt
+    # on both branches below — POSIX argv and the Windows inner command
+    # string. Embedded after other content, `/context` is answered
+    # conversationally instead of rendering the report and parses to
+    # total_active=0 (see the parse guard in `calibrate()`). Do not regress
+    # this while editing either branch.
     if os.name == "nt":
         # PowerShell attaches a console so `/context` renders (not a prompt). It
         # resolves the `claude` shim itself, so no shutil.which / shell=True here.
@@ -317,8 +372,19 @@ def _format_breakdown(categories: dict) -> str:
     return "{" + ", ".join(parts) + "}"
 
 
+def _format_range(values: dict) -> str:
+    """Render a {min, median, max} dict as a compact single-line YAML flow mapping.
+
+    Mirrors `_format_breakdown`'s single-line flow style so the range
+    round-trips under PyYAML and stays on one line for the targeted regex
+    write-back.
+    """
+    parts = [f"{key}: {int(values.get(key, 0))}" for key in ("min", "median", "max")]
+    return "{" + ", ".join(parts) + "}"
+
+
 def _write_back(config_path, values: dict) -> None:
-    """Targeted in-place edit of the six token_saver* lines under `context:`.
+    """Targeted in-place edit of the token_saver* lines under `context:`.
 
     Delegates the locate-and-splice text transformation to the shared
     config.yaml `context:`-block editor (config_loader.splice_context_block):
@@ -352,7 +418,8 @@ def set_token_saver(config_path, enabled: bool) -> dict:
     colon immediately after the key name, so writing `token_saver` matches ONLY
     the toggle line (`token_saver:`) and never `token_saver_session_target`,
     `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`,
-    `token_saver_context_breakdown`, or `token_saver_overhead_measured_on`.
+    `token_saver_context_breakdown`, `token_saver_overhead_measured_on`,
+    `token_saver_session_start_range`, or `token_saver_injected_rules_estimate`.
 
     If the `token_saver:` line is absent (a config predating the surface), it is
     appended under the `context:` block via the same append path `_write_back`
@@ -384,12 +451,14 @@ def calibrate(
     write-back is skipped (test/inspection mode) but the same result dict shape
     is returned.
 
-    Returns a dict carrying the six measured values plus a `calibrated` flag:
+    Returns a dict carrying the eight measured values plus a `calibrated` flag:
         {
           "token_saver_runner_overhead": int,
           "token_saver_orchestrator_overhead": int,
           "token_saver_context_breakdown": dict,
           "token_saver_overhead_measured_on": str,
+          "token_saver_session_start_range": {"min": int, "median": int, "max": int},
+          "token_saver_injected_rules_estimate": int,
           "calibrated": bool,
           "uncalibrated": bool,   # convenience inverse
         }
@@ -406,6 +475,7 @@ def calibrate(
 
     def _write_fallback():
         """Write the conservative fallback overheads back into config.yaml."""
+        fallback_range = {"min": 0, "median": 0, "max": 0}
         if config_path is not None:
             _write_back(
                 config_path,
@@ -414,6 +484,11 @@ def calibrate(
                     "token_saver_orchestrator_overhead": FALLBACK_ORCHESTRATOR_OVERHEAD,
                     "token_saver_context_breakdown": "{}",
                     "token_saver_overhead_measured_on": f'"{measured_on}"',
+                    "token_saver_session_start_range": (
+                        _format_range(fallback_range)
+                        + "  # uncalibrated-range (capture failed)"
+                    ),
+                    "token_saver_injected_rules_estimate": 0,
                 },
             )
         return {
@@ -421,6 +496,8 @@ def calibrate(
             "token_saver_orchestrator_overhead": FALLBACK_ORCHESTRATOR_OVERHEAD,
             "token_saver_context_breakdown": {},
             "token_saver_overhead_measured_on": measured_on,
+            "token_saver_session_start_range": dict(fallback_range),
+            "token_saver_injected_rules_estimate": 0,
             "calibrated": False,
             "uncalibrated": True,
         }
@@ -451,6 +528,8 @@ def calibrate(
         "token_saver_orchestrator_overhead": overheads["orchestrator_overhead"],
         "token_saver_context_breakdown": breakdown,
         "token_saver_overhead_measured_on": measured_on,
+        "token_saver_session_start_range": overheads["session_start_range"],
+        "token_saver_injected_rules_estimate": overheads["injected_rules_estimate"],
         "calibrated": True,
         "uncalibrated": False,
     }
@@ -463,6 +542,11 @@ def calibrate(
                 "token_saver_orchestrator_overhead": overheads["orchestrator_overhead"],
                 "token_saver_context_breakdown": _format_breakdown(breakdown),
                 "token_saver_overhead_measured_on": f'"{measured_on}"',
+                "token_saver_session_start_range": (
+                    _format_range(overheads["session_start_range"])
+                    + "  # uncalibrated-range (single capture)"
+                ),
+                "token_saver_injected_rules_estimate": overheads["injected_rules_estimate"],
             },
         )
 

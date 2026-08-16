@@ -124,6 +124,11 @@ context:
   token_saver_orchestrator_overhead: 29492
   token_saver_context_breakdown: {system_prompt: 3900, system_tools: 18100, custom_agents: 959, memory_files: 4300, skills: 2200, messages: 8, free_space: 970500}
   token_saver_overhead_measured_on: "2026-07-08"
+  token_saver_injection_ceiling: 40000
+  token_saver_session_start_range: {min: 24800, median: 29500, max: 36200}
+  token_saver_injected_rules_estimate: 4300
+  token_saver_orchestrator_advisory: measured
+  token_saver_session_checkpoint: {window: 400000, turns: 194}
 
 # Routing buckets for lessons curate. Order matters.
 categorization:

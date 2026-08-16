@@ -30,6 +30,137 @@ from conftest import (  # noqa: E402
 )
 
 
+class TestInjectionFamilyRollup(_MigrationFixtureBase):
+    """lint_rule_overscope()'s R1 extension: compute_injection_families() and
+    its config-key ceiling reader (_read_injection_ceiling()).
+
+    Reuses _MigrationFixtureBase for its `.claude/rules/planwise/` tree and
+    InitConfig -- write_installed() already writes a rule file at an
+    arbitrary `paths:` value, which is exactly what a family-grouping test
+    needs (one glob per family, no EXPECTED_DESCOPED_ALL involvement).
+    """
+
+    def _backlog_glob(self) -> str:
+        return f"{self.cfg.planwise_root}/{self.cfg.backlog_dir}/**"
+
+    def _write_config_ceiling(self, ceiling: int) -> None:
+        config_dir = self.project_root / self.cfg.planwise_root
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            f"context:\n  token_saver_injection_ceiling: {ceiling}\n",
+            encoding="utf-8",
+        )
+
+    def test_zero_report_on_empty_fixture(self):
+        result = doctor_sweeps.compute_injection_families(self.cfg, [])
+        self.assertEqual(result["families"], [])
+        self.assertEqual(result["ceiling"], doctor_sweeps._INJECTION_CEILING_DEFAULT)
+
+    def test_two_glob_families_grouped_with_totals_under_default_ceiling(self):
+        self.write_installed(
+            "plans-scoped.md", "Small plans-scoped rule.\n", self.plans_paths_value
+        )
+        self.write_installed(
+            "backlog-scoped.md", "Small backlog-scoped rule.\n", self._backlog_glob()
+        )
+
+        flagged = doctor_sweeps.lint_rule_overscope(self.cfg)
+        self.assertEqual(len(flagged), 2, "both fixture rules must be flagged")
+
+        result = doctor_sweeps.compute_injection_families(self.cfg, flagged)
+
+        self.assertEqual(result["ceiling"], doctor_sweeps._INJECTION_CEILING_DEFAULT)
+        self.assertEqual(len(result["families"]), 2, "each glob is its own family")
+        globs = {fam["glob"] for fam in result["families"]}
+        self.assertEqual(globs, {self.plans_paths_value, self._backlog_glob()})
+        for fam in result["families"]:
+            self.assertEqual(fam["rule_count"], 1)
+            expected_item = next(
+                f for f in flagged if f["matched_glob"] == fam["glob"]
+            )
+            self.assertEqual(fam["total_lines"], expected_item["line_count"])
+            self.assertEqual(fam["total_tokens"], expected_item["approx_tokens"])
+            self.assertFalse(
+                fam["over_ceiling"],
+                "a two-line fixture rule must sit far under the 40000 default",
+            )
+
+    def test_family_over_ceiling_flag_fires_only_past_the_configured_ceiling(self):
+        self._write_config_ceiling(200)
+        self.write_installed(
+            "small-plans.md", "One line.\n", self.plans_paths_value
+        )
+        large_body = "\n".join(f"line {i}" for i in range(50)) + "\n"
+        self.write_installed("large-backlog.md", large_body, self._backlog_glob())
+
+        flagged = doctor_sweeps.lint_rule_overscope(self.cfg)
+        result = doctor_sweeps.compute_injection_families(self.cfg, flagged)
+
+        self.assertEqual(result["ceiling"], 200)
+        by_glob = {fam["glob"]: fam for fam in result["families"]}
+        self.assertFalse(
+            by_glob[self.plans_paths_value]["over_ceiling"],
+            "the small family must stay within the configured ceiling",
+        )
+        self.assertTrue(
+            by_glob[self._backlog_glob()]["over_ceiling"],
+            "the large family must be flagged over the configured ceiling",
+        )
+        # Worst-first ordering: the over-ceiling family sorts first.
+        self.assertEqual(result["families"][0]["glob"], self._backlog_glob())
+
+    def test_read_injection_ceiling_default_when_config_absent(self):
+        self.assertEqual(
+            doctor_sweeps._read_injection_ceiling(self.cfg),
+            doctor_sweeps._INJECTION_CEILING_DEFAULT,
+        )
+
+    def test_read_injection_ceiling_reads_configured_value(self):
+        self._write_config_ceiling(12345)
+        self.assertEqual(doctor_sweeps._read_injection_ceiling(self.cfg), 12345)
+
+    def test_family_rollup_wired_into_doctor_path(self):
+        import contextlib
+        import io
+
+        self.write_installed(
+            "small-plans.md", "One line.\n", self.plans_paths_value
+        )
+        large_body = "\n".join(f"line {i}" for i in range(50)) + "\n"
+        self.write_installed("large-backlog.md", large_body, self._backlog_glob())
+
+        self.cfg.plugin_version = "1.0.4"
+        config_dir = self.project_root / self.cfg.planwise_root
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            f'plugin_version: "{self.cfg.plugin_version}"\n'
+            "context:\n  token_saver_injection_ceiling: 100\n",
+            encoding="utf-8",
+        )
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            exit_code = ip._run_doctor(self.cfg)
+
+        stdout = buf.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn(
+            "Injection families", stdout,
+            "the per-family rollup must be printed by the live --doctor path, "
+            "not merely computed",
+        )
+        self.assertIn(self._backlog_glob(), stdout)
+        self.assertTrue(
+            any(
+                self._backlog_glob() in line
+                for line in stdout.splitlines()
+            ),
+            "the over-ceiling family's glob must appear in the report",
+        )
+        self.assertIn("OVER CEILING", stdout)
+        self.assertIn("within ceiling", stdout)
+
+
 class TestDoctorStaleSweep(_MigrationFixtureBase):
     """sweep_stale_descoped_rules() + _run_prune_stale() + the _run_doctor()
     Stage 8 call site.

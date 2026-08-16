@@ -38,6 +38,7 @@ except ImportError:
 try:
     from doctor_sweeps import (
         lint_rule_overscope,
+        compute_injection_families,
         sweep_stale_descoped_rules,
         sweep_orphaned_agent_mirrors,
         lint_installed_divergence,
@@ -376,7 +377,11 @@ def _run_doctor(cfg: "InitConfig") -> int:
     Standalone diagnostic — does not require or perform an upgrade. Walks the
     installed rules, flags any scoped to plan/backlog/lessons globs, and prints
     one row per flagged rule with its size, a re-scope hint, and a total
-    always-on injected-budget line. Then runs Stage 8, the post-boundary stale
+    always-on injected-budget line. When any rule is flagged, also prints the
+    per-glob-family worst-case injection rollup (compute_injection_families())
+    — every rule sharing a glob co-injects on one path match — flagging any
+    family over the configurable `context.token_saver_injection_ceiling`
+    (default 40000 tokens). Then runs Stage 8, the post-boundary stale
     de-scoped rule sweep (sweep_stale_descoped_rules()), and prints its report
     too — always-on, independent of whether any rule was overscoped. Then runs
     Stage 9, the installed rule divergence lint (lint_installed_divergence()),
@@ -423,6 +428,22 @@ def _run_doctor(cfg: "InitConfig") -> int:
             print("      hint: re-scope to code paths or convert to a handler-loaded reference")
         print()
         print(f"Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
+
+        families_result = compute_injection_families(cfg, overscoped)
+        ceiling = families_result["ceiling"]
+        print()
+        print(
+            f"Injection families (rules co-injected by a single path match; "
+            f"ceiling ~{ceiling} tokens):"
+        )
+        for fam in families_result["families"]:
+            mark = "!" if fam["over_ceiling"] else "~"
+            status = "OVER CEILING" if fam["over_ceiling"] else "within ceiling"
+            print(f"  {mark} {fam['glob']}")
+            print(
+                f"      rules: {fam['rule_count']}   size: {fam['total_lines']} lines "
+                f"(~{fam['total_tokens']} tokens)   {status}"
+            )
 
     # Stage 8: post-boundary stale de-scoped rule sweep — read-only, always-on.
     print()

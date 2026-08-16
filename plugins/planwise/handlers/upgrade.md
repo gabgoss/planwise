@@ -238,6 +238,8 @@ Run only when `{token_saver}` (from Step 1.5) resolves to `yes` — i.e., Token 
 
 The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update changes the always-on rule/agent surface a fresh `/context` loads, so `token_saver_runner_overhead` captured against the old version no longer reflects this install. Re-capture so plans size against the new footprint.
 
+**Derivation change.** `calibrate()`'s overhead formula now filters through plugin attribution instead of measuring the whole installation's ambient footprint, and two new keys are recorded — a session-start `{min, median, max}` range and a separate injected-rule-content estimate. Stored values shift accordingly on this recalibration; if budgets were tuned around pre-upgrade numbers, review them again after this step runs.
+
 > **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. When `token_saver.calibrate()` is invoked from upgrade (headless), the CLI may return conversational text instead of the structured report, and calibration degrades to the conservative fallback (runner ~54K / orchestrator ~60K). This is expected on some platforms — notably Windows. The conservative fallback is safe; recapture from an interactive session with `/planwise token-saver on`.
 
 1. Re-run the calibration capture against the upgraded install:
@@ -246,7 +248,7 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
    python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{planwise_root}/config.yaml'), plugin_root=r'{plugin_root}'); print(r)"
    ```
 
-   `token_saver.calibrate()` overwrites the six `token_saver_*` keys in place (targeted edit — comments and key order preserved) and degrades to the conservative fallback if the `/context` capture fails or returns non-report text.
+   `token_saver.calibrate()` overwrites its six written `token_saver_*` keys in place — `runner_overhead`, `orchestrator_overhead`, `context_breakdown`, `overhead_measured_on`, `session_start_range`, `injected_rules_estimate` (targeted edit — comments and key order preserved) — and degrades to the conservative fallback if the `/context` capture fails or returns non-report text.
 
 2. Report the refreshed numbers in the chat summary (append to the Step 3 banner):
 
@@ -254,6 +256,8 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
    Token Saver recalibrated:
      Runner overhead:       {old} → {token_saver_runner_overhead}
      Orchestrator overhead: {old} → {token_saver_orchestrator_overhead}
+     Session-start range:   {token_saver_session_start_range}
+     Injected rules est.:   {token_saver_injected_rules_estimate}
      Calibrated on:         {token_saver_overhead_measured_on}
    ```
 

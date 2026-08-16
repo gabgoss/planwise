@@ -66,13 +66,23 @@ Over-scoped rules (injection-budget risk):
                      or load it on demand (handler / references) instead of installing it path-scoped
 
 Total flagged injection budget: ~{X}K tokens across {N} rule(s)
+
+Injection families (rules co-injected by a single path match; ceiling ~{C} tokens):
+  ! {glob}
+      rules: {N}   size: {L} lines (~{X}K tokens)   OVER CEILING
+  ~ {glob}
+      rules: {N}   size: {L} lines (~{X}K tokens)   within ceiling
 ```
 
-If no rules are flagged, the script prints `No overscoped rules found.` — report that the project's rule surface is healthy.
+If no rules are flagged, the script prints `No overscoped rules found.` — report that the project's rule surface is healthy, and no injection-family block is printed.
+
+The families block groups the same flagged rules above by matched glob: every rule sharing a glob targets the same plan/backlog/lessons subtree, so a single path read under that subtree co-injects the whole family's tokens in one context window — the family total, not any one rule's own size, is the number that matters for overflow risk. A family is marked `OVER CEILING` when its total exceeds the configurable `context.token_saver_injection_ceiling` (default 40000 tokens); the config key is read once, so lowering it on a broad-rule-surface install tightens the warning without editing the linter.
 
 ### Step 3: Explain the why (only when rules were flagged)
 
 Briefly note: a rule scoped to `planwise/Plans/**` is injected into EVERY context that reads a plan brief — including a DELEGATED `task-runner` subagent, whose 200K window can overflow ("Prompt is too long") when the flagged surface is large. The fix is to re-scope the rule's `paths:` to the code directories it actually governs, or to load it on demand (handler / `references/`) rather than installing it path-scoped. The Model-Floor Bridge (see [`references/agent-orchestration-delegated.md §1.19`](../references/agent-orchestration-delegated.md)) is the temporary dispatch safety-net that keeps declared-Sonnet runners alive until the flagged surface is brought down.
+
+Nothing here is automatic — the linter only converts an invisible cost into a visible, actionable one. But the visibility is worth acting on: measured up to ~56,000 tokens per affected session on average, and up to ~96,000 tokens in a single turn, on a broad-rule-surface install.
 
 ---
 

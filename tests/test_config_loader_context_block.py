@@ -273,5 +273,182 @@ class TestMergeContextSubkeysSkipIfPresentPolicy(unittest.TestCase):
         self.assertIn("token_saver_context_breakdown: {}", result)
 
 
+# ---------------------------------------------------------------------------
+# get_token_saver_extension_config — the five extension context: sub-keys
+# (token_saver_injection_ceiling, token_saver_session_start_range,
+# token_saver_injected_rules_estimate, token_saver_orchestrator_advisory,
+# token_saver_session_checkpoint). Same concern as the classes above: these
+# are context: sub-keys, so this file is the right target.
+# ---------------------------------------------------------------------------
+class TestGetTokenSaverExtensionConfigDefaults(unittest.TestCase):
+
+    def test_absent_context_block_returns_documented_defaults(self):
+        result = config_loader.get_token_saver_extension_config({})
+        self.assertEqual(result["token_saver_injection_ceiling"], 40000)
+        self.assertEqual(
+            result["token_saver_session_start_range"],
+            {"min": 0, "median": 0, "max": 0},
+        )
+        self.assertEqual(result["token_saver_injected_rules_estimate"], 0)
+        self.assertEqual(result["token_saver_orchestrator_advisory"], "measured")
+        self.assertEqual(
+            result["token_saver_session_checkpoint"],
+            {"window": 400000, "turns": 194},
+        )
+
+    def test_absent_keys_within_a_present_context_block_use_defaults(self):
+        config = {"context": {"plan_tier": "pro"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["token_saver_injection_ceiling"], 40000)
+        self.assertEqual(result["token_saver_orchestrator_advisory"], "measured")
+
+
+class TestGetTokenSaverExtensionConfigMalformedBlock(unittest.TestCase):
+
+    def test_non_dict_context_falls_back_to_all_defaults(self):
+        result = config_loader.get_token_saver_extension_config({"context": "not-a-dict"})
+        self.assertEqual(result["token_saver_injection_ceiling"], 40000)
+        self.assertEqual(
+            result["token_saver_session_checkpoint"], {"window": 400000, "turns": 194}
+        )
+
+    def test_null_context_falls_back_to_all_defaults(self):
+        result = config_loader.get_token_saver_extension_config({"context": None})
+        self.assertEqual(result["token_saver_orchestrator_advisory"], "measured")
+
+
+class TestGetTokenSaverExtensionConfigCoercion(unittest.TestCase):
+
+    def test_injection_ceiling_accepts_numeric_string(self):
+        config = {"context": {"token_saver_injection_ceiling": "50000"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["token_saver_injection_ceiling"], 50000)
+
+    def test_injection_ceiling_malformed_string_falls_back(self):
+        config = {"context": {"token_saver_injection_ceiling": "not-a-number"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["token_saver_injection_ceiling"], 40000)
+
+    def test_injection_ceiling_bool_falls_back(self):
+        # bool is an int subclass in Python; a stray YAML `true` here is a
+        # type mismatch, not a calibrated ceiling.
+        config = {"context": {"token_saver_injection_ceiling": True}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["token_saver_injection_ceiling"], 40000)
+
+    def test_injection_ceiling_float_truncates_to_int(self):
+        config = {"context": {"token_saver_injection_ceiling": 45000.7}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["token_saver_injection_ceiling"], 45000)
+
+    def test_session_start_range_partial_dict_backfills_missing_subkeys(self):
+        config = {"context": {"token_saver_session_start_range": {"min": 22000}}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(
+            result["token_saver_session_start_range"],
+            {"min": 22000, "median": 0, "max": 0},
+        )
+
+    def test_session_start_range_non_dict_falls_back_whole(self):
+        config = {"context": {"token_saver_session_start_range": "corrupt"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(
+            result["token_saver_session_start_range"],
+            {"min": 0, "median": 0, "max": 0},
+        )
+
+    def test_injected_rules_estimate_accepts_numeric_string(self):
+        config = {"context": {"token_saver_injected_rules_estimate": "2000"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["token_saver_injected_rules_estimate"], 2000)
+
+    def test_orchestrator_advisory_accepts_off(self):
+        config = {"context": {"token_saver_orchestrator_advisory": "off"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["token_saver_orchestrator_advisory"], "off")
+
+    def test_orchestrator_advisory_normalizes_case_and_whitespace(self):
+        config = {"context": {"token_saver_orchestrator_advisory": " MEASURED "}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["token_saver_orchestrator_advisory"], "measured")
+
+    def test_orchestrator_advisory_unrecognized_value_falls_back(self):
+        config = {"context": {"token_saver_orchestrator_advisory": "sometimes"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["token_saver_orchestrator_advisory"], "measured")
+
+    def test_orchestrator_advisory_non_string_falls_back(self):
+        config = {"context": {"token_saver_orchestrator_advisory": 1}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["token_saver_orchestrator_advisory"], "measured")
+
+    def test_session_checkpoint_partial_dict_backfills_missing_subkey(self):
+        config = {"context": {"token_saver_session_checkpoint": {"window": 500000}}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(
+            result["token_saver_session_checkpoint"],
+            {"window": 500000, "turns": 194},
+        )
+
+    def test_session_checkpoint_non_dict_falls_back_whole(self):
+        config = {"context": {"token_saver_session_checkpoint": "corrupt"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(
+            result["token_saver_session_checkpoint"],
+            {"window": 400000, "turns": 194},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Migration — the five new sub-keys reach a PRE-EXISTING context: block via
+# merge_context_subkeys(), the exact mechanism migrate_config() (config_gen.py)
+# delegates to for that case (the no-top-level-keys-added branch). A full
+# InitConfig/template fixture proving migrate_config() itself calls this path
+# is test_config_write_integrity.py's job (see this file's own module
+# docstring: consumer-level end-to-end contracts are pinned there, not here)
+# -- this proves the sub-key merge itself lands all five, which is exactly
+# what that end-to-end flow relies on.
+# ---------------------------------------------------------------------------
+class TestMergeContextSubkeysAddsSprint08Keys(unittest.TestCase):
+
+    def test_all_five_new_keys_land_on_a_pre_existing_context_block(self):
+        text = (
+            "context:\n"
+            "  plan_tier: pro\n"
+            "  token_saver: true\n"
+            "  token_saver_session_target: 150000\n"
+            "  token_saver_runner_overhead: 26000\n"
+            "  token_saver_orchestrator_overhead: 30000\n"
+            "  token_saver_context_breakdown: {}\n"
+            '  token_saver_overhead_measured_on: "2026-08-01"\n'
+        )
+        result = ip.merge_context_subkeys(text)
+
+        self.assertIn("  token_saver_injection_ceiling: 40000", result)
+        self.assertIn(
+            "  token_saver_session_start_range: {min: 0, median: 0, max: 0}", result
+        )
+        self.assertIn("  token_saver_injected_rules_estimate: 0", result)
+        self.assertIn("  token_saver_orchestrator_advisory: measured", result)
+        self.assertIn(
+            "  token_saver_session_checkpoint: {window: 400000, turns: 194}", result
+        )
+        # The existing calibrated values are untouched, byte-for-byte.
+        self.assertIn("  token_saver_runner_overhead: 26000\n", result)
+        self.assertIn("  token_saver_orchestrator_overhead: 30000\n", result)
+
+    def test_already_present_new_key_is_skipped_not_replaced(self):
+        text = (
+            "context:\n"
+            "  token_saver: true\n"
+            "  token_saver_injection_ceiling: 75000\n"
+        )
+        result = ip.merge_context_subkeys(text)
+        # A user's already-set non-default ceiling must survive untouched,
+        # and the default must not have been re-added alongside it.
+        self.assertIn("  token_saver_injection_ceiling: 75000\n", result)
+        self.assertEqual(result.count("token_saver_injection_ceiling"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -625,3 +625,100 @@ def get_effective_token_saver_config(config: dict, plan_override=None) -> dict:
     if plan_override is not None:
         base["token_saver"] = bool(plan_override)
     return base
+
+
+_TOKEN_SAVER_ADVISORY_VALUES = ("measured", "off")
+
+
+def _as_int_default(value, default: int) -> int:
+    """Coerce a config numeric field to int, falling back to `default`.
+
+    Accepts int/float/numeric-string; None, a malformed string, or any
+    other type (dict, list, bool) falls back rather than raising. `bool` is
+    excluded even though it is an `int` subclass -- a stray `true`/`false`
+    here is a type mismatch, not a numeric value.
+    """
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return default
+    return default
+
+
+def _as_int_subkey_dict(value, default: dict, keys: tuple) -> dict:
+    """Coerce a mapping of int subkeys, one subkey at a time, with fallback.
+
+    Malformed input (not a dict, a missing subkey, or a subkey that does not
+    coerce to int) falls back to `default`'s value for THAT subkey only --
+    a partially-calibrated capture must not blank out the whole mapping.
+    """
+    if not isinstance(value, dict):
+        value = {}
+    return {key: _as_int_default(value.get(key), default[key]) for key in keys}
+
+
+def get_token_saver_extension_config(config: dict) -> dict:
+    """Extract the Token Saver extension keys, with defaults.
+
+    These five `context.token_saver_*` keys are additive to the six
+    `get_token_saver_config` already reads. They live in their own accessor
+    rather than being folded into that function, because that function's
+    docstring and existing callers assume exactly the original six-key
+    shape. Defaults are conservative / uncalibrated sentinels:
+
+      * token_saver_injection_ceiling       -> 40000 (R1 -- the doctor
+        sweep's per-glob-family worst-case warning ceiling. MUST agree with
+        `doctor_sweeps.py`'s `_INJECTION_CEILING_DEFAULT`. Two default sites
+        are intentional: doctor_sweeps.py reads the key through a
+        self-contained regex reader with no config_loader dependency, by
+        design, because that sweep dispatches before this accessor exists
+        to import. The two sites must AGREE on the value, not collapse to
+        one.)
+      * token_saver_session_start_range     -> {min: 0, median: 0, max: 0}
+        (R2 -- calibrate()-written; zeros are the uncalibrated sentinel)
+      * token_saver_injected_rules_estimate -> 0
+        (R2 -- calibrate()-written; 0 is the uncalibrated sentinel)
+      * token_saver_orchestrator_advisory   -> "measured"
+        (R3 -- enum "measured" | "off"; any other value falls back to
+        "measured" rather than silently disabling the advisory)
+      * token_saver_session_checkpoint      -> {window: 400000, turns: 194}
+        (R6 -- sprint-chosen operating defaults derived from the measured
+        accumulation bands, NOT a "top-decile onset" threshold; read by the
+        run-handler's session-length checkpoint lever)
+    """
+    context = config.get("context", {})
+    if not isinstance(context, dict):
+        context = {}
+
+    advisory = context.get("token_saver_orchestrator_advisory", "measured")
+    if isinstance(advisory, str) and advisory.strip().lower() in _TOKEN_SAVER_ADVISORY_VALUES:
+        advisory = advisory.strip().lower()
+    else:
+        advisory = "measured"
+
+    return {
+        "token_saver_injection_ceiling": _as_int_default(
+            context.get("token_saver_injection_ceiling"), 40000
+        ),
+        "token_saver_session_start_range": _as_int_subkey_dict(
+            context.get("token_saver_session_start_range"),
+            {"min": 0, "median": 0, "max": 0},
+            ("min", "median", "max"),
+        ),
+        "token_saver_injected_rules_estimate": _as_int_default(
+            context.get("token_saver_injected_rules_estimate"), 0
+        ),
+        "token_saver_orchestrator_advisory": advisory,
+        "token_saver_session_checkpoint": _as_int_subkey_dict(
+            context.get("token_saver_session_checkpoint"),
+            {"window": 400000, "turns": 194},
+            ("window", "turns"),
+        ),
+    }

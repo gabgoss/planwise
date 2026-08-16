@@ -84,7 +84,8 @@ The Max practical session limit (400K) is intentionally below the available budg
 When authoring or reviewing a plan, compute thresholds from `context_window`:
 
 ```
-fixed_overhead          = 100_000            # constant across tiers
+fixed_overhead          = 100_000            # constant across tiers — TIER-SIZING domain only
+                                             #   (see "Two Overhead Constants, Two Domains" below)
 available_for_work      = context_window - fixed_overhead
 
 # Meta-Plan threshold — work that does not fit in one session
@@ -115,6 +116,20 @@ delegated_cap           = subagent_model_window
 > **Note (threshold precedence):** Where the formula above and these per-tier tables disagree, the **tables are canonical**. On Pro the formula's `0.80 × available_for_work` yields 80K, but the Tier-Specific Budget Table and the per-tier table above both set `meta_plan_threshold = 100K` on Pro (500K on Max) — use the table value. The formula is a derivation aid for non-standard tiers; the tables are the binding decision boundary. `handlers/plan.md` branches on 100K/500K, matching the tables.
 
 Handlers that branch on a hardcoded number (e.g., "if total > 100K → Meta-Plan") MUST instead read the relevant variable from this table.
+
+> [!constraint] Two Overhead Constants, Two Domains — Scoped, Never Summed
+> This file's `fixed_overhead` and Token Saver's calibrated per-actor overheads are **two quantities in two models**, not two measurements of one quantity. Each is operative in its own domain:
+>
+> | Constant | Operative domain | Drives | Source |
+> |----------|------------------|--------|--------|
+> | `fixed_overhead` = 100,000 | **Tier / Meta-Plan sizing boundary** | `available_for_work`, `meta_plan_threshold`, `practical_session_limit` — the per-tier tables above, which `handlers/plan.md` branches on | Documented constant, this file |
+> | `token_saver_runner_overhead`, `token_saver_orchestrator_overhead` | **Token-Saver per-actor budgets** | `available_per_task`, `critical`, `warn` (the engine's `derive_thresholds`) | Measured per install by `/planwise calibrate`; see [token-saver-profile.md](token-saver-profile.md) |
+>
+> **Never sum them.** Their category breakdowns overlap — the system prompt and the system tools are counted inside both — so adding them double-counts that shared block. They also disagree in magnitude (a measured per-actor overhead runs well below 100,000), and that disagreement is expected rather than an error to reconcile: one bounds a whole session against a tier window, the other bounds a single actor's working set.
+>
+> **Outside its own domain, each constant is non-operative.** `fixed_overhead` never enters a Token-Saver per-actor budget, and a calibrated per-actor overhead never enters `available_for_work` / `meta_plan_threshold` / `practical_session_limit`. Neither replaces the other; deleting either would break a live consumer.
+>
+> **Which figure a formula uses.** Formulas in *this* file consume the tier model: `available_for_work = context_window − fixed_overhead`, and the `~54K` that appears in the Tier-Specific Budget Table, the DELEGATED checks, and the Context Budget Gate is the **always-loaded static component of that same 100,000** — not the calibrated per-actor constant. Formulas in [token-saver-profile.md](token-saver-profile.md) consume the calibrated constants by name. Token Saver's *uncalibrated fallback* starts near that same ~54K figure by construction; once `/planwise calibrate` has run, the Token-Saver formulas use the **measured** value while this file's tier tables keep their documented ones.
 
 ### Session Limits
 
@@ -268,6 +283,40 @@ Use these tables to compute bottom-up token estimates for each task.
 | Complex decision (Opus) | ~10-20K | Architecture/trade-offs |
 
 **Overhead Costs (DELEGATED mode):** see the [Tier-Specific Budget Table](#tier-specific-budget-table) above (System prompt ~4K, System tools ~22K, Global rules + CLAUDE.md ~27K, Skills + agents ~1K — ~54K subagent overhead total).
+
+### Per-Invocation Structural Floor
+
+Every subcommand invocation carries a block of instruction text that a runtime `/context` snapshot **structurally cannot observe**: the skill body, the base-context references pre-injected with the skill, the handler body, and the always-load references. Calibration measures the static categories a *fresh* session reports; this block arrives as transcript content during the invocation, landing in `messages` rather than in any static category. It is therefore invisible to calibration by construction, and must be accounted for separately when budgeting a session that will issue subcommands.
+
+Figures are labelled by the tree they were measured on — **dev** (the tree the plugin is developed in) or **installed** (the tree a consumer has on disk). The two differ in line counts, so a figure from one tree is not comparable to a figure from the other.
+
+**Whole-path floor** — skill body + base context + handler body + always-load references:
+
+| Tree | Lines | At 13 tok/line | At the measured 15.42–15.91 tok/line rate |
+|------|-------|----------------|-------------------------------------------|
+| dev | 2,193 | 28,509 | ≈34.2K |
+| installed | 2,479 | 32,227 | ≈38.7K |
+
+**Per-subcommand floors** (installed tree; **skill body EXCLUDED** — handler body + base context + always-load references only):
+
+| Subcommand | Lines | At 13 tok/line |
+|------------|-------|----------------|
+| `plan` | 4,329 | ~56.3K |
+| `review` | 2,953 | ~38.4K |
+| `run` | 2,386 | ~31.0K |
+| `backlog` | 1,901 | ~24.7K |
+
+> [!constraint] The two tables cover DIFFERENT components — never compare a row across them
+> The whole-path floor **includes** the skill body; the per-subcommand rows **exclude** it. So one subcommand legitimately carries three different numbers: `run` appears as **2,193** (dev, whole path), **2,386** (installed, skill body excluded), and **2,479** (installed, whole path). The `2,479 − 2,386 = 93`-line gap is exactly the installed skill body — a component boundary, not a disagreement between measurements. A floor figure quoted without both its tree and its component set is unusable; always carry both labels.
+
+> [!constraint] This is an upper bound on what the instruction text MANDATES — not a measurement of what loads
+> The line counts above say what the shipped text *instructs* an invocation to read. Whether every mandated read actually issues is a separate, empirical question, and predictions have missed in both directions: on one minimal handler the predicted floor over-shot the measured cost ~2.9×, while a heavier handler over-shot in the opposite direction.
+>
+> **Current verdict, from the most recent probe:** `mandated-loads-issue (measured +32,692 tok [dev tree] ≥ predicted floor 15,873 tok [dev tree]; measured is ~2.06× the prediction)` — the mandated base-context reads DO issue. (That probe predicted the floor for a *light* subcommand — 1,221 lines of skill + base context + handler body — so its 15,873 is not the whole-path figure in the table above; the comparison that matters is measured-vs-predicted *within one invocation*.)
+>
+> **Caveat, carried from the probe:** the excess above the floor is confounded with that subcommand's own live runtime work — real project-file reads plus a reconciliation script — so the measurement confirms compliance but cannot cleanly isolate the static floor from handler-specific runtime cost. Treat these figures as a planning upper bound on mandated text, not as a per-invocation cost prediction, and do not store one as a calibrated budget input.
+
+**Future work, gated on the compliance answer above:** conditional loading of references a given subcommand cannot reach — an estimated 10–20K per invocation, unvalidated. It would have to be a per-reference reachability pass, never a blanket change: the failure mode is a handler silently losing a convention it depended on. Not landed.
 
 ### Agent Assignment
 

@@ -3,9 +3,13 @@ mirrors, and installed-rule divergence lint.
 
 Diagnostic primitives consumed by doctor_cli's `--doctor` / `--prune-stale` /
 `--list-diverged` dispatchers. All four sweeps are read-only; divergence
-classification is delegated to rule_divergence.
+classification is delegated to rule_divergence. `compute_injection_families()`
+extends the overscope lint with a per-glob-family worst-case rollup and a
+configurable warn ceiling, reusing lint_rule_overscope()'s per-file discovery
+rather than re-deriving it.
 """
 
+import re
 from pathlib import Path  # noqa: F401 -- used by the nested _check() helper below
 
 try:
@@ -102,6 +106,85 @@ def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
             "matched_glob": matched,
         })
     return flagged
+
+
+# Fallback ceiling for compute_injection_families() when config.yaml has no
+# context.token_saver_injection_ceiling key yet (Task 06 has not landed the
+# config-plumbing surface as of this sweep). Derived, not sacred: set below
+# the measured ~56,000-tokens-per-affected-session average so a broad-rule-
+# surface install still warns. This is the ONLY literal 40000 in this module
+# -- every fallback path below reads this constant rather than repeating it.
+_INJECTION_CEILING_DEFAULT = 40000
+
+
+def _read_injection_ceiling(cfg: "InitConfig") -> int:
+    """Read context.token_saver_injection_ceiling from config.yaml. Read-only.
+
+    Self-contained regex read -- no config_loader dependency, no PyYAML
+    requirement -- mirroring doctor_cli's _read_pinned_plugin_version(). Task
+    06 (the config-plumbing surface: config.yaml.template, config_loader,
+    config_gen) has not landed when this sweep runs, so this is the single
+    default-fallback site; Task 06 reconciles its own writer against this same
+    read site rather than introducing a second code path.
+
+    Falls back to _INJECTION_CEILING_DEFAULT when config.yaml cannot be
+    resolved, cannot be read, or the key is absent/unparseable.
+    """
+    config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
+    if not config_path.exists():
+        candidates = sorted(cfg.project_root.glob("*/config.yaml"))
+        if not candidates:
+            return _INJECTION_CEILING_DEFAULT
+        config_path = candidates[0]
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return _INJECTION_CEILING_DEFAULT
+    match = re.search(
+        r"^\s*token_saver_injection_ceiling:\s*(\d+)", text, re.MULTILINE
+    )
+    if not match:
+        return _INJECTION_CEILING_DEFAULT
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return _INJECTION_CEILING_DEFAULT
+
+
+def compute_injection_families(cfg: "InitConfig", flagged: list[dict]) -> dict:
+    """Group lint_rule_overscope()'s flagged rules into glob families. Read-only.
+
+    A "family" is every flagged rule sharing the same matched_glob: any single
+    path read under that plan/backlog/lessons glob co-injects the whole family
+    into one context window, so the family's summed tokens (not any one rule's
+    own size) is the worst-case injection cost. Reuses the line counts and
+    approx_tokens lint_rule_overscope() already computed -- never re-derives
+    them, and never touches the filesystem itself.
+
+    Returns {"ceiling": int, "families": [...]} where each family dict is
+    {"glob": str, "rule_count": int, "total_lines": int, "total_tokens": int,
+    "over_ceiling": bool}, sorted by descending total_tokens (worst first).
+    An empty `flagged` list yields an empty `families` list -- the correct
+    zero-report on a narrow-rule-surface project.
+    """
+    ceiling = _read_injection_ceiling(cfg)
+    by_glob: dict[str, list[dict]] = {}
+    for item in flagged:
+        by_glob.setdefault(item["matched_glob"], []).append(item)
+
+    families = []
+    for glob, items in by_glob.items():
+        total_lines = sum(i["line_count"] for i in items)
+        total_tokens = sum(i["approx_tokens"] for i in items)
+        families.append({
+            "glob": glob,
+            "rule_count": len(items),
+            "total_lines": total_lines,
+            "total_tokens": total_tokens,
+            "over_ceiling": total_tokens > ceiling,
+        })
+    families.sort(key=lambda f: f["total_tokens"], reverse=True)
+    return {"ceiling": ceiling, "families": families}
 
 
 def sweep_stale_descoped_rules(cfg: "InitConfig") -> list[dict]:
