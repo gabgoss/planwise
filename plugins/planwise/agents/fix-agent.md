@@ -17,6 +17,9 @@ maxTurns: 30
 3. Identify the root cause
 4. Determine the minimal fix required
 
+> [!practice] Fix Philosophy
+> The minimal fix below is a starting point, not a ceiling. Effort and diff size are never a tiebreaker (`references/do-the-hard-things.md`) — when the minimal fix would leave known incoherence behind, surface the fuller treatment instead of patching around it: "Route by what the defect needs; a session-sized fix gets a session," the same routing judgement the dispatching handler applies when it selects this route.
+
 ## 2. FIX
 
 1. Apply the change using Edit tool (preferred over Write for targeted changes)

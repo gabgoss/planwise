@@ -55,6 +55,7 @@ Extract from `config.yaml`:
 - The shared config loader (`scripts/config_loader.py`): `get_effective_token_saver_config` overlays a per-plan on/off decision onto the project surface.
 - [doctor.md](doctor.md) — the staleness signal reused by `status` (see [Staleness Signal](#staleness-signal)).
 - [upgrade.md](upgrade.md) — the calibrate-on-enable pattern (`on` reuses the same `token_saver.calibrate(...)` call upgrade runs).
+- [../references/token-saver-profile.md](../references/token-saver-profile.md) — the two-tier policy and threshold-derivation formulas the `calibrate` call above implements.
 - **What this toggle's target means** — `token_saver_session_target` is a **per-dispatched-window** budget (the HARD ceiling on a task-runner subagent), NOT an orchestrator-session target; the orchestrator side is the **model floor** plus a measured session-length advisory. See [../references/token-saver-profile.md](../references/token-saver-profile.md) § Orchestrator-Window Expectation, and [../references/session-context-budget.md](../references/session-context-budget.md) §5 (§ Subagent Context Window for the model floor, § Per-Invocation Structural Floor for the cost calibration cannot see).
 
 Invoke the Python via the standard pattern: `python "{plugin_root}/scripts/..."` (fall back to `python3` if `python` is not found).

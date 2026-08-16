@@ -13,6 +13,8 @@
 
 ## Discovery Step 1: Gather Source Inventory
 
+**Required Reference:** cross-reference `references/verify-discovery-consolidation.md` before authoring Consolidated Context — treat every `file:line` citation and third-party SDK premise in a task brief as a starting hypothesis, verify it against live source before folding it into the output Part, and surface any false premise as a prominent correction rather than a silent fix.
+
 **CONFIRM block (per `references/scaffolding-hygiene.md` §1):**
 
 Before gathering source inventory, output the Discovery context confirmation:

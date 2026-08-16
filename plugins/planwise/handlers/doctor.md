@@ -2,6 +2,8 @@
 
 **Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
 
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+
 **Invocation examples:**
 ```
 /planwise doctor
@@ -200,6 +202,12 @@ remaining file is classified as one of:
   UTF-8), or the shipped reference is missing/unreadable (broken or partial
   install). Reported explicitly rather than silently skipped, and it never
   crashes the always-exit-0 doctor run.
+
+Every recommendation above routes the divergence through the documented
+resolution flow (`/planwise upgrade`, or the customization-relocation
+callout) rather than sidestepping it with a sidecar note — the Upgrade /
+doctor application of [do-the-hard-things.md](../references/do-the-hard-things.md)'s
+Stage Applications table.
 
 Print verbatim:
 
@@ -575,6 +583,8 @@ Run `token_saver.classify_file(path, model, projected_added_lines, thresholds)` 
 
 > [!constraint] read-Critical → paged-read/refactor, NOT `1M-exception`
 > Applies the read-vs-cost Critical distinction canonical in [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits (full WRONG/CORRECT box there — not restated here): a `read`-reason Critical is a mechanical Read failure, resolved by paging or refactor, never by routing to a larger window. Only a `cost`-reason Critical is `1M-exception`-eligible — see [`references/agent-orchestration-delegated.md §1.20`](../references/agent-orchestration-delegated.md) 1M-Exception Dispatch.
+
+A passing read-gate/cost-gate scan is a necessary signal, not a sufficient one — the general gate-discipline principle canonical in [`references/verification-gates.md`](../references/verification-gates.md) §1: clearing a mechanical check is not proof the plan is runtime-correct.
 
 ### Step 6: Read-constant drift tripwire
 

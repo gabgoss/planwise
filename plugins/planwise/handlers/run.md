@@ -55,6 +55,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a session is IPC/protocol/codec: Read `references/verification-gates.md`
 - If executing in DELEGATED mode (orchestrator dispatches task-runner subagents): Read `references/agent-orchestration-delegated.md`
 - If a session runs verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
+- If a task authors or modifies a content-bearing artifact (a rule, agent, skill, or handler): Read `references/artifact-self-containment.md` — content-bearing artifacts must inline content from their source rather than cite it; see Step 3.3's self-containment grep gate
 
 ---
 
@@ -338,8 +339,14 @@ After each task completes (DIRECT or DELEGATED, sequential):
    grep -nEi "if the probe|expect .* if|unless|otherwise|print rather than assert|if .* found" {session_dir}/*-Task-*.md
    ```
    (3) resolve each hit from the landed measurement and write the resolved branch in as a binding contract, with the evidence inline. Cheap, and it survives a session halt -- a routed branch sits in the downstream task file until the session resumes.
-6. **Session-length checkpoint** -- evaluate the configured thresholds now that Recovery is current, and on a trip recommend a session boundary. See [Step 3.5](#step-35-session-length-checkpoint). It observes and recommends; it never halts the loop on its own.
-7. **THEN** proceed to next task
+6. **Self-containment grep gate (BINDING when the task authored or modified a content-bearing artifact):** if the task's declared output touches a rule, agent, skill, or handler file, run the grep from [`references/artifact-self-containment.md` §4](../references/artifact-self-containment.md#4-mechanical-verification) on the produced files:
+   ```bash
+   grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' {task-output-artifact-paths}
+   # MUST return zero matches.
+   ```
+   If matches -- do NOT mark the task complete; re-dispatch the runner with the grep output requesting the cited content be inlined, or open a follow-up task. See [§4.1](../references/artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover) for the exempt zones. A task whose output touches ONLY bookkeeping artifacts skips this gate.
+7. **Session-length checkpoint** -- evaluate the configured thresholds now that Recovery is current, and on a trip recommend a session boundary. See [Step 3.5](#step-35-session-length-checkpoint). It observes and recommends; it never halts the loop on its own.
+8. **THEN** proceed to next task
 
 After a **parallel batch** of 3+ task-runners returns:
 

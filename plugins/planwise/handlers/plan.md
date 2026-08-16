@@ -69,6 +69,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 3. Read `references/session-context-budget.md`
 4. Read `references/session-execution-protocol.md` — source for session invariants
 5. Read `references/read-confirm-act-protocol.md` — source for READ-CONFIRM-ACT, the structural-findings gate, and the post-step checklist (cited in this handler's checklists)
+6. Read `references/context-loading-and-conservation.md` — source for the standard-plan-vs-Meta-Plan decision (Step 0: Detect Mode) and context-conservation tactics
 
 **Conditional references:**
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
@@ -78,6 +79,9 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan contains verification tasks (grep/awk match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
 - If planning a task with DB writes (SQL INSERT/UPDATE/MERGE): Read `references/schema-pin-requirement.md`
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
+- If a task's deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec): Read `references/verification-gates.md` before populating that task's Verification Commands (Step 8e)
+- If a task spec cites third-party SDK identifiers, type names, enum members, delegate shapes, framework presence, or destination file paths under scoped-rule triggers: Read `references/verify-against-shipped-artifact.md`
+- If the plan authors a task that creates or modifies a rule, agent, skill, handler, or CLAUDE.md callout (promoting lesson/backlog content): Read `references/artifact-self-containment.md`
 
 ---
 

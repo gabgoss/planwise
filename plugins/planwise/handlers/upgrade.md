@@ -2,6 +2,8 @@
 
 **Purpose:** Refresh installed plugin artifacts (rules in `.claude/rules/planwise/`) and bump the pinned `plugin_version:` in `config.yaml` after a plugin update.
 
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+
 ## Table of Contents
 
 - [Config Gate](#config-gate)
