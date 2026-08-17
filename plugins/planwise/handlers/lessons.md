@@ -273,6 +273,17 @@ grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' {generated-artifact-path}
 
 If grep returns matches, revise the artifact to inline the cited content and re-run the grep. Do NOT proceed to Stage 5 (Update Frontmatter) until the grep returns zero. The `applied-as:` and Rule Promotion Log entries written in Stage 5 and Stage 7 ARE permitted to carry the `LL-NNN` reference — those are bookkeeping artifacts whose purpose is traceability.
 
+**Native-tool promotion check (BINDING — do not skip):** Also check the artifact body for any instruction that tells an agent to run a shell command against files. If a native tool (`Read`/`Grep`/`Glob`/`Edit`) covers the same act, repoint the instruction to name the native tool call instead. A command counts as flagged only when it sits in command position — the thing an agent is told to run now, or a shell shape a template hands future agents to copy — not when the same word appears in ordinary prose or inside a legitimate pipeline. Exempt any command whose input is not a file tree (git output, a database, an interpreter, or the filesystem itself: `git`, `python`, `psql`, `yq`, `wc -l`, `mkdir`, `mv`) and any build/test/lint invocation — those are correct shell and must never be flagged.
+
+```bash
+grep -nE '\b(grep|cat|sed -n|find|cd)\b' {generated-artifact-path}
+# Inspect each hit in context: repoint it to the equivalent native tool call unless it
+# falls in an exempt class above, or the word appears in prose rather than as a command
+# an agent is told to run.
+```
+
+If a hit needs repointing, edit the artifact before proceeding to Stage 5.
+
 The artifact write itself may prompt for permission; if denied, record what was written and stop rather than retrying the write.
 
 ### Stage 5: Update Frontmatter

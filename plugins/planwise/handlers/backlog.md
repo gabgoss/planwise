@@ -277,15 +277,26 @@ For large-scope or architectural items:
    # MUST return zero matches.
    ```
 
-   If matches → mark VERIFY as failing, return the grep output to the fix-agent (Route A) or open a follow-up task (Route B) requesting the cited content be inlined. Do NOT proceed to step 3 with grep hits outstanding. A BB whose diff touches ONLY bookkeeping zones (lessons index, backlog index, lesson frontmatter, BB Notes) skips this gate. See [§4.1](../references/artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover) for the exempt zones.
+   If matches → mark VERIFY as failing, return the grep output to the fix-agent (Route A) or open a follow-up task (Route B) requesting the cited content be inlined. Do NOT proceed to step 4 with grep hits outstanding. A BB whose diff touches ONLY bookkeeping zones (lessons index, backlog index, lesson frontmatter, BB Notes) skips this gate. See [§4.1](../references/artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover) for the exempt zones.
+
+3. **Native-tool promotion check (BINDING when the diff touches content-bearing artifacts):** For the same changed files, check every instruction that tells an agent to run a shell command against files. If a native tool (`Read`/`Grep`/`Glob`/`Edit`) covers the same act, repoint the instruction to name the native tool call instead. A command counts as flagged only when it sits in command position — the thing an agent is told to run now, or a shell shape a template hands future agents to copy — not when the same word appears in ordinary prose or inside a legitimate pipeline. Exempt any command whose input is not a file tree (git output, a database, an interpreter, or the filesystem itself: `git`, `python`, `psql`, `yq`, `wc -l`, `mkdir`, `mv`) and any build/test/lint invocation — those are correct shell and must never be flagged.
+
+   ```bash
+   grep -nE '\b(grep|cat|sed -n|find|cd)\b' {changed-content-artifact-paths}
+   # Inspect each hit in context: repoint it to the equivalent native tool call unless it
+   # falls in an exempt class above, or the word appears in prose rather than as a command
+   # an agent is told to run.
+   ```
+
+   If a hit needs repointing, return it to the fix-agent (Route A) or open a follow-up task (Route B) requesting the shell command be repointed. Do NOT proceed to step 4 with unrepointed hits outstanding.
 
 <!-- AUTO-MODE: critical -->
-3. Use `AskUserQuestion`:
+4. Use `AskUserQuestion`:
    - **Approve** — Accept changes, mark COMPLETE
    - **Revert** — Discard changes, mark NOT_STARTED
    - **Skip** — Keep changes, don't update status
 
-4. If Revert:
+5. If Revert:
    ```bash
    git checkout -- {list of modified files}
    ```
