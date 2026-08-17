@@ -413,11 +413,13 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
    `config.yaml.build_commands` or project convention).
 3. **Emit** a `Verification Commands` section in the task file using the
    `templates/task-file.md` `> [!verify] Before / After Commands` block + Per-File-Type
-   Commands table — substitute every `{placeholder}` with a concrete shell invocation.
+   Commands table — substitute every `{placeholder}` with a concrete shell invocation for a
+   build, test, lint, or database check, or a named native tool call (`Read`, `Grep`, or
+   `Glob`) for a file-read or content-search check.
 4. **Ensure all three command types appear** (connectivity / pre-condition, lint or format,
-   exec or smoke test). A task missing one of these types is downgraded to a `> [!verify]`
-   block with a `<!-- NEEDS-COMMAND -->` comment so the gap is visible at review time, NOT
-   silently left blank.
+   exec or smoke test). A task missing one of these types uses the `<!-- NEEDS-COMMAND -->`
+   marker carried in the `> [!verify]` skeleton (`templates/task-file.md`) in place of that
+   type's command line, so the gap is visible at review time, NOT silently left blank.
 
 **Per-File-Type Command Map** (mirrors `templates/task-file.md` §Per-File-Type Commands):
 
@@ -441,8 +443,9 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
 > > **Before:** {cmd_before_1}
 > > **After:**  {cmd_after_1}
 > ```
-> CORRECT — placeholders resolved to explicit shell invocations from the per-file-type map,
-> covering all three command types (precheck + lint/format + exec):
+> CORRECT — placeholders resolved to explicit shell invocations (build/test/lint/DB checks) or
+> named native tool calls (file-read/search checks) from the per-file-type map, covering all
+> three command types (precheck + lint/format + exec):
 > ```markdown
 > ## Verification Commands
 > > [!verify] Before / After Commands

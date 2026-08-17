@@ -27,7 +27,7 @@ maxTurns: 50
 
 **Interpreter Discipline.** Your shell inherits no activated environment, no `PATH` modification, and no working-directory assumption from the orchestrator — a bare interpreter or tool name resolves to the platform default, not the project's. Before running any project tool:
 
-- Change to the project root.
+- Do not change directory — pass absolute paths, or `git -C {repo-path}` for git, so a bare tool name resolves against the paths given, not a changed working directory.
 - Use the explicit interpreter path your spawn prompt provides. If it did not provide one and the project declares an environment, ask for it rather than guessing — a bare invocation that fails looks identical to a capability the environment lacks.
 - Run the environment's own tools (interpreter, linter, notebook executor, test runner), not the platform's.
 

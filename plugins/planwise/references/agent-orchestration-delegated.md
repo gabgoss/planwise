@@ -852,7 +852,7 @@ Capability inverts here: a more capable runner reaches for a more elaborate reme
 
 ## 1.26 The Ownership Window — Orchestrator Verification Is Read-Only
 
-A file named in a task's `Output:` line is **owned by that runner** from the moment of dispatch until the runner reports and the orchestrator accepts. Inside that window the orchestrator's verification toolkit is `Read`, `Grep`, `git status`, `git diff` — and nothing else.
+A file named in a task's `Output:` line is **owned by that runner** from the moment of dispatch until the runner reports and the orchestrator accepts. Inside that window the orchestrator's verification toolkit is `Read`, `Grep`, `git status`, `git diff`, and non-mutating measurement commands (`wc -l`, `wc -c`, checksum) — nothing that writes.
 
 **Executing an artifact is a WRITE.** So are `{formatter}`, an in-place `{notebook-executor}`, an output-clear, and most build and lint commands. They *feel* like inspection because they answer a question; they answer it by rewriting the file. Running one against a file another agent is actively writing produces a two-writer measurement — and a two-writer measurement is indistinguishable from a settled one, because it yields a number, not an error.
 
@@ -875,7 +875,7 @@ Highest-risk shapes: notebooks and any artifact where **execution is the verific
 > ```
 > CORRECT — read the landed state, or delegate the mutating check to the owner:
 > ```
-> orchestrator → Read / Grep / git status / git diff {artifact}          # read-only
+> orchestrator → Read / Grep / git status / git diff / wc -l {artifact}   # read-only
 > orchestrator → SendMessage(owner, "re-run {cmd} on {artifact}; report the result")
 > orchestrator → re-measure only after the runner reports and the file has settled
 > ```
@@ -890,7 +890,9 @@ When the project declares an isolated environment, **every** DELEGATED spawn pro
 
 ```markdown
 ## ENVIRONMENT DISCIPLINE
-Change to the project root first. Use these paths — a bare tool name resolves to the
+Do not change directory — pass absolute paths, or `git -C {repo-path}` for
+git, so a bare tool name resolves against the paths given, not a changed
+working directory. Use these paths — a bare tool name resolves to the
 platform default, not this project's environment:
   interpreter:  {env-interpreter-path}
   linter:       {env-linter-path}

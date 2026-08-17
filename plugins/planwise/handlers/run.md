@@ -281,7 +281,9 @@ Task(
 
     (If the project declares an isolated environment, add:)
     ## ENVIRONMENT DISCIPLINE
-    Change to the project root first. Use these paths — a bare tool name
+    Do not change directory — pass absolute paths, or `git -C {repo-path}`
+    for git, so a bare tool name resolves against the paths given, not a
+    changed working directory. Use these paths — a bare tool name
     resolves to the platform default, not this project's environment:
       interpreter:  {env-interpreter-path}
       linter:       {env-linter-path}

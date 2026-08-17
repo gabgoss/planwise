@@ -155,14 +155,17 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > **Before:**
 > ```
 > {cmd_before_1}   # e.g., {lint-cmd} on changed files
-> {cmd_before_2}   # e.g., grep current row count
+> {cmd_before_2}   # e.g., wc -l on the edited file
 > ```
 > **After:**
 > ```
 > {cmd_after_1}    # e.g., {lint-cmd} on changed files (expect: pass)
 > {cmd_after_2}    # e.g., {test-cmd} or specific test
-> {cmd_after_3}    # e.g., grep updated row count
+> {cmd_after_3}    # e.g., {test-cmd} on the touched module
 > ```
+> If one of the three command types (connectivity/precondition, lint/format, exec/smoke)
+> does not apply to this task, replace that type's `{cmd_after_N}` line above with
+> `<!-- NEEDS-COMMAND -->` so the gap stays visible at review time — never leave the line blank.
 
 ### Per-File-Type Commands
 
