@@ -4,6 +4,7 @@ description: >
   Applies targeted code fixes for backlog items. Reads the issue description,
   applies the fix, runs build and test verification, and reports results.
   Use when routing backlog items to direct fix (Route A) via /planwise backlog.
+tools: Read, Write, Edit, Glob, Grep, Bash, SendMessage, ToolSearch
 model: sonnet
 maxTurns: 30
 ---

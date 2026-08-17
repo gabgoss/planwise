@@ -9,6 +9,9 @@ description: >
   real unique content from reflow / reword / reorder that a line-diff
   false-positives. Spawn one per diverged file during interactive
   /planwise upgrade fan-out.
+# Glob intentionally omitted: installed_path/shipped_path arrive as exact paths
+# in the spawn prompt (see Inputs below); this agent compares exactly one named
+# pair and must not walk the tree, so it never needs directory search.
 tools: Read, Grep, SendMessage, ToolSearch
 model: sonnet
 maxTurns: 12

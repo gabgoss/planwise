@@ -4,6 +4,7 @@ description: >
   Executes individual planned tasks during session execution. Reads task files,
   loads required context, runs execution steps, writes output files, and updates
   recovery state. Use when delegating task execution in /planwise run DELEGATED mode.
+tools: Read, Write, Edit, Glob, Grep, Bash, SendMessage, ToolSearch
 model: inherit
 maxTurns: 50
 ---

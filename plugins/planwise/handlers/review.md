@@ -16,6 +16,7 @@
 - [Config Gate](#config-gate-auto-init-fallback)
 - [Phase 0: Plan Discovery](#phase-0-plan-discovery)
 - [Scale Detection](#scale-detection)
+- [Measurement Phase: The Review Discovery Fact Sheet](#measurement-phase-the-review-discovery-fact-sheet)
 - [No-Team Path (Trivial / Small)](#no-team-path-trivial--small)
 - [Team Path (Medium / Large / Very Large)](#team-path-medium--large--very-large)
 - [Reviewer Prompt Template](#reviewer-prompt-template)
@@ -102,6 +103,46 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 ---
 
+## Measurement Phase: The Review Discovery Fact Sheet
+
+Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. One agent, one pass; the sheet it writes is then cited by every reviewer in the review.
+
+1. Bind `{FactSheetPath}` = `{PlanPath}/Reviews/{Abbrev}-Discovery-{YYYY-MM-DD}.md`. Create `{PlanPath}/Reviews/` if it does not exist.
+
+2. Spawn the discovery pass and WAIT for it to return before continuing:
+
+```
+Task(
+  subagent_type: "planwise:review-discovery",
+  description: "Review discovery for {Abbrev}",
+  prompt: |
+    You are the measurement pass for the review of plan {Abbrev}.
+
+    plan_path: {PlanPath absolute path}
+    abbrev: {Abbrev}
+    plan_type: {Standard | Meta-Plan}
+    fact_sheet_path: {FactSheetPath absolute path}
+
+    Execute your discovery protocol and write the review discovery fact sheet
+    to fact_sheet_path. Measure every file; report anything you could not
+    measure rather than estimating it.
+)
+```
+
+3. Confirm the sheet exists at `{FactSheetPath}`. If the pass returned without writing it, re-spawn once; if it fails again, continue the review with `{FactSheetPath}` recorded as **unavailable** and say so in the report — reviewers then measure their own counts and state that they did.
+
+4. Pass `{FactSheetPath}` into every reviewer spawn prompt (see [Reviewer Prompt Template](#reviewer-prompt-template) element 8).
+
+> [!practice] Measure once, cite everywhere
+> A fan-out of four to six reviewers over one sprint otherwise has each reviewer independently enumerate the same files and re-derive the same counts, and nothing shares the result. Measuring once ahead of the fan-out is the standard route for a line count in a review: the count is produced by an agent whose job is measurement, and each reviewer's finding cites the row rather than re-deriving it.
+
+> [!constraint] The sheet is the evidence source, not a substitute for measuring
+> A reviewer's line-count finding cites the review discovery fact sheet's row for that file. If a reviewer's own reading contradicts the sheet, it MUST re-measure and say explicitly that it re-measured — a differing number offered without that statement is a silent override, and a number simply copied from the sheet when the reviewer knows it is wrong is a silent deference. Both are findings-level errors.
+>
+> Neither branch weakens the standard the count itself must meet: the number is a measured `wc -l`, never the last line number of a `Read` output (`references/measurement-discipline.md` §8.1). A reviewer that cannot run the measurement itself reports the contradiction to the lead — naming the sheet row and the conflicting observation — and the lead re-measures. It does not silently substitute an unmeasured number.
+
+---
+
 ## No-Team Path (Trivial / Small)
 
 For plans with 0-1 EIs and 1-2 sprints, use sequential subagent spawns with no team overhead.
@@ -119,6 +160,10 @@ Task(
 
     Plan type: {Standard | Meta-Plan}
     Plan path: {PlanPath absolute path}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Read the plan files and check every item in your structural review protocol.
 
@@ -149,6 +194,10 @@ Task(
     EI files: {list of EI file paths}
     Task files: {list of task file paths}
     Orchestration files: {list of orchestration file paths}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Global numbering note: Spec numbers are assigned globally across all sprints.
     Non-sequential numbers within a single EI are expected, not errors.
@@ -203,6 +252,10 @@ Task(
     Plan type: {Standard | Meta-Plan}
     Plan path: {PlanPath absolute path}
     All plan file paths: {list every file path in the plan}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Read the plan files and check every item in your structural review protocol.
 
@@ -255,6 +308,10 @@ Task(
     Plan path: {PlanPath absolute path}
     EI files to review: {assigned EI file paths}
     ALL spec/source files: {all spec output paths -- full visibility required}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Global numbering note: Spec numbers are assigned globally across all sprints.
     Non-sequential numbers within a single EI are expected, not errors.
@@ -290,6 +347,10 @@ Task(
     Task files: {list of task file paths}
     EI files (for reference): {list of EI file paths}
     Orchestration files: {list of orchestration file paths}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Execute the Task Reviewer checklist from your protocol.
 
@@ -314,6 +375,10 @@ Task(
     Plan path: {PlanPath absolute path}
     Task files: {list of task file paths}
     Orchestration files: {list of orchestration file paths}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Execute the Dependency Reviewer checklist from your protocol.
 
@@ -339,6 +404,10 @@ Task(
     Master Plan: {master plan file path}
     Task files: {list of task file paths}
     Sprint plans: {list of sprint plan file paths}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Execute the Coverage Reviewer checklist from your protocol.
 
@@ -469,7 +538,7 @@ Task(
 
 ## Reviewer Prompt Template
 
-Every reviewer spawn prompt MUST include these seven elements:
+Every reviewer spawn prompt MUST include these eight elements:
 
 1. **Plan context:** abbreviation, type (Standard / Meta-Plan), global numbering scheme note
 2. **Scope:** explicit file paths to read (never assume inherited context)
@@ -486,6 +555,7 @@ Every reviewer spawn prompt MUST include these seven elements:
 5. **Uncertainty protocol:** flag `[UNCERTAIN]` for MEDIUM or LOW confidence; check Known Patterns Whitelist first before flagging
 6. **Completion signal:** "Phase {N} complete, {M} findings reported"
 7. **Tool pre-load (BINDING for team-mode spawns):** the first instruction line in the spawn prompt MUST be `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` `SendMessage` is a deferred tool; without the schema loaded, the reviewer's findings cannot be delivered. The reviewer's agent definition already carries this rule in its own `## Startup` section — the spawn-prompt instruction is the belt-and-braces gate.
+8. **Fact-sheet path (BINDING for every spawn, both paths):** the prompt MUST carry `Review discovery fact sheet: {FactSheetPath absolute path}` alongside the scope paths, with the consumption instruction — cite the row for any count reported; re-measure explicitly, and say so, when the reviewer's own reading contradicts it. Reviewers do not inherit the lead's context, so a reviewer that is not handed the path measures nothing and cites nothing, and the phase becomes a cost with no consumer. If the discovery pass failed and no sheet exists, pass `Review discovery fact sheet: unavailable` explicitly rather than omitting the line.
 
 > [!constraint] Spawn prompts MUST front-load the SendMessage schema load
 > WRONG — spawn prompt opens with `You are reviewing plan {Abbrev} ...` and the reviewer attempts `SendMessage(finding)` after its first read. The deferred-tool schema was never fetched; the call raises `InputValidationError` and the entire review (40-70K tokens of work for an EI reviewer) is silently lost — the lead never receives a "Phase complete" DM.

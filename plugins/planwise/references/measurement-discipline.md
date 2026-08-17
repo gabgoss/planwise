@@ -16,7 +16,7 @@ paths: {planwise_root}/{plans_dir}/**
 ### 8.1 Line-count measurements MUST use `wc -l`, not Read-output line numbers
 
 > [!constraint] Use `wc -l` for any file line-count finding — never the last line number from a Read
-> A file's line count for a review finding MUST come from `Bash` running `wc -l <path>` against the actual file. Do NOT treat the last line number observed in a `Read` tool output as the file's length: `Read` may paginate (default cap ~2000 lines), or the reviewer may stop early to manage budget, and a partial read always produces a number structurally smaller than the true count.
+> A file's line count for a review finding MUST come from `Bash` running `wc -l <path>` against the actual file. Do NOT treat the last line number observed in a `Read` tool output as the file's length: `Read` may paginate (default cap ~2000 lines), or the reviewer may stop early to manage budget, and a partial read always produces a number structurally smaller than the true count. `wc -l` also counts newline *characters*, so a file with no trailing newline reports one fewer than the visible last line number — a second, independent reason the two measurements can disagree.
 >
 > WRONG — reviewer Read partway through the file; the last visible line was {N_partial}; reported the file as {N_partial} lines:
 > ```
@@ -39,21 +39,22 @@ paths: {planwise_root}/{plans_dir}/**
 > 3. Accepting it directs fix-work that was never needed (false rework).
 > 4. Every file ends in `\n` and partial reads always produce a smaller number than `wc -l`, so the error is systematically biased toward "overstated."
 >
-> This rule also governs the line-count input to the `task-content-fidelity.md` §9.A.3 per-file-type token rate bands: the `Est. Lines` value fed to a band MUST come from `wc -l`, not from a Read-output last line number. Read-output line numbers are decorative, not authoritative.
+> This rule also governs the line-count input to the `task-content-fidelity.md` §9.A.3 per-file-type token rate bands: the `Est. Lines` value fed to a band MUST come from `wc -l`, not from a Read-output last line number. For a whole-file **count**, a Read-output last line number is not authoritative — it reflects how much was read, not how long the file is. This bounds the count only: `Read` remains the correct way to view a file, and its line numbers remain valid for citing a location or setting an `offset`.
 
 #### Reviewer Check 069 — File Line-Count Finding Requires `wc -l`
 
 - **Severity / Role / Type:** ERROR | Task Reviewer | NEW
-- **What:** Any reviewer finding that claims a file's line count is overstated or understated MUST be backed by a `wc -l` measurement, NOT by the last line number observed in a `Read` tool output. A finding citing a Read-output line number as its evidence is a false-positive candidate — `Read` paginates and partial reads always produce a number smaller than the true count.
+- **What:** Any reviewer finding that claims a file's line count is overstated or understated MUST cite a measured `wc -l` count and name where it came from — ordinarily the review discovery fact sheet, produced once ahead of the reviewer fan-out by a discovery pass that holds `Bash` — NOT the last line number observed in a `Read` tool output. A finding whose count contradicts the review discovery fact sheet MAY re-measure directly, but MUST say so explicitly rather than silently overriding or silently deferring to it. A finding citing a Read-output line number as its evidence, with no `wc -l` source named, is a false-positive candidate — `Read` paginates and partial reads always produce a number smaller than the true count.
 - **Detection:**
-  1. For each line-count finding in the reviewer's own draft output, verify the evidence method: was `Bash wc -l <path>` run? If the evidence is "Read output showed last line N" or "file appears to be N lines" without a `wc -l` invocation → ERROR (promote to FALSE POSITIVE candidate, discard with note).
-  2. Applies to any plan check that compares a task's `Required Context` `Est. Lines` value against the cited file's actual length.
+  1. For each line-count finding in the reviewer's own draft output, verify the evidence method: does it cite a measured `wc -l` count and name its source — the review discovery fact sheet, or an explicit re-measurement note when the finding contradicts the sheet? If the evidence is "Read output showed last line N" or "file appears to be N lines" with no named `wc -l` source → ERROR (promote to FALSE POSITIVE candidate, discard with note).
+  2. If the finding's count differs from the review discovery fact sheet's row for that file, confirm the finding states the re-measurement explicitly. A differing count with no such statement → ERROR (silent override, not an explicit re-measurement).
+  3. Applies to any plan check that compares a task's `Required Context` `Est. Lines` value against the cited file's actual length.
 - **Finding template:**
 ```
-[ERROR] Line-count finding sourced from Read output, not wc -l
+[ERROR] Line-count finding sourced from Read output, not a measured wc -l
 File: {reviewed file path} | Location: {task Required Context row / reviewer draft finding}
-Issue: Claimed line count {N} derived from last Read-output line, not wc -l — false positive candidate
-Fix: Run `wc -l {file_path}` and compare against the plan's declared value before promoting the finding | Confidence: HIGH
+Issue: Claimed line count {N} derived from last Read-output line, not a wc -l count cited from the review discovery fact sheet (or an explicit re-measurement) — false positive candidate
+Fix: Cite the review discovery fact sheet's wc -l count for {file_path}, or re-measure with `wc -l {file_path}` and say so explicitly, before promoting the finding | Confidence: HIGH
 ```
 
 ### 8.2 A broad verification gate is authoritative over an audit's enumerated file list
