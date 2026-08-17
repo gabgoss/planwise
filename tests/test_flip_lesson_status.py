@@ -54,6 +54,20 @@ class FlipLessonStatusTestCase(unittest.TestCase):
         path.write_text(content, encoding="utf-8")
         return path
 
+    def _write_bytes(self, name: str, content: bytes) -> Path:
+        """Write a fixture byte-for-byte, bypassing newline translation.
+
+        `_write` above goes through `Path.write_text`, whose default
+        `newline=None` translates every "\\n" to the running platform's
+        `os.linesep`. That makes a fixture's line endings match the platform
+        by construction — so a bug that rewrites the file's line endings to
+        `os.linesep` is invisible to any test built with `_write`, on every
+        platform. Line-ending tests MUST use this helper instead.
+        """
+        path = self.tmp_path / name
+        path.write_bytes(content)
+        return path
+
     def _run_main(self, argv: list[str]):
         """Invoke main() with an injected sys.argv, capturing stdout."""
         old_argv = sys.argv
@@ -233,6 +247,162 @@ class TestMapFileParseErrors(FlipLessonStatusTestCase):
         self.assertIn(str(map_file), message)
         self.assertIn(":1:", message)
         self.assertIn("expected 'LL-NNN: status'", message)
+
+
+class TestLineEndingsPreserved(FlipLessonStatusTestCase):
+    """Case 8: the flip must not translate the index's line endings.
+
+    Reading with `Path.read_text` and writing with `Path.write_text` round-trips
+    through Python's universal-newline translation, rewriting EVERY line to the
+    running platform's `os.linesep`. A one-cell flip then produces a whole-file
+    diff — including on the rows the refusal guards just declined to touch,
+    which is precisely the audit trail this script exists to protect.
+
+    Both directions are asserted because each fails on only one platform: the
+    LF case fails on Windows (`os.linesep == "\\r\\n"`), the CRLF case fails on
+    POSIX. Together the pair catches the regression wherever the suite runs.
+    """
+
+    LF_INDEX = (
+        b"# Lessons Learned Index\n\n"
+        b"| LL-020 | Target lesson | documented |\n"
+        b"| LL-021 | Bystander lesson | rule |\n"
+    )
+    CRLF_INDEX = LF_INDEX.replace(b"\n", b"\r\n")
+
+    def test_lf_index_stays_lf_and_only_the_status_word_changes(self):
+        index = self._write_bytes("index.md", self.LF_INDEX)
+        map_file = self._write("map.txt", "LL-020: promoted\n")
+
+        code, _ = self._run_main([str(index), str(map_file)])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            index.read_bytes(),
+            self.LF_INDEX.replace(b"| documented |", b"| promoted |"),
+            "an LF index must stay byte-identical apart from the flipped word",
+        )
+
+    def test_crlf_index_stays_crlf_and_only_the_status_word_changes(self):
+        index = self._write_bytes("index.md", self.CRLF_INDEX)
+        map_file = self._write("map.txt", "LL-020: promoted\n")
+
+        code, _ = self._run_main([str(index), str(map_file)])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            index.read_bytes(),
+            self.CRLF_INDEX.replace(b"| documented |", b"| promoted |"),
+            "a CRLF index must stay byte-identical apart from the flipped word",
+        )
+
+    def test_untouched_rows_are_byte_identical_after_a_flip(self):
+        """The bystander row carries a landed status the run never targets;
+        it must come back byte-for-byte, newline included."""
+        index = self._write_bytes("index.md", self.LF_INDEX)
+        map_file = self._write("map.txt", "LL-020: promoted\n")
+
+        self._run_main([str(index), str(map_file)])
+
+        self.assertIn(b"| LL-021 | Bystander lesson | rule |\n", index.read_bytes())
+
+
+class TestUnknownFlagRefused(FlipLessonStatusTestCase):
+    """Case 9: a misspelled safety flag must abort, never silently write.
+
+    `--dry-run` is this script's only rail. The argument split discards every
+    `--`-prefixed token before counting positionals, so an unrecognized flag
+    used to leave the positional count valid AND `dry_run` False — turning a
+    requested preview into an unrequested write, reported as `changed: N`.
+    """
+
+    def test_misspelled_dry_run_aborts_without_writing(self):
+        index = self._write_bytes(
+            "index.md", b"| LL-030 | A lesson | documented |\n"
+        )
+        map_file = self._write("map.txt", "LL-030: promoted\n")
+        before = index.read_bytes()
+
+        with self.assertRaises(SystemExit) as ctx:
+            self._run_main([str(index), str(map_file), "--dryrun"])
+
+        self.assertIn("--dryrun", str(ctx.exception))
+        self.assertIn("unknown option", str(ctx.exception))
+        self.assertEqual(index.read_bytes(), before, "nothing may be written")
+
+    def test_correctly_spelled_dry_run_still_works(self):
+        """Guard the fix's own blast radius: the real flag must keep working."""
+        index = self._write_bytes(
+            "index.md", b"| LL-031 | A lesson | documented |\n"
+        )
+        map_file = self._write("map.txt", "LL-031: promoted\n")
+        before = index.read_bytes()
+
+        code, out = self._run_main([str(index), str(map_file), "--dry-run"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("would change: 1", out)
+        self.assertEqual(index.read_bytes(), before)
+
+
+class TestDuplicateIdRefused(FlipLessonStatusTestCase):
+    """Case 10: an id carried by two rows is refused, not flipped twice.
+
+    A duplicate lesson id means the index is already corrupt. Flipping every
+    copy "succeeded" with exit 0, burying the corruption under a clean run.
+    """
+
+    def test_duplicate_rows_are_refused_and_left_untouched(self):
+        index = self._write_bytes(
+            "index.md",
+            b"| LL-040 | First copy | documented |\n"
+            b"| LL-040 | Second copy | documented |\n",
+        )
+        map_file = self._write("map.txt", "LL-040: promoted\n")
+        before = index.read_bytes()
+
+        code, out = self._run_main([str(index), str(map_file)])
+
+        self.assertEqual(code, 1)
+        self.assertIn("REFUSED", out)
+        self.assertIn("2 rows share this id", out)
+        self.assertEqual(index.read_bytes(), before)
+
+
+class TestStatusCellFormattingPreserved(FlipLessonStatusTestCase):
+    """Case 11: the splice replaces the status WORD, not the whole cell.
+
+    The row regex tolerates `**bold**` markers, so an index that bolds its
+    Status column parses fine — but rebuilding the cell as a fixed
+    `"| {want} |"` silently dropped the bold and any custom padding, leaving
+    flipped rows formatted differently from every untouched one.
+    """
+
+    def test_bold_markers_survive_the_flip(self):
+        index = self._write_bytes(
+            "index.md", b"| LL-050 | A lesson | **documented** |\n"
+        )
+        map_file = self._write("map.txt", "LL-050: promoted\n")
+
+        code, _ = self._run_main([str(index), str(map_file)])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            index.read_bytes(), b"| LL-050 | A lesson | **promoted** |\n"
+        )
+
+    def test_cell_padding_survives_the_flip(self):
+        index = self._write_bytes(
+            "index.md", b"| LL-051 | A lesson |   documented   |\n"
+        )
+        map_file = self._write("map.txt", "LL-051: promoted\n")
+
+        code, _ = self._run_main([str(index), str(map_file)])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            index.read_bytes(), b"| LL-051 | A lesson |   promoted   |\n"
+        )
 
 
 if __name__ == "__main__":

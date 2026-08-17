@@ -15,10 +15,26 @@ The load-bearing property is NOT the rewrite. It is the REFUSALS:
     stale map wants to un-land is a caller bug, and silently obeying it destroys the
     audit trail the Rule Promotion Log depends on;
   * a mapped id with no row, or a row with no parseable Status cell, is reported
-    rather than skipped in silence.
+    rather than skipped in silence;
+  * an id carried by MORE THAN ONE row is refused outright — a duplicate lesson id
+    means the index is already corrupt, and flipping every copy would bury the
+    corruption under a clean-looking exit 0.
 
 Every decision is printed. A run that changes nothing prints why for each id, so the
 operator can tell "already correct" apart from "never matched".
+
+Two write-discipline guarantees make the diff auditable, because the audit trail is
+the whole point of the refusals above:
+
+  * **Only the status WORD is rewritten.** The surrounding cell is spliced back
+    byte-for-byte, so padding, bold markers and any trailing carriage return on that
+    line survive untouched.
+  * **Line endings are never translated.** Reading and writing through
+    ``reconcile_common``'s newline-preserving pair keeps a CRLF file CRLF and an LF
+    file LF. A plain ``read_text``/``write_text`` pair round-trips through Python's
+    universal-newline translation and rewrites EVERY line to the running platform's
+    ``os.linesep`` — turning a one-cell flip into a whole-file diff on the very rows
+    the refusals just declined to touch.
 
 Usage:
     flip_lesson_status.py INDEX_FILE MAP_FILE [--dry-run]
@@ -38,6 +54,16 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+
+# Sibling-module import. The newline-preserving read/write pair is the shared
+# destructive-write discipline (see reconcile_common's module docstring); it is
+# defined once there and reused by every script that rewrites a user's index in
+# place, rather than re-derived per script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from reconcile_common import (  # noqa: E402
+    read_text_preserving_newlines,
+    write_text_preserving_newlines,
+)
 
 VALID = ("documented", "promoted", "rule", "applied")
 LANDED = ("rule", "applied")
@@ -64,13 +90,32 @@ def parse_map(path: Path) -> dict[str, str]:
 
 
 def main() -> int:
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    dry_run = "--dry-run" in sys.argv[1:]
+    argv = sys.argv[1:]
+    flags = [a for a in argv if a.startswith("--")]
+    # An unrecognized flag must never be swallowed: this script's only safety
+    # rail is --dry-run, and silently ignoring a misspelled one ("--dryrun")
+    # turns a requested preview into an unrequested write.
+    unknown = [f for f in flags if f != "--dry-run"]
+    if unknown:
+        raise SystemExit(
+            f"unknown option(s): {', '.join(unknown)} — the only supported flag "
+            f"is --dry-run\n{__doc__}"
+        )
+    args = [a for a in argv if not a.startswith("--")]
+    dry_run = "--dry-run" in flags
     if len(args) != 2:
         raise SystemExit(__doc__)
 
     index, target = Path(args[0]), parse_map(Path(args[1]))
-    lines = index.read_text(encoding="utf-8").split("\n")
+    lines = read_text_preserving_newlines(index).split("\n")
+
+    # Pre-pass: an id carried by more than one row makes every later decision
+    # about that id ambiguous, so count the rows before deciding anything.
+    row_counts: dict[str, int] = {}
+    for line in lines:
+        m = ROW_RE.match(line)
+        if m:
+            row_counts[m.group(1)] = row_counts.get(m.group(1), 0) + 1
 
     changed: list[tuple[str, str, str]] = []
     skipped: list[tuple[str, str]] = []
@@ -81,7 +126,18 @@ def main() -> int:
         if not m or m.group(1) not in target:
             continue
         lid = m.group(1)
+        if lid not in unseen:
+            continue  # already decided on this id's first row
         unseen.discard(lid)
+        if row_counts[lid] > 1:
+            skipped.append(
+                (
+                    lid,
+                    f"REFUSED: {row_counts[lid]} rows share this id — "
+                    "resolve the duplicate by hand",
+                )
+            )
+            continue
         tail = TAIL_RE.search(line)
         if not tail:
             skipped.append((lid, "row has no parseable Status cell — check by hand"))
@@ -93,11 +149,14 @@ def main() -> int:
         if current in LANDED and want not in LANDED:
             skipped.append((lid, f"REFUSED: will not downgrade landed {current!r} -> {want!r}"))
             continue
-        lines[i] = line[: tail.start()] + f"| {want} |"
+        # Splice ONLY the status word; everything around it — cell padding,
+        # bold markers, and any trailing "\r" this line carries — is copied
+        # back verbatim, so an untouched byte stays an untouched byte.
+        lines[i] = line[: tail.start(1)] + want + line[tail.end(1) :]
         changed.append((lid, current, want))
 
     if not dry_run and changed:
-        index.write_text("\n".join(lines), encoding="utf-8")
+        write_text_preserving_newlines(index, "\n".join(lines))
 
     print(f"{'would change' if dry_run else 'changed'}: {len(changed)}")
     for lid, a, b in changed:
