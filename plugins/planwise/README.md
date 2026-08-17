@@ -125,12 +125,15 @@ flowchart LR
 /planwise review
 ```
 
-This sends your plan through a two-phase AI review:
+This sends your plan through a three-stage AI review:
 
-1. **Structural review** — checks that files are named correctly, links aren't broken, and the plan hierarchy makes sense
-2. **Content review** — checks task quality, token estimates, dependencies, and success criteria
+1. **Measurement pass** — one agent walks the plan tree before any reviewer starts and writes a *review discovery fact sheet* to `Reviews/{Abbrev}-Discovery-{date}.md`: a measured line and byte count for every plan file, a map of its headings, and the declared values the reviewer checks compare against (token estimates, dependencies, Required Context rows). It runs once, so the whole reviewer fan-out cites one measured number instead of each reviewer re-deriving its own.
+2. **Structural review** — checks that files are named correctly, links aren't broken, and the plan hierarchy makes sense
+3. **Content review** — checks task quality, token estimates, dependencies, and success criteria
 
-You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict.
+You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict, written alongside the fact sheet in `Reviews/{Abbrev}-Review-{date}.md`.
+
+> **Why the measurement pass?** Every count a reviewer reports has to come from a real measurement, and a fan-out of four to six reviewers would otherwise measure the same files over and over. Measuring once up front makes the numbers in your report consistent — and a reviewer whose own reading contradicts the sheet has to re-measure and say so, rather than quietly substituting a different number.
 
 > **Why review?** Catching problems in a plan is much cheaper than catching them mid-execution. Think of it like proofreading before you hit send.
 
@@ -138,7 +141,7 @@ You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict.
 
 ```mermaid
 flowchart LR
-    A([Run command]) --> B[AI checks<br/>structure] --> C[AI checks<br/>content] --> D([Get verdict])
+    A([Run command]) --> B[Measure the<br/>plan tree] --> C[AI checks<br/>structure] --> D[AI checks<br/>content] --> E([Get verdict])
 ```
 
 ---
@@ -241,6 +244,8 @@ flowchart LR
 ```
 /planwise lessons promote LL-003
 ```
+
+Promotion lints what it generates before finalising it: content the new rule/skill/hook/agent cites instead of inlining is pulled in, and any instruction telling an agent to shell out for something a dedicated file tool already covers is repointed to that tool. The artifact that lands stands on its own.
 
 **Curate lessons — categorise new ones and track promotions:**
 ```
@@ -492,10 +497,11 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses six specialized AI agents behind the scenes:
+planwise uses seven specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
+| **review-discovery** | Measures the plan tree once at the start of a review — line and byte counts, heading map, and the check anchors every reviewer then cites |
 | **structural-reviewer** | Validates plan file structure, naming, and cross-references |
 | **plan-reviewer** | Deep content review — task specs, estimates, dependencies |
 | **task-runner** | Executes individual tasks during plan runs |
@@ -527,7 +533,7 @@ planwise/                           # Plugin root
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 12 subcommand handlers across 15 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
-  agents/                           # 6 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
+  agents/                           # 7 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init

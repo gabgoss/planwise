@@ -1,5 +1,5 @@
 ---
-description: Error Pattern Catalog for /planwise review -- the 105-row quick-reference table of common plan-authoring defects and their severity classification, plus the mechanical DELEGATED-trigger-named check. Row numbers are cited externally and MUST NOT be renumbered.
+description: Error Pattern Catalog for /planwise review -- the quick-reference table of common plan-authoring defects and their severity classification, plus the mechanical DELEGATED-trigger-named check. Row numbers are cited externally and MUST NOT be renumbered.
 ---
 
 # Error Pattern Catalog

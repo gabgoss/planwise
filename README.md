@@ -169,6 +169,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
 | `/planwise harvest` | Run the lesson-to-artifact chain end to end, unattended |
+| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream |
 | `/planwise help` | Show available commands and link to user guide |
 
 ---

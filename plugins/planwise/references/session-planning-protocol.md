@@ -32,7 +32,8 @@ description: Plan hierarchy, naming conventions, agent delegation, recovery prot
 - [scaffolding-hygiene.md](scaffolding-hygiene.md) — Scaffolding hygiene rules: §1-§7 six foundational rules (Meta-Plan source detection, folder naming, abbreviation validation, sprint status defaults, Outputs/ creation, sequential-sprint prerequisites), §8 Parallel-Scaffold Deviation Classes, §9 Multi-Shape Integration Plan-Sizing Expansion Ratio, §10 Pre-Allocate Tokens for Known High-Divergence Cohorts
 - [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) — Discovery scope rigor and cross-layer enforcement: count by execution, persist IDs, binding-refinement echo, enforceable-surface checks, verbatim-quote exit criteria, design-extension traceability, cross-tier audit triage
 - [ei-fidelity.md](ei-fidelity.md) — Execution Input fidelity: EI-as-archival transform, severity vocabulary, threshold alignment, UNCONFIRMED caveat enforcement, cross-tier preservation, citation propagation, token reconciliation gate
-- [task-content-fidelity.md](task-content-fidelity.md) — Task file content fidelity: Required Context freshness, no `~?` placeholders, token rate bands, verify-before-cite discipline (14 rules including Schema Pin, env vars, Field Mapping)
+- [task-content-fidelity.md](task-content-fidelity.md) — Task file content fidelity (§9.A): Required Context freshness, no `~?` placeholders, token rate bands, generator-cited inputs for large file sets, the Token Saver large-file ladder, count re-derivation and enumeration sweeps
+- [verify-before-cite.md](verify-before-cite.md) — Verify-before-cite discipline (§9.B): cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / pre-SQL verification
 - [schema-pin-requirement.md](schema-pin-requirement.md) — Schema Pin requirement: pin construction recipe, pin format template, plan-review enforcement
 
 ---

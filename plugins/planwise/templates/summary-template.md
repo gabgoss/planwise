@@ -118,7 +118,7 @@ The `Propagated To` column MUST name the destination file (task / orchestration 
 
 ---
 
-## 8. Lessons Learned
+## Lessons Learned
 
 {Bullet list of LL-{NNN} entries created this session, OR the literal text "No lessons captured this session." if none captured.}
 ```

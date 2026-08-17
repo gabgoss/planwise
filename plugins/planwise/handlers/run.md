@@ -464,7 +464,7 @@ Recovery file override entry:
 
 Read recovery file and orchestration file. Generate the summary document using [templates/summary-template.md](../templates/summary-template.md).
 
-**Content sources for the 8-section summary:**
+**Content sources, one row per template section (in template order):**
 
 | # | Section | Content Source |
 |---|---------|----------------|
@@ -474,8 +474,9 @@ Read recovery file and orchestration file. Generate the summary document using [
 | 4 | Verification Results | Build/test results from execution |
 | 5 | Success Criteria Status | Orchestration success criteria |
 | 6 | Context Notes | Key Findings in Recovery |
-| 7 | Next Session | Sprint plan dependencies |
-| 8 | Lessons Learned | Lesson files created this session (populated after Step 4.2) |
+| 7 | Consumption Record | Orchestrator window accounting for this session, plus the per-task consumption rows in Recovery. Field semantics are defined once in the template's own Consumption Record section — do not restate them here |
+| 8 | Next Session | Sprint plan dependencies |
+| 9 | Lessons Learned | Lesson files created this session (populated after Step 4.2) |
 
 Write to: `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` in the sprint folder.
 
@@ -513,9 +514,9 @@ Ask the user: "Were any lessons learned during this session?"
 5. If approved:
    - Write file: `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`
    - Add row to master table in the lessons index
-   - Update summary Section 8 with lesson reference
+   - Update the summary's Lessons Learned section with the lesson reference
 
-**If no lessons:** Write "No lessons captured this session." in the summary's Section 8.
+**If no lessons:** Write "No lessons captured this session." in the summary's Lessons Learned section.
 
 ### Step 4.3: Update Plan Status
 
