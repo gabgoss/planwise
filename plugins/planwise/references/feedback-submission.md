@@ -52,13 +52,18 @@ One artifact, two outcomes. The engine ALWAYS writes the draft file first, then 
 *from that file*:
 
 ```
-gh issue create -R {feedback.repo} --title "{title}" --body-file "{draft_path}"
+gh issue create -R {feedback.repo} --title "{title}" --body-file "{draft_path}" --label {label}
 ```
 
 - `{feedback.repo}` resolves to the literal `gabgoss/planwise` by default and is **NEVER**
   derived from the consumer's git remote — that would file planwise issues in the
   consumer's own project repo.
 - `--title` carries the title; the body file contains **no** `Title:` line.
+- `{label}` mirrors the label the repo's own Issue Forms apply for the same kind
+  (`.github/ISSUE_TEMPLATE/bug_report.yml` → `bug`; `lesson_or_idea.yml` → `enhancement`)
+  — see the `{kind}` → `{label}` mapping below. A CLI-created issue never goes through
+  the Issue Forms chooser, so without this flag the issue posts with no label at all,
+  silently losing the categorization a web-filed report gets for free.
 - Draft path: `{planwise_root}/feedback-drafts/{YYYY-MM-DD}-{kind}-{slug}.md`.
 - Draft-first buys three things: approved text and posted text are byte-identical; a
   failed post leaves a recoverable artifact; the fallback path is not a separate code
@@ -172,6 +177,7 @@ Every placeholder used above, for the four call sites that render this engine's 
 | `{planwise_root}` | The consumer's configured planwise root directory. |
 | `{YYYY-MM-DD}` | The date the draft is written. |
 | `{kind}` | `bug`, `lesson`, or `idea` — selects the body variant. |
+| `{label}` | The single `gh issue create --label` value for `{kind}`: `bug` → `bug`; `lesson` or `idea` → `enhancement`. Mirrors the repo's own Issue Forms labels so a CLI-filed report is categorized identically to a web-filed one. |
 | `{slug}` | A short, filesystem-safe slug derived from the title. |
 | `{plugin_version from config.yaml}` | The installed planwise plugin version. |
 | `{subcommand}` | The `/planwise` subcommand involved, if any. |
