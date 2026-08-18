@@ -187,7 +187,16 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > [!constraint] Scaffolding agents MUST NOT invent new artifact types or fabricate authoritative-sounding framing for ad-hoc additions
 > The spec for `/planwise plan --scaffold` enumerates every artifact type the
 > agent may produce: Master Plan, Execution Input, Sprint Plan, Orchestration,
-> Recovery, task file, `Outputs/` folder. When the scaffolding agent perceives
+> Recovery, task file, `Outputs/` folder, Sprint Signoff, Deferred/Out-of-Scope
+> Log. The last two are defined elsewhere and are easy to mistake for
+> improvisations when read against this list alone —
+> [templates/sprint-signoff.md](../templates/sprint-signoff.md) is a full
+> template and [exit-criteria-fidelity.md](exit-criteria-fidelity.md) §16.3
+> makes the Signoff REQUIRED for every multi-sprint scaffolded plan, while
+> [session-plan-requirements.md](session-plan-requirements.md) mandates a
+> per-sprint Deferred/Out-of-Scope Log with an inline template. A reviewer
+> applying this list literally must not flag either as invented. When the
+> scaffolding agent perceives
 > a gap that none of those artifacts cover, the answer is NEVER "invent a new
 > artifact type with confident framing." That pattern produces files that look
 > spec-defined but are not — readers and downstream agents treat the invented
