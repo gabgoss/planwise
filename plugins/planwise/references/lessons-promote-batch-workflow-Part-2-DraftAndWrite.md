@@ -173,7 +173,7 @@ Emit a markdown summary with three sections:
 - `{backlog_dir}/BB-{NNN}-{SB}-DOC-PromoteLessons{BucketSlug}.md` ({L} lines)
 - `{backlog_dir}/{backlog_index}` (appended {N} rows; re-scored)
 - `{lessons_dir}/Archive/` ({N} lessons flipped to `promoted` and `git mv`d from `{lessons_dir}/`)
-- `{lessons_dir}/{lessons_index}` (Master Table Status + File-link updated for the {N} archived lessons)
+- `{lessons_dir}/{lessons_index}` (Master Table Status + File-link updated for the {N} archived lessons; Status cells via `flip_lesson_status.py`; `Last Updated` bumped)
 
 ## Anomalies
 
@@ -189,11 +189,12 @@ For each in-scope lesson that landed in a BB deliverable:
 
 1. **Flip the frontmatter.** Set `status: promoted` and populate `promoted-to:` with the owning backlog item id(s) — e.g. `promoted-to: BB-{NNN}`, listing every owner when the lesson decomposed across several BBs.
 2. **Move the file to the archive.** `git mv {lessons_dir}/LL-{NNN}-*.md {lessons_dir}/Archive/`. A fully-captured lesson belongs in `Archive/` (archived ≠ landed).
-3. **Update the Master Table** in `{lessons_dir}/{lessons_index}`: set the lesson's Status column to `promoted` and repoint its File link to the new `Archive/` path.
+3. **Update the Master Table** in `{lessons_dir}/{lessons_index}` — update the Status column with the flip script, never by hand at batch scale: `python {plugin_root}/scripts/flip_lesson_status.py {lessons_dir}/{lessons_index} {map_file} [--dry-run]`, where `{map_file}` lists one `LL-{NNN}: promoted` line per captured lesson. The script refuses downgrades from landed statuses, skips rows already at target, and reports unmatched ids and unparseable rows with a non-zero exit — investigate before trusting the run. Repoint the File link to the new `Archive/` path as an explicit `Edit` — the script owns the Status cell only.
+4. **Bump the lessons-index `Last Updated` header.** Bump the `Last Updated:` line at the top of `{lessons_dir}/{lessons_index}` in the same edit — mirrors §6.3's backlog-index bump (bottom-of-file there; this index's header sits at the top, so word it by header name, not position).
 
 **Do NOT write the Rule Promotion Log.** The Promotion Log records a *landing* event — the owning item shipped and its artifact now exists — but at capture the item has only been drafted. Those rows are written later by `/planwise lessons curate --phase=promote`, when the owning item lands and the status flips `promoted → rule|applied`.
 
-Under `--dry-run`, skip this entire step: report the planned flips and archive moves without touching any lesson file, frontmatter, or index row.
+Under `--dry-run`, skip this entire step: report the planned flips and archive moves without touching any lesson file, frontmatter, or index row — the flip script is not invoked (or, if a preview is wanted, invoked with its own `--dry-run` flag) under this mode.
 
 ---
 

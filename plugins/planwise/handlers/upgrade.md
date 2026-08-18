@@ -2,6 +2,8 @@
 
 **Purpose:** Refresh installed plugin artifacts (rules in `.claude/rules/planwise/`) and bump the pinned `plugin_version:` in `config.yaml` after a plugin update.
 
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+
 ## Table of Contents
 
 - [Config Gate](#config-gate)
@@ -18,6 +20,8 @@
   - [Step 4 — Resolve conflicts](#step-4--resolve-conflicts)
   - [Step 4.1 — Assisted relocation](#step-41--assisted-relocation)
   - [Step 4.2 — Opt-in upstream GitHub issue](#step-42--opt-in-upstream-github-issue)
+  - [Step 4.3 — Interactive per-class cleanup offer](#step-43--interactive-per-class-cleanup-offer)
+  - [Step 4.4 — Settings-grant normalization offer](#step-44--settings-grant-normalization-offer)
 - [Conflict Resolution Reference](#conflict-resolution-reference)
 - [Auto-Init Fallback](#auto-init-fallback)
 
@@ -31,8 +35,10 @@ Locate `config.yaml` by checking, in order:
 2. One level down from project root for `*/config.yaml`
 3. If still not found → branch to [Auto-Init Fallback](#auto-init-fallback)
 
+Resolve **`{plugin_root}`** — used in every script invocation below — from this handler's own known location (the plugin base directory provided by SKILL.md), the same resolution [init.md](init.md) uses for first-time init. This is the LIVE, currently-invoked plugin; it is NOT read from `config.yaml`.
+
 Extract from `config.yaml`:
-- `plugin_root` — the plugin installation path
+- `plugin_root` (config value, distinct from the live `{plugin_root}` above) — the plugin root the last init/upgrade wrote. Display/fallback only — see the Step 1 mismatch note; never substitute it for the live `{plugin_root}` in a script invocation.
 - `plugin_version` — currently-pinned plugin version (treat absent as `"0.0.0"`)
 - `project.planwise_root`, `project.plans_dir`, `project.backlog_dir`, `project.lessons_dir`, `project.index_files.*`
 
@@ -42,18 +48,25 @@ Extract from `config.yaml`:
 
 ### Step 1 — Detect drift
 
-Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version`. Compare to the user's pinned `plugin_version:`:
+Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version` — the live root resolved in the Config Gate, always, so this comparison can never be fooled by a stale configured `plugin_root:`. Compare to the user's pinned `plugin_version:`:
 
 > [!gate] Upgrade Gate
-> If `pinned == shipped` → report "Plugin version: {version} — already up to date." and exit.
+> If `pinned == shipped` **and** the config's stored `plugin_root` matches the live `{plugin_root}` → report "Plugin version: {version} — already up to date." and exit.
+> If `pinned == shipped` **but** the stored `plugin_root` differs → do NOT exit; skip the comparator fan-out (Steps 2.1–2.3 have nothing to compare — no artifact changed) and run the Step 2.4 script invocation, which repoints the root on its own. Report the result as "Plugin root repointed", not as a version change. See the mismatch note below.
 > If `pinned < shipped` (or `pinned` is absent) → proceed to Step 2.1.
 > If `pinned > shipped` → emit a warning ("Your config pins {pinned} but the installed plugin is {shipped} — did you downgrade?") and ask the user with `AskUserQuestion` whether to proceed.
+
+> [!note] "Already up to date" is a local comparison only
+> This check compares the pinned `plugin_version:` against the live plugin's own `.claude-plugin/plugin.json` in your local install cache — no step in this handler reads the marketplace source, so "already up to date" reflects your local cache, not necessarily the newest published release; keep the cache itself current with the two-stage refresh described in README.md's upgrade section.
+
+> [!practice] A `plugin_root` mismatch is itself upgrade-indicating
+> If the config's stored `plugin_root` differs from the live `{plugin_root}` resolved above, that is a defect to act on even when the version pin looks current: it means an earlier upgrade pinned the version without repointing the root (a config written before the writer's commit point started repointing both together), or the directory it still names was later removed. Left alone it does not heal — every handler that resolves scripts through the stored value keeps running a superseded install, or fails outright once that directory is reaped. The script's `--upgrade` invocation (Step 2.4) repoints `plugin_root` to the live root even when the version pin is already current, and does nothing else in that state, so the gate above routes this case to it rather than exiting.
 
 ---
 
 ### Step 1.5 — Offer Token Saver mode
 
-Token Saver is a budget mode that keeps task sessions under ~150K and warns when a file is too large to fit a lean task (see `references/session-context-budget.md` "Token Saver Profile"). Read `context.token_saver` from the user's `config.yaml` (treat absent as `false`).
+Token Saver is a budget mode that keeps task sessions under ~150K and warns when a file is too large to fit a lean task (see `references/token-saver-profile.md`). Read `context.token_saver` from the user's `config.yaml` (treat absent as `false`).
 
 > [!gate] Token Saver Upgrade Prompt
 > If `context.token_saver` is already `true` → skip this prompt; Token Saver stays enabled, store `{token_saver} = yes`.
@@ -158,8 +171,9 @@ Write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to
 > WRONG: omit the hash, or hash the shipped file.
 > CORRECT — one command per entry, hashing the installed path:
 > ```bash
-> python -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "{absolute installed path}"
+> python "{plugin_root}/scripts/init_project.py" --hash-installed "{absolute installed path}"
 > ```
+> The digest is computed over a normalized pre-image, matching the writer's recompute by construction.
 >
 > After a successful `--upgrade` run consumes the cache, the script renames
 > `verdicts.json` to `verdicts.json.consumed` so a stale verdict can never fire
@@ -187,9 +201,10 @@ Write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to
 >    Claude Code session — expected to be unavailable on some platforms; the
 >    inline path is the intended fallback, not an error.)
 > 3. **`gh` absent, or `upgrade.github_issue: false`, or non-interactive** → the
->    upstream handoff degrades from a live `gh issue create` to a written
->    issue-body draft file under `upgrade-conflicts/{from}-to-{to}/issue-drafts/`.
->    Never blocks the upgrade.
+>    upstream handoff degrades from a live upstream post
+>    (`references/feedback-submission.md`) to a written issue-body draft file
+>    under `upgrade-conflicts/{from}-to-{to}/issue-drafts/`. Never blocks the
+>    upgrade.
 >
 > The inline primitive plus the automated transfer-first writer is the floor:
 > every path yields a complete, idempotent, headless-safe disposition that never
@@ -219,7 +234,7 @@ The script:
 5. Classifies each **diverged** installed copy with the structural verdict — consuming `verdicts.json` when present (a comparator verdict for a filename **supersedes** the inline primitive; a missing entry, a malformed entry, or an entry whose `installed_sha256` is missing/stale falls back to the primitive). A clean **stale subset** is auto-adopted in place directly: rules refresh via `update_frontmatter()` (the project's `paths:` line is preserved). Any OTHER divergence — HAS_UNIQUE or a subset whose `notes` flag installed-only tolerated content — is **customization-bearing**, gated by `upgrade.customization_handoff`: under `report+relocate` (the shipped template default) the writer first **transfers** the full installed body (plus a generic provenance header — source filename, kind, upgrade pair, date, verdict summary) to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` — a **dormant preservation document** outside `.claude/rules/`, never loaded as a rule (a collision is uniquified with a numeric suffix loop, never clobbered) — **verifies** the write by reading it back, mirrors the pre-image under `upgrade-backups/`, and only then adopts the shipped body in place (the `DISPOSITIONS.md` row is appended only after the adoption write succeeds). Under `report` / `report+issue` (or the key absent) the writer is conservative: the customization-bearing file is preserved in place + a `.new` sidecar is written — no transfer, no adoption. A failed transfer write, a failed pre-image backup, a failed adoption write, or a degraded not-analyzed stand-in verdict (`structural_compare` unavailable at call time — no evidence to act on) likewise falls back to that conservative branch: installed file untouched, `.new` sidecar under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Every auto-adoption — stale-subset or transfer-then-adopt — first mirrors the pre-change file under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (failed backup = no destructive write) and deletes any sidecar it obsoletes from an earlier interrupted run
 6. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy when it is untouched (normalized-identical body, `paths:` match) **or** when its body is a high-confidence **stale subset** of the grown shipped reference with no installed-only content flagged; it **preserves** byte-for-byte any HAS_UNIQUE (customised) copy, any subset verdict with reorg confidence or a non-empty installed-only-content flag, and — while `upgrade.descope_preserve_paths_edits` is `true` (the default) — any copy with a customised `paths:` line, even over a stale body. Setting that key to `false` opts in to removing paths-edited copies (reported with an `[INFO]` marker). Every removal is backed up under `upgrade-backups/` first, so a disposition is always recoverable without VCS
 7. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size
-8. Bumps `plugin_version:` in `config.yaml` LAST, as the commit point
+8. Bumps `plugin_version:` AND repoints `plugin_root:` together, in `config.yaml`, LAST, as the commit point — one write, so the pair can never disagree (see `_commit_upgrade_pin()` in `scripts/init_project.py`)
 
 Capture stdout — the banner is rendered from it.
 
@@ -231,6 +246,8 @@ Run only when `{token_saver}` (from Step 1.5) resolves to `yes` — i.e., Token 
 
 The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update changes the always-on rule/agent surface a fresh `/context` loads, so `token_saver_runner_overhead` captured against the old version no longer reflects this install. Re-capture so plans size against the new footprint.
 
+**Derivation change.** `calibrate()`'s overhead formula now filters through plugin attribution instead of measuring the whole installation's ambient footprint, and two new keys are recorded — a session-start `{min, median, max}` range and a separate injected-rule-content estimate. Stored values shift accordingly on this recalibration; if budgets were tuned around pre-upgrade numbers, review them again after this step runs.
+
 > **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. When `token_saver.calibrate()` is invoked from upgrade (headless), the CLI may return conversational text instead of the structured report, and calibration degrades to the conservative fallback (runner ~54K / orchestrator ~60K). This is expected on some platforms — notably Windows. The conservative fallback is safe; recapture from an interactive session with `/planwise token-saver on`.
 
 1. Re-run the calibration capture against the upgraded install:
@@ -239,7 +256,7 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
    python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{planwise_root}/config.yaml'), plugin_root=r'{plugin_root}'); print(r)"
    ```
 
-   `token_saver.calibrate()` overwrites the six `token_saver_*` keys in place (targeted edit — comments and key order preserved) and degrades to the conservative fallback if the `/context` capture fails or returns non-report text.
+   `token_saver.calibrate()` overwrites its six written `token_saver_*` keys in place — `runner_overhead`, `orchestrator_overhead`, `context_breakdown`, `overhead_measured_on`, `session_start_range`, `injected_rules_estimate` (targeted edit — comments and key order preserved) — and degrades to the conservative fallback if the `/context` capture fails or returns non-report text.
 
 2. Report the refreshed numbers in the chat summary (append to the Step 3 banner):
 
@@ -247,6 +264,8 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
    Token Saver recalibrated:
      Runner overhead:       {old} → {token_saver_runner_overhead}
      Orchestrator overhead: {old} → {token_saver_orchestrator_overhead}
+     Session-start range:   {token_saver_session_start_range}
+     Injected rules est.:   {token_saver_injected_rules_estimate}
      Calibrated on:         {token_saver_overhead_measured_on}
    ```
 
@@ -256,7 +275,7 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
 
 ### Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)
 
-`_run_upgrade()` performs the lessons-scaffolding backfill itself (numbered item 2 in [Step 2.4](#step-24--invoke-the-upgrade-script)) whenever PyYAML is available — the normal case, since `--upgrade` hard-requires PyYAML and otherwise exits with `Upgrade failed: PyYAML is required for --upgrade`. Run this handler-side fallback **only** when the upgrade script aborted for that reason, so the categorization gate that protects `/planwise lessons curate` and `promote-batch` is still unblocked. Mirrors [init.md](init.md) Step 5 / 5.1 — the same render, reached from the upgrade path.
+`_run_upgrade()` performs the lessons-scaffolding backfill itself (numbered item 2 in [Step 2.4](#step-24--invoke-the-upgrade-script)) whenever PyYAML is available — the normal case, since `--upgrade` hard-requires PyYAML and otherwise exits with `Upgrade failed: PyYAML is required for --upgrade`. Run this handler-side fallback **only** when the upgrade script aborted for that reason, so the categorization gate that protects `/planwise lessons curate` and `promote-batch` is still unblocked. Mirrors [init-fallback.md](init-fallback.md) Step 5 / [init.md](init.md) Step 5.1 — the same render, reached from the upgrade path.
 
 1. Use **Glob** to check whether `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` already exists — **skip this step if it does** (idempotent; never overwrite a populated file).
 2. **Read** the template: [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md).
@@ -312,13 +331,21 @@ De-scoped rules preserved (action required): {N} (headless-inconclusive, paths: 
       reason: reorg-inconclusive, paths: customised with the preserve opt-out enabled, could not be analyzed (structural comparison unavailable — no evidence to act on), customised but `customization_handoff` is `report`/`report+issue` (or absent), or a transfer/backup write failed
       action: re-home as a project-local rule, OR re-scope paths: to the code dirs it governs, OR upstream the change
 
+Recovery artifacts:
+  {path} ({N} file(s)) — {class}: {class description}
+  …   ("  None found." when no surface has any content — report-what-exists, never assumes all four surfaces exist)
+
 Over-scope advisory: {N} rule(s) still scoped to plan/backlog paths (~{X}K injected per task-runner)
   run `/planwise doctor` for the full report
 
 Plugin version pinned: {to}
+Plugin root repointed: {live_plugin_root}
 
 Upgrade complete.
 ```
+
+> [!practice] Recovery-artifact disposition classes
+> `action-required` — unresolved conflict sidecars. `review-then-discard` — transferred customizations awaiting re-homing. `safe-to-discard` — pre-change backups, once you are satisfied with the upgrade. `inert` — a consumed verdict cache. Step 4.3 offers per-class cleanup for `safe-to-discard` and `inert` only; `action-required` and `review-then-discard` are reported here but resolved through Step 4 / Step 4.1 / Step 4.2.
 
 > [!practice] Interactive elaboration — home hints (when `verdicts.json` exists)
 > Raw stdout has no `home_hints` access (handler-side cache only). When `verdicts.json` exists, append to the
@@ -344,6 +371,8 @@ De-scoped preserved:     {N}        (conservative handoff mode, reorg-inconclusi
 Over-scope advisory:     {N}        (rules still plan/backlog-scoped — run `/planwise doctor`)
 
 Plugin version pinned:   {to}
+Plugin root repointed:   {live_plugin_root}
+Recovery artifacts:      {N} dir(s) across {M} version pair(s) — run /planwise doctor for disposition
 
 Upgrade complete.
 ```
@@ -363,7 +392,7 @@ For each conflict in `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` (files 
 2. If the changes are acceptable → overwrite the installed file with the sidecar content (or merge selectively) → delete the `.new` file
 3. If the user wants to keep their local edits → run the Step 4.1 case B relocation (the customization was never moved for this file) instead of merging in place
 
-The `upgrade-conflicts/` directory and its `INDEX.md` can be cleaned up once all sidecars are resolved.
+The `upgrade-conflicts/` directory and its `INDEX.md` can be cleaned up once all sidecars are resolved. See Step 4.3 for the aggregated view of this and every other recovery-artifact surface — the consumed verdict cache in this same directory is offered for cleanup there (`inert`), but the sidecars and any `issue-drafts/` stay `action-required` and must be resolved above first.
 
 ---
 
@@ -377,7 +406,7 @@ Under `upgrade.customization_handoff: report+relocate`, the Step 2.4 writer alre
 2. On confirm, `AskUserQuestion` for the code-path glob the new rule should scope to (`paths:`). **Default when the user skips:** write `paths: # TODO scope` plus an advisory comment (`# TODO: scope this rule to the code dirs it governs — do NOT use plan/backlog/lessons globs`).
 3. **Copy, strip, scope.** Read the transfer file and extract ONLY the original transferred body: drop everything above it — the provenance frontmatter block (`source_filename:` … `classification:`), the `# Transferred customization: {filename}` heading, the "review and re-home" boilerplate paragraph, and the `---` separator line that precedes the body. What remains must be exactly the original installed file content (which may open with its own `---` frontmatter — that one STAYS; it is the rule's real frontmatter, not the wrapper's).
 4. Apply `update_frontmatter(content, paths_value)` to the stripped body so the promoted file carries a real `paths:` line, and **Write** the result to `.claude/rules/{project_name}/{filename}`. The promoted file must be a clean, valid, `paths:`-scoped rule — no provenance keys, no wrapper heading, no doubled frontmatter fences. (If the transferred body is an **agent** file, its frontmatter is agent-shaped — tell the user and let them adapt it into rule form or keep it dormant instead; do not blind-promote.)
-5. The transfer file itself stays in place as the preservation record; tell the user it can be deleted once they are satisfied with the promoted rule.
+5. The transfer file itself stays in place as the preservation record; tell the user it can be deleted once they are satisfied with the promoted rule. Step 4.3 lists this surface (`review-then-discard`) alongside every other recovery-artifact class for visibility, but never offers it for deletion there — a genuine customization needs this human read before it is discarded, so the delete stays a manual step here.
 
 **B. File is listed under "Conflicts (preserved in place — action required)"** — the customization was never moved; secure it FIRST, then resolve the conflict through the existing sidecar mechanism. The installed location is **kind-aware**: rules live at `.claude/rules/planwise/{filename}`, agents at `.claude/agents/{filename}` — never assume the rules path for an agent.
 
@@ -392,19 +421,17 @@ The handler's write surface in both cases stays within its documented boundary �
 
 ### Step 4.2 — Opt-in upstream GitHub issue
 
-For any customization — whether already transferred to `{planwise_root}/upgrade-transfers/{from}-to-{to}/` (Step 2.4) or still preserved in place under a Step 4 conflict — that the human confirms `upstream`, generate a `gh` issue. Gated by **ALL** of:
+For any customization — whether already transferred to `{planwise_root}/upgrade-transfers/{from}-to-{to}/` (Step 2.4) or still preserved in place under a Step 4 conflict — that the human confirms `upstream`, submit the issue **through the shared submission engine**: `references/feedback-submission.md` owns the invocation — its gate chain, draft-first render, explicit `-R` target repo, and fallback posture. Do NOT write a `gh` call here: a locally improvised invocation resolves its target from the consumer's own git remote and files planwise issues in the consumer's own project. Gated by **ALL** of:
 
-- `upgrade.github_issue: true` (config key — read via `get_upgrade_config()`), **AND**
+- `upgrade.github_issue: true` (config key — read via `get_upgrade_config()`) — an **additional** precondition owned by this step, layered on top of the engine's own gates and never a substitute for them, **AND**
 - interactive confirm (`AskUserQuestion`, `<!-- AUTO-MODE: critical -->`), **AND**
-- `gh` resolvable on PATH.
+- the engine's own gate chain (`references/feedback-submission.md`), whose gate 3 is the `gh`-on-PATH check this step used to restate.
 
 If **any** gate fails (flag off, declined, non-interactive, or `gh` absent) → write an issue-body **draft file** to `upgrade-conflicts/{from}-to-{to}/issue-drafts/{filename}.md` instead of calling out. Never automatic; never blocks the upgrade.
 
 Issue body (project-agnostic template):
 
 ```markdown
-Title: [planwise] Customization diverged from shipped: {filename}
-
 ## Diverged artifact
 - File: `{filename}`  ({kind})
 - Verdict: HAS_UNIQUE  (confidence: {confidence}, source: {inline|agent})
@@ -421,6 +448,47 @@ Preserved in place during a `1.0.x` → `1.0.y` planwise upgrade; home hint =
 `upstream` (a generic improvement, not project-specific). Consider folding it
 into the shipped artifact so future consumers benefit.
 ```
+
+---
+
+### Step 4.3 — Interactive per-class cleanup offer
+
+Runs after the Step 3 banner has reported which `Recovery artifacts:` surfaces currently exist. For **each surface class that exists** — one confirm per disposition class, never one per file, since a per-file prompt loop is exactly the UX this aggregation exists to replace:
+
+| Class | Surface(s) | Offered for deletion here? |
+|---|---|---|
+| `action-required` | `{planwise_root}/upgrade-conflicts/*/` (unresolved `.new` sidecars); `{planwise_root}/upgrade-conflicts/*/issue-drafts/` | Never — resolve the sidecars via Step 4, the issue drafts via Step 4.2 |
+| `review-then-discard` | `{planwise_root}/upgrade-transfers/*/` | Never — a genuine customization needs a human read before it is discarded; promote or delete by hand via Step 4.1 case A |
+| `safe-to-discard` | `{planwise_root}/upgrade-backups/*/` | Yes |
+| `inert` | `{planwise_root}/upgrade-conflicts/*/verdicts.json.consumed` | Yes |
+
+For each of the two deletable classes that has at least one match:
+
+1. `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->` — a plain confirm-to-delete, not structural; inferred default is **skip**, so an unattended/non-interactive run never deletes a recovery artifact): "Delete the {N} `{class}` recovery artifact(s) at `{path}`?" — state the class's plain-language reason inline (`safe-to-discard`: "pre-change backups, once you are satisfied with the upgrade"; `inert`: "a consumed verdict cache").
+2. On confirm → delete the matched files and print each removed path as it goes. On decline, or when no interactive answer is available → skip that class; nothing under it is touched.
+
+`action-required` and `review-then-discard` are listed alongside the two deletable classes so the offer gives a complete picture, but deletion never covers them — see the table above for where each is actually resolved. The default across every class, every run, is **skip-all**: deletion is opt-in and per-class, never assumed.
+
+---
+
+### Step 4.4 — Settings-grant normalization offer
+
+After a successful upgrade, read the project's `.claude/settings.json` (and `.claude/settings.local.json`, if present) for `permissions.additionalDirectories` entries that fall in the plugin-cache path family (the plugin-family root and any of its version-pinned children). Consumer settings files are DATA, never a ship-boundary artifact — this step READS and OFFERS, it never silently rewrites.
+
+> [!practice] Target shape — cross-referenced, not restated
+> Grant the plugin-family root once, version-agnostic, never a version-pinned leaf. This doctrine is already landed prose — see `handlers/init-fallback.md`'s grant step ("Apply parent-aware, normalized dedup before modifying `additionalDirectories`") and `handlers/init.md`, which references the same grant. This step is the upgrade-time audit/offer sequel to that init-time writer, not a second, differently-worded copy of its rule.
+
+Classify every matching entry:
+
+| Class | Shape | Offered action |
+|---|---|---|
+| `version-agnostic parent` | Entry already equals (or covers) the plugin-family root | None — already the correct target shape |
+| `version-pinned live` | Entry names a version-pinned child directory that still exists on disk | Offer normalization to the parent grant |
+| `version-pinned dangling or orphan-marked` | Entry names a version-pinned child directory that no longer exists on disk, or exists but is superseded by the currently-pinned version | Offer normalization to the parent grant, naming the dangling/orphaned path |
+
+The **report always renders**, regardless of consent — every matching entry and its class is printed even when the user declines to act. The **write happens only on explicit interactive approval**: `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`), inferred default **report-only, change nothing** (stated inline — an unattended/non-interactive run never rewrites `additionalDirectories`). On confirm, apply the same parent-aware, normalized dedup the init-time writer uses — prune the superseded version-pinned entries, append the family root — then read the file back to confirm the write landed. On decline, or when no interactive answer is available, print the report and leave every settings file untouched.
+
+When no `additionalDirectories` entry falls in the plugin-cache path family at all (a pre-parent-aware-writer install, or the family root is already the only entry present), report "No plugin-cache grants found needing normalization." and skip the offer — there is nothing to act on.
 
 ---
 
@@ -455,6 +523,45 @@ This project doesn't have a planwise config yet. Run `/planwise init` first.
 ```
 
 Offer to run `/planwise init` via `AskUserQuestion` and, on confirmation, dispatch to `init.md`'s Step 1. Once init completes, the upgrade is unnecessary (the freshly-generated config pins the current plugin version).
+
+---
+
+## Mid-Upgrade Failure
+
+If an unexpected error interrupts the script anywhere after the config-merge step — during artifact refresh, rule de-scope migration, verdict-cache retirement, the advisory banner, or the version-pin commit itself — the script prints:
+
+```
+partial upgrade — re-run to resume; already-refreshed files are idempotent and the version pin is unchanged.
+```
+
+and exits non-zero, with the underlying error still surfaced for diagnosis. Re-running is safe, not just convenient: a per-file failure during artifact refresh is caught and reported individually without aborting the run, and the version pin plus the plugin-root path are written together, LAST, in one atomic commit — so a run that fails before reaching that commit leaves the pin at its pre-upgrade value while every file already refreshed keeps its new (idempotent) content. Simply re-run `/planwise upgrade`: already-current files are skipped as no-ops and the run picks up from where it stopped.
+
+---
+
+## Config Recovery
+
+The two recoveries below apply when the Config Gate itself cannot complete — before any Workflow step runs. Both are manual repairs; the second requires no working handler at all.
+
+### Bricked config after an older upgrade
+
+**Symptom:** `config.yaml` fails to parse — the Config Gate can't extract `plugin_root`, `plugin_version`, or any `project.*` value, so every command that resolves through it fails.
+
+**Cause:** plugin versions before 1.0.5 wrote new or migrated keys into `config.yaml` without a parse-health check afterward. A flow-style value (`key: {...}`) rewritten by an older writer could be left with its previous block-style child lines still indented beneath it — a shape that isn't valid YAML.
+
+**Repair:**
+1. Get the current plugin version first: run the Stage 1 refresh (`/plugin marketplace update` then `/plugin install planwise@planwise-marketplace`) so you're diagnosing with 1.0.5 or later, which added the check below.
+2. If `config.yaml` no longer parses, run `/planwise doctor` — it prints a `Config parse check` block naming the offending key and the fix when the corruption is a recognised one, before failing loud.
+3. Hand-repair: open `config.yaml` and find the parent line the report names. The corruption signature is a single-line flow-style value (`{...}`) with its old block-style children still indented beneath it — delete those leftover indented lines; the flow-style value on the parent line already carries them. Save, then re-run `/planwise doctor` to confirm the file parses cleanly.
+
+### Dangling `plugin_root` pin
+
+**Symptom:** `/planwise upgrade` or `/planwise doctor` fails outright trying to read its own scripts, because `config.yaml`'s `plugin_root:` pin still names a version-specific cache directory that a later cache reap removed.
+
+**Repair — an out-of-band, manual pin repair; requires no working handler.** This is the bootstrap for exactly the state where the handler cannot start, since the handler's own commands live under the path that no longer resolves:
+1. Locate the live plugin cache — the version-agnostic plugin-family root (e.g. `~/.claude/plugins/cache/planwise-marketplace/planwise`) or the current version's directory beneath it.
+2. Edit `config.yaml` directly and set `plugin_root:` to that path.
+3. Verify by reading `.claude-plugin/plugin.json` at that path directly — its `version` field confirms which release you just pointed at (no handler required).
+4. Once confirmed, run `/planwise upgrade` normally — Step 1 resolves the live root itself and Step 2.4's repoint keeps `plugin_root:` and `plugin_version:` in sync going forward.
 
 ---
 

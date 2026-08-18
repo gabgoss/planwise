@@ -39,6 +39,14 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 
 ---
 
+## Decisions (Locked)
+
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| D1 | {what was decided, in one sentence} | {why; what the alternative was} |
+
+---
+
 ## Session Completion Tracking <!-- REQUIRED -->
 
 > **Update this table when each session completes.**

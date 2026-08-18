@@ -310,4 +310,4 @@ An agent definition file maps to runtime behavior in two modes:
 ---
 
 *Scoped to `.claude/agents/**` — loads only when authoring agent definition files.*
-*Cross-reference: [skill-authoring.md](skill-authoring.md) for skill frontmatter, [agent-orchestration.md](agent-orchestration.md) for invocation and team patterns.*
+*Cross-reference: [rule-authoring.md](rule-authoring.md) for rule frontmatter and path-scoping conventions, [skill-authoring.md](skill-authoring.md) for skill frontmatter, [agent-orchestration.md](agent-orchestration.md) for invocation and team patterns.*

@@ -56,36 +56,7 @@ The plans index is a **denormalized cache**: each row's Status column is a copy 
 
 **If `--no-check` is present:** skip this entire step (a fast glance with no deep pass) and go straight to Step 3.
 
-**Detect (always-on otherwise):**
-
-1. Run:
-   ```bash
-   python {plugin_root}/scripts/reconcile_plans.py --config {planwise_root}/config.yaml --json
-   ```
-2. Read the JSON file at the path the script prints (`JSON: {path}`), shaped `{"drifts": [...], "anomalies": [...]}` — `drifts` are rows whose index Status diverges from their Master Plan's Status; `anomalies` are rows whose Master Plan could not be resolved or read (reported, never written).
-
-**Warn (only when non-empty):**
-
-If `drifts` or `anomalies` is non-empty, print a banner **before** the plans table:
-
-```
-⚠ Index drift detected ({K} row(s) out of sync with Master Plan status):
-  • {ABBR}: index={X}  →  Master Plan={Y}
-Anomalies:
-  • {ABBR}: Master Plan not found at {path}
-```
-
-If both `drifts` and `anomalies` are empty, print nothing — the output stays silent and unchanged.
-
-**Write on consent (READ-CONFIRM-ACT):**
-
-After the banner, use `AskUserQuestion` to offer reconciliation: "Reconcile {K} drifted row(s) in the plans index to match their Master Plan status?" On agreement:
-
-```bash
-python {plugin_root}/scripts/reconcile_plans.py --config {planwise_root}/config.yaml --write
-```
-
-The script re-reads the index immediately before writing, so it is race-safe against a concurrent closeout that may have already healed a row — only rows still drifted at write time are touched. Report `Reconciled {N} row(s).` Anomaly rows are never written (there is no Master Plan to reconcile against). If the user declines, leave the index untouched — the banner already recorded what was found.
+**Detect (always-on otherwise):** Run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) against the **plans** index (`reconcile_plans.py`, banner `planwise list — plans index drift audit`) — the same detect pass `/planwise doctor` Stage 11 runs; neither handler re-implements the comparison.
 
 If a write ran, re-read the plans index table before proceeding to Step 3 so the reconciled Status/Last Updated values are reflected in this same invocation.
 

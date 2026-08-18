@@ -32,11 +32,7 @@ The actual move + link-repoint primitives are reused from `update_backlog.py`
 of that behavior shared with the `--status`-call idempotent archival path.
 """
 
-import argparse
-import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 # Fix Windows cp1252 stdout encoding
@@ -48,6 +44,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import CLOSED_STATUSES
 from parse_backlog import parse_backlog_table
+from reconcile_common import (
+    format_drift_report,
+    read_text_preserving_newlines,
+    run_reconcile_cli,
+    write_text_preserving_newlines,
+)
 from update_backlog import archive_item_files, update_index_links_to_archive
 
 
@@ -147,8 +149,9 @@ def reconcile(config: dict) -> int:
     For each still-drifted row, moves any file still outside `Archive/` into it
     and repoints any index link not already prefixed `Archive/`. Every other
     column, the row's surrounding whitespace padding, and the file's original
-    line endings are preserved (read/write with newline="" so a CRLF index round-
-    trips untranslated, matching reconcile_plans' destructive-write discipline).
+    line endings are preserved (read/write via reconcile_common's newline=""
+    helpers so a CRLF index round-trips untranslated, matching reconcile_plans'
+    destructive-write discipline).
 
     Returns the number of rows (items) reconciled.
     """
@@ -156,8 +159,7 @@ def reconcile(config: dict) -> int:
     backlog_dir = config["_backlog_dir"]
     archive_dir = config["_archive_dir"]
 
-    with open(index_path, "r", encoding="utf-8", newline="") as fh:
-        content = fh.read()
+    content = read_text_preserving_newlines(index_path)
     items = parse_backlog_table(content)
 
     reconciled = 0
@@ -186,81 +188,34 @@ def reconcile(config: dict) -> int:
         reconciled += 1
 
     if reconciled:
-        with open(index_path, "w", encoding="utf-8", newline="") as fh:
-            fh.write(content)
+        write_text_preserving_newlines(index_path, content)
 
     return reconciled
 
 
 def _format_report(result: dict) -> str:
     """Render a human-readable drift + anomaly report."""
-    drifts = result["drifts"]
-    anomalies = result["anomalies"]
-    lines = []
-
-    if not drifts and not anomalies:
-        return "No archival drift detected. All closed backlog rows are archived."
-
-    if drifts:
-        lines.append(
-            f"Archival drift detected ({len(drifts)} closed row(s) whose file is not archived):"
-        )
-        for d in drifts:
-            lines.append(f"  - {d['id']} ({d['status']}): {d['file']} — {d['reason']}")
-    else:
-        lines.append("No archival drift detected.")
-
-    if anomalies:
-        if lines:
-            lines.append("")
-        lines.append(f"Anomalies ({len(anomalies)}):")
-        for a in anomalies:
-            lines.append(f"  - {a['id']} ({a['status']}): {a['file']} — {a['reason']}")
-
-    return "\n".join(lines)
-
-
-def _write_json(result: dict) -> str:
-    """Write the detect result to a JSON temp file and return its path."""
-    tmp_dir = tempfile.mkdtemp(prefix="reconcile-backlog-")
-    json_path = os.path.join(tmp_dir, "drift.json")
-    with open(json_path, "w", encoding="utf-8") as fh:
-        json.dump(result, fh, indent=2)
-    return json_path
+    return format_drift_report(
+        result,
+        no_drift_message="No archival drift detected. All closed backlog rows are archived.",
+        no_drift_only_message="No archival drift detected.",
+        drift_header=f"Archival drift detected ({len(result['drifts'])} closed row(s) whose file is not archived):",
+        drift_line=lambda d: f"  - {d['id']} ({d['status']}): {d['file']} — {d['reason']}",
+        anomaly_line=lambda a: f"  - {a['id']} ({a['status']}): {a['file']} — {a['reason']}",
+    )
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Detect and reconcile backlog-index archival drift (closed rows not archived)."
+    run_reconcile_cli(
+        description="Detect and reconcile backlog-index archival drift (closed rows not archived).",
+        load_config=lambda: load_config(Path(__file__)),
+        resolve_index_path=lambda config: config["_index_path"],
+        missing_index_message=lambda index_path: f"Error: Backlog index not found at {index_path}",
+        detect_drift=detect_drift,
+        reconcile=reconcile,
+        format_report=_format_report,
+        json_prefix="reconcile-backlog-",
     )
-    parser.add_argument("--config", type=str, default=None, help="Path to config.yaml; overrides default config search.")
-    parser.add_argument("--write", action="store_true", help="Reconcile drifted rows (re-reads the index immediately before writing).")
-    parser.add_argument("--json", action="store_true", help="Additionally write a JSON temp file and print its path.")
-
-    args, _ = parser.parse_known_args()
-
-    config = load_config(Path(__file__))
-    index_path = config["_index_path"]
-
-    if not index_path.exists():
-        print(f"Error: Backlog index not found at {index_path}", file=sys.stderr)
-        sys.exit(1)
-
-    if args.write:
-        written = reconcile(config)
-        print(f"Reconciled {written} row(s).")
-        if args.json:
-            result = detect_drift(config)
-            json_path = _write_json(result)
-            print(f"JSON: {json_path}")
-        return
-
-    result = detect_drift(config)
-    print(_format_report(result))
-
-    if args.json:
-        json_path = _write_json(result)
-        print(f"JSON: {json_path}")
 
 
 if __name__ == "__main__":

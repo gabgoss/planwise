@@ -435,5 +435,44 @@ class TestReconcilePlans(_ReconcileFixtureBase):
         self.assertEqual(prc["status"], "COMPLETE")
 
 
+class TestEscapedPipeRows(_ReconcileFixtureBase):
+    """A plan Name cell may contain an escaped pipe. The `--write` path mutates
+    positional segments, so under the old naive split it wrote the status and
+    date into columns one to the right of the ones it named."""
+
+    ESCAPED_NAME = r"Filter via `ls \| wc -l`"
+
+    def test_reconcile_writes_the_columns_it_names(self):
+        self.write_index(
+            f"| PRC | {self.ESCAPED_NAME} | READY_TO_EXECUTE | 2026-03-19 "
+            "| 2026-03-19 | PluginRootConfig/ |\n"
+        )
+        self.write_master_plan("PluginRootConfig/", "PRC", "COMPLETE", "2026-04-02")
+
+        written = reconcile(self.config)
+
+        self.assertEqual(written, 1)
+        rows = parse_plans_index(self.read_index_text())
+        prc = next(r for r in rows if r["abbrev"] == "PRC")
+        self.assertEqual(prc["status"], "COMPLETE")
+        self.assertEqual(prc["last_updated"], "2026-04-02")
+        # Neighbouring columns untouched, and the escaping survives verbatim.
+        self.assertEqual(prc["created"], "2026-03-19")
+        self.assertEqual(prc["path"], "PluginRootConfig/")
+        self.assertIn(r"\|", self.read_index_text())
+
+    def test_escaped_row_is_parsed_not_dropped(self):
+        self.write_index(
+            f"| PRC | {self.ESCAPED_NAME} | IN_PROGRESS | 2026-03-19 "
+            "| 2026-03-19 | PluginRootConfig/ |\n"
+            "| FOO | Plain | IN_PROGRESS | 2026-01-01 | 2026-01-01 | Foo/ |\n"
+        )
+        rows = parse_plans_index(self.read_index_text())
+
+        self.assertEqual([r["abbrev"] for r in rows], ["PRC", "FOO"])
+        self.assertEqual(rows[0]["name"], "Filter via `ls | wc -l`")
+        self.assertEqual(rows[0]["status"], "IN_PROGRESS")
+
+
 if __name__ == "__main__":
     unittest.main()

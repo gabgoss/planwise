@@ -18,6 +18,8 @@ planwise is a plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude
 - [9. `token-saver` — toggle Token Saver mode](#9-planwise-token-saver)
 - [10. `upgrade` — update planwise](#10-planwise-upgrade)
 - [11. `help` — show all commands](#11-planwise-help)
+- [12. `feedback` — report a bug, lesson, or idea upstream](#12-planwise-feedback)
+- [13. `harvest` — run the lesson-to-artifact chain end to end](#13-planwise-harvest)
 - [Quick reference](#quick-reference)
 - [How it works under the hood](#how-it-works-under-the-hood)
 - [Uninstalling](#uninstalling)
@@ -123,12 +125,15 @@ flowchart LR
 /planwise review
 ```
 
-This sends your plan through a two-phase AI review:
+This sends your plan through a three-stage AI review:
 
-1. **Structural review** — checks that files are named correctly, links aren't broken, and the plan hierarchy makes sense
-2. **Content review** — checks task quality, token estimates, dependencies, and success criteria
+1. **Measurement pass** — one agent walks the plan tree before any reviewer starts and writes a *review discovery fact sheet* to `Reviews/{Abbrev}-Discovery-{date}.md`: a measured line and byte count for every plan file, a map of its headings, and the declared values the reviewer checks compare against (token estimates, dependencies, Required Context rows). It runs once, so the whole reviewer fan-out cites one measured number instead of each reviewer re-deriving its own.
+2. **Structural review** — checks that files are named correctly, links aren't broken, and the plan hierarchy makes sense
+3. **Content review** — checks task quality, token estimates, dependencies, and success criteria
 
-You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict.
+You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict, written alongside the fact sheet in `Reviews/{Abbrev}-Review-{date}.md`.
+
+> **Why the measurement pass?** Every count a reviewer reports has to come from a real measurement, and a fan-out of four to six reviewers would otherwise measure the same files over and over. Measuring once up front makes the numbers in your report consistent — and a reviewer whose own reading contradicts the sheet has to re-measure and say so, rather than quietly substituting a different number.
 
 > **Why review?** Catching problems in a plan is much cheaper than catching them mid-execution. Think of it like proofreading before you hit send.
 
@@ -136,7 +141,7 @@ You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict.
 
 ```mermaid
 flowchart LR
-    A([Run command]) --> B[AI checks<br/>structure] --> C[AI checks<br/>content] --> D([Get verdict])
+    A([Run command]) --> B[Measure the<br/>plan tree] --> C[AI checks<br/>structure] --> D[AI checks<br/>content] --> E([Get verdict])
 ```
 
 ---
@@ -239,6 +244,8 @@ flowchart LR
 ```
 /planwise lessons promote LL-003
 ```
+
+Promotion lints what it generates before finalising it: content the new rule/skill/hook/agent cites instead of inlining is pulled in, and any instruction telling an agent to shell out for something a dedicated file tool already covers is repointed to that tool. The artifact that lands stands on its own.
 
 **Curate lessons — categorise new ones and track promotions:**
 ```
@@ -386,6 +393,8 @@ When a new plugin version is published, upgrading happens in two stages:
 
 > Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
 
+**A note on "already up to date":** this comparison is entirely local — it checks your pinned `plugin_version:` against the plugin files already sitting in your local cache, never the marketplace source directly. If you haven't run Stage 1's refresh in a while, `/planwise upgrade` can report "already up to date" even though a newer release exists upstream, because fetching new versions into the local cache is Claude Code's own job, not this plugin's. Run `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace` periodically so the comparison has something current to compare against.
+
 ---
 
 ## 11. `/planwise help`
@@ -396,13 +405,63 @@ When a new plugin version is published, upgrading happens in two stages:
 /planwise help
 ```
 
-Shows all available commands and links to this full user guide.
+Shows all available commands and links to this full user guide — served inline by the `/planwise` skill router rather than a separate handler file.
 
 #### How `help` works
 
 ```mermaid
 flowchart LR
     A([Run command]) --> B[See command list<br/>&amp; docs link]
+```
+
+---
+
+## 12. `/planwise feedback`
+
+**Report a planwise bug, lesson, or idea upstream.**
+
+```
+/planwise feedback
+```
+
+Walks you through a short prompt — bug, lesson, or idea — and drafts a submission from what you type. Only your answers to the prompt go into the draft; file contents, repo paths, and config values are never included.
+
+**Opt-in, off by default.** Posting upstream requires `feedback.enabled: true` in your `config.yaml` AND an interactive confirmation that shows you the exact body before anything is sent — nothing goes out without both. In Auto Mode, `feedback` never posts: it always saves the draft to disk and prints the file path instead.
+
+**Privacy.** The submitted body never contains your file contents, repo paths, or config values — only what you wrote in the prompt. If `gh` isn't installed, isn't authenticated, or you decline the post, your draft is preserved locally and the issues URL is printed so you can file it by hand.
+
+#### How `feedback` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Answer bug/lesson/idea<br/>prompt] --> C[Review draft] --> D([Confirm &amp; post,<br/>or save locally])
+```
+
+---
+
+## 13. `/planwise harvest`
+
+**Run the lesson-to-artifact chain end to end, unattended.**
+
+```
+/planwise harvest [<scope>] [--dry-run] [--resume] [--max-items=N]
+                  [--include-existing] [--no-auto-approve]
+```
+
+`harvest` chains four stages together so you don't have to run each by hand: it categorises your documented lessons into their domain buckets, promotes them in batch into backlog items, processes each resulting item through the triage handler, then lands the lessons whose owning items shipped. The order is forced — the final stage can't land a lesson until the per-item stage has flipped its owning item to COMPLETE.
+
+1. **Categorise** — sync the categorisation file and refine each lesson's promotion target.
+2. **Promote** — resolve the scope, group lessons by bucket, draft the backlog items, and capture each lesson.
+3. **Process** — pre-flight, triage, route, and dispatch a foreground agent for every item this run created.
+4. **Land** — set the final status and artifact pointer on every lesson whose owning item reached COMPLETE.
+
+A bare `/planwise harvest` is a **read-only report** — the uncategorised lessons, whether the promotion gate would block, and the exact invocation to run next. `--dry-run` plans the whole run and writes nothing; `--resume` picks back up at the last completed stage. Advance approval is on by default so the chain can run unattended (`--no-auto-approve` turns it off) — the safety net either way is the same one: `harvest` makes no commits, ever, so every change it lands sits in your working tree for a single `git diff` review at the end of the run.
+
+#### How `harvest` works
+
+```mermaid
+flowchart LR
+    A([Run command]) --> B[Categorise<br/>lessons] --> C[Promote to<br/>backlog items] --> D[Process &amp;<br/>route each item] --> E[Land completed<br/>lessons] --> F([Working-tree diff<br/>to review])
 ```
 
 ---
@@ -427,6 +486,8 @@ flowchart LR
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
+| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream |
+| `/planwise harvest` | Run the lesson-to-artifact chain end to end, unattended |
 
 ---
 
@@ -436,17 +497,19 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses five specialized AI agents behind the scenes:
+planwise uses seven specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
+| **review-discovery** | Measures the plan tree once at the start of a review — line and byte counts, heading map, and the check anchors every reviewer then cites |
 | **structural-reviewer** | Validates plan file structure, naming, and cross-references |
 | **plan-reviewer** | Deep content review — task specs, estimates, dependencies |
 | **task-runner** | Executes individual tasks during plan runs |
 | **fix-agent** | Applies targeted code fixes for small backlog items |
 | **rule-comparator** | Classifies a diverged installed rule against the shipped version during `/planwise upgrade` — stale copy vs. genuine customization |
+| **backlog-planner** | Authors a session plan for large-scope or architectural backlog items routed to a new plan |
 
-You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, and `/planwise upgrade`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
+You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
 
 ### Configuration
 
@@ -469,8 +532,8 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 11 subcommand handlers (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, help)
-  agents/                           # 5 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
+  handlers/                         # 12 subcommand handlers across 15 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
+  agents/                           # 7 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init
@@ -515,11 +578,20 @@ To remove the marketplace:
 **Plans or backlog seem out of date after a plugin update**
 - Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules into your project
 
+**`config.yaml` won't parse after an upgrade**
+- Versions before 1.0.5 could leave `config.yaml` with a corrupted key after an upgrade. First get 1.0.5 or later (`/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`). If `config.yaml` no longer parses, run `/planwise doctor` — it prints a `Config parse check` block naming the offending key and the fix when the corruption is a recognised one, before failing loud. Open `config.yaml`, find the line the report names, and delete any leftover indented lines still sitting beneath a single-line `{...}` value on that line — the value already carries them. Re-run `/planwise doctor` to confirm the file parses.
+
+**`/planwise upgrade` or `/planwise doctor` can't find its own scripts**
+- Your `config.yaml`'s `plugin_root:` still points at a cache directory that's been removed — a version-pinned path a later plugin update reaped. This is a manual pin repair and needs no working handler: edit `config.yaml` directly, set `plugin_root:` to your current plugin cache path (under `~/.claude/plugins/cache/planwise-marketplace/planwise` — either the version-agnostic parent or the current version's subdirectory), confirm the version by reading that path's `.claude-plugin/plugin.json` directly, then run `/planwise upgrade` normally — it repoints `plugin_root:` for you from then on.
+
 **Token Saver always shows "uncalibrated" on Windows**
 - The `/context` capture needs a real console; run `/planwise token-saver on` from an interactive Claude Code session so the measured overheads can be captured
 
 **Not sure which command to use?**
 - Run `/planwise help` to see all available commands and a link to the full user guide
+
+**Something in planwise itself looks broken, or you have an idea**
+- Run `/planwise feedback`, or open an issue directly at https://github.com/gabgoss/planwise/issues
 
 ---
 

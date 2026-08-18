@@ -4,6 +4,7 @@ description: >
   Applies targeted code fixes for backlog items. Reads the issue description,
   applies the fix, runs build and test verification, and reports results.
   Use when routing backlog items to direct fix (Route A) via /planwise backlog.
+tools: Read, Write, Edit, Glob, Grep, Bash, SendMessage, ToolSearch
 model: sonnet
 maxTurns: 30
 ---
@@ -16,6 +17,9 @@ maxTurns: 30
 2. Read all affected files referenced in the issue
 3. Identify the root cause
 4. Determine the minimal fix required
+
+> [!practice] Fix Philosophy
+> The minimal fix below is a starting point, not a ceiling. Effort and diff size are never a tiebreaker (`references/do-the-hard-things.md`) — when the minimal fix would leave known incoherence behind, surface the fuller treatment instead of patching around it: "Route by what the defect needs; a session-sized fix gets a session," the same routing judgement the dispatching handler applies when it selects this route.
 
 ## 2. FIX
 

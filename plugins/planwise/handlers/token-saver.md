@@ -40,7 +40,7 @@ Extract from `config.yaml`:
 - `plugin_root` — the plugin installation path
 - `plugin_version` — currently-pinned plugin version (for the staleness check)
 - `project.planwise_root`, `project.plans_dir`
-- the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`)
+- the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`, `token_saver_session_start_range`, `token_saver_injected_rules_estimate`)
 
 > [!gate] Config Malformed → FAIL LOUD
 > If `config.yaml` is present but malformed, DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise token-saver." STOP.
@@ -55,6 +55,8 @@ Extract from `config.yaml`:
 - The shared config loader (`scripts/config_loader.py`): `get_effective_token_saver_config` overlays a per-plan on/off decision onto the project surface.
 - [doctor.md](doctor.md) — the staleness signal reused by `status` (see [Staleness Signal](#staleness-signal)).
 - [upgrade.md](upgrade.md) — the calibrate-on-enable pattern (`on` reuses the same `token_saver.calibrate(...)` call upgrade runs).
+- [../references/token-saver-profile.md](../references/token-saver-profile.md) — the two-tier policy and threshold-derivation formulas the `calibrate` call above implements.
+- **What this toggle's target means** — `token_saver_session_target` is a **per-dispatched-window** budget (the HARD ceiling on a task-runner subagent), NOT an orchestrator-session target; the orchestrator side is the **model floor** plus a measured session-length advisory. See [../references/token-saver-profile.md](../references/token-saver-profile.md) § Orchestrator-Window Expectation, and [../references/session-context-budget.md](../references/session-context-budget.md) §5 (§ Subagent Context Window for the model floor, § Per-Invocation Structural Floor for the cost calibration cannot see).
 
 Invoke the Python via the standard pattern: `python "{plugin_root}/scripts/..."` (fall back to `python3` if `python` is not found).
 
@@ -97,7 +99,7 @@ Flip the project default to enabled, then re-measure so plans size against the c
    python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{config_path}'), plugin_root=r'{plugin_root}'); print(r)"
    ```
 
-   `token_saver.calibrate()` overwrites the six `token_saver_*` keys in place and degrades to the conservative fallback if the `/context` capture fails or returns non-report text.
+   `token_saver.calibrate()` overwrites the six `token_saver_*` keys it writes — `runner_overhead`, `orchestrator_overhead`, `context_breakdown`, `overhead_measured_on`, `session_start_range`, `injected_rules_estimate` — in place (comment- and order-preserving targeted edit), and degrades to the conservative fallback if the `/context` capture fails or returns non-report text.
 
    > **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. If `calibrate()` is invoked from a non-interactive context, the CLI may return conversational text instead of the structured report; calibration then degrades to the conservative fallback (runner ~54K / orchestrator ~60K, `calibrated:False`). This is expected on some platforms. Running `/planwise token-saver on` from an interactive session is the intended recapture path.
 

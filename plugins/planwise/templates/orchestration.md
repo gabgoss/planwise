@@ -55,7 +55,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 > - [ ] Any single task estimates > 50 K token context load
 > - [ ] Sequential tasks where one task's output is the next task's input (output-chaining)
 >
-> See `references/agent-orchestration.md` §11.1 Mandatory Triggers for the binding rule.
+> See `references/session-plan-requirements.md` § Execution Strategy (Set by Planner) for the binding rule (canonical); `references/agent-orchestration-delegated.md` §1.1 Mandatory Triggers cites it.
 
 ### Context Boundary (DELEGATED mode only)
 
@@ -81,6 +81,15 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 **Subagents read:** Per-task Required Context (each subagent gets a fresh window sized by the **dispatched model** — 200K for Sonnet/Haiku, 1M for Opus — regardless of the parent tier; see [`references/session-context-budget.md` § Subagent Context Window](../references/session-context-budget.md#subagent-context-window))
 
 > **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + injected path-rule tokens + ~54K < the **dispatched model's** window (Sonnet/Haiku 200K, Opus 1M — NOT the parent `context_window`; see [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window)). See [Task-Level Estimation](../references/session-context-budget.md#task-level-estimation-binding) for the bottom-up estimation formula and conversion factor.
+
+<!-- Uncomment when any task's declared Output is under `.claude/**` — declares the
+     expected permission round-trip (see references/scaffolding-hygiene.md):
+> [!note] Task {NN} edits `.claude/**`
+> The harness permission classifier gates these writes independently of planwise
+> authorization. `/planwise run` invocation does not pre-clear it: expect a user
+> permission prompt mid-task, expect per-call (not all-or-nothing) denials, and
+> expect that some denials may not be clearable at all. Recovery records the
+> applied-vs-denied list on first denial. -->
 
 ---
 
@@ -109,6 +118,31 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 ## Recovery Protocol <!-- REQUIRED -->
 
 Update `{Abbrev}-S{XX}-{YY}-Recovery.md` after EACH task completion.
+
+---
+
+## Status Block Return Contract <!-- REQUIRED -->
+
+> [!constraint] DELEGATED parallel-mode runners MUST bound their return
+> Full contract, derivation, and the over-tight failure mode: `references/agent-orchestration-delegated.md` §1.28. A dispatched runner's status block re-enters the orchestrator's own context window whole on return — bound it so that does not accumulate across N dispatches:
+> - **No re-quoted file content** — cite `OUTPUT_FILES` by path + line count, never paste an edited file's body into the block.
+> - **No restated task text** — `TASK_ID` is the reference; never re-explain the brief.
+> - **18-line ceiling** on the whole block, derived from the field enumeration below — see §1.28 for the full per-field table and derivation. The ceiling never cuts a field reconciliation needs.
+> - **Bulk output routed to files** — anything a field cannot carry within its allocation goes to the session `Outputs/` folder; name the path instead of inlining the content.
+
+| Field | Max lines |
+|---|---|
+| `TASK_STATUS` | 1 |
+| `TASK_ID` | 1 |
+| `ROUTE/FLAGS` | 1 |
+| `OUTPUT_FILES` | 1 |
+| `LINES_PRODUCED` | 1 |
+| `VERIFY_RESULTS` | 5 |
+| `KEY_FINDINGS` | 5 |
+| `ISSUES` | 3 |
+| **Total** | **18** |
+
+See `agents/task-runner.md` §5.B for the runnable schema.
 
 ---
 

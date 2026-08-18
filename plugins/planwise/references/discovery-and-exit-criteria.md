@@ -1,28 +1,29 @@
 ---
-description: Discovery scope rigor (deterministic-bug counts, ID persistence), cross-layer enforcement of exit-criteria fidelity (binding callout echo, "surfaces" enforceability, signoff verbatim quoting, BLI-cited anchor re-verification), design-extension traceability, cross-tier audit-finding triage, metric-definition verification before reproduction, the bounded-temp-fix that seeds a deferred Discovery, and spike-instrument synthetic-fixture verdict partitioning
+description: Discovery scope rigor (deterministic-bug counts, ID persistence, upstream-normalization scoping) and the shared 13-row plan-review BLOCKING-findings table for the discovery/exit-criteria rule family; cross-layer exit-criteria fidelity lives in exit-criteria-fidelity.md and execution-time binding rules (design-extension traceability, audit-finding triage, bounded-temp-fix, spike-instrument verdict discipline) live in execution-time-binding-rules.md
 ---
 
 # Discovery Scope Rigor & Exit-Criteria Fidelity
 
-**Purpose:** Binding rules covering related plan-fidelity concerns — Discovery scope rigor (§15), cross-layer enforcement of exit-criteria fidelity (§16), design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), and spike-instrument verdict discipline (§20). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
+**Purpose:** Binding rules covering related plan-fidelity concerns, split across three files. This file (the anchor) covers Discovery scope rigor (§15) and carries the shared 13-row `/planwise review` BLOCKING-findings table for the whole family — kept whole here rather than split, so review tooling scans one table for all 13 checks. Cross-layer enforcement of exit-criteria fidelity (§16) lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md); design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), and spike-instrument verdict discipline (§20) live in [execution-time-binding-rules.md](execution-time-binding-rules.md). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
-This file is the §15 + §16 expansion of [session-planning-protocol.md](session-planning-protocol.md). It was extracted into a sibling file to keep both rule files under the project's 500-line limit. Read it before authoring Discovery-phase Consolidated Context, Execution Inputs that name affected records, multi-layer binding refinements, BLOCKING-coverage task files, sprint signoff checklists, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
+This file is the §15 segment of a 3-way split of what was originally referenced as the "§15 + §16 expansion" from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols); §16 and §17-§20 were subsequently split into the two sibling files named above to keep all three files under the project's 500-line limit. Read this file before authoring Discovery-phase Consolidated Context or Execution Inputs that name affected records. Read the siblings before authoring multi-layer binding refinements, BLOCKING-coverage task files, or sprint signoff checklists (`exit-criteria-fidelity.md`); or design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures (`execution-time-binding-rules.md`).
 
 ## Table of Contents
 
 - [15. Discovery Scope Rigor](#15-discovery-scope-rigor-binding)
   - [15.1 Deterministic-bug scope MUST be counted by execution, not estimated](#151-deterministic-bug-scope-must-be-counted-by-execution-not-estimated)
   - [15.2 Persist specific IDs, not just counts](#152-persist-specific-ids-not-just-counts)
-- [16. Cross-Layer Enforcement & Exit-Criteria Fidelity](#16-cross-layer-enforcement--exit-criteria-fidelity-binding)
-  - [16.1 Binding refinements MUST be echoed as `> [!binding]` callouts across plan layers](#161-binding-refinements-must-be-echoed-as--binding-callouts-across-plan-layers)
-  - [16.2 "Surfaces" is an enforcement claim, not a mention](#162-surfaces-is-an-enforcement-claim-not-a-mention)
-  - [16.3 Sprint signoff MUST quote EI exit criteria verbatim with one mechanical anchor per row](#163-sprint-signoff-must-quote-ei-exit-criteria-verbatim-with-one-mechanical-anchor-per-row)
-  - [16.4 Verify the Metric Definition Before Reproduction](#164-verify-the-metric-definition-before-reproduction)
-- [17. Design Extensions Introduced During Execution](#17-design-extensions-introduced-during-execution-binding)
-- [18. Cross-Tier Audit-Finding Triage](#18-cross-tier-audit-finding-triage-binding)
-- [19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery](#19-narrow-fix-reveals-a-systemic-gap--bounded-temp-fix-that-seeds-the-deferred-discovery-binding)
-- [20. Spike Instrument Verdict Discipline](#20-spike-instrument-verdict-discipline-binding)
-  - [20.1 Synthetic-Fixture Verdict Partitioning](#201-synthetic-fixture-verdict-partitioning)
+  - [15.3 Scope an Upstream Normalization Task by Failure Mode, Not by Audit Tier](#153-scope-an-upstream-normalization-task-by-failure-mode-not-by-audit-tier)
+- [16. Cross-Layer Enforcement & Exit-Criteria Fidelity](exit-criteria-fidelity.md#16-cross-layer-enforcement--exit-criteria-fidelity-binding) — `exit-criteria-fidelity.md`
+  - [16.1 Binding refinements MUST be echoed as `> [!binding]` callouts across plan layers](exit-criteria-fidelity.md#161-binding-refinements-must-be-echoed-as--binding-callouts-across-plan-layers)
+  - [16.2 "Surfaces" is an enforcement claim, not a mention](exit-criteria-fidelity.md#162-surfaces-is-an-enforcement-claim-not-a-mention)
+  - [16.3 Sprint signoff MUST quote EI exit criteria verbatim with one mechanical anchor per row](exit-criteria-fidelity.md#163-sprint-signoff-must-quote-ei-exit-criteria-verbatim-with-one-mechanical-anchor-per-row)
+  - [16.4 Verify the Metric Definition Before Reproduction](exit-criteria-fidelity.md#164-verify-the-metric-definition-before-reproduction)
+- [17. Design Extensions Introduced During Execution](execution-time-binding-rules.md#17-design-extensions-introduced-during-execution-binding) — `execution-time-binding-rules.md`
+- [18. Cross-Tier Audit-Finding Triage](execution-time-binding-rules.md#18-cross-tier-audit-finding-triage-binding)
+- [19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery](execution-time-binding-rules.md#19-narrow-fix-reveals-a-systemic-gap--bounded-temp-fix-that-seeds-the-deferred-discovery-binding)
+- [20. Spike Instrument Verdict Discipline](execution-time-binding-rules.md#20-spike-instrument-verdict-discipline-binding)
+  - [20.1 Synthetic-Fixture Verdict Partitioning](execution-time-binding-rules.md#201-synthetic-fixture-verdict-partitioning)
 
 ---
 
@@ -70,6 +71,19 @@ Applies to:
 - Meta-Plan Discovery phases that analyze data corruption scope
 - Execution Input extraction where row counts drive token estimates
 
+#### Reviewer Check 040 — §15.1 Discovery Count-by-Execution
+
+- **Severity / Role / Type:** BLOCKER | Coverage Reviewer | NEW
+- **What:** Discovery outputs citing counts MUST also cite the underlying execution (e.g., `{lint-cmd}` / `{test-cmd}` / SQL query / Glob pattern).
+- **Detection:** Grep Discovery for `\b(\d+)\s+(rows|files|matches|tasks)`. For each count, check for adjacent execution citation. Absent → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Discovery count missing execution citation
+File: {Discovery output path} | Location: {section}
+Issue: Count "{N}" cited without underlying execution
+Fix: Cite per references/discovery-and-exit-criteria.md §15.1 | Confidence: HIGH
+```
+
 ### 15.2 Persist specific IDs, not just counts
 
 > [!constraint] Discovery MUST persist specific IDs (or the deterministic identification query), not count-only placeholders
@@ -106,496 +120,53 @@ Applies to:
 - Meta-Plan Discovery phases that identify corruption scope
 - Execution Inputs referencing record subsets by count
 
----
+#### Reviewer Check 041 — §15.2 Persist IDs Not Just Counts
 
-## 16. Cross-Layer Enforcement & Exit-Criteria Fidelity (BINDING)
-
-A rule mentioned in one place — even an authoritative place like a Sprint Plan — does not survive a single dispatch context's erratic compliance. Refinements that gate execution outcomes need redundant enforcement across plan layers (Sprint Plan, Orchestration, task files, signoff). And signoff itself must verify against the literal exit criteria, not a paraphrase.
-
-### 16.1 Binding refinements MUST be echoed as `> [!binding]` callouts across plan layers
-
-> [!constraint] A single mention of a binding refinement is insufficient — the rule MUST be echoed as a `> [!binding]` callout in every layer that might execute or reference the gated behavior
-> A refinement is *binding* when violation produces a latent bug or contract
-> violation (e.g., writing config to the wrong file, mutating a forbidden
-> table, omitting a UNCONFIRMED caveat). For binding refinements, a single
-> narrative mention in a Sprint Plan is lost in 200+ lines of plan content.
-> Subagents scanning for "what to do" read Execution Steps and Notes; a
-> generic phrase ("phase-scoped", "do not embed X") is not specific enough
-> to prevent the default behavior.
->
-> Required layers for `> [!binding]` callout echo:
-> 1. **Sprint Plan** — names the refinement, cites the source (verification
->    doc, design decision)
-> 2. **Each Orchestration** that might execute the gated behavior — restates
->    the rule
-> 3. **Each task file** that performs the gated action — restates as a `Notes
->    for Agent` callout
-> 4. **Review/signoff task** — includes a grep verification step
->
-> WRONG — single narrative mention in the Sprint Plan body:
-> ```markdown
-> The agent should write to the {phase_config_file} files.
-> ```
-> Cost: a dispatched subagent reads the Execution Steps and may default to the
-> canonical config path because that is what most projects use. The refinement
-> is only enforced if the agent sees the rule at dispatch time.
->
-> CORRECT — `> [!binding]` callouts echoed across layers (4-8 sites is typical;
-> the redundancy survives a single dispatch's erratic compliance):
->
-> Sprint Plan:
-> ```markdown
-> > [!binding] Config Path
-> > Config writes target `{phase_config_file}` AND `{canonical_config}`.
-> > Root config is NEVER a write target. `{config-load-function}()` call site at
-> > `{contract-path}:{line-range}`.
-> ```
->
-> Session Orchestration (config-writing session):
-> ```markdown
-> > [!binding] Config Path Enforcement
-> > Task targets `{phase_config_file}` and `{canonical_config}` only.
-> > Root config writes are prohibited.
-> ```
->
-> Task file (the actual writer):
-> ```markdown
-> ## Notes for Agent
->
-> > [!binding] Phase-Scoped Config Only
-> > OUTPUT target: `{phase_config_file}` + `{canonical_config}`
-> > PROHIBITED: root config (NOT a write target; `{config-load-function}` does
-> > NOT read it)
-> ```
->
-> Review task:
-> ```markdown
-> 5. Verify config-path refinement: grep `Exec-{Abbrev}/Sprint-{NN}/` for
->    config references; all must be phase-scoped.
-> ```
-
-Grep verification (review-task discipline):
-```bash
-# Every match must be a binding callout OR resolve to a phase-scoped path
-# Adapt grep pattern to your config file naming convention
-grep -rn '{config_pattern}' <sprint-root>/
+- **Severity / Role / Type:** BLOCKER | Coverage Reviewer | NEW
+- **What:** Discovery outputs MUST persist actual IDs/keys (not just counts) for downstream tasks to dereference.
+- **Detection:** "N matches" without enumerated ID list → BLOCKER.
+- **Finding template:**
 ```
-Zero matches targeting the prohibited path as a write destination.
+[BLOCKER] Discovery output persists count without IDs
+File: {Discovery output path} | Location: {section}
+Issue: "{N} matches" stated without ID enumeration
+Fix: Persist IDs per references/discovery-and-exit-criteria.md §15.2 | Confidence: HIGH
+```
 
-Applies to any refinement where:
-- The operational risk is "agent defaults to canonical-looking path or value"
-- The refinement is grep-verifiable against the sprint tree
-- Violation is a latent bug rather than a runtime error (language tooling would catch the latter)
+### 15.3 Scope an Upstream Normalization Task by Failure Mode, Not by Audit Tier
 
-NOT applicable when there is only one valid path/value (no ambiguity, no default to override).
+When one task is scaffolded to normalize a set of items *before* a mechanical batch processes the rest, the scoping criterion MUST be the **failure mode the mechanical batch cannot handle** — not a severity tier, priority band, or triage bucket inherited from an earlier audit.
 
-### 16.2 "Surfaces" is an enforcement claim, not a mention
+A triage tier answers "how much attention does this need?" The mechanical batch asks a different question: "does this item have the property that makes the mechanical transform unsafe?" Those two questions have different answers, and where they diverge the upstream task ships incomplete while reporting success.
 
-> [!constraint] When a task file claims to "surface" a BLOCKING item, the body MUST contain an enforceable check — verbal mentions in Notes do not count
-> Define **SURFACE** for task-file authoring purposes:
->
-> A task SURFACES a BLOCKING item when its body contains AT LEAST ONE of:
-> - Numeric assertion in test (e.g., `assert {value} {comparator} {threshold}`)
-> - Grep / search command in lint or signoff (e.g., `{grep-cmd} {target-file}`
->   returns N matches)
-> - Source-introspection check on the function body (adapt to language equivalent
->   or use grep; e.g., Python: `inspect.getsource()` excluding docstring)
-> - Documentation content check (when the BLOCKING item requires a
->   docstring/comment warning)
-> - Parametrized test case covering the boundary
->
-> Verbal references in `Notes for Agent` do NOT count as surfacing. They
-> reference; they do not enforce.
->
-> WRONG — Notes line claims to surface a BLOCKING item but the test only checks
-> an unrelated behavior:
-> ```markdown
-> ## Notes for Agent
-> - Test {N} surfaces §X.Y (no `{prohibited_identifier}` in `{target_function}`)
->
-> ## Execution Steps
-> {N}. Test `{target_function}` bounds clamping behavior.
+> [!constraint] The Upstream Scope Criterion Must Name the Blocking Property
+> WRONG — scope inherited from an audit's severity tier:
 > ```
-> Cost: §X.Y is BLOCKING. The bounds-clamping test does not check this — it
-> tests something else entirely. The BLOCKING coverage matrix shows PASS, but
-> the actual gate is open.
->
-> CORRECT — Notes line is backed by an enforceable check inline in Execution
-> Steps:
-> ```markdown
-> ## Notes for Agent
-> - Test {N} surfaces §X.Y via source-introspection check
->
-> ## Execution Steps
-> {N}. Add a test that introspects `{target_function}` and asserts
->    `'{prohibited_identifier}' not in source_body` (where source_body is the
->    function body after stripping the docstring; adapt to language equivalent).
+> Upstream task: "normalize the SEVERE-tier {N} items"
+> # SEVERE = "needs manual attention". But the property that blocks the mechanical
+> # transform — a non-canonical calling site — occurs at COSMETIC tier too.
+> # Result: 7 normalized, 9 missed, all 9 surfacing later as batch HALTs.
+> ```
+> CORRECT — scope derived by executing the discriminating check against the full population:
+> ```
+> Upstream task: "normalize every item whose caller does not match the canonical
+>                 signature" — enumerated by running that check over all {M} items
+>                 at Discovery time, independent of any audit tier.
 > ```
 
-The distinction matters because BLOCKING items are BLOCKING. A non-enforceable mention does not reduce the risk the item describes — it gives false comfort that the gate is closed when it is not.
-
-> [!practice] SURFACE Definition Block (paste into scaffold task-file template)
-> A task SURFACES a BLOCKING item when its body contains AT LEAST ONE of:
-> - Numeric assertion in test
-> - Grep / search command in lint or signoff
-> - Source-introspection check on the function body (excluding docstring; adapt
->   to language equivalent)
-> - Documentation content check
-> - Parametrized test case covering the boundary
->
-> Verbal references in `Notes for Agent` are MENTIONS, not SURFACES. The
-> fidelity-review task distinguishes SURFACES from MENTIONS — verbal-only
-> claims are GAPs, not PASS. Multi-layer enforcement (test SURFACE + signoff
-> SURFACE) is more robust than a single layer.
-
-### 16.3 Sprint signoff MUST quote EI exit criteria verbatim with one mechanical anchor per row
-
-> [!constraint] Signoff checklists MUST quote EI exit criteria verbatim, one row per criterion, with a mechanical anchor per row
-> A signoff that silently paraphrases exit criteria is lossy by construction.
-> The signer trusts the checklist as authoritative; if the checklist does not
-> match the EI literal text, the gate's semantic contract is broken.
->
-> Four failure modes that all share this remediation:
->
-> | Failure | What goes wrong |
-> |---------|------------------|
-> | **Silent rename** | EI lists `{name_A}`; signoff lists `{name_B}`. Reader cannot tell if intentional deviation or implementation drift. |
-> | **Silent helper substitution** | EI lists `{helper_A}`; signoff lists `{helper_B}`. Same problem — deviation not annotated. |
-> | **Vague row** | "Tests pass" with no command, expected count, or test path. Forces signer to interpret. |
-> | **Collapsed rows** | EI lists `{check_A}` AND `{check_B}` separately; signoff collapses to one row. If `{check_A}` fails but `{check_B}` passes, the collapsed row may show only `{check_B}` output and miss the failure. |
->
-> WRONG — paraphrased rows, missing rows, vague rows, collapsed rows:
-> ```markdown
-> ## Sprint Signoff Checklist
-> - [ ] {paraphrased_name_A}             ← rename, no source citation
-> - [ ] {substituted_helper_B} works     ← helper substitution
-> - [ ] Tests pass                        ← vague
-> - [ ] Lint passes                       ← collapsed (multiple checks)
-> ```
-> EI listed {N} items; checklist shows {M} where M < N. Cost: signer issues
-> `READY_FOR_NEXT` without verifying {N - M} of the gate.
->
-> CORRECT — verbatim quote of EI exit-criteria text, one row per criterion,
-> mechanical anchor per row, deviation annotation when implementation diverges:
-> ```markdown
-> ## Sprint Signoff Checklist (verbatim from EI §X.Y)
->
-> - [ ] §X.Y row 1: "{verbatim EI exit-criterion text}"
->       Mechanical: `{test-cmd} {test-path}` reports `{N} passed, 0 failed`.
->
-> - [ ] §X.Y row 2: "{verbatim EI exit-criterion text}"
->       Mechanical: `{lint-cmd} {src/module/file.ext}` exits 0.
->
-> - [ ] §X.Y row 3: "{verbatim EI exit-criterion text}"
->       Mechanical: `{format-cmd} {src/module/file.ext}` reports no changes.
->       **Deviation:** implementation intentionally diverged — see
->       `{design-decision-path}` row D{N}.
->
-> ... ({total-N} more rows for §X.Y items {remaining})
-> ```
-
-Binding rule for all sprint signoff tasks:
-
-1. **Verbatim quote** at the head of the exit-criteria check — quote the EI exit-criteria section text. Do not paraphrase.
-2. **One row per criterion** — if the EI section has N items, the checklist has N rows.
-3. **Mechanical anchor per row** — `{test-cmd}` + expected count, grep + expected hits, file path + existence assertion, lint/format output, etc. Prose-only rows fail this rule.
-4. **Deviation annotation** — when the implementation intentionally deviates from a verbatim text (rename, helper substitution, structural change), the row carries a `**Deviation:** <design-decision document path>` annotation. Silent deviations are GAPs, not PASS.
-
-> [!checklist] Sprint Signoff Authoring
-> - [ ] Quoted the EI exit-criteria section verbatim at the head of the check
-> - [ ] Row count in the checklist matches item count in the EI section
-> - [ ] Every row has a mechanical anchor (`{test-cmd}` / grep / lint / format / file existence)
-> - [ ] Every intentional deviation from verbatim text carries a `**Deviation:** <design-decision document path>` annotation
-> - [ ] No collapsed rows where the EI lists items separately
-> - [ ] Every BLI-cited bug anchor has been re-verified against the audited file's current state at session start; any drift is reflected in the replacement criterion (per the BLI-Cited Anchor Re-Verification clause below)
-> - [ ] Every grep anchor for a column name that may collide across tables in the audit scope is `{table}.{column}`-qualified (per the Qualified-Grep Discipline clause below)
-
-#### 16.3 Extension — BLI-Cited Audit-Anchor Re-Verification
-
-§16.3 binds sprint signoffs to quote EI exit criteria verbatim with a mechanical anchor per row — but that rule assumes the EI exit criteria still reflect the audited code's *current* state at signoff time. In multi-week plans where the Discovery → Audit gap exceeds one sprint, the audited codebase keeps moving: bugs fixed in passing during other sprints silently invalidate the audit's "I expect to find these bugs" regression anchors.
-
-> [!constraint] BLI-cited exit-criteria anchors MUST be re-verified against current code at session start
-> When a Sprint Plan encodes "regression anchors" tied to specific known bugs
-> (typically by BLI ID), and the plan has been waiting more than one sprint
-> between authoring and execution, the orchestrator MUST re-verify each cited
-> anchor against the audited code's current state BEFORE dispatching any session
-> that uses those anchors as a success criterion.
->
-> Three failure modes share the same root cause (codebase moves between BLI
-> filing and audit execution):
->
-> | Failure mode | What goes wrong |
-> |--------------|------------------|
-> | **False HALT** | A bug cited as a regression anchor has been quietly resolved during another sprint. The audit's "must find this bug" gate HALTs because the matching row is ALIGNED instead of HIGH. |
-> | **False PASS via name collision** | A bare-column grep matches an unrelated finding on a different table. The consolidator sees "a row matches the anchor" and clears the gate; the real bug is missing. |
-> | **Silent miss of a bug truly recurring** | If the resolution itself regresses later, the bare-column grep still matches *something* (the now-resolved row), masking the regression. |
->
-> WRONG — Sprint Plan freezes the mechanical-grep success criterion at BLI filing time:
-> ```
-> grep -c "HIGH" Outputs/Cross-Tier-Diff.md
-> # MUST return ≥ 2 matching specific table.column patterns
-> ```
-> When a cited bug gets fixed in passing, the gate trips at execution time on the resolved row — false HALT.
->
-> CORRECT — Sprint Plan + Orchestration include a pre-flight re-verification step
-> at session start. Each cited anchor is greped against the audited file's
-> *current* state; if any anchor no longer matches the expected severity, replace
-> the mechanical criterion with the actual current state BEFORE dispatching the
-> consolidator/triager:
-> ```
-> ## Sprint-XX Success Criteria (replacement after pre-flight re-verification at session start)
->
-> - [ ] {table_A}.{column_A} row in Cross-Tier-Diff is ALIGNED
->   (resolved in deployed code per pre-flight verification {YYYY-MM-DD}).
-> - [ ] {table_B}.{column_B} row in Cross-Tier-Diff is HIGH and proposes
->   {specific fix} as the remediation.
-> ```
-
-> [!constraint] Grep anchors for BLI-cited bugs MUST be `{table}.{column}`-qualified when column names may collide across tables in audit scope
-> WRONG — bare column name; matches every table that shares the column:
-> ```
-> grep -E "{column}"   # matches finding rows on {table_A} AND {table_B}
-> ```
-> CORRECT — `{table}.{column}` qualified; unique across the audit output:
-> ```
-> grep -E "{table_A}\.{column}"
-> ```
->
-> The `{table}.{column}` form costs one extra escape character per anchor and
-> eliminates the collision class entirely. Bare column names collide in any
-> cross-table audit; the qualified form is the safe default.
-
-> [!practice] Consolidator/triager error-recovery clauses SHOULD report stale-criterion findings, not HALT
-> When a BLI-cited anchor has been re-verified at session start and matches a
-> different state than originally expected (resolved, regressed, or moved), the
-> consolidator/triager task SHOULD document the stale criterion in its output
-> (under a "Regression Check" or "Stale Criterion" section) and continue to a
-> clean summary — NOT HALT mid-session. HALT-on-stale is reserved for cases where
-> the orchestrator has not provided an explicit override authorising continued
-> execution.
->
-> This is a SHOULD, not a MUST. Some audit plans legitimately want a hard stop on
-> stale criteria (e.g., when the stale state itself is a regression). The
-> orchestrator decides; the task's error-recovery clause defaults to "report
-> stale, continue" unless the Sprint Plan binds it to HALT.
-
-### 16.4 Verify the Metric Definition Before Reproduction
-
-> [!constraint] Confirm what N counts before asserting "reproduce N" — metric labelling differences are not data divergences
-> When an exit criterion asserts "reproduce N", confirm **what N counts** before
-> declaring pass/fail — especially when the baseline and the probe compute the
-> value via different code paths.
->
-> A single mislabelled metric ("curves" vs "runs") produces a false FAIL that can
-> trigger a HALT or a wasted reconciliation cycle. The cheap disconfirming move is
-> arithmetic on the columns you already have: if `paired + fallback == baseline`
-> exactly, the extraction path is faithful and the divergent column is simply a
-> different, additional metric — not a failure.
->
-> WRONG — compare the first numeric column that resembles the baseline and HALT on
-> mismatch:
-> ```
-> probe reports totalCurveCount = 82 / 958 / 248
-> baseline asserts 82 / 499 / 176
-> → HALT: counts don't match
-> [The baseline numbers were wall-RUN counts (pairedRunCount + fallbackRunCount),
->  mislabelled "curves"; totalCurveCount is a different, raw metric.]
-> ```
->
-> CORRECT — enumerate every count the probe emits, find which combination
-> reproduces the baseline exactly, and label both metrics explicitly in the
-> findings. Reserve HALT for a genuine extraction or data divergence, not a
-> labelling difference:
-> ```
-> probe: totalCurveCount = 82 / 958 / 248
->        pairedRunCount  =  0 / 263 /  60
->        fallbackRunCount= 82 / 236 / 116
-> arithmetic check: paired + fallback = 82 / 499 / 176  ← matches baseline exactly
-> → Finding: baseline counts were wall-RUN counts; totalCurveCount is the raw
->   exploded-segment census — a distinct, additional metric. Extraction is faithful.
->   Label both metrics explicitly; do NOT HALT.
-> ```
-
----
-
-## 17. Design Extensions Introduced During Execution (BINDING)
-
-Plan execution often introduces parameters, thresholds, or behaviors that do not appear in the original design spec (the Discovery output, Execution Input, or equivalent). Without traceable documentation, a future reviewer cannot determine whether such a parameter was deliberate, inherited, or arbitrary.
-
-> [!constraint] Design extensions introduced during execution MUST be documented inline + back-referenced to the project's config catalog
-> When plan execution introduces parameters or behaviors NOT present in the
-> original design spec (Consolidated Context, EI, or equivalent), those design
-> extensions MUST carry three fields at their first declaration site:
->
-> - **What** — the parameter / behavior and its value.
-> - **Why** — the rationale (domain reason, calibration result, planning decision).
-> - **Source** — where the value came from (research paper, domain knowledge, calibration run, planning decision).
->
-> WRONG — new parameter appears in a task file + downstream consumer with no origin:
-> ```
-> SOME_THRESHOLD: float = 0.75   # no comment
-> ```
-> A reviewer cannot determine whether this is deliberate, inherited, or arbitrary.
->
-> CORRECT — design extension documented inline with a What/Why/Source comment + back-reference:
-> ```
-> # Design extension (not in original design spec):
-> # WHAT:   SOME_THRESHOLD = 0.75 — partial-credit scoring threshold
-> # WHY:    Domain rules give partial weight when condition X holds; full credit
-> #         only under condition Y. 0.75 reflects the partial-credit ratio agreed
-> #         in {decision document}.
-> # SOURCE: Planning decision (sprint-{NN} signoff); no original-spec citation
-> #         exists. Backlog item: BLI-NNN.
-> ```
->
-> **Back-reference requirement:** new configurable parameters MUST be added to the
-> project's config catalog (the equivalent of the project's CLAUDE.md
-> "Configuration" section, or whatever design-spec catalog the plan inherited
-> from) so future reviewers can trace every parameter to either:
-> - (a) the original spec, OR
-> - (b) a documented extension.
->
-> Inline-comment-only documentation is not sufficient — config-catalog drift would silently rebuild the same problem.
-
-> [!checklist] Design-Extension Authoring (Per Sprint Closeout)
-> - [ ] Identified every parameter or threshold introduced this sprint that does NOT appear in the original design spec
-> - [ ] Each new parameter has an inline What/Why/Source comment at its first declaration site
-> - [ ] Each new parameter is added to the project's config catalog
-> - [ ] Each new parameter is mentioned in the sprint signoff under a "Design Extensions" sub-section (per the §16.3 exit-criteria-fidelity verbatim-quote conventions)
-
----
-
-## 18. Cross-Tier Audit-Finding Triage (BINDING)
-
-A cross-tier audit with a Discovery → Audit gap longer than one sprint produces HIGH-severity findings in two categories: findings on items whose downstream artifacts already exist in deployed code, and findings on items whose downstream artifacts are still un-authored in future sprints. A naïve "bundle every finding into one Remediation sprint" plan double-handles the second category.
-
-> [!constraint] Cross-tier audit findings on un-authored downstream artifacts MUST be pre-emptively flagged in the Findings doc, NOT bundled into a separate remediation sprint
-> Failure mode: the naïve plan for a cross-tier audit's HIGH findings is "bundle
-> all findings into Sprint-N Remediation." This works for findings on items whose
-> downstream artifacts already exist in deployed code, but DOUBLE-HANDLES findings
-> on items whose downstream artifacts are scheduled for future sprints (Sprint-N
-> ships a DDL ALTER + adapter patch in incomplete form; Sprint-M re-reads the DDL
-> + adapter + writes the downstream module / test / consumer + smoke runs).
->
-> Three-bucket triage workflow:
-> - **Sprint-N Remediation bucket** — findings on items whose downstream artifacts ALL exist in deployed code. Fix in a dedicated Remediation sprint; smoke re-run to verify; flip BLOCKED status in the upstream sprint Recovery.
-> - **Sprint-M Authoring (pre-emptive flag) bucket** — findings on items whose downstream artifacts are scheduled for a future sprint not yet authored. Surface in the Findings doc with:
->   1. A pre-emptive flags table (item | severity | future Sprint-M session | recommendation for author).
->   2. The full fix description embedded inline OR cross-linked from the table.
->   3. A note in the future Sprint-M's Orchestration prerequisites that says "read {Audit-ID} Findings Part-N pre-emptive flags table before drafting task files."
-> - **Sprint-N Remediation + Sprint-M Flag combo** — findings where the upstream change (DDL ALTER, adapter patch, etc.) is needed to unblock current code AND the downstream artifact can wait for the future sprint. Ship the upstream fix in Sprint-N; flag the downstream artifact for Sprint-M.
->
-> The Findings doc becomes the cross-sprint coordination artifact. The Sprint-M
-> author reads the flags during their Orchestration draft, then ships the audit
-> fix as part of authoring rather than as a separate remediation pass.
->
-> Three caveats:
-> 1. **Does NOT apply when un-authored artifacts are months out** — the Findings doc's pre-emptive flag can rot. Re-run a fresh cross-tier diff when the future sprint kicks off (per the §16.3 BLI-Cited Anchor Re-Verification clause). Pre-emptive flags expire.
-> 2. **Does NOT apply when the upstream change is needed to unblock current code** — use the combo bucket above.
-> 3. **Does NOT save work in token count, only in session-orchestration overhead** — each task still gets executed; the saving is in scaffolding effort, agent-dispatch coordination, and Recovery-file churn.
->
-> Concrete trigger:
-> 1. For each HIGH/MEDIUM finding, look up the affected item's downstream artifact status (downstream module authored? consumer code present? tests?).
-> 2. If ALL downstream artifacts exist and are in deployed code → Remediation bucket (next sprint).
-> 3. If ANY downstream artifact is in a planned-but-unauthored sprint → pre-emptive flag bucket (defer to that sprint's author).
-> 4. The pre-emptive flag table goes in the Findings doc Part-2 (or an equivalent location near the MEDIUM dispositions); add it to the future sprint's Orchestration prerequisites.
-
----
-
-## 19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery (BINDING)
-
-A narrowly-scoped bug fix sometimes surfaces a *recurring defect class* — a failure that is one of a family, where the proper solution is a cross-cutting framework (a policy registry, a shared preprocessor, a result-surface change) spanning many call sites. Resolving that framework inline, mid-bug-fix, explodes the session's scope and blast radius before the verification gate even re-runs. Pinning only the observed instances recurs the moment a sibling appears. The discipline is to split the work — and to make the cheap fix pay for the expensive plan.
-
-This rule cross-links the count-by-execution discipline in [§15.1](#151-deterministic-bug-scope-must-be-counted-by-execution-not-estimated): the seeding tactic below is how a bug-fix session hands the deferred Discovery the count-by-execution evidence §15.1 requires.
-
-> [!decide] Narrow Fix Reveals a Systemic Gap
-> When a narrowly-scoped fix surfaces a *recurring defect class* you intend to generalize later, SPLIT it:
-> - Ship a **bounded temp fix** that closes the gate now (one file, no cross-cutting framework change), AND
-> - Spin a **separate discovery/framework plan** (a planwise Meta-Plan) for the principled solution.
->
-> Do NOT resolve the systemic design inline in the bug-fix session, and do NOT under-fix by enumerating only the observed instances.
-
-> [!constraint] Two Failure Modes to Avoid — Over-Build and Under-Fix
-> WRONG — **over-build**: implement the whole framework (registry + policy preprocessor + result-surface change + migrate callers) inline mid-bug-fix → scope explosion + large blast radius before the verification gate even re-runs.
->
-> WRONG — **under-fix**: pin only the observed instances (e.g. the two observed identifiers) → recurs the moment a sibling instance appears (the failure family had dozens of variants across two severity groups).
->
-> CORRECT — **bounded temp fix**: close the gate with the *robust-but-bounded* option (severity-class handling beats instance enumeration when the failure is one of a family) + bound it (an iteration cap) + stay one file (no cross-cutting framework change). Pair it with a separate discovery/framework plan for the principled solution.
->
-> Concretely, a bounded temp fix:
-> - **Closes the gate with the bounded-robust option, not the narrow one.** Handling the entire sibling family by severity class (e.g. dismiss-all-`Warning` + an iteration cap), bounded to the non-blocking cases, resolves every sibling at once; pinning the observed instances would recur on the next one. *Severity classification beats instance enumeration when the failure is one of a family.*
-> - **Stays one file.** No result-surface change, no registry, no caller migration — those are the framework plan's scope, explicitly deferred.
-
-> [!practice] Make the Temp Fix Seed the Deferred Discovery
-> Make the bounded temp fix EMIT the diagnostic data the deferred plan will need — a structured count-by-execution catalog (one record per distinct failure: identifier, severity, action, description), written via the project's diagnostic logging pattern (a durable, append-only, machine-readable log). The future Discovery then starts from count-by-execution evidence ([§15.1](#151-deterministic-bug-scope-must-be-counted-by-execution-not-estimated)) instead of forward-estimating which of thousands of candidate cases actually matter. The deferred work becomes a planwise Meta-Plan (Discovery), not an inline build — letting the systemic design (ordering conflicts, placement, new dispositions, caller migration) be explored and reviewed before any framework code is written.
-
-Applies to:
-- Any session where a narrow fix (a single failing tool, a one-instance patch) reveals a repo-wide / recurring defect class the team wants to generalize.
-- Especially when the proper solution is a cross-cutting framework (a policy registry, a shared preprocessor, a result-surface change) that would explode a bug-fix session's scope and blast radius.
-- The seeding tactic applies whenever the deferred plan needs empirical scope data: emit a structured catalog (via the project's diagnostic logging pattern) in the temp fix so Discovery counts-by-execution instead of estimating.
-
-NOT applicable when the surfaced gap is a one-off (no sibling family, no recurrence risk) — then the in-line fix IS the principled fix and there is nothing to defer.
-
----
-
-## 20. Spike Instrument Verdict Discipline (BINDING)
-
-A spike instrument fed synthetic input can confirm that the instrument is correct and structurally sound. It cannot confirm that tolerance or threshold *magnitudes* are production-appropriate.
-
-### 20.1 Synthetic-Fixture Verdict Partitioning
-
-> [!constraint] Partition spike verdicts by what synthetic input can actually decide — do not over-claim
-> When a spike instrument runs on synthetic (non-production) input because the real
-> artifact is gated behind a later live step, the verdict must be partitioned by
-> what the input is capable of stressing:
->
-> | Verdict class | Synthetic fixture can resolve? |
-> |---------------|-------------------------------|
-> | Instrument correctness (compiles/runs, stages fire, no-throw on edge inputs) | YES |
-> | Structural behaviour (dedup-before-pairing, input normalization, NaN/Inf dropped) | YES |
-> | Perf *scaling shape* + an upper-bound timing anchor | YES |
-> | Tolerance/threshold *magnitudes* (production default values) | **NO — defer to real-input data** |
->
-> WRONG — report "the defaults are confirmed" because the tolerance sweep ran clean
-> on synthetic data:
-> ```
-> Synthetic-fixture sweep: 5 of 6 defaults show zero sensitivity to ±50% perturbation.
-> Finding: the six defaults are confirmed.
-> ```
-> A synthetic fixture is pathologically clean (exact, degenerate-free, near-total
-> overlap), so slack tolerances are never the deciding constraint. A real "dirty"
-> input is precisely what exercises them.
->
-> CORRECT — report the magnitude verdict as DEFERRED to the real artifact; name
-> the single most outcome-sensitive parameter for priority confirmation; ship a
-> re-runnable instrument so the magnitude pass is a re-run, not a rebuild:
-> ```
-> Instrument correctness: CONFIRMED (all pipeline stages fire, no-throw on edge inputs)
-> Structural behaviour: CONFIRMED (dedup-before-pairing, NaN/Inf dropped)
-> Perf scaling shape: CONFIRMED O(n²); upper-bound anchor: 32,610 ms @ 5,000 items
-> Tolerance magnitudes: DEFERRED to live real-input data
->   Priority parameter for confirmation: TOL_PRIMARY (the only default that moved
->   output under ±50% perturbation; the other five showed zero sensitivity on synthetic).
-> ```
-
-Corollary for guessed perf budgets: a plan-mode budget constant (e.g. `< 500 ms`) is a placeholder until measured. Anchor it against measured scaling and a stated language-speedup extrapolation; surface the algorithmic risk (whether the approach can meet the budget at the stress-n) rather than inheriting the guess into a test assertion.
-
-Applies to:
-- Discovery / de-risk spikes whose probe instrument runs on synthetic or stand-in input because the real artifact is gated behind a later live step.
-- Any tolerance / threshold-sweep finding: separate "instrument validated + structural behaviour confirmed" from "magnitude confirmed" and defer the latter to real-input data.
-- Perf-budget constants written as plan-mode placeholders: anchor against measured scaling before pinning them into a test assertion.
+The general form: when an upstream task's scope is a *subset* named by an inherited classification, verify at scaffold time that the classification and the blocking property select the same set. If they do not, scope by the property.
 
 ---
 
 ## Scaffolding Templates (canonical paste-ready blocks)
 
-> [!practice] Canonical Scaffolding Templates Live Inline in This Rule
-> When scaffolding a Discovery phase or a sprint signoff task, paste the two
-> blocks below verbatim — they are the canonical templates for §15.1 (Discovery
-> identification-query block) and §16.3 (verbatim sprint-signoff checklist
-> block). Maintaining them inline (rather than as sibling template files) keeps
-> the template, the rationale, and the WRONG/CORRECT contrast in a single
-> source.
+> [!practice] Canonical Scaffolding Template Lives Inline in This Rule
+> When scaffolding a Discovery phase, paste the block below verbatim — it is
+> the canonical template for §15.1 (Discovery identification-query block).
+> Maintaining it inline (rather than as a sibling template file) keeps the
+> template, the rationale, and the WRONG/CORRECT contrast in a single source.
+> Template 2 (§16.3 verbatim sprint-signoff checklist block) lives in
+> [exit-criteria-fidelity.md](exit-criteria-fidelity.md#scaffolding-template-2--sprint-signoff-checklist-block-163).
 >
 > **Template 1 — Discovery identification-query block (§15.1).** Paste into the
 > Consolidated Context Part covering scope counting; adapt SELECT/WHERE to the
@@ -613,47 +184,29 @@ Applies to:
 > Persist the row count + verification date inline. Then propagate the count +
 > ID list (or the query + parameters when >100 IDs) into every Execution Input
 > and downstream task file (§15.2).
->
-> **Template 2 — Sprint signoff checklist block (§16.3).** Paste into the sprint
-> signoff task body, one row per EI exit-criterion:
->
-> ```markdown
-> ## Sprint Signoff Checklist (verbatim from EI §{N}.{M})
->
-> - [ ] §{N}.{M} row 1: "{verbatim EI exit-criterion text}"
->       Mechanical: `{verification command + expected result}`.
->       **Deviation:** {design-decision document path}  [omit when matches verbatim]
->
-> - [ ] §{N}.{M} row 2: "{verbatim EI exit-criterion text}"
->       Mechanical: `{verification command + expected result}`.
->
-> ... (one row per EI exit-criterion item; row count MUST equal EI item count)
-> ```
->
-> Authoring rules: (1) verbatim quote at the head; (2) one row per EI criterion;
-> (3) one mechanical anchor per row; (4) `**Deviation:** <path>` annotation
-> whenever the implementation deviates from verbatim text.
 
 ---
 
 ## Plan-Review Enforcement Summary
 
-The structural and content reviewers in `/planwise review` MUST surface BLOCKING findings for the following violations:
+The structural and content reviewers in `/planwise review` MUST surface BLOCKING findings for the following violations. Kept whole on this anchor file (rather than split across the three segments), so review tooling scans one table for all 13 checks; each row's Source rule column names the file that now carries the cited rule.
 
 | # | Check | Trigger | Source rule |
 |---|-------|---------|-------------|
 | 1 | Discovery scope estimated, not counted | Discovery output cites a deterministic-bug count without an inline identification query that was executed against the live data store | §15.1 |
 | 2 | Count-only placeholder in Execution Input | A `{N_ids}` or `{N_records}` style placeholder appears in any task file's Required Context or query template without an accompanying ID list or deterministic query | §15.2 |
-| 3 | Single-layer binding refinement | A binding refinement is mentioned in the Sprint Plan but not echoed as `> [!binding]` callouts in at least the Orchestration and the gated task file | §16.1 |
-| 4 | "Surfaces" without enforceable check | A task body claims to "surface" a BLOCKING item but contains no numeric assertion, grep, source-introspection check, documentation-content check, or parametrized test mechanism | §16.2 |
-| 5 | Signoff row count mismatch or vague row | A sprint signoff checklist's row count differs from the EI exit-criteria item count, or any row lacks a mechanical anchor, or any rename/substitution lacks a deviation annotation | §16.3 |
-| 6 | BLI-cited audit anchor without re-verification or with bare-column grep | A Sprint Plan / Orchestration encodes BLI-cited bugs as mechanical-grep success criteria AND does NOT include a pre-flight re-verification step at session start, OR uses bare-column grep anchors when ≥2 tables in the audit scope share the column name | §16.3 |
-| 7 | Undocumented design extension | A sprint signoff cites a parameter / threshold that does not appear in the original design spec AND has no inline What/Why/Source comment AND is not in the project's config catalog | §17 |
-| 8 | Audit Findings doc lacks a pre-emptive flags table | A cross-tier audit's Findings doc enumerates HIGH/MEDIUM findings on items whose downstream artifacts are NOT all in deployed code AND lacks a pre-emptive flags table sectioning those findings into the Sprint-M Authoring bucket | §18 |
-| 9 | Systemic gap resolved inline or under-fixed | A bug-fix session whose fix surfaces a recurring defect class either builds the whole framework inline (scope explosion) OR pins only the observed instances (no severity-class handling, no seeding catalog, no separate Discovery/Meta-Plan) | §19 |
-| 10 | Metric HALT on labelling difference | A signoff or consolidation agent declares FAIL / HALT because a probe column does not match the baseline, without first doing the cheap arithmetic check to confirm whether a different probe column (or combination) reproduces the baseline exactly | §16.4 |
-| 11 | Synthetic-fixture magnitude claim | A spike reports tolerance or threshold magnitudes as "confirmed" based on synthetic-fixture sweep results alone, without deferring the magnitude verdict to real-input data | §20.1 |
+| 3 | Single-layer binding refinement | A binding refinement is mentioned in the Sprint Plan but not echoed as `> [!binding]` callouts in at least the Orchestration and the gated task file | exit-criteria-fidelity.md §16.1 |
+| 4 | "Surfaces" without enforceable check | A task body claims to "surface" a BLOCKING item but contains no numeric assertion, grep, source-introspection check, documentation-content check, or parametrized test mechanism | exit-criteria-fidelity.md §16.2 |
+| 5 | Signoff row count mismatch or vague row | A sprint signoff checklist's row count differs from the EI exit-criteria item count, or any row lacks a mechanical anchor, or any rename/substitution lacks a deviation annotation | exit-criteria-fidelity.md §16.3 |
+| 6 | BLI-cited audit anchor without re-verification or with bare-column grep | A Sprint Plan / Orchestration encodes BLI-cited bugs as mechanical-grep success criteria AND does NOT include a pre-flight re-verification step at session start, OR uses bare-column grep anchors when ≥2 tables in the audit scope share the column name | exit-criteria-fidelity.md §16.3 |
+| 7 | Undocumented design extension | A sprint signoff cites a parameter / threshold that does not appear in the original design spec AND has no inline What/Why/Source comment AND is not in the project's config catalog | execution-time-binding-rules.md §17 |
+| 8 | Audit Findings doc lacks a pre-emptive flags table | A cross-tier audit's Findings doc enumerates HIGH/MEDIUM findings on items whose downstream artifacts are NOT all in deployed code AND lacks a pre-emptive flags table sectioning those findings into the Sprint-M Authoring bucket | execution-time-binding-rules.md §18 |
+| 9 | Systemic gap resolved inline or under-fixed | A bug-fix session whose fix surfaces a recurring defect class either builds the whole framework inline (scope explosion) OR pins only the observed instances (no severity-class handling, no seeding catalog, no separate Discovery/Meta-Plan) | execution-time-binding-rules.md §19 |
+| 10 | Metric HALT on labelling difference | A signoff or consolidation agent declares FAIL / HALT because a probe column does not match the baseline, without first doing the cheap arithmetic check to confirm whether a different probe column (or combination) reproduces the baseline exactly | exit-criteria-fidelity.md §16.4 |
+| 11 | Synthetic-fixture magnitude claim | A spike reports tolerance or threshold magnitudes as "confirmed" based on synthetic-fixture sweep results alone, without deferring the magnitude verdict to real-input data | execution-time-binding-rules.md §20.1 |
+| 12 | Unsatisfiable absence criterion (enactor or ownership) | A removal/absence Success Criterion asserts a zero-match grep AND either the removal artifact is not excluded from the search scope (enactor cause) OR the searched token is a bare symbol/identifier with no pasted occurrence count (ownership cause) | exit-criteria-fidelity.md §16.9 |
+| 13 | Upstream normalization task scoped by tier, not property | A task scaffolded to normalize a set of items before a mechanical batch processes the rest names its scope via an inherited severity/triage tier rather than the specific property that blocks the mechanical transform | §15.3 |
 
 ---
 
-*Companion files: [session-planning-protocol.md](session-planning-protocol.md) (parent rule, §15 + §16 cross-references), [session-plan-requirements.md](session-plan-requirements.md) (Task File Template, signoff sections), [task-content-fidelity.md](task-content-fidelity.md) (Required Context fidelity, verify-before-cite).*
+*Companion files: [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols) (parent rule, §15 + §16 cross-references from its Companion Files table), [exit-criteria-fidelity.md](exit-criteria-fidelity.md) (§16, cross-layer enforcement & exit-criteria fidelity), [execution-time-binding-rules.md](execution-time-binding-rules.md) (§17-§20, design extensions, audit-finding triage, bounded-temp-fix, spike-instrument verdict discipline), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Task File Template), [session-plan-requirements.md](session-plan-requirements.md) (signoff sections), [task-content-fidelity.md](task-content-fidelity.md) (Required Context fidelity, verify-before-cite).*

@@ -47,6 +47,211 @@ def find_config_upward(start_path: Path) -> Path | None:
     return None
 
 
+class ConfigWriteError(RuntimeError):
+    """A config.yaml write produced an unparseable file and was rolled back."""
+
+
+def write_config_checked(config_path, text: str) -> None:
+    """Write `text` to `config_path`, then verify the result still parses.
+
+    Every writer that edits config.yaml routes through here. The writers are
+    deliberately *targeted* (regex line splices and text-block appends) so the
+    user's comments, key order, and flow styles survive — but a targeted edit
+    that goes wrong produces a file that no longer parses, and nothing else in
+    the pipeline notices until the NEXT command dies on a raw parser traceback.
+    This helper closes that gap: it writes, re-reads, and parses the result; on
+    failure it restores the pre-write bytes (or removes the file when it did not
+    exist before) and raises ConfigWriteError naming the path.
+
+    When PyYAML is unavailable the parse check degrades to a documented no-op —
+    the write proceeds unverified, mirroring the HAS_YAML fallbacks elsewhere in
+    this module. Verification needs a real parser: the minimal
+    `_parse_yaml_simple` reader above accepts malformed input silently and would
+    hand back a false all-clear.
+    """
+    path = Path(config_path)
+    try:
+        previous = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        previous = None
+
+    path.write_text(text, encoding="utf-8")
+
+    if not HAS_YAML:
+        return
+
+    try:
+        yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        if previous is None:
+            path.unlink()
+            restored = "the file was removed"
+        else:
+            path.write_text(previous, encoding="utf-8")
+            restored = "the file is unchanged"
+        raise ConfigWriteError(
+            f"{path}: the edited config does not parse as YAML — the write was "
+            f"rolled back and {restored}. Parser said: {exc}"
+        ) from exc
+
+
+def find_context_block(lines: list[str]) -> tuple[int, int, str] | None:
+    """Locate the top-level `context:` block in a list of YAML lines.
+
+    Returns (header_index, block_end_exclusive, subkey_indent) where:
+      * header_index is the index of the `context:` line,
+      * block_end_exclusive is the index of the first line AFTER the block
+        (the next top-level key, or len(lines) at EOF),
+      * subkey_indent is the leading whitespace string used for the block's
+        sub-keys (taken from the first indented member, or "  " if none).
+
+    Returns None when no top-level `context:` block exists.
+
+    This is the shared LOCATE half of the config.yaml `context:`-block text
+    surgery: every writer that targets the block — the additive,
+    skip-if-present sub-key merge and the replace-or-append splice below —
+    locates it this same way, so this is their one shared home. Callers that
+    need the SPLICE half (replace-or-append) use splice_context_block(); a
+    caller that instead must never overwrite an existing sub-key locates the
+    block here and keeps its own skip-if-present loop local.
+    """
+    header_idx = None
+    for i, line in enumerate(lines):
+        if re.match(r"^context:\s*$", line):
+            header_idx = i
+            break
+    if header_idx is None:
+        return None
+
+    subkey_indent = "  "
+    found_indent = False
+    end = len(lines)
+    for j in range(header_idx + 1, len(lines)):
+        line = lines[j]
+        if line.strip() == "" or line.lstrip().startswith("#"):
+            # Blank/comment lines belong to the block only if more content
+            # follows at sub-key indent; tentatively include and keep scanning.
+            continue
+        indent_match = re.match(r"^(\s+)\S", line)
+        if indent_match:
+            if not found_indent:
+                subkey_indent = indent_match.group(1)
+                found_indent = True
+            continue
+        # A non-indented, non-blank, non-comment line ends the block.
+        end = j
+        break
+
+    # Trim trailing blank/comment lines back out of the block so insertions
+    # land directly after the last real sub-key.
+    while end - 1 > header_idx:
+        prev = lines[end - 1]
+        if prev.strip() == "" or prev.lstrip().startswith("#"):
+            end -= 1
+        else:
+            break
+
+    return header_idx, end, subkey_indent
+
+
+def _block_value_end(text: str, line_end: int, key_indent: int) -> int:
+    """Return the offset just past a block-mapping value following a key line.
+
+    `line_end` is the end offset of the matched `key:` line (the position of its
+    newline, or EOF); `key_indent` is that line's indent width. Consumes each
+    following line indented STRICTLY deeper than the key — deeper-indented
+    comment lines included, since they sit inside the block. Stops at the first
+    blank line or any line indented at or below the key, so a trailing blank
+    line and a comment introducing the NEXT key are never swallowed.
+
+    Returns `line_end` unchanged unless at least one deeper-indented NON-comment
+    child was found — a lone comment under a valueless key is the user's note on
+    an empty value, not a block mapping, and must survive the rewrite.
+    """
+    end = line_end
+    pos = line_end
+    saw_child = False
+    while pos < len(text) and text[pos] == "\n":
+        nxt = text.find("\n", pos + 1)
+        line = text[pos + 1:] if nxt == -1 else text[pos + 1:nxt]
+        if not line.strip():
+            break
+        indent = len(line) - len(line.lstrip())
+        if indent <= key_indent:
+            break
+        if not line.lstrip().startswith("#"):
+            saw_child = True
+        end = pos + 1 + len(line)
+        pos = end
+    return end if saw_child else line_end
+
+
+def splice_context_block(text: str, values: dict) -> str:
+    """Replace-or-append each (key, value) pair against a `context:` block.
+
+    For every key in `values`:
+      * If a `key:` line exists ANYWHERE in `text` (the search is a plain
+        whole-text regex, not scoped to inside the block — matching a
+        top-level key like `plugin_version` works the same way), its value is
+        REPLACED IN PLACE. A trailing inline comment on that line is
+        preserved. When the key's own line carries no value (the real value
+        lives in an indented block below it — either hand-authored or
+        produced by an earlier whole-file re-dump), the entire child block is
+        consumed and replaced too, so no orphaned children are left behind.
+      * If the key is absent, `{subkey_indent}{key}: {value}` is appended
+        directly under the `context:` block (or at end-of-text when no
+        `context:` block exists).
+
+    This is a targeted text splice — never a YAML round-trip — so comments,
+    key order, and flow styles everywhere else in `text` survive untouched.
+    Each value in `values` is rendered VERBATIM (an already-formatted YAML
+    literal), not Python-to-YAML converted.
+
+    This function ALWAYS replaces an existing key — it is the opposite policy
+    from an additive, skip-if-present merge. A caller that must never
+    overwrite an existing sub-key (e.g. a --migrate that must not clobber a
+    user's already-calibrated values) does not use this function for that
+    policy; it locates the block via find_context_block() and keeps its own
+    skip-if-present loop local.
+    """
+    lines = text.split("\n")
+    block = find_context_block(lines)
+    subkey_indent = block[2] if block is not None else "  "
+
+    appended: list[str] = []
+    for key, value in values.items():
+        pattern = re.compile(
+            rf"^(?P<indent>\s*){re.escape(key)}:(?P<rest>[^\n]*)$", re.MULTILINE
+        )
+        m = pattern.search(text)
+        if m:
+            # Preserve a trailing inline comment on the line (the value is
+            # everything up to an unquoted `#`). Splice via slicing rather than
+            # re.sub so the replacement is never re-interpreted for backrefs.
+            cm = re.search(r"(\s+#.*)$", m.group("rest"))
+            comment = cm.group(1) if cm else ""
+            replacement = f"{m.group('indent')}{key}: {value}{comment}"
+            end = m.end()
+            # An empty value on the key line (once its inline comment is set
+            # aside) means the real value may live in an indented block below —
+            # consume that block along with the parent line.
+            value_part = m.group("rest")[: cm.start(1)] if cm else m.group("rest")
+            if not value_part.strip():
+                end = _block_value_end(text, m.end(), len(m.group("indent")))
+            text = text[: m.start()] + replacement + text[end:]
+        else:
+            appended.append(f"{subkey_indent}{key}: {value}")
+
+    if appended:
+        lines = text.split("\n")
+        # Recompute the insertion point on the (possibly) mutated text.
+        block2 = find_context_block(lines)
+        insert_at = block2[1] if block2 is not None else len(lines)
+        lines = lines[:insert_at] + appended + lines[insert_at:]
+        text = "\n".join(lines)
+
+    return text
+
 
 def _parse_yaml_simple(text: str) -> dict:
     """Minimal YAML parser for flat and one-level-nested structures.
@@ -372,6 +577,31 @@ def get_upgrade_config(config: dict) -> dict:
     }
 
 
+def get_feedback_config(config: dict) -> dict:
+    """Extract the `feedback:` block from config, with conservative defaults.
+
+    Mirrors get_upgrade_config: reads the three `feedback.*` keys and falls
+    back to documented backward-compatible defaults when the block (or a key)
+    is absent, explicitly null, or malformed — a config that predates the
+    feedback surface. Defaults are the safe status quo:
+
+      * enabled             -> False                  (opt-in, interactive only)
+      * repo                -> "gabgoss/planwise"      (upstream target)
+      * include_environment -> True                    (auto-filled Environment block)
+    """
+    feedback = config.get("feedback", {})
+    if not isinstance(feedback, dict):
+        feedback = {}
+    repo = feedback.get("repo", "gabgoss/planwise")
+    if not isinstance(repo, str) or not repo.strip():
+        repo = "gabgoss/planwise"
+    return {
+        "enabled": _as_bool_flag(feedback.get("enabled"), False),
+        "repo": repo,
+        "include_environment": _as_bool_flag(feedback.get("include_environment"), True),
+    }
+
+
 def get_effective_token_saver_config(config: dict, plan_override=None) -> dict:
     """Overlay an optional per-plan on/off decision onto the project surface.
 
@@ -395,3 +625,100 @@ def get_effective_token_saver_config(config: dict, plan_override=None) -> dict:
     if plan_override is not None:
         base["token_saver"] = bool(plan_override)
     return base
+
+
+_TOKEN_SAVER_ADVISORY_VALUES = ("measured", "off")
+
+
+def _as_int_default(value, default: int) -> int:
+    """Coerce a config numeric field to int, falling back to `default`.
+
+    Accepts int/float/numeric-string; None, a malformed string, or any
+    other type (dict, list, bool) falls back rather than raising. `bool` is
+    excluded even though it is an `int` subclass -- a stray `true`/`false`
+    here is a type mismatch, not a numeric value.
+    """
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return default
+    return default
+
+
+def _as_int_subkey_dict(value, default: dict, keys: tuple) -> dict:
+    """Coerce a mapping of int subkeys, one subkey at a time, with fallback.
+
+    Malformed input (not a dict, a missing subkey, or a subkey that does not
+    coerce to int) falls back to `default`'s value for THAT subkey only --
+    a partially-calibrated capture must not blank out the whole mapping.
+    """
+    if not isinstance(value, dict):
+        value = {}
+    return {key: _as_int_default(value.get(key), default[key]) for key in keys}
+
+
+def get_token_saver_extension_config(config: dict) -> dict:
+    """Extract the Token Saver extension keys, with defaults.
+
+    These five `context.token_saver_*` keys are additive to the six
+    `get_token_saver_config` already reads. They live in their own accessor
+    rather than being folded into that function, because that function's
+    docstring and existing callers assume exactly the original six-key
+    shape. Defaults are conservative / uncalibrated sentinels:
+
+      * token_saver_injection_ceiling       -> 40000 (the doctor
+        sweep's per-glob-family worst-case warning ceiling. MUST agree with
+        `doctor_sweeps.py`'s `_INJECTION_CEILING_DEFAULT`. Two default sites
+        are intentional: doctor_sweeps.py reads the key through a
+        self-contained regex reader with no config_loader dependency, by
+        design, because that sweep dispatches before this accessor exists
+        to import. The two sites must AGREE on the value, not collapse to
+        one.)
+      * token_saver_session_start_range     -> {min: 0, median: 0, max: 0}
+        (calibrate()-written; zeros are the uncalibrated sentinel)
+      * token_saver_injected_rules_estimate -> 0
+        (calibrate()-written; 0 is the uncalibrated sentinel)
+      * token_saver_orchestrator_advisory   -> "measured"
+        (enum "measured" | "off"; any other value falls back to
+        "measured" rather than silently disabling the advisory)
+      * token_saver_session_checkpoint      -> {window: 400000, turns: 194}
+        (chosen operating defaults derived from the measured
+        accumulation bands, NOT a "top-decile onset" threshold; read by the
+        run-handler's session-length checkpoint lever)
+    """
+    context = config.get("context", {})
+    if not isinstance(context, dict):
+        context = {}
+
+    advisory = context.get("token_saver_orchestrator_advisory", "measured")
+    if isinstance(advisory, str) and advisory.strip().lower() in _TOKEN_SAVER_ADVISORY_VALUES:
+        advisory = advisory.strip().lower()
+    else:
+        advisory = "measured"
+
+    return {
+        "token_saver_injection_ceiling": _as_int_default(
+            context.get("token_saver_injection_ceiling"), 40000
+        ),
+        "token_saver_session_start_range": _as_int_subkey_dict(
+            context.get("token_saver_session_start_range"),
+            {"min": 0, "median": 0, "max": 0},
+            ("min", "median", "max"),
+        ),
+        "token_saver_injected_rules_estimate": _as_int_default(
+            context.get("token_saver_injected_rules_estimate"), 0
+        ),
+        "token_saver_orchestrator_advisory": advisory,
+        "token_saver_session_checkpoint": _as_int_subkey_dict(
+            context.get("token_saver_session_checkpoint"),
+            {"window": 400000, "turns": 194},
+            ("window", "turns"),
+        ),
+    }

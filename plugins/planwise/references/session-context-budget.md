@@ -1,11 +1,11 @@
 ---
-description: Token budget management, context loading strategy, and conservation tactics for session planning
+description: Token budget management, and the read-gate canonical — Read-Tool Hard Limits, reading discipline, and Large-File Read Tactics — for session planning
 ---
 
 # Session Context Budget
 
-**Purpose:** Token budget management, context loading strategy, and context conservation rules for planning sessions.
-**Companion files:** [session-planning-protocol.md](session-planning-protocol.md) (protocol, hierarchy, delegation), [session-plan-requirements.md](session-plan-requirements.md) (file specifications, task templates)
+**Purpose:** Token budget management and the read-gate canonical (Read-Tool Hard Limits, reading discipline, Large-File Read Tactics) for planning sessions.
+**Companion files:** [session-planning-protocol.md](session-planning-protocol.md) (protocol, hierarchy, delegation), [session-plan-requirements.md](session-plan-requirements.md) (file specifications, task templates), [token-saver-profile.md](token-saver-profile.md) (carrying-cost budget when Token Saver is on), [context-loading-and-conservation.md](context-loading-and-conservation.md) (Meta-Plan decision, conservation tactics)
 
 ---
 
@@ -84,7 +84,8 @@ The Max practical session limit (400K) is intentionally below the available budg
 When authoring or reviewing a plan, compute thresholds from `context_window`:
 
 ```
-fixed_overhead          = 100_000            # constant across tiers
+fixed_overhead          = 100_000            # constant across tiers — TIER-SIZING domain only
+                                             #   (see "Two Overhead Constants, Two Domains" below)
 available_for_work      = context_window - fixed_overhead
 
 # Meta-Plan threshold — work that does not fit in one session
@@ -115,6 +116,20 @@ delegated_cap           = subagent_model_window
 > **Note (threshold precedence):** Where the formula above and these per-tier tables disagree, the **tables are canonical**. On Pro the formula's `0.80 × available_for_work` yields 80K, but the Tier-Specific Budget Table and the per-tier table above both set `meta_plan_threshold = 100K` on Pro (500K on Max) — use the table value. The formula is a derivation aid for non-standard tiers; the tables are the binding decision boundary. `handlers/plan.md` branches on 100K/500K, matching the tables.
 
 Handlers that branch on a hardcoded number (e.g., "if total > 100K → Meta-Plan") MUST instead read the relevant variable from this table.
+
+> [!constraint] Two Overhead Constants, Two Domains — Scoped, Never Summed
+> This file's `fixed_overhead` and Token Saver's calibrated per-actor overheads are **two quantities in two models**, not two measurements of one quantity. Each is operative in its own domain:
+>
+> | Constant | Operative domain | Drives | Source |
+> |----------|------------------|--------|--------|
+> | `fixed_overhead` = 100,000 | **Tier / Meta-Plan sizing boundary** | `available_for_work`, `meta_plan_threshold`, `practical_session_limit` — the per-tier tables above, which `handlers/plan.md` branches on | Documented constant, this file |
+> | `token_saver_runner_overhead`, `token_saver_orchestrator_overhead` | **Token-Saver per-actor budgets** | `available_per_task`, `critical`, `warn` (the engine's `derive_thresholds`) | Measured per install by `/planwise calibrate`; see [token-saver-profile.md](token-saver-profile.md) |
+>
+> **Never sum them.** Their category breakdowns overlap — the system prompt and the system tools are counted inside both — so adding them double-counts that shared block. They also disagree in magnitude (a measured per-actor overhead runs well below 100,000), and that disagreement is expected rather than an error to reconcile: one bounds a whole session against a tier window, the other bounds a single actor's working set.
+>
+> **Outside its own domain, each constant is non-operative.** `fixed_overhead` never enters a Token-Saver per-actor budget, and a calibrated per-actor overhead never enters `available_for_work` / `meta_plan_threshold` / `practical_session_limit`. Neither replaces the other; deleting either would break a live consumer.
+>
+> **Which figure a formula uses.** Formulas in *this* file consume the tier model: `available_for_work = context_window − fixed_overhead`, and the `~54K` that appears in the Tier-Specific Budget Table, the DELEGATED checks, and the Context Budget Gate is the **always-loaded static component of that same 100,000** — not the calibrated per-actor constant. Formulas in [token-saver-profile.md](token-saver-profile.md) consume the calibrated constants by name. Token Saver's *uncalibrated fallback* starts near that same ~54K figure by construction; once `/planwise calibrate` has run, the Token-Saver formulas use the **measured** value while this file's tier tables keep their documented ones.
 
 ### Session Limits
 
@@ -229,7 +244,87 @@ Task token estimates MUST be computed bottom-up from measured or estimated file 
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
 **DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Sonnet/Haiku 200K, Opus 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
 
-For detailed per-operation costs, see the [Token Estimation Reference](../handlers/plan.md#token-estimation-reference) in the planwise plugin.
+### Task Sizing Categories
+
+The task-size thresholds below are expressed for the Pro tier. On Max, scale by the same ratio used for session limits — a "Too Large" task on Pro is ~80% of `practical_session_limit`. The "always split a task above 80% of one session" principle is tier-invariant.
+
+| Task Size | Token Estimate (Pro) | Guideline |
+|-----------|---------------------|-----------|
+| Small | < 20K | Single file, simple lookup |
+| Medium | 20-50K | Multi-file, code generation |
+| Large | 50-80K | Complex analysis, multiple entities |
+| Too Large | > 80K (Pro) / > 320K (Max practical) | **MUST SPLIT** |
+
+**These categories are a cross-check, not the primary estimate.** Always compute the bottom-up estimate first, then compare against the category. Use the HIGHER of the two.
+
+### Per-Operation Cost Reference
+
+Use these tables to compute bottom-up token estimates for each task.
+
+**File Read Costs:**
+
+| Operation | Approx. Tokens | Heuristic |
+|-----------|----------------|-----------|
+| Read file | ~13 tokens/line | Measure or estimate actual line count |
+| Read 100-line file | ~1.3K | Small config, helper |
+| Read 200-line file | ~2.6K | Medium file |
+| Read 500-line file | ~6.5K | Large reference doc or entity |
+| Read 1000-line file | ~13K | Very large file -- consider if full read is needed |
+
+**Output Generation Costs:**
+
+| Operation | Approx. Tokens | Scaling Factor |
+|-----------|----------------|----------------|
+| Generate C# entity | ~3-5K per entity | Scale by property count |
+| Generate controller | ~5-8K | Scale by action count |
+| Generate Razor view | ~3-6K | Scale by complexity |
+| Generate migration | ~2-4K | Scale by entity count |
+| Error analysis + fix | ~5-10K | Includes iteration |
+| Complex decision (Opus) | ~10-20K | Architecture/trade-offs |
+
+**Overhead Costs (DELEGATED mode):** see the [Tier-Specific Budget Table](#tier-specific-budget-table) above (System prompt ~4K, System tools ~22K, Global rules + CLAUDE.md ~27K, Skills + agents ~1K — ~54K subagent overhead total).
+
+### Per-Invocation Structural Floor
+
+Every subcommand invocation carries a block of instruction text that a runtime `/context` snapshot **structurally cannot observe**: the skill body, the base-context references pre-injected with the skill, the handler body, and the always-load references. Calibration measures the static categories a *fresh* session reports; this block arrives as transcript content during the invocation, landing in `messages` rather than in any static category. It is therefore invisible to calibration by construction, and must be accounted for separately when budgeting a session that will issue subcommands.
+
+Figures are labelled by the tree they were measured on — **dev** (the tree the plugin is developed in) or **installed** (the tree a consumer has on disk). The two differ in line counts, so a figure from one tree is not comparable to a figure from the other.
+
+**Whole-path floor** — skill body + base context + handler body + always-load references:
+
+| Tree | Lines | At 13 tok/line | At the measured 15.42–15.91 tok/line rate |
+|------|-------|----------------|-------------------------------------------|
+| dev | 2,193 | 28,509 | ≈34.2K |
+| installed | 2,479 | 32,227 | ≈38.7K |
+
+**Per-subcommand floors** (installed tree; **skill body EXCLUDED** — handler body + base context + always-load references only):
+
+| Subcommand | Lines | At 13 tok/line |
+|------------|-------|----------------|
+| `plan` | 4,329 | ~56.3K |
+| `review` | 2,953 | ~38.4K |
+| `run` | 2,386 | ~31.0K |
+| `backlog` | 1,901 | ~24.7K |
+
+> [!constraint] The two tables cover DIFFERENT components — never compare a row across them
+> The whole-path floor **includes** the skill body; the per-subcommand rows **exclude** it. So one subcommand legitimately carries three different numbers: `run` appears as **2,193** (dev, whole path), **2,386** (installed, skill body excluded), and **2,479** (installed, whole path). The `2,479 − 2,386 = 93`-line gap is exactly the installed skill body — a component boundary, not a disagreement between measurements. A floor figure quoted without both its tree and its component set is unusable; always carry both labels.
+
+> [!constraint] This is an upper bound on what the instruction text MANDATES — not a measurement of what loads
+> The line counts above say what the shipped text *instructs* an invocation to read. Whether every mandated read actually issues is a separate, empirical question, and predictions have missed in both directions: on one minimal handler the predicted floor over-shot the measured cost ~2.9×, while a heavier handler over-shot in the opposite direction.
+>
+> **Current verdict, from the most recent probe:** `mandated-loads-issue (measured +32,692 tok [dev tree] ≥ predicted floor 15,873 tok [dev tree]; measured is ~2.06× the prediction)` — the mandated base-context reads DO issue. (That probe predicted the floor for a *light* subcommand — 1,221 lines of skill + base context + handler body — so its 15,873 is not the whole-path figure in the table above; the comparison that matters is measured-vs-predicted *within one invocation*.)
+>
+> **Caveat, carried from the probe:** the excess above the floor is confounded with that subcommand's own live runtime work — real project-file reads plus a reconciliation script — so the measurement confirms compliance but cannot cleanly isolate the static floor from handler-specific runtime cost. Treat these figures as a planning upper bound on mandated text, not as a per-invocation cost prediction, and do not store one as a calibrated budget input.
+
+**Future work, gated on the compliance answer above:** conditional loading of references a given subcommand cannot reach — an estimated 10–20K per invocation, unvalidated. It would have to be a per-reference reachability pass, never a blanket change: the failure mode is a handler silently losing a convention it depended on. Not landed.
+
+### Agent Assignment
+
+| Task Type | Agent | Examples |
+|-----------|-------|----------|
+| Lookups, validation | **Haiku** | Counts, find files, verify |
+| Code generation | **Sonnet** | Entities, controllers, views |
+| Architecture/decisions | **Opus** | Design, trade-offs, analysis |
 
 ### Token Estimate Reconciliation (BINDING)
 
@@ -250,6 +345,19 @@ Sprint Plan header Estimated Tokens
 | Sprint total | Sum of session `Est. Tokens` = Sprint Plan header `Estimated Tokens` | After writing sprint plan |
 
 **Enforcement:** The `/planwise plan` handler's Step 8c computes estimates bottom-up. The `/planwise review` handler checks reconciliation as part of structural review. Template comments in orchestration, sprint plan, and task file templates remind the planner to verify.
+
+#### Reviewer Check 024 — Task Token-Estimate Arithmetic Gate
+
+- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
+- **What:** Task header `Estimated Tokens` = Required Context subtotal + output tokens. No `~?` placeholders. Deviation ≤10%.
+- **Detection:** Extract header value + subtotal line. `abs(header - subtotal) / header > 0.10` → BLOCKER. Any `~?` → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Task token-estimate arithmetic gate failed
+File: {task file path} | Location: Header Estimated Tokens vs Required Context subtotal
+Issue: Header "{header_value}" deviates {deviation_pct}% from subtotal "{subtotal_value}"
+Fix: Reconcile per references/session-context-budget.md Token Estimate Reconciliation | Confidence: HIGH
+```
 
 ### Context Accumulation Formula
 
@@ -297,62 +405,23 @@ The 500-line soft limit above is advisory. When `context.token_saver: true`, **g
 > [!constraint] Generated-Artifact Split — Hard, Not Advisory
 > WRONG — a planwise-generated Consolidated Context part is checked against the line limit alone, passes at 480 lines, but is 9,200 bytes-per-100-lines of dense tables → exceeds the 256 KiB byte gate / 25K-token page-cap and a Sonnet runner can only read its first page:
 > ```
-> wc -l RSO-Consolidated-Context-Part-1.md   # 480 → "under 500, fine"  ← INSUFFICIENT
+> wc -l PI-Consolidated-Context-Part-1.md   # 480 → "under 500, fine"  ← INSUFFICIENT
 > ```
 > CORRECT — check the line gate, the byte gate, AND the token gate; split on whichever trips first:
 > ```
-> wc -l RSO-Consolidated-Context-Part-1.md   # line gate
-> wc -c RSO-Consolidated-Context-Part-1.md   # byte gate: must stay < 245,760 (warn) / 262,144 (hard)
+> wc -l PI-Consolidated-Context-Part-1.md   # line gate
+> wc -c PI-Consolidated-Context-Part-1.md   # byte gate: must stay < 245,760 (warn) / 262,144 (hard)
 > # token gate: lines × per-model rate must stay < 22,000 (warn) / 25,000 (hard)
 > # → split into Part-1a / Part-1b if line OR byte OR token gate trips
 > ```
 
-The trigger is **line OR byte OR token** — whichever fires first forces the split. External source/context files a runner reads but does NOT generate (codebase modules, third-party docs) keep the advisory treatment: warn, apply the [Large-File Read Tactics](agent-orchestration.md#13-large-file-read-tactics) ladder, and file a refactor backlog item — they are not hard-split because the runner does not own them.
+The trigger is **line OR byte OR token** — whichever fires first forces the split. External source/context files a runner reads but does NOT generate (codebase modules, third-party docs) keep the advisory treatment: warn, apply the [Large-File Read Tactics](#large-file-read-tactics) ladder, and file a refactor backlog item — they are not hard-split because the runner does not own them.
 
 ---
 
-## Token Saver Profile
+## Read Gates and Large-File Read Tactics
 
-This section activates when `context.token_saver: true` in `config.yaml`. It layers a carrying-cost budget on top of the tier budgets in §5 and is keyed to the **measured** overheads captured by `/planwise calibrate` (the `token_saver.calibrate()` engine in `scripts/token_saver.py`). When `token_saver: false`, ignore this section and use the §5 tier budgets alone.
-
-> [!constraint] Numbers Are Measured, Never Hardcoded
-> Every threshold below is **derived** from `token_saver_runner_overhead` (and `token_saver_orchestrator_overhead`) — the overheads `/planwise calibrate` writes back into `config.yaml` from a real `/context` report. NEVER hardcode a runner overhead or a per-task ceiling in a plan: read the calibrated value and run the formulas. Until a live capture runs, the engine writes a conservative fallback (`runner_overhead ≈ 54,000`, `orchestrator_overhead ≈ 60,000`, flagged `uncalibrated`); a plan authored against the fallback is intentionally pessimistic and should be re-checked after calibration.
-
-### Token Saver Two-Tier Policy
-
-Token Saver sizes sessions by **carrying cost**, not by "does it fit". A task-runner subagent is held to a HARD ceiling; the orchestrator is held to a SOFT advisory. Both are keyed to `token_saver_session_target` (default 150,000) minus the actor's measured overhead.
-
-| Actor | Target | Enforcement |
-|-------|--------|-------------|
-| Task-runner subagent | **HARD ~150K total** | `task_estimate + token_saver_runner_overhead ≤ token_saver_session_target`. The plan-time per-task ceiling is `available_per_task = token_saver_session_target − token_saver_runner_overhead − growth_margin` (the engine's `derive_thresholds`). A task projected above its `critical` threshold MUST be split or its Required Context trimmed. |
-| Orchestrator session | **SOFT ~150K** (may grow toward the tier window) | Advisory, not a split trigger. Keep the DELEGATED Context Boundary (§11.3 of [agent-orchestration.md](agent-orchestration.md)) so the orchestrator reads only plan files. Emit a carrying-cost advisory when a DIRECT or consolidation session is projected above `token_saver_session_target − token_saver_orchestrator_overhead`. |
-
-### Token Saver Carrying-Cost Rationale
-
-A session's billed cost is not just its peak size — it is roughly `carried_context × 0.1 × turns`: every cached turn re-bills the carried context at the **cache-read rate (0.1× base input)**, so a large session pays its whole footprint again on every turn. Two practical consequences:
-
-- **Size by `context × turns`, not by "does it fit".** A 180K session that technically fits the window still costs far more per turn than a lean 120K one — and it iterates worse (recovery, review, and re-reading all get harder). The 150K target is a *usage-pattern* ceiling that keeps per-turn carrying cost low, not a hard window limit.
-- **Cache writes cost more than reads.** Writing context into the cache bills **1.25× base input (5-minute TTL)** or **2× (1-hour TTL)**; subsequent reads are 0.1×. Front-load reads once (one cache write) rather than dribbling context in across turns (repeated writes).
-- **No long-context premium on Opus 4.8.** Opus 4.8 bills its full 1M window at standard pricing — there is no surcharge past 200K. So **150K is a usage-pattern target, not a billing cliff**; the motivation is per-turn carrying cost and iteration quality, not a step in the price curve.
-
-Operationally: `/clear` between sessions (drop the carried context entirely) and `/compact` at task boundaries within a session (shrink the carried context before the next turn re-bills it).
-
-### Token Saver Threshold Derivation
-
-Thresholds are computed by `token_saver.derive_thresholds(session_target, runner_overhead)` — never hardcoded:
-
-```
-available_per_task = token_saver_session_target − token_saver_runner_overhead − growth_margin(6000)
-critical           = available_per_task − output_reserve(10000)
-warn               = min(40000, round(0.5 × available_per_task))   # 40K = guaranteed-warn ceiling; lower on heavy installs
-```
-
-- `available_per_task` is the working budget a single runner has for its Required Context after subtracting the measured overhead and a 6,000-token growth margin.
-- `critical` reserves 10,000 tokens for the runner's own output; a task estimated at or above `critical` overflows and MUST be split.
-- `warn` is the lighter caution band: **40,000 is the guaranteed-warn ceiling** (every install warns by at least 40K), but on a heavy install where `0.5 × available_per_task < 40,000`, the lower derived value wins. A task at or above `warn` should be reviewed for trimming.
-
-> [!constraint] Subagent Window = Dispatched MODEL, Not Parent Tier
-> A Token Saver runner's window is set by the **model it runs on**, NOT the orchestrator's tier (see [§ Subagent Context Window](#subagent-context-window)): Haiku/Sonnet = **200K**, Opus = **1M**. The `~150K` Token Saver target is a carrying-cost ceiling that sits *below* even a Sonnet runner's 200K window — it is about per-turn cost and iteration quality, not about fitting the window. Do NOT raise the Token Saver target to a runner's window size; the target is deliberately tighter than the window.
+The read-gate canonical: the Read tool's fixed mechanical limits, the discipline for respecting them, and the tactics for a file that exceeds one. These constants and rules apply regardless of `context.token_saver` — they are harness facts, not a carrying-cost policy (the config-gated Token Saver budget system lives in [token-saver-profile.md](token-saver-profile.md)).
 
 ### Read-Tool Hard Limits
 
@@ -378,7 +447,7 @@ These FOLD into the per-file warning ladder. `token_saver.classify_file()` compu
 
 ### Reading Discipline With Read Gates (BINDING)
 
-The [Read Files Fully](#reading-discipline-binding) rule still holds — read all relevant content, never skim or infer. Token Saver adds one refinement: when a single Read **cannot** deliver a whole file (≥ 256 KiB, or above the runner model's token page-cap), reading "fully" means **paging** it, not trusting one Read returned everything.
+The [Read Files Fully](#reading-discipline-binding) rule still holds — read all relevant content, never skim or infer. This section adds one refinement: when a single Read **cannot** deliver a whole file (≥ 256 KiB, or above the runner model's token page-cap), reading "fully" means **paging** it, not trusting one Read returned everything.
 
 > [!constraint] Page Large Files — Do Not Trust One Read
 > WRONG — runner issues one Read on a 2,400-line file, gets the first page back, and proceeds as if it read the whole file:
@@ -393,146 +462,37 @@ The [Read Files Fully](#reading-discipline-binding) rule still holds — read al
 > ```
 > "Read fully" is satisfied by paged reads that together cover the file — NOT by one Read that silently returned only the first page.
 
----
+### Large-File Read Tactics
 
-## 6. Context Loading Strategy
+> [!practice] Ladder for Files Exceeding a Read-Tool Gate
+> The Read tool has two mechanical gates — see [Read-Tool Hard Limits](#read-tool-hard-limits) above (NOT a single ~13K/~1000-line budget). When a file crosses either gate, apply this ladder in order — stop at the first step that succeeds. A `read`-reason Critical is NOT resolvable by routing to a 1M-window model (see the constraint above).
 
-> [!decide] Context Loading Decision
-> Compare total context to the tier's `meta_plan_threshold` (from the Threshold Formulas table — 100K on Pro, 500K on Max):
->
-> | If... | Then... |
-> |-------|---------|
-> | Total context < `meta_plan_threshold` | Create plan directly using standard structure |
-> | Total context > `meta_plan_threshold` | Create **Meta-Plan** first, then **Execution Plan** |
+**Step 1 — Paged Read (`offset`/`limit`):** Read the file in pages that each stay under the gate, then stitch them — see [Page Large Files — Do Not Trust One Read](#reading-discipline-with-read-gates-binding) above for the WRONG/CORRECT pattern and the `PARTIAL view` truncation-header check.
 
-### The Core Insight
+**Step 2 — Output-clear pre-step:** Clear conversation output buffer before reading. Freed budget enables a larger Read call. Effective when the conversation history is large but the file itself is borderline.
 
-| Action | Context Impact |
-|--------|----------------|
-| Load file with Read | **+adds** to context (read fully!) |
-| Claude produces output | **minimal** (just response text) |
-| Back-and-forth messages | **+adds** each turn |
-| Subagent runs | **Fresh context** (doesn't inherit your accumulation) |
+**Step 3 — Substitution:** Read a smaller substitute:
+- Adjacent `*.md` documentation next to the `{src/module/file.ext}` source file
+- A smaller version-compatible equivalent (e.g., a config file that describes the large source file's structure)
 
-**Key insight:** Subagents don't inherit your context accumulation. Each gets a fresh context window sized by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M — see [§ Subagent Context Window](#subagent-context-window)), NOT the parent's tier. Use this to your advantage.
+**Step 4 — Grep-based scanning:** Use Grep with `output_mode: "content"` and context lines to extract the needed sections without a full Read. Effective when you know which section or function you need.
 
-### When to Use Meta-Plan
+```bash
+# Example: extract a specific function from a large file
+Grep(pattern: "def {symbol}", path: "{src/module/file.ext}", output_mode: "content", context: 30)
+```
 
-> [!decide] Standard vs Meta-Plan
-> | Condition | Action |
-> |-----------|--------|
-> | Total context needed < `meta_plan_threshold` | Proceed with standard plan |
-> | Total context needed > `meta_plan_threshold` | **Use Meta-Plan** (3-phase: Discovery → Scaffolding → Execution) |
-> | Multiple complex source documents need cross-referencing | **Use Meta-Plan** |
-> | Work spans multiple sessions and context must be preserved | **Use Meta-Plan** |
->
-> `meta_plan_threshold` = 100K on Pro, 500K on Max — see §5 Threshold Formulas.
+**Step 5 — Script-based extraction:** For structured files (JSON/YAML), use a Bash command via `jq`/`yq` to project only relevant fields:
 
-### Meta-Plan Purpose
+```bash
+# Example: extract a specific key from a large YAML config
+Bash("yq '.{config-field}' {src/module/file.ext}")
+```
 
-1. **Fresh context per agent** - Each subagent gets its own fresh context window, sized by its dispatched model (Sonnet/Haiku 200K, Opus 1M — not the parent's tier)
-2. **Persistent artifacts** - File outputs survive session boundaries
-3. **Recovery points** - Written documents survive context compaction
-4. **Fan-out, not compression** - More detail = more execution units, not fewer
+#### Module Split Threshold (cross-reference)
 
-The goal is NOT to summarize and reduce context. The goal is to **organize and consolidate** source material into structured specification parts that can be consumed by downstream agents. Only remove duplicated or trivial information — preserve all substantive detail.
-
-**Three Phases:**
-
-| Phase | Purpose | Produces |
-|-------|---------|----------|
-| **Discovery (Meta)** | Read sources, organize findings | Specification parts (full detail, multi-part) |
-| **Scaffolding** | Create execution plan files | Sprint/Session/Task files from spec parts |
-| **Execution** | Implement the tasks | Code, configs, artifacts per task files |
-
-Each phase uses subagents with fresh context. Each agent reads only the specification part relevant to its scope.
-
-**For Meta-Plan folder structure:** See [Section 2: Folder Structure](session-planning-protocol.md#2-naming-conventions-binding)
-**For Meta-Plan required files:** See [Section 8: Required Files Per Level](session-plan-requirements.md#8-required-files-per-level)
-
-### Patterns
-
-> [!constraint] Context Accumulation
-> **WRONG:**
-> ```
-> ❌ Load 40K → work → load 30K more → work → load 30K more → CONTEXT EXPLODES
-> ```
->
-> **CORRECT:**
-> ```
-> ✅ Load 80K upfront (all files read fully) → work without loading more → stays ~90K → FINE on Pro
->
-> ✅ Need more than `meta_plan_threshold` total (100K on Pro / 500K on Max)? → Use Meta-Plan (3-phase):
->    Discovery agents (fresh `available_for_work` each): Read sources → produce full-detail spec parts
->    Consolidation agent: Organize + deduplicate spec parts (NOT summarize)
->    Scaffolding: Read spec parts → extract Execution Inputs (per sprint) + create plan files
->    Execution agents (fresh `available_for_work` each): Read sprint Execution Input + execute tasks
-> ```
->
-> More sessions is not an issue. Context loss is the issue. Meta-Plan prevents context loss by creating file artifacts.
+For adapter/client modules whose row dataclass exceeds 75-80 fields, see the Module Split Threshold subsection in `references/task-file-and-tracking-requirements.md`. Large-file read tactics are orthogonal to the module split decision — apply both when applicable.
 
 ---
 
-## 7. Context Conservation
-
-### Task List Format
-
-Every session MUST have a task list with token estimates:
-
-```markdown
-| # | Task | Agent | Est. Tokens | Depends On |
-|---|------|-------|-------------|------------|
-| 1 | {task} | Haiku | ~{X}K | - |
-| 2 | {task} | Sonnet | ~{X}K | 1 |
-```
-
-### Conservation Tactics
-
-Operational rules for managing token usage during execution:
-
-1. **Summarize, don't repeat** — Reference previous work, don't copy it
-2. **Use file references** — "See `Outputs/step1-results.md`" instead of inline content
-3. **Incremental updates** — Only report changes, not full state
-4. **Prune completed work** — Remove detailed logs after success
-
-### Compaction Triggers
-
-```
-At each major milestone:
-1. Summarize progress in Recovery file
-2. Move detailed output to Outputs/ folder
-3. Reference files instead of inline content
-4. If context > 80% full: trigger compaction
-
-Compaction Triggers:
-- After completing each phase
-- Before starting complex analysis
-- When error loops exceed 5 iterations
-```
-
-### Minimal Prompt Pattern
-
-Keep iteration prompts minimal:
-
-```markdown
-## Iteration Prompt (Minimal)
-
-Current state: {1-2 sentences}
-Remaining: {bullet list of incomplete items}
-Next action: {single action to take}
-Completion criteria: {reference to criteria doc}
-```
-
-### Output File Strategy
-
-```
-Outputs/
-├── step1-table-counts.json     # Structured data as JSON
-├── step2-fk-validation.json    # Machine-readable results
-├── step3-analysis.md           # Human-readable analysis
-└── final-decision.md           # Final summary only
-```
-
----
-
-*Companion files: [session-planning-protocol.md](session-planning-protocol.md), [session-plan-requirements.md](session-plan-requirements.md)*
+*Companion files: [session-planning-protocol.md](session-planning-protocol.md), [session-plan-requirements.md](session-plan-requirements.md), [token-saver-profile.md](token-saver-profile.md), [context-loading-and-conservation.md](context-loading-and-conservation.md)*

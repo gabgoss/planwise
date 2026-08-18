@@ -13,18 +13,14 @@
 
 ## Table of Contents
 
-- [Config Gate](#config-gate)
+- [Config Gate](#config-gate-auto-init-fallback)
 - [Phase 0: Plan Discovery](#phase-0-plan-discovery)
 - [Scale Detection](#scale-detection)
+- [Measurement Phase: The Review Discovery Fact Sheet](#measurement-phase-the-review-discovery-fact-sheet)
 - [No-Team Path (Trivial / Small)](#no-team-path-trivial--small)
 - [Team Path (Medium / Large / Very Large)](#team-path-medium--large--very-large)
 - [Reviewer Prompt Template](#reviewer-prompt-template)
-- [Reviewer Checklists](#reviewer-checklists)
-- [Known Patterns Whitelist](#known-patterns-whitelist)
-- [Severity Classification](#severity-classification)
 - [Verdict and Report](#verdict-and-report)
-- [Systemic Finding Classification](#systemic-finding-classification)
-- [Token Saver Compliance Check](#token-saver-compliance-check)
 
 ---
 
@@ -59,6 +55,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 **Review-specific references (always load):**
 1. Read `references/session-planning-protocol.md`
 2. Read `references/session-plan-requirements.md`
+3. Read `references/review-classification.md` -- Reviewer Checklists, Known Patterns Whitelist, Severity Classification, Systemic Finding Classification, Token Saver Compliance Check (needed by the lead during synthesis)
 
 **Conditional references:**
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
@@ -70,7 +67,10 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
 - If reviewing a plan with verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
 - If reviewing a DELEGATED-orchestration plan: Read `references/agent-orchestration-delegated.md`
-- If the **effective** Token Saver value is `true` for the plan under review (its Master-Plan `Token Saver:` field over the project `context.token_saver` default — `get_effective_token_saver_config(config, plan_override)`): Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](#token-saver-compliance-check))
+- If the **effective** Token Saver value is `true` for the plan under review (its Master-Plan `Token Saver:` field over the project `context.token_saver` default — `get_effective_token_saver_config(config, plan_override)`): Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](../references/review-classification.md#token-saver-compliance-check))
+- When citing Error Pattern Catalog rows during synthesis or in a finding's Fix field: Read `references/error-pattern-catalog.md` (on demand -- not loaded up front)
+- For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
+- If the plan under review authors or promotes content into a rule, agent, skill, handler, or CLAUDE.md callout (promoting lesson/backlog content): Read `references/artifact-self-containment.md`
 
 ---
 
@@ -103,6 +103,46 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 ---
 
+## Measurement Phase: The Review Discovery Fact Sheet
+
+Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. One agent, one pass; the sheet it writes is then cited by every reviewer in the review.
+
+1. Bind `{FactSheetPath}` = `{PlanPath}/Reviews/{Abbrev}-Discovery-{YYYY-MM-DD}.md`. Create `{PlanPath}/Reviews/` if it does not exist.
+
+2. Spawn the discovery pass and WAIT for it to return before continuing:
+
+```
+Task(
+  subagent_type: "planwise:review-discovery",
+  description: "Review discovery for {Abbrev}",
+  prompt: |
+    You are the measurement pass for the review of plan {Abbrev}.
+
+    plan_path: {PlanPath absolute path}
+    abbrev: {Abbrev}
+    plan_type: {Standard | Meta-Plan}
+    fact_sheet_path: {FactSheetPath absolute path}
+
+    Execute your discovery protocol and write the review discovery fact sheet
+    to fact_sheet_path. Measure every file; report anything you could not
+    measure rather than estimating it.
+)
+```
+
+3. Confirm the sheet exists at `{FactSheetPath}`. If the pass returned without writing it, re-spawn once; if it fails again, continue the review with `{FactSheetPath}` recorded as **unavailable** and say so in the report — reviewers then measure their own counts and state that they did.
+
+4. Pass `{FactSheetPath}` into every reviewer spawn prompt (see [Reviewer Prompt Template](#reviewer-prompt-template) element 8).
+
+> [!practice] Measure once, cite everywhere
+> A fan-out of four to six reviewers over one sprint otherwise has each reviewer independently enumerate the same files and re-derive the same counts, and nothing shares the result. Measuring once ahead of the fan-out is the standard route for a line count in a review: the count is produced by an agent whose job is measurement, and each reviewer's finding cites the row rather than re-deriving it.
+
+> [!constraint] The sheet is the evidence source, not a substitute for measuring
+> A reviewer's line-count finding cites the review discovery fact sheet's row for that file. If a reviewer's own reading contradicts the sheet, it MUST re-measure and say explicitly that it re-measured — a differing number offered without that statement is a silent override, and a number simply copied from the sheet when the reviewer knows it is wrong is a silent deference. Both are findings-level errors.
+>
+> Neither branch weakens the standard the count itself must meet: the number is a measured `wc -l`, never the last line number of a `Read` output (`references/measurement-discipline.md` §8.1). A reviewer that cannot run the measurement itself reports the contradiction to the lead — naming the sheet row and the conflicting observation — and the lead re-measures. It does not silently substitute an unmeasured number.
+
+---
+
 ## No-Team Path (Trivial / Small)
 
 For plans with 0-1 EIs and 1-2 sprints, use sequential subagent spawns with no team overhead.
@@ -120,6 +160,10 @@ Task(
 
     Plan type: {Standard | Meta-Plan}
     Plan path: {PlanPath absolute path}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Read the plan files and check every item in your structural review protocol.
 
@@ -150,6 +194,10 @@ Task(
     EI files: {list of EI file paths}
     Task files: {list of task file paths}
     Orchestration files: {list of orchestration file paths}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Global numbering note: Spec numbers are assigned globally across all sprints.
     Non-sequential numbers within a single EI are expected, not errors.
@@ -175,7 +223,7 @@ Task(
 3. Recompute delegated verdicts: for each subagent that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated.md` §1.16)
 4. Cross-check `[UNCERTAIN]` findings against Known Patterns Whitelist
 5. Assign finding IDs: BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
-6. Classify systemic findings (see [Systemic Finding Classification](#systemic-finding-classification))
+6. Classify systemic findings (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification))
 7. Compute verdict (see [Verdict and Report](#verdict-and-report))
 8. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md`
 
@@ -204,6 +252,10 @@ Task(
     Plan type: {Standard | Meta-Plan}
     Plan path: {PlanPath absolute path}
     All plan file paths: {list every file path in the plan}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Read the plan files and check every item in your structural review protocol.
 
@@ -256,6 +308,10 @@ Task(
     Plan path: {PlanPath absolute path}
     EI files to review: {assigned EI file paths}
     ALL spec/source files: {all spec output paths -- full visibility required}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Global numbering note: Spec numbers are assigned globally across all sprints.
     Non-sequential numbers within a single EI are expected, not errors.
@@ -291,6 +347,10 @@ Task(
     Task files: {list of task file paths}
     EI files (for reference): {list of EI file paths}
     Orchestration files: {list of orchestration file paths}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Execute the Task Reviewer checklist from your protocol.
 
@@ -315,6 +375,10 @@ Task(
     Plan path: {PlanPath absolute path}
     Task files: {list of task file paths}
     Orchestration files: {list of orchestration file paths}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Execute the Dependency Reviewer checklist from your protocol.
 
@@ -340,6 +404,10 @@ Task(
     Master Plan: {master plan file path}
     Task files: {list of task file paths}
     Sprint plans: {list of sprint plan file paths}
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
+    and byte counts, heading map, and check anchors for every plan file. Cite its
+    row for any count you report; if your own reading contradicts it, re-measure
+    and say explicitly that you re-measured.
 
     Execute the Coverage Reviewer checklist from your protocol.
 
@@ -379,6 +447,51 @@ Task(
 )
 ```
 
+**Destructive-Path Reviewer** (LARGE/VERY LARGE — when destructive-path or config-gated-change findings expected):
+```
+Task(
+  team_name: "plan-review-{abbrev}",
+  name: "destructive-path-reviewer",
+  subagent_type: "planwise:plan-reviewer",
+  prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
+    Your assigned role: Destructive-Path Reviewer
+    Execute Checks 072-073 from your protocol.
+    ...
+)
+```
+
+**Verification-Gate Reviewer** (LARGE/VERY LARGE — when verification-gate findings expected):
+```
+Task(
+  team_name: "plan-review-{abbrev}",
+  name: "verification-gate-reviewer",
+  subagent_type: "planwise:plan-reviewer",
+  prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
+    Your assigned role: Verification-Gate Reviewer
+    Execute Checks 074-075 from your protocol.
+    ...
+)
+```
+
+**Change-Surface Reviewer** (LARGE/VERY LARGE — when change-surface findings expected):
+```
+Task(
+  team_name: "plan-review-{abbrev}",
+  name: "change-surface-reviewer",
+  subagent_type: "planwise:plan-reviewer",
+  prompt: |
+    First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
+
+    Your assigned role: Change-Surface Reviewer
+    Execute Check 076 from your protocol.
+    ...
+)
+```
+
 7. Collect findings incrementally as DMs arrive from reviewers.
 8. Track completion: each reviewer sends "Phase 2 complete, {M} findings" DM before going idle.
 
@@ -387,11 +500,11 @@ Task(
 9. **Deduplicate:** same file + same issue = merge; keep higher severity.
 10. **Recompute delegated verdicts:** For each reviewer that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated.md` §1.16).
 11. **Cross-check [UNCERTAIN] findings:**
-    - Check against [Known Patterns Whitelist](#known-patterns-whitelist)
+    - Check against [Known Patterns Whitelist](../references/review-classification.md#known-patterns-whitelist)
     - Cross-check against other reviewers' findings
     - Confirmed -> promote to stated severity; contradicted -> discard as false positive
 12. **Assign finding IDs:** BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
-13. **Classify systemic findings:** For each confirmed finding (BLOCKER, ERROR, WARNING), determine one-off vs systemic (see [Systemic Finding Classification](#systemic-finding-classification)).
+13. **Classify systemic findings:** For each confirmed finding (BLOCKER, ERROR, WARNING), determine one-off vs systemic (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification)).
 14. **Compute verdict** (see [Verdict and Report](#verdict-and-report)).
 
 ### Phase 4: Report and Cleanup
@@ -425,7 +538,7 @@ Task(
 
 ## Reviewer Prompt Template
 
-Every reviewer spawn prompt MUST include these seven elements:
+Every reviewer spawn prompt MUST include these eight elements:
 
 1. **Plan context:** abbreviation, type (Standard / Meta-Plan), global numbering scheme note
 2. **Scope:** explicit file paths to read (never assume inherited context)
@@ -442,6 +555,7 @@ Every reviewer spawn prompt MUST include these seven elements:
 5. **Uncertainty protocol:** flag `[UNCERTAIN]` for MEDIUM or LOW confidence; check Known Patterns Whitelist first before flagging
 6. **Completion signal:** "Phase {N} complete, {M} findings reported"
 7. **Tool pre-load (BINDING for team-mode spawns):** the first instruction line in the spawn prompt MUST be `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` `SendMessage` is a deferred tool; without the schema loaded, the reviewer's findings cannot be delivered. The reviewer's agent definition already carries this rule in its own `## Startup` section — the spawn-prompt instruction is the belt-and-braces gate.
+8. **Fact-sheet path (BINDING for every spawn, both paths):** the prompt MUST carry `Review discovery fact sheet: {FactSheetPath absolute path}` alongside the scope paths, with the consumption instruction — cite the row for any count reported; re-measure explicitly, and say so, when the reviewer's own reading contradicts it. Reviewers do not inherit the lead's context, so a reviewer that is not handed the path measures nothing and cites nothing, and the phase becomes a cost with no consumer. If the discovery pass failed and no sheet exists, pass `Review discovery fact sheet: unavailable` explicitly rather than omitting the line.
 
 > [!constraint] Spawn prompts MUST front-load the SendMessage schema load
 > WRONG — spawn prompt opens with `You are reviewing plan {Abbrev} ...` and the reviewer attempts `SendMessage(finding)` after its first read. The deferred-tool schema was never fetched; the call raises `InputValidationError` and the entire review (40-70K tokens of work for an EI reviewer) is silently lost — the lead never receives a "Phase complete" DM.
@@ -451,106 +565,6 @@ Every reviewer spawn prompt MUST include these seven elements:
 > [!pitfall] Context Not Inherited
 > **Problem:** Subagents and teammates start with fresh context -- they do NOT inherit the lead's file reads, research, or analysis.
 > **Solution:** Include all critical context in the reviewer's spawn prompt: plan abbreviation, structure type (Meta/Standard), numbering scheme, explicit file paths, and any relevant findings from earlier phases. Never assume shared state.
-
----
-
-## Reviewer Checklists
-
-The custom agents (`structural-reviewer` and `plan-reviewer`) carry their own checklists. The following is a summary for the lead's reference during synthesis.
-
-### Structural Reviewer (Phase 1)
-
-- Filenames match `{Abbrev}-S{XX}-{YY}` numbering pattern
-- Task files listed in Orchestration's Task Files table resolve to real files
-- `Outputs/` directory exists per session
-- Status fields present in Recovery and Orchestration files
-- Cross-reference links resolve (no dead paths)
-- [Meta-Plan] `Meta-{Abbrev}/`, `Scaffold-{Abbrev}/`, `Exec-{Abbrev}/` folders all present
-
-### EI Reviewer (Phase 2)
-
-- Every spec section appears in at least one EI's Cross-References table
-- Cross-References table cites real, resolvable files
-- Content is extracted verbatim -- not summarized or paraphrased
-- Header "Extracted from:" lists all cited source files accurately
-- Non-sequential spec numbering within an EI is EXPECTED (global scheme) -- do NOT flag as an error
-
-### Task Reviewer (Phase 2)
-
-- Required Context section references are individual with purpose -- NOT ranges (e.g., "Section 2 (entity fields), Section 4 (validation rules)" is correct; "Sections 2-5" is a BLOCKER)
-- Execution steps are concrete actions (not vague directives)
-- Success criteria are measurable checkboxes
-- Declared dependencies match actual data flow between tasks
-- Agent assignment is appropriate: Haiku for lookups, Sonnet for code, Opus for decisions
-- [Token Saver on] Each task's Required Context obeys the §9.A.8 large-file ladder: no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split (see [Token Saver Compliance Check](#token-saver-compliance-check))
-
-### Dependency Reviewer (Phase 2, LARGE/VERY LARGE)
-
-- Task dependency DAG has no cycles
-- Implicit dependencies not declared (e.g., Task 3 reads files created by Task 2 but does not declare it)
-- Sprint ordering respects cross-sprint dependencies
-- Parallel tasks are truly independent
-
-### Coverage Reviewer (Phase 2, VERY LARGE)
-
-- All requirements from Master Plan vision are covered by tasks
-- No gaps -- requirements mentioned in Master Plan but not addressed by any task
-- No redundant tasks that duplicate effort
-- Session objectives align with sprint goals
-
----
-
-## Known Patterns Whitelist
-
-These patterns look like errors but are intentional. Discard findings that match these patterns.
-
-| Pattern | Why It Is Intentional |
-|---------|----------------------|
-| Global numbering appearing non-sequential within a single EI | Spec numbers are assigned globally across all sprints. A sprint's EI may reference Spec #1, #3, #7 -- the gaps are other sprints' specs. |
-| Cross-sprint spec reference that appears orphaned to a single-sprint reviewer | An EI reviewer given only one sprint's scope may flag a valid cross-sprint reference as unresolved. EI reviewers must receive ALL spec outputs to avoid this. |
-| Line-count finding where the evidence is a Read-output last line number (not `wc -l`) | `Read` paginates; the last visible line is structurally smaller than the file's true line count. This is a false-positive candidate — verify via `wc -l <path>` before promoting it from `[UNCERTAIN]`. |
-| Doctrinal correction that edits only one named file while sibling files still carry the same claim | Scope was deliberately bounded; the executor surfaced the out-of-scope instances as structural findings per `references/session-execution-protocol.md` §1.2. A non-empty doctrinal grep that returns only classified legitimate-pattern rows is intentional. |
-
-> [!practice] Check Whitelist Before Reporting
-> Reviewers should verify each finding against the Known Patterns Whitelist before sending it to the team lead. If the pattern matches, discard it. If uncertain, send with `[UNCERTAIN]` prefix rather than discarding outright.
-
----
-
-## Severity Classification
-
-> [!practice] Severity Is Impact, Not Fix Size
-> Rate every finding by what it breaks, never by how laborious the remedy is. Downgrading a finding because the coherent fix is large inverts the project motto — see [do-the-hard-things.md](../references/do-the-hard-things.md).
-
-### Definitions
-
-| Severity | Definition | Examples | Required Action |
-|----------|------------|----------|-----------------|
-| BLOCKER | Agent cannot execute the task at all | Missing EI section, broken file reference, required dependency not declared | Must fix before execution begins |
-| ERROR | Agent will produce incorrect output | Wrong API call, stale field names, contradictory instructions, missing cross-sprint source in EI header | Should fix before execution |
-| WARNING | Agent can work around it but quality will suffer | Vague steps, low token estimate, missing optional context file | Fix if time permits |
-| INFO | Observation only; no action required | Style inconsistency, redundant context file, minor formatting issue | Log for feedback loop |
-
-### Decision Tree
-
-> [!decide] How to Classify a Finding
-> ```
-> Finding discovered ->
->   Can the agent execute the task at all?
->     NO  -> BLOCKER
->     YES -> Will the agent produce incorrect output?
->             YES -> ERROR
->             NO  -> Will quality be meaningfully degraded?
->                     YES -> WARNING
->                     NO  -> INFO
-> ```
-
-### Confidence-to-Severity Mapping
-
-| Reviewer Confidence | Processing Rule |
-|--------------------|-----------------|
-| HIGH | Accept finding at its stated severity. Add directly to findings list. |
-| MEDIUM | Cross-check against accumulated context from other reviewers. If corroborated or plausible, accept. If contradicted, investigate before including. |
-| LOW / `[UNCERTAIN]` | Check against Known Patterns Whitelist first. Cross-check against other findings. Include only if confirmed. Discard if unconfirmed. |
 
 ---
 
@@ -576,176 +590,3 @@ These patterns look like errors but are intentional. Discard findings that match
 3. Output summary to user: verdict, finding counts by severity, systemic finding count, report path
 4. If **APPROVED**: "Plan validated. Execute with `/planwise run @{orch-path}`"
 5. If **NEEDS_FIXES**: "Review found issues. Fix findings in the report, then re-run `/planwise review` or proceed to `/planwise run`"
-
----
-
-## Systemic Finding Classification
-
-During synthesis, the lead classifies each confirmed finding (BLOCKER, ERROR, WARNING) as one-off or systemic.
-
-### Root Cause Categories
-
-| Category | Definition | Typical Fix Location |
-|----------|-----------|---------------------|
-| **Template gap** | The task file or plan template is missing a rule, example, or structural element that would have prevented the error | Planning templates |
-| **Rule gap** | A project-wide rule is incomplete, ambiguous, or missing the specific case that caused the error | `.claude/rules/` |
-| **Skill gap** | The review handler or agent definition lacks instructions, context, or false-positive guards that caused an incorrect finding | Plugin handlers or agents |
-| **EI extraction gap** | The Execution Input extraction process failed to carry forward sufficient detail or structure from the source material | Scaffolding phase guidance |
-| **Protocol gap** | The session or sprint protocol is missing a step or decision rule that caused a process failure | Workflow rules |
-| **One-off** | The error was situational and does not reflect a systemic gap; no template or rule change is warranted | N/A -- document rationale |
-
-### Classification Criteria
-
-> [!decide] One-off vs Systemic
-> - Would this same error occur in a DIFFERENT plan that follows the same templates? -> **Systemic**
-> - Was this error caused by specific characteristics of THIS plan only? -> **One-off**
-> - Does a template, rule, or skill fail to prevent this class of error? -> **Systemic** (identify which artifact)
-> - Is the error already covered by existing guidance that was missed during execution? -> **One-off** (execution failure, not artifact gap)
-
-### Output Format
-
-Systemic findings appear in the review report's Systemic Findings section:
-
-```
-**[S1]** -- {one-line description of the recurring pattern}
-
-| Field                | Value |
-|----------------------|-------|
-| Root Cause Category  | {template gap | rule gap | skill gap | EI extraction gap | protocol gap | one-off} |
-| Description          | {what pattern recurs across findings -- be specific} |
-| Suggested Fix Target | {file path + what to change in the planning artifact} |
-| Status               | OPEN |
-```
-
----
-
-## Token Saver Compliance Check
-
-**Gated on the effective Token Saver value for the plan under review.** Resolve it once: read the plan's Master-Plan `Token Saver:` field (`on`→True, `off`→False, `inherit`/absent→None) and overlay it on the project default via `config_loader.get_effective_token_saver_config(config, plan_override)` — the per-plan override wins, the project `context.token_saver` key is the fallback (overheads stay project-level). When the effective value is **off**, this entire check is a **no-op** — skip it; zero behavior change versus a pre-Token-Saver review. When **on**, the lead (No-Team Path) or the Task Reviewer (Team Path) runs the check below over every task in scope and reports findings using the standard finding format. It validates that the planner actually applied the per-task large-file ladder anchored in `references/task-content-fidelity.md` §9.A.8 — read that subsection for the level definitions, the `reason=cost|read` contract, and the FIXED Read-tool gates the ladder folds in.
-
-### Derive the ceilings from config (never hardcode)
-
-Read the thresholds from `config.yaml`, exactly as the `/planwise plan` Step 8c scan does — the review re-derives them so it measures against the same numbers the planner used:
-
-```
-available_per_task = context.token_saver_session_target − context.token_saver_runner_overhead − 6000
-critical           = available_per_task − 10000
-warn               = min(40000, round(0.5 × available_per_task))
-over_ceiling(task) = task_estimate + context.token_saver_runner_overhead > context.token_saver_session_target
-```
-
-**Read gates (FIXED constants, evaluated per the file's assigned-model tokenizer):** byte ≥ `262144` (256 KiB), warn ≥ `245760` (240 KiB), measured with `wc -c`; OR `lines × {haiku 13, sonnet 13, opus 19}` ≥ `25000` (page cap), warn ≥ `22000`. A file's level is `max(cost_level, read_level)`; `reason` records which gate drove it.
-
-### Findings
-
-Run each check below over every task in scope. Each is HIGH confidence (mechanical):
-
-1. **Over-ceiling without exception** — recompute the task's bottom-up estimate. If `over_ceiling(task)` is true AND the task is **not** flagged `1M-exception` → **finding** (severity ERROR — the runner overflows its budget mid-task).
-2. **Warn+ Required Context file with no backlog item** — if a Required Context file classifies **Warn or Critical** (cost or read) but the task records no large-file recommendation / backlog item → **finding** (WARNING).
-3. **`1M-exception` task on a 200K-window agent** — if a `1M-exception` task is declared `Agent: Sonnet` or `Agent: Haiku` without the run-time override note (the flag dispatches on Opus / 1M; a 200K-window agent would still overflow) → **finding** (ERROR).
-4. **Uncovered read-gate crossing** — if a Required Context file crosses a FIXED read gate (`wc -c` bytes ≥ 256 KiB, OR `lines × {assigned-model tok/line}` ≥ 25K) and the task records **neither** a paged-read note (`offset`/`limit`/Grep) **nor** a refactor+backlog item → **finding** (WARNING; the runner gets a truncated or refused Read mid-task).
-5. **Read-reason Critical mis-flagged `1M-exception`** — if a file that classifies **Critical with `reason=read`** is flagged `1M-exception` → **finding** (ERROR). The 1M window does not raise the per-Read page cap or the byte refusal, and Opus (19 tok/line) trips the token gate *sooner* than Sonnet/Haiku — a read-Critical is paged or refactored, never `1M-exception`'d. Only a `reason=cost` Critical earns the flag.
-6. **Oversized generated artifact not split** — if a plan-generated artifact a runner MUST read (task file, Orchestration, Recovery, Consolidated Context part, Execution Input, task Output file) exceeds the **HARD** read ceiling (`wc -c` ≥ 256 KiB, OR `lines × {reading-model tok/line}` ≥ 25K) without a Multi-Part split → **finding** (ERROR). For generated artifacts the read-gate ceiling is hard, not advisory (external source files the runner reads but does not generate stay advisory under findings 2 and 4).
-
-> [!constraint] Read-Reason Critical Is NOT `1M-Exception`-Resolvable (review mirror)
-> WRONG — flag a finding only when an over-ceiling task lacks `1M-exception`, and treat every Critical the same:
-> ```
-> if over_ceiling(task) and not task.flagged("1M-exception"): finding   # misses read-Critical mis-flagging
-> ```
-> CORRECT — split on `reason`: a `cost`-Critical MUST be `1M-exception`'d; a `read`-Critical MUST NOT be (it is paged/refactored), and flagging it `1M-exception` is itself a finding:
-> ```
-> if verdict.level == Critical and verdict.reason == "cost" and not task.flagged("1M-exception"): finding
-> if verdict.level == Critical and verdict.reason == "read" and task.flagged("1M-exception"):     finding
-> ```
-
-When Token Saver is off, none of the above runs — the §9.A token-estimation checks (Error Pattern Catalog #14, #37, #38) stand alone, unchanged.
-
----
-
-## Error Pattern Catalog
-
-Quick reference for common patterns and their correct classification.
-
-### Check — DELEGATED Trigger Named
-
-This check is the mechanical, grep-determinable sibling of catalog row #11 (DELEGATED dispatch mandatory trigger violated): #11 checks whether a trigger *actually applies* to the session; this check verifies the Execution Strategy declaration *names* one. Do not merge the two — #11 requires reading task sizes/counts to judge, this one is a pure grep gate.
-
-- **Severity:** BLOCKER
-- **What:** Every session/sprint declaring `Execution Strategy: DELEGATED` MUST name which of the four mandatory triggers fired (2+ Opus tasks / META Discovery / >50K single task / output-chaining).
-- **Detection:** Grep the Master Plan + each Orchestration for `Execution Strategy:\s*DELEGATED`. For each match, require an adjacent named trigger from the four. A DELEGATED declaration with no named trigger → BLOCKER.
-- **Finding template:**
-```
-[BLOCKER] DELEGATED declaration without a named trigger
-File: {Master Plan / Orchestration path} | Location: Execution Strategy section
-Issue: Session declares DELEGATED but names no mandatory trigger (2+ Opus / META Discovery / >50K task / output-chaining)
-Fix: Name the trigger that fired, or change to DIRECT per references/agent-orchestration.md §11.1 | Confidence: HIGH
-```
-
-| # | Pattern | Severity | Where to Check |
-|---|---------|----------|----------------|
-| 1 | Vague section references ("Sections 2-5" instead of individual listings) | BLOCKER | Task file Required Context table |
-| 2 | Cross-sprint citation without source listing in EI header | ERROR | EI header + Cross-References table |
-| 3 | Rigid mapping where domain+description inference needed | ERROR | Task execution steps |
-| 4 | Stale API reference (function renamed or moved) | ERROR | Task steps vs actual codebase |
-| 5 | Sequential numbering assumption (global numbering is non-sequential) | FALSE POSITIVE | See Known Patterns Whitelist |
-| 6 | Missing dependency in chain | WARNING | Task dependency field |
-| 7 | Token estimate too low for declared context | WARNING | Task token estimate vs file count |
-| 8 | Orphaned spec section (appears in no EI) | WARNING | EI completeness check |
-| 9 | Reviewer prompt missing plan context | ERROR | Reviewer spawn prompt |
-| 10 | Idle teammate treated as error | INFO | Normal behavior -- not a failure |
-| 11 | DELEGATED dispatch mandatory trigger violated (`agent-orchestration.md` §11.1) | BLOCKER | Orchestration Execution Strategy |
-| 12 | Task-file error recovery semantics missing (`agent-orchestration.md` §11.2) | BLOCKER | Task file Notes for Agent |
-| 13 | Schema Pin pre-execution form missing (`schema-pin-requirement.md` §4) | BLOCKER | Task file Required Context |
-| 14 | Token estimate uses `~?` placeholder (`task-content-fidelity.md` §9.A.2) | BLOCKER | Task file Estimated Tokens |
-| 15 | Cross-sprint Required Context not mirrored in Depends On (`session-plan-requirements.md` §9 cross-sprint) | BLOCKER | Task file Depends On |
-| 16 | EI bidirectional consistency violation (every Spec in `Extracted from:` MUST appear in ≥ 1 Cross-References row and vice versa) | WARNING (HIGH confidence) | EI header + Cross-References |
-| 17 | DELEGATED inter-dispatch lint/precheck diagnostics missing on shared file (`agent-orchestration-delegated.md` §1.4) | BLOCKER | Orchestration between dispatches |
-| 18 | DELEGATED output `wc -l` verification missing after dispatch (`agent-orchestration-delegated.md` §1.4) | BLOCKER | Orchestration between dispatches |
-| 19 | DELEGATED spawn prompt missing HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause (`agent-orchestration-delegated.md` §1.8) | BLOCKER | Orchestration spawn prompts |
-| 20 | DELEGATED follow-up fixes not tier-ranked by invasiveness (`agent-orchestration-delegated.md` §1.9) | BLOCKER | Orchestration follow-up dispatches |
-| 21 | DELEGATED forward-looking-verb detection + SendMessage resume protocol missing (`agent-orchestration-delegated.md` §1.10) | BLOCKER | Orchestration post-dispatch scan |
-| 22 | DELEGATED spawn prompt missing operational-ceiling disclaimer (`agent-orchestration-delegated.md` §1.11) | BLOCKER | Orchestration spawn prompts |
-| 23 | DELEGATED edit-heavy task missing N>25 resume protocol + tool-use budget estimation (`agent-orchestration-delegated.md` §1.12) | BLOCKER | Orchestration spawn prompts |
-| 24 | DELEGATED shared-edit-target dispatches missing parallelism cap/shard/delta strategy (`agent-orchestration-delegated.md` §1.13) | BLOCKER | Orchestration dispatch matrix |
-| 25 | Verify-before-cite round-2 (`task-content-fidelity.md` §9.B.6..§9.B.9) | BLOCKER (varies by sub-rule) | Task file SQL/MERGE briefs |
-| 26 | Sprint exit-gate verdict not reflecting gate-defining step (`verification-gates.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
-| 27 | Sprint Overview row encoding session-count fraction instead of gate verdict (`verification-gates.md` §4) | ERROR | Master Plan Sprint Overview |
-| 28 | EI Cross-References §-citation format violated (`ei-fidelity.md` §7) | BLOCKER | EI Cross-References table |
-| 29 | UNCONFIRMED claim missing four-site enforcement (`ei-fidelity.md` §4) | BLOCKER | EI body |
-| 30 | Sprint Plan has `READY_TO_EXECUTE` at scaffolding time (`scaffolding-hygiene.md` §4) | WARNING | Sprint Plan Status field |
-| 31 | Per-session `Outputs/` directory missing (`scaffolding-hygiene.md` §5) | BLOCKER | Session folder |
-| 32 | Orchestration `**Prerequisite:**` declaration missing for sequential session (`scaffolding-hygiene.md` §6) | ERROR | Orchestration Prerequisites |
-| 33 | Orchestration Context Boundary callout missing (`agent-orchestration.md` §11.3) | BLOCKER | Orchestration Execution Strategy |
-| 34 | Verification Commands section missing for runnable-artifact task (`verification-gates.md` §3) — exempt if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in task's Notes for Agent | BLOCKER | Task file Verification Commands |
-| 35 | Per-file-type Verification Commands table empty (`verification-gates.md` §3) — applies to runnable-artifact tasks per `templates/task-file.md` §Per-File-Type Commands | BLOCKER | Task file Verification Commands |
-| 36 | Verify Before/After callout missing for runnable artifact (`verification-gates.md` §4) | BLOCKER | Task file Verification Commands |
-| 37 | Required Context not updated when a prior task changed file structure (`task-content-fidelity.md` §9.A.1) | ERROR | Task Required Context |
-| 38 | Per-file-type token rate band violation (`task-content-fidelity.md` §9.A.3) | WARNING | Task Required Context |
-| 39 | User-prompt-cited artifact unverified at scaffolding (`task-content-fidelity.md` §9.B.1) | BLOCKER | Task file cited paths |
-| 40 | Identifier not reconciled with live contract (`task-content-fidelity.md` §9.B.2) | BLOCKER | Task Execution Steps |
-| 41 | Helper-function design not categorized in column-presence check (`task-content-fidelity.md` §9.B.4) | WARNING | Task helper refs |
-| 42 | EI archival fidelity violated — transform happens at EI not Task layer (`ei-fidelity.md` §1) | ERROR | EI body |
-| 43 | EI source severity vocabulary not preserved (`ei-fidelity.md` §2) | ERROR | EI body |
-| 44 | EI threshold misaligned with operational dispatch contract (`ei-fidelity.md` §3) | BLOCKER | EI vs Sprint Plan |
-| 45 | EI cross-tier duplicate not preserved (`ei-fidelity.md` §5) | ERROR | EI Cross-References |
-| 46 | EI cross-tier citation not propagated to implementation surface (`ei-fidelity.md` §6) | ERROR | EI Cross-References |
-| 47 | EI token reconciliation gate failed (`ei-fidelity.md` §8) | BLOCKER | EI token totals |
-| 48 | Discovery count missing execution citation (`discovery-and-exit-criteria.md` §15.1) | BLOCKER | Discovery outputs |
-| 49 | Binding refinement not echoed across plan layers (`discovery-and-exit-criteria.md` §16.1) | BLOCKER | Multi-layer files |
-| 50 | "Surfaces" used as non-enforceable mention not enforcement claim (`discovery-and-exit-criteria.md` §16.2) | ERROR | EI / Sprint Plan |
-| 51 | Sprint signoff row-count mismatch with EI exit criteria (`discovery-and-exit-criteria.md` §16.3) | BLOCKER | Sprint signoff |
-| 52 | Cross-session dependency not mirrored in task `Depends On` (`session-plan-requirements.md` §9 cross-session) | BLOCKER | Task Depends On |
-| 53 | Post-scaffold back-propagation missed after task edit (`session-plan-requirements.md` §9 post-scaffold sync) | ERROR | Task file + EI section |
-| 54 | BLI-cited audit anchor not re-verified before execution (`verify-against-shipped-artifact.md` §6) | BLOCKER | Orchestration BLI refs |
-| 55 | Cohort token-uplift missing for known high-divergence cohort (`scaffolding-hygiene.md` §10) | WARNING | Master Plan Sprint Overview Notes |
-| 56 | Cross-tier audit-finding triage table missing (`discovery-and-exit-criteria.md` §18) | WARNING | Discovery/audit sessions |
-| 57 | EI multi-sprint cumulative state not reconciled (`ei-fidelity.md` §9.1) | BLOCKER | Later-sprint EI Current state block + Sprint Plan Cross-Sprint File Touches + task-file Step-1 prerequisite grep gate |
-| 58 | EI repoint map cluster incomplete — fewer enumerated rows than audit cluster cites (`ei-fidelity.md` §9.2) | BLOCKER | EI repoint map vs audit cluster |
-| 59 | EI audit-grep-table coverage gap — verification scope wider than upstream repair scope (`ei-fidelity.md` §9.3) | BLOCKER | EI verification task vs repair task Required Context |
-| 60 | Consolidated Context body⇄citation promise broken — header names a finding as a Driving Finding (or Cross-References row lists it) but body lacks the prose AND no `[source-doc-only]` marker (`ei-fidelity.md` §10.1) | ERROR | Consolidated Context part body |
-| 61 | Task verbatim-extraction targets a section that does not physically carry the cited prose — pre-extraction verification missing AND no fallback-hierarchy step (`ei-fidelity.md` §10.2 + §10.3) | ERROR | Task file Execution Steps |
-| 62 | Mega-scaffold skipped review gate — `n_sprints_scaffolded_this_pass ≥ 2` AND Master Plan Status is `READY_TO_EXECUTE` AND no `/planwise review` report referenced (`scaffolding-hygiene.md` §11) | BLOCKER | Master Plan / scaffold-session transcript |
-| 63 | Token Saver large-file ladder not applied — `context.token_saver: true` AND (over-ceiling task without `1M-exception`; OR Warn+ Required Context file with no backlog item; OR a `read`-reason Critical wrongly flagged `1M-exception`; OR a `1M-exception` task on a Sonnet/Haiku agent without override note; OR a runner-read generated artifact past the line/byte/token read gate without a Multi-Part split) (`task-content-fidelity.md` §9.A.8) — no-op when Token Saver is off | ERROR (read-Critical mis-flag / over-ceiling / artifact split) · WARNING (missing backlog item / uncovered read gate) | Task Required Context + Notes for Agent ([Token Saver Compliance Check](#token-saver-compliance-check)) |
-| 64 | Orchestrator consumes sub-agent verdict label without recomputing from reported finding counts — systematic under-classification risk (`agent-orchestration-delegated.md` §1.16.1) | ERROR | Orchestration synthesis step; rollup tables |
-| 65 | Orchestrator accepts cross-file control-flow claim ("symbol X never used → feature Y is broken") without tracing the full consumer call path — false-positive over-classification risk (`agent-orchestration-delegated.md` §1.16.2) | WARNING | Orchestration finding acceptance; release-signoff verdicts |
-| 66 | DELEGATED declaration without a named trigger (`agent-orchestration.md` §11.1) — grep `Execution Strategy:\s*DELEGATED`; each match MUST carry an adjacent named trigger from the four | BLOCKER | Master Plan / Orchestration Execution Strategy |

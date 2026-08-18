@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in planwise itself is not working
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please keep the description self-contained —
+        steps to reproduce should stand on their own without needing access to
+        your project files.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran and what planwise did.
+    validations:
+      required: true
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What I expected
+      description: What you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands or actions that trigger this.
+    validations:
+      required: true
+  - type: input
+    id: planwise-version
+    attributes:
+      label: planwise version
+      description: From your config.yaml, if known.
+    validations:
+      required: false
+  - type: input
+    id: os-shell
+    attributes:
+      label: OS / shell
+      description: e.g. Windows 11 / PowerShell, macOS / zsh.
+    validations:
+      required: false

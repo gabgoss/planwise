@@ -18,7 +18,12 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import CLOSED_STATUSES
-from markdown_parser import parse_markdown_table
+from markdown_parser import (
+    id_number,
+    normalize_id,
+    parse_markdown_table,
+    warn_on_unparsed_rows,
+)
 
 
 def _backlog_row_processor(cells: list[str], line_number: int, header_info: dict) -> dict | None:
@@ -51,8 +56,19 @@ def _backlog_row_processor(cells: list[str], line_number: int, header_info: dict
 
 
 def parse_backlog_table(content: str) -> list[dict]:
-    """Parse the Backlog Items markdown table into a list of dicts."""
-    return parse_markdown_table(content, "## Backlog Items", _backlog_row_processor)
+    """Parse the Backlog Items markdown table into a list of dicts.
+
+    Warns loudly if any row present in the table failed to parse. A count that
+    silently omits an unreadable row is indistinguishable from a complete one,
+    which is exactly how a misparsed row stayed invisible to every prioritisation
+    pass — so the shortfall is reported rather than swallowed.
+    """
+    stats: dict = {}
+    items = parse_markdown_table(
+        content, "## Backlog Items", _backlog_row_processor, stats=stats
+    )
+    warn_on_unparsed_rows(stats, "Backlog Items")
+    return items
 
 
 def _dependency_row_processor(cells: list[str], line_number: int, header_info: dict) -> dict | None:
@@ -84,14 +100,14 @@ def build_blocked_by_map(
     dependencies: list[dict], items: list[dict]
 ) -> dict[str, list[str]]:
     """Build reverse dependency map: blocked_item_id -> [open blocker IDs]."""
-    status_map = {item["id"]: item["status"] for item in items}
+    status_map = {normalize_id(item["id"]): item["status"] for item in items}
     blocked_by: dict[str, list[str]] = {}
 
     for dep in dependencies:
-        blocker = dep["blocker_id"]
+        blocker = normalize_id(dep["blocker_id"])
         if status_map.get(blocker, "") not in CLOSED_STATUSES:
             for blocked_id in dep["blocked_ids"]:
-                blocked_by.setdefault(blocked_id, []).append(blocker)
+                blocked_by.setdefault(normalize_id(blocked_id), []).append(blocker)
 
     return blocked_by
 
@@ -124,11 +140,11 @@ def filter_items(
             continue
         if criteria.abbrev and item["abbrev"].upper() != criteria.abbrev.upper():
             continue
-        if criteria.item_id and item["id"].lstrip("0") != criteria.item_id.lstrip("0"):
+        if criteria.item_id and normalize_id(item["id"]) != normalize_id(criteria.item_id):
             continue
 
         if blocked_by_map and not criteria.show_blocked:
-            if blocked_by_map.get(item["id"]):
+            if blocked_by_map.get(normalize_id(item["id"])):
                 blocked.append(item)
                 continue
 
@@ -247,7 +263,14 @@ def main():
     all_items = parse_backlog_table(content)
 
     if args.next_id:
-        max_id = max((int(item["id"]) for item in all_items if item["id"].isdigit()), default=0)
+        numbers = [n for n in (id_number(item["id"]) for item in all_items) if n is not None]
+        max_id = max(numbers, default=0)
+        if not numbers and all_items:
+            print(
+                f"WARNING: {len(all_items)} row(s) parsed but none carried a numeric ID; "
+                f"allocating 001. Check the index's ID column format.",
+                file=sys.stderr,
+            )
         print(f"{max_id + 1:03d}")
         return
 

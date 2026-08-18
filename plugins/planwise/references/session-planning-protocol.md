@@ -12,26 +12,28 @@ description: Plan hierarchy, naming conventions, agent delegation, recovery prot
 - [1. Plan Hierarchy](#1-plan-hierarchy-binding)
 - [2. Naming Conventions](#2-naming-conventions-binding)
 - [3. Agent Delegation](#3-agent-delegation-binding)
-- [4. Recovery Protocol](#4-recovery-protocol-binding)
 - [5. Token Budget](session-context-budget.md#5-token-budget)
-- [6. Context Loading Strategy](session-context-budget.md#6-context-loading-strategy)
-- [7. Context Conservation](session-context-budget.md#7-context-conservation)
+- [6. Context Loading Strategy](context-loading-and-conservation.md#6-context-loading-strategy)
+- [7. Context Conservation](context-loading-and-conservation.md#7-context-conservation)
 - [8. Required Files Per Level](session-plan-requirements.md#8-required-files-per-level)
-- [9. Task Files and Completion Tracking](session-plan-requirements.md#9-task-files-and-completion-tracking)
+- [9. Task Files and Completion Tracking](task-file-and-tracking-requirements.md#9-task-files-and-completion-tracking)
 - [10. Pre-Session Validation Checklist](#10-pre-session-validation-checklist)
 - [11. Post-Session Checklist](#11-post-session-checklist)
-- [12. Git Workflow](#12-git-workflow)
-- [13. READ-CONFIRM-ACT Protocol](#13-read-confirm-act-protocol)
 - [Quick Reference](#quick-reference)
 - [Templates](#templates)
 
 **Companion files:**
-- [session-context-budget.md](session-context-budget.md) — Token budget, context loading strategy, conservation (Sections 5-7)
-- [session-plan-requirements.md](session-plan-requirements.md) — Required files per level, task file template, completion tracking (Sections 8-9)
-- [scaffolding-hygiene.md](scaffolding-hygiene.md) — Scaffolding hygiene rules: Meta-Plan source detection, folder naming, abbreviation validation, sprint status defaults, Outputs/ creation, sequential-sprint prerequisites, parallel-scaffold deviation classes, plan-sizing expansion ratio, cohort token-uplift
+- [session-context-budget.md](session-context-budget.md) — Token budget and the read-gate canonical (Section 5)
+- [context-loading-and-conservation.md](context-loading-and-conservation.md) — Context loading strategy, context conservation (Sections 6-7)
+- [session-plan-requirements.md](session-plan-requirements.md) — Required files per level, DELEGATED-trigger canonical (Section 8)
+- [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) — Task file template, completion tracking, cross-sprint deferred-finding ownership (Section 9)
+- [session-execution-protocol.md](session-execution-protocol.md) — Reference documents, settings modification, session rules, recovery protocol, task tracking, refactoring safety, git workflow (Sections 2-7)
+- [read-confirm-act-protocol.md](read-confirm-act-protocol.md) — READ-CONFIRM-ACT pattern, Confirmation Block template, Structural Findings, Cross-Task Coordination Flags (Section 1)
+- [scaffolding-hygiene.md](scaffolding-hygiene.md) — Scaffolding hygiene rules: §1-§7 six foundational rules (Meta-Plan source detection, folder naming, abbreviation validation, sprint status defaults, Outputs/ creation, sequential-sprint prerequisites), §8 Parallel-Scaffold Deviation Classes, §9 Multi-Shape Integration Plan-Sizing Expansion Ratio, §10 Pre-Allocate Tokens for Known High-Divergence Cohorts
 - [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) — Discovery scope rigor and cross-layer enforcement: count by execution, persist IDs, binding-refinement echo, enforceable-surface checks, verbatim-quote exit criteria, design-extension traceability, cross-tier audit triage
 - [ei-fidelity.md](ei-fidelity.md) — Execution Input fidelity: EI-as-archival transform, severity vocabulary, threshold alignment, UNCONFIRMED caveat enforcement, cross-tier preservation, citation propagation, token reconciliation gate
-- [task-content-fidelity.md](task-content-fidelity.md) — Task file content fidelity: Required Context freshness, no `~?` placeholders, token rate bands, verify-before-cite discipline (14 rules including Schema Pin, env vars, Field Mapping)
+- [task-content-fidelity.md](task-content-fidelity.md) — Task file content fidelity (§9.A): Required Context freshness, no `~?` placeholders, token rate bands, generator-cited inputs for large file sets, the Token Saver large-file ladder, count re-derivation and enumeration sweeps
+- [verify-before-cite.md](verify-before-cite.md) — Verify-before-cite discipline (§9.B): cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / pre-SQL verification
 - [schema-pin-requirement.md](schema-pin-requirement.md) — Schema Pin requirement: pin construction recipe, pin format template, plan-review enforcement
 
 ---
@@ -141,6 +143,19 @@ Master Plan ({Abbrev}-Master-Plan.md)
 > MSQ-S01-02-02-Sonnet-GenerateEntities.md
 > CI-S03-01-03-Opus-DesignModel.md
 > ```
+
+#### Reviewer Check 039 — Full Task ID Format in Cross-Sprint References
+
+- **Severity / Role / Type:** ERROR | Dependency Reviewer | NEW
+- **What:** Cross-sprint task references MUST use full Task ID format: `{Abbrev}-S{XX}-{YY}-{##}`.
+- **Detection:** Validate cross-sprint references against `^\{Abbrev\}-S\d{2}-\d{2}-\d{2}$`. Short-form (e.g., `Task 03`) → ERROR.
+- **Finding template:**
+```
+[ERROR] Cross-sprint reference missing full Task ID format
+File: {task file path} | Location: Depends On field
+Issue: Reference "{short_form}" lacks full {Abbrev}-S{XX}-{YY}-{##} format
+Fix: Expand per references/session-planning-protocol.md §2 | Confidence: HIGH
+```
 
 ### Folder Structure
 
@@ -281,9 +296,18 @@ Parallel groups:
 
 ---
 
-## 4. Recovery Protocol (BINDING)
+## Companion Files and Extracted Protocols
 
-Recovery Protocol — full specification and binding update discipline live in [session-execution-protocol.md §4](session-execution-protocol.md#4-session-rules). Read that section for the WRONG/CORRECT minimum-content example and the update-after-every-task gate.
+The following sections were pointer-only (a one-line "see file X" with no first-party content beyond the pointer). They are collapsed into this single table; each row is the full content of the section it replaces.
+
+| Topic | Lives In | What It Covers |
+|-------|----------|-----------------|
+| Recovery Protocol | [session-execution-protocol.md §4](session-execution-protocol.md#4-session-rules) | Full specification and binding update discipline — the WRONG/CORRECT minimum-content example and the update-after-every-task gate |
+| Git Workflow | [session-execution-protocol.md §7](session-execution-protocol.md#7-git-workflow) | Commit at session end; run `/code-review` before commit when the session produced code; stage specific files (never `git add .`) |
+| READ-CONFIRM-ACT Protocol | [read-confirm-act-protocol.md §1](read-confirm-act-protocol.md#1-read-confirm-act-pattern) | The 5-field Confirmation Block template (File, Current State, Last Completed, Next Action, Structural Finding), the binding "Cannot Be Waived" callout, Structural Findings, and Cross-Task Coordination Flags. Read before every planning task. |
+| Scaffolding Hygiene | [scaffolding-hygiene.md](scaffolding-hygiene.md) | The complete set of binding rules governing multi-sprint scaffolded plans:<br>• **§1-§7** — Six foundational hygiene rules (Meta-Plan source detection, folder naming, abbreviation validation, sprint status defaults, Outputs/ creation, sequential-sprint prerequisites)<br>• **§8** — Parallel-Scaffold Deviation Classes<br>• **§9** — Multi-Shape Integration Plan-Sizing Expansion Ratio<br>• **§10** — Pre-Allocate Tokens for Known High-Divergence Cohorts |
+| Discovery Scope Rigor | [discovery-and-exit-criteria.md §15](discovery-and-exit-criteria.md#15-discovery-scope-rigor-binding) | Binding rules governing Discovery and Meta-Plan scope:<br>• **§15.1** — Count by execution (not estimation)<br>• **§15.2** — Persist IDs, not just counts |
+| Cross-Layer Enforcement & Exit-Criteria Fidelity | [exit-criteria-fidelity.md §16](exit-criteria-fidelity.md#16-cross-layer-enforcement--exit-criteria-fidelity-binding) | Cross-layer enforcement rules:<br>• **§16.1** — Binding refinements echo across all plan layers<br>• **§16.2** — "Surfaces" claims require enforceable checks<br>• **§16.3** — Verbatim-quote EI exit criteria with mechanical anchors |
 
 ---
 
@@ -336,47 +360,8 @@ After completing a session:
 > - [ ] Master Plan tracking table updated
 > - [ ] Lessons learned documented in LessonsLearned/LL-{NNN}-{Domain}-{Name}.md (YAML frontmatter + 3 sections)
 > - [ ] 00-Index-LessonsLearned.md master table updated with new entries
-> - [ ] If any session lesson is HIGH-severity or recurs (2+ instances across sessions), evaluate promotion to `.claude/rules/` per `session-plan-requirements.md §9` step 6. Record the promotion decision in the lesson frontmatter (`applied-as:` path) and the Rule Promotion Log.
+> - [ ] If any session lesson is HIGH-severity or recurs (2+ instances across sessions), evaluate promotion to `.claude/rules/` per `task-file-and-tracking-requirements.md §9` step 6. Record the promotion decision in the lesson frontmatter (`applied-as:` path) and the Rule Promotion Log.
 > - [ ] Git commit with changes (lessons included before final commit)
-
----
-
-## 12. Git Workflow
-
-Git Workflow — full binding rules live in [session-execution-protocol.md §7](session-execution-protocol.md#7-git-workflow). Commit at session end; run `/code-review` before commit when the session produced code; stage specific files (never `git add .`).
-
----
-
-## 13. READ-CONFIRM-ACT Protocol
-
-The full READ-CONFIRM-ACT specification — including the 5-field Confirmation Block template (File, Current State, Last Completed, Next Action, Structural Finding) and the binding "Cannot Be Waived" callout — lives in [session-execution-protocol.md §1](session-execution-protocol.md#1-read-confirm-act-pattern). Read that section before every planning task.
-
----
-
-## 14. Scaffolding Hygiene
-
-See [scaffolding-hygiene.md](scaffolding-hygiene.md) for the complete set of binding rules governing multi-sprint scaffolded plans:
-- §1-§7: Six foundational hygiene rules (Meta-Plan source detection, folder naming, abbreviation validation, sprint status defaults, Outputs/ creation, sequential-sprint prerequisites)
-- §8: Parallel-Scaffold Deviation Classes
-- §9: Multi-Shape Integration Plan-Sizing Expansion Ratio
-- §10: Pre-Allocate Tokens for Known High-Divergence Cohorts
-
----
-
-## 15. Discovery Scope Rigor
-
-See [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) §15 for binding rules governing Discovery and Meta-Plan scope:
-- §15.1: Count by execution (not estimation)
-- §15.2: Persist IDs, not just counts
-
----
-
-## 16. Cross-Layer Enforcement & Exit-Criteria Fidelity
-
-See [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) §16 for cross-layer enforcement rules:
-- §16.1: Binding refinements echo across all plan layers
-- §16.2: "Surfaces" claims require enforceable checks
-- §16.3: Verbatim-quote EI exit criteria with mechanical anchors
 
 ---
 
@@ -409,4 +394,4 @@ For full templates, see the [planwise plugin templates](templates/):
 ---
 
 *These rules are binding. Violations cause context loss and incomplete work.*
-*Companion files: [session-context-budget.md](session-context-budget.md), [session-plan-requirements.md](session-plan-requirements.md)*
+*Companion files: [session-context-budget.md](session-context-budget.md), [context-loading-and-conservation.md](context-loading-and-conservation.md), [session-plan-requirements.md](session-plan-requirements.md), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md), [session-execution-protocol.md](session-execution-protocol.md), [read-confirm-act-protocol.md](read-confirm-act-protocol.md)*

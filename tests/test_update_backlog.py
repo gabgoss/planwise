@@ -179,5 +179,244 @@ class TestIdempotentArchival(_UpdateBacklogFixtureBase):
         self.assertIn("status: COMPLETE", moved.read_text(encoding="utf-8"))
 
 
+class TestEscapedPipeRows(_UpdateBacklogFixtureBase):
+    """A Feature cell may legitimately contain an escaped pipe. Under the old
+    naive split that shifted every column right by one, so the status write
+    landed on Priority and the archival link repoint landed on Score."""
+
+    ESCAPED_FEATURE = r"Run `git diff --name-only \| grep dir` first"
+
+    def test_status_transition_writes_status_not_priority(self):
+        self.write_index(
+            f"| 062 | {self.ESCAPED_FEATURE} | High | NOT_STARTED | DOC | 45 "
+            "| [01](escaped-DOC-item.md) |\n"
+        )
+        self.write_item_file("escaped-DOC-item.md", status="NOT_STARTED", archived=False)
+
+        out = self.run_update("062", "IN_PROGRESS")
+
+        self.assertIn("NOT_STARTED → IN_PROGRESS", out)
+        row = self.row("062")
+        self.assertEqual(row["status"], "IN_PROGRESS")
+        self.assertEqual(row["priority"], "High")     # NOT clobbered
+        self.assertEqual(row["abbrev"], "DOC")
+        # The author's escaping survives the write-back verbatim.
+        self.assertIn(r"\|", self.read_index_text())
+
+    def test_archival_moves_the_file_and_repoints_the_link(self):
+        # extract_file_links used to read the Score cell on a shifted row, find
+        # no links, and archive nothing at all.
+        self.write_index(
+            f"| 062 | {self.ESCAPED_FEATURE} | High | NOT_STARTED | DOC | 45 "
+            "| [01](escaped-DOC-item.md) |\n"
+        )
+        self.write_item_file("escaped-DOC-item.md", status="NOT_STARTED", archived=False)
+
+        self.run_update("062", "COMPLETE")
+
+        self.assertFalse((self.backlog_dir / "escaped-DOC-item.md").exists())
+        self.assertTrue((self.archive_dir / "escaped-DOC-item.md").exists())
+        row = self.row("062")
+        self.assertEqual(row["files"][0]["path"], "Archive/escaped-DOC-item.md")
+        self.assertEqual(row["priority"], "High")
+        self.assertEqual(row["status"], "COMPLETE")
+
+    def test_feature_text_is_readable_and_row_is_not_dropped(self):
+        self.write_index(
+            f"| 062 | {self.ESCAPED_FEATURE} | High | NOT_STARTED | DOC | 45 "
+            "| [01](escaped-DOC-item.md) |\n"
+            "| 063 | Plain feature | Low | NOT_STARTED | DOC | 10 | [01](plain-DOC-item.md) |\n"
+        )
+        rows = parse_backlog_table(self.read_index_text())
+
+        self.assertEqual([r["id"] for r in rows], ["062", "063"])  # neither dropped
+        self.assertEqual(
+            rows[0]["feature"], "Run `git diff --name-only | grep dir` first"
+        )
+
+    def test_sibling_rows_are_unaffected_by_the_write(self):
+        self.write_index(
+            "| 061 | Before | Low | NOT_STARTED | DOC | 10 | [01](before.md) |\n"
+            f"| 062 | {self.ESCAPED_FEATURE} | High | NOT_STARTED | DOC | 45 "
+            "| [01](escaped-DOC-item.md) |\n"
+            "| 063 | After | Low | NOT_STARTED | DOC | 10 | [01](after.md) |\n"
+        )
+        self.write_item_file("escaped-DOC-item.md", status="NOT_STARTED", archived=False)
+
+        self.run_update("062", "BLOCKED")
+
+        self.assertEqual(self.row("061")["status"], "NOT_STARTED")
+        self.assertEqual(self.row("063")["status"], "NOT_STARTED")
+        self.assertEqual(self.row("062")["status"], "BLOCKED")
+
+
+class TestBacklogCliSurface(_UpdateBacklogFixtureBase):
+    """CLI-level behavior of main(): input validation and the --create path.
+
+    TestIdempotentArchival and TestEscapedPipeRows both exercise the
+    status-update path's archival semantics; this class covers the
+    surrounding CLI surface neither one touches — rejected input, a
+    non-archival status transition, and item creation.
+    """
+
+    def _run_main(self, argv_tail: list[str]) -> tuple[str, str, object]:
+        """Invoke update_backlog.main() with a raw argv tail.
+
+        Returns (stdout, stderr, exit_code). exit_code is None when main()
+        returned normally instead of calling sys.exit().
+        """
+        saved_argv = sys.argv
+        sys.argv = ["update_backlog"] + argv_tail
+        out, err = io.StringIO(), io.StringIO()
+        exit_code = None
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    update_backlog.main()
+                except SystemExit as e:
+                    exit_code = e.code
+        finally:
+            sys.argv = saved_argv
+        return out.getvalue(), err.getvalue(), exit_code
+
+    def test_invalid_status_is_rejected_without_changing_the_file(self):
+        self.write_index(
+            "| 046 | Drift reconcile | Medium | NOT_STARTED | INFRA | - | [01](item.md) |\n"
+        )
+        self.write_item_file("item.md", status="NOT_STARTED", archived=False)
+        before = self.read_index_text()
+
+        _, err, code = self._run_main(
+            ["--config", str(self.config_path), "--id", "046", "--status", "BOGUS"]
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("Invalid status", err)
+        self.assertEqual(self.read_index_text(), before)  # no partial write
+
+    def test_missing_id_is_rejected_by_argument_parsing(self):
+        self.write_index(
+            "| 046 | Drift reconcile | Medium | NOT_STARTED | INFRA | - | [01](item.md) |\n"
+        )
+        before = self.read_index_text()
+
+        _, err, code = self._run_main(
+            ["--config", str(self.config_path), "--status", "IN_PROGRESS"]
+        )
+
+        self.assertEqual(code, 2)  # argparse's own usage-error exit code
+        self.assertIn("--id", err)
+        self.assertEqual(self.read_index_text(), before)
+
+    def test_non_archival_transition_does_not_touch_archive(self):
+        self.write_index(
+            "| 050 | Some item | Medium | NOT_STARTED | INFRA | - | [01](item.md) |\n"
+        )
+        self.write_item_file("item.md", status="NOT_STARTED", archived=False)
+
+        out, _, code = self._run_main(
+            ["--config", str(self.config_path), "--id", "050", "--status", "IN_PROGRESS"]
+        )
+
+        self.assertIsNone(code)
+        self.assertIn("NOT_STARTED → IN_PROGRESS", out)
+        self.assertEqual(self.row("050")["status"], "IN_PROGRESS")
+        # A non-archival status leaves the file in place and never even
+        # creates the Archive directory.
+        self.assertTrue((self.backlog_dir / "item.md").exists())
+        self.assertFalse(self.archive_dir.exists())
+
+    def test_create_writes_bli_file_and_appends_index_row(self):
+        self.write_index("")  # header + separator only, no data rows
+
+        out, _, code = self._run_main(
+            [
+                "--config", str(self.config_path),
+                "--create",
+                "--id", "099",
+                "--feature", "New reconciliation guard",
+                "--priority", "High",
+                "--abbrev", "TEST",
+                "--files", "new-TEST-item.md",
+            ]
+        )
+
+        self.assertIsNone(code)
+        self.assertIn("Created backlog item 099", out)
+
+        bli_path = self.backlog_dir / "new-TEST-item.md"
+        self.assertTrue(bli_path.exists())
+        rendered = bli_path.read_text(encoding="utf-8")
+        self.assertIn("id: 099", rendered)
+        self.assertIn("status: NOT_STARTED", rendered)  # --status omitted -> default
+        self.assertIn("priority: High", rendered)
+        self.assertIn("abbrev: TEST", rendered)
+
+        row = self.row("099")
+        self.assertEqual(row["feature"], "New reconciliation guard")
+        self.assertEqual(row["priority"], "High")
+        self.assertEqual(row["status"], "NOT_STARTED")
+        self.assertEqual(row["files"][0]["path"], "new-TEST-item.md")
+
+    def test_create_rejects_a_duplicate_id_without_double_appending(self):
+        self.write_index(
+            "| 099 | Existing | High | NOT_STARTED | TEST | - | [01](existing-TEST-item.md) |\n"
+        )
+        before = self.read_index_text()
+
+        _, err, code = self._run_main(
+            [
+                "--config", str(self.config_path),
+                "--create",
+                "--id", "099",
+                "--feature", "Duplicate attempt",
+                "--priority", "Low",
+                "--abbrev", "TEST",
+                "--files", "dup-TEST-item.md",
+            ]
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("already exists", err)
+        self.assertEqual(self.read_index_text(), before)  # no second row appended
+        self.assertFalse((self.backlog_dir / "dup-TEST-item.md").exists())
+
+    def test_create_rejects_a_bare_duplicate_against_an_existing_prefixed_row(self):
+        # The existing row is stored in PREFIXED form. Pin id_format
+        # explicitly to "bare" so the new item's ID renders bare ("099")
+        # instead of following the index's own predominant (prefixed) form --
+        # otherwise the duplicate guard could pass for the wrong reason (an
+        # exact string match on "PFX-099" == "PFX-099"). With the new ID
+        # forced bare, the guard can only catch the clash by normalizing
+        # "PFX-099" and "099" to the same numeric component
+        # (find_row_by_id -> normalize_id), which is exactly the contract
+        # under regression here.
+        self.config_path.write_text(
+            CONFIG_YAML_FIXTURE + "id_format: bare\n", encoding="utf-8"
+        )
+        self.write_index(
+            "| PFX-099 | Existing | High | NOT_STARTED | TEST | - | "
+            "[01](existing-TEST-item.md) |\n"
+        )
+        before = self.read_index_text()
+
+        _, err, code = self._run_main(
+            [
+                "--config", str(self.config_path),
+                "--create",
+                "--id", "099",
+                "--feature", "Duplicate attempt",
+                "--priority", "Low",
+                "--abbrev", "TEST",
+                "--files", "dup-TEST-item.md",
+            ]
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("already exists", err)
+        self.assertEqual(self.read_index_text(), before)  # no second row appended
+        self.assertFalse((self.backlog_dir / "dup-TEST-item.md").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

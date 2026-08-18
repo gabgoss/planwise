@@ -21,12 +21,8 @@ Two operations:
     mirroring the Master Plan's own status and last-updated date.
 """
 
-import argparse
-import json
-import os
 import re
 import sys
-import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -37,6 +33,13 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
+from markdown_parser import pad_cell, split_row_cells, split_row_raw
+from reconcile_common import (
+    format_drift_report,
+    read_text_preserving_newlines,
+    run_reconcile_cli,
+    write_text_preserving_newlines,
+)
 
 _HEADER_RE = re.compile(r"\|\s*Abbrev\s*\|")
 _SEPARATOR_RE = re.compile(r"\|[-\s|]+\|")
@@ -148,7 +151,7 @@ def parse_plans_index(content: str) -> list[dict]:
         stripped = lines[i].strip()
         if not stripped.startswith("|"):
             break
-        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        cells = split_row_cells(stripped)
         if len(cells) < 6:
             continue
         abbrev = cells[0]
@@ -200,15 +203,6 @@ def read_master_plan_status(mp_path: Path) -> tuple[str | None, str | None]:
     date_match = _LAST_UPDATED_RE.search(content)
     last_updated = date_match.group(1) if date_match else None
     return status, last_updated
-
-
-def _pad_cell(old_cell: str, new_value: str) -> str:
-    """Replace a table cell's value while preserving its surrounding whitespace padding."""
-    leading = len(old_cell) - len(old_cell.lstrip())
-    trailing = len(old_cell) - len(old_cell.rstrip())
-    if trailing == 0:
-        return " " * leading + new_value
-    return " " * leading + new_value + " " * trailing
 
 
 def _evaluate_row(config: dict, row: dict) -> dict:
@@ -304,14 +298,14 @@ def reconcile(config: dict) -> int:
     Returns the number of rows written.
     """
     index_path = _plans_index_path(config)
-    # Read with newline="" so the file's original line endings survive into
-    # `content` untranslated; splitting on "\n" then leaves a trailing "\r" on
-    # each line of a CRLF file, which the "\n".join round-trip restores exactly
-    # on write. Without this, universal-newline read + text-mode write would
-    # rewrite every line to the platform's os.linesep — a whole-file diff, and
-    # a "preserve non-table lines exactly" violation on this destructive path.
-    with open(index_path, "r", encoding="utf-8", newline="") as f:
-        content = f.read()
+    # read_text_preserving_newlines uses newline="" so the file's original
+    # line endings survive into `content` untranslated; splitting on "\n"
+    # then leaves a trailing "\r" on each line of a CRLF file, which the
+    # "\n".join round-trip restores exactly on write. Without this,
+    # universal-newline read + text-mode write would rewrite every line to
+    # the platform's os.linesep — a whole-file diff, and a "preserve
+    # non-table lines exactly" violation on this destructive path.
+    content = read_text_preserving_newlines(index_path)
     rows = parse_plans_index(content)
     lines = content.split("\n")
 
@@ -325,90 +319,49 @@ def reconcile(config: dict) -> int:
         new_last_updated = evaluation["mp_last_updated"] or date.today().isoformat()
 
         line = lines[row["line_number"]]
-        parts = line.split("|")
+        parts = split_row_raw(line)
         if len(parts) < 7:
             continue
-        parts[3] = _pad_cell(parts[3], new_status)
-        parts[5] = _pad_cell(parts[5], new_last_updated)
+        # parse_plans_index reads status from cell 2 and last_updated from cell
+        # 4; raw segments carry one extra leading element before the opening
+        # pipe, so the write positions are those cell indices plus one.
+        parts[3] = pad_cell(parts[3], new_status)
+        parts[5] = pad_cell(parts[5], new_last_updated)
         lines[row["line_number"]] = "|".join(parts)
         written += 1
 
     if written:
-        # newline="" writes the reconstructed text verbatim (no os.linesep
-        # translation), preserving the original CRLF/LF exactly.
-        with open(index_path, "w", encoding="utf-8", newline="") as f:
-            f.write("\n".join(lines))
+        # write_text_preserving_newlines uses newline="" to write the
+        # reconstructed text verbatim (no os.linesep translation),
+        # preserving the original CRLF/LF exactly.
+        write_text_preserving_newlines(index_path, "\n".join(lines))
 
     return written
 
 
 def _format_report(result: dict) -> str:
     """Render a human-readable drift + anomaly report."""
-    drifts = result["drifts"]
-    anomalies = result["anomalies"]
-    lines = []
-
-    if not drifts and not anomalies:
-        return "No drift detected. All index rows match their Master Plan status."
-
-    if drifts:
-        lines.append(f"Drift detected ({len(drifts)} row(s) out of sync with Master Plan status):")
-        for d in drifts:
-            lines.append(f"  - {d['abbrev']}: index={d['index_status']} -> Master Plan={d['mp_status']}")
-    else:
-        lines.append("No status drift detected.")
-
-    if anomalies:
-        if lines:
-            lines.append("")
-        lines.append(f"Anomalies ({len(anomalies)}):")
-        for a in anomalies:
-            lines.append(f"  - {a['abbrev']}: {a['reason']} (expected: {a['expected_path']})")
-
-    return "\n".join(lines)
-
-
-def _write_json(result: dict) -> str:
-    """Write the detect result to a JSON temp file and return its path."""
-    tmp_dir = tempfile.mkdtemp(prefix="reconcile-plans-")
-    json_path = os.path.join(tmp_dir, "drift.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(result, f, indent=2)
-    return json_path
+    return format_drift_report(
+        result,
+        no_drift_message="No drift detected. All index rows match their Master Plan status.",
+        no_drift_only_message="No status drift detected.",
+        drift_header=f"Drift detected ({len(result['drifts'])} row(s) out of sync with Master Plan status):",
+        drift_line=lambda d: f"  - {d['abbrev']}: index={d['index_status']} -> Master Plan={d['mp_status']}",
+        anomaly_line=lambda a: f"  - {a['abbrev']}: {a['reason']} (expected: {a['expected_path']})",
+    )
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Detect and reconcile plans-index status drift against each plan's Master Plan."
+    run_reconcile_cli(
+        description="Detect and reconcile plans-index status drift against each plan's Master Plan.",
+        load_config=lambda: load_config(Path(__file__)),
+        resolve_index_path=_plans_index_path,
+        missing_index_message=lambda index_path: f"Error: Plans index not found at {index_path}",
+        detect_drift=detect_drift,
+        reconcile=reconcile,
+        format_report=_format_report,
+        json_prefix="reconcile-plans-",
     )
-    parser.add_argument("--config", type=str, default=None, help="Path to config.yaml; overrides default config search.")
-    parser.add_argument("--write", action="store_true", help="Reconcile drifted rows (re-reads the index immediately before writing).")
-    parser.add_argument("--json", action="store_true", help="Additionally write a JSON temp file and print its path.")
-
-    args, _ = parser.parse_known_args()
-
-    config = load_config(Path(__file__))
-    index_path = _plans_index_path(config)
-
-    if not index_path.exists():
-        print(f"Error: Plans index not found at {index_path}", file=sys.stderr)
-        sys.exit(1)
-
-    if args.write:
-        written = reconcile(config)
-        print(f"Reconciled {written} row(s).")
-        if args.json:
-            result = detect_drift(config)
-            json_path = _write_json(result)
-            print(f"JSON: {json_path}")
-        return
-
-    result = detect_drift(config)
-    print(_format_report(result))
-
-    if args.json:
-        json_path = _write_json(result)
-        print(f"JSON: {json_path}")
 
 
 if __name__ == "__main__":

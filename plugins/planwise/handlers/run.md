@@ -12,14 +12,13 @@
 
 ## Table of Contents
 
-- [Config Gate](#config-gate)
+- [Config Gate](#config-gate-auto-init-fallback)
 - [Phase 0: Pre-Execution Setup](#phase-0-pre-execution-setup)
 - [Phase 1: Execution Gate (READ-CONFIRM-ACT)](#phase-1-execution-gate-read-confirm-act)
 - [Phase 2: Always-TaskList Setup](#phase-2-always-tasklist-setup)
 - [Phase 3: Task Execution Loop](#phase-3-task-execution-loop)
 - [Phase 4: Post-Session Integration](#phase-4-post-session-integration)
 - [Recovery Protocol](#recovery-protocol)
-- [Delegated Execution Protocol](#delegated-execution-protocol)
 - [Error Handling](#error-handling)
 - [Context Recovery](#context-recovery)
 
@@ -46,6 +45,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 **Run-specific references (always load):**
 1. Read `references/session-execution-protocol.md`
+2. Read `references/read-confirm-act-protocol.md` — source for READ-CONFIRM-ACT, structural findings, and Cross-Task Coordination Flags (cited throughout this handler)
 
 **Conditional references:**
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
@@ -54,12 +54,14 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task involves DB writes or MERGE/upsert briefs: Read `references/task-content-fidelity.md`, `references/schema-pin-requirement.md`
 - If a session is IPC/protocol/codec: Read `references/verification-gates.md`
 - If executing in DELEGATED mode (orchestrator dispatches task-runner subagents): Read `references/agent-orchestration-delegated.md`
+- If a session runs verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
+- If a task authors or modifies a content-bearing artifact (a rule, agent, skill, or handler): Read `references/artifact-self-containment.md` — content-bearing artifacts must inline content from their source rather than cite it; see Step 3.3's self-containment grep gate
 
 ---
 
 ## AUTO-MODE Annotations
 
-`<!-- AUTO-MODE: critical|convenience -->` HTML comments classify the `AskUserQuestion` call site that immediately follows them, per `references/skill-authoring.md` §4b (Auto Mode Policy):
+`<!-- AUTO-MODE: critical|convenience -->` HTML comments classify the `AskUserQuestion` call site that immediately follows them, per `references/auto-mode-policy.md` (canonical) and `references/skill-authoring.md` §4b (summary):
 
 - **`critical`** — the gate MUST always prompt the user; never auto-infer (e.g., scope decisions, destructive actions, a missing required argument).
 - **`convenience`** — in Auto Mode the handler MAY skip the prompt and proceed with the documented default; in normal interactive use it still prompts as written.
@@ -117,7 +119,7 @@ Read these files completely (not skim):
 2. Recovery file -- check for resumption state
 3. All task files listed in the Task Files table (read file headers, objectives, agents)
 
-While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [session-execution-protocol.md §1.2](../references/session-execution-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
+While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [read-confirm-act-protocol.md §1.2](../references/read-confirm-act-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
 
 ### Step 1.1a: RECONCILE (Flag-Reconciliation Preflight)
 
@@ -129,7 +131,8 @@ While reading, watch for structural findings beyond the literal task scope -- la
 > - [ ] For each flag recorded ON OR AFTER this session's scaffold date: check it appears in the orchestration's `Pre-Known Cross-Task Coordination Flags` AND in every affected task file
 > - [ ] Route each missing flag: write it into the affected task file(s) under `## Pre-Known Cross-Task Coordination Flags`, and carry it into that task's spawn prompt at dispatch
 > - [ ] Record the routing in Recovery (one Change Log row: "flag preflight — N flags routed to tasks X, Y")
-> - [ ] If a routed flag CONTRADICTS a task spec or EI verbatim block → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first
+> - [ ] If a routed flag CONTRADICTS an **Execution Step**, **Success Criterion**, or **Schema Pin** stated in a task file → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first
+> - [ ] A flag whose text is an unresolved fork must be pinned before dispatch — leaving a "pick one and say so" open means each runner resolves it ad hoc, with no recorded decision for downstream sessions to inherit
 
 **The two-hop propagation model (why the receiver routes the last hop):**
 
@@ -142,7 +145,7 @@ Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the fla
 
 ### Step 1.2: CONFIRM
 
-Output the confirmation block:
+Output the confirmation block. See [examples/confirmation-block.md](../examples/confirmation-block.md) for correctly formatted examples (standard, multiple files, fresh session, recovery, and structural-finding variants).
 
 > [!template] Context Confirmation
 > ```
@@ -156,7 +159,7 @@ Output the confirmation block:
 
 #### Step 1.2a: Structural Finding (when READ reveals one)
 
-If Step 1.1 surfaced a structural defect that makes the literal task scope produce a self-inconsistent artifact, the CONFIRM block MUST include a `Structural finding` paragraph AND an explicit Option A (Coherent) / Option B (Literal) block before proceeding. The executor MUST NOT pick a path before the user answers -- see [session-execution-protocol.md §1.2](../references/session-execution-protocol.md#12-structural-findings-beyond-literal-scope) for the template and rationale.
+If Step 1.1 surfaced a structural defect that makes the literal task scope produce a self-inconsistent artifact, the CONFIRM block MUST include a `Structural finding` paragraph AND an explicit Option A (Coherent) / Option B (Literal) block before proceeding. The executor MUST NOT pick a path before the user answers -- see [read-confirm-act-protocol.md §1.2](../references/read-confirm-act-protocol.md#12-structural-findings-beyond-literal-scope) for the template and rationale.
 
 If the user approves Option A (or any expansion beyond the literal scope), the Phase-1 approval reference (the AskUserQuestion turn or timestamp) MUST be recorded in:
 - Recovery's `Scope-Expansion Decisions` section (see [templates/recovery.md](../templates/recovery.md))
@@ -247,7 +250,11 @@ Read the orchestration's `## Execution Strategy` section.
 
 #### DELEGATED Mode
 
-Launch the `task-runner` agent via Task tool. See [Delegated Execution Protocol](#delegated-execution-protocol) for full details.
+You are the ORCHESTRATOR. Choose dispatch mode for the current dependency layer (tasks whose `Depends On` are all COMPLETE): **Sequential** for 1-2 tasks, or when any task in the layer targets a file another layer task also targets (output-file collision); **Parallel** for 3+ tasks with no inter-dependencies and disjoint output files.
+
+Before dispatching, read `references/agent-orchestration-delegated.md`: §1.3 (context boundary), §1.6 (path-rule injection), §1.8 (HARD CONSTRAINTS skeleton), §1.13 (shared-edit-target strategy; parallel-dispatch Recovery contract), §1.17 (classify every return before consuming it — a `completed` status alone is not a deliverable check), §1.19 (Model-Floor Bridge), §1.20 (1M-Exception Dispatch), §1.21 (Background vs Foreground Gate), §1.22 (Anti-Patterns checklist).
+
+The spawn prompt states the single-task scope in three positions — the opener, a hard-constraint line, and the return instruction — so the scope is stated even against a session-scoped identity that would otherwise outrank a single mention. When the project declares an isolated environment (Config Gate), it also adds an environment-discipline block naming interpreter/linter/runner paths in the platform-matched form (POSIX `./.venv/bin/{tool}` or Windows `.\.venv\Scripts\{tool}.exe` — emit the one matching the project's platform, never both), and on the session's FIRST dispatch only, a one-line interpreter diagnostic:
 
 ```
 Task(
@@ -255,6 +262,9 @@ Task(
   description: "Execute task {task-num}: {task-name}",
   model: "{model-override-from-task-file-Agent-field}",
   prompt: |
+    You are dispatched to execute ONE task: {task-id}. The session has other
+    tasks; you DO NOT execute them.
+
     Execute the following task YOURSELF, directly, with your own tool calls.
     Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
     tool calls) — you ARE the task-runner.
@@ -264,59 +274,56 @@ Task(
     Abbreviation: {abbrev}
     Recovery file: {recovery-file-absolute-path}
     Output directory: {output-dir-absolute-path}
+
+    HARD CONSTRAINTS: Execute ONLY {task-id}. Do not start any other task in
+    the session even if the Recovery file lists it as PENDING. Files you may
+    write: {explicit list from the task file's Output}.
+
+    (If the project declares an isolated environment, add:)
+    ## ENVIRONMENT DISCIPLINE
+    Do not change directory — pass absolute paths, or `git -C {repo-path}`
+    for git, so a bare tool name resolves against the paths given, not a
+    changed working directory. Use these paths — a bare tool name
+    resolves to the platform default, not this project's environment:
+      interpreter:  {env-interpreter-path}
+      linter:       {env-linter-path}
+      test/notebook runner: {env-runner-path}
+    Confirm connectivity/setup with `{env-interpreter-path} {project-precheck}`
+    BEFORE doing dependent work.
+
+    (On this session's first dispatch only, add:)
+    First-spawn diagnostic — run `{env-interpreter-path} -c "import sys;
+    print(sys.executable)"` and HALT if the output does not resolve inside
+    the project environment.
+
+    Return after writing the single expected output file. Do NOT proceed to
+    task {n+1}.
 )
 ```
 
-**Model override:** The `model:` parameter in the Task tool call MUST match the Agent field declared in the task file (e.g., if task file says `Agent: Haiku`, use `model: "haiku"`) — except when the Model-Floor Bridge below raises it.
+**Model override:** The `model:` parameter in the Task tool call MUST match the Agent field declared in the task file (e.g., if task file says `Agent: Haiku`, use `model: "haiku"`) — except when `references/agent-orchestration-delegated.md` §1.19 (Model-Floor Bridge) or §1.20 (1M-Exception Dispatch) raises it for this dispatch only; log the raise per those sections, never silent.
 
-#### Model-Floor Bridge (DELEGATED) — Temporary
+**Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Task tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. After all runners return, classify each per §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
 
-> [!constraint] Raise a 200K-window model to 1M when the plan-path rule surface is large
-> This guard governs EVERY DELEGATED dispatch — both the Sequential and Parallel branches in the [Delegated Execution Protocol](#delegated-execution-protocol). It is a **temporary bridge**, not a permanent override (see self-deactivation below). It never changes the model for a healthy (small) rule surface.
->
-> **Before dispatching a DELEGATED task whose `Agent:` maps to a 200K-window model (Sonnet or Haiku):**
-> 1. **Measure the plan-path rule surface.** Reuse the engine's linter: run `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` and sum the `approx_tokens` of the flagged (over-scoped) rules — those `.claude/rules/**` whose `paths:` target `planwise/Plans/**` (or sibling plan/backlog/lessons paths). If `--doctor` is unavailable, fall back to summing those rule files' sizes at ~13 tokens/line.
-> 2. **Project the subagent's worst-case load:** `flagged-rule tokens + ~54K fixed overhead`. If that **approaches the 200K window** — rule of thumb: flagged surface ≳ ~110K, leaving < ~35K of working headroom — the declared 200K-window model will overflow ("Prompt is too long") the instant it reads a plan brief that triggers those path rules.
-> 3. **Raise and log.** In that case, raise the dispatch `model` to the **1M tier** (Opus, or a 1M-window Sonnet where available) for THIS dispatch only, and emit a one-line log — never silent:
->    ```
->    MODEL FLOOR: raised {task-id} {declared}→1M (plan-path rule surface ~{N}K exceeds safe {declared} budget)
->    ```
-> 4. **Otherwise dispatch verbatim.** If the threshold is NOT tripped, pass the declared `Agent:` model through unchanged — the floor is inert for a small surface.
+> [!pitfall] Mixed-Mode Layer
+> **Problem:** A dependency layer where two tasks share an output file. Dispatching the whole layer in parallel races on that shared file (separate from the Recovery-file question).
+> **Solution:** Apply `references/agent-orchestration-delegated.md` §1.13 to the *output files*: if any two tasks in the layer share an output target, the layer is NOT parallel-eligible — fall back to Sequential dispatch for the whole layer, or split the offending pair into a separate sub-layer.
 
-> [!practice] Self-Deactivating Bridge — Not Permanent
-> This floor exists only to keep declared-Sonnet/Haiku runners alive while a project still carries a large author-time rule surface scoped to plan paths. Once the project is de-scoped — plugin author-time rules handler-loaded from `references/` (not installed), and any project-local domain rules re-scoped to code paths per `/planwise doctor` — the flagged surface shrinks toward ~0, step 2's threshold is never tripped, and declared-Sonnet tasks dispatch unchanged. When `--doctor` reports no over-scoped rules for a project, this bridge is already inert; it can be retired entirely once no supported project trips it.
+### Step 3.2a: Handle Permission Denial
 
-#### 1M-Exception Dispatch (DELEGATED) — Token Saver
+If a tool-permission prompt denies a write during dispatch or execution (DIRECT or DELEGATED) -- most commonly a `.claude/**` target, which the harness permission classifier gates independently of planwise authorization -- follow this protocol, in order:
 
-> [!constraint] Raise a `1M-exception`-flagged task to Opus/1M — a COST remedy ONLY
-> This guard governs EVERY DELEGATED dispatch (both Sequential and Parallel branches), exactly like the Model-Floor Bridge above and using the **same override mechanism** — it raises the dispatch `model`, it does NOT rewrite the task file. It is triggered by the task's own flag, not by the plan-path rule surface.
->
-> **Effective Token Saver gate.** The `1M-exception` flags were stamped at plan time under whatever Token Saver value was effective for THIS plan — the plan's Master-Plan `Token Saver:` field (`on`/`off`) over the project `context.token_saver` default, resolved via `config_loader.get_effective_token_saver_config(config, plan_override)`. At dispatch time, read that same effective value (the plan's Master-Plan field, falling back to `config.yaml`); when it resolves `false`, no task carries a Token-Saver `1M-exception` and this guard is inert. The runner does NOT re-resolve — it dispatches the flags the plan already baked in.
->
-> **When a task is flagged `1M-exception`** (the warning engine sets this in the task header's `Token Budget:` exception field for a single oversized **indivisible** file whose `cost`-reason estimate exceeds a 200K-window runner's budget):
-> 1. **Raise and log.** Raise the dispatch `model` to the **1M tier** (Opus) for THIS dispatch only — a Sonnet/Haiku runner's window is **200K**, so the 1M-exception is the ONLY way an oversized single-file task fits *the window*. Emit a one-line log, never silent:
->    ```
->    1M EXCEPTION: raised {task-id} {declared}→1M (oversized indivisible file — cost-reason Critical, cannot be split)
->    ```
-> 2. **Non-flagged tasks dispatch verbatim** on their declared `Agent:` model. The exception is inert for every task the engine did not flag.
-
-> [!constraint] Window ≠ Readability — 1M-Exception Does NOT Fix a `read`-reason Critical
-> WRONG — a task's Required Context file is `read`-reason Critical (≥ 256 KiB byte gate, or above the per-Read 25K-token page cap) and the orchestrator routes the dispatch to Opus/1M assuming the larger window absorbs it:
-> ```
-> read-reason Critical context file  → raise dispatch to 1M  → "the bigger window reads it"  ← FALSE
-> ```
-> CORRECT — the Read tool's **25K-token page cap** and **256 KiB byte refusal** apply on EVERY model; Opus's tokenizer is ~1.44× heavier so it trips the page cap *sooner* (~1,340 lines vs ~1,920 for Sonnet/Haiku). The 1M-exception covers **only** a `cost`-reason Critical (a context-window/carrying-cost overflow). It does NOT cover a `read`-reason Critical — that file must be **paged** by the runner (`offset`/`limit`/Grep) even on Opus, or refactored:
-> ```
-> read-reason Critical context file  → log `paged-read required` (NOT 1M-exception)  → runner pages it (offset/limit/Grep) on its declared model
-> ```
-> The warning engine (Token Saver) does NOT set `1M-exception` for a `read`-reason Critical, and `run.md` MUST NOT infer it. Log such a task with a `paged-read required` note and dispatch it on its declared model — keep the two reasons distinct in the dispatch log: `1M-exception` for `cost`-Critical, `paged-read required` for `read`-Critical.
+1. Write the applied-vs-denied edit list to Recovery BEFORE anything else.
+2. STOP and surface the precise file plus the remaining edits to the user.
+3. Never re-issue the identical batch in the same mode.
+4. On resumption, apply only the remainder, recording any unclearable edit as a non-blocking residual in the Summary.
 
 ### Step 3.3: Post-Task Update
 
 > [!binding] Recovery Update After EVERY Task
 > Update the recovery file AFTER EACH TASK completes -- never batch updates.
 >
-> **Parallel-dispatch exception:** When dispatching 3+ task-runners in parallel within a DELEGATED session, the runners do NOT write Recovery — the orchestrator (you) reconciles Recovery centrally after the parallel batch returns. See [Parallel Dispatch Branch](#parallel-dispatch-branch-delegated) below and `references/agent-orchestration-delegated.md` §1.13 Recovery-file subsection. The "after EVERY task" rule still holds at batch granularity: reconcile Recovery once before dispatching the next dependency layer.
+> **Parallel-dispatch exception:** When dispatching 3+ task-runners in parallel within a DELEGATED session, the runners do NOT write Recovery — the orchestrator (you) reconciles Recovery centrally after the parallel batch returns. See Phase 3 Step 3.2's DELEGATED Mode (Parallel dispatch) above and `references/agent-orchestration-delegated.md` §1.13 Recovery-file subsection. The "after EVERY task" rule still holds at batch granularity: reconcile Recovery once before dispatching the next dependency layer.
 
 After each task completes (DIRECT or DELEGATED, sequential):
 
@@ -328,7 +335,20 @@ After each task completes (DIRECT or DELEGATED, sequential):
    - Update "Current Step" to next task number
 2. **TaskList** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
 3. **Verify output** -- confirm expected output files were written (if applicable)
-4. **THEN** proceed to next task
+4. **Verify structure** -- if the task's Expected Output declared required headings or table-column headers, grep the produced file for every one of them; on a miss, re-dispatch the same runner with a single corrective instruction rather than accepting and reconciling downstream
+5. **Resolve gated conditional branches** -- when a gating task completes, resolve every conditional branch it was gating. Runs at post-task reconciliation, not at scaffold time -- the measurement does not exist at scaffold time, which is why the branch was written conditionally. Procedure: (1) re-read the completed task's output against every downstream task file that declared it as a dependency; (2) grep those task files for conditional language:
+   ```bash
+   grep -nEi "if the probe|expect .* if|unless|otherwise|print rather than assert|if .* found" {session_dir}/*-Task-*.md
+   ```
+   (3) resolve each hit from the landed measurement and write the resolved branch in as a binding contract, with the evidence inline. Cheap, and it survives a session halt -- a routed branch sits in the downstream task file until the session resumes.
+6. **Self-containment grep gate (BINDING when the task authored or modified a content-bearing artifact):** if the task's declared output touches a rule, agent, skill, or handler file, run the grep from [`references/artifact-self-containment.md` §4](../references/artifact-self-containment.md#4-mechanical-verification) on the produced files:
+   ```bash
+   grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' {task-output-artifact-paths}
+   # MUST return zero matches.
+   ```
+   If matches -- do NOT mark the task complete; re-dispatch the runner with the grep output requesting the cited content be inlined, or open a follow-up task. See [§4.1](../references/artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover) for the exempt zones. A task whose output touches ONLY bookkeeping artifacts skips this gate.
+7. **Session-length checkpoint** -- evaluate the configured thresholds now that Recovery is current, and on a trip recommend a session boundary. See [Step 3.5](#step-35-session-length-checkpoint). It observes and recommends; it never halts the loop on its own.
+8. **THEN** proceed to next task
 
 After a **parallel batch** of 3+ task-runners returns:
 
@@ -341,7 +361,8 @@ After a **parallel batch** of 3+ task-runners returns:
    - One Change Log row per task (or one batch row noting the parallel group)
    - Update "Current Step" to the next dependency layer
 4. **TaskList** -- mark every batch task `completed`
-5. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch)
+5. **Session-length checkpoint** -- evaluate ONCE for the whole batch, after the central Recovery reconciliation above. See [Step 3.5](#step-35-session-length-checkpoint). A batch boundary is the safest place in a delegated session to take a split, because no runner is in flight.
+6. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch)
 
 ### Step 3.4: Handle Task Failure
 
@@ -352,17 +373,98 @@ If a task fails or returns BLOCKED:
 3. Decide: if remaining tasks depend on the blocked task, halt execution. If independent tasks remain, continue with those.
 4. Report to user: "Task {N} is BLOCKED: {reason}. Continue with remaining tasks?"
 
+### Step 3.5: Session-Length Checkpoint
+
+The orchestrator's context window grows monotonically across a session — nothing in the task loop resets it, and compaction is rare (observed once in 99 measured sessions). The driver is session **length in turns**, not task count: the task-count correlation is weak, while every measured session above 500,000 tokens ran at least 194 turns and every session below 150,000 ran at most 89. This checkpoint is the one place the run flow observes that growth and offers to act on it.
+
+**Evaluate at each task boundary** — sequential Step 3.3 item 6, or once per parallel batch at the batch list's item 5 — and trip on whichever threshold is reached first:
+
+| Threshold | Config sub-key | Shipped default |
+|-----------|----------------|-----------------|
+| Projected window size | `context.token_saver_session_checkpoint.window` | 400,000 |
+| Turn count | `context.token_saver_session_checkpoint.turns` | 194 |
+
+Read both values through `scripts/config_loader.py::get_token_saver_extension_config()` — never hardcode them. The numbers above are the shipped defaults; a project may configure its own, and the configured value is the one that governs. The projected window is the same figure the orchestrator-window advisory reports (see [token-saver-profile.md](../references/token-saver-profile.md) "Orchestrator-Window Expectation"). When `context.token_saver_orchestrator_advisory` is `off`, skip the evaluation entirely.
+
+> [!constraint] State the defaults' provenance accurately — they are chosen operating points, not a statistical boundary
+> Both figures are operating defaults derived from measured accumulation bands, and the prose that ships with them must not upgrade that claim. **194** is the measured minimum turn count of the above-500,000 band (22 of the 99 sessions), not a decile boundary. **400,000** is a level the heaviest sessions *cross*, not their onset — the measured 90th percentile is 565,189 across all sessions and 586,726 across delegated ones. 400,000 is chosen because the delegated median of roughly 455,000 is already too late to act on.
+
+**On a trip, in order:**
+
+1. **Complete the in-flight task.** Never interrupt a dispatch — a half-finished runner is precisely the incomplete handoff this checkpoint exists to avoid.
+2. **Write complete resume state.** Recovery current through the last completed task; every Cross-Task Coordination Flag routed per Step 4.4; and a session-boundary note naming the **exact next dispatch** (task id, its agent, and the dependency layer it belongs to). This write is the load-bearing half of the feature — the completeness checklist is in [session-execution-protocol.md](../references/session-execution-protocol.md#session-length-checkpoint) §4 Session-Length Checkpoint.
+3. **Recommend a boundary — never force one.**
+   <!-- AUTO-MODE: convenience -->
+   <!-- Default: Continue (log the advisory and proceed). A split is disruptive, and an unattended run must not self-truncate on an advisory. -->
+   Use `AskUserQuestion`: "Projected window is {current} against a {threshold} checkpoint ({which} tripped). Continue this session, or split here?" — options **Continue** and **Split here**.
+4. **Log the carrying-cost arithmetic either way** — the projected window, the threshold that tripped, and the break-even below — in Recovery's Key Findings. Both branches get logged; a declined split is evidence too.
+
+**Break-even.** A split is not free: the next session pays a fresh session-start load, measured at medians of 43,724 and 68,224 tokens in two corpora. One split per session therefore breaks even at roughly 200,000 tokens, so splitting a light session is a net loss. A boundary taken where the heaviest sessions crossed 400,000 would roughly halve their peaks.
+
+**Risk.** This is the highest-risk lever in the loop, and the risk sits entirely in the handoff: a boundary mid-plan is safe only when resume state is genuinely complete, and an incomplete handoff costs more than the tokens it saved. The checkpoint therefore **recommends and records** — it never force-terminates, and the only writes it mandates are the resume-state writes the Recovery protocol already requires.
+
 ---
 
 ## Phase 4: Post-Session Integration
 
 After all tasks complete (or all non-blocked tasks complete):
 
+### Step 4.0: Prior-Sprint Outputs Guard
+
+A session must not leave a **completed prior sprint's** `Outputs/` artifact modified or deleted. Those files are the artifact of record that later sprints adjudicate against and that signoffs quote; mutating one rewrites the evidence a past decision was made on, after the fact. Any re-executed producer — a notebook, a generator script, an `--inplace` formatter, a doc emitter — can do this and still exit 0, and per-task verification never catches it because every task checks only its own outputs.
+
+Run the guard BEFORE generating the summary, so a violation halts closeout while the session state is still intact:
+
+```bash
+python {plugin_root}/scripts/check_prior_sprint_outputs.py \
+  --config {planwise_root}/config.yaml \
+  --current-session {session-folder-path}
+```
+
+The script exits 0 when clean and 1 when it finds a BLOCKING violation, printing one block per finding:
+
+```
+BLOCKING: modified file under a COMPLETE sprint's Outputs/
+  path:          {plans_dir}/{Plan}/{Exec-Abbrev}/Sprint-{XX}-{Name}/Session-{YY}-{Name}/Outputs/{file}
+  owning sprint: {Abbrev} Sprint-{XX} Session-{YY}  (Status: COMPLETE)
+  change:        M   (+{ins} -{del})
+```
+
+**On a clean result** — continue to Step 4.1.
+
+**On a BLOCKING result** — do NOT proceed to Step 4.1. Present the findings to the user and resolve one of two ways:
+
+| Resolution | Action |
+|---|---|
+| The mutation was unintended | Restore the file (`git checkout -- {path}`), fix the producer so it no longer writes to that path, and re-run the guard. Closeout resumes only after a clean run. |
+| The mutation is a genuine correction to a past artifact | Record the override in the Recovery file (format below), then proceed. The override is never silent and never inferred — it requires explicit user acknowledgement. |
+
+Recovery file override entry:
+
+```markdown
+### Prior-Sprint Outputs Override
+
+| Path | Owning sprint | Change | Acknowledged by | Reason |
+|------|---------------|--------|-----------------|--------|
+| {path} | {Abbrev} S{XX}-{YY} | M (+{ins} -{del}) | user | {why this correction is intended} |
+```
+
+> [!verify] Prior-sprint Outputs are unmodified at closeout
+> ```bash
+> python {plugin_root}/scripts/check_prior_sprint_outputs.py --config {planwise_root}/config.yaml
+> # MUST exit 0, OR every reported path MUST have a corresponding
+> # "Prior-Sprint Outputs Override" row in this session's Recovery file.
+> ```
+
+**Untracked new files are not findings.** Adding a new file to a completed sprint's `Outputs/` is not the hazard this guard exists for; only mutation or deletion of an existing tracked artifact is.
+
+**Not a git repo / no Master Plan tracking table** — the guard reports what it could not cover and exits 0. It never fails closed on an absent input, but it never stays silent about reduced coverage either (see the script's coverage line).
+
 ### Step 4.1: Generate Session Summary
 
 Read recovery file and orchestration file. Generate the summary document using [templates/summary-template.md](../templates/summary-template.md).
 
-**Content sources for the 8-section summary:**
+**Content sources, one row per template section (in template order):**
 
 | # | Section | Content Source |
 |---|---------|----------------|
@@ -372,8 +474,9 @@ Read recovery file and orchestration file. Generate the summary document using [
 | 4 | Verification Results | Build/test results from execution |
 | 5 | Success Criteria Status | Orchestration success criteria |
 | 6 | Context Notes | Key Findings in Recovery |
-| 7 | Next Session | Sprint plan dependencies |
-| 8 | Lessons Learned | Lesson files created this session (populated after Step 4.2) |
+| 7 | Consumption Record | Orchestrator window accounting for this session, plus the per-task consumption rows in Recovery. Field semantics are defined once in the template's own Consumption Record section — do not restate them here |
+| 8 | Next Session | Sprint plan dependencies |
+| 9 | Lessons Learned | Lesson files created this session (populated after Step 4.2) |
 
 Write to: `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` in the sprint folder.
 
@@ -411,9 +514,9 @@ Ask the user: "Were any lessons learned during this session?"
 5. If approved:
    - Write file: `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`
    - Add row to master table in the lessons index
-   - Update summary Section 8 with lesson reference
+   - Update the summary's Lessons Learned section with the lesson reference
 
-**If no lessons:** Write "No lessons captured this session." in the summary's Section 8.
+**If no lessons:** Write "No lessons captured this session." in the summary's Lessons Learned section.
 
 ### Step 4.3: Update Plan Status
 
@@ -437,7 +540,7 @@ Ask the user: "Were any lessons learned during this session?"
 ### Step 4.4: Propagate Cross-Task Coordination Flags
 
 > [!binding] Downstream-Propagation Gate
-> Every row in the Recovery file's `Cross-Task Coordination Flags` section MUST be propagated into the downstream consumer's plan file BEFORE the Git Commit step. A flag recorded only in upstream Recovery and never propagated is functionally a dropped constraint. See [references/session-execution-protocol.md §1.3](../references/session-execution-protocol.md#13-cross-task-coordination-flags) for the full lifecycle and destination matrix.
+> Every row in the Recovery file's `Cross-Task Coordination Flags` section MUST be propagated into the downstream consumer's plan file BEFORE the Git Commit step. A flag recorded only in upstream Recovery and never propagated is functionally a dropped constraint. See [references/read-confirm-act-protocol.md §1.3](../references/read-confirm-act-protocol.md#13-cross-task-coordination-flags) for the full lifecycle and destination matrix.
 
 1. Read the Recovery file's `Cross-Task Coordination Flags` section. If the section is empty or absent, skip to Step 4.5.
 2. For each flag row, route per the destination table in §1.3:
@@ -478,6 +581,7 @@ git push
 - Stage specific files -- never use `git add .` or `git add -A`
 - Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), plans index (if updated), **any downstream plan files that received propagated coordination flags in Step 4.4**
 - Commit types: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
+- Step 4.0's prior-sprint Outputs guard MUST have passed (or carry a recorded Recovery override) before staging — a commit is what makes a silent overwrite of a completed sprint's artifact of record permanent
 
 ### Step 4.6: Output Completion
 
@@ -508,7 +612,7 @@ Next: {next session from summary, or "Sprint complete"}
 | Task completed | YES | Mark COMPLETE, add timestamp, add findings |
 | Error encountered | YES | Add to Issues section with severity |
 | Partial progress | YES | Add to Key Findings what was done |
-| **Cross-task coordination flag surfaced** | **YES** | **Add row to `Cross-Task Coordination Flags` section IMMEDIATELY (not at closeout) — see [references/session-execution-protocol.md §1.3](../references/session-execution-protocol.md#13-cross-task-coordination-flags)** |
+| **Cross-task coordination flag surfaced** | **YES** | **Add row to `Cross-Task Coordination Flags` section IMMEDIATELY (not at closeout) — see [references/read-confirm-act-protocol.md §1.3](../references/read-confirm-act-protocol.md#13-cross-task-coordination-flags)** |
 | Session complete | YES | Final status, completion timestamp |
 | Before any break | YES | Ensure current state is saved |
 
@@ -523,154 +627,6 @@ The recovery file follows [templates/recovery.md](../templates/recovery.md). Req
 - Key Findings section
 - Files Modified section
 - Change Log
-
----
-
-## Delegated Execution Protocol
-
-When the orchestration's Execution Strategy section declares DELEGATED mode, you are the orchestrator -- not the executor.
-
-### Background vs Foreground Gate
-
-> [!constraint] Write-Producing Agents MUST Run in Foreground
-> Background subagents auto-deny any permission not explicitly pre-approved at launch — including Write, Edit, and Bash. The `bypassPermissions` mode does NOT override this gate. Tool calls fail silently: the agent continues executing but produces no output files.
->
-> WRONG: Launch task-runner in background when it writes output files:
-> ```
-> Task(
->   subagent_type: "planwise:task-runner",
->   run_in_background: true,
->   prompt: "Execute task 01..."
-> )
-> ```
-> CORRECT: Launch task-runner in foreground (default) — background is only safe for read-only agents:
-> ```
-> Task(
->   subagent_type: "planwise:task-runner",
->   prompt: "Execute task 01..."
-> )
-> ```
-
-| Task Produces | Launch Mode | Rationale |
-|---------------|-------------|-----------|
-| File output (Write, Edit) | **Foreground** | Permissions resolved interactively |
-| Shell commands (Bash) | **Foreground** | Bash permission needs interactive approval |
-| Read-only research (Explore) | Background OK | No write permissions needed |
-
-### Context Boundary Rules
-
-> [!binding] Context Boundaries
-> These boundaries are MANDATORY. Violating them wastes the orchestrator's context budget.
-
-| Actor | Reads | Never Reads |
-|-------|-------|-------------|
-| Orchestrator (you) | Orchestration, Recovery, task files | Consolidated Context parts, Execution Inputs, reference docs, source code |
-| Task-runner agent (sequential dispatch) | Task Required Context files, task file | Other tasks' context, Recovery file (except for its own update) |
-| Task-runner agent (parallel dispatch, 3+ runners) | Task Required Context files, task file | Other tasks' context, **the Recovery file (do NOT read or write — return a status block instead)** |
-
-### Step-by-Step (DELEGATED)
-
-1. Read plan files only: Orchestration + Recovery + all task files
-2. Output CONTEXT LOADED confirmation block
-3. Ask user to proceed (standard READ-CONFIRM-ACT)
-4. Identify the next dependency layer (group of tasks whose `Depends On` are all COMPLETE)
-5. Choose dispatch mode for that layer:
-   - **Sequential** — 1 or 2 tasks in the layer, OR any layer task targets a file another layer task also targets (output-file collision)
-   - **Parallel** — 3+ tasks in the layer with no inter-dependencies and disjoint output files (see [Parallel Dispatch Branch](#parallel-dispatch-branch-delegated))
-6. Dispatch the layer per the chosen mode (see subsections below)
-7. After the layer completes, return to step 4 for the next layer
-8. Cleanup: generate summary, prompt for lessons, git commit (Phase 4)
-
-#### Sequential Branch (DELEGATED)
-
-For each task in the layer (respecting any intra-layer dependencies):
-
-a. Build spawn prompt with all task parameters (see Phase 3, Step 3.2)
-b. Launch `task-runner` agent:
-   ```
-   Task(
-     subagent_type: "planwise:task-runner",
-     description: "Execute task {task-num}: {task-name}",
-     model: "{agent-from-task-file}",
-     prompt: |
-       Execute the following task YOURSELF, directly, with your own tool calls.
-       Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
-       tool calls) — you ARE the task-runner.
-
-       Task file: {task-file-absolute-path}
-       Session ID: {session-id}
-       Abbreviation: {abbrev}
-       Recovery file: {recovery-file-absolute-path}
-       Output directory: {output-dir-absolute-path}
-   )
-   ```
-c. Wait for task-runner to return
-d. **Classify the return before consuming it** — apply the diagnosis table in [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md). A return is a real completion only when it carries a structured report (status + verification results) AND its deliverables verify on disk — gate acceptance on the on-disk check, never on the `completed` status alone (§1.17.4). The three failure signals — and their resume, never a fresh dispatch:
-   - **Fast return + dispatch-voice reply ("I've dispatched… I'll report back") + clean tree** = self-delegation → resume the SAME agent with the execute-yourself directive (§1.17.2).
-   - **Mid-work narration ending in a colon/next-step phrase + dirty tree with partial edits** = message-boundary stall → resume the SAME agent with a continuation message (quote its last line, forbid re-editing completed work, enumerate only the remaining items, restate the report format) (§1.17.3).
-   - **`completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits report fields** = mid-action stall masquerading as completion → run the on-disk acceptance gate (grep the edit target for the symbol that was supposed to change; `git status --short` for the expected file set; confirm the Recovery step row flipped), then resume the SAME agent to finish rather than re-dispatch (§1.17.4).
-   After any resume — and before accepting any `completed` return — verify on disk: `git status` / diff on the edit target, the changed symbol is present, and Recovery advanced.
-e. Read updated recovery file -- check task status
-f. If BLOCKED: decide proceed or halt based on dependencies
-g. If COMPLETE: update TaskList, proceed to next task
-
-#### Parallel Dispatch Branch (DELEGATED)
-
-Trigger: a dependency layer has 3+ tasks with no inter-dependencies and disjoint output files. (For 1-2 tasks, use the Sequential Branch — coordination overhead outweighs the gain.)
-
-a. For each task in the layer, build a spawn prompt that includes the **PARALLEL DISPATCH addendum** below in addition to the standard parameters.
-b. Launch all task-runners in the layer in a single message (multiple Task tool calls in one assistant turn — they run concurrently):
-   ```
-   Task(
-     subagent_type: "planwise:task-runner",
-     description: "Execute task {task-num} (parallel batch): {task-name}",
-     model: "{agent-from-task-file}",
-     prompt: |
-       Execute the following task YOURSELF, directly, with your own tool calls.
-       Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
-       tool calls) — you ARE the task-runner.
-
-       Task file: {task-file-absolute-path}
-       Session ID: {session-id}
-       Abbreviation: {abbrev}
-       Output directory: {output-dir-absolute-path}
-
-       ## PARALLEL DISPATCH — Recovery Handling
-       Do NOT read, edit, or write the Recovery file during this task.
-       Return your completion as the structured status block below in your FINAL message.
-       The orchestrator reconciles Recovery centrally after all parallel runners return.
-
-       ## Status Block (required final-message format)
-       TASK_STATUS:    COMPLETE | BLOCKED | PARTIAL
-       TASK_ID:        {task-id}
-       OUTPUT_FILES:   {comma-separated absolute paths actually written}
-       LINES_PRODUCED: {sum of lines across output files}
-       KEY_FINDINGS:   {2-5 short bullets — preserved across compaction}
-       ISSUES:         {one line per issue, or "none"}
-   )
-   ```
-
-   Note that the spawn prompt for parallel-mode runners OMITS the `Recovery file:` parameter — the runner must not touch it.
-c. Wait for ALL parallel runners to return their status blocks. Classify each return per [`references/agent-orchestration-delegated.md` §1.17](../references/agent-orchestration-delegated.md): a runner whose final message is dispatch-voice with no status block (self-delegation), or mid-work narration on a dirty tree (message-boundary stall), or a status-block/`completed` return whose claimed `OUTPUT_FILES` do not verify on disk or whose final message ends mid-action (mid-action stall masquerading as completion) must be resumed as the SAME agent per that protocol — never redispatched — before reconciling. Gate acceptance of each status block on its `OUTPUT_FILES` actually being present on disk (§1.17.4), not on the reported `COMPLETE` status alone.
-d. Reconcile Recovery centrally per Step 3.3 "After a parallel batch" instructions: parse each status block, verify OUTPUT_FILES on disk, write Recovery ONCE for the whole batch.
-e. If any task returned BLOCKED or PARTIAL: decide proceed or halt based on downstream dependencies. Mark BLOCKED tasks IN_PROGRESS in TaskList (do NOT mark `completed`).
-f. Advance to the next dependency layer.
-
-> [!pitfall] Mixed-Mode Layer
-> **Problem:** A dependency layer with 4 tasks where two write the same output file. Dispatching all 4 in parallel races on the shared output file (separate from the Recovery-file question). Splitting into "3 parallel + 1 sequential" is awkward and error-prone.
-> **Solution:** Apply `references/agent-orchestration-delegated.md` §1.13 to the *output files*: if any two tasks in the layer share an output target, the layer is NOT parallel-eligible — fall back to the Sequential Branch for the whole layer, or split the offending task pair into a separate sub-layer.
-
-### Anti-Patterns
-
-> [!antipattern] Delegated Mode Anti-Patterns
-> - **Orchestrator reads Consolidated Context:** Blows context budget; task-runners duplicate the read
-> - **Skip Recovery between tasks (sequential dispatch):** Context compaction loses progress
-> - **Skip Recovery reconciliation after a parallel batch:** Context compaction loses the entire batch; status blocks were returned but never persisted
-> - **Combine tasks in one task-runner:** Defeats fresh-context purpose
-> - **Launch sequential Task N+1 before Recovery updated:** Compaction loses Task N completion
-> - **Allow parallel task-runners to write Recovery:** Last-write-wins races silently drop completion rows
-> - **Orchestrator produces task outputs:** Context accumulates; no fresh budget benefit
-> - **Infer DELEGATED at runtime:** Planning should have set this; warn user and re-plan if needed
 
 ---
 

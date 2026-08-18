@@ -22,8 +22,6 @@ See [skill-authoring.md](skill-authoring.md) for skill/forked context authoring.
 - [9. Execution Modes](#9-execution-modes)
 - [10. Constraints](#10-constraints)
 - [11. DELEGATED Dispatch Discipline](#11-delegated-dispatch-discipline)
-- [12. Verify-Before-Acting on LSP Diagnostics](#12-verify-before-acting-on-lsp-diagnostics)
-- [13. Large-File Read Tactics](#13-large-file-read-tactics)
 
 ---
 
@@ -442,14 +440,19 @@ These constraints are empirically verified. The enforcement mechanism column exp
 |---|-----------|----------------------|--------|------------|
 | 1 | No sub-subagent spawning | Task tool stripped from ALL non-main contexts at spawn time | Single-level delegation only | Orchestrate all agents from main conversation; chain sequentially |
 | 2 | Teammates lack Task, TeamCreate, TeamDelete | Tool restriction at spawn time | Cannot spawn, cannot create/delete teams | All delegation through team lead (hub-and-spoke mandatory) |
-| 3 | Context NOT inherited by subagents/teammates | Fresh context per spawn | Teammates start with empty context | Self-contained prompts; share via explicit messages or file references |
+| 3 | Context NOT inherited by subagents/teammates | Fresh context per spawn | Teammates start with empty context (see row 11 for shell state) | Self-contained prompts; share via explicit messages or file references |
 | 4 | No AskUserQuestion in spawned contexts | Tool restriction | Cannot interactively prompt user | Pre-gather requirements before spawning |
 | 5 | No EnterPlanMode/ExitPlanMode in spawned contexts | Tool restriction | Cannot enter plan mode | Plan in main session before delegating |
 | 6 | Path-specific rules are main-session-only | Path rule loading requires OWN file activity | Spawned contexts see only global rules | Include rule content explicitly in task prompt |
 | 7 | MCP unavailable in background subagents | Background execution mode restriction | Cannot use external systems | Run in foreground if MCP tools are required |
-| 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
 | 8 | Skill discovery ≠ system-prompt injection | File system access (Glob on `.claude/skills/`) | Mid-session agents not discoverable as subagent_type | Use `skills:` frontmatter to inject domain knowledge; all contexts discover existing skills via FS |
 | 9 | Teammate identity is Agent SDK, not CC CLI | System prompt differentiation at spawn time | Teammates self-identify differently; less "Claude Code aware" | Design teammates as workers; orchestrate from main session |
+| 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
+| 11 | Spawned contexts inherit no shell state — the interpreter on `PATH` is the platform default, never the project's | Spawned shells start fresh: no inherited working directory, `PATH`, or activated environment. Extends row 3 (context non-inheritance) from conversational to shell state | Project-package imports fail and project-only dependencies appear absent. The agent typically reports the check as **environmentally impossible rather than failed** — a false PASS on everything it did reach | Name the project's interpreter path explicitly in every spawn prompt that runs project code. Have the first dispatch echo its resolved interpreter and HALT if it is not the project's. Emit the path form matching the project's OS |
+| 12 | Writes under agent startup-config paths are gated as Self-Modification, and the decision is non-deterministic | A permission classifier protects agent/rule/skill/settings config paths independently of any workflow authorization; decisions vary **within a single batch**, and some denials are hard blocks that user authorization cannot clear | A multi-edit batch half-applies, leaving a config file internally inconsistent with no record of which edits landed. Naming the file as the deliverable across every plan tier does not pre-clear the gate | Keep config-file edit batches to the smallest coherent set — denials are per-call, so a large batch half-applies. Record applied-vs-denied state immediately. STOP and ask on denial; never retry verbatim in the same mode |
+
+> [!hazard] Self-modification permission gates block live-config edits
+> A harness may refuse an agent-initiated edit to a file that is itself part of the loaded agent configuration — rules, agent definitions, skill manifests. This is a platform constraint, not a bug, and is not always visible until the write is attempted. Operational consequence: any task whose deliverable is a change to the agent-config surface must be planned to run with the appropriate authorization, or to stage its output outside the config surface for a human to apply. Every rule-promotion task has this shape, so the gate fires routinely rather than exceptionally.
 
 > **Constraint 6 — path rules detail:** Spawned contexts begin with zero file activity. Path rules check the context's OWN active files. If a spawned context later works on files matching a path rule's pattern, those rules CAN trigger dynamically for that context. What they do NOT do is inherit the parent session's already-active path triggers.
 
@@ -465,158 +468,10 @@ These constraints are empirically verified. The enforcement mechanism column exp
 
 ## 11. DELEGATED Dispatch Discipline
 
-When the Execution Strategy is DELEGATED (orchestrator spawns task-runner subagents), the following subsections govern dispatch behavior. These rules apply whenever any DELEGATED trigger is present (see `references/session-plan-requirements.md` Execution Strategy section for mandatory triggers).
+When the Execution Strategy is DELEGATED (orchestrator spawns task-runner subagents), dispatch behavior — mandatory triggers, task-file error recovery, orchestration context boundary, and the full dispatch protocol set — is governed by [`references/agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.1–§1.28. The four mandatory DELEGATED triggers are canonical at [`references/session-plan-requirements.md`](session-plan-requirements.md) § Execution Strategy (Set by Planner); do not restate the trigger list here or in the extract — cite that section.
 
-### 11.1 Mandatory Triggers
-
-DELEGATED mode is REQUIRED when ANY of the following triggers are present in a session:
-- Session has 2 or more Opus tasks
-- Session is part of a META Discovery phase
-- Any single task estimates >50K token context load
-- Sequential tasks where one task's output is the next task's input (output-chaining)
-
-**The Master Plan's Execution Strategy section MUST name the trigger that fired for every DELEGATED session, and `/planwise review` MUST surface as a BLOCKING finding any DELEGATED declaration without a named trigger.**
-
-Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not an execution-time inference.
-
-> [!constraint] DELEGATED Declaration — Planning Time Only
-> WRONG — orchestrator infers DELEGATED at runtime after reading context:
-> ```
-> # Orchestration file: Execution Strategy: DIRECT
-> # (then orchestrator discovers tasks are too large and pivots at runtime)
-> ```
-> CORRECT — planner declares DELEGATED trigger in Orchestration before execution:
-> ```
-> ## Execution Strategy
-> Mode: DELEGATED
-> Trigger: Task 03 estimates >50K context load (output-chaining to Task 04)
-> ```
-
-> [!constraint] Name the Trigger — Not "For Consistency"
-> "Consistency" across a multi-session plan is not a trigger; every DELEGATED session must name one of the four mandatory triggers above.
-> WRONG: plan declares DELEGATED for all 8 sessions "for consistency"; only Sprint 01 meets a trigger (95K Opus task + output-chaining); Sprints 02-08 each have a single 23-41K task within the 100K DIRECT budget — ~378K of subagent-spawn overhead consumed for no gain.
-> CORRECT: Sprint 01 declares DELEGATED (#1 + #4); Sprints 02-08 declare DIRECT.
-
-### 11.2 Task-File Error Recovery
-
-When a DELEGATED subagent fails or produces incomplete output, the orchestrator applies this recovery shape:
-
-1. Read the subagent's partial output (from its output file or Recovery file)
-2. Assess whether partial output is usable as-is or requires retry
-3. If retry needed: spawn a new subagent with explicit "resume from step N" instructions
-4. Cap retries at 3 attempts per task; after 3 failures mark task BLOCKED in Recovery
-
-> [!constraint] Retry Cap — DELEGATED Task Failure
-> WRONG — orchestrator retries indefinitely, consuming budget:
-> ```
-> (Task fails) → retry → (fails again) → retry → (fails again) → retry...
-> ```
-> CORRECT — retry cap of 3; after 3 mark BLOCKED and report:
-> ```
-> Attempt 1: FAILED (output file missing)
-> Attempt 2: FAILED (partial output, <50% coverage)
-> Attempt 3: FAILED (subagent stopped mid-execution)
-> → Mark task BLOCKED in Recovery; report to orchestrator
-> ```
-
-### 11.3 Orchestration Context Boundary
-
-When Execution Strategy is DELEGATED:
-- Orchestration's Required Context MUST list ONLY plan files (Orchestration.md, Recovery.md, task files)
-- Heavy context files (reference docs, codebase modules, large output files) MUST appear ONLY in individual task file Required Context sections
-- The orchestrator reads plan files only; subagents read their full task-specific context with fresh ~100K budget
-
-> [!constraint] DELEGATED Context Boundary
-> WRONG — Orchestration Required Context loads heavy files (orchestrator context fills before dispatching):
-> ```
-> ## Required Context
-> | 1 | references/agent-orchestration.md | ~440 | ~6K | Rule reference |
-> | 2 | src/models/schema.sql | ~1200 | ~15K | Schema for tasks |
-> | 3 | Outputs/research-part-1.md | ~480 | ~6K | Research for tasks |
-> ```
-> CORRECT — Orchestration Required Context contains only plan files; heavy context in task files:
-> ```
-> ## Required Context
-> | 1 | {Abbrev}-S{XX}-{YY}-Orchestration.md | ~80 | ~1K | Task list |
-> | 2 | {Abbrev}-S{XX}-{YY}-Recovery.md | ~40 | ~0.5K | Progress state |
->
-> (Task 03 Required Context loads schema.sql + research-part-1.md in its own section)
-> ```
-
-### 11.4–11.15 DELEGATED Dispatch Protocols (extracted)
-
-> **§11.4–§11.15 DELEGATED Dispatch Protocols** have been extracted to [`references/agent-orchestration-delegated.md`](agent-orchestration-delegated.md) (renumbered there as §1.4–§1.15, mapping mechanically from §11.N → §1.N). Read that file when orchestrating a DELEGATED session. The extracted subsections cover: §1.4 inter-dispatch diagnostics verification (+ orchestrator `wc -l` check); §1.5 live-HTTP-probing tool-use budget; §1.6 path-scoped rule injection in spawn prompts; §1.7 idle-mid-step wake-up via SendMessage; §1.8 HARD CONSTRAINTS spawn-prompt skeleton + SCOPE BOUNDARY clause; §1.9 tier-ranking fixes by invasiveness; §1.10 forward-looking-verb detection + resume protocol; §1.11 operational-ceiling disclaimers; §1.12 N>25 edit-task resume protocol; §1.13 shared-edit-target strategy matrix (incl. parallel-dispatch Recovery reconciliation); §1.14 orchestrator-only review commands; §1.15 delegated code task-runners build LAST. Downstream cross-references in `handlers/review.md` (Error Pattern Catalog), `agents/plan-reviewer.md`, and `handlers/run.md` cite the extract's §1.N anchors.
+Verify-Before-Acting on LSP Diagnostics has similarly moved to `agent-orchestration-delegated.md` §1.18. Large-File Read Tactics (the paged-read ladder for files exceeding a Read-tool gate) has moved to [`references/session-context-budget.md` § Large-File Read Tactics](session-context-budget.md#large-file-read-tactics), the read-gate canonical.
 
 ---
 
-## 12. Verify-Before-Acting on LSP Diagnostics
-
-> [!practice] LSP Diagnostic Verification
-> LSP diagnostics ({type-checker}/`{linter}`/rust-analyzer/gopls) may go stale when the underlying source file is edited mid-session. Before acting on a diagnostic (e.g., adding an import, fixing a type), verify the diagnostic is still live.
-
-### Stale vs Live Diagnostic Decision Matrix
-
-| Signal | Likely Stale | Likely Live |
-|--------|--------------|-------------|
-| Diagnostic line number > file's actual line count | Yes | — |
-| Diagnostic mentions identifier not present in file | Yes | — |
-| Diagnostic timestamp predates last edit | Yes | — |
-| Diagnostic re-fired after LSP refresh | — | Yes |
-| Same diagnostic appears across multiple unrelated files | Yes (index drift) | — |
-| Diagnostic references a type that was recently renamed | Yes | — |
-
-**When a diagnostic is likely stale:**
-1. Trigger an LSP refresh (close and reopen the file, or run `{lint-cmd}` from CLI)
-2. If diagnostic is gone after refresh → it was stale; do NOT act on it
-3. If diagnostic persists after refresh → it is live; act on it
-
-**When to act without refreshing:**
-- Diagnostic is confirmed live (matches current file content at the reported line)
-- Diagnostic was emitted by a CLI tool run this session (not cached from prior session)
-
----
-
-## 13. Large-File Read Tactics
-
-> [!practice] Ladder for Files Exceeding a Read-Tool Gate
-> The Read tool has **two** mechanical gates (NOT a single ~13K/~1000-line budget):
-> - **Token page-cap gate (model-dependent):** above **~25,000 tokens** a single Read returns only the first page (truncates). Tokens use the runner model's tokenizer — `~13 tok/line` Sonnet/Haiku, `~19 tok/line` Opus, so Opus trips at **~1,340 lines** vs Sonnet/Haiku's **~1,920**.
-> - **Byte gate (model-independent):** a file ≥ **262,144 bytes (256 KiB)** is refused outright unless `offset`/`limit` is passed.
->
-> When a file crosses either gate, apply this ladder in order — stop at the first step that succeeds. These gates and their constants are documented in [`references/session-context-budget.md` § Read-Tool Hard Limits](session-context-budget.md#read-tool-hard-limits); they are FIXED harness facts (defined in `scripts/token_saver.py`), not `/context`-measured budgets, and a `read`-reason Critical is NOT resolvable by routing to a 1M-window model.
-
-**Step 1 — Paged Read (`offset`/`limit`):** Read the file in pages that each stay under the gate, then stitch them. After each page, **check the returned content for the `PARTIAL view` truncation header** — its presence means the Read was truncated and more pages remain; do NOT assume one Read returned the whole file.
-
-```bash
-# Example: page a 2,400-line file in ~900-line windows (safe for both models)
-Read(path: "{src/module/file.ext}", offset: 1, limit: 900)     # check for "PARTIAL view" header
-Read(path: "{src/module/file.ext}", offset: 901, limit: 900)   # continue until the file is fully covered
-```
-
-**Step 2 — Output-clear pre-step:** Clear conversation output buffer before reading. Freed budget enables a larger Read call. Effective when the conversation history is large but the file itself is borderline.
-
-**Step 3 — Substitution:** Read a smaller substitute:
-- Adjacent `*.md` documentation next to the `{src/module/file.ext}` source file
-- A smaller version-compatible equivalent (e.g., a config file that describes the large source file's structure)
-
-**Step 4 — Grep-based scanning:** Use Grep with `output_mode: "content"` and context lines to extract the needed sections without a full Read. Effective when you know which section or function you need.
-
-```bash
-# Example: extract a specific function from a large file
-Grep(pattern: "def {symbol}", path: "{src/module/file.ext}", output_mode: "content", context: 30)
-```
-
-**Step 5 — Script-based extraction:** For structured files (JSON/YAML), use a Bash command via `jq`/`yq` to project only relevant fields:
-
-```bash
-# Example: extract a specific key from a large YAML config
-Bash("yq '.{config-field}' {src/module/file.ext}")
-```
-
-### Module Split Threshold (cross-reference)
-
-For adapter/client modules whose row dataclass exceeds 75-80 fields, see the Module Split Threshold subsection in `references/session-plan-requirements.md`. Large-file read tactics are orthogonal to the module split decision — apply both when applicable.
-
----
-
-*Cross-reference: [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*
+*Cross-reference: [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md), [agent-orchestration-delegated.md](agent-orchestration-delegated.md) (§1.1–§1.28 DELEGATED dispatch discipline), [session-context-budget.md](session-context-budget.md) (read-gate canonical + Large-File Read Tactics)*

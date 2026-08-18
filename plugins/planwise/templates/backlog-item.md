@@ -82,6 +82,20 @@ blocks: []
 *Created: {YYYY-MM-DD}*
 ```
 
+### Evidence Lines
+
+Any claim in the body — in `## Problem`, `## Proposed Solution`, or elsewhere — that asserts a condition about the current repository carries an evidence line:
+
+```
+**Evidence:** {claim} — verified {YYYY-MM-DD} by `{command_or_query}`
+```
+
+The date makes staleness visible at triage; the command makes re-verification a copy-paste rather than a re-derivation. A date with no command is the shape that gets trusted instead of re-run.
+
+### Gating Mechanism (Triage Pivots)
+
+Pivot/triage blocking uses the backlog **index's** existing `## Dependencies` table (columns `| ID | Blocks |`) — not a new frontmatter field on this template, and not a `## Dependencies` section on the item itself. An umbrella item represents the pivot; the index row records which items it blocks, and the parser's blocked-map builder reads that index table, never an item file. See `references/backlog-triage-pivot-detection.md` §2.1.
+
 ---
 
 ## Notes
@@ -91,5 +105,5 @@ blocks: []
 - Both coexist — YAML drives automation, body drives readability
 - `blocks` in YAML lists numeric IDs: `blocks: [004, 007]`
 - For bug items, include "Bug" or "Fix" in the title (activates scoring bonus)
-- Optional sections: `## Dependencies`, `## Implementation Notes`, `## Constraints`
+- Optional sections: `## Dependencies` (free-form prose only — this section does not drive blocked-ness; the machine-parsed blocking relationship lives in the backlog index's `## Dependencies` table, see Gating Mechanism above), `## Implementation Notes`, `## Constraints`
 - Footer `*Created: {date}*` should match the YAML `created` field

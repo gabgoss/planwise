@@ -1,11 +1,11 @@
 ---
-description: Nine binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, and run-time-sound verification commands and context pointers
+description: Eleven binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, run-time-sound verification commands and context pointers, retirement-deliverables deletion-set derivation, and config-editing permission-round-trip scaffolding
 ---
 # Scaffolding Hygiene
 
-**Purpose:** Enforce seven mechanical hygiene rules — and apply three advisory scaffolding practices (§8–§10) — when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
+**Purpose:** Enforce eleven mechanical hygiene rules — and apply three advisory scaffolding practices (§8–§10) — when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
 
-This file is the §14 expansion of [session-planning-protocol.md](session-planning-protocol.md). Read it before generating any `Sprint-{XX}-{Name}/` folders.
+This file is the §14 expansion referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols). Read it before generating any `Sprint-{XX}-{Name}/` folders.
 
 ## Table of Contents
 
@@ -21,6 +21,8 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 - [10. Pre-Allocate Tokens for Known High-Divergence Cohorts](#10-pre-allocate-tokens-for-known-high-divergence-cohorts)
 - [11. Mega-Scaffold Review-Gate — Non-Skippable for 2+ Sprints In One Pass](#11-mega-scaffold-review-gate--non-skippable-for-2-sprints-in-one-pass)
 - [12. Verification Commands and Context Pointers Must Be Run-Time Sound](#12-verification-commands-and-context-pointers-must-be-run-time-sound)
+- [13. Retirement Deliverables Must Derive the Deletion Set](#13-retirement-deliverables-must-derive-the-deletion-set)
+- [14. Scaffold a Config-Editing Plan for a Permission Round-Trip](#14-scaffold-a-config-editing-plan-for-a-permission-round-trip)
 
 ---
 
@@ -42,6 +44,12 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 > workflow. Produce per-sprint Execution Inputs that filter and reorganise raw
 > research into focused per-sprint content. Subagents read the EI for the
 > sprint they are executing, not the raw Meta-Plan outputs.
+
+#### Reviewer Check 046 — Meta-Plan Source Detection
+
+- **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
+- **Detection:** Glob `**/Consolidated-Context-Part-*.md` under `Meta-{Abbrev}/Outputs/`. Absent for Meta-Plan → BLOCKER.
+- **Finding template:** `[BLOCKER] Meta-Plan Consolidated Context parts missing | File: {Meta folder} | Fix: Generate per references/scaffolding-hygiene.md §1`
 
 ---
 
@@ -67,6 +75,12 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 > CORRECT — `Plans/{PlanName}/Exec-{Abbrev}/` with abbreviation `{Abbrev}`. The
 > folder name and abbreviation make the Discovery → Execution lineage visible
 > at a glance.
+
+#### Reviewer Check 047 — Execution-Folder Naming Discipline
+
+- **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
+- **Detection:** Glob `Plans/{PlanName}/Exec-{Abbrev}/`. Folder name not matching `Exec-{Abbrev}` → BLOCKER.
+- **Finding template:** `[BLOCKER] Execution folder naming non-conformant | Fix: Rename to Exec-{Abbrev}/ per references/scaffolding-hygiene.md §2`
 
 ---
 
@@ -97,6 +111,12 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 > The general principle: when a user-provided value violates a constraint, ask
 > rather than silently adjusting. Silent decisions that change user-visible
 > naming always cause confusion.
+
+#### Reviewer Check 048 — Abbreviation Validation
+
+- **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
+- **Detection:** Extract `{Abbrev}` from Master Plan filename; validate 2-4 chars uppercase; check uniqueness across `Plans/` siblings. Invalid/non-unique → BLOCKER.
+- **Finding template:** `[BLOCKER] Abbreviation invalid or non-unique | Fix: Choose 2-4 char unique abbrev per references/scaffolding-hygiene.md §3`
 
 ---
 
@@ -244,6 +264,12 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 > harmonizes section headers, restores the optional formatting lines, and
 > creates the Scaffold folder if appropriate.
 
+#### Reviewer Check 049 — Parallel-Scaffold Deviation Classes
+
+- **Severity / Role:** ERROR/WARNING/BLOCKER (by class) | Scaffolding Hygiene Reviewer | NEW
+- **Detection:** Compare scaffolded sprint outputs against template; classify deviations: A (section-header drift = WARNING), B (optional-formatting omission = ERROR), C (Scaffold-folder absence = BLOCKER).
+- **Finding template:** `[{SEVERITY}] Parallel-scaffold deviation class {A|B|C} | Fix per references/scaffolding-hygiene.md §8`
+
 ---
 
 ## 9. Multi-Shape Integration Plan-Sizing Expansion Ratio
@@ -306,10 +332,10 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 > | None / matching shapes | Standard positional binding — ~200 tokens | Standard estimate |
 > | Minor (≤5 renames, no dispatch) | Aliased positional binding — ~500 tokens | +500 over standard |
 > | Major (>5 renames OR dispatched fields) | Explicit named-param binding — ~2000 tokens | +2000 over standard |
-> | **High-divergence cohort (structural)** | **Explicit named-param binding + Field Mapping subsection (`task-content-fidelity.md` §9.B.8)** — **~3000–4000 tokens** | **+3000–4000 over standard** |
+> | **High-divergence cohort (structural)** | **Explicit named-param binding + Field Mapping subsection (`verify-before-cite.md` §9.B.8)** — **~3000–4000 tokens** | **+3000–4000 over standard** |
 >
 > Mechanical signal: when a cohort's task briefs all share a paste-templated
-> Field Mapping subsection (per `task-content-fidelity.md` §9.B.8), the cohort
+> Field Mapping subsection (per `verify-before-cite.md` §9.B.8), the cohort
 > is divergence-aware by construction; the token-uplift is the budget mechanism
 > that makes the Field Mapping actionable.
 >
@@ -317,6 +343,12 @@ This file is the §14 expansion of [session-planning-protocol.md](session-planni
 > to exhibit MAX divergence, for instance — belong in project-local rule files,
 > not in this plugin reference. This reference defines the *principle* and the
 > *signal*; a project's own rules name the *cohorts*.
+
+#### Reviewer Check 050 — Cohort Token-Uplift Practice
+
+- **Severity / Role:** WARNING | Scaffolding Hygiene Reviewer | NEW
+- **Detection:** Open Master Plan Sprint Overview Notes column; for high-divergence cohorts, verify cohort token-uplift entry present. Absent → WARNING.
+- **Finding template:** `[WARNING] High-divergence cohort missing token-uplift entry | Fix per references/scaffolding-hygiene.md §10`
 
 ---
 
@@ -369,14 +401,14 @@ Applies to:
 
 - Any `/planwise plan` invocation that produces 2+ Sprint Plan files in a single pass.
 - Any hand-authored multi-sprint scaffolding session where the same pattern applies (2+ sprints authored in one work-session before any review runs).
-- Reinforces the existing EI bidirectional-consistency rule (`ei-fidelity.md` §9) and the new body⇄citation source-promise rule (`ei-fidelity.md` §10) — both rules exist; this gate ensures the most likely failure pattern (inline mega-scaffold skips both per-sprint self-review and the post-scaffold review) is closed.
+- Reinforces the existing EI bidirectional-consistency rule (`ei-completeness.md` §9) and the new body⇄citation source-promise rule (`ei-source-promise-integrity.md` §10) — both rules exist; this gate ensures the most likely failure pattern (inline mega-scaffold skips both per-sprint self-review and the post-scaffold review) is closed.
 
 Red flags during reviewer audit:
 
 - Master Plan Status is `READY_TO_EXECUTE` AND `n_sprints_scaffolded_this_pass ≥ 2` AND no `/planwise review` report is referenced — gate skipped.
 - The Step-10 confirmation block in the planner's transcript shows a "Skip to /planwise run" choice was offered for a multi-sprint scaffold — gate not enforced by the handler.
 
-See also: `handlers/plan.md` Step 10 (the gate's mechanical enforcement point), `ei-fidelity.md` §9 (EI bidirectional consistency — the rule the inline mega-scaffold most often violates), `ei-fidelity.md` §10 (Source-Promise Integrity — the rule the scaffolder's body⇄citation promises depend on).
+See also: `handlers/plan.md` Step 10 (the gate's mechanical enforcement point), `ei-completeness.md` §9 (EI bidirectional consistency — the rule the inline mega-scaffold most often violates), `ei-source-promise-integrity.md` §10 (Source-Promise Integrity — the rule the scaffolder's body⇄citation promises depend on).
 
 ---
 
@@ -444,6 +476,98 @@ Applies to:
 - Scaffolding authoring Verification Commands into task files, wherever the target lives in a nested or cloned sub-repo.
 - Plan review: reviewers spot-check both surfaces — one symbol-vs-line pointer and one `git -C` depth per scaffolded sprint — against the live tree.
 
+## 13. Retirement Deliverables Must Derive the Deletion Set
+
+A Deliverables list that removes a persistent artifact is produced by a sweep, not written from memory: run the sweep first, paste its output into the plan, and let that output be the list. Two sweep passes are needed because they catch different misses, and the hits must then be classified by ROLE — not file type — because exactly one role can silently undo the retirement.
+
+### 13.1 Derive the Deletion Set Before Authoring Deliverables
+
+> [!constraint] Run the sweep first, paste its output into the plan, and let that output be the list
+> A Deliverables list that **removes** a persistent artifact is produced by a sweep, not written from memory.
+
+```bash
+# Run BEFORE writing the Deliverables section. Two passes, because they miss different things.
+grep -rln --exclude-dir={vcs,cache dirs} "{qualified_artifact_name}" {source_roots} {docs}
+find {source_roots} -name "*{artifact_name}*"   # catches members that never mention the name in prose
+```
+
+WRONG — the Deliverables section names the files the author remembers touching:
+
+```markdown
+6. **Deletions:** `{path}/refresh_helper.{ext}`, `{path}/driving_notebook.{ext}`
+```
+
+Both entries correct; the creator artifact absent; nothing in the plan detects the absence, because every gate the plan wrote checks the work that *was* scheduled.
+
+CORRECT — the Deliverables section cites the command and pastes what it returned:
+
+```markdown
+6. **Deletions** — derived by `grep -rln "{qualified_name}" {roots}` + `find {roots} -name "*{name}*"`
+   (run {date}; full output in `Outputs/{...}-DeletionSweep.md`):
+   - `{path}/schema_definition.{ext}`   ← CREATOR (see §13.2 — omission undoes the retirement)
+   - `{path}/refresh_helper.{ext}`      ← REFRESHER
+   - `{path}/driving_notebook.{ext}`    ← DRIVER
+   - 5 citer-only references listed in §13.3 (edit, do not delete)
+```
+
+### 13.2 Classify Sweep Hits by ROLE, Not by File Type
+
+The sweep returns paths. What matters is what each path *does* to the artifact, because exactly one role can undo the retirement:
+
+| Role | What it does | Typical members | Cost of omitting it |
+|---|---|---|---|
+| **Creator** | Re-creates the artifact from nothing | schema DDL, migration, generator script, seed/fixture loader, packaging or re-export declaration | **UNDOES the retirement** — the next routine run resurrects the artifact as an orphan nothing refreshes and nothing drives |
+| Refresher | Populates or updates it | helper module, transform, ETL step | Inert dead code — fails or no-ops |
+| Driver | Invokes the refresher | notebook, CLI entry point, scheduled job | Inert dead code |
+| Citer | Names it in prose | docstrings, comments, docs, index rows, cross-references | Misleads the next reader toward a file that is gone (§13.3) |
+
+The Deliverables list MUST either contain a Creator-role member, or state explicitly which creator is being **kept** and why (a shared file that also defines artifacts staying alive is a legitimate keep — but it must be named as a decision, not omitted as an oversight).
+
+> A deletion list holding a Refresher and a Driver but no Creator is the failure signature. It reads complete — the two things a human remembers touching — and it schedules the artifact's return.
+
+### 13.3 Citers Are Edited, Not Deleted
+
+The same grep that derives the deletion set also finds every Citer. Citers are **edited, not deleted** — a docstring naming a deleted module as a precedent needs the precedent restated or the sentence dropped, not the docstring removed. Enumerate citers in the Deliverables list as a separate group with an explicit count, so the executor can verify the count rather than judge completeness by eye.
+
 ---
 
-*Nine binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from [session-planning-protocol.md](session-planning-protocol.md) §14.*
+## 14. Scaffold a Config-Editing Plan for a Permission Round-Trip
+
+When a plan's deliverable includes editing `.claude/rules/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/commands/**`, or `.claude/settings*.json`, the harness permission classifier gates those writes **independently of planwise authorization**. A task brief, Sprint Plan, and Master Plan that all name the file as the deliverable do **not** pre-clear it, and the classifier's decisions within a single batch are **not deterministic**.
+
+This is a scaffolding obligation, not an execution surprise. Such a plan is predictably going to pause; scaffold it so pausing is cheap rather than destructive.
+
+| # | Obligation | Why |
+|---|---|---|
+| 1 | **Declare the round-trip in the Orchestration.** Treat it the way a DB-touching task treats a connectivity precheck — a known, planned interruption. | A pause the plan predicted is an interrupt; a pause it did not is a BLOCKED cycle. |
+| 2 | **Keep each edit batch to the smallest coherent set.** Do not dispatch many edits to one config file expecting all-or-nothing. | Denials are per-call, so a large batch half-applies and leaves the file internally inconsistent. |
+| 3 | **Record applied-vs-denied state in Recovery immediately on any denial.** | The file can then be completed or reverted deterministically instead of re-derived from a half-remembered batch. |
+| 4 | **On denial, STOP and ask — never retry verbatim.** Surface the precise file and the exact remaining edit list. | A verbatim retry in the same mode re-denies, burning a round-trip and adding nothing. |
+| 5 | **Scope the brief to the minimum required sections.** | Out-of-brief "consistency nicety" edits inflate the edit count against the classifier, and can be the one edit that hits an unclearable block — losing nothing essential while adding interrupts. |
+
+Some denials cannot be cleared by user authorization at all. The plan must be able to record such an edit as a known, non-blocking residual and continue, rather than treating the session as failed.
+
+> [!constraint] Do Not Scaffold a Rule-Editing Task as an Ordinary File Edit
+> WRONG:
+> ```
+> Task 03: edit {rule-file-A} + {rule-file-B}   (no round-trip declared)
+> → 16 Edit calls dispatched; the classifier denies 3 of them
+> → both files half-flipped and internally inconsistent; session blocked;
+>   no recorded partial state, so the next attempt cannot tell applied from pending
+> ```
+> CORRECT:
+> ```
+> Orchestration declares the expected permission prompt for Task 03
+> → dispatch brief-scoped edits only, smallest coherent batch
+> → on first denial: write the applied-vs-denied list to Recovery, STOP, ask the user
+> → after the grant: apply the remainder; record any unclearable residual as a
+>   known, non-blocking follow-up
+> ```
+
+Note that this applies **in every operating configuration** — the classifier is the gate regardless of mode, so Auto Mode does not bypass it.
+
+Planwise-level self-modification authorization does not pre-clear this harness-level gate: [session-execution-protocol.md](session-execution-protocol.md#claude-self-modification-authorization) §3 (Claude Self-Modification Authorization) authorizes Claude to add Bash permissions to `.claude/settings.json` at the planwise/workflow level, but that authorization is independent of the permission classifier described above (`agent-orchestration.md` constraints table row 12, self-modification writes) — satisfying one does not satisfy the other, and a reader who knows only §3 needs this pointer.
+
+---
+
+*Eleven binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*

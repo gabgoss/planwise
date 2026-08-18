@@ -50,6 +50,8 @@ Where `{inferred_project_name}` = current git repo name or `cwd` basename (strip
 
 All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Backlog`). All script invocations should pass `--config {planwise_root}/config.yaml`.
 
+The optional top-level `id_format` key (`prefixed` or `bare`) controls how a newly created item's ID is rendered in the index's canonical stored form; when the key is absent, the index's predominant form is inferred. Any other value is treated as `bare` — a typo in this key silently yields the legacy form.
+
 ---
 
 ## Required References
@@ -59,11 +61,14 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
 **Conditional references:**
+- Loaded at Phase 3, step 3a (pivot check), for High-priority / top-scored / aged items or multi-item cohorts: Read `references/backlog-triage-pivot-detection.md`
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
 - If a task creates or modifies skills: Read `references/skill-authoring.md`
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
 - If resolving a backlog item that touches task files: Read `references/task-content-fidelity.md`
 - If resolving a BLI cluster (≥ 2 BLIs same Surfaced by + created): Read `references/verify-against-shipped-artifact.md`
+- For the backlog index format, item file schema, scoring formula, script interfaces, status flow, or error handling: Read `references/backlog-schema.md`
+- For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 
 ---
 
@@ -78,6 +83,7 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 
 - `score_backlog.py` computes priority scores (8 configurable factors, weights from `config.yaml`) and writes the Score column to the index
   - Items that block other open items get a blocker bonus per blocked item
+  - If it prints a stderr `WARNING: computed … score(s) but wrote …` (a computed-vs-written shortfall), the warning MUST be surfaced to the user verbatim rather than swallowed — it means rows below a malformed row kept stale Score cells; recommend inspecting the index body before trusting the displayed ranking
 - `parse_backlog.py` reads the backlog index at `{backlog_dir}/{backlog_index}`
 - Outputs a formatted table of **selectable** items (excludes COMPLETE, CLOSED, and items blocked by open dependencies)
 - Blocked items appear in a separate summary below the main table
@@ -94,34 +100,13 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 
 **Detect archival drift (always-on unless `--no-check`):**
 
-The backlog index is a denormalized cache: a COMPLETE/CLOSED item's file is moved to `Archive/` and its index link repointed as a **state-coupled** step in `update_backlog.py`. But an item that reaches a closed status by another path — a session closeout that hand-edits the index row + frontmatter — leaves the file stranded in the top-level backlog dir with an index link that never repointed, and nothing on the read side heals it. This detect pass is that read-side counterpart (the backlog analogue of `/planwise list` Step 2's plans-index drift check), reused unchanged in `/planwise doctor` Stage 12. It stays **non-mutating by default** — nothing is written without explicit consent.
+The backlog index is a denormalized cache: a COMPLETE/CLOSED item's file is moved to `Archive/` and its index link repointed as a **state-coupled** step in `update_backlog.py`. But an item that reaches a closed status by another path — a session closeout that hand-edits the index row + frontmatter — leaves the file stranded in the top-level backlog dir with an index link that never repointed, and nothing on the read side heals it.
 
 **If `--no-check` is present:** skip this step (a fast triage) and go straight to displaying the table.
 
-Otherwise run:
+Otherwise, run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) against the **backlog** index (`reconcile_backlog.py`, banner `planwise backlog — backlog index drift audit`) — the JSON shape, banner format, and write-on-consent reconcile flow (including the consent prompt) all live there. This is the read-side counterpart of `/planwise list` Step 2's plans-index drift check, and the same detect pass `/planwise doctor` Stage 12 reuses; none re-implements another's comparison.
 
-```bash
-python {plugin_root}/scripts/reconcile_backlog.py --config {planwise_root}/config.yaml --json
-```
-
-Read the JSON file at the path it prints (`JSON: {path}`), shaped `{"drifts": [...], "anomalies": [...]}`. `drifts` are closed rows whose file is not archived (or whose index link is not repointed); `anomalies` are closed rows whose linked file exists in neither the top-level dir nor `Archive/` (deleted/renamed — reported, never fabricated). If either is non-empty, print a banner **before** the backlog table:
-
-```
-⚠ Backlog archival drift ({K} closed row(s) whose file is not archived):
-  • {ID} ({STATUS}): {file} — {reason}
-Anomalies:
-  • {ID} ({STATUS}): {file} — linked file not found in backlog dir or Archive/
-```
-
-If both are empty, print nothing.
-
-**Write on consent (READ-CONFIRM-ACT):** after the banner, use `AskUserQuestion` to offer reconciliation: "Archive {K} stranded closed row(s) — move the file(s) into `Archive/` and repoint the index link(s)?" On agreement:
-
-```bash
-python {plugin_root}/scripts/reconcile_backlog.py --config {planwise_root}/config.yaml --write
-```
-
-The script re-reads the index immediately before writing (race-safe against a concurrent closeout), heals only rows still drifted, and never touches an anomaly row. Report `Reconciled {N} row(s).` If the user declines, leave the backlog untouched — the banner already recorded what was found. If a write ran, re-run the Phase 1 parse so the reconciled links are reflected in this same invocation.
+If a write ran, re-run this Phase's parse so the reconciled links are reflected in this same invocation.
 
 Display the table to the user.
 
@@ -155,20 +140,24 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
 1. Get the item's file paths from the JSON data (the `files` array)
 2. Read each backlog item file (files have YAML frontmatter with `created`, `blocks`, and `status` fields)
-3. **Citation-Freshness Preflight (run before scoping or routing):** A backlog item's body is a snapshot — every reference it pins (a sequential identifier, a `file:line` anchor, an acceptance criterion, a "test/section X does Y" note) is a hypothesis about a live artifact that rots between authoring and execution. Re-prove each against the current artifact before scoping. See `references/verify-against-shipped-artifact.md` §9.
+3. **Pre-Routing Existence Gates** (run before the Citation-Freshness Preflight — two sequential checks with separate applicability conditions, never merged):
+   - **3a. Pivot check** (High-priority / top-scored / aged items, or multi-item cohorts): skim `git log --oneline -20` for domains adjacent to the item and ask the framing question if a signal lights up, per `references/backlog-triage-pivot-detection.md` §1. If a pivot is confirmed, sweep the cohort to BLOCKED per that reference's §2 and STOP for this item — do not proceed to 3b or to step 4.
+   - **3b. Existence-premise probe** (items whose deliverable applies a re-alignment verb — reconcile, re-target, re-align, align to the live shape, update to match — to a target outside the repo): probe the family (bare target, representative variants, siblings) before accepting the re-target framing, per `references/verify-backlog-citation-freshness.md` §11. If the premise fails (bare target and all variants absent), route to SURFACE — commit the probe evidence and route the scope decision to the user — and STOP for this item.
+
+4. **Citation-Freshness Preflight (run before scoping or routing):** A backlog item's body is a snapshot — every reference it pins (a sequential identifier, a `file:line` anchor, an acceptance criterion, a "test/section X does Y" note) is a hypothesis about a live artifact that rots between authoring and execution. Re-prove each against the current artifact before scoping. See `references/verify-backlog-citation-freshness.md` §9.
 
    > [!checklist] Citation-Freshness Preflight (run before scoping or routing a backlog item)
-   > - [ ] For every pinned sequential identifier the item cites (Check NNN, Error Pattern Catalog row N, reference §N.N), grep the live target for the current max and re-derive the next-free value; renumber the item's deliverables + self-references to match
+   > - [ ] For every pinned sequential identifier the item cites (Check NNN, [`references/error-pattern-catalog.md`](../references/error-pattern-catalog.md) row N, reference §N.N), grep the live target for the current max and re-derive the next-free value; renumber the item's deliverables + self-references to match
    > - [ ] For every `file:line` anchor, re-locate the symbol by content grep; treat the cited line number as a cost hint only
    > - [ ] For every acceptance criterion, run the cheapest proof it is still unsatisfied before writing a fix; mark any already-satisfied criterion "already satisfied — verified"
    > - [ ] For every pre-drafted note/callout that asserts "test/section/function X does Y", verify against the live file and re-word to name the artifact that actually carries the behavior
 
-4. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
-   - If the BLI's motivating driver is a runtime symptom (keywords: collision, race, hang, missing endpoint, intermittent), run a `grep -rn` for the symptom in `src/` and cross-check against recent session summaries in `Plans/**/Sessions/**/Outputs/`. If the driver is no longer active (no recent matches, fix landed), mark the BLI as STALE per `verify-against-shipped-artifact.md §3h` and skip routing. Include §3h.untested-axes and §3h.cluster signal checks per the same reference.
+5. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
+   - If the BLI's motivating driver is a runtime symptom (keywords: collision, race, hang, missing endpoint, intermittent), run a `grep -rn` for the symptom in `src/` and cross-check against recent session summaries in `Plans/**/Sessions/**/Outputs/`. If the driver is no longer active (no recent matches, fix landed), mark the BLI as STALE per `verify-backlog-citation-freshness.md §3h` and skip routing. Include §3h.untested-axes and §3h.cluster signal checks per the same reference.
 
-5. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
+6. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
 
-6. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
+7. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
 
    ```bash
    grep -rn "paths:" .claude/rules/
@@ -180,7 +169,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
    This gate applies regardless of route (Route A or Route B) — do not skip it.
 
-7. Present the scope assessment to the user:
+8. Present the scope assessment to the user:
 
 > [!template] Scope Assessment Block
 > ```
@@ -288,15 +277,26 @@ For large-scope or architectural items:
    # MUST return zero matches.
    ```
 
-   If matches → mark VERIFY as failing, return the grep output to the fix-agent (Route A) or open a follow-up task (Route B) requesting the cited content be inlined. Do NOT proceed to step 3 with grep hits outstanding. A BB whose diff touches ONLY bookkeeping zones (lessons index, backlog index, lesson frontmatter, BB Notes) skips this gate. See [§4.1](../references/artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover) for the exempt zones.
+   If matches → mark VERIFY as failing, return the grep output to the fix-agent (Route A) or open a follow-up task (Route B) requesting the cited content be inlined. Do NOT proceed to step 4 with grep hits outstanding. A BB whose diff touches ONLY bookkeeping zones (lessons index, backlog index, lesson frontmatter, BB Notes) skips this gate. See [§4.1](../references/artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover) for the exempt zones.
+
+3. **Native-tool promotion check (BINDING when the diff touches content-bearing artifacts):** For the same changed files, check every instruction that tells an agent to run a shell command against files. If a native tool (`Read`/`Grep`/`Glob`/`Edit`) covers the same act, repoint the instruction to name the native tool call instead. A command counts as flagged only when it sits in command position — the thing an agent is told to run now, or a shell shape a template hands future agents to copy — not when the same word appears in ordinary prose or inside a legitimate pipeline. Exempt any command whose input is not a file tree (git output, a database, an interpreter, or the filesystem itself: `git`, `python`, `psql`, `yq`, `wc -l`, `mkdir`, `mv`) and any build/test/lint invocation — those are correct shell and must never be flagged.
+
+   ```bash
+   grep -nE '\b(grep|cat|sed -n|find|cd)\b' {changed-content-artifact-paths}
+   # Inspect each hit in context: repoint it to the equivalent native tool call unless it
+   # falls in an exempt class above, or the word appears in prose rather than as a command
+   # an agent is told to run.
+   ```
+
+   If a hit needs repointing, return it to the fix-agent (Route A) or open a follow-up task (Route B) requesting the shell command be repointed. Do NOT proceed to step 4 with unrepointed hits outstanding.
 
 <!-- AUTO-MODE: critical -->
-3. Use `AskUserQuestion`:
+4. Use `AskUserQuestion`:
    - **Approve** — Accept changes, mark COMPLETE
    - **Revert** — Discard changes, mark NOT_STARTED
    - **Skip** — Keep changes, don't update status
 
-4. If Revert:
+5. If Revert:
    ```bash
    git checkout -- {list of modified files}
    ```
@@ -376,7 +376,7 @@ output_mode: content
 -A: 20
 ```
 
-Identify candidate recommendations. Also check task files of recently-closed items for inline `> [!followup]` callouts (per `references/session-plan-requirements.md` Declarative Follow-Up Block Convention).
+Identify candidate recommendations. Also check task files of recently-closed items for inline `> [!followup]` callouts (per `references/task-file-and-tracking-requirements.md` Declarative Follow-Up Block Convention).
 
 **Field extraction:** For each `> [!followup]` callout found, parse the body lines for fields in the form:
 
@@ -418,6 +418,7 @@ Use `AskUserQuestion`: "Create backlog item from this candidate?"
 - Option 1: Yes — create BLI
 - Option 2: No — skip
 - Option 3: Edit — modify before creating
+- Option 4: Yes — create item + report upstream — creates the BLI as in Option 1, then routes into `references/feedback-submission.md`'s own `critical` gate, where outward consent is actually taken. This convenience-classified site takes no consent language of its own; the skip-all default above is untouched and can never post.
 
 ### Step 7.3: Auto-Create BLI Files
 
@@ -430,6 +431,9 @@ Use `AskUserQuestion`: "Create backlog item from this candidate?"
 > This is a different concern from shipped-artifact self-containment (`references/artifact-self-containment.md`, which strips internal identifiers out of distributed artifacts) — here the goal is that the capture itself carries its own substance.
 
 For each accepted candidate:
+
+> [!important] Pre-filing re-verification gate (before any file is written)
+> For each candidate, re-prove the condition it asserts against the live repository, per `references/verify-backlog-citation-freshness.md` §10. Candidates sourced from a plan's out-of-scope table, an audit's findings, or a prior session's deferred-work section carry their source's authoring date, not today's state. A candidate whose condition no longer holds is not filed — it is reported with the evidence that retired it, and the source document is reconciled per §10.4.
 
 1. **Get next BLI ID:**
    ```bash
@@ -464,6 +468,8 @@ Skipped: {N - M}
 
 New BLI IDs: BLI-{NNN}, BLI-{NNN+1}, ...
 ```
+
+When the number of items filed differs from the number of candidates surfaced, name each candidate that was retired rather than filed, with the evidence that retired it (from the Step 7.3 pre-filing gate) — a silent count difference is indistinguishable from a dropped candidate.
 
 ---
 
@@ -500,6 +506,7 @@ Use this logic to determine the recommended route in Phase 3.
 
 | Signal | How to Detect | Weight |
 |--------|---------------|--------|
+| Item predates active work in its own domain, or is cohort-shaped (siblings by period/abbrev/`blocks:`) | Pivot check per `references/backlog-triage-pivot-detection.md` | Gate → run before any routing weight is assigned |
 | "Bug" in feature name | Case-insensitive check on Feature column | Strong → Direct Fix |
 | Item file < 50 lines | Line count on read | Moderate → Direct Fix (a *proxy* for a small fix — a file that is long only because it is thoroughly documented is NOT large scope) |
 | Exact fix evidence: named files + line anchors + before/after content + scope-confinement bound | BB body supplies concrete, bounded edit targets | Strong → Direct Fix — sets `HAS_CLEAR_FIX` regardless of file length |
@@ -521,6 +528,13 @@ Use this logic to determine the recommended route in Phase 3.
    *measured* edit scope, never on file length alone: a BB that is long only
    because it is thoroughly documented still has a clear, surgical fix.
 
+0.  Pivot check (High-priority / top-scoring / aged items only).
+    IF pivot confirmed -> COHORT SWEEP: batch BLOCKED transition, shared rationale. Do NOT route.
+
+0.5 Existence-premise probe (re-alignment-verb items only).
+    IF premise fails (bare target + all variants absent) -> SURFACE: commit probe evidence,
+    route the scope decision to the user. Do NOT route to Direct Fix, regardless of edit size.
+
 IF HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6):
     -> DIRECT FIX (Route A)          # IS_BUG strengthens this signal but is not required
 
@@ -536,207 +550,3 @@ ELSE:
 3. Present recommendation via AskUserQuestion
 4. User can override to any route or skip
 ```
-
----
-
-## Backlog Index Format
-
-**Source file:** `{backlog_dir}/{backlog_index}` (paths from `config.yaml`)
-
-### Table Columns
-
-| Column | Type | Description |
-|--------|------|-------------|
-| ID | 3-digit zero-padded (001-999) | Unique backlog item number |
-| Feature | Free text | Short description of the item |
-| Priority | High, Medium, Low | Item priority level |
-| Status | See status values below | Current item state |
-| Abbrev | 2-4 chars | Category domain (defined in `config.yaml`) |
-| Score | Integer or `-` | Computed priority score (open items only; `-` for COMPLETE/CLOSED) |
-| Files | Markdown links | Reference files: `[01](path.md) [02](path2.md)` |
-
-### Status Values
-
-| Status | Description |
-|--------|-------------|
-| NOT_STARTED | Item identified but no work begun |
-| PLANNING | Requirements gathering or design in progress |
-| IN_PROGRESS | Active development |
-| BLOCKED | Waiting on dependency or decision |
-| COMPLETE | Implemented and verified |
-| CLOSED | Resolved without implementation (duplicate, won't fix, etc.) |
-
-### Backlog Item File Format
-
-**Naming pattern:** `BB-{ID}-{SB}-{Domain}-{Topic}.md`
-
-| Component | Description | Example |
-|-----------|-------------|---------|
-| `BB` | Fixed prefix | `BB` |
-| `ID` | Backlog index number (3-digit, zero-padded) | `003` |
-| `SB` | Sub-backlog number; split when file exceeds 500 lines | `01`, `02` |
-| `Domain` | Category domain (defined in `config.yaml`) | `APP` |
-| `Topic` | Descriptive name (PascalCase) | `UserProfilePage` |
-
-**YAML frontmatter:**
-
-```yaml
----
-title: "Item title"
-created: 2026-01-15
-status: NOT_STARTED
-blocks: []
----
-```
-
-| Field | Type | Used By |
-|-------|------|---------|
-| `title` | string | Display |
-| `created` | date (YYYY-MM-DD) | Scoring factor 8 (age) |
-| `status` | string | Synced by `update_backlog.py` |
-| `blocks` | list of item IDs | Scoring factor 6 (blocks count) |
-
----
-
-## Scoring System
-
-Items are ranked by a computed priority score using 8 weighted factors. All weights are configurable in `config.yaml` under the `scoring` section.
-
-### Scoring Factors
-
-| # | Factor | Default Points | Source |
-|---|--------|---------------|--------|
-| 1 | Priority | High=30, Med=20, Low=10 | `config.yaml: scoring.priority_*` |
-| 2 | Bug/Fix keyword | +15 | Index: Feature contains "Bug" or "Fix" |
-| 3 | IN_PROGRESS boost | +10 | Index: Status column |
-| 4 | File count | +5 per extra file (beyond 1) | Index: Files column |
-| 5 | PLANNING penalty | -5 | Index: Status = PLANNING |
-| 6 | Blocks count | +20 per open item blocked | Item YAML: `blocks` field |
-| 7 | Abbrev momentum | +5 | Archive: same-abbrev item recently completed |
-| 8 | Age | +1 per week (cap: +12) | Item YAML: `created` field |
-
-### Priority Review
-
-`score_backlog.py --review` surfaces items needing attention:
-- Items with age > 8 weeks (approaching cap)
-- Score/priority mismatch
-- All IN_PROGRESS items (staleness check)
-- High-impact blockers (blocks 2+ items)
-
----
-
-## Script Interfaces
-
-All scripts are in `{plugin_root}/scripts/`. They locate `config.yaml` in the planwise root directory (e.g., `planwise/config.yaml`). Pass `--config {planwise_root}/config.yaml` explicitly.
-
-### parse_backlog.py
-
-```bash
-python {plugin_root}/scripts/parse_backlog.py [OPTIONS]
-```
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `--status STATUS` | No | Filter by status (case-insensitive) |
-| `--priority PRIORITY` | No | Filter by priority (case-insensitive) |
-| `--abbrev ABBREV` | No | Filter by abbreviation (case-insensitive) |
-| `--id ID` | No | Filter by specific item ID |
-| `--include-closed` | No | Include COMPLETE/CLOSED items |
-| `--show-blocked` | No | Include items blocked by open dependencies (hidden by default) |
-| `--next-id` | No | Print the next available BLI ID (NNN form, zero-padded) and exit |
-
-**Output:** Formatted table of selectable items + blocked items summary + `JSON: /tmp/backlog-XXXXX/items.json` path on last line.
-
-**JSON schema:**
-
-```json
-[
-  {
-    "id": "002",
-    "feature": "Fix login redirect bug",
-    "priority": "High",
-    "status": "NOT_STARTED",
-    "abbrev": "BUG",
-    "files": [
-      {"label": "01", "path": "BB-002-01-BUG-LoginRedirectBug.md"}
-    ]
-  }
-]
-```
-
-### update_backlog.py
-
-Two modes: **status update** (default) and **create** (`--create`).
-
-```bash
-# Update an existing item's status
-python {plugin_root}/scripts/update_backlog.py --id ID --status STATUS
-
-# Create a new backlog item (writes the BLI file from the template + appends an index row)
-python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATURE \
-  --priority PRIORITY --abbrev ABBREV --files FILES [--status STATUS]
-```
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `--id ID` | Yes | Item ID (e.g., 002); in create mode, the new item's ID |
-| `--status STATUS` | Update: Yes — Create: No | New status (NOT_STARTED, PLANNING, IN_PROGRESS, BLOCKED, COMPLETE, CLOSED). In `--create` mode it is optional and defaults to NOT_STARTED |
-| `--create` | No | Create a new backlog item instead of updating an existing item's status |
-| `--feature FEATURE` | Create only | Feature / recommendation summary (required with `--create`) |
-| `--priority PRIORITY` | Create only | Priority — High, Medium, or Low (required with `--create`) |
-| `--abbrev ABBREV` | Create only | Domain abbreviation (required with `--create`) |
-| `--files FILES` | Create only | Affected files, semicolon-separated; the first is written as the new BLI file from `templates/backlog-item.md` (required with `--create`) |
-
-**Automatic archival (COMPLETE/CLOSED):** Moves item files to `{backlog_dir}/Archive/` and updates index links.
-
-### score_backlog.py
-
-```bash
-python {plugin_root}/scripts/score_backlog.py [OPTIONS]
-```
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `--dry-run` | No | Compute and print scores without writing to the index |
-| `--review` | No | Output a priority review report (no index writes) |
-
-### cleanup_backlog.py
-
-```bash
-python {plugin_root}/scripts/cleanup_backlog.py --target {index|archive|both}
-```
-
-Run when the index exceeds ~500 lines to remove COMPLETE/CLOSED rows. `--target archive` deletes archived files; `--target both` does both operations.
-
----
-
-## Status Flow
-
-```
-NOT_STARTED --[select in Phase 2]--> IN_PROGRESS
-                                          |
-                  +-----------------------+-----------------------+
-                  |                       |                       |
-                  v                       v                       v
-            DIRECT FIX               TASK LIST              SESSION PLAN
-            (Route A)                (Route B)              (Route C)
-                  |                       |                       |
-            +-----+                       |                       |
-            |     |                       v                       v
-   Approved v  Reverted v         All done --> COMPLETE    Plan --> PLANNING
-         COMPLETE  NOT_STARTED
-```
-
----
-
-## Error Handling
-
-| Situation | Action |
-|-----------|--------|
-| `config.yaml` not found | Print "Project not initialized. Run `/planwise init` first." and STOP |
-| Index file not found | Script exits with error; print path and STOP |
-| Item ID not found | Print error; ask user to verify ID (IDs are zero-padded: 002, not 2) |
-| Item file not found | Warn user; skip scope analysis, ask for manual route |
-| Fix agent returns BLOCKED | Report blocker to user; offer Route C (Session Planning) |
-| Status update fails | Print error; continue to next item |
-| No items match filter | Print "No items match filters." and STOP |
