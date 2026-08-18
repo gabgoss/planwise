@@ -191,6 +191,60 @@ Use `AskUserQuestion`:
 
 ---
 
+### Step 9.5 — (Optional) GitHub CLI for upstream feedback
+
+<!-- AUTO-MODE: convenience -->
+<!-- Default: No — an unattended run NEVER invokes a package manager. SUPPRESSED ENTIRELY when --auto-from flag is set (subroutine mode). -->
+
+Probe for the GitHub CLI by running `gh --version`. If it resolves, skip this step
+silently — there is nothing to offer.
+
+If it does not resolve, use `AskUserQuestion`:
+
+> "The GitHub CLI (`gh`) isn't installed. planwise uses it so `/planwise feedback` can
+> file your bugs, lessons, and ideas upstream directly. Without it feedback still works —
+> your report is saved as a draft file that you paste into the issues page yourself.
+> Install it now? (Yes / No)"
+
+**If Yes:** run the install command for the detected platform, then re-probe with
+`gh --version` and report the result:
+
+| Platform | Command |
+|---|---|
+| Windows | `winget install --id GitHub.cli` |
+| macOS | `brew install gh` |
+| Linux (Debian 12+ / Ubuntu 23.04+) | `sudo apt install gh` |
+| Linux (Fedora) | `sudo dnf install gh` |
+| Anything else | Do not guess — print https://cli.github.com/manual/installation |
+
+Run **one** command — the one matching the detected platform. If that platform's package
+manager is absent, or the install exits non-zero, do NOT retry with a different manager
+and do NOT escalate privileges beyond the single command above. Print the failing command,
+its exit status, and https://cli.github.com/ so the user can install by hand, then
+continue. A failed install NEVER blocks init.
+
+**After a successful install,** print both remaining steps — the binary alone does not
+make posting work, and stopping at "installed" strands the user at the engine's next two
+gates:
+
+```
+gh installed ({version}).
+
+Two things still gate upstream posting:
+  1. Authenticate:  gh auth login
+     (an interactive browser/device flow — run it yourself; init will not
+      authorize an account on your behalf)
+  2. Opt in:        set feedback.enabled: true in {planwise_root}/config.yaml
+     (posting is opt-in and off by default)
+
+Until both are done, /planwise feedback saves a local draft instead of posting.
+```
+
+**If No:** skip silently. `/planwise feedback` degrades to local drafts, which is a
+supported configuration and not a degraded install.
+
+---
+
 ### Step 10 — Output confirmation
 
 Output a summary of all actions taken:

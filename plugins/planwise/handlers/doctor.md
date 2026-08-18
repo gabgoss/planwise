@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
@@ -522,6 +522,53 @@ Total grant(s) needing normalization: {N} found.
 If the sweep returns nothing: `No plugin-cache grants found needing
 normalization — settings already grant the version-agnostic parent, or no
 plugin-cache grant exists yet.`
+
+---
+
+### Stage 16: Feedback capability probe (post-boundary)
+
+> [!constraint] Read-Only — probes, never installs
+> Stage 16 runs two capability checks against the environment and reads
+> `config.yaml`'s `feedback:` block. It installs nothing, authenticates
+> nothing, and writes nothing. To install the GitHub CLI, run `/planwise
+> init` or `/planwise upgrade` — their offer steps are the only writers;
+> doctor never mutates.
+
+Always-on, independent of Token Saver. `/planwise feedback` — and the
+upstream options in `upgrade`, `lessons capture`, and `backlog` — post
+through the shared engine at
+[`references/feedback-submission.md`](../references/feedback-submission.md),
+whose gate chain degrades to a local draft when any gate fails. That
+degradation is deliberate and never blocks, which also means a consumer can
+run for a long time without discovering that their reports never left the
+machine. This stage surfaces the gate state up front rather than at the
+moment someone tries to file a report.
+
+Probe all three, in the engine's own gate order:
+
+| Gate | Probe | Reported when unmet |
+|---|---|---|
+| 1 — `feedback.enabled` | Read `feedback.enabled` from `config.yaml` (absent ⇒ `false`, the documented default) | `feedback.enabled is false — /planwise feedback drafts locally and posts nothing` |
+| 3 — `gh` on PATH | Run `gh --version`; a non-zero exit or an unresolvable binary means absent | `gh not found on PATH — install from https://cli.github.com/, or run /planwise upgrade to be offered the install` |
+| 4 — `gh` authenticated | Run `gh auth status`; exit 0 means authenticated | `gh is installed but not authenticated — run: gh auth login` |
+
+Print verbatim:
+
+```
+planwise doctor — feedback capability probe
+
+  feedback.enabled:  {true|false}
+  gh on PATH:        {yes|no}  {gh_version_when_present}
+  gh authenticated:  {yes|no|n/a — gh absent}
+
+  {one remedy line per unmet gate, from the table above}
+
+Upstream posting: {ENABLED — reports post directly | DRAFT-ONLY — reports are saved to {planwise_root}/feedback-drafts/ and must be filed by hand}
+```
+
+Advisory only. Draft-only is a supported configuration, not a fault — this
+stage reports the state so the choice is deliberate, and never fails the
+doctor run.
 
 ---
 
