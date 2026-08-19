@@ -46,10 +46,13 @@ EXPECTED_AT_COMPLETION: dict[str, int] = {
 # as EXPECTED_AT_COMPLETION — per-family, not cumulative). Updated by
 # whichever work adds a family's rows — never inferred, always declared
 # explicitly here so a drifted count fails loudly instead of silently.
-# `smoke` is 0, not EXPECTED_AT_COMPLETION's 4: `evals/cases/` has no rows
-# yet — the case-authoring work that adds the four smoke rows raises this.
+# `smoke` is 4 and now matches EXPECTED_AT_COMPLETION: the four smoke rows
+# are authored and live in `evals/cases/`. `full` and `prerelease` remain 0
+# until their own families' rows land, which is why this dict exists
+# separately at all — a partially-built suite must not false-fail the count
+# assertion just because the eventual total has not been reached yet.
 CURRENT_ON_DISK: dict[str, int] = {
-    "smoke": 0,
+    "smoke": 4,
     "full": 0,
     "prerelease": 0,
 }

@@ -17,7 +17,7 @@ turn this from an opt-in suite into a run-by-default one.
 Four invocation lines, cheapest first:
 
 ```
-pytest -c evals/pytest.ini evals                                     # harness selftests only, $0
+pytest -c evals/pytest.ini evals                                     # $0 (see note below)
 pytest -c evals/pytest.ini evals -m "smoke"                          # 4 rows,  ~$0.59-1.03,   ~46-75 s
 pytest -c evals/pytest.ini evals -m "smoke or full"                  # 53 rows, ~$16.38-26.98, ~28-54 min
 pytest -c evals/pytest.ini evals -m "smoke or full or prerelease"    # 54 rows, ~$19.13-32.48, ~32-65 min
@@ -29,8 +29,21 @@ to the invocation directory when cwd differs from the config's rootdir, and
 cwd collects the repo's own `tests/` directory instead (`norecursedirs = tests`
 in `evals/pytest.ini` exists as a backstop against exactly that).
 
-The marker-less form only collects `evals/selftest/` — the harness's own
-unit tests, pure functions, no live CLI, always free and always safe to run.
+The marker-less form collects `evals/selftest/` **and** every live case row
+under `evals/cases/` — `python_files` matches both — but stays $0 because of
+two things holding together, not because the case rows are out of reach:
+every case row self-skips from **inside its module-scoped `scratch` fixture**
+when no explicit `-m` marker expression was passed, and the selftest that
+regression-tests the tier-count gate runs its own nested marker-scoped pytest
+with `--collect-only` rather than actually executing the rows it counts. If either half regresses
+— a new case row without the skip guard, or a nested-subprocess selftest that
+drops `--collect-only` — the bare form silently starts spending money again.
+
+The guard belongs in the **fixture**, not the test body. Pytest resolves a
+test's fixtures before entering its body, so a body-level skip runs only
+after fixture setup has already built the scratch root, copied the plugin
+subtree, and — for a template-based row — driven a live `init`. A row that
+places its guard in the body is not $0.
 
 `--strict-markers` is set: a typo'd `-m` expression is a hard error, not a
 silent zero-selection.

@@ -24,8 +24,12 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import types
 from pathlib import Path
 
+import pytest
+
+import conftest as eval_conftest
 from harness import tiers
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # cloned-repos/planwise
@@ -94,12 +98,25 @@ def test_current_on_disk_never_exceeds_expected_per_family():
 
 
 def _run_pytest_marker(marker_expr: str) -> subprocess.CompletedProcess[str]:
+    """`--collect-only` is deliberate, not incidental: the assertion this
+    test pins lives in `pytest_collection_finish`, a hook that fires after
+    collection -- including every `pytest_collection_modifyitems`
+    implementation's marker deselection -- finishes, and BEFORE the test
+    execution loop starts. `--collect-only` runs the full collection
+    pipeline (so the hook still fires and still prints `EVALS SELECTED`)
+    while skipping execution entirely, so this regression guard proves the
+    post-deselection count without invoking a single one of the rows it
+    counts -- $0 regardless of how many live smoke/full/prerelease rows
+    exist on disk. Do not drop this flag: without it, this call actually
+    RUNS every selected row live (see the incident this fix was written to
+    close).
+    """
     inline = (
         "import os, sys, pytest; "
         f"os.chdir({str(REPO_ROOT)!r}); "
         "sys.exit(pytest.main(["
         "'-c', 'evals/pytest.ini', 'evals', '-m', "
-        f"{marker_expr!r}, '-q']))"
+        f"{marker_expr!r}, '--collect-only', '-q']))"
     )
     return subprocess.run(
         [sys.executable, "-c", inline],
@@ -114,14 +131,36 @@ def test_smoke_selection_count_matches_declared_after_marker_deselection():
     pytest's own `-m` deselection, not before it. Proven to discriminate by
     temporarily reverting the `pytest_collection_finish` fix back to the
     original `pytest_collection_modifyitems` placement, watching this test
-    fail (selected=90, declared=0, mismatch), and restoring the fix — see
-    the task report for the mutation-proof record.
+    fail (selected=90, declared=0, mismatch), and restoring the fix -- see
+    the task report for the mutation-proof record. Runs the nested pytest
+    with `--collect-only` (see `_run_pytest_marker`) so it discriminates
+    at $0 regardless of how many live rows a marker expression selects.
     """
     result = _run_pytest_marker("smoke")
     match = _SELECTED_RE.search(result.stdout)
     assert match, f"EVALS SELECTED line missing from stdout:\n{result.stdout}"
     selected, declared = match.group(1), match.group(2)
     assert declared != "None", "smoke must be a registered tier"
+
+    if "NOT asserted against declared" in result.stdout:
+        # The nested subprocess inherits THIS process's environment,
+        # including its PATH -- on a machine with no `claude` CLI on PATH
+        # and PLANWISE_EVAL_REQUIRE_CLI unset, every CLI-gated case module
+        # self-skips and conftest.py's own carve-out declines to raise on
+        # the resulting selected<declared mismatch (see conftest.py's
+        # pytest_collection_finish). That is the documented $0-safe
+        # posture, not a drifted count -- this test's OWN gate
+        # (post-deselection counting) is orthogonal to CLI availability,
+        # so only the exit code is asserted in this branch. Exit 5 ("no
+        # tests collected") is the ordinary pytest outcome for a marker
+        # expression every module self-skipped out of -- never confuse it
+        # with 4 (pytest.UsageError, the actual defect signature).
+        assert result.returncode != 4, (
+            f"CLI-absent carve-out fired but the nested run still exited "
+            f"4 (pytest.UsageError) -- the carve-out failed to suppress "
+            f"it: {result.returncode} (stdout:\n{result.stdout})"
+        )
+        return
     assert selected == declared, (
         f"selected={selected} declared={declared} — the assertion must count "
         f"items AFTER marker deselection, not the pre-deselection total "
@@ -132,3 +171,61 @@ def test_smoke_selection_count_matches_declared_after_marker_deselection():
         f"mismatch slipped past the assertions above "
         f"(stdout:\n{result.stdout})"
     )
+
+
+# --- CLI-less-machine gate: the count assertion must not fire when the ---
+# --- CLI is absent and PLANWISE_EVAL_REQUIRE_CLI is unset ----------------
+#
+# Regression for a defect this fix pass corrected: `CURRENT_ON_DISK["smoke"]`
+# went 0 -> 4 once smoke rows landed. Before that, a CLI-less machine's
+# require_cli() skips still satisfied `0 selected == 0 declared`. After, the
+# same CLI-less machine hit `0 selected != 4 declared` and hard-failed via
+# pytest.UsageError -- breaking the advertised-$0 bare suite and `-m smoke`
+# for exactly the population require_cli()'s per-module skip exists to
+# serve. `conftest.pytest_collection_finish` is called directly against a
+# synthesized session (never a real pytest run, never a live CLI call) with
+# `conftest._CLI_PATH` / `_REQUIRE_CLI` monkeypatched, so this discriminates
+# at $0 regardless of whether this machine actually has the CLI installed.
+
+
+def _fake_session(marker_expr: str, item_count: int):
+    """A minimal stand-in for `pytest.Session` -- only the two attributes
+    `pytest_collection_finish` actually reads."""
+    return types.SimpleNamespace(
+        config=types.SimpleNamespace(
+            option=types.SimpleNamespace(markexpr=marker_expr)
+        ),
+        items=[object()] * item_count,
+    )
+
+
+def test_tier_count_not_asserted_when_cli_absent_and_require_cli_unset(monkeypatch, capsys):
+    monkeypatch.setattr(eval_conftest, "_CLI_PATH", None)
+    monkeypatch.setattr(eval_conftest, "_REQUIRE_CLI", False)
+    session = _fake_session("smoke", item_count=0)
+
+    eval_conftest.pytest_collection_finish(session)  # must NOT raise
+
+    out = capsys.readouterr().out
+    assert "EVALS SELECTED: 0 / declared 4" in out
+    assert "not asserted" in out.lower()
+
+
+def test_tier_count_still_asserted_when_require_cli_set(monkeypatch):
+    monkeypatch.setattr(eval_conftest, "_CLI_PATH", None)
+    monkeypatch.setattr(eval_conftest, "_REQUIRE_CLI", True)
+    session = _fake_session("smoke", item_count=0)
+
+    with pytest.raises(pytest.UsageError):
+        eval_conftest.pytest_collection_finish(session)
+
+
+def test_tier_count_still_asserted_when_cli_present_and_mismatched(monkeypatch):
+    """The CLI-absent carve-out must not swallow a GENUINE drift on a
+    machine that has the CLI -- only a CLI-caused zero-selection is exempt."""
+    monkeypatch.setattr(eval_conftest, "_CLI_PATH", "/usr/bin/claude")
+    monkeypatch.setattr(eval_conftest, "_REQUIRE_CLI", False)
+    session = _fake_session("smoke", item_count=0)
+
+    with pytest.raises(pytest.UsageError):
+        eval_conftest.pytest_collection_finish(session)

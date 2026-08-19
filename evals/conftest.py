@@ -127,6 +127,23 @@ def pytest_collection_finish(session: pytest.Session) -> None:
         # marker-less selftest invocation) — nothing to assert against.
         return
     if selected != declared:
+        if _CLI_PATH is None and not _REQUIRE_CLI:
+            # Every CLI-gated case module self-skipped at collection time
+            # via require_cli()'s `pytest.skip(..., allow_module_level=True)`
+            # — contributing zero items is not a drifted count here, it is
+            # the documented $0-safe posture for a contributor/CI box with
+            # no `claude` CLI on PATH. Asserting the count in this specific
+            # situation would hard-fail the advertised-$0 bare suite and
+            # `-m smoke` for exactly the population require_cli()'s skip
+            # exists to serve. Reported honestly, never silently passed.
+            print(
+                f"EVALS SELECTED count NOT asserted against declared "
+                f"{declared} — `claude` CLI not found on PATH, so every "
+                "CLI-gated case module self-skipped via require_cli() at "
+                "collection time. Set PLANWISE_EVAL_REQUIRE_CLI=1 to make "
+                "this a hard failure instead."
+            )
+            return
         raise pytest.UsageError(
             f"EVALS SELECTED {selected} but harness/tiers.py declares "
             f"{declared} for marker expression {tier_label!r}. A tier that "
