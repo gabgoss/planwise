@@ -197,8 +197,15 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 >
 > Route: {DIRECT_FIX | TASK_LIST | SESSION_PLANNING}
 > Reason: {why this route was chosen}
+> LARGE_SCOPE: {true | false}
 > ─────────────────────────────────────────────
 > ```
+>
+> `LARGE_SCOPE` is only meaningful when `Route = SESSION_PLANNING`: `true` means the
+> Decision Logic's `ELIF` branch fired (`HAS_MULTI_SPRINT` / `IS_ARCHITECTURAL` /
+> `SUB_ITEMS >= 6`); `false` means Route C was reached only via the
+> conservative-default `ELSE` branch. Carried forward unchanged into Route C — never
+> re-derived there.
 
 ---
 
@@ -250,11 +257,69 @@ For medium-scope items with 3-5 discrete steps:
 
 ### Route C: Session Planning
 
-For large-scope or architectural items:
+<!-- AUTO-MODE: critical --> Step 2 below (EnterPlanMode) requires interactive user
+consent the harness cannot obtain unattended. **If Auto Mode is active, skip directly
+to step 5's `LARGE_SCOPE: true` dispatch (below) for every Route C item regardless of
+LARGE_SCOPE, dispatching `backlog-planner` with item ID/summary/description/affected
+files ONLY — no `Approved Approach` block, since steps 1-4 (which would have produced
+a plan-mode design) never ran** — this mirrors `handlers/harvest.md` Stage 3's
+existing unattended Route C contract exactly (it dispatches `backlog-planner` with
+the item's own scope only; `agents/backlog-planner.md` §1 CLASSIFY confirms it
+authors from the item's own scope with no such input). Log the skip: "Auto Mode:
+skipping EnterPlanMode (no interactive consent channel); dispatching backlog-planner
+directly with item scope only."
 
-1. Summarize the item context (title, files, scope signals)
-2. Tell the user: "This item needs a full plan. Use `/planwise plan` with the backlog item context to create a session plan when ready."
-3. Proceed to Phase 6 (status → PLANNING)
+**Interactive flow (Auto Mode not active):**
+
+1. Summarize the item context (title, files touched, tasks-at-a-glance,
+   LARGE_SCOPE) — this seeds the plan-mode design so the ensuing Explore/Plan
+   phases don't re-derive what Phase 3 already found.
+2. Call `EnterPlanMode`, carrying that summary as the framing for what to design.
+3. Once in plan mode, run the standard injected explore -> design workflow scoped
+   to *this item's* approach (not full task-by-task detail), then write the plan
+   file and call `ExitPlanMode`.
+4. If the user declines the `EnterPlanMode` consent gate, or repeatedly picks "No,
+   keep planning" without approving: stay in Route C's loop. Do NOT fall back to a
+   manual "run /planwise plan yourself" message — offer to retry, or let the user
+   explicitly choose Skip for this item (Phase 4's existing Option 3).
+5. On `ExitPlanMode` approval, branch on `LARGE_SCOPE` (carried from Phase 3):
+
+   **`LARGE_SCOPE: false`** — the approved plan-mode plan IS the deliverable:
+   - Implement it in this session (same posture as Route A/B).
+   - Proceed to Phase 5's existing "After Route B" flow (verify tasks done, show
+     diff, `AskUserQuestion` Approve/Revert).
+   - Phase 6 outcome: "Fix approved" -> COMPLETE, or "Fix reverted" -> NOT_STARTED
+     (existing table rows — no new row needed for this branch).
+
+   **`LARGE_SCOPE: true`** — hand off to the full session-planning agent:
+   - Dispatch `planwise:backlog-planner` via the Task tool, using the same
+     invocation shape Route A uses for `fix-agent` (above), passing: item ID,
+     summary, description, affected files — and, ONLY when reached via this
+     interactive flow (steps 1-4 ran and produced a plan-mode design), an
+     `Approved Approach` block containing the just-approved plan-mode plan file's
+     content (backlog-planner authors its Standard plan FROM this approach when
+     present). When this dispatch is instead reached via the Auto Mode skip above,
+     omit the `Approved Approach` block entirely — backlog-planner authors from the
+     item's own scope, exactly as `harvest.md` Stage 3 already does.
+   - Read the returned status block (`agents/backlog-planner.md` §Status Block).
+     - If `TASK_STATUS: BLOCKED` -> apply `agents/backlog-planner.md`'s own
+       Failure Semantics table verbatim: status -> NOT_STARTED (never PLANNING
+       with no plan file), Notes `AUTO-PLAN FAILED {date}: {reason} — needs manual
+       triage`. Do NOT proceed to the review step below.
+     - If `TASK_STATUS: COMPLETE` and `REVIEW_REQUESTED: true` -> immediately run
+       `/planwise review {PLAN_PATH}` via the Task tool (mirroring
+       `handlers/plan.md` Step 10's auto-review dispatch) — this MUST run exactly
+       once here; do NOT also offer `/planwise plan`'s own Step 10 review gate for
+       this plan, since `backlog-planner` already skips its side of that gate for
+       this exact reason. Recompute the verdict from the review report's own
+       Verdict section per `agents/backlog-planner.md`'s Verdict Table
+       (BLOCKER > 0, or an unjustified ERROR > 0 -> NEEDS_FIXES; else ->
+       APPROVED). Record the verdict in this item's Notes.
+   - Proceed to Phase 6 (status -> PLANNING) when a plan file was produced,
+     whether the review verdict was APPROVED or NEEDS_FIXES (per
+     `backlog-planner`'s own Failure Semantics table: a `NEEDS_FIXES` verdict
+     still leaves the item PLANNING — "a plan exists, unapproved" — it does not
+     revert to NOT_STARTED).
 
 ---
 
@@ -308,7 +373,11 @@ For large-scope or architectural items:
 3. Use `AskUserQuestion`: Approve (COMPLETE) or Revert (NOT_STARTED)
 
 **After Route C (Session Planning):**
-- No verification needed — plan creation is the deliverable
+- `LARGE_SCOPE: false` items were already verified via the "After Route B" flow
+  above — Route C's own step 5 routes them there directly.
+- `LARGE_SCOPE: true` items: no additional verification needed here — the
+  mandatory `/planwise review` pass Route C's step 5 already ran against
+  `PLAN_PATH` before this phase was reached IS this branch's verification
 
 ---
 
@@ -322,6 +391,7 @@ For large-scope or architectural items:
 | Fix reverted | `--status NOT_STARTED` |
 | Task list completed | `--status COMPLETE` |
 | Session plan created | `--status PLANNING` |
+| Session planning failed (backlog-planner BLOCKED) | `--status NOT_STARTED` |
 | Skipped | No change |
 
 ```bash
@@ -539,14 +609,18 @@ IF HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6
     -> DIRECT FIX (Route A)          # IS_BUG strengthens this signal but is not required
 
 ELIF HAS_MULTI_SPRINT OR IS_ARCHITECTURAL OR (SUB_ITEMS >= 6):
-    -> SESSION PLANNING (Route C)
+    -> SESSION PLANNING (Route C), LARGE_SCOPE = true
 
 ELIF 2 <= STEP_COUNT <= 5:
     -> TASK LIST (Route B)
 
 ELSE:
-    -> SESSION PLANNING (Route C) [conservative default]
+    -> SESSION PLANNING (Route C) [conservative default], LARGE_SCOPE = false
 
-3. Present recommendation via AskUserQuestion
-4. User can override to any route or skip
+3. Present recommendation via AskUserQuestion (include LARGE_SCOPE in the Scope
+   Assessment Block when Route = SESSION_PLANNING)
+4. User can override to any route or skip. If the user overrides TO Route C from a
+   different recommended route, LARGE_SCOPE defaults to false (a manual override is,
+   by construction, not a signal-driven large-scope match) unless the strong-signal
+   conditions above independently hold.
 ```
