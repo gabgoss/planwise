@@ -4,7 +4,7 @@ description: BLI triage-time verification recipes (motivating-driver still-activ
 
 # BLI Triage-Time Recipes and Backlog-Item Citation Freshness
 
-Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md) §1-§5 (the Exec-phase SDK/identifier verification core). This file carries two co-located disciplines that both operate on the backlog-item (BLI) surface: the BLI triage-time recipes peeled from that file's §3 ladder (§3h, §3h.untested-axes, §3h.cluster, §3i) plus its §8 (installed-plugin-version skew) and §9 (.1-.3) (backlog-item citation freshness at execution time) — original §-numbers preserved — plus this file's own §10 (backlog-item claim verification at filing time) and §11 (re-alignment verb premise probing), native to this file rather than peeled from the parent.
+Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md) §1-§5 (the Exec-phase SDK/identifier verification core). This file carries two co-located disciplines that both operate on the backlog-item (BLI) surface: the BLI triage-time recipes peeled from that file's §3 ladder (§3h, §3h.untested-axes, §3h.cluster, §3i) plus its §8 (installed-plugin-version skew) and §9 (.1-.3) (backlog-item citation freshness at execution time) — original §-numbers preserved — plus this file's own §10 (backlog-item claim verification at filing time), §11 (re-alignment verb premise probing), and §12 (verification task tree-state pin), native to this file rather than peeled from the parent.
 
 ## Table of Contents
 
@@ -24,6 +24,10 @@ Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifac
   - [10.4 Reconcile the source, or it permanently asserts something false](#104-reconcile-the-source-or-it-permanently-asserts-something-false)
 - [11. Re-Alignment Verb Premise Probing](#11-re-alignment-verb-premise-probing)
   - [11.1 Probe the premise at the family level before accepting a re-target framing](#111-probe-the-premise-at-the-family-level-before-accepting-a-re-target-framing)
+- [12. Verification Task Tree-State Pin](#12-verification-task-tree-state-pin)
+  - [12.1 Name the tree under test; one verdict per tree when they differ](#121-name-the-tree-under-test-one-verdict-per-tree-when-they-differ)
+  - [12.2 Pin the tree state at both ends of the read window](#122-pin-the-tree-state-at-both-ends-of-the-read-window)
+  - [12.3 Make divergence loud, not resolvable](#123-make-divergence-loud-not-resolvable)
 
 ---
 
@@ -364,6 +368,58 @@ Some verbs assert. *Reconcile*, *re-target*, *re-align*, *align to the live shap
 > | Siblings respond under a different contract | Two tasks of different kinds. Split them; route the design half. |
 >
 > Do not silently re-target to a guessed replacement, and do not silently delete the consumer half — both convert a decision into an edit and destroy the record that a decision was ever available. Only once the premise holds do further verification dimensions (key presence, shape, type alignment) apply — they all assume the thing responds. Generalizes past endpoints: any prescription aimed at an authority outside the repository — a vendor SDK surface, a published schema, an external registry — carries the same unstated premise. The rule is the verb, not the transport.
+
+---
+
+## 12. Verification Task Tree-State Pin
+
+A task whose deliverable is a verdict about code state must record which tree it read. An unpinned verdict is not evidence — it cannot be reproduced, and it silently answers a different question than the one asked. This is a state-of-the-source discipline, distinct from §9 above: §9 keeps a backlog item's own citations from rotting between drafting and execution (a document-age concern); this section keeps a verification task's read window honest about which physical tree it was reading in the first place (a tree-identity concern), and addresses a third failure §8's install-skew coverage and §9's citation-freshness coverage do not reach — neither requires recording the identity of a source tree being read, addresses two co-existing trees whose answers legitimately differ, or tells a synthesizer how to treat a torn parallel read.
+
+### 12.1 Name the tree under test; one verdict per tree when they differ
+
+> [!constraint] Name the tree under test; give the claim one verdict per tree when they differ
+>
+> | Column | Tree | Answers |
+> |--------|------|---------|
+> | `shipped` | the installed/released artifact | what users hit → sets execution scope and severity |
+> | `wip` | the development tree | what is already done → prunes scope |
+>
+> Never collapse the columns. Never let a closed or archived item status remove something from scope without checking the shipped tree — an item's status tracks authoring, not shipping.
+
+### 12.2 Pin the tree state at both ends of the read window
+
+> [!constraint] Pin the tree state at both ends of the read window — the task's Step 0, and again as its last action
+>
+> ```bash
+> git -C <repo> rev-parse HEAD
+> git -C <repo> branch --show-current
+> git -C <repo> status --porcelain <subtree>
+> diff -q <shipped>/<file> <dev>/<file>     # per file: SAME needs one read, DIFFERENT needs two
+> ```
+>
+> Both stamps go in the output header and the status block. The `SAME`/`DIFFERENT` matrix also halves the reading — only diverged files need a second pass.
+
+### 12.3 Make divergence loud, not resolvable
+
+> [!constraint] Make divergence loud, not resolvable
+>
+> Where parallel readers share a mutating tree, the synthesizer compares the pins *before* adjudicating anything. If the pins differ, or either reader reports CHANGED, the disagreement is a moving-tree artifact: re-read the symbol directly from the named tree. Only when both pins match may a disagreement be settled on evidence quality.
+>
+> WRONG — resolve a torn read as if it were a reasoning disagreement:
+> ```
+> Step 2. Verify each claim against the live tree by CONTENT search.
+> …
+> [synthesis] where they conflict, the more specific evidence wins.
+> ```
+> CORRECT — compare pins first; a mismatch is re-read, never adjudicated:
+> ```
+> pins differ, OR either reader reports CHANGED  → moving-tree artifact: re-read the symbol
+>                                                    directly from the named tree
+> pins match                                      → a real reasoning disagreement: settle on
+>                                                    evidence quality
+> ```
+
+**Applies to:** any task whose deliverable is a verdict about code state — defect verification, drift detection, audit, forensics, shipped-vs-source reconciliation — especially when readers run in parallel, when the repo is not exclusively owned by the session, or when a fix is known to be in flight.
 
 ---
 

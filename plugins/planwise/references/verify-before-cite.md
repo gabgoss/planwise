@@ -715,6 +715,11 @@ Applies to tasks that fetch from web pages, paginated APIs, large remote documen
 > underlying invariant; never rots regardless of what the cited file does
 > next.
 
+### 9.B.20 Citing the current state of a file requires recording which tree and when
+
+> [!constraint] A task that cites the current state of a file must record which tree it read and when
+> Verify-before-cite proves a citation is accurate *now*; it does not by itself record *which tree* "now" was read against, or pin that tree's state so the claim can be reproduced. When a task's deliverable is itself a verdict about code state — not just a citation used in passing — see [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) §12 (Verification Task Tree-State Pin) for the tree-naming and read-window-pinning discipline this triggers.
+
 ---
 
 ## Plan-Review Enforcement Summary (Verify-Before-Cite)
