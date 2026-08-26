@@ -44,7 +44,7 @@ description: Backlog Schema Reference for /planwise backlog -- the backlog index
 |-----------|-------------|---------|
 | `BB` | Fixed prefix | `BB` |
 | `ID` | Backlog index number (3-digit, zero-padded) | `003` |
-| `SB` | Sub-backlog number; split when file exceeds 500 lines | `01`, `02` |
+| `SB` | Sub-backlog number; split when the file approaches the one-read token budget (~22K measured tokens) | `01`, `02` |
 | `Domain` | Category domain (defined in `config.yaml`) | `APP` |
 | `Topic` | Descriptive name (PascalCase) | `UserProfilePage` |
 
@@ -178,7 +178,7 @@ python {plugin_root}/scripts/score_backlog.py [OPTIONS]
 python {plugin_root}/scripts/cleanup_backlog.py --target {index|archive|both}
 ```
 
-Run when the index exceeds ~500 lines to remove COMPLETE/CLOSED rows. `--target archive` deletes archived files; `--target both` does both operations.
+Run when the index approaches the one-read token budget (~22K measured tokens — check with `measure_files.py`) to remove COMPLETE/CLOSED rows. `--target archive` deletes archived files; `--target both` does both operations.
 
 ---
 

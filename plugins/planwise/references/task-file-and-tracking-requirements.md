@@ -5,7 +5,7 @@ description: Task file template and structure, completion tracking rules, and cr
 # Task Files and Completion Tracking
 
 **Purpose:** Task file template and structure, completion tracking rules, and cross-sprint deferred-finding ownership.
-**Extends session-plan-requirements.md §8; extracted to keep both under the 500-line limit.**
+**Extends session-plan-requirements.md §8; extracted to keep both comfortably within a single Read call.**
 
 ---
 
@@ -34,13 +34,13 @@ Every Task file MUST follow this structure:
 
 ## Required Context
 
-| Priority | File | Est. Lines | Est. Tokens | Purpose |
-|----------|------|-----------|-------------|---------|
-| 1 | {file path} | ~{N} | ~{X}K | {why needed} |
+| Priority | File | KiB | ~Tokens | Purpose |
+|----------|------|----:|--------:|---------|
+| 1 | {file path} | {K} | ~{X}K | {why needed} |
 
 **Context subtotal:** ~{X}K tokens (reads) + ~{X}K (output) = ~{X}K total
 <!-- Reconciliation: this total MUST match the Estimated Tokens in this task's header. -->
-<!-- Use ~13 tokens/line for reads. See planwise plugin reference.md for per-operation costs. -->
+<!-- Populate KiB/~Tokens via measure_files.py (bytes ÷ the assigned model's bytes-per-token ratio). See planwise plugin reference.md for per-operation costs. -->
 
 **Section Reference Rule (scaffolded plans):** When referencing Execution Inputs, enumerate INDIVIDUAL section numbers with purpose — never ranges.
 
@@ -195,11 +195,11 @@ Task file Required Context sections and Execution Steps are subject to the rules
 **§9.A Required Context Fidelity (summary — see full rules in task-content-fidelity.md):**
 - §9.A.1: Update Required Context when project file structure changes
 - §9.A.2: No `~?` placeholders — token estimates MUST be concrete integers
-- §9.A.3: Use per-file-type token rate bands (markdown ~10-14 tok/line; code ~11-16 tok/line; use `~13 tokens/line` as universal fallback; denser file types may run higher — measure if uncertain)
+- §9.A.3: Derive tokens from measured bytes ÷ the content-class bytes-per-token ratio (dense markdown ~2.6, prose ~3.0, code ~3.3; conservative default 2.6 when unsure) — never from a line count
 - §9.A.4: Re-glob live file counts before authoring (counts >1 hour old are stale)
 - §9.A.5: Budget 1.5-2× for multi-source consolidation tasks (dedup overhead)
 - §9.A.6: Use generator-script pattern for tasks walking ≥100 files
-- §9.A.7: Declare per-artifact shape (line budget, topic) for multi-artifact outputs
+- §9.A.7: Declare per-artifact shape (token budget, topic) for multi-artifact outputs
 
 **§9.B Verify-Before-Cite (summary — see full rules in task-content-fidelity.md):**
 - §9.B.2: Reconcile field/column/parameter names against live source (DDL, function signatures) — use `{long_form_identifier}` vs `{abbreviated_identifier}` pair to illustrate drift

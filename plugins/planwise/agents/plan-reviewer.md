@@ -65,27 +65,27 @@ If your own reading contradicts the sheet, say so explicitly: re-measure with `w
 - Check 013 — Task Verification Commands Section Present → references/verification-gates.md §3
 - Check 014 — Per-File-Type Verification Table Populated → references/verification-gates.md §3
 - Check 015 — Verification `> [!verify]` Before/After Block Present → references/verification-gates.md §4
-- Check 016 — Task Required Context Est. Lines / Tokens Numeric → references/task-content-fidelity.md §9.A.2
-- Check 017 — Task Token-Rate Band Conformance → references/task-content-fidelity.md §9.A.3
+- Check 016 — Task Required Context KiB / Tokens Numeric → references/task-content-fidelity.md §9.A.2
+- Check 017 — Task Byte-Ratio Band Conformance → references/task-content-fidelity.md §9.A.3
 - Check 018 — Task Verify-Before-Cite (User-Cited Artifacts) → references/verify-before-cite.md §9.B.1
 - Check 019 — Task Field-Name Reconciliation → references/verify-before-cite.md §9.B.2
 - Check 020 — Task Facade Re-Export Verification → references/verify-before-cite.md §9.B.3
 - Check 021 — Task Helper-Function Design Categorization → references/verify-before-cite.md §9.B.4
 
 <!-- STAYS-INLINE: handler-sourced (handlers/plan.md §Step 8c), out of this sprint's edit scope -->
-### Check 071 — Shared-Context Est. Lines Fan-Out Consistency
+### Check 071 — Shared-Context Measured-Size Fan-Out Consistency
 
 - **Severity / Role / Source / Type:** WARNING | Task Reviewer | `handlers/plan.md` §Step 8c (shared-context pre-pass) | NEW
-- **What:** When the same file path appears in the Required Context of ≥2 tasks, the `Est. Lines` value MUST be identical across those rows AND within tolerance of the live `wc -l`. A multiply-cited file is measured once and the single value fanned out — divergent rows, or a shared-doc estimate deviating >15% from `wc -l`, is a replicated-drift candidate: one stale guess copied into every citing task's Context subtotal and header. The check is direction-agnostic — an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver large-file scan or under-budget a DELEGATED dispatch — so flag ANY divergence or stale value, not only under-estimates.
+- **What:** When the same file path appears in the Required Context of ≥2 tasks, the `KiB`/`~Tokens` values MUST be identical across those rows AND within tolerance of a live `measure_files.py` measurement. A multiply-cited file is measured once and the single value fanned out — divergent rows, or a shared-doc figure deviating >15% from the live measurement, is a replicated-drift candidate: one stale guess copied into every citing task's Context subtotal and header. The check is direction-agnostic — an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver large-file scan or under-budget a DELEGATED dispatch — so flag ANY divergence or stale value, not only under-estimates.
 - **Detection:**
-  1. Group all tasks' Required Context rows by file path. For any path cited in ≥2 rows, compare the `Est. Lines` values — any mismatch → WARNING (name the file path, the task IDs involved, and the divergent values).
-  2. For each such shared path, measure the live file with `wc -l` (never a Read-output line number — same evidence rule as Check 069) and compare against the fanned value — >15% delta → WARNING.
+  1. Group all tasks' Required Context rows by file path. For any path cited in ≥2 rows, compare the `KiB`/`~Tokens` values — any mismatch → WARNING (name the file path, the task IDs involved, and the divergent values).
+  2. For each such shared path, measure the live file with `measure_files.py` (never a Read-output figure — same evidence rule as Check 069) and compare against the fanned value — >15% delta → WARNING.
 - **Finding template:**
 ```
-[WARNING] Shared-context Est. Lines divergent/stale across citing tasks
+[WARNING] Shared-context measured size divergent/stale across citing tasks
 File: {cited file path} | Location: Required Context rows in {task IDs}
-Issue: {Est. Lines values {A} vs {B} diverge across citing tasks | fanned value {N} deviates {pct}% from live wc -l ({actual})}
-Fix: Re-measure once with wc -l, fan the identical value into every citing row, re-roll affected subtotals/headers/session totals per handlers/plan.md Step 8c | Confidence: MEDIUM
+Issue: {KiB/~Tokens values {A} vs {B} diverge across citing tasks | fanned value {N} deviates {pct}% from live measurement ({actual})}
+Fix: Re-measure once with measure_files.py, fan the identical value into every citing row, re-roll affected subtotals/headers/session totals per handlers/plan.md Step 8c | Confidence: MEDIUM
 ```
 - **Insert:** Seventh item under `**New checks (task content fidelity — Required Context):**`.
 
@@ -96,7 +96,7 @@ Fix: Re-measure once with wc -l, fan the identical value into every citing row, 
 - Check 026 — Task Consolidation 1.5-2× Budgeting → references/task-content-fidelity.md §9.A.5
 - Check 027 — Task Generator-Script Pattern (≥100-file Walks) → references/task-content-fidelity.md §9.A.6
 - Check 028 — Task Multi-Artifact Pre-Split Shape → references/task-content-fidelity.md §9.A.7
-- Check 029 — Task `wc -l` Pre-COMPLETE Gate → references/verify-before-cite.md §9.B.8
+- Check 029 — Task Measured Output-Size Pre-COMPLETE Gate → references/verify-before-cite.md §9.B.8
 - Check 030 — Task USED-Helper Enumeration → references/verify-before-cite.md §9.B.7
 - Check 031 — Task Planning-Tier Schema Pin Reconciliation → references/verify-before-cite.md §9.B.6
 - Check 032 — Task Env Var / Function Signature / Config Key Drift → references/verify-before-cite.md §9.B.7

@@ -52,7 +52,7 @@ If `python` is not found, try `python3`.
 > [!constraint] Read-Only — Never Mutates
 > `--doctor` runs the version-state gate followed by `lint_rule_overscope()` standalone (no `--upgrade`, no `--migrate`). It only READS `config.yaml`, `.claude-plugin/plugin.json`, and `.claude/rules/**`, then prints a report; it writes nothing and changes no files. It exits 0 in every state — version drift and flagged rules are reported, not failed.
 
-The linter flags any `.claude/rules/**` file whose `paths:` target plan/backlog/lessons directories (e.g., `planwise/Plans/**`) rather than code paths. For each flagged rule it reports the path, line count, approximate token cost (~13 tokens/line), and the matched glob.
+The linter flags any `.claude/rules/**` file whose `paths:` target plan/backlog/lessons directories (e.g., `planwise/Plans/**`) rather than code paths. For each flagged rule it reports the path, byte size, line count, approximate token cost (bytes ÷ the conservative bytes-per-token ratio), and the matched glob.
 
 ### Step 2: Present the report verbatim
 
@@ -619,13 +619,13 @@ When Token Saver is on, append the three audits below to the doctor report. All 
 
 ### Step 5: Read-gate scan
 
-Run `token_saver.classify_file(path, model, projected_added_lines, thresholds)` (from `scripts/token_saver.py`) across BOTH (a) the active plan's Required-Context files AND (b) the plan's own generated artifacts (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files). Use each file's **assigned-model** rate for the token estimate (`TOKENS_PER_LINE`, per [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits). Report:
+Run `token_saver.classify_file(path, model, projected_added_bytes, thresholds)` (from `scripts/token_saver.py`) across BOTH (a) the active plan's Required-Context files AND (b) the plan's own generated artifacts (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files). Use each file's **assigned-model** bytes-per-token ratio for the token estimate (`BYTES_PER_TOKEN`, per [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits). Report:
 
 | Finding | Gate | Recommendation |
 |---------|------|----------------|
 | File ≥ 256 KiB (`READ_FILE_BYTE_CAP`) | byte gate (model-independent) | **read-Critical** → paged read (`offset`/`limit`/Grep); refactor + backlog if it is a core/edited dependency |
 | File above the per-assigned-model 25K-token page cap (`READ_PAGE_CAP_TOKENS`) | token gate (model-dependent) | **read-Critical** → paged read; refactor if core/edited |
-| File that WILL cross a gate once its task's edits land | byte/token gate (projected) | pass `projected_added_lines` so the will-exceed case is flagged pre-emptively; same remedy as above |
+| File that WILL cross a gate once its task's edits land | token/byte gate (projected) | pass `projected_added_bytes` so the will-exceed case is flagged pre-emptively; same remedy as above |
 | Task estimate ≥ `critical` (cost) | cost gate | **cost-Critical** → `1M-exception` (raise dispatch to Opus/1M) OR split the task |
 
 > [!constraint] read-Critical → paged-read/refactor, NOT `1M-exception`
@@ -662,7 +662,7 @@ Report the FIXED Read-tool constants and flag them stale when the harness CLI ha
 
    This is the drift tripwire for the hardcoded read constants. It is advisory — `doctor` never edits the constants; it surfaces the mismatch so the one-shot live re-probe can be run.
 
-The read-constant tripwire is paired with a cross-model ratio-band assertion: the plugin's test suite asserts the cross-model ratio band holds for the same file. A ratio drift outside that band signals a tokenizer-weight change in the `TOKENS_PER_LINE` constants.
+The read-constant tripwire is paired with a cross-model ratio-band assertion: the plugin's test suite asserts the cross-model ratio band holds for the same file. A ratio drift outside that band signals a tokenizer-weight change in the `BYTES_PER_TOKEN` constants.
 
 ---
 

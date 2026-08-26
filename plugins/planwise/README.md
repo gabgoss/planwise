@@ -294,7 +294,7 @@ flowchart LR
 - **Version-state gate** — before any diagnostics, verifies the project is initialized and the pinned `plugin_version` matches the installed plugin; when it doesn't, recommends `/planwise init` or `/planwise upgrade` and stops there.
 - **Rule scope** — lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. These inject into every plan-brief read and can overflow a 200K-window task-runner, so `doctor` flags them with their size.
 - **Token Saver overhead staleness** — reports the stored `/context`-measured overheads and flags them stale after a plugin upgrade or a change in your agent/skill count.
-- **Read-gate scan** — checks your active plan's files against the Read-tool limits (256 KiB byte cap, ~25K-token page cap) and flags any that can't be read in one pass.
+- **Read-gate scan** — checks your active plan's files against the Read-tool limits (the ~25K-token page cap — the binding gate on text — plus the 256 KiB byte cap and the 2,000-line window) and flags any that can't be read in one pass.
 - **Read-limit drift** — flags the fixed read constants if your CLI build has moved past the version they were measured on.
 - **Stale de-scoped rule sweep** — finds rule copies left behind in `.claude/rules/planwise/` by older versions; those rules are now loaded on demand from the plugin instead.
 - **Installed rule divergence lint** — classifies every still-installed rule against its shipped counterpart: a stale copy of an older shipped version (run [`/planwise upgrade`](#10-planwise-upgrade) — it refreshes it safely), a genuine customization (re-home it — never delete), or not analyzable (diff it manually).
@@ -322,8 +322,8 @@ flowchart LR
 Token Saver is an optional budget mode that keeps each task session lean — under a ~150K carrying-cost target — instead of letting context balloon across turns. When it's on, planwise:
 
 - **Sizes tasks by carrying cost**, warning (or splitting) a task whose Required Context would push a runner past its measured budget.
-- **Flags files that are too large to read in one pass** — a file at or over the Read tool's 256 KiB byte cap or ~25K-token page cap is marked for paged reads (`offset`/`limit`/Grep) or refactor. (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
-- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (Opus hits the page cap sooner); it is paged or refactored instead.
+- **Flags files that are too large to read in one pass** — a file at or over the Read tool's ~25K-token page cap, 256 KiB byte cap, or 2,000-line window is marked for paged reads (`offset`/`limit`/Grep) or refactor. Measure any file yourself with `scripts/measure_files.py` (KiB + estimated tokens + gate level per file). (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
+- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (the Opus/Fable-family tokenizer hits the page cap on fewer bytes); it is paged or refactored instead.
 
 **Toggle it anytime** — you don't have to wait for an init or upgrade:
 
@@ -500,7 +500,7 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses seven specialized AI agents behind the scenes:
+planwise uses eight specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
@@ -511,8 +511,9 @@ planwise uses seven specialized AI agents behind the scenes:
 | **fix-agent** | Applies targeted code fixes for small backlog items |
 | **rule-comparator** | Classifies a diverged installed rule against the shipped version during `/planwise upgrade` — stale copy vs. genuine customization |
 | **backlog-planner** | Authors a session plan for large-scope or architectural backlog items routed to a new plan |
+| **backlog-author** | Drafts and files backlog items in batch — re-verifies each candidate against the live repo, writes the item file, and updates the index |
 
-You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
+You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise lessons`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
 
 ### Configuration
 
@@ -536,7 +537,7 @@ planwise/                           # Plugin root
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 12 subcommand handlers across 15 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
-  agents/                           # 7 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
+  agents/                           # 8 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init

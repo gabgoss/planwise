@@ -39,6 +39,14 @@ except ImportError:
     )
 
 try:
+    from read_limits import estimate_tokens
+except ImportError:
+    raise ImportError(
+        "read_limits is required for doctor_sweeps's bytes-based token "
+        "estimates; the scripts/ directory appears to be partially installed"
+    )
+
+try:
     from init_project import DESCOPED_RULES, INSTALLED_RULES
 except ImportError:
     raise ImportError(
@@ -68,7 +76,7 @@ def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
     project-authored rules), parses its paths: frontmatter, and records a flag
     when the value references the plans, backlog, or lessons globs derived from
     cfg. Each flagged entry carries the path, a line count, an approximate
-    injected-token estimate (~13 tokens/line), and the matched glob so the
+    injected-token estimate (bytes-based), and the matched glob so the
     caller can render a re-scope hint.
 
     Never writes or deletes anything — purely diagnostic.
@@ -100,10 +108,12 @@ def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
         if matched is None:
             continue
         line_count = content.count("\n") + (0 if content.endswith("\n") else 1)
+        num_bytes = len(content.encode("utf-8"))
         flagged.append({
             "path": str(md_file),
             "line_count": line_count,
-            "approx_tokens": line_count * 13,
+            "approx_bytes": num_bytes,
+            "approx_tokens": estimate_tokens(num_bytes),
             "matched_glob": matched,
         })
     return flagged
@@ -199,7 +209,7 @@ def sweep_stale_descoped_rules(cfg: "InitConfig") -> list[dict]:
     deletes; purely diagnostic.
 
     Each finding is a dict:
-      {path, filename, line_count, approx_tokens (=line_count*13),
+      {path, filename, line_count, approx_bytes, approx_tokens (bytes-estimated),
        verdict: "REMOVABLE" | "PRESERVE" | "RELOCATE", confidence, reason
        [, unique_blocks]}
 
@@ -228,13 +238,15 @@ def sweep_stale_descoped_rules(cfg: "InitConfig") -> list[dict]:
             # An unclassifiable file must never be deletable — preserve
             # unread rather than guess at its disposition.
             findings.append({"path": str(dst), "filename": filename,
-                             "line_count": 0, "approx_tokens": 0,
+                             "line_count": 0, "approx_bytes": 0, "approx_tokens": 0,
                              "verdict": "PRESERVE", "confidence": "unknown",
                              "reason": f"unreadable ({exc}) — cannot classify; preserved"})
             continue
         line_count = installed_raw.count("\n") + (0 if installed_raw.endswith("\n") else 1)
+        num_bytes = len(installed_raw.encode("utf-8"))
         base = {"path": str(dst), "filename": filename,
-                "line_count": line_count, "approx_tokens": line_count * 13}
+                "line_count": line_count, "approx_bytes": num_bytes,
+                "approx_tokens": estimate_tokens(num_bytes)}
         try:
             shipped_raw = (refs_dir / filename).read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -295,8 +307,10 @@ def sweep_stale_descoped_rules(cfg: "InitConfig") -> list[dict]:
                 except (OSError, UnicodeDecodeError):
                     continue
                 lc = raw.count("\n") + (0 if raw.endswith("\n") else 1)
+                nb = len(raw.encode("utf-8"))
                 findings.append({"path": str(md), "filename": md.name,
-                                 "line_count": lc, "approx_tokens": lc * 13,
+                                 "line_count": lc, "approx_bytes": nb,
+                                 "approx_tokens": estimate_tokens(nb),
                                  "verdict": "RELOCATE", "confidence": "fingerprint",
                                  "reason": "prefix-rename hack fingerprint of a de-scoped "
                                            "rule — migrate to .claude/rules/<project>/<name>.md"})
@@ -323,7 +337,7 @@ def sweep_orphaned_agent_mirrors(cfg: "InitConfig") -> list[dict]:
     to HAS_UNIQUE/PRESERVE; there is no frontmatter-splice guard here.
 
     Each finding is a dict:
-      {path, filename, line_count, approx_tokens (=line_count*13),
+      {path, filename, line_count, approx_bytes, approx_tokens (bytes-estimated),
        verdict: "REMOVABLE" | "PRESERVE", confidence, reason
        [, unique_blocks]}
 
@@ -355,14 +369,16 @@ def sweep_orphaned_agent_mirrors(cfg: "InitConfig") -> list[dict]:
             # An unclassifiable file must never be deletable — preserve
             # unread rather than guess at its disposition.
             findings.append({"path": str(dst), "filename": filename,
-                             "line_count": 0, "approx_tokens": 0,
+                             "line_count": 0, "approx_bytes": 0, "approx_tokens": 0,
                              "verdict": "PRESERVE", "confidence": "unknown",
                              "reason": f"unreadable ({exc}) — cannot classify; preserved"})
             continue
 
         line_count = installed_raw.count("\n") + (0 if installed_raw.endswith("\n") else 1)
+        num_bytes = len(installed_raw.encode("utf-8"))
         base = {"path": str(dst), "filename": filename,
-                "line_count": line_count, "approx_tokens": line_count * 13}
+                "line_count": line_count, "approx_bytes": num_bytes,
+                "approx_tokens": estimate_tokens(num_bytes)}
 
         src = agents_src_dir / filename
         try:
@@ -462,7 +478,7 @@ def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
     Each finding is a dict:
       {path, kind ("rule"), classification ("SUBSET" |
        "HAS_UNIQUE" | "NOT_ANALYZED" | "UNVERIFIABLE"), line_count,
-       approx_tokens (=line_count*13), recommendation}
+       approx_bytes, approx_tokens (bytes-estimated), recommendation}
     """
     rules_dst_dir = cfg.project_root / ".claude" / "rules" / "planwise"
     refs_dir = cfg.plugin_root / "references"
@@ -481,12 +497,14 @@ def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
             # never crash the always-exit-0 doctor path — report it as
             # unverifiable instead of letting the exception escape.
             return {"path": str(dst), "kind": kind, "classification": "UNVERIFIABLE",
-                    "line_count": 0, "approx_tokens": 0,
+                    "line_count": 0, "approx_bytes": 0, "approx_tokens": 0,
                     "recommendation": f"unreadable ({exc}) — cannot verify divergence"}
 
         line_count = installed_raw.count("\n") + (0 if installed_raw.endswith("\n") else 1)
+        num_bytes = len(installed_raw.encode("utf-8"))
         base = {"path": str(dst), "kind": kind,
-                "line_count": line_count, "approx_tokens": line_count * 13}
+                "line_count": line_count, "approx_bytes": num_bytes,
+                "approx_tokens": estimate_tokens(num_bytes)}
 
         if not src.is_file():
             # Missing shipped reference = a broken/partial install — an

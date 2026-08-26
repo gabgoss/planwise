@@ -252,13 +252,13 @@ defined in the Execution Input.
 
 ## Required Context
 
-| Priority | File | Est. Lines | Est. Tokens | Purpose |
-|----------|------|-----------|-------------|---------|
-| 1 | `MPW-S01-Execution-Input.md` — Section 1 | ~50 | ~0.7K | Base schema fields (17 common metadata) |
-| 2 | `MPW-S01-Execution-Input.md` — Section 2 | ~65 | ~0.8K | Extension schemas (rule, skill, hook, agent, plugin) |
-| 3 | `MPW-S01-Execution-Input.md` — Section 3 | ~45 | ~0.6K | YAML templates (copy-paste ready blocks) |
-| 4 | `MPW-S01-Execution-Input.md` — Section 4 | ~40 | ~0.5K | Design conventions (ID format, versioning) |
-| 5 | Task 1 output | ~15 | ~0.2K | Directory verification results |
+| Priority | File | KiB | ~Tokens | Purpose |
+|----------|------|----:|--------:|---------|
+| 1 | `MPW-S01-Execution-Input.md` — Section 1 | 2.1 | ~0.7K | Base schema fields (17 common metadata) |
+| 2 | `MPW-S01-Execution-Input.md` — Section 2 | 2.4 | ~0.8K | Extension schemas (rule, skill, hook, agent, plugin) |
+| 3 | `MPW-S01-Execution-Input.md` — Section 3 | 1.8 | ~0.6K | YAML templates (copy-paste ready blocks) |
+| 4 | `MPW-S01-Execution-Input.md` — Section 4 | 1.5 | ~0.5K | Design conventions (ID format, versioning) |
+| 5 | Task 1 output | 0.6 | ~0.2K | Directory verification results |
 
 **Context subtotal:** ~3K tokens (reads) + ~27K (output) = ~30K total
 

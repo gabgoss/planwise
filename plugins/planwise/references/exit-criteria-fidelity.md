@@ -6,7 +6,7 @@ description: Cross-layer enforcement of exit-criteria fidelity — binding-refin
 
 **Purpose:** Binding rules for cross-layer enforcement of exit-criteria fidelity (§16) — binding-refinement callout echo across plan layers, "surfaces" as an enforceable claim rather than a mention, sprint-signoff verbatim quoting with a mechanical anchor per row (including the BLI-Cited Audit-Anchor Re-Verification extension), and metric-definition verification before reproduction. Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
-This file is the §16 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §17-§20 live in [execution-time-binding-rules.md](execution-time-binding-rules.md). Extracted to keep all three files under the project's 500-line limit. Read it before authoring multi-layer binding refinements, BLOCKING-coverage task files, or sprint signoff checklists.
+This file is the §16 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §17-§20 live in [execution-time-binding-rules.md](execution-time-binding-rules.md). Extracted to keep all three files comfortably within a single Read call. Read it before authoring multi-layer binding refinements, BLOCKING-coverage task files, or sprint signoff checklists.
 
 ## Table of Contents
 

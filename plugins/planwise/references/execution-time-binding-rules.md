@@ -6,7 +6,7 @@ description: Execution-time binding rules — design-extension traceability with
 
 **Purpose:** Binding rules covering plan-fidelity concerns that surface during execution rather than at Discovery or signoff time — design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), and spike-instrument verdict discipline (§20). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
-This file is the §17-§20 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §16 lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md). Extracted to keep all three files under the project's 500-line limit. Read it before authoring design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
+This file is the §17-§20 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §16 lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md). Extracted to keep all three files comfortably within a single Read call. Read it before authoring design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
 
 ## Table of Contents
 
