@@ -20,7 +20,7 @@ Startup/ToolSearch mandate, Finding Report Format, and Severity Classification a
 
 Every count you report comes from the **review discovery fact sheet** whose path your spawn prompt supplies — cite its row for that file (`review discovery fact sheet → {key}: {N} lines`), never the last line number of a `Read` output. The evidence rule itself is `references/measurement-discipline.md` §8.1 (Check 069); the sheet is where the measurement reaches you, not a replacement for it. Its file inventory is also your fastest route to the structural checks below — the enumerated rows are the plan tree as it exists on disk.
 
-If your own reading contradicts the sheet, say so explicitly: re-measure with `wc -l` and give both numbers in the finding, or — when you cannot run the measurement yourself — report the contradiction to the lead, naming the sheet row and what you observed, and let the lead re-measure. Silently deferring to the sheet and silently overriding it are both errors. If the spawn prompt says the sheet is `unavailable`, measure what you need and state in each finding that you measured it.
+If your own reading contradicts the sheet, say so explicitly: re-measure — `wc -l` for a bare line count, `measure_files.py` for a byte/token figure — and give both numbers in the finding, or — when you cannot run the measurement yourself — report the contradiction to the lead, naming the sheet row and what you observed, and let the lead re-measure. Silently deferring to the sheet and silently overriding it are both errors. If the spawn prompt says the sheet is `unavailable`, measure what you need and state in each finding that you measured it.
 
 ## File Structure
 

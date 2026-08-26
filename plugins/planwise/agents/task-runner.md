@@ -20,7 +20,7 @@ maxTurns: 50
 ## 1. READ — Load Task Context
 
 1. Read the task file provided in the spawn prompt
-2. Read every file listed in the Required Context table
+2. Read every file listed in the Required Context table — fully. A row flagged `⚠ PAGED ≥25K {model}-tok` or `⚠ REFACTOR ≥256 KiB`, and ANY Read that returns a `[Truncated: PARTIAL view …]` banner, MUST be paged with `offset`/`limit` (or Grep for the needed sections) until the whole file is covered — one Read that silently returned only the first page (~21K of the 25K-token cap) does not count as read. Size each page under the cap: an explicit `limit` whose window spans more than ~25K tokens hard-errors with zero content (the truncation banner's `offset`/`limit` hint is a safe next-page size).
 3. Note the Execution Steps, Expected Output, and Success Criteria sections
 4. If any Required Context file is missing, report the error and stop
 

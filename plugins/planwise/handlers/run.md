@@ -334,7 +334,7 @@ After each task completes (DIRECT or DELEGATED, sequential):
    - Add Change Log entry: date, step number, status, notes
    - Update "Current Step" to next task number
 2. **TaskList** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
-3. **Verify output** -- confirm expected output files were written (if applicable)
+3. **Verify output** -- confirm expected output files were written (if applicable), then measure them: `python "{plugin_root}/scripts/measure_files.py" {output files...}` -- compare against the task's declared output token budget (>20% deviation is a review signal per `references/agent-orchestration-delegated.md` §1.4), and any runner-read generated artifact reporting WARN/OVER is split per the Multi-Part convention before the task is accepted
 4. **Verify structure** -- if the task's Expected Output declared required headings or table-column headers, grep the produced file for every one of them; on a miss, re-dispatch the same runner with a single corrective instruction rather than accepting and reconciling downstream
 5. **Resolve gated conditional branches** -- when a gating task completes, resolve every conditional branch it was gating. Runs at post-task reconciliation, not at scaffold time -- the measurement does not exist at scaffold time, which is why the branch was written conditionally. Procedure: (1) re-read the completed task's output against every downstream task file that declared it as a dependency; (2) grep those task files for conditional language:
    ```bash
