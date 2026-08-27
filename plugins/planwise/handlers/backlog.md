@@ -500,10 +500,46 @@ Use `AskUserQuestion`: "Create backlog item from this candidate?"
 >
 > This is a different concern from shipped-artifact self-containment (`references/artifact-self-containment.md`, which strips internal identifiers out of distributed artifacts) — here the goal is that the capture itself carries its own substance.
 
-For each accepted candidate:
+For the accepted candidate set — the gate below applies per candidate, the routing decision after it applies to the set as a whole:
 
 > [!important] Pre-filing re-verification gate (before any file is written)
 > For each candidate, re-prove the condition it asserts against the live repository, per `references/verify-backlog-citation-freshness.md` §10. Candidates sourced from a plan's out-of-scope table, an audit's findings, or a prior session's deferred-work section carry their source's authoring date, not today's state. A candidate whose condition no longer holds is not filed — it is reported with the evidence that retired it, and the source document is reconciled per §10.4.
+
+> [!decide] Delegate the batch, or file inline
+> | Accepted candidates | Path |
+> |---|---|
+> | **N ≥ 2** | Dispatch `backlog-author` once (below), then render Step 7.4 from its status block |
+> | **N = 1** | File inline via steps 1-4 below — a single item does not repay a subagent's startup and re-read cost |
+>
+> The accept/skip decision in Step 7.2 has already happened and stays in this session: the interactive question tool does not exist in a spawned context. Dispatch carries only accepted candidates.
+
+**Delegated path (N ≥ 2)** — dispatch [`agents/backlog-author.md`](../agents/backlog-author.md) via the Task tool:
+
+```
+Task {
+  subagent_type: "planwise:backlog-author"
+  description: "File {N} follow-up backlog items from {item-id} resolution"
+  prompt: |
+    File the following accepted candidates as backlog items.
+
+    plugin_root:    {plugin_root}
+    planwise_root:  {planwise_root}
+    backlog_dir:    {backlog_dir}
+    Candidates:     {one block per candidate: description, target file, severity, originating item}
+    Source docs:    {paths this session already read, for SOURCE_PINS comparison}
+
+    Run the pre-filing re-verification gate on every candidate before writing
+    anything. Do not file a candidate whose condition no longer holds — return
+    it under ITEMS_RETIRED with the evidence that retired it.
+}
+```
+
+> [!constraint] One dispatch, never a fan-out
+> `backlog-author` owns the backlog index write. Two concurrent dispatches race on the index file and on `parse_backlog.py --next-id`, which computes next-free from live state. Batch every accepted candidate into **one** dispatch. Dispatch **foreground only** — a background subagent silently auto-denies its own Write/Edit/Bash calls, and permission-bypass modes do not override that gate.
+
+**Result handling:** render Step 7.4 from the returned status block. `ITEMS_FILED < CANDIDATES_IN` is a valid COMPLETE — name each retirement and its evidence in the summary. Reconcile each source document listed under `SOURCE_RECONCILE` per `references/verify-backlog-citation-freshness.md` §10.4; the agent does not touch those files. If `SOURCE_PINS` shows a source file whose line count differs from this session's own read, re-read it before trusting the item drafted from it.
+
+**Inline path (N = 1)** — steps 1-4:
 
 1. **Get next BLI ID:**
    ```bash
