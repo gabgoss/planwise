@@ -193,7 +193,9 @@ Use `AskUserQuestion` to collect:
 
 **Question 2: Scope**
 - How many sprints do you anticipate? (1-5)
-- What is the first sprint's name and purpose?
+- For EACH sprint in that count, what is its name and purpose? (e.g., "Sprint 1: CoreAuth — login and registration; Sprint 2: AdvancedAuth — SSO and MFA")
+
+**Every sprint named here gets fully scaffolded in this pass** (Steps 3-9 below) — this handler does not stop after Sprint 1.
 
 ### Step 2: Validate
 
@@ -236,20 +238,33 @@ If validation fails, ask user to correct.
 
 ### Step 3: Create Folder Structure
 
-Create the following structure under the configured `{plans_dir}`:
+Create the following structure under the configured `{plans_dir}`, repeating the `Sprint-{XX}-{SprintName}/` block for **every** sprint gathered in Step 1 (`{XX}` = `01`, `02`, ... up to the sprint count) — do not stop after the first sprint:
 
 ```
 {plans_dir}/{PlanName}/
 ├── {Abbrev}-Master-Plan.md
-├── Sprint-01-{SprintName}/
+├── Sprint-01-{Sprint1Name}/
 │   ├── {Abbrev}-S01-Sprint-Plan.md
-│   └── Session-01-{FirstSessionName}/
+│   └── Session-01-{Sprint1SessionName}/
 │       ├── {Abbrev}-S01-01-Orchestration.md
 │       ├── {Abbrev}-S01-01-Recovery.md
 │       ├── {Abbrev}-S01-01-{##}-{Agent}-{Task}.md   # One file per task
 │       └── Outputs/
 │           └── .gitkeep                              # Required so Outputs/ is tracked by git
+├── Sprint-02-{Sprint2Name}/
+│   ├── {Abbrev}-S02-Sprint-Plan.md
+│   └── Session-01-{Sprint2SessionName}/
+│       ├── {Abbrev}-S02-01-Orchestration.md
+│       ├── {Abbrev}-S02-01-Recovery.md
+│       ├── {Abbrev}-S02-01-{##}-{Agent}-{Task}.md   # One file per task
+│       └── Outputs/
+│           └── .gitkeep
+├── ...                                                # same shape for every remaining sprint
+└── Sprint-{N}-{SprintNName}/
+    └── Session-01-{SprintNSessionName}/ ...
 ```
+
+**Every sprint gathered in Step 1 gets its own folder here.** A plan with 3 anticipated sprints creates `Sprint-01/`, `Sprint-02/`, and `Sprint-03/` in this same pass, not just `Sprint-01/`.
 
 **Task File Naming:** `{##}` = two-digit task number (01, 02, 03...) matching the task list.
 
@@ -268,14 +283,18 @@ Create the following structure under the configured `{plans_dir}`:
 
 Use templates from `{plugin_root}/templates/`:
 
-| Step | Template | Output File |
-|------|----------|-------------|
-| 4 | [master-plan.md](../templates/master-plan.md) | `{Abbrev}-Master-Plan.md` |
-| 5 | [sprint-plan.md](../templates/sprint-plan.md) | `{Abbrev}-S01-Sprint-Plan.md` |
-| 6 | [orchestration.md](../templates/orchestration.md) | `{Abbrev}-S01-01-Orchestration.md` |
-| 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S01-01-Recovery.md` |
+| Step | Template | Output File | Cardinality |
+|------|----------|-------------|-------------|
+| 4 | [master-plan.md](../templates/master-plan.md) | `{Abbrev}-Master-Plan.md` | Once — Sprint Overview table lists **all** sprints gathered in Step 1 |
+| 5 | [sprint-plan.md](../templates/sprint-plan.md) | `{Abbrev}-S{XX}-Sprint-Plan.md` | **Once per sprint** (`{XX}` = `01`..sprint count) |
+| 6 | [orchestration.md](../templates/orchestration.md) | `{Abbrev}-S{XX}-01-Orchestration.md` | **Once per sprint** |
+| 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S{XX}-01-Recovery.md` | **Once per sprint** |
+
+Steps 5-7 repeat for every sprint gathered in Step 1 — do not stop after Sprint-01.
 
 ### Step 8: Generate Task Files
+
+**Steps 8 through 8e repeat for every sprint's Session-01 Orchestration file created in Step 6** — finish one sprint's task files before moving to the next. Step 8d (Update Plans Index) is the one exception: it runs once, after every sprint has been scaffolded.
 
 **Search the lessons index for the artifact classes this plan will touch, before authoring task files.**
 
@@ -295,7 +314,7 @@ The payoff scales with repetition: a plan that repeats one task chain across sev
 
 For each task, create a file using the [task-file.md](../templates/task-file.md) template.
 
-**File name pattern:** `{Abbrev}-S01-01-{##}-{Agent}-{TaskName}.md`
+**File name pattern:** `{Abbrev}-S{XX}-01-{##}-{Agent}-{TaskName}.md` (`{XX}` = the current sprint being processed)
 
 After creating task files, update the Orchestration file's Task Files table with links.
 
@@ -382,6 +401,8 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
 > ```
 
 ### Step 8d: Update Plans Index
+
+**Runs once, after every sprint has been scaffolded** (not per-sprint like 8/8a-8c/8e).
 
 Add a row to the plans index so `/planwise list` reflects the new plan:
 
@@ -483,19 +504,20 @@ PLAN CREATED: {PlanName}
 
 **Files Created:**
 - {Abbrev}-Master-Plan.md
-- Sprint-01-{SprintName}/{Abbrev}-S01-Sprint-Plan.md
-- Sprint-01-{SprintName}/Session-01-{SessionName}/{Abbrev}-S01-01-Orchestration.md
-- Sprint-01-{SprintName}/Session-01-{SessionName}/{Abbrev}-S01-01-Recovery.md
-- Sprint-01-{SprintName}/Session-01-{SessionName}/{Abbrev}-S01-01-{##}-{Agent}-{Task}.md (x{N} task files)
-- Sprint-01-{SprintName}/Session-01-{SessionName}/Outputs/ (folder)
+- Sprint-01-{Sprint1Name}/{Abbrev}-S01-Sprint-Plan.md
+- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-Orchestration.md
+- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-Recovery.md
+- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-{##}-{Agent}-{Task}.md (x{N1} task files)
+- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/Outputs/ (folder)
+- ... (same block repeated for Sprint-02 through Sprint-{count}, using each sprint's own name/session/task files)
 
-**Task Files Created:** {N} files (one per task)
+**Task Files Created:** {N} files total across all {count} sprints (one per task, per sprint)
 
 **Next Steps:**
 1. Review and refine the Master Plan
 2. Review task files for completeness
 3. Run `/planwise review {Abbrev}` to validate the plan (recommended before execution)
-4. Execute Session-01 using `/planwise run` or manually following READ-CONFIRM-ACT
+4. Execute Sprint-01/Session-01 using `/planwise run` or manually following READ-CONFIRM-ACT
 ```
 
 ### Step 10: Plan Review Gate
