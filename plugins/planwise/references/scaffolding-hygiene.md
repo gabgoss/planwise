@@ -487,6 +487,56 @@ Applies to:
 - Scaffolding authoring Verification Commands into task files, wherever the target lives in a nested or cloned sub-repo.
 - Plan review: reviewers spot-check both surfaces — one symbol-vs-line pointer and one `git -C` depth per scaffolded sprint — against the live tree.
 
+### 12.3 State-Asserting Rows Are Cost Hints Too — Re-Derive the Conclusion at Scaffold Close
+
+> [!constraint] A row that asserts a STATE about an artifact is a scaffold-time snapshot, exactly like a line-number pointer — re-derive it at scaffold close, not just its file path
+> §12's opening principle is: content written into a task file at scaffold time can encode an assumption about the on-disk world that is no longer true — or was never true — at run time, while every per-task gate still passes because the artifact is internally well-formed. §12.1 applies this to path pointers (`file — Lxxx-yyy`); §12.2 applies it to directory-depth assumptions in verification commands. This subsection applies the SAME principle to a third surface: a row whose content asserts a STATE — "X is an orphan", "X is cited by nothing", "X has N members", "X is Y lines long", "X is unreferenced" — rather than merely citing a path.
+>
+> A state assertion differs from a path pointer in one important way: nothing in the existing gates re-derives it automatically. A stale line-number pointer fails loudly (the read lands on the wrong content, and a symbol-grep gate catches it). A stale state assertion fails silently — the assertion reads as a settled fact, gets folded into a priority order, an exit criterion, or a Signoff anchor, and nothing downstream re-checks whether it is still true.
+>
+> Mandatory step: for every row whose content asserts a STATE (not just cites a path), scaffolding MUST re-run the assertion against the LIVE artifact at scaffold close and record the measured value inline with a date — the same treatment §12.1 already gives path pointers. "Re-derive at scaffold close" means literally running the grep/count/check the row claims — NOT re-reading the same source document that produced the original claim (re-reading the source re-confirms what the source said, not what is currently true).
+>
+> WRONG — a state assertion is compressed and carried forward without re-derivation:
+> ```
+> Source (Discovery-era): "{file} is cited by nothing."
+> EI row (scaffold time, unchanged): "{file} is a true orphan, cited by nothing."
+> (no grep run against the live tree before this row is written)
+> ```
+> The EI row hardens into a priority order. If the live tree has since gained a citation, the row is false and nothing catches it until execution — or later.
+>
+> CORRECT — the assertion is re-run against the live artifact, and the measured value + date is recorded inline:
+> ```
+> Source (Discovery-era): "{file} is cited by nothing."
+> Scaffold-close re-derivation: `grep -rn "{file}"` → 1 hit (`{citing-file}:{line}`), measured {date}.
+> EI row: "{file} is cited once, by {citing-file}:{line} (measured {date}) — NOT a true orphan; the
+>          Discovery-era 'cited by nothing' claim is superseded."
+> ```
+
+Applies to:
+
+- Any EI row, Deliverable, exit criterion, or Signoff anchor asserting a count ("N members"), a reachability claim ("orphan" / "cited by nothing" / "unreferenced"), a size claim ("X lines"), or any other fact about an artifact's CURRENT state.
+- Scaffolding Step 4 (Create Execution Inputs) of the scaffolding workflow — see `handlers/plan-scaffolding.md`.
+- Companion to §10.4 in `references/ei-source-promise-integrity.md` (cited-authority currency): that subsection covers a claim whose support comes from ANOTHER artifact's conclusion; this subsection covers a claim whose support is a directly-measurable fact about the artifact itself. A row can fail either, both, or neither independently.
+
+#### Reviewer Check 081 — State-Asserting Row Re-Derivation at Scaffold Close
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** Every EI row, Deliverable, exit criterion, or Signoff anchor asserting a STATE about an artifact (count, reachability, size, existence) MUST carry a measured value + date recorded inline, re-derived against the live artifact at scaffold close — not merely inherited from the Discovery-era source that first made the claim.
+- **Detection:**
+  1. Grep the EI/Sprint Plan/Orchestration for state-asserting phrasing: "is an orphan", "cited by nothing", "unreferenced", "has {N} members", "is {N} lines", or equivalent count/reachability/size claims.
+  2. For each match, check whether the row carries an inline measured value + date (e.g., "measured {date}: {value}").
+  3. If absent, re-run the assertion against the live artifact yourself and compare to the row's claim.
+  4. If the row lacks a measured value + date, OR the live re-derivation contradicts the row's claim → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] State-asserting row not re-derived at scaffold close
+File: {EI/plan file path} | Location: {row/section}
+Issue: row asserts "{claim}" with no measured value + date; live re-derivation shows {measured value}
+Fix: Re-run the assertion against the live artifact and record the measured value + date inline, per references/scaffolding-hygiene.md §12.3 | Confidence: HIGH
+```
+
+---
+
 ## 13. Retirement Deliverables Must Derive the Deletion Set
 
 A Deliverables list that removes a persistent artifact is produced by a sweep, not written from memory: run the sweep first, paste its output into the plan, and let that output be the list. Two sweep passes are needed because they catch different misses, and the hits must then be classified by ROLE — not file type — because exactly one role can silently undo the retirement.

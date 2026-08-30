@@ -65,6 +65,7 @@ For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extracti
 4. From cross-sprint reference parts, extract ONLY the decisions/conventions this sprint needs
 5. Add Cross-References table tracing each section back to its source
 6. If at/over 22K measured tokens (`python "{plugin_root}/scripts/measure_files.py" {EI file}`), split into parts: `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md`
+7. **Before finalizing each section (binding):** (a) for any row citing a project-side backlog item or prior review as authority for a conclusion, read that authority's corrections/acceptance-criteria before compressing — a cited authority that has revised the claim is a HALT, not a footnote (`references/ei-source-promise-integrity.md` §10.4); (b) preserve hedge language verbatim, or record what was measured to resolve it (`references/ei-fidelity.md` §4.5); (c) for any row asserting a state (not just citing a path), re-run the assertion against the live artifact and record the measured value + date inline (`references/scaffolding-hygiene.md` §12.3).
 
 **Output:** One `{Abbrev}-S{XX}-Execution-Input.md` per sprint, placed in the sprint folder.
 

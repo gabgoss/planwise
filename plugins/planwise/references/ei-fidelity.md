@@ -16,6 +16,7 @@ description: EI fidelity across scaffolding tiers — source preservation, thres
 - [3. Threshold Alignment with Operational Dispatch Contract](#3-threshold-alignment-with-operational-dispatch-contract)
   - [3.1 Algorithm-Sprint Retention-Band Calibration](#31-algorithm-sprint-retention-band-calibration)
 - [4. UNCONFIRMED Caveats — Four-Site Redundant Enforcement](#4-unconfirmed-caveats--four-site-redundant-enforcement)
+- [4.5 Hedge Preservation — Compression Must Not Flatten a Qualifier Into a Fact](#45-hedge-preservation--compression-must-not-flatten-a-qualifier-into-a-fact)
 
 ### Segment Index — This File Was Split 4 Ways (2026-08-10)
 
@@ -26,7 +27,7 @@ description: EI fidelity across scaffolding tiers — source preservation, thres
 | A | §1-§4 | EI-as-archival, severity vocabulary preservation, threshold alignment (+3.1 retention-band calibration), UNCONFIRMED four-site enforcement | `ei-fidelity.md` (this file) |
 | B | §5-§8 (+8.1, 8.2) | Cross-tier duplicate preservation, citation propagation to implementation, §-citation discipline, token reconciliation gate | [ei-citation-and-token-reconciliation.md](ei-citation-and-token-reconciliation.md) |
 | C | §9 (+9.1-9.3) | EI completeness — three-axis scope coverage | [ei-completeness.md](ei-completeness.md) |
-| D | §10-§11 (+10.1-10.3) | Source-promise integrity (body⇄citation presence, pre-extraction verification, fallback hierarchy), verbatim-block behavioral freshness | [ei-source-promise-integrity.md](ei-source-promise-integrity.md) |
+| D | §10-§11 (+10.1-10.4) | Source-promise integrity (body⇄citation presence, pre-extraction verification, fallback hierarchy), verbatim-block behavioral freshness | [ei-source-promise-integrity.md](ei-source-promise-integrity.md) |
 
 ---
 
@@ -299,6 +300,63 @@ Red flags during review:
 File: {EI file path} | Location: claim "{quoted_claim_text}"
 Issue: Flagged UNCONFIRMED but absent from {missing_site_name}
 Fix: Replicate per references/ei-fidelity.md §4 | Confidence: HIGH
+```
+
+---
+
+## 4.5 Hedge Preservation — Compression Must Not Flatten a Qualifier Into a Fact
+
+> [!constraint] A source sentence that hedges its own claim MUST keep that hedge through compression, or have the hedge explicitly resolved by a recorded measurement — never silently dropped
+> §4 covers explicit status markers (UNCONFIRMED / UNVERIFIED / deprecated / requires-local-download). This subsection covers a related but distinct failure: a source sentence that hedges its own claim in ordinary prose — "most likely", "per the preliminary hypothesis", "except X", "reconfirmed (pending Y)", "appears to", "tentative", "subject to change" — without using one of §4's formal markers. Compression that keeps the flat claim and drops the hedge word manufactures a certainty the source never asserted.
+>
+> Rule: when compressing a source sentence into an EI row (or any downstream artifact — exit criterion, Signoff anchor), scan the sentence for hedge language. If present:
+>
+> 1. **Preserve the hedge verbatim** in the compressed row, OR
+> 2. **If the hedge has since been resolved by measurement**, replace the hedge with the measured resolution and cite what was measured and when — do not just delete the hedge and keep the flat claim.
+>
+> Never drop the hedge silently and keep only the flat claim. A dropped hedge is the same failure mode §4 already forbids for formal UNCONFIRMED markers — this subsection extends the same discipline to informal hedge language that never got a formal tag.
+>
+> WRONG — hedge dropped on compression, flat claim kept:
+> ```
+> Source: "the citations most likely map to §1.2/§1.3."
+> EI row: "The citations map to §1.2/§1.3."
+> ```
+> The reader of the EI row has no way to know the source was not certain.
+>
+> CORRECT — hedge preserved, or resolved with cited evidence:
+> ```
+> Source: "the citations most likely map to §1.2/§1.3."
+> EI row (hedge preserved): "The citations most likely map to §1.2/§1.3 (source not certain)."
+> — or, if since measured —
+> EI row (hedge resolved): "The citations map to §1.2/§1.3 (confirmed by {measurement}, {date}; source's original 'most likely' hedge is now resolved)."
+> ```
+
+How to apply during compression:
+
+- Grep the source passage for hedge markers before drafting the compressed row: "most likely", "probably", "appears to", "pending", "preliminary", "tentative", "subject to", "except", "reconfirmed".
+- If a hedge marker is present and the compressed row states the claim as flat fact with no hedge and no cited resolution, that is the defect this subsection names.
+- A hedge that has been resolved needs the resolution's evidence cited inline (what was measured, when) — not just the hedge word deleted.
+
+Red flags during review:
+
+- A compressed row states a claim as settled fact when the source sentence carried a hedge word.
+- A word like "reconfirmed" survives compression but nothing records what re-confirmation actually checked or when.
+
+#### Reviewer Check 080 — Hedge Preservation Through Compression
+
+- **Severity / Role / Type:** ERROR | EI Reviewer | NEW
+- **What:** A compressed EI row, exit criterion, or Signoff anchor whose source sentence carried a hedge marker ("most likely", "probably", "appears to", "pending", "preliminary", "tentative", "subject to", "except X", "reconfirmed") MUST either preserve that hedge verbatim or cite the measurement that resolved it. A flat, unhedged claim compressed from hedged source prose, with no cited resolution, is an ERROR.
+- **Detection:**
+  1. Open the source document(s) the EI/plan cites as `Extracted from:`.
+  2. Grep the source for hedge markers in passages the EI compresses.
+  3. For each hedge marker found in source, check the corresponding compressed row for either the same hedge or a cited resolution.
+  4. If the compressed row states the claim flatly with neither → ERROR.
+- **Finding template:**
+```
+[ERROR] Hedge dropped during compression
+File: {EI/plan file path} | Location: {row/section}
+Issue: source hedge "{hedge phrase}" dropped; compressed row states the claim as settled fact with no cited resolution
+Fix: Restore the hedge or cite the resolving measurement, per references/ei-fidelity.md §4.5 | Confidence: MEDIUM
 ```
 
 ---
