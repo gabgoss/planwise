@@ -31,6 +31,45 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 
 ---
 
+## Execution Ordering <!-- REQUIRED -->
+
+**Declared ordering:** `Sprint-01 → { Sprint-02 ∥ Sprint-03 }`
+
+<!-- The `∥` symbol marks sprints declared to run in parallel. A parallel claim
+     inferred from cluster names alone (e.g. "agents vs handlers, disjoint
+     files") is not a computed fact — every `∥` pair declared here MUST have
+     its write-sets intersected in the Computed Write-Set Intersection table
+     below before the ordering is treated as binding. -->
+
+### Write-Sets
+
+<!-- Collected from each sprint's own Sprint Plan `## Write-Set` section. -->
+
+| Sprint | Write-set |
+|--------|-----------|
+| Sprint-01 | `{path/or/directory}`, `{path/or/directory}` |
+| Sprint-02 | `{path/or/directory}`, `{path/or/directory}` |
+
+### Computed Write-Set Intersection
+
+<!-- Every declared-parallel pair above MUST appear here with its computed
+     result shown — never asserted, never inferred from cluster names. `∅`
+     means the parallelism stands as declared. A non-empty intersection
+     permits exactly two dispositions: (1) serialize the pair, dropping `∥`;
+     or (2) qualify the parallelism per-file, naming an explicit task-level
+     ordering edge for each shared file (`S0A-01-0x → S0B-01-0y`). A gate
+     marker that is an assumption rather than a runnable command (e.g. "n/a —
+     single-writer per sprint") is not a valid Verdict. -->
+
+| Declared pair | Intersection | Verdict |
+|----------------|---------------|---------|
+| Sprint-02 ∥ Sprint-03 | `{shared/path.ext}` or `∅` | {✅ disjoint — parallel stands / ❌ NOT disjoint — serialized / ⚠ NOT disjoint — qualified per-file: `S0A-01-0x → S0B-01-0y`} |
+
+**Recompute this matrix whenever any sprint's write-set changes.** Last
+recomputed: {today's date}.
+
+---
+
 ## Dependencies
 
 | Dependency | Required For | Status |

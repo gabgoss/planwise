@@ -21,6 +21,7 @@ The custom agents (`structural-reviewer` and `plan-reviewer`) carry their own ch
 - Status fields present in Recovery and Orchestration files
 - Cross-reference links resolve (no dead paths)
 - [Meta-Plan] `Meta-{Abbrev}/`, `Scaffold-{Abbrev}/`, `Exec-{Abbrev}/` folders all present
+- Declared-parallel (`∥`) sprint pairs have a computed write-set intersection with the result shown; no path shared between two `∥` sprints (Check S05)
 
 ### EI Reviewer (Phase 2)
 

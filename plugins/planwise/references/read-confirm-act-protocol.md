@@ -260,6 +260,17 @@ Each propagated entry MUST be tagged with the source session ID and the surface 
 
 The reserved placeholder for later sources is intentional — it tells future closeout orchestrators where to append without re-deriving the section structure.
 
+#### Shared-File Flags Must Be Reciprocal
+
+> [!constraint] A flag about a file two writers share must be reciprocal
+> When a coordination flag concerns a file that **more than one** sprint or session writes, the flag must be **reciprocal**: each writer's flag chain names the other writer(s) and the shared path — not only the one direction the surfacing task happened to be looking in.
+>
+> The reason is arithmetic, not etiquette. A one-directional flag lets each writer measure a **shared** threshold — a file-size gate, a line budget, a section-count cap — against **its own contribution alone**, while the baseline it measures from has already been moved by the writer it was never told about. Both readings pass; the combined result breaches. Each writer's arithmetic is locally correct, which is exactly why the breach survives both reviews: nothing either writer can see from where it stands is wrong.
+>
+> The return edge goes to the **same destinations the propagation table above already defines** — the named task's file, the session's orchestration file, the sprint plan's `## Carried-Forward Coordination Flags` section, or the Master Plan — applied in **both** directions, each entry tagged with its own source session ID and surface date. Propagating one direction and leaving the other for a downstream orchestrator to infer fails the same way as not propagating at all: the writer who was never named has no reason to go looking, and a threshold nobody was told they share is measured by each of them alone.
+>
+> The plan-level counterpart is [scaffolding-hygiene.md](scaffolding-hygiene.md) §16.5, which imposes the same reciprocal requirement on cross-sprint flags at scaffold time, where the write-sets that make a file shared are first declared. This section governs the same reciprocity at flag-propagation time.
+
 #### Audit-Trail Requirement
 
 | File | What to Record | See |
