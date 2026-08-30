@@ -67,72 +67,51 @@ gates 1–5 only, and a scan that fails never stops the pipeline.
 
 ## Step 4.5 — Duplicate Scan (Non-Fatal)
 
-After gate 4 and before gate 5, the engine searches `{feedback.repo}` for issues that may
-already cover this report and carries the result into gate 5's prompt. It is a **step, not
-a gate**: it is never part of the "ALL gates below MUST pass" rule, and every failure mode
-below proceeds to gate 5 with a stated caveat.
+Between gate 4 and gate 5 the engine searches `{feedback.repo}` for issues that may already cover
+this report, and carries the result into gate 5's prompt. It is a **step, not a gate**: it never
+joins the "ALL gates below MUST pass" rule, and every outcome below proceeds to gate 5 with a caveat.
 
 ### Search keys
 
-Keys come from the rendered body (excluding `### Environment`) and the title, in this
-precedence:
+Keys come from the rendered body (excluding `### Environment`) and the title, in this precedence:
 
 | Tier | Source | Score |
 |---|---|---|
-| A | A cited file name with an extension — normalized to its basename, any trailing line-number suffix dropped | 4 |
+| A | A cited file name whose extension **ends** the token — one of `md` `py` `yml` `yaml` `json` `js` `ts` `sh` `ps1` `toml` `txt` — optionally followed by a line-or-range suffix (`:12`, `:12-30`) that is discarded. Normalize to the basename, then strip any leading `-` `.` `/`. Anchoring the extension at the end of the token is what stops a compiled-artifact name from being truncated mid-token into a file that does not exist, burning a query slot on a term nothing can match. | 4 |
 | B1 | A backticked span (≤ 40 chars, ≤ 4 words) that contains `.` `_` `-` or `/`, **or** that spans 2–4 words | 3 |
 | B2 | A single-word backticked span (≤ 40 chars) carrying none of those separators | 2 |
-| C | The first 8 words of a quoted or fenced line carrying an error signature (at most one) | 3 |
+| C | The first 8 words of a quoted or fenced line carrying an error signature — `Error`, `Exception`, `Traceback`, `FAILED`, `fatal:`, `exit code`, `not found`, `cannot`, `denied`, `refused`, every one matched **case-insensitively** so an upper-cased line in a pasted log still qualifies. At most one Tier-C key. | 3 |
 | D | A title word ≥ 4 chars after stopword removal | 1 |
 
-**Tier A, precisely.** The extension must END the token: one of `md`, `py`, `yml`, `yaml`,
-`json`, `js`, `ts`, `sh`, `ps1`, `toml`, `txt`, followed by the end of the token or by a
-line-or-range suffix (`:12`, `:12-30`) which is discarded. Anchoring the extension is what
-keeps a compiled-artifact name from being truncated mid-token into a file that does not
-exist, burning a query slot on a term nothing can match. Strip any leading `-` `.` `/` the
-basename is left with after normalization.
+A bare section, step, gate, or line number is never a key on its own — it is appended to the
+nearest preceding Tier-A key in the same sentence. If that sentence carries no Tier-A key the
+number is **dropped**: it never attaches to a Tier-B or Tier-C key, and never becomes a key by itself.
 
-**Tier C, precisely.** The error signatures — `Error`, `Exception`, `Traceback`, `FAILED`,
-`fatal:`, `exit code`, `not found`, `cannot`, `denied`, `refused` — are matched
-**case-insensitively**, so an upper-cased line in a pasted log still qualifies.
+Every key MUST match `^[A-Za-z0-9._/:+#-]{3,60}$`, applied **per whitespace-separated token** — a
+multi-word key travels as one double-quoted `--search` argument, so the space between its tokens is
+not a shell metacharacter and does not disqualify it. A key must not begin `/` `~` `\` or a drive
+letter, must contain no `@`, and must not be a bare number or a lone stopword. A key that fails is
+dropped, never escaped or repaired — it degrades the scan to fewer candidates, never to a bad command.
 
-A bare section, step, gate, or line number is never a key on its own — it is appended to
-the nearest preceding Tier-A key in the same sentence. If that sentence carries no Tier-A
-key, the number is **dropped**: it never attaches to a Tier-B or Tier-C key, and it never
-becomes a key by itself.
-
-Every key MUST match `^[A-Za-z0-9._/:+#-]{3,60}$`, applied **per whitespace-separated
-token** — a multi-word key travels as one double-quoted `--search` argument, so the space
-between its tokens is not a shell metacharacter and does not disqualify it. A key must not
-begin `/` `~` `\` or a drive letter, must contain no `@`, and must not be a bare number or
-a lone stopword. A key that fails is dropped, never escaped or repaired — the scan degrades
-to fewer candidates, never to a malformed command.
-
-**Closed stopword list** — Tier D and the lone-stopword test use exactly this list, with no
-additions:
+**Closed stopword list** — used by Tier D and by the lone-stopword test, with no additions. The last
+five are domain words that appear in nearly every title in this tracker and carry no signal:
 
 ```
-a an and are as at be but by can cannot did do does for from had has have how
-i if in into is it its not of on or should so than that the their then there
-these they this to too was were what when where which while who why will with
-would you your bug issue error problem planwise
+a an and are as at be but by can cannot did do does for from had has have how i if in into is
+it its not of on or should so than that the their then there these they this to too was were
+what when where which while who why will with would you your bug issue error problem planwise
 ```
-
-The last five are domain stopwords: in a tracker dedicated to this plugin, "bug", "issue",
-"error", "problem", and "planwise" appear in nearly every title and carry no signal.
 
 De-duplicate case-insensitively **within the identifier pool (Tiers A–C)**, keeping the
-highest-scoring form of each duplicate; sort by score, then by first appearance in the
-body; take the top **4**. Then add exactly one supplementary query built from the 3
-strongest title terms. The title query is formed **independently** of the identifier pool
-and may restate a term already sent as an identifier key — it is a distinct query (its
-terms are ANDed) and consumes its own budgeted slot. **At most 5 searches run.**
+highest-scoring form of each duplicate; sort by score, then by first appearance in the body; take
+the top **4**. Then add exactly one supplementary query built from the 3 strongest title terms —
+formed **independently** of the identifier pool, so it may restate a term already sent as an
+identifier key; it is a distinct query (its terms are ANDed) and takes its own slot. **At most 5.**
 
-**When the body cites no identifier at all** (a pure-prose report yields no Tier A–C key)
-the scan still runs: the title query becomes the primary key, one query per individual
-title term is added (up to 3), and if all return nothing the engine lists the 20 most
-recent issues unkeyed and presents the newest 5 under an explicit weak-signal caveat. The
-scan never silently does nothing.
+**When the body cites no identifier at all** (a pure-prose report yields no Tier A–C key) the scan
+still runs: the title query becomes the primary key, one query per individual title term is added
+(up to 3), and if all return nothing the engine lists the 20 most recent issues unkeyed and presents
+the newest 5 under an explicit weak-signal caveat. The scan never silently does nothing.
 
 ### Invocation
 
@@ -143,41 +122,36 @@ gh issue list -R {feedback.repo} --state all --limit 20 --search "{query} in:tit
   --json number,title,state,createdAt,url
 ```
 
-- `--state all` is **mandatory** (this engine's default would otherwise inject an
-  open-only qualifier). A defect already fixed but not yet released is exactly where a
-  duplicate is most likely and least useful, and searching closed issues costs nothing.
-- `--limit 20` per query. The union across all queries is what gets ranked; only the top
-  few are ever shown.
-- The `--json` field set is exactly these five. Do not add fields without first confirming
-  they exist on the installed `gh` — an unknown field name makes the whole call exit
-  non-zero, converting a working scan into a degradation row.
-- `{query}` is one search key, already safety-filtered, always double-quoted.
-- `in:title,body` keeps the match off labels and comment threads, where a shared word
-  produces noise.
-- Read-only. `gh issue view {NN} -R {feedback.repo} --json number,title,state,url` is the
-  only other invocation this step may make, and only to validate a user-named issue
-  number at gate 5. No other `gh` subcommand is permitted here.
+| Element | Rule |
+|---|---|
+| `--state all` | **Mandatory** — this engine's default would otherwise inject an open-only qualifier. A defect already fixed but not yet released is exactly where a duplicate is most likely and least useful, and searching closed issues costs nothing. |
+| `--limit 20` | Per query. The union across all queries is what gets ranked; only the top few are ever shown. |
+| `--json` | Exactly these five fields. Do not add fields without first confirming they exist on the installed `gh` — an unknown field name makes the whole call exit non-zero, converting a working scan into a degradation row. |
+| `{query}` | One search key, already safety-filtered, always double-quoted. |
+| `in:title,body` | Keeps the match off labels and comment threads, where a shared word produces noise. |
+| Permitted surface | Read-only. `gh issue view {NN} -R {feedback.repo} --json number,title,state,url` is the only other invocation this step may make, and only to validate a user-named issue number at gate 5. No other `gh` subcommand is permitted here. |
 
-When the body cites no identifier and every title query returns nothing, one unkeyed
-recency listing runs in their place:
+When the body cites no identifier and every title query returns nothing, one unkeyed recency
+listing runs in their place:
 
 ```
 gh issue list -R {feedback.repo} --state all --limit 20 \
   --json number,title,state,createdAt,url
 ```
 
-**Budget.** 10 seconds per query — on exceeding it, abandon that key and continue to the
-next; 30 seconds for the whole scan — on exceeding it, issue no further queries and rank
-whatever merged. `gh` has no timeout flag, and the engine must not wrap the call in
-`timeout` or `Start-Job` — the plugin runs under both Git Bash and PowerShell and neither
-wrapper exists in both — so the budget is a policy the executing agent enforces, not a flag.
+**Order and budget.** Queries run in descending key score, identifier keys before the title query,
+so a budget that cuts the scan short has already run the strongest keys. 10 seconds per query — on
+exceeding it, abandon that key and continue to the next; 30 seconds for the whole scan — on
+exceeding it, issue no further queries and rank whatever merged. `gh` has no timeout flag and the
+engine must not wrap the call in `timeout` or `Start-Job` (the plugin runs under both Git Bash and
+PowerShell; neither wrapper exists in both), so the budget is agent-enforced policy, not a flag.
 
-**Merge.** Union the result rows on `number`; an issue returned by more than one query
-appears **once**, recording the set of keys that matched it (`matched_keys`) and the
-highest score among them (`best_key_score`). If a returned issue's title is byte-identical
-to the draft title and it was created within the last 10 minutes, it is this same draft
-posted by an interrupted earlier run: drop it from the table and report it above the table
-as `This draft appears to have already been posted as #{NN} — check before posting again.`
+**Merge.** Union the result rows on `number`; an issue returned by more than one query appears
+**once**, recording the keys that matched it (`matched_keys`) and the highest score among them
+(`best_key_score`). If a returned issue's title is byte-identical to the draft title and it was
+created within the last 10 minutes, it is this same draft posted by an interrupted earlier run: drop
+it and report above the table `This draft appears to have already been posted as #{NN} — check
+before posting again.`
 
 ### Presentation
 
@@ -196,33 +170,26 @@ Keep the candidates scoring **≥ 3** and show at most the top **5**:
 |---|-------|-------|-----|-------|------------|
 | 1 | #{NN} | OPEN | 3d | {title} (truncated to 60 chars, trailing `…`) | `{query}` |
 
-Age is `floor((now − createdAt) / 1 day)`, rendered `today` / `{n}d` / `{n}mo` / `{n}y{n}mo`.
-Closed issues are never penalized in ranking — a defect fixed but unreleased is a
-duplicate the reporter most wants to know about. State breaks ties only: higher
-`best_key_score` first, then `OPEN` before `CLOSED`, then the more recent. If more than 5
-clear the threshold, append one line:
+Age is `floor((now − createdAt) / 1 day)`, rendered `today` / `{n}d` / `{n}mo` / `{n}y{n}mo`. Closed
+issues are never penalized — a defect fixed but unreleased is a duplicate the reporter most wants to
+know about; state breaks ties only: higher `best_key_score` first, then `OPEN` before `CLOSED`, then
+the more recent. If more than 5 clear the threshold, append one line:
 `… and {N} further lower-ranked matches (not shown).`
 
-**Distinctive keys outweigh generic ones.** Nothing in the score discounts a key for being
-common across the tracker, so several matches on broad vocabulary — a widely-used command
-span, or title wording — can out-total one match on a genuinely distinctive identifier. Two
-rules close that gap:
-
-- Before the top-5 cut, **reserve a slot for each of the two highest-scoring candidates
-  whose `best_key_score` is 4** — that is, matched by a cited file name. A candidate
-  matched by a distinctive identifier is never pushed off the presented list by candidates
-  matched only on generic vocabulary, whatever their totals.
-- A candidate whose only matches are title terms (`best_key_score` 1) never outranks one
-  with `best_key_score` ≥ 3.
-
-If at least one issue matched but none cleared the threshold, that is **not** the
-zero-result branch: it is a positive finding, and it carries its own caveat below.
+**Distinctive keys outweigh generic ones.** Nothing in the score discounts a key for being common
+across the tracker, so several matches on broad vocabulary — a widely-used command span, or title
+wording — can out-total one match on a genuinely distinctive identifier. Two rules close that gap:
+before the top-5 cut, **reserve a slot for each of the two highest-scoring candidates whose
+`best_key_score` is 4** (matched by a cited file name), so a candidate matched by a distinctive
+identifier is never pushed off the presented list by candidates matched only on generic vocabulary,
+whatever their totals; and a candidate whose only matches are title terms (`best_key_score` 1) never
+outranks one whose `best_key_score` is ≥ 3.
 
 ### When the scan cannot complete
 
-**The scan never blocks.** It is a step, not a gate — the "ALL gates below MUST pass" rule
-governs gates 1–5 only. Every failure mode below proceeds to gate 5 carrying a caveat; none
-halts, none errors out, none is retried more than the budget allows.
+**The scan never blocks.** It is a step, not a gate — the "ALL gates below MUST pass" rule governs
+gates 1–5 only. Every failure mode below proceeds to gate 5 carrying a caveat; none halts, none
+errors out, none is retried more than the budget allows.
 
 Two classes, never collapsed into one message:
 
@@ -231,25 +198,18 @@ Two classes, never collapsed into one message:
 | **UNKNOWN** | The scan did not complete — no repo configured, auth rejected, rate limited, repo unreachable, `gh` unavailable, any other non-zero exit, a 10 s per-query or 30 s whole-scan timeout with nothing returned, or no usable search key | say "could not"/"unknown"; never read as a finding | `Duplicate scan could not run — the GitHub API rate limit was reached. Whether this duplicates an existing issue is unknown.` |
 | **CLEAR** | The scan completed — zero matches, or matches all below the relevance threshold | state the positive finding; never read as a failure | `Duplicate scan: no matching issues found in {feedback.repo}, open or closed, across {n} searches.` |
 
-"No duplicates found" and "we could not check" license opposite decisions. A user who reads
-the second as the first files the duplicate this step exists to prevent.
+"No duplicates found" and "we could not check" license opposite decisions. A user who reads the
+second as the first files the duplicate this step exists to prevent. The branch caveats, verbatim:
 
-A partial scan (some queries returned, some timed out) shows its candidates **and** says so:
-`Duplicate scan was incomplete — {k} of {n} searches returned. Candidates below may be
-missing entries.`
+| Branch | `{scan_caveat}` |
+|---|---|
+| Some queries returned, some timed out | `Duplicate scan was incomplete — {k} of {n} searches returned. Candidates below may be missing entries.` — shown **with** whatever candidates merged, never instead of them |
+| Matches found, all below the threshold — a CLEAR result, not a zero-result one | `Duplicate scan: no close matches in {feedback.repo}, open or closed ({N} weak matches suppressed).` |
+| No identifier cited, so only title wording could be searched — a **weak** clear | `Duplicate scan: nothing matched, but the draft cites no file, command, or error string — only title wording was searched, which is a weak signal. The 5 most recent issues are listed for comparison.` |
 
-Matches that all fall below the threshold are a CLEAR result, not a zero-result one:
-`Duplicate scan: no close matches in {feedback.repo}, open or closed ({N} weak matches
-suppressed).`
-
-Where the body cited no identifier and only title wording could be searched, the caveat
-says so — a **weak** clear, not a strong one: `Duplicate scan: nothing matched, but the
-draft cites no file, command, or error string — only title wording was searched, which is a
-weak signal. The 5 most recent issues are listed for comparison.`
-
-Whatever the branch, the caveat is one line — `{scan_caveat}` — and it is the first line of
-the scan block at gate 5 and the first line of the possible-duplicates block in a draft.
-One string, one source of truth, two render sites.
+Whatever the branch, the caveat is one line — `{scan_caveat}` — the first line of the scan block at
+gate 5 and of the possible-duplicates block in a draft. One string, one source of truth, two render
+sites.
 
 ---
 
@@ -470,3 +430,7 @@ Every placeholder used above, for the four call sites that render this engine's 
 | `{query}` | One duplicate-scan search key, already restricted to `^[A-Za-z0-9._/:+#-]{3,60}$` and always double-quoted on the command line. |
 | `{scan_caveat}` | The single-line duplicate-scan result string — the first line of the scan block at gate 5 and of the possible-duplicates block in a draft. |
 | `{n}`, `{k}`, `{N}` | Inline integer counts: `{n}` searches attempted (and the quantity in a rendered age), `{k}` of them that returned, `{N}` further or suppressed matches not shown. |
+
+Two brace forms above are deliberately not placeholders and need no row: `{3,60}` in the search-key
+pattern is a regular-expression quantifier, and a self-describing slot inside a template fence
+(`{the approved body, verbatim, …}`) names its own contents.

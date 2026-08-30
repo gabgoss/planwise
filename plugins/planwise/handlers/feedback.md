@@ -42,9 +42,10 @@ pipeline to the shared submission engine.
 
 Before proceeding, read:
 - `references/feedback-submission.md` — the shared submission engine. It is the ONE
-  place the gate chain, draft-first invocation, fallback posture, Auto-Mode deviation,
-  issue body spec, and privacy contract are specified. This handler cites and delegates
-  to it end to end; it does not re-specify, shortcut, or duplicate any of the above.
+  place the gate chain, the duplicate scan, draft-first invocation, fallback posture,
+  Auto-Mode deviation, issue body spec, and privacy contract are specified. This handler
+  cites and delegates to it end to end; it does not re-specify, shortcut, or duplicate any
+  of the above.
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`,
 `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
@@ -83,6 +84,8 @@ duplicate any part of that pipeline; it supplies inputs and reports the result.
 ### Step 5: Report the Outcome
 
 - If the engine posted the issue: report the URL it returned.
+- If the engine posted a comment on an existing issue instead: report the comment URL it
+  returned.
 - If the engine stopped at any gate (including the Config-Gate exception above), or the
   post failed: report the draft's absolute path and
   `https://github.com/gabgoss/planwise/issues`.
