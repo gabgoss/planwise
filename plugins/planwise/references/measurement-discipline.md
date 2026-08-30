@@ -202,6 +202,7 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > ```bash
 > git diff $BASE -- <paths> | grep -E '^\+' | grep -E '<forbidden-pattern>'   # expect empty
 > ```
+> `$BASE` is the sprint's recorded baseline, defined in `references/verification-gates.md` §8, which also states how the sprint's first repo-touching task records it before that task's first edit.
 > Three independent blind spots, each sufficient on its own to make the gate unfalsifiable:
 > 1. **Untracked files never appear in `git diff` at all.** A task that CREATES files gets an empty result from a pipeline those files' content never entered.
 > 2. **`^\+` filtering hides everything predating the base.** A defect older than `$BASE` is a context line, not an added line, so it is invisible by construction — and stays invisible across every later session reusing the shape.

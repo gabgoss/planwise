@@ -1,9 +1,9 @@
 ---
-description: Eleven binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, run-time-sound verification commands and context pointers, retirement-deliverables deletion-set derivation, and config-editing permission-round-trip scaffolding
+description: Twelve binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, run-time-sound verification commands and context pointers, retirement-deliverables deletion-set derivation, config-editing permission-round-trip scaffolding, and first-task sprint diff-baseline recording
 ---
 # Scaffolding Hygiene
 
-**Purpose:** Enforce eleven mechanical hygiene rules — and apply three advisory scaffolding practices (§8–§10) — when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
+**Purpose:** Enforce twelve mechanical hygiene rules — and apply three advisory scaffolding practices (§8–§10) — when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
 
 This file is the §14 expansion referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols). Read it before generating any `Sprint-{XX}-{Name}/` folders.
 
@@ -23,6 +23,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 - [12. Verification Commands and Context Pointers Must Be Run-Time Sound](#12-verification-commands-and-context-pointers-must-be-run-time-sound)
 - [13. Retirement Deliverables Must Derive the Deletion Set](#13-retirement-deliverables-must-derive-the-deletion-set)
 - [14. Scaffold a Config-Editing Plan for a Permission Round-Trip](#14-scaffold-a-config-editing-plan-for-a-permission-round-trip)
+- [15. First Task of Each Sprint Records the Diff Baseline](#15-first-task-of-each-sprint-records-the-diff-baseline)
 
 ---
 
@@ -579,4 +580,52 @@ Planwise-level self-modification authorization does not pre-clear this harness-l
 
 ---
 
-*Eleven binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*
+## 15. First Task of Each Sprint Records the Diff Baseline
+
+A sprint's verification gates are only as trustworthy as the tree state they name, and a gate written as `git diff $..._BASE -- <paths>` is unfalsifiable if no task in the sprint was ever given the job of recording that base. The unset name expands to nothing, the command degrades into a bare whole-tree `diff`, and it still runs, still prints, and still reads as green or red — so the failure is invisible at exactly the moment the report is written. Scaffolding is where that gap is closed: the obligation to pin a baseline is assigned to a task at scaffold time or it does not exist at all.
+
+> [!constraint] Every sprint carries a baseline-recording obligation, assigned to a task at scaffold time
+> **Who.** The first task in the sprint that **touches the target repo** records the baseline — identified by **write-set, not by task number**. The first *numbered* task is routinely a read-only survey, inventory, or discovery pass; the first *touching* task is the one whose Output names a file in that repo. Assign the obligation to that task and state in its brief why it holds it, so a later re-ordering of the task list does not silently move the pin off the front.
+>
+> **Precondition.** Before pinning, the sprint's own write scope MUST be clean:
+> ```bash
+> git -C <repo> status --porcelain -- <this sprint's write paths>
+> # MUST be empty. Non-empty → HALT. Not a warning — a halt.
+> ```
+> Uncommitted work inside the sprint's own write-set makes every later gate unfalsifiable in both directions: the base already contains changes this sprint did not make, so a scope gate fails the sprint for someone else's edits, while a self-containment sweep either blames it for a token it never wrote or credits its own leak elsewhere. Scope the precondition with `--` to the sprint's write paths rather than the whole repo — unrelated dirt outside the sprint's area is not this sprint's to stash, and a whole-repo cleanliness demand is the kind of gate sessions learn to override.
+>
+> **What.**
+> ```bash
+> {ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)
+> ```
+>
+> **Where.** The session Recovery file's Key Findings, as that task's **first** Recovery write — before any file edit, so a compaction or a crash mid-task does not lose the pin. Record the name, the value, and which task recorded it. Every later task in the sprint then **reads the value from Recovery** instead of re-deriving it: a `rev-parse HEAD` taken after the first edit is not the baseline, and a gate scoped to it is blind to every change made before it ran.
+>
+> **Series base.** A multi-sprint plan additionally records `{ABBREV}_SERIES_BASE` at the first task of the first sprint, for the release / whole-series battery that needs one base predating every sprint. **First-to-touch contingency:** a sprint that may not run first — any sprint the plan's ordering declares INDEPENDENT — MUST check the plan's Recovery files for an already-recorded series base before minting one, and **adopt that value verbatim** if it finds one. Only when none exists does its own HEAD become the series base.
+
+> [!constraint] Scaffold the pin onto a task, or the sprint's gates measure the wrong tree
+> WRONG — the sprint's gates all name a base, but the scaffold assigned the pin to nobody; and where a task does pin, it pins after it has already started editing:
+> ```
+> {Abbrev}-S{XX}-01   Output: <file A>
+>   Step 1: edit <file A>   …   Step 5: {ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)
+> {Abbrev}-S{XX}-02   Verification: git -C <repo> diff $..._BASE -- <paths> | …   # nothing ever recorded this name
+> ```
+> Task 02's gate expands to a whole-tree `diff` and reports every uncommitted file in the repo as this sprint's. Task 01's late pin does not rescue it either: a base taken after its own edit already contains that edit, so a gate scoped to it is blind to the one change it was written to check and reports empty for the reason that makes empty worthless.
+>
+> CORRECT — the pin is step 1 of the first task whose write-set touches the repo, behind the clean-scope HALT, written to Recovery before any edit:
+> ```
+> {Abbrev}-S{XX}-01   Output: <file A>
+>   Step 1: git -C <repo> status --porcelain -- <this sprint's write paths>   # MUST be empty, else HALT
+>           {ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)
+>           → Recovery Key Findings, as the session's FIRST Recovery write
+>           (first sprint of a series: also check the plan's Recovery files for
+>            {ABBREV}_SERIES_BASE and adopt it verbatim, else record it here too)
+>   Step 2: edit <file A>
+> {Abbrev}-S{XX}-02   Step 1: read {ABBREV}_S{NN}_BASE from Recovery — do not re-derive
+> ```
+
+This section owns **who** records a baseline, **when**, and **where** it lives; what a gate must then look like once a base exists — the `--` path scoping, the positive allow-list form of a scope test, and the five sub-rules governing each gate shape — belongs to [verification-gates.md](verification-gates.md#8-diff-scoped-gates-pin-a-recorded-baseline) §8, the definition site for `$..._BASE`. Its §8.1 and §8.4 state the pin mechanics and the series-base contingency from the *gate's* side; the scaffolding obligation above is what makes them satisfiable, and neither restates the other. Read §8 before authoring any diff-scoped gate.
+
+---
+
+*Twelve binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*

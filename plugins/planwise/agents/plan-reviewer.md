@@ -175,9 +175,11 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 
 - Verify that any task gate deriving its input from a change set registers untracked files and asserts its input set was non-empty (`references/measurement-discipline.md` §8.7 sub-rule A)
 - Confirm that any task with a compaction/consolidation objective pairs its size gate with a content-conservation gate (`references/measurement-discipline.md` §8.7 sub-rule B)
+- Verify that every task's `git diff` is scoped to a recorded `{ABBREV}_S{NN}_BASE` and path-scoped with `-- <paths>` rather than a `grep` pipe (`references/verification-gates.md` §8)
 
 - Check 074 — Diff-Derived Gate Without Input-Set Assertion → references/measurement-discipline.md §8.7
 - Check 075 — Size Gate Without Content-Conservation Gate → references/measurement-discipline.md §8.7
+- Check 077 — Diff-Scoped Gate Not Baseline-Pinned → references/verification-gates.md §8
 
 ## Sub-role: Change-Surface Reviewer (NEW)
 

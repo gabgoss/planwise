@@ -158,7 +158,7 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > ```
 > **After:**
 > ```
-> {cmd_after_1}    # e.g., {lint-cmd} on changed files (expect: pass)
+> {cmd_after_1}    # e.g., {lint-cmd} on files from git diff $..._BASE -- <paths> (expect: pass)
 > {cmd_after_2}    # e.g., {test-cmd} or specific test
 > {cmd_after_3}    # e.g., {test-cmd} on the touched module
 > ```
@@ -180,6 +180,27 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 
 > [!constraint] Every Verification Command Names Its Owner
 > Each command in the Before/After blocks MUST name its owner — **runner** or **orchestrator** — the one who runs it. An unattributed command that mutates the artifact it checks is the specific shape that invites a double execution: both the runner and the orchestrator may run it, and a mutating check run against a file the runner still owns produces a two-writer measurement that is indistinguishable from a settled one.
+
+> [!constraint] Diff-Derived Verification Commands Are Baseline-Scoped
+> Any command in the Before/After blocks whose input is `git diff` MUST be scoped to a
+> recorded `{ABBREV}_S{NN}_BASE` — never a bare `git diff`, `git diff HEAD`, or
+> `git diff --name-only` with no operand. Path-scope with `-- <paths>`, never
+> `| grep <path>`: the piped form reads the whole tree, so a sibling sprint's concurrent
+> work trips the gate as if it were this sprint's own edit. The baseline itself is
+> recorded once — by the sprint's first task that touches the repo, in Recovery Key
+> Findings, before that task's first edit — behind a clean-scope precondition
+> (`git status --porcelain -- <write paths>` empty, else HALT). See
+> `references/verification-gates.md` §8 for the full rule; this block states the
+> requirement, the reference carries the doctrine.
+>
+> WRONG — no operand, so the command reads the entire working tree:
+> ```bash
+> git diff plugins/… | grep -E '<pattern>'   # expect empty
+> ```
+> CORRECT — scoped to the recorded base and to this sprint's own paths:
+> ```bash
+> git diff $<ABBREV>_S<NN>_BASE -- <paths> | grep -E '<pattern>'   # expect empty
+> ```
 
 ---
 
