@@ -120,7 +120,7 @@ Disambiguation when unsure:
 ### Markdown Structure
 
 - **One H1** as the document title (line 1, or right after YAML frontmatter). Never skip heading levels — H2 follows H1, H3 follows H2. Separate major H2 sections with `---`.
-- **Section length:** keep each section 50–150 lines; split anything over 150 into H3 subsections. Keep whole output files under the one-read token budget — **< 22,000 measured tokens** (`measure_files.py`; split into `{Abbrev}-{Name}-Part-N-{Topic}.md` files when larger).
+- **Section structure:** one section = one idea. Split a section when it covers two distinct concerns a reader would seek separately — never to hit a line count, and never by compressing or dropping findings. Keep whole output files under the one-read token budget — **< 22,000 measured tokens** (`measure_files.py`; split into `{Abbrev}-{Name}-Part-N-{Topic}.md` files when larger).
 - **Structural signal strength** — reach for the strongest that fits, in order: Headers (boundary/hierarchy) > Code blocks (mode switch) > Tables (parallel/lookup data) > Numbered lists (ordered steps) > Callouts (type disambiguation) > Horizontal rules (visual only).
 - **Most important information first** — content near a header gets the strongest attention; do not bury anything critical in the middle of a long section.
 
