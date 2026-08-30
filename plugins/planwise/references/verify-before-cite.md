@@ -416,9 +416,9 @@ Issue: Reference "{name}" not found in live source "{source_path}"
 Fix: Verify per references/verify-before-cite.md §9.B.14 | Confidence: HIGH
 ```
 
-### 9.B.8 Field-mapping table for consumed data models; `wc -l ≤ 500` output gate
+### 9.B.8 Field-mapping table for consumed data models; measured output-size gate
 
-> [!constraint] A task consuming another module's data model MUST carry a field-mapping table, and task-file outputs MUST be gated at `wc -l ≤ 500`
+> [!constraint] A task consuming another module's data model MUST carry a field-mapping table, and task-file outputs MUST be gated at the measured token budget
 > Two distinct contract-fidelity gates share this subsection:
 >
 > **Field-mapping table.** When a task's input is another module's data model (a
@@ -431,11 +431,13 @@ Fix: Verify per references/verify-before-cite.md §9.B.14 | Confidence: HIGH
 > alignment strategy — which row field maps to which target column, and how name
 > or position mismatches are resolved.
 >
-> **`wc -l ≤ 500` output gate.** A task whose output is itself a task file (or
-> any plan artifact) MUST be gated so the produced file satisfies `wc -l ≤ 500` —
-> the project soft limit. If the projected output exceeds it, pre-split per §9.A.7.
+> **Measured output-size gate.** A task whose output is itself a task file (or
+> any plan artifact) MUST be gated so the produced file lands OK on all three
+> Read gates — under 22,000 measured tokens (the reading model's ratio), under
+> 240 KiB, under 2,000 lines. Verify with `measure_files.py`; if the projected
+> output exceeds the token budget, pre-split per §9.A.7.
 >
-> WRONG — consume a data model with no field map; emit a 700-line task file:
+> WRONG — consume a data model with no field map; emit an output nobody measured:
 > ```markdown
 > ## Execution Steps
 > 1. Read {ModelType} and generate the downstream config.
@@ -451,23 +453,24 @@ Fix: Verify per references/verify-before-cite.md §9.B.14 | Confidence: HIGH
 >    | {field-a} | {purpose} |
 >    | {field-b} | {purpose} |
 >
-> 2. Emit the config; verify `wc -l` of each produced file ≤ 500 (pre-split
->    per §9.A.7 if not).
+> 2. Emit the config; verify each produced file lands OK via
+>    `python "{plugin_root}/scripts/measure_files.py" {file} --model {reader}`
+>    (pre-split per §9.A.7 if not).
 > ```
 
 Cross-referenced by [templates/task-file.md](../templates/task-file.md) (Interface Consumption block) and [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template).
 
-#### Reviewer Check 029 — Task `wc -l` Pre-COMPLETE Gate
+#### Reviewer Check 029 — Task Measured Output-Size Pre-COMPLETE Gate
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
-- **What:** Task Success Criteria MUST include `wc -l` (or equivalent line-count) verification gate before COMPLETE. Orchestrator-level `wc -l` between dispatches also required.
-- **Detection:** Grep Success Criteria for `wc -l|line.*count|line-count`. File-producing task lacking line-count gate → BLOCKER.
+- **What:** Task Success Criteria MUST include a measured output-size verification gate (`measure_files.py` — tokens/bytes/lines) before COMPLETE. Orchestrator-level measurement between dispatches also required.
+- **Detection:** Grep Success Criteria for `measure_files|token.*(gate|budget|measure)`. File-producing task lacking a measured size gate → BLOCKER.
 - **Finding template:**
 ```
-[BLOCKER] Task wc -l pre-COMPLETE gate missing
+[BLOCKER] Task measured output-size pre-COMPLETE gate missing
 File: {task file path} | Location: Success Criteria checklist
-Issue: File-producing task lacks line-count verification
-Fix: Add wc -l gate per references/verify-before-cite.md §9.B.8 | Confidence: HIGH
+Issue: File-producing task lacks measured size verification
+Fix: Add a measure_files.py gate per references/verify-before-cite.md §9.B.8 | Confidence: HIGH
 ```
 
 #### Reviewer Check 033 — Task MERGE/Upsert Field Mapping Subsection
@@ -714,6 +717,11 @@ Applies to tasks that fetch from web pages, paginated APIs, large remote documen
 > CORRECT — "an `.ipynb` is JSON, so never anchor a grep with `^`": states the
 > underlying invariant; never rots regardless of what the cited file does
 > next.
+
+### 9.B.20 Citing the current state of a file requires recording which tree and when
+
+> [!constraint] A task that cites the current state of a file must record which tree it read and when
+> Verify-before-cite proves a citation is accurate *now*; it does not by itself record *which tree* "now" was read against, or pin that tree's state so the claim can be reproduced. When a task's deliverable is itself a verdict about code state — not just a citation used in passing — see [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) §12 (Verification Task Tree-State Pin) for the tree-naming and read-window-pinning discipline this triggers.
 
 ---
 

@@ -10,7 +10,8 @@ modules split along their own natural seam:
     and write back to config.yaml). These numbers are MEASURED, not
     hardcoded.
   * `read_limits` — the *Read-tool mechanical limits*: FIXED,
-    empirically-measured harness facts (byte cap, per-model token page-cap)
+    empirically-measured harness facts (the token page-cap with per-model
+    bytes-per-token ratios, the byte cap, and the defensive line window)
     plus `classify_file`, which folds them with an optional cost-budget gate.
 
 `token_saver` remains importable exactly as before — every name either
@@ -37,20 +38,24 @@ from context_calibration import (
     set_token_saver,
 )
 from read_limits import (
+    BYTES_PER_TOKEN,
+    DEFAULT_BYTES_PER_TOKEN,
     READ_BYTE_WARN,
     READ_FILE_BYTE_CAP,
     READ_LIMITS_MEASURED_CLI,
     READ_LIMITS_MEASURED_ON,
+    READ_LINE_CAP,
     READ_PAGE_CAP_TOKENS,
     READ_TOKEN_WARN,
-    TOKENS_PER_LINE,
     _LEVEL_RANK,
     _LEVELS,
     _count_lines,
     _cost_level,
     _max_level,
     _read_level,
+    bytes_per_token,
     classify_file,
+    estimate_tokens,
 )
 
 __all__ = [
@@ -59,13 +64,15 @@ __all__ = [
     "DEFAULT_WARN_CEILING",
     "FALLBACK_ORCHESTRATOR_OVERHEAD",
     "FALLBACK_RUNNER_OVERHEAD",
+    "BYTES_PER_TOKEN",
+    "DEFAULT_BYTES_PER_TOKEN",
     "READ_BYTE_WARN",
     "READ_FILE_BYTE_CAP",
     "READ_LIMITS_MEASURED_CLI",
     "READ_LIMITS_MEASURED_ON",
+    "READ_LINE_CAP",
     "READ_PAGE_CAP_TOKENS",
     "READ_TOKEN_WARN",
-    "TOKENS_PER_LINE",
     "_LEVEL_RANK",
     "_LEVELS",
     "_count_lines",
@@ -76,11 +83,13 @@ __all__ = [
     "_read_level",
     "_write_back",
     "attribution",
+    "bytes_per_token",
     "calibrate",
     "capture_context",
     "classify_file",
     "derive_overheads",
     "derive_thresholds",
+    "estimate_tokens",
     "parse_context_report",
     "set_token_saver",
 ]

@@ -38,6 +38,7 @@ This guide walks you through everything from zero. No prior experience with plug
 - **Claude Code** installed and working ([get it here](https://docs.anthropic.com/en/docs/claude-code) if you haven't already)
 - **Python 3.8+** installed on your computer (planwise uses small Python scripts for backlog scoring)
 - A project you want to manage
+- **Optional: [GitHub CLI](https://cli.github.com/) (`gh`)** — only needed if you want `/planwise feedback` to file its issue for you. Without it, feedback still works: your report is saved as a draft file and you paste it into the issues page yourself. You don't have to install it up front — `/planwise init` and `/planwise upgrade` offer to install it for you if it's missing.
 
 > **How to check if Python is installed:**
 > Open your terminal and type `python --version` or `python3 --version`.
@@ -159,7 +160,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, Token Saver staleness (`--prune-stale` to clean up) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, feedback capability, Token Saver staleness (`--prune-stale` to clean up) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
@@ -169,7 +170,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
 | `/planwise harvest` | Run the lesson-to-artifact chain end to end, unattended |
-| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream |
+| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (needs `gh` to post directly) |
 | `/planwise help` | Show available commands and link to user guide |
 
 ---

@@ -139,7 +139,7 @@ Task(
 > [!constraint] The sheet is the evidence source, not a substitute for measuring
 > A reviewer's line-count finding cites the review discovery fact sheet's row for that file. If a reviewer's own reading contradicts the sheet, it MUST re-measure and say explicitly that it re-measured — a differing number offered without that statement is a silent override, and a number simply copied from the sheet when the reviewer knows it is wrong is a silent deference. Both are findings-level errors.
 >
-> Neither branch weakens the standard the count itself must meet: the number is a measured `wc -l`, never the last line number of a `Read` output (`references/measurement-discipline.md` §8.1). A reviewer that cannot run the measurement itself reports the contradiction to the lead — naming the sheet row and the conflicting observation — and the lead re-measures. It does not silently substitute an unmeasured number.
+> Neither branch weakens the standard the count itself must meet: a line count is a measured `wc -l`, never the last line number of a `Read` output, and a byte or token figure is a measured `measure_files.py` result, never eyeballed from a Read (`references/measurement-discipline.md` §8.1). A reviewer that cannot run the measurement itself reports the contradiction to the lead — naming the sheet row and the conflicting observation — and the lead re-measures. It does not silently substitute an unmeasured number.
 
 ---
 
@@ -160,8 +160,8 @@ Task(
 
     Plan type: {Standard | Meta-Plan}
     Plan path: {PlanPath absolute path}
-    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
-    and byte counts, heading map, and check anchors for every plan file. Cite its
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line,
+    byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
 
@@ -194,8 +194,8 @@ Task(
     EI files: {list of EI file paths}
     Task files: {list of task file paths}
     Orchestration files: {list of orchestration file paths}
-    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
-    and byte counts, heading map, and check anchors for every plan file. Cite its
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line,
+    byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
 
@@ -252,8 +252,8 @@ Task(
     Plan type: {Standard | Meta-Plan}
     Plan path: {PlanPath absolute path}
     All plan file paths: {list every file path in the plan}
-    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
-    and byte counts, heading map, and check anchors for every plan file. Cite its
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line,
+    byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
 
@@ -308,8 +308,8 @@ Task(
     Plan path: {PlanPath absolute path}
     EI files to review: {assigned EI file paths}
     ALL spec/source files: {all spec output paths -- full visibility required}
-    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
-    and byte counts, heading map, and check anchors for every plan file. Cite its
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line,
+    byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
 
@@ -347,8 +347,8 @@ Task(
     Task files: {list of task file paths}
     EI files (for reference): {list of EI file paths}
     Orchestration files: {list of orchestration file paths}
-    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
-    and byte counts, heading map, and check anchors for every plan file. Cite its
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line,
+    byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
 
@@ -375,8 +375,8 @@ Task(
     Plan path: {PlanPath absolute path}
     Task files: {list of task file paths}
     Orchestration files: {list of orchestration file paths}
-    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
-    and byte counts, heading map, and check anchors for every plan file. Cite its
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line,
+    byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
 
@@ -404,8 +404,8 @@ Task(
     Master Plan: {master plan file path}
     Task files: {list of task file paths}
     Sprint plans: {list of sprint plan file paths}
-    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line
-    and byte counts, heading map, and check anchors for every plan file. Cite its
+    Review discovery fact sheet: {FactSheetPath absolute path} -- measured line,
+    byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
 

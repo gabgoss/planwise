@@ -193,7 +193,9 @@ Use `AskUserQuestion` to collect:
 
 **Question 2: Scope**
 - How many sprints do you anticipate? (1-5)
-- What is the first sprint's name and purpose?
+- For EACH sprint in that count, what is its name and purpose? (e.g., "Sprint 1: CoreAuth — login and registration; Sprint 2: AdvancedAuth — SSO and MFA")
+
+**Every sprint named here gets fully scaffolded in this pass** (Steps 3-9 below) — this handler does not stop after Sprint 1.
 
 ### Step 2: Validate
 
@@ -236,20 +238,33 @@ If validation fails, ask user to correct.
 
 ### Step 3: Create Folder Structure
 
-Create the following structure under the configured `{plans_dir}`:
+Create the following structure under the configured `{plans_dir}`, repeating the `Sprint-{XX}-{SprintName}/` block for **every** sprint gathered in Step 1 (`{XX}` = `01`, `02`, ... up to the sprint count) — do not stop after the first sprint:
 
 ```
 {plans_dir}/{PlanName}/
 ├── {Abbrev}-Master-Plan.md
-├── Sprint-01-{SprintName}/
+├── Sprint-01-{Sprint1Name}/
 │   ├── {Abbrev}-S01-Sprint-Plan.md
-│   └── Session-01-{FirstSessionName}/
+│   └── Session-01-{Sprint1SessionName}/
 │       ├── {Abbrev}-S01-01-Orchestration.md
 │       ├── {Abbrev}-S01-01-Recovery.md
 │       ├── {Abbrev}-S01-01-{##}-{Agent}-{Task}.md   # One file per task
 │       └── Outputs/
 │           └── .gitkeep                              # Required so Outputs/ is tracked by git
+├── Sprint-02-{Sprint2Name}/
+│   ├── {Abbrev}-S02-Sprint-Plan.md
+│   └── Session-01-{Sprint2SessionName}/
+│       ├── {Abbrev}-S02-01-Orchestration.md
+│       ├── {Abbrev}-S02-01-Recovery.md
+│       ├── {Abbrev}-S02-01-{##}-{Agent}-{Task}.md   # One file per task
+│       └── Outputs/
+│           └── .gitkeep
+├── ...                                                # same shape for every remaining sprint
+└── Sprint-{N}-{SprintNName}/
+    └── Session-01-{SprintNSessionName}/ ...
 ```
+
+**Every sprint gathered in Step 1 gets its own folder here.** A plan with 3 anticipated sprints creates `Sprint-01/`, `Sprint-02/`, and `Sprint-03/` in this same pass, not just `Sprint-01/`.
 
 **Task File Naming:** `{##}` = two-digit task number (01, 02, 03...) matching the task list.
 
@@ -268,14 +283,18 @@ Create the following structure under the configured `{plans_dir}`:
 
 Use templates from `{plugin_root}/templates/`:
 
-| Step | Template | Output File |
-|------|----------|-------------|
-| 4 | [master-plan.md](../templates/master-plan.md) | `{Abbrev}-Master-Plan.md` |
-| 5 | [sprint-plan.md](../templates/sprint-plan.md) | `{Abbrev}-S01-Sprint-Plan.md` |
-| 6 | [orchestration.md](../templates/orchestration.md) | `{Abbrev}-S01-01-Orchestration.md` |
-| 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S01-01-Recovery.md` |
+| Step | Template | Output File | Cardinality |
+|------|----------|-------------|-------------|
+| 4 | [master-plan.md](../templates/master-plan.md) | `{Abbrev}-Master-Plan.md` | Once — Sprint Overview table lists **all** sprints gathered in Step 1 |
+| 5 | [sprint-plan.md](../templates/sprint-plan.md) | `{Abbrev}-S{XX}-Sprint-Plan.md` | **Once per sprint** (`{XX}` = `01`..sprint count) |
+| 6 | [orchestration.md](../templates/orchestration.md) | `{Abbrev}-S{XX}-01-Orchestration.md` | **Once per sprint** |
+| 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S{XX}-01-Recovery.md` | **Once per sprint** |
+
+Steps 5-7 repeat for every sprint gathered in Step 1 — do not stop after Sprint-01.
 
 ### Step 8: Generate Task Files
+
+**Steps 8 through 8e repeat for every sprint's Session-01 Orchestration file created in Step 6** — finish one sprint's task files before moving to the next. Step 8d (Update Plans Index) is the one exception: it runs once, after every sprint has been scaffolded.
 
 **Search the lessons index for the artifact classes this plan will touch, before authoring task files.**
 
@@ -295,7 +314,7 @@ The payoff scales with repetition: a plan that repeats one task chain across sev
 
 For each task, create a file using the [task-file.md](../templates/task-file.md) template.
 
-**File name pattern:** `{Abbrev}-S01-01-{##}-{Agent}-{TaskName}.md`
+**File name pattern:** `{Abbrev}-S{XX}-01-{##}-{Agent}-{TaskName}.md` (`{XX}` = the current sprint being processed)
 
 After creating task files, update the Orchestration file's Task Files table with links.
 
@@ -316,12 +335,12 @@ Where `{lessons_dir}` and `{lessons_index}` come from `config.yaml`.
 
 ### Step 8c: Validate Token Estimates (Bottom-Up)
 
-**Shared-context pre-pass (measure once, fan out):** Before computing per-task estimates, build the set of files cited in the Required Context of **two or more** tasks (group Required Context rows by file path across the whole session). For each such shared file, measure it **ONCE** — `wc -l` on the live file — and convert to tokens once; then write the **IDENTICAL** `Est. Lines` / `Est. Tokens` values into every citing task's row. A multiply-cited file's size is a single source of truth, never a per-task guess — otherwise one estimation error replicates silently into every citing task's Context subtotal and header `Estimated Tokens`. If a shared doc is edited during authoring, re-measure it and re-fan the new value into all citing rows, then re-roll the affected subtotals, headers, and session totals. The drift is direction-agnostic: an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver Large-File Scan below or under-budget a DELEGATED dispatch.
+**Shared-context pre-pass (measure once, fan out):** Before computing per-task estimates, build the set of files cited in the Required Context of **two or more** tasks (group Required Context rows by file path across the whole session). For each such shared file, measure it **ONCE** — `measure_files.py` on the live file — and record its KiB and tokens once; then write the **IDENTICAL** `KiB` / `~Tokens` values into every citing task's row. A multiply-cited file's size is a single source of truth, never a per-task guess — otherwise one estimation error replicates silently into every citing task's Context subtotal and header `Estimated Tokens`. If a shared doc is edited during authoring, re-measure it and re-fan the new value into all citing rows, then re-roll the affected subtotals, headers, and session totals. The drift is direction-agnostic: an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver Large-File Scan below or under-budget a DELEGATED dispatch.
 
 For each task in the session, compute a bottom-up token estimate:
 
-1. **Measure Required Context files:** For each file in the task's Required Context table, estimate line count (check actual size with Glob/Read or use domain heuristics)
-2. **Convert to tokens:** Apply ~13 tokens/line (see [Per-Operation Cost Reference](../references/session-context-budget.md#per-operation-cost-reference))
+1. **Measure Required Context files:** Run `python "{plugin_root}/scripts/measure_files.py" {files...} --model {task's Agent} --md` over every file in the task's Required Context table — it reports each file's KiB and measured tokens and emits ready-to-paste table rows
+2. **Convert to tokens:** For files that do not exist yet, estimate byte size ÷ the reading model's bytes-per-token ratio (≈3.0 prose/code, ≈2.6 dense markdown; see [Per-Operation Cost Reference](../references/session-context-budget.md#per-operation-cost-reference)) — never lines × a rate
 3. **Add output cost:** Estimate output generation tokens from the operation-level table
 4. **Compare:** If the bottom-up estimate exceeds the qualitative category estimate, use the higher number
 5. **DELEGATED check:** For DELEGATED tasks, verify `(task estimate + injected path-rule tokens + 54K overhead) < the dispatched model's window` per subagent. A subagent's window is set by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M), NOT the parent tier — a Sonnet runner is 200K even when the orchestrator is on Max. See `references/session-context-budget.md` [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window).
@@ -343,37 +362,37 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
    # → {available_per_task, critical, warn}
    ```
 
-2. **Classify each Required Context file** against the runner that will read it (the task's assigned **Agent** — Haiku/Sonnet 13 tok/line, Opus 19; the byte cap is model-independent). For a file the **same task will modify**, pass the projected output delta so a file that *will* cross a gate post-edit is flagged pre-emptively:
+2. **Classify each Required Context file** against the runner that will read it (the task's assigned **Agent** — tokens = bytes ÷ that model family's bytes-per-token ratio; the byte cap and line window are model-independent). For a file the **same task will modify**, pass the projected byte delta (projected added lines × the file's observed average bytes/line) so a file that *will* cross a gate post-edit is flagged pre-emptively:
 
    ```
    verdict = token_saver.classify_file(
        path,
        model = <task's Agent, lowercased>,
-       projected_added_lines = <lines this task adds to this file, else 0>,
+       projected_added_bytes = <bytes this task adds to this file, else 0>,
        thresholds = thresholds)
-   # → {level, reason, bytes, tokens}; level = max(cost_level, read_level)
+   # → {level, reason, bytes, tokens, lines}; level = max(cost_level, read_level)
    ```
 
 3. **Emit a recommendation block per file** at **Notice / Warn / Critical** (Green files are silent), naming the driving `reason`:
    - **Notice** — advisory only. Docs/specs → note a Multi-Part split is advisable; code → note for awareness. No backlog item.
    - **Warn** (`reason=cost` ≥ `warn`, or `reason=read` ≥ 240 KiB / ≥ 22K model-tok) — recommend the remedy by file type (below) **and file a backlog item** via the consumer project's backlog mechanism (`handlers/backlog.md` Phase 7 create flow — generic, no project identifiers).
    - **Critical / `reason=cost`** (≥ `critical`) — warn + file a backlog item + flag the task **`1M-exception`** (dispatch on Opus / 1M) so the plan still completes; the file won't fit a lean task even alone.
-   - **Critical / `reason=read`** (≥ 256 KiB byte cap OR ≥ 25K model-tok page cap) — warn + file a backlog item + recommend a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. Do **NOT** flag `1M-exception`: the 1M window does not raise the per-Read page cap, and Opus's tokenizer (19 tok/line) trips it *sooner* than Sonnet/Haiku.
+   - **Critical / `reason=read`** (≥ 25K model-tok page cap OR ≥ 256 KiB byte cap OR ≥ 2,000 lines) — warn + file a backlog item + recommend a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. Do **NOT** flag `1M-exception`: the 1M window does not raise the per-Read page cap, and the Opus/Fable-family tokenizer trips it on *fewer bytes* than Sonnet/Haiku's.
    - The scan is **never a hard stop** — a source-file Critical advises and files an item; it does not abort planning.
 
 4. **Differentiate the remedy by file type** in the recommendation:
    - **Code** → refactor into smaller modules.
    - **Doc / spec / Execution Input** → Multi-Part split (existing [Multi-Part Output Convention](../references/session-context-budget.md#file-size-limits)).
-   - **Dense (notebook / minified / compressed JSON)** → measure precisely (`wc -c` alongside `wc -l`) and extract only the needed sections.
+   - **Dense (notebook / minified / compressed JSON)** → measure precisely (`measure_files.py`, conservative ratio) and extract only the needed sections.
 
-5. **Generated artifacts the plan itself authors** that a runner MUST read — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files — carry a **HARD** read-gate ceiling (MUST Multi-Part split to stay readable), NOT advisory, per `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](../references/session-context-budget.md#file-size-limits--generated-artifacts-binding-when-token-saver-is-on). External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics).
+5. **Generated artifacts the plan itself authors** that a runner MUST read — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files — carry a **HARD** read-gate ceiling (MUST Multi-Part split to stay readable), NOT advisory, per `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](../references/session-context-budget.md#file-size-limits--generated-artifacts-binding). External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics).
 
 > [!constraint] Read-Reason Critical Is NOT `1M-Exception`-Resolvable
 > WRONG — a Required Context file scans Critical with `reason=read`; the planner flags the task `1M-exception` and dispatches it to Opus, expecting the 1M window to absorb the file:
 > ```
 > # 280 KiB external doc → classify_file → {level: Critical, reason: read}
 > Task flagged: 1M-exception   ← WRONG: the per-Read page cap is unchanged by the window,
->                                and Opus (19 tok/line) trips the token gate SOONER than Sonnet
+>                                and the Opus/Fable tokenizer trips the token gate on FEWER bytes than Sonnet's
 > ```
 > CORRECT — `reason=read` Critical recommends a paged read / refactor and files a backlog item; only `reason=cost` Critical earns `1M-exception`:
 > ```
@@ -382,6 +401,8 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
 > ```
 
 ### Step 8d: Update Plans Index
+
+**Runs once, after every sprint has been scaffolded** (not per-sprint like 8/8a-8c/8e).
 
 Add a row to the plans index so `/planwise list` reflects the new plan:
 
@@ -431,7 +452,7 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
 | `.{build-system-ext}` (e.g., compiled-language sources) | `{format-cmd} {project} --verify-no-changes` | `{build-cmd} {project}` then `{test-cmd} {project}` | Connectivity precheck if integration test |
 | `.{view-template-ext}` | `{format-cmd} {project} --verify-no-changes` | `{build-cmd} {project}` | Smoke render if applicable |
 | `.{ts-ext}` / `.{tsx-ext}` | `{lint-cmd} {path}` | `{build-cmd}` then `{test-cmd}` | Plus `{type-check-cmd}` if the language supports it |
-| `.md` (reference / rule edits) | `{md-lint-cmd} {path}` (if configured) | `{line-count-cmd} {path}` (file ≤ 500 lines per soft limit) | Per `references/markdown-conventions.md` §2 |
+| `.md` (reference / rule edits) | `{md-lint-cmd} {path}` (if configured) | `python "{plugin_root}/scripts/measure_files.py" {path}` (must land OK — < 22K tokens / < 240 KiB / < 2,000 lines) | Per `references/session-context-budget.md` File Size Limits |
 | `.{ext}` (other) | `{lint-cmd} {path}` | `{exec-cmd}` | Consumer-project supplies the binding from `config.yaml.build_commands` |
 
 > [!constraint] Verification Commands MUST Be Populated, Not Templated
@@ -483,19 +504,20 @@ PLAN CREATED: {PlanName}
 
 **Files Created:**
 - {Abbrev}-Master-Plan.md
-- Sprint-01-{SprintName}/{Abbrev}-S01-Sprint-Plan.md
-- Sprint-01-{SprintName}/Session-01-{SessionName}/{Abbrev}-S01-01-Orchestration.md
-- Sprint-01-{SprintName}/Session-01-{SessionName}/{Abbrev}-S01-01-Recovery.md
-- Sprint-01-{SprintName}/Session-01-{SessionName}/{Abbrev}-S01-01-{##}-{Agent}-{Task}.md (x{N} task files)
-- Sprint-01-{SprintName}/Session-01-{SessionName}/Outputs/ (folder)
+- Sprint-01-{Sprint1Name}/{Abbrev}-S01-Sprint-Plan.md
+- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-Orchestration.md
+- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-Recovery.md
+- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-{##}-{Agent}-{Task}.md (x{N1} task files)
+- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/Outputs/ (folder)
+- ... (same block repeated for Sprint-02 through Sprint-{count}, using each sprint's own name/session/task files)
 
-**Task Files Created:** {N} files (one per task)
+**Task Files Created:** {N} files total across all {count} sprints (one per task, per sprint)
 
 **Next Steps:**
 1. Review and refine the Master Plan
 2. Review task files for completeness
 3. Run `/planwise review {Abbrev}` to validate the plan (recommended before execution)
-4. Execute Session-01 using `/planwise run` or manually following READ-CONFIRM-ACT
+4. Execute Sprint-01/Session-01 using `/planwise run` or manually following READ-CONFIRM-ACT
 ```
 
 ### Step 10: Plan Review Gate

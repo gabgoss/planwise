@@ -20,7 +20,7 @@ maxTurns: 50
 ## 1. READ — Load Task Context
 
 1. Read the task file provided in the spawn prompt
-2. Read every file listed in the Required Context table
+2. Read every file listed in the Required Context table — fully. A row flagged `⚠ PAGED ≥25K {model}-tok` or `⚠ REFACTOR ≥256 KiB`, and ANY Read that returns a `[Truncated: PARTIAL view …]` banner, MUST be paged with `offset`/`limit` (or Grep for the needed sections) until the whole file is covered — one Read that silently returned only the first page (~21K of the 25K-token cap) does not count as read. Size each page under the cap: an explicit `limit` whose window spans more than ~25K tokens hard-errors with zero content (the truncation banner's `offset`/`limit` hint is a safe next-page size).
 3. Note the Execution Steps, Expected Output, and Success Criteria sections
 4. If any Required Context file is missing, report the error and stop
 
@@ -120,7 +120,7 @@ Disambiguation when unsure:
 ### Markdown Structure
 
 - **One H1** as the document title (line 1, or right after YAML frontmatter). Never skip heading levels — H2 follows H1, H3 follows H2. Separate major H2 sections with `---`.
-- **Section length:** keep each section 50–150 lines; split anything over 150 into H3 subsections. Keep whole output files under the **500-line** soft limit (split into `{Abbrev}-{Name}-Part-N-{Topic}.md` files when larger).
+- **Section structure:** one section = one idea. Split a section when it covers two distinct concerns a reader would seek separately — never to hit a line count, and never by compressing or dropping findings. Keep whole output files under the one-read token budget — **< 22,000 measured tokens** (`measure_files.py`; split into `{Abbrev}-{Name}-Part-N-{Topic}.md` files when larger).
 - **Structural signal strength** — reach for the strongest that fits, in order: Headers (boundary/hierarchy) > Code blocks (mode switch) > Tables (parallel/lookup data) > Numbered lists (ordered steps) > Callouts (type disambiguation) > Horizontal rules (visual only).
 - **Most important information first** — content near a header gets the strongest attention; do not bury anything critical in the middle of a long section.
 

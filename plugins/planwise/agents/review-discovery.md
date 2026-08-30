@@ -49,9 +49,13 @@ Record each path **relative to `plan_path`**. That relative path is the row's
 
 ## Step 2 — Measure every row (the one place the shell is required)
 
-Measure both counts for **every** enumerated file with `Bash`: `wc -l` for
-lines, `wc -c` for bytes. Lines feed the line-count checks; bytes feed the
-read-gate and large-file scans, which size a file in bytes rather than lines.
+Measure **every** enumerated file with `Bash` running
+`python "{plugin_root}/scripts/measure_files.py" {files...}` — it reports
+bytes, KiB, lines, and estimated tokens (bytes ÷ the conservative
+bytes-per-token ratio) per file in one executed command. (`wc -l` / `wc -c`
+remain the raw equivalents for lines and bytes.) Lines feed the line-count
+checks; bytes and tokens feed the read-gate and large-file scans, which size
+a file in bytes and tokens rather than lines.
 
 > [!constraint] Every number in the sheet comes from an executed command
 > A count you did not run a command to obtain does not belong in this sheet.
@@ -86,7 +90,7 @@ them mechanically with `Grep`; extract nothing else, and judge nothing.
 | `agent` | task file header | the declared agent/model |
 | `estimated_tokens` | task file header | the declared token estimate |
 | `depends_on` | task file header | the declared dependency list |
-| `required_context` | task file Required Context table | one entry per row: cited path, `Est. Lines`, `Est. Tokens` |
+| `required_context` | task file Required Context table | one entry per row: cited path, `KiB`, `~Tokens` |
 | `context_subtotal` | task file, below Required Context | the declared subtotal |
 | `token_saver` | master plan header | the declared value, or `absent` |
 | `counts` | master plan, sprint plans, orchestration files | sprint / session / task counts as declared |
@@ -101,15 +105,15 @@ reviewer cites a row as `review discovery fact sheet → {key}: {lines} lines`.
 
 **Plan path:** {plan_path}
 **Plan type:** {Standard | Meta-Plan}
-**Measurement:** every Lines/Bytes value below was produced by an executed
-`wc -l` / `wc -c` against the file on disk.
+**Measurement:** every Lines/Bytes/~Tokens value below was produced by an
+executed `measure_files.py` (or `wc -l` / `wc -c`) against the file on disk.
 
 ## 1. File Inventory
 
-| Key | Kind | Lines | Bytes |
-|---|---|---|---|
-| `{Abbrev}-Master-Plan.md` | master-plan | {n} | {n} |
-| `Exec-{Abbrev}/{sprint folder}/{session folder}/{task file}.md` | task | {n} | {n} |
+| Key | Kind | Lines | Bytes | ~Tokens |
+|---|---|---|---|---|
+| `{Abbrev}-Master-Plan.md` | master-plan | {n} | {n} | {n} |
+| `Exec-{Abbrev}/{sprint folder}/{session folder}/{task file}.md` | task | {n} | {n} | {n} |
 
 Kind vocabulary: `master-plan`, `sprint-plan`, `orchestration`,
 `execution-input`, `task`, `recovery`, `output`, `review`, `other`.
@@ -125,7 +129,7 @@ Kind vocabulary: `master-plan`, `sprint-plan`, `orchestration`,
 | Key | Anchor | Value |
 |---|---|---|
 | `{key}` | `estimated_tokens` | {value} |
-| `{key}` | `required_context` | `{cited path}` — Est. Lines {n}, Est. Tokens {n} |
+| `{key}` | `required_context` | `{cited path}` — KiB {n}, ~Tokens {n} |
 
 ## 4. Unmeasured
 

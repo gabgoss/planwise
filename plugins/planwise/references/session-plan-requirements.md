@@ -49,7 +49,7 @@ description: Required file specifications per plan level and the DELEGATED-trigg
 - Organized by domain or execution unit (one part per sprint scope)
 - Become the PRIMARY INPUT for the Scaffolding Phase
 - Live at: `Meta-{Abbrev}/Outputs/{Abbrev}-Consolidated-Context-Part-{N}-{Topic}.md`
-- Each part ≤ 500 lines; use as many parts as needed for full coverage
+- Each part < 22,000 measured tokens (reading model's ratio; verify with `measure_files.py`); use as many parts as needed for full coverage
 
 **Consolidation ≠ Summarization.** Consolidation means: organize, deduplicate, and structure. If source material is unique and substantive, it MUST appear in the consolidated output. Only remove true duplicates and trivial/redundant information.
 
@@ -73,7 +73,7 @@ description: Required file specifications per plan level and the DELEGATED-trigg
 - Each section maps to specific tasks (noted in section header)
 - Agents executing tasks read ONLY their sprint's Execution Input — self-contained
 - Cross-sprint reference parts: extract only the portions relevant to that sprint
-- 500-line limit per file; split into parts if needed: `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md`
+- 22,000-measured-token limit per file (verify with `measure_files.py`); split into parts if needed: `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md`
 - MUST include Cross-References table tracing each section back to its source part
 - Cross-References use `Spec #{N} ({filename.md})` format — global number + exact filename
 - Every file cited in Cross-References MUST appear in the `Extracted from:` header

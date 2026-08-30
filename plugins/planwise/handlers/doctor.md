@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
@@ -52,7 +52,7 @@ If `python` is not found, try `python3`.
 > [!constraint] Read-Only — Never Mutates
 > `--doctor` runs the version-state gate followed by `lint_rule_overscope()` standalone (no `--upgrade`, no `--migrate`). It only READS `config.yaml`, `.claude-plugin/plugin.json`, and `.claude/rules/**`, then prints a report; it writes nothing and changes no files. It exits 0 in every state — version drift and flagged rules are reported, not failed.
 
-The linter flags any `.claude/rules/**` file whose `paths:` target plan/backlog/lessons directories (e.g., `planwise/Plans/**`) rather than code paths. For each flagged rule it reports the path, line count, approximate token cost (~13 tokens/line), and the matched glob.
+The linter flags any `.claude/rules/**` file whose `paths:` target plan/backlog/lessons directories (e.g., `planwise/Plans/**`) rather than code paths. For each flagged rule it reports the path, byte size, line count, approximate token cost (bytes ÷ the conservative bytes-per-token ratio), and the matched glob.
 
 ### Step 2: Present the report verbatim
 
@@ -525,6 +525,53 @@ plugin-cache grant exists yet.`
 
 ---
 
+### Stage 16: Feedback capability probe (post-boundary)
+
+> [!constraint] Read-Only — probes, never installs
+> Stage 16 runs two capability checks against the environment and reads
+> `config.yaml`'s `feedback:` block. It installs nothing, authenticates
+> nothing, and writes nothing. To install the GitHub CLI, run `/planwise
+> init` or `/planwise upgrade` — their offer steps are the only writers;
+> doctor never mutates.
+
+Always-on, independent of Token Saver. `/planwise feedback` — and the
+upstream options in `upgrade`, `lessons capture`, and `backlog` — post
+through the shared engine at
+[`references/feedback-submission.md`](../references/feedback-submission.md),
+whose gate chain degrades to a local draft when any gate fails. That
+degradation is deliberate and never blocks, which also means a consumer can
+run for a long time without discovering that their reports never left the
+machine. This stage surfaces the gate state up front rather than at the
+moment someone tries to file a report.
+
+Probe all three, in the engine's own gate order:
+
+| Gate | Probe | Reported when unmet |
+|---|---|---|
+| 1 — `feedback.enabled` | Read `feedback.enabled` from `config.yaml` (absent ⇒ `false`, the documented default) | `feedback.enabled is false — /planwise feedback drafts locally and posts nothing` |
+| 3 — `gh` on PATH | Run `gh --version`; a non-zero exit or an unresolvable binary means absent | `gh not found on PATH — install from https://cli.github.com/, or run /planwise upgrade to be offered the install` |
+| 4 — `gh` authenticated | Run `gh auth status`; exit 0 means authenticated | `gh is installed but not authenticated — run: gh auth login` |
+
+Print verbatim:
+
+```
+planwise doctor — feedback capability probe
+
+  feedback.enabled:  {true|false}
+  gh on PATH:        {yes|no}  {gh_version_when_present}
+  gh authenticated:  {yes|no|n/a — gh absent}
+
+  {one remedy line per unmet gate, from the table above}
+
+Upstream posting: {ENABLED — reports post directly | DRAFT-ONLY — reports are saved to {planwise_root}/feedback-drafts/ and must be filed by hand}
+```
+
+Advisory only. Draft-only is a supported configuration, not a fault — this
+stage reports the state so the choice is deliberate, and never fails the
+doctor run.
+
+---
+
 ## Token Saver Audit
 
 > [!gate] Run only when `context.token_saver` is `true`
@@ -572,13 +619,13 @@ When Token Saver is on, append the three audits below to the doctor report. All 
 
 ### Step 5: Read-gate scan
 
-Run `token_saver.classify_file(path, model, projected_added_lines, thresholds)` (from `scripts/token_saver.py`) across BOTH (a) the active plan's Required-Context files AND (b) the plan's own generated artifacts (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files). Use each file's **assigned-model** rate for the token estimate (`TOKENS_PER_LINE`, per [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits). Report:
+Run `token_saver.classify_file(path, model, projected_added_bytes, thresholds)` (from `scripts/token_saver.py`) across BOTH (a) the active plan's Required-Context files AND (b) the plan's own generated artifacts (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files). Use each file's **assigned-model** bytes-per-token ratio for the token estimate (`BYTES_PER_TOKEN`, per [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits). Report:
 
 | Finding | Gate | Recommendation |
 |---------|------|----------------|
 | File ≥ 256 KiB (`READ_FILE_BYTE_CAP`) | byte gate (model-independent) | **read-Critical** → paged read (`offset`/`limit`/Grep); refactor + backlog if it is a core/edited dependency |
 | File above the per-assigned-model 25K-token page cap (`READ_PAGE_CAP_TOKENS`) | token gate (model-dependent) | **read-Critical** → paged read; refactor if core/edited |
-| File that WILL cross a gate once its task's edits land | byte/token gate (projected) | pass `projected_added_lines` so the will-exceed case is flagged pre-emptively; same remedy as above |
+| File that WILL cross a gate once its task's edits land | token/byte gate (projected) | pass `projected_added_bytes` so the will-exceed case is flagged pre-emptively; same remedy as above |
 | Task estimate ≥ `critical` (cost) | cost gate | **cost-Critical** → `1M-exception` (raise dispatch to Opus/1M) OR split the task |
 
 > [!constraint] read-Critical → paged-read/refactor, NOT `1M-exception`
@@ -615,7 +662,7 @@ Report the FIXED Read-tool constants and flag them stale when the harness CLI ha
 
    This is the drift tripwire for the hardcoded read constants. It is advisory — `doctor` never edits the constants; it surfaces the mismatch so the one-shot live re-probe can be run.
 
-The read-constant tripwire is paired with a cross-model ratio-band assertion: the plugin's test suite asserts the cross-model ratio band holds for the same file. A ratio drift outside that band signals a tokenizer-weight change in the `TOKENS_PER_LINE` constants.
+The read-constant tripwire is paired with a cross-model ratio-band assertion: the plugin's test suite asserts the cross-model ratio band holds for the same file. A ratio drift outside that band signals a tokenizer-weight change in the `BYTES_PER_TOKEN` constants.
 
 ---
 

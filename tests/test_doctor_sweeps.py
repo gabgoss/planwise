@@ -90,7 +90,10 @@ class TestInjectionFamilyRollup(_MigrationFixtureBase):
         self.write_installed(
             "small-plans.md", "One line.\n", self.plans_paths_value
         )
-        large_body = "\n".join(f"line {i}" for i in range(50)) + "\n"
+        # ~200 lines / ~1.7 KB — bytes-estimated to several hundred tokens, so
+        # it clears the small configured ceilings below under the bytes-per-token
+        # estimator (a 50-line body no longer would).
+        large_body = "\n".join(f"line {i}" for i in range(200)) + "\n"
         self.write_installed("large-backlog.md", large_body, self._backlog_glob())
 
         flagged = doctor_sweeps.lint_rule_overscope(self.cfg)
@@ -126,7 +129,10 @@ class TestInjectionFamilyRollup(_MigrationFixtureBase):
         self.write_installed(
             "small-plans.md", "One line.\n", self.plans_paths_value
         )
-        large_body = "\n".join(f"line {i}" for i in range(50)) + "\n"
+        # ~200 lines / ~1.7 KB — bytes-estimated to several hundred tokens, so
+        # it clears the small configured ceilings below under the bytes-per-token
+        # estimator (a 50-line body no longer would).
+        large_body = "\n".join(f"line {i}" for i in range(200)) + "\n"
         self.write_installed("large-backlog.md", large_body, self._backlog_glob())
 
         self.cfg.plugin_version = "1.0.4"

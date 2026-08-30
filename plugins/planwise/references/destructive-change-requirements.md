@@ -5,7 +5,7 @@ description: Destructive-path and config-gated change requirements — interacti
 # Destructive-Path and Config-Gated Change Requirements
 
 **Purpose:** Requirements for any task that adds or extends a branch that can DELETE, OVERWRITE, MIGRATE, PRUNE, or SWEEP user data or user customizations.
-**Extends session-plan-requirements.md §8; extracted to keep both under the 500-line limit.**
+**Extends session-plan-requirements.md §8; extracted to keep both comfortably within a single Read call.**
 
 ---
 

@@ -1,5 +1,5 @@
 ---
-description: Markdown header hierarchy, section length limits, YAML frontmatter, structural signals, emphasis, and cross-reference conventions
+description: Markdown header hierarchy, section structure, YAML frontmatter, structural signals, emphasis, and cross-reference conventions
 ---
 
 # Markdown Conventions
@@ -14,17 +14,21 @@ STRUCTURE documents as:
 - **H1** = Document title (single, required)
 - **H2** = Major sections (numbered `## 1.` or named `## Section Name`)
 - **H3** = Subsections within an H2
-- **H4-H6** = Rarely needed. If you need H4+, the section should probably be split into a separate file.
+- **H4-H6** = Use when the content genuinely nests that deep. Deep nesting is a signal to check whether the H2 covers more than one concern — it is not by itself a reason to split into a separate file.
 
 SEPARATE major H2 sections with horizontal rules (`---`) for visual clarity.
 
-## 2. Section Length Limits
+## 2. Section Structure
 
-KEEP individual sections between 50-150 lines. Content in the middle of sections over 150 lines gets less attention (Stanford "Lost in the Middle" research — 30%+ degradation).
+SIZE a section by what it covers, not by its line count. One section = one idea; a section is the right length when it fully covers that idea and no more.
 
-SPLIT sections exceeding 150 lines into subsections with H3 headers.
+SPLIT a section when it covers two distinct concerns a reader would look for separately — not when it crosses a line threshold. Prefer H3 subsections inside the section; promote to a separate file only when the split content is independently addressable.
 
-ADD a table of contents when a document exceeds 100 lines total.
+PLACE the most important content immediately after the header. Attention degrades with position in the whole context, not with a section's length — a long section whose key claim sits under its header reads better than the same content fragmented under invented subheadings.
+
+ADD a table of contents when a document has enough H2 sections that a reader would scan for one (roughly 6+). Do not add one to a short document because it crossed a line count.
+
+NEVER pad a section to reach a minimum length, and NEVER compress, summarize, or drop content to stay under a maximum. File size is governed by the measured Read-tool gates, never by line counts — see [session-context-budget.md](session-context-budget.md) (22,000 tokens / 245,760 bytes / 2,000 lines, whichever binds first).
 
 ## 3. YAML Frontmatter
 

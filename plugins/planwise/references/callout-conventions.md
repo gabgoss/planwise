@@ -249,7 +249,7 @@ WRONG — sequential chain with parity tests but no halt rule:
 ```markdown
 ## Success Criteria
 
-- [ ] Module under 500 lines
+- [ ] Module under 22,000 measured tokens
 - [ ] Parity tests pass
 - [ ] `{lint}` clean
 ```
@@ -261,7 +261,7 @@ CORRECT — halt rule encoded as a dedicated SC backed by an orchestration-level
 ```markdown
 ## Success Criteria
 
-- [ ] Module under 500 lines
+- [ ] Module under 22,000 measured tokens
 - [ ] Parity tests pass
 - [ ] If parity tests fail: this task is NOT complete. HALT the chain. {full halt instruction}. (See {Orchestration} Critical Path > Halt-on-Parity-Failure binding callout.)
 - [ ] `{lint}` clean

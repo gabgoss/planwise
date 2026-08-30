@@ -11,7 +11,7 @@ This section activates when `context.token_saver: true` in `config.yaml`. It lay
 > [!constraint] Numbers Are Measured, Never Hardcoded
 > Every threshold below is **derived** from `token_saver_runner_overhead` (and `token_saver_orchestrator_overhead`) — the overheads `/planwise calibrate` writes back into `config.yaml` from a real `/context` report. NEVER hardcode a runner overhead or a per-task ceiling in a plan: read the calibrated value and run the formulas. Until a live capture runs, the engine writes a conservative fallback (`runner_overhead ≈ 54,000`, `orchestrator_overhead ≈ 60,000`, flagged `uncalibrated`); a plan authored against the fallback is intentionally pessimistic and should be re-checked after calibration.
 
-Read-tool mechanical limits (the byte gate and token page-cap gate) are FIXED harness facts, SEPARATE from this carrying-cost system — they are documented in the anchor's [Read-Tool Hard Limits](session-context-budget.md#read-tool-hard-limits) section and are not duplicated here.
+Read-tool mechanical limits (the token page-cap, byte, and line gates) are FIXED harness facts, SEPARATE from this carrying-cost system — they are documented in the anchor's [Read-Tool Hard Limits](session-context-budget.md#read-tool-hard-limits) section and are not duplicated here.
 
 ## Token Saver Two-Tier Policy
 

@@ -156,7 +156,10 @@ Line counts are the one place a shell command is not merely tolerated but
 and a paginated or partial read can silently under-report one for a large
 file. Any rule or gate that needs a trustworthy line count should specify
 `wc -l` (or `wc -c` for bytes) explicitly, run against the file on disk —
-never inferred from where a paginated read happened to stop.
+never inferred from where a paginated read happened to stop. For a file's
+token cost and read-gate level, the sanctioned measurement is
+`python "{plugin_root}/scripts/measure_files.py" {path}` — the same
+on-disk-authority principle, extended from lines to bytes and tokens.
 
 ---
 

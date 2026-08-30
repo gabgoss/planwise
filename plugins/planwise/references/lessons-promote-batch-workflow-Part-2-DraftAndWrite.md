@@ -28,6 +28,28 @@ Part-1 §3.4 read every in-scope lesson body in full. Do NOT re-read those files
 
 If a Phase 1 read was missed (e.g., a lesson surfaced via decomposition only after grouping), do that read now — but treat it as an exception, not the routine path.
 
+### 5.1a The delegated path (drafting dispatched to an authoring agent)
+
+The prohibition above governs **this session** re-reading bodies it already holds. It does not govern a spawned agent, which inherits no conversation and therefore holds nothing. Read the rule by its two stated reasons — duplicated tokens, and a file changing mid-run — and the delegated path satisfies both better than the inline one:
+
+| Reason §5.1 exists | Inline path | Delegated path |
+|---|---|---|
+| Re-reading wastes tokens | Bodies sit in this session's context from Phase 1 through Phase 4 | Bodies are read **once, in the agent's context**, and never enter this session's at drafting time |
+| The file may change mid-run | Undetected — the Phase 1 reading is simply trusted | Detected — the agent returns a pin per file, and this session compares |
+
+> [!constraint] Delegate by path, and compare the pins
+> WRONG — pass lesson **bodies** into the spawn prompt to avoid an agent-side read. This duplicates every body into the dispatch, which is the token cost §5.1 exists to prevent, and caps the batch at whatever fits one prompt.
+>
+> WRONG — dispatch, and accept the drafted item without comparing what the agent read against what Phase 1 read. This inherits §5.1's mid-run-edit risk and drops the only mechanism that would catch it.
+>
+> CORRECT — dispatch **once per bucket**, passing lesson file **paths**; require the agent to return `SOURCE_PINS` (path, line count, first and last line per file read); compare each pin against this session's Phase 1 reading before accepting the draft. A divergence means the file changed mid-run — re-read it and re-draft that item rather than shipping a draft built on a stale or moved body.
+
+Part-1 §3.4's full-body read is **unchanged and still BINDING** — grouping genuinely needs it, and it precedes any dispatch. What changes is only that Phase 3's drafting may happen in a spawned context instead of this one.
+
+Dispatch [`../agents/backlog-author.md`](../agents/backlog-author.md), one instance at a time: it owns the backlog index write, so two concurrent instances race on the index and on the next-free-id computation. Dispatch foreground-only — a background subagent silently auto-denies its own Write/Edit/Bash calls. Under `--dry-run`, skip the dispatch entirely; do not dispatch with a no-write flag.
+
+Lesson capture (§6.6) is **not** delegated: the status flip, the archive move, and the lessons-index update stay with this session, and the agent never touches a lesson file.
+
 ### 5.2 The self-containment principle (BINDING)
 
 **Canonical reference:** [artifact-self-containment.md](artifact-self-containment.md) is the canonical doc for the self-containment rule. It states the asymmetry between content-bearing artifacts (rules, agents, handlers, CLAUDE.md callouts) and bookkeeping artifacts (indexes, promotion logs, BB Notes), and defines the mechanical grep gate. The examples below specialise that rule for the promote-batch workflow context.
@@ -127,11 +149,11 @@ Path: `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md`
 | Component | Source | Example |
 |-----------|--------|---------|
 | `{ID}` | 3-digit zero-padded, sequential from §6.1 | `001` |
-| `{SB}` | 2-digit sub-backlog number (`01` for a single-file BB; bump on file splits per the 500-line rule) | `01` |
+| `{SB}` | 2-digit sub-backlog number (`01` for a single-file BB; bump on file splits per the read-gate token budget) | `01` |
 | `DOC` | Fixed domain abbreviation for promotion BBs (matches `config.yaml: abbreviations.DOC`) | `DOC` |
 | `{BucketSlug}` | PascalCase of the bucket's `slug` field from `config.yaml: categorization.buckets[].slug` (e.g., `database` → `Database`, `task-files` → `TaskFiles`) | `Database` |
 
-Use the structure specification in §7. Stay under 500 lines per file (per project file-size rule).
+Use the structure specification in §7. Keep each file under 22,000 measured tokens (per the project file-size rule; verify with `measure_files.py`).
 
 ### 6.3 Update the backlog index
 

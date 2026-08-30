@@ -30,19 +30,25 @@ paths: Controllers/**, Views/**
 | Brace expansion (ext) | `paths: "**/*.{cs,md}"` | Matches multiple extensions |
 | Brace expansion (dir) | `paths: "{Controllers,Views}/**"` | Matches multiple directories |
 | Dir + extension | `paths: "Controllers/**/*.cs"` | Compound pattern |
-| YAML array (1 item) | `paths:\n  - "Controllers/**"` | Works for single item only |
+| YAML array | `paths:\n  - "Controllers/**"` (any item count) | Works for any number of items — 2+ item arrays were broken as of the original 2026-02-25 test but confirmed FIXED on retest 2026-08-28 (CLI 2.1.250); see §6 |
 | No paths (global) | *(omit field)* | Loads unconditionally |
 
-> [!pitfall] YAML Multi-Item Arrays Are Broken
-> **Problem:** The official Anthropic docs show multi-item YAML arrays as the recommended format:
+> [!pitfall] YAML Multi-Item Arrays — Fixed 2026-08-28 (Previously Broken)
+> **Original problem (tested 2026-02-25):** The official Anthropic docs show multi-item YAML arrays as the recommended format:
 > ```yaml
 > paths:
 >   - "Controllers/**"
 >   - "Views/**"
 > ```
-> This format does **NOT** work. The YAML frontmatter parser fails on 2+ array items — the rule silently does not load. (Tested 3 times, reproduced consistently.)
+> This format did **NOT** work at the time — the YAML frontmatter parser failed on 2+ array items and the rule silently did not load. (Tested 3 times, reproduced consistently.)
 >
-> **Solution:** Use comma-separated format instead:
+> **Retest (2026-08-28, CLI 2.1.250):** Confirmed FIXED via a dedicated headless test harness — both entries of a 2-item array triggered their rule's dynamic load correctly. Multi-item arrays are safe to use directly:
+> ```yaml
+> paths:
+>   - "Controllers/**"
+>   - "Views/**"
+> ```
+> Comma-separated format remains available as an equally valid, more compact alternative — no longer required to avoid silent failure:
 > ```yaml
 > paths: Controllers/**, Views/**
 > ```
@@ -68,7 +74,7 @@ paths: .claude/rules/**, .claude/skills/**, Docs/**
 **Why:** Extension globs like `**/*.md` load the rule for files that don't need it (LICENSE files, archive content, external documents, build artifacts). Explicit paths keep context budgets tight and rules relevant.
 
 > [!pitfall] `*.md` Is NOT Root-Only
-> **Problem:** Official Anthropic docs claim `*.md` matches "Markdown files in the project root." This is **wrong**. Claude Code's glob treats `*` as matching across path separators, so `*.md` is functionally identical to `**/*.md` — it matches `.md` files at any depth. (Tested and verified in 2 independent runs.)
+> **Problem:** Official Anthropic docs claim `*.md` matches "Markdown files in the project root." This is **wrong**. Claude Code's glob treats `*` as matching across path separators, so `*.md` is functionally identical to `**/*.md` — it matches `.md` files at any depth. (Tested and verified in 2 independent runs; retested 2026-08-28 on CLI 2.1.250 via a dedicated headless test harness — still reproduces.)
 >
 > **Solution:** There is no way to create a root-only glob. Use explicit directory paths instead.
 
@@ -113,21 +119,21 @@ place (it is machine-managed; see the warning below).
 
 ## 2b. Common Frontmatter Mistakes
 
-> [!constraint] YAML Array Syntax for Multi-Path Scoping
-> WRONG — multi-item YAML array is silently broken:
+> [!practice] Comma-Separated vs. YAML Array for Multi-Path Scoping
+> Both forms now load correctly (multi-item YAML arrays were broken as of the original 2026-02-25 test; retested and confirmed FIXED 2026-08-28 on CLI 2.1.250 — see §1). PREFER comma-separated for its compactness:
+> ```yaml
+> ---
+> description: Conventions for controller code
+> paths: Controllers/**, Views/**
+> ---
+> ```
+> A multi-item YAML array is equally valid if preferred:
 > ```yaml
 > ---
 > description: Conventions for controller code
 > paths:
 >   - "Controllers/**"
 >   - "Views/**"
-> ---
-> ```
-> CORRECT — comma-separated on a single line:
-> ```yaml
-> ---
-> description: Conventions for controller code
-> paths: Controllers/**, Views/**
 > ---
 > ```
 
@@ -162,13 +168,7 @@ place (it is machine-managed; see the warning below).
 > ---
 > ```
 
-> [!pitfall] Single-Item YAML Array
-> **Problem:** A single-item array `paths:\n  - "Controllers/**"` technically works but creates a maintenance trap — if a second path is added later, the rule silently stops loading.
-> **Solution:** Always use comma-separated format even for a single path:
-> ```yaml
-> paths: Controllers/**
-> ```
-> This format is safe to extend with additional paths without risk of silent failure.
+A single-item array (`paths:\n  - "Controllers/**"`) has always worked, and extending it to 2+ items is now safe too — see the retested history in §1's "YAML Multi-Item Arrays" note. Comma-separated remains the more compact style either way.
 
 ---
 
@@ -229,7 +229,7 @@ See [callout-conventions.md](callout-conventions.md) for callout syntax.
 
 ## 6. Empirically Verified Behavior
 
-These patterns were empirically tested in Claude Code CLI on 2026-02-25. Results supersede prior guidance for listed patterns.
+These patterns were empirically tested in Claude Code CLI on 2026-02-25. Results supersede prior guidance for listed patterns. Two rows were retested 2026-08-28 on CLI 2.1.250 via a dedicated headless test harness (see per-row notes below): YAML 2+ item arrays (now fixed) and the `*.md` root-only claim (still reproduces).
 
 ### Confirmed Supported
 
@@ -243,18 +243,17 @@ These patterns were empirically tested in Claude Code CLI on 2026-02-25. Results
 | `paths: "{Controllers,Views}/**"` | C2 | Brace directory expansion works |
 | `paths: "Controllers/**/*.cs"` | D2 | Combined dir+extension works |
 | *(no paths field)* | D3 | Global rules load unconditionally |
+| `paths:\n  - "a/**"\n  - "b/**"` (2+ items) | D1 (retest) | Was broken 2026-02-25 (parser failed, rule didn't load); retested 2026-08-28 on CLI 2.1.250 — both array entries now load correctly. Moved here from Confirmed NOT Supported. |
 
 ### Confirmed NOT Supported
 
-| Pattern | Test | Failure Mode |
-|---------|------|-------------|
-| YAML array with 2+ items | D1 | Parser fails — rule does not load (reproduced 3x) |
+None currently confirmed. (D1 — YAML array with 2+ items — was listed here after the original 2026-02-25 test; retested 2026-08-28 on CLI 2.1.250 and reclassified to Confirmed Supported above.)
 
 ### Unexpected Behavior
 
 | Pattern | Expected | Actual |
 |---------|----------|--------|
-| `*.md` | Root-only match | Matches at ANY depth — equivalent to `**/*.md` |
+| `*.md` | Root-only match | Matches at ANY depth — equivalent to `**/*.md`. Retested 2026-08-28 on CLI 2.1.250 via a dedicated headless test harness (reading a nested `.md` file still triggered a rule scoped to plain `*.md`) — still reproduces, unchanged from the original 2026-02-25 finding. |
 
 ### Subagent Rule Loading
 

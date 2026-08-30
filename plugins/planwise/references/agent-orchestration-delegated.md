@@ -191,9 +191,9 @@ When DELEGATED dispatches modify shared files (e.g., a shared algorithm module o
 - Run `{precheck-cmd}` if the shared file is a data-layer contract (schema, config)
 - If diagnostics fail: halt subsequent dispatches; surface the failure in Recovery before retrying
 
-**Orchestrator `wc -l` verification:**
+**Orchestrator output-size verification:**
 
-After each dispatch that produces output files, the orchestrator MUST run `wc -l` on every output file and compare against the Expected Output line budget declared in the task file. Deviations >20% from the declared budget are a signal to review before proceeding to the next dispatch.
+After each dispatch that produces output files, the orchestrator MUST run `measure_files.py` on every output file and compare against the Expected Output token budget declared in the task file. Deviations >20% from the declared budget are a signal to review before proceeding to the next dispatch.
 
 > [!constraint] Inter-Dispatch Diagnostic Check
 > WRONG — orchestrator dispatches all tasks in sequence without diagnostics between:
@@ -438,7 +438,7 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 #### Reviewer Check 052 — DELEGATED Round-2 Compliance
 
 - **Severity / Role / Type:** BLOCKER (bundled 8 sub-checks) | Design-Extension Reviewer | NEW
-- **Detection:** For each DELEGATED Orchestration spawn prompt verify: (a) orchestrator `wc -l` between dispatches; (b) HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause; (c) tier-rank-by-invasiveness ordering; (d) forward-looking-verb detection; (e) operational-ceiling disclaimers; (f) N>25 Edit-task resume protocol with tool-use budget estimation; (g) shared-edit-target parallelism cap; (h) inter-dispatch diagnostics verification.
+- **Detection:** For each DELEGATED Orchestration spawn prompt verify: (a) orchestrator output-size measurement (`measure_files.py`) between dispatches; (b) HARD CONSTRAINTS skeleton + SCOPE BOUNDARY clause; (c) tier-rank-by-invasiveness ordering; (d) forward-looking-verb detection; (e) operational-ceiling disclaimers; (f) N>25 Edit-task resume protocol with tool-use budget estimation; (g) shared-edit-target parallelism cap; (h) inter-dispatch diagnostics verification.
 - **Finding template:** `[BLOCKER] DELEGATED dispatch round-2 sub-rule {N} violated | Fix per references/agent-orchestration-delegated.md §1.{N}`
 
 ## 1.14 Orchestrator-Only Review Commands
@@ -654,7 +654,7 @@ Applies to every DELEGATED task-runner launch, sequential or parallel.
 > This guard governs EVERY DELEGATED dispatch — both sequential and parallel task-runner launches (see `handlers/run.md` § DELEGATED Mode; §1.13 and §1.17 above for dispatch-return handling). It is a **temporary bridge**, not a permanent override (see self-deactivation below). It never changes the model for a healthy (small) rule surface.
 >
 > **Before dispatching a DELEGATED task whose `Agent:` maps to a 200K-window model (Sonnet or Haiku):**
-> 1. **Measure the plan-path rule surface.** Reuse the engine's linter: run `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` and sum the `approx_tokens` of the flagged (over-scoped) rules — those `.claude/rules/**` whose `paths:` target `planwise/Plans/**` (or sibling plan/backlog/lessons paths). If `--doctor` is unavailable, fall back to summing those rule files' sizes at ~13 tokens/line.
+> 1. **Measure the plan-path rule surface.** Reuse the engine's linter: run `python {plugin_root}/scripts/init_project.py --doctor --project-root {project_root}` and sum the `approx_tokens` of the flagged (over-scoped) rules — those `.claude/rules/**` whose `paths:` target `planwise/Plans/**` (or sibling plan/backlog/lessons paths). If `--doctor` is unavailable, fall back to summing those rule files' byte sizes ÷ the conservative bytes-per-token ratio (2.6) — `measure_files.py` does this per file.
 > 2. **Project the subagent's worst-case load:** `flagged-rule tokens + ~54K fixed overhead`. If that **approaches the 200K window** — rule of thumb: flagged surface ≳ ~110K, leaving < ~35K of working headroom — the declared 200K-window model will overflow ("Prompt is too long") the instant it reads a plan brief that triggers those path rules.
 > 3. **Raise and log.** In that case, raise the dispatch `model` to the **1M tier** (Opus, or a 1M-window Sonnet where available) for THIS dispatch only, and emit a one-line log — never silent:
 >    ```
@@ -686,7 +686,7 @@ Applies to every DELEGATED task-runner launch, sequential or parallel; uses the 
 > ```
 > read-reason Critical context file  → raise dispatch to 1M  → "the bigger window reads it"  ← FALSE
 > ```
-> CORRECT — the Read tool's **25K-token page cap** and **256 KiB byte refusal** apply on EVERY model; Opus's tokenizer is ~1.44× heavier so it trips the page cap *sooner* (~1,340 lines vs ~1,920 for Sonnet/Haiku). The 1M-exception covers **only** a `cost`-reason Critical (a context-window/carrying-cost overflow). It does NOT cover a `read`-reason Critical — that file must be **paged** by the runner (`offset`/`limit`/Grep) even on Opus, or refactored:
+> CORRECT — the Read tool's **25K-token page cap** and **256 KiB byte refusal** apply on EVERY model; the Opus/Fable-family tokenizer is ~1.44× heavier so it trips the page cap on *fewer bytes* (~65 KB of dense markdown vs ~92 KB for Sonnet/Haiku). The 1M-exception covers **only** a `cost`-reason Critical (a context-window/carrying-cost overflow). It does NOT cover a `read`-reason Critical — that file must be **paged** by the runner (`offset`/`limit`/Grep) even on Opus, or refactored:
 > ```
 > read-reason Critical context file  → log `paged-read required` (NOT 1M-exception)  → runner pages it (offset/limit/Grep) on its declared model
 > ```
@@ -846,7 +846,7 @@ When a runner surfaces a constraint violation together with a proposed remedy, t
 | 2 | Single-file change that alters structure locally | only if rank 1 cannot resolve it |
 | 3 | Multi-file structural change (splits, moves, dependency rework) | only if rank 2 cannot, and only with an Option A/B gate per §1.25.1 |
 
-Capability inverts here: a more capable runner reaches for a more elaborate remedy, because it can see one. In the measured case a 564-line module was brought under a 500-line limit by **docstring compression** (rank 1, final 494 lines) after the runner had proposed a **parser split with lazy imports to break the resulting circular dependency** (rank 3). The rank-3 proposal was competent and unnecessary.
+Capability inverts here: a more capable runner reaches for a more elaborate remedy, because it can see one. In the measured case a module slightly over its declared size budget was brought under it by **docstring compression** (rank 1, a ~12% trim) after the runner had proposed a **parser split with lazy imports to break the resulting circular dependency** (rank 3). The rank-3 proposal was competent and unnecessary.
 
 **This is distinct from §1.9**, which ranks how a follow-up fix is **dispatched** (inline message / targeted dispatch / new session). This section ranks **which remedy is applied**. A correctly-dispatched over-invasive fix is still an over-invasive fix.
 

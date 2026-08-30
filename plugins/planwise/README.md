@@ -294,12 +294,13 @@ flowchart LR
 - **Version-state gate** — before any diagnostics, verifies the project is initialized and the pinned `plugin_version` matches the installed plugin; when it doesn't, recommends `/planwise init` or `/planwise upgrade` and stops there.
 - **Rule scope** — lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. These inject into every plan-brief read and can overflow a 200K-window task-runner, so `doctor` flags them with their size.
 - **Token Saver overhead staleness** — reports the stored `/context`-measured overheads and flags them stale after a plugin upgrade or a change in your agent/skill count.
-- **Read-gate scan** — checks your active plan's files against the Read-tool limits (256 KiB byte cap, ~25K-token page cap) and flags any that can't be read in one pass.
+- **Read-gate scan** — checks your active plan's files against the Read-tool limits (the ~25K-token page cap — the binding gate on text — plus the 256 KiB byte cap and the 2,000-line window) and flags any that can't be read in one pass.
 - **Read-limit drift** — flags the fixed read constants if your CLI build has moved past the version they were measured on.
 - **Stale de-scoped rule sweep** — finds rule copies left behind in `.claude/rules/planwise/` by older versions; those rules are now loaded on demand from the plugin instead.
 - **Installed rule divergence lint** — classifies every still-installed rule against its shipped counterpart: a stale copy of an older shipped version (run [`/planwise upgrade`](#10-planwise-upgrade) — it refreshes it safely), a genuine customization (re-home it — never delete), or not analyzable (diff it manually).
 - **Orphaned agent mirror sweep** — flags agent copies under `.claude/agents/` left behind by older versions that mirrored agents into the project; agents now run directly from the plugin, so copies you never edited are safe to remove.
 - **Index drift audits** — cross-checks the plans index against each Master Plan's actual status, and the backlog index against archival state.
+- **Feedback capability probe** — checks the three gates that decide whether [`/planwise feedback`](#12-planwise-feedback) actually posts (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and names the one-line remedy for each unmet gate. The fallback is silent by design, so without this check a consumer can draft reports for months believing they were filed.
 
 **Opt-in cleanup:** `/planwise doctor --prune-stale` is the one doctor invocation that writes. It removes only what the stale-rule sweep and the mirror sweep flagged as provably removable — every deleted file is first backed up next to a `PRUNED.md` audit log under `{planwise_root}/upgrade-backups/`, and anything carrying content of your own is always preserved in place.
 
@@ -321,8 +322,8 @@ flowchart LR
 Token Saver is an optional budget mode that keeps each task session lean — under a ~150K carrying-cost target — instead of letting context balloon across turns. When it's on, planwise:
 
 - **Sizes tasks by carrying cost**, warning (or splitting) a task whose Required Context would push a runner past its measured budget.
-- **Flags files that are too large to read in one pass** — a file at or over the Read tool's 256 KiB byte cap or ~25K-token page cap is marked for paged reads (`offset`/`limit`/Grep) or refactor. (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
-- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (Opus hits the page cap sooner); it is paged or refactored instead.
+- **Flags files that are too large to read in one pass** — a file at or over the Read tool's ~25K-token page cap, 256 KiB byte cap, or 2,000-line window is marked for paged reads (`offset`/`limit`/Grep) or refactor. Measure any file yourself with `scripts/measure_files.py` (KiB + estimated tokens + gate level per file). (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
+- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (the Opus/Fable-family tokenizer hits the page cap on fewer bytes); it is paged or refactored instead.
 
 **Toggle it anytime** — you don't have to wait for an init or upgrade:
 
@@ -426,15 +427,17 @@ flowchart LR
 
 Walks you through a short prompt — bug, lesson, or idea — and drafts a submission from what you type. Only your answers to the prompt go into the draft; file contents, repo paths, and config values are never included.
 
-**Opt-in, off by default.** Posting upstream requires `feedback.enabled: true` in your `config.yaml` AND an interactive confirmation that shows you the exact body before anything is sent — nothing goes out without both. In Auto Mode, `feedback` never posts: it always saves the draft to disk and prints the file path instead.
+**Opt-in, off by default.** Posting upstream requires `feedback.enabled: true` in your `config.yaml` AND an interactive confirmation that shows any possible duplicates found in the tracker, then the exact body, before anything is sent — nothing goes out without both. You can post as a new issue, comment on an existing one instead, or cancel. In Auto Mode, `feedback` never posts: it always saves the draft to disk and prints the file path instead.
 
 **Privacy.** The submitted body never contains your file contents, repo paths, or config values — only what you wrote in the prompt. If `gh` isn't installed, isn't authenticated, or you decline the post, your draft is preserved locally and the issues URL is printed so you can file it by hand.
+
+**Needs the [GitHub CLI](https://cli.github.com/) (`gh`) to post directly.** `/planwise init` and `/planwise upgrade` offer to install it when it's missing — always as a question, never silently. Because the draft fallback is silent by design, [`/planwise doctor`](#8-planwise-doctor) also probes all three posting gates (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and tells you whether reports are actually posting or quietly landing in `feedback-drafts/`.
 
 #### How `feedback` works
 
 ```mermaid
 flowchart LR
-    A([Run command]) --> B[Answer bug/lesson/idea<br/>prompt] --> C[Review draft] --> D([Confirm &amp; post,<br/>or save locally])
+    A([Run command]) --> B[Answer bug/lesson/idea<br/>prompt] --> C[Review draft &amp;<br/>duplicates] --> D([Confirm &amp; post/comment,<br/>or save locally])
 ```
 
 ---
@@ -482,7 +485,7 @@ flowchart LR
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, Token Saver staleness (`--prune-stale` to clean up) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, feedback capability, Token Saver staleness (`--prune-stale` to clean up) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
@@ -497,7 +500,7 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses seven specialized AI agents behind the scenes:
+planwise uses eight specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
@@ -508,8 +511,9 @@ planwise uses seven specialized AI agents behind the scenes:
 | **fix-agent** | Applies targeted code fixes for small backlog items |
 | **rule-comparator** | Classifies a diverged installed rule against the shipped version during `/planwise upgrade` — stale copy vs. genuine customization |
 | **backlog-planner** | Authors a session plan for large-scope or architectural backlog items routed to a new plan |
+| **backlog-author** | Drafts and files backlog items in batch — re-verifies each candidate against the live repo, writes the item file, and updates the index |
 
-You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
+You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise lessons`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
 
 ### Configuration
 
@@ -533,7 +537,7 @@ planwise/                           # Plugin root
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 12 subcommand handlers across 15 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
-  agents/                           # 7 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
+  agents/                           # 8 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init

@@ -237,9 +237,9 @@ Run `/context` to measure your project's domain rule costs. Add rows with your p
 
 ### Task-Level Estimation (BINDING)
 
-Task token estimates MUST be computed bottom-up from measured or estimated file sizes, not just matched to qualitative categories (Small/Medium/Large). The `/planwise plan` handler's Step 8c enforces this.
+Task token estimates MUST be computed bottom-up from measured file sizes, not just matched to qualitative categories (Small/Medium/Large). The `/planwise plan` handler's Step 8c enforces this.
 
-**Conversion factor:** ~13 tokens/line (midpoint for mixed code/prose content).
+**Measurement:** run `measure_files.py` over every Required Context file — tokens = bytes ÷ the assigned model's bytes-per-token ratio (see [Read-Tool Hard Limits](#read-tool-hard-limits)). For a file that does not exist yet, estimate its byte size and divide: ≈ bytes ÷ 3.0 for prose/code, ÷ 2.6 for dense markdown (tables, link-heavy rows). Never derive a token figure from a line count.
 
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
 **DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Sonnet/Haiku 200K, Opus 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
@@ -265,11 +265,11 @@ Use these tables to compute bottom-up token estimates for each task.
 
 | Operation | Approx. Tokens | Heuristic |
 |-----------|----------------|-----------|
-| Read file | ~13 tokens/line | Measure or estimate actual line count |
-| Read 100-line file | ~1.3K | Small config, helper |
-| Read 200-line file | ~2.6K | Medium file |
-| Read 500-line file | ~6.5K | Large reference doc or entity |
-| Read 1000-line file | ~13K | Very large file -- consider if full read is needed |
+| Read file | bytes ÷ 2.6–3.3 | Measure with `measure_files.py`; ratio set by reading model + content class |
+| Read 5 KiB file | ~2K | Small config, helper |
+| Read 15 KiB file | ~5-6K | Medium file |
+| Read 30 KiB file | ~10-12K | Large reference doc or entity |
+| Read 60 KiB file | ~20-23K | At/near the 22K token warn — page it or split it |
 
 **Output Generation Costs:**
 
@@ -289,6 +289,9 @@ Use these tables to compute bottom-up token estimates for each task.
 Every subcommand invocation carries a block of instruction text that a runtime `/context` snapshot **structurally cannot observe**: the skill body, the base-context references pre-injected with the skill, the handler body, and the always-load references. Calibration measures the static categories a *fresh* session reports; this block arrives as transcript content during the invocation, landing in `messages` rather than in any static category. It is therefore invisible to calibration by construction, and must be accounted for separately when budgeting a session that will issue subcommands.
 
 Figures are labelled by the tree they were measured on — **dev** (the tree the plugin is developed in) or **installed** (the tree a consumer has on disk). The two differ in line counts, so a figure from one tree is not comparable to a figure from the other.
+
+> [!note] Historical measurement basis
+> The tables below were measured under the superseded per-line token model ("At 13 tok/line" columns). They are kept as the historical record of those probes; a fresh floor measurement should use `measure_files.py` (bytes ÷ bytes-per-token) instead of any per-line rate.
 
 **Whole-path floor** — skill body + base context + handler body + always-load references:
 
@@ -375,10 +378,19 @@ Fix: Reconcile per references/session-context-budget.md Token Estimate Reconcili
 
 ### File Size Limits
 
-**Soft limit: 500 lines per file.** When creating or modifying files:
-- Task files, plans, and documentation SHOULD stay under 500 lines
-- Files exceeding 500 lines MUST be split into multiple focused parts
-- Exception: Generated code files may exceed if logically cohesive
+**No line limit.** File size is governed by the Read tool's mechanical gates, and those are **measured, never estimated from line counts**. Before assigning a file to a reader — and after generating any artifact a runner must read — measure it:
+
+```bash
+python "{plugin_root}/scripts/measure_files.py" {file} [{file} ...] [--model {reading model}] [--md]
+```
+
+Three criteria, in priority order — **whichever comes first binds**:
+
+1. **Tokens (primary):** stay under **22,000** (`READ_TOKEN_WARN`) at the reading model's bytes-per-token ratio; the hard page-cap is 25,000 (`READ_PAGE_CAP_TOKENS`). On text this gate binds first — roughly 3.6× before the byte gate.
+2. **Bytes:** stay under **245,760** (240 KiB, `READ_BYTE_WARN`); the hard refusal cap is 262,144 (256 KiB, `READ_FILE_BYTE_CAP`).
+3. **Lines (distant third, defensive):** stay under **2,000** (`READ_LINE_CAP`) — the first-page line window. It binds alone only on many-short-line files that pass gates 1–2.
+
+The binding targets are the **WARN thresholds**, deliberately below the hard caps, so a compliant file never even triggers a warning. When the reading model is unknown, use the most-restrictive ratio (2.6 bytes/token).
 
 **Multi-Part Output Convention:**
 
@@ -391,31 +403,32 @@ Any artifact (task output, specification, consolidated context) may span multipl
 ```
 
 Each part MUST:
-- Stay under 500 lines
+- Land OK on all three gates above (measure with `measure_files.py`)
 - Have a descriptive topic suffix
 - Be self-contained enough to feed a downstream task independently
 - Cross-reference other parts where needed
 
-**Not limited to one file.** Tasks produce full-detail outputs. If a task needs 3 files of 400 lines each to capture the full specification, that is correct — do NOT compress into one 500-line file.
+**Not limited to one file.** Tasks produce full-detail outputs. If a task needs 3 files to capture the full specification, that is correct — do NOT compress detail away to dodge a split.
 
-### File Size Limits — Generated Artifacts (BINDING when Token Saver is on)
+### File Size Limits — Generated Artifacts (BINDING)
 
-The 500-line soft limit above is advisory. When `context.token_saver: true`, **generated planwise artifacts that a runner MUST read** — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, and task Output files — carry a **HARD** ceiling: each MUST stay under **both** Read-tool gates (see [Read-Tool Hard Limits](#read-tool-hard-limits) below), not just the line limit. A generated artifact that trips either gate cannot be read in a single Read and MUST be split into multi-parts.
+**Generated planwise artifacts that a runner MUST read** — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, and task Output files — carry a **HARD** ceiling regardless of `context.token_saver`: each MUST land **OK on all three Read-tool gates** (see [Read-Tool Hard Limits](#read-tool-hard-limits) below) for the model that will read it. A generated artifact that trips any gate cannot be read cleanly in a single Read and MUST be split into multi-parts. (The gates are harness facts, not a carrying-cost policy — Token Saver's config-gated budget system is separate.)
 
-> [!constraint] Generated-Artifact Split — Hard, Not Advisory
-> WRONG — a planwise-generated Consolidated Context part is checked against the line limit alone, passes at 480 lines, but is 9,200 bytes-per-100-lines of dense tables → exceeds the 256 KiB byte gate / 25K-token page-cap and a Sonnet runner can only read its first page:
+> [!constraint] Generated-Artifact Split — Measured, Not Line-Counted
+> WRONG — a planwise-generated Consolidated Context part is judged by its line count alone; at 9,200 bytes-per-100-lines of dense tables the file is ~44K tokens, and a runner's single Read returns only the first ~21K tokens of it:
 > ```
-> wc -l PI-Consolidated-Context-Part-1.md   # 480 → "under 500, fine"  ← INSUFFICIENT
+> wc -l PI-Consolidated-Context-Part-1.md   # 480 → "small file, fine"  ← INSUFFICIENT: lines do not predict the gate
 > ```
-> CORRECT — check the line gate, the byte gate, AND the token gate; split on whichever trips first:
+> CORRECT — measure all three gates at once; split on whichever trips first:
 > ```
-> wc -l PI-Consolidated-Context-Part-1.md   # line gate
-> wc -c PI-Consolidated-Context-Part-1.md   # byte gate: must stay < 245,760 (warn) / 262,144 (hard)
-> # token gate: lines × per-model rate must stay < 22,000 (warn) / 25,000 (hard)
-> # → split into Part-1a / Part-1b if line OR byte OR token gate trips
+> python "{plugin_root}/scripts/measure_files.py" PI-Consolidated-Context-Part-1.md --model sonnet
+> #   tokens (primary): must stay < 22,000 (warn) / 25,000 (hard cap)
+> #   bytes:            must stay < 245,760 (warn) / 262,144 (hard cap)
+> #   lines:            must stay < 2,000 (defensive first-page window)
+> # → split into Part-1a / Part-1b if ANY gate reports WARN or OVER
 > ```
 
-The trigger is **line OR byte OR token** — whichever fires first forces the split. External source/context files a runner reads but does NOT generate (codebase modules, third-party docs) keep the advisory treatment: warn, apply the [Large-File Read Tactics](#large-file-read-tactics) ladder, and file a refactor backlog item — they are not hard-split because the runner does not own them.
+The trigger is **token OR byte OR line — in that priority order, whichever fires first**. External source/context files a runner reads but does NOT generate (codebase modules, third-party docs) keep the advisory treatment: warn, apply the [Large-File Read Tactics](#large-file-read-tactics) ladder, and file a refactor backlog item — they are not hard-split because the runner does not own them.
 
 ---
 
@@ -425,10 +438,22 @@ The read-gate canonical: the Read tool's fixed mechanical limits, the discipline
 
 ### Read-Tool Hard Limits
 
-The Read tool has two mechanical limits, SEPARATE from the carrying-cost budget — a file can fit the session budget yet be unreadable in one Read. These constants are **FIXED harness facts** (measured 2026-06-23; re-validate via headless `claude -p --model X`), defined as module-level constants in `scripts/token_saver.py` — they are **NOT** `/context`-measured and are **NOT** written by `calibrate()`.
+The Read tool has three mechanical limits, SEPARATE from the carrying-cost budget — a file can fit the session budget yet be unreadable in one Read. These constants are **FIXED harness facts** (empirically re-measured 2026-08-26 across four models; re-validate via headless `claude -p --model X`), defined as module-level constants in `scripts/read_limits.py` (re-exported by `scripts/token_saver.py`) — they are **NOT** `/context`-measured and are **NOT** written by `calibrate()`. Measure any file against them with `scripts/measure_files.py`.
 
-- **Byte gate (model-independent):** a file ≥ **262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused unless `offset`/`limit` is passed. Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
-- **Token page-cap gate (model-dependent):** a file above **~25,000 tokens** (`READ_PAGE_CAP_TOKENS`) returns only its first page (truncates). Tokens use the **runner model's** tokenizer — `~13 tok/line` Sonnet/Haiku, `~19 tok/line` Opus (`TOKENS_PER_LINE`). Opus tokenizes ≈1.44× heavier, so it trips the gate at **~1,340 lines** vs Sonnet/Haiku's **~1,920**. Warn at **~22,000 tokens** (`READ_TOKEN_WARN`).
+Gate priority: **tokens first, then bytes, then lines — whichever comes first.** The caps and warn thresholds are identical on every model; only the tokenizer weight (bytes-per-token) differs.
+
+| Model family | Token cap (hard) | Token warn | Byte cap (hard) | Byte warn | Line gate | Bytes-per-token (measured) |
+|---|---|---|---|---|---|---|
+| Haiku | 25,000 | 22,000 | 262,144 (256 KiB) | 245,760 (240 KiB) | 2,000 (defensive) | prose ~4.7 |
+| Sonnet | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | ~3.7–4.7 (derived from the family ratio; worst measured case — synthetic filler — 2.15) |
+| Opus | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | dense markdown 2.6 · prose 3.0 · docs+code 3.3 |
+| Fable | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | tokenizer identical to Opus (same file → same token count): dense markdown 2.6 · prose 3.0 |
+
+- **Token page-cap gate (PRIMARY; model-dependent ratio):** a file above **~25,000 tokens** (`READ_PAGE_CAP_TOKENS`) does not return whole. Without an explicit `limit`, the Read soft-truncates to a first page of **~21,200 tokens (~85% of the cap)** plus a `PARTIAL view` banner reporting the file's exact total; with an explicit `limit` spanning more than the cap it **hard-errors with zero content** (the error still reports the exact token count — a zero-cost measurement oracle). Warn at **~22,000 tokens** (`READ_TOKEN_WARN`) — the warn threshold produces **no runtime marker**, so it MUST be checked proactively (`measure_files.py`), never waited for.
+- **Byte gate (model-independent):** a file ≥ **262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused outright unless `offset`/`limit` is passed — no partial page, no pointer. Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
+- **Line gate (DISTANT THIRD, defensive):** **2,000 lines** (`READ_LINE_CAP`) — the first-page line window; a per-model total-read ceiling of roughly 10–20 pages is reported but UNCONFIRMED (measured sessions returned 3,000+-line single pages). Treat < 2,000 lines as the defensive target for generated artifacts; it binds alone only on many-short-line files that pass the token and byte gates.
+
+**Estimating tokens:** `tokens ≈ bytes ÷ bytes-per-token` for the READING model, gate-conservative — unknown reader or content class → **2.6 B/tok** (the densest measured content on the heaviest tokenizer). Line-based token rates are unreliable and MUST NOT be used: measured per-line rates ranged 7–365 tokens/line depending on content; bytes predict the gate, lines do not.
 
 These FOLD into the per-file warning ladder. `token_saver.classify_file()` computes `level = max(cost_level, read_level)` and tags `reason = cost | read` naming whichever gate drove the level:
 
@@ -437,7 +462,7 @@ These FOLD into the per-file warning ladder. `token_saver.classify_file()` compu
 > ```
 > classify_file(...) → {level: Critical, reason: read}   → "route to Opus, the 1M window fixes it"  ← FALSE
 > ```
-> CORRECT — routing to Opus does NOT raise the per-Read page cap, and Opus's heavier tokenizer trips the gate *sooner* (~1,340 lines vs ~1,920). The remedy is **paged reads** (`offset`/`limit`/Grep), and for a core or to-be-edited dependency, **refactor + backlog**:
+> CORRECT — routing to Opus does NOT raise the per-Read page cap, and the Opus/Fable-family tokenizer trips the token gate on FEWER bytes (~65 KB of dense markdown vs ~92 KB for the Sonnet/Haiku family). The remedy is **paged reads** (`offset`/`limit`/Grep), and for a core or to-be-edited dependency, **refactor + backlog**:
 > ```
 > classify_file(...) → {level: Critical, reason: read}
 >   → page it: Read(offset/limit) or Grep the needed section
@@ -447,12 +472,12 @@ These FOLD into the per-file warning ladder. `token_saver.classify_file()` compu
 
 ### Reading Discipline With Read Gates (BINDING)
 
-The [Read Files Fully](#reading-discipline-binding) rule still holds — read all relevant content, never skim or infer. This section adds one refinement: when a single Read **cannot** deliver a whole file (≥ 256 KiB, or above the runner model's token page-cap), reading "fully" means **paging** it, not trusting one Read returned everything.
+The [Read Files Fully](#reading-discipline-binding) rule still holds — read all relevant content, never skim or infer. This section adds one refinement: when a single Read **cannot** deliver a whole file (above the token page-cap, ≥ 256 KiB, or past the line window), reading "fully" means **paging** it, not trusting one Read returned everything.
 
 > [!constraint] Page Large Files — Do Not Trust One Read
-> WRONG — runner issues one Read on a 2,400-line file, gets the first page back, and proceeds as if it read the whole file:
+> WRONG — runner issues one Read on a ~70 KB dense file, gets the first page back, and proceeds as if it read the whole file:
 > ```
-> Read(path)   → returns first ~1,920 lines (Sonnet) silently truncated → runner acts on partial context
+> Read(path)   → returns only the first ~21,200 tokens (~85% of the 25K cap) silently truncated → runner acts on partial context
 > ```
 > CORRECT — when a file exceeds a gate, page it with `offset`/`limit` (or Grep the needed sections) AND check the returned content for the `PARTIAL view` truncation header before assuming completeness:
 > ```
@@ -460,12 +485,12 @@ The [Read Files Fully](#reading-discipline-binding) rule still holds — read al
 > Read(path, offset=901, limit=900) → … continue until the whole file is covered
 > # or: Grep(pattern, path, output_mode: "content", context: 30) for a known section
 > ```
-> "Read fully" is satisfied by paged reads that together cover the file — NOT by one Read that silently returned only the first page.
+> "Read fully" is satisfied by paged reads that together cover the file — NOT by one Read that silently returned only the first page. Size each page so its window stays under the cap: an explicit `limit` whose window spans MORE than ~25K tokens does not clamp — it hard-errors with zero content (budget ~21K tokens per page; the truncation banner's `offset`/`limit` hint is a safe next-page size).
 
 ### Large-File Read Tactics
 
 > [!practice] Ladder for Files Exceeding a Read-Tool Gate
-> The Read tool has two mechanical gates — see [Read-Tool Hard Limits](#read-tool-hard-limits) above (NOT a single ~13K/~1000-line budget). When a file crosses either gate, apply this ladder in order — stop at the first step that succeeds. A `read`-reason Critical is NOT resolvable by routing to a 1M-window model (see the constraint above).
+> The Read tool has three mechanical gates — tokens, bytes, lines; see [Read-Tool Hard Limits](#read-tool-hard-limits) above (NOT a single line-count budget). When a file crosses any gate, apply this ladder in order — stop at the first step that succeeds. A `read`-reason Critical is NOT resolvable by routing to a 1M-window model (see the constraint above).
 
 **Step 1 — Paged Read (`offset`/`limit`):** Read the file in pages that each stay under the gate, then stitch them — see [Page Large Files — Do Not Trust One Read](#reading-discipline-with-read-gates-binding) above for the WRONG/CORRECT pattern and the `PARTIAL view` truncation-header check.
 

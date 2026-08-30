@@ -762,7 +762,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
             if verdict_label == "RELOCATE":
                 verdict_label += " (prefix-rename fingerprint)"
             print(f"  {mark} {f['filename']}   {verdict_label}")
-            print(f"      size:    {f['line_count']} lines (~{f['approx_tokens']} tokens)")
+            print(f"      size:    {f.get('approx_bytes', 0)} B / {f['line_count']} lines (~{f['approx_tokens']} tokens)")
             print(f"      reason:  {f['reason']}")
             if f["verdict"] == "REMOVABLE":
                 print("      action:  remove with /planwise doctor --prune-stale")
@@ -789,7 +789,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
         for f in diverged:
             mark = mark_by_classification.get(f["classification"], "!")
             print(f"  {mark} {f['path']}   {f['classification']}")
-            print(f"      size:    {f['line_count']} lines (~{f['approx_tokens']} tokens)")
+            print(f"      size:    {f.get('approx_bytes', 0)} B / {f['line_count']} lines (~{f['approx_tokens']} tokens)")
             print(f"      action:  {f['recommendation']}")
 
     # Stage 10: orphaned agent-mirror sweep — read-only, always-on.
@@ -805,7 +805,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
         for f in orphaned_agents:
             mark = "!" if f["verdict"] == "PRESERVE" else "~"
             print(f"  {mark} {f['filename']}   {f['verdict']}")
-            print(f"      size:    {f['line_count']} lines (~{f['approx_tokens']} tokens)")
+            print(f"      size:    {f.get('approx_bytes', 0)} B / {f['line_count']} lines (~{f['approx_tokens']} tokens)")
             print(f"      reason:  {f['reason']}")
             if f["verdict"] == "REMOVABLE":
                 print("      action:  remove with /planwise doctor --prune-stale")

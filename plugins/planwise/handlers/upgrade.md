@@ -22,6 +22,7 @@
   - [Step 4.2 — Opt-in upstream GitHub issue](#step-42--opt-in-upstream-github-issue)
   - [Step 4.3 — Interactive per-class cleanup offer](#step-43--interactive-per-class-cleanup-offer)
   - [Step 4.4 — Settings-grant normalization offer](#step-44--settings-grant-normalization-offer)
+  - [Step 4.5 — GitHub CLI availability offer](#step-45--github-cli-availability-offer)
 - [Conflict Resolution Reference](#conflict-resolution-reference)
 - [Auto-Init Fallback](#auto-init-fallback)
 
@@ -489,6 +490,19 @@ Classify every matching entry:
 The **report always renders**, regardless of consent — every matching entry and its class is printed even when the user declines to act. The **write happens only on explicit interactive approval**: `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`), inferred default **report-only, change nothing** (stated inline — an unattended/non-interactive run never rewrites `additionalDirectories`). On confirm, apply the same parent-aware, normalized dedup the init-time writer uses — prune the superseded version-pinned entries, append the family root — then read the file back to confirm the write landed. On decline, or when no interactive answer is available, print the report and leave every settings file untouched.
 
 When no `additionalDirectories` entry falls in the plugin-cache path family at all (a pre-parent-aware-writer install, or the family root is already the only entry present), report "No plugin-cache grants found needing normalization." and skip the offer — there is nothing to act on.
+
+---
+
+### Step 4.5 — GitHub CLI availability offer
+
+After a successful upgrade, probe for the GitHub CLI by running `gh --version`. If it resolves, skip this step silently — there is nothing to offer.
+
+If it does not resolve, offer the install exactly as [init.md](init.md) Step 9.5 specifies. That step owns the platform command table, the one-command-only failure posture, and the post-install `gh auth login` / `feedback.enabled` instruction; this step invokes it and does not restate or re-derive any of it. `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`), inferred default **No — install nothing** (an unattended run never invokes a package manager).
+
+> [!practice] Why the offer runs at upgrade time and not only at init
+> The two steps reach disjoint populations. Every install that predates this offer has already run its `init` and will never run it again, so an init-only placement leaves those consumers permanently unaware that `/planwise feedback` has been drafting locally rather than posting — the engine's fallback is silent by design ([`references/feedback-submission.md`](../references/feedback-submission.md)), so nothing else would ever tell them.
+
+A declined offer is not remembered — `gh` may be declined once and wanted later — but the question is asked only when `gh` is genuinely absent, so an install already in place is never re-prompted. A failed or declined install NEVER blocks the upgrade.
 
 ---
 

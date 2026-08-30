@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "planwise-marketplace",
-  "version": "1.0.5",
+  "version": "1.0.5.1",
   "description": "Agentic project management for Claude Code — plan, execute, review, and track projects with structured workflows",
   "owner": {
     "name": "Gabriel Gosselin"

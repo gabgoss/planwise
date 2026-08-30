@@ -9,3 +9,6 @@ __pycache__/
 .mypy_cache/
 .coverage
 htmlcov/
+evals/.scratch/
+evals/.envelopes/
+evals/.pytest_cache/

@@ -24,7 +24,7 @@ Two runtime facts shape this agent's whole design, and recur through every secti
 
 Reuse the plan handler's own Step-0 classification — do not invent a separate heuristic:
 
-1. Estimate the item's planning context: its Files-Touched list plus any named cross-cutting candidates, sized at `wc -l` × ~13 tokens/line.
+1. Estimate the item's planning context: its Files-Touched list plus any named cross-cutting candidates, sized with `python "{plugin_root}/scripts/measure_files.py" {files...}` (bytes ÷ the conservative bytes-per-token ratio).
 2. Compare that estimate against `meta_plan_threshold`, resolved exactly as Step 0 resolves it from the config's context block.
 3. **The decided line:**
    - **Under the threshold** → author a Standard plan (§2).

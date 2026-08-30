@@ -23,10 +23,11 @@ follow-up implementation task must satisfy:
   * calibrate() with a failed capture writes the conservative fallback overheads,
     flags the thresholds as uncalibrated, and does not crash.
   * classify_file() + the FIXED read-limit constants (READ_FILE_BYTE_CAP,
-    READ_PAGE_CAP_TOKENS, TOKENS_PER_LINE) gate a path on a byte cap, a per-model
-    token page-cap, a will-exceed-once-modified projection, and the cost-or-read
-    fold whose `reason` tag names the driver. The read constants are FIXED
-    module-level values, NOT `/context`-derived.
+    READ_PAGE_CAP_TOKENS, READ_LINE_CAP, BYTES_PER_TOKEN) gate a path on the
+    token page-cap (bytes / the model's bytes-per-token ratio), the byte cap,
+    the defensive line window, a will-exceed-once-modified projection, and the
+    cost-or-read fold whose `reason` tag names the driver. The read constants
+    are FIXED module-level values, NOT `/context`-derived.
 
 Run with:  python -m unittest scripts/test_token_saver.py
 

@@ -25,21 +25,20 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 
 ## Required Context <!-- REQUIRED -->
 
-| Priority | File | Est. Lines | Est. Tokens | Purpose |
-|----------|------|-----------|-------------|---------|
-| 1 | {file path} | ~{N} | ~{X}K | {why needed} {⚠ PAGED ≥25K {model}-tok / ⚠ REFACTOR ≥256 KiB — OPTIONAL read-handling annotation, Token Saver only} |
-| 2 | {file path} | ~{N} | ~{X}K | {why needed} |
+| Priority | File | KiB | ~Tokens | Purpose |
+|----------|------|----:|--------:|---------|
+| 1 | {file path} | {K} | ~{X}K | {why needed} {⚠ PAGED ≥25K {model}-tok / ⚠ REFACTOR ≥256 KiB — OPTIONAL read-handling annotation, Token Saver only} |
+| 2 | {file path} | {K} | ~{X}K | {why needed} |
 
 <!-- OPTIONAL read-handling annotation (Token Saver only): append to a row's Purpose for any file the doctor read-gate scan flagged.
      `⚠ PAGED ≥25K {model}-tok` — file is above the per-assigned-model 25K-token page cap; the runner MUST page it (offset/limit/Grep), it does NOT all arrive in one Read.
      `⚠ REFACTOR ≥256 KiB` — file is at/over the 256 KiB byte gate; Read refuses it without offset/limit — page it, and refactor + backlog if it is a core/edited dependency.
-     Both are read-reason flags — NOT resolved by the 1M-exception (Opus trips the page cap sooner). -->
+     Both are read-reason flags — NOT resolved by the 1M-exception (the Opus/Fable tokenizer trips the page cap on fewer bytes). -->
 
 **Context subtotal:** ~{X}K tokens (reads) + ~{X}K (output) = ~{X}K total
 <!-- Reconciliation: this total MUST match the Estimated Tokens in this task's header. -->
-<!-- Use ~13 tokens/line for reads. See reference.md Token Estimation Reference for output costs. -->
-<!-- Read-gate note (Token Saver): the read-gate token count uses the task's ASSIGNED-MODEL rate (Sonnet/Haiku 13, Opus 19 tok/line) — a separate per-model check, NOT a change to this reconciliation. The budget Est. Tokens / reconciliation above stay on the existing ~13/line convention. -->
-<!-- Shared-context rule: a file cited by MULTIPLE tasks MUST carry the same measured Est. Lines (from wc -l on the live file) in every task — it is a single source of truth, not a per-task guess. -->
+<!-- Populate KiB/~Tokens with `python "{plugin_root}/scripts/measure_files.py" {files...} --model {assigned Agent} --md` — tokens are measured bytes ÷ the assigned model's bytes-per-token ratio, never lines × a rate. See reference.md Token Estimation Reference for output costs. -->
+<!-- Shared-context rule: a file cited by MULTIPLE tasks MUST carry the same measured KiB/~Tokens (from measure_files.py on the live file) in every task — it is a single source of truth, not a per-task guess. -->
 
 **Section Reference Rule (scaffolded plans):** When referencing Execution Inputs, enumerate INDIVIDUAL section numbers with purpose — never ranges.
 
@@ -159,7 +158,7 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > ```
 > **After:**
 > ```
-> {cmd_after_1}    # e.g., {lint-cmd} on changed files (expect: pass)
+> {cmd_after_1}    # e.g., {lint-cmd} on files from git diff $..._BASE -- <paths> (expect: pass)
 > {cmd_after_2}    # e.g., {test-cmd} or specific test
 > {cmd_after_3}    # e.g., {test-cmd} on the touched module
 > ```
@@ -181,6 +180,27 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 
 > [!constraint] Every Verification Command Names Its Owner
 > Each command in the Before/After blocks MUST name its owner — **runner** or **orchestrator** — the one who runs it. An unattributed command that mutates the artifact it checks is the specific shape that invites a double execution: both the runner and the orchestrator may run it, and a mutating check run against a file the runner still owns produces a two-writer measurement that is indistinguishable from a settled one.
+
+> [!constraint] Diff-Derived Verification Commands Are Baseline-Scoped
+> Any command in the Before/After blocks whose input is `git diff` MUST be scoped to a
+> recorded `{ABBREV}_S{NN}_BASE` — never a bare `git diff`, `git diff HEAD`, or
+> `git diff --name-only` with no operand. Path-scope with `-- <paths>`, never
+> `| grep <path>`: the piped form reads the whole tree, so a sibling sprint's concurrent
+> work trips the gate as if it were this sprint's own edit. The baseline itself is
+> recorded once — by the sprint's first task that touches the repo, in Recovery Key
+> Findings, before that task's first edit — behind a clean-scope precondition
+> (`git status --porcelain -- <write paths>` empty, else HALT). See
+> `references/verification-gates.md` §8 for the full rule; this block states the
+> requirement, the reference carries the doctrine.
+>
+> WRONG — no operand, so the command reads the entire working tree:
+> ```bash
+> git diff plugins/… | grep -E '<pattern>'   # expect empty
+> ```
+> CORRECT — scoped to the recorded base and to this sprint's own paths:
+> ```bash
+> git diff $<ABBREV>_S<NN>_BASE -- <paths> | grep -E '<pattern>'   # expect empty
+> ```
 
 ---
 

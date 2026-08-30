@@ -159,6 +159,7 @@ The canonical policy's Inline Tagging Convention applies: critical sites emit a 
 - **Action:** resolve the scope argument (forwarded verbatim to batch-promote) → group by bucket → draft item files and index rows → capture each lesson (archive-on-capture).
 - **Failure:** HALT if the categorisation gate still fires after stage 1 (HC3 — self-heal is explicitly forbidden; no legal action remains) or on call-site H3 (an id-list scope spanning buckets).
 - **Writes:** item files, backlog index rows, archived lesson files.
+- **Delegated drafting:** batch-promote dispatches [`agents/backlog-author.md`](../agents/backlog-author.md) per bucket to draft and file the item files and index rows. That agent is the **one** agent in this pipeline that writes the backlog index itself, so it is dispatched **once per bucket, never concurrently with another instance** — two dispatches race on the index file and on the next-free-id computation. Lesson capture (status flip, archive move, lessons-index update) stays with this stage; the agent never touches a lesson file. `--dry-run` skips the dispatch entirely rather than dispatching with a no-write flag.
 
 #### Stage 3: Process
 
@@ -177,7 +178,7 @@ The canonical policy's Inline Tagging Convention applies: critical sites emit a 
 
 **Acceptance gate on every return:** verify each declared output file exists on disk BEFORE accepting a success-claiming return. Narrowed to returns that both claim success AND declare files — an honest BLOCKED with no files is not the signature; a COMPLETE declaring absent files IS, and is HC4.
 
-**Central index write:** neither dispatched agent writes the backlog index itself; each returns a status-block delta (below), and this stage applies the single shared write after each item.
+**Central index write:** neither dispatched agent writes the backlog index itself; each returns a status-block delta (below), and this stage applies the single shared write after each item. This holds for stage 3's two agents (the fix agent and `backlog-planner`) and is unchanged. It does **not** describe stage 2's `backlog-author`, which owns its own index write by design — the reason that agent is dispatched one instance at a time.
 
 **Status-block field set** (every per-item dispatch returns; verbatim):
 

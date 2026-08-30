@@ -37,6 +37,31 @@ Use this template when creating `{Abbrev}-S{XX}-Sprint-Plan.md`.
 
 ---
 
+## Write-Set <!-- REQUIRED -->
+
+List every directory or file this sprint **EDITS** — not the ones it merely
+reads. The read/edit distinction is the whole point: an intersection computed
+over read-sets is meaningless, since nearly every sprint reads broadly but only
+a handful of paths are ever written to.
+
+| Path | Task |
+|------|------|
+| `{path/or/directory}` | {ABBREV}-S{XX}-{YY}-{##} |
+| `{path/or/directory}` | {ABBREV}-S{XX}-{YY}-{##} |
+
+This declaration feeds the Master Plan's `## Execution Ordering` section, where
+every declared-parallel pair's write-sets are intersected and the computed
+result is shown in its Computed Write-Set Intersection table.
+
+This section is distinct from `## Cross-Sprint File Touches` below:
+**Cross-Sprint File Touches is sequential** — this sprint vs. a *prior*
+sprint's already-landed delta, gated by a Step-1 prerequisite grep that HALTs
+if the prior delta is missing. **Write-Set is the declaration an intersection
+is computed from** — it states what this sprint edits so a *parallel*
+sprint's write-set can be checked against it, independent of landing order.
+
+---
+
 ## Success Criteria <!-- REQUIRED -->
 
 <!-- Prefer a relationship the pipeline maintains (after == before, "equals the count the
