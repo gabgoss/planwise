@@ -159,12 +159,18 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > **After:**
 > ```
 > {cmd_after_1}    # e.g., {lint-cmd} on files from git diff $..._BASE -- <paths> (expect: pass)
+> # pre-edit: {measured value} → expect {post-edit expectation}
 > {cmd_after_2}    # e.g., {test-cmd} or specific test
+> # pre-edit: {measured value} → expect {post-edit expectation}
 > {cmd_after_3}    # e.g., {test-cmd} on the touched module
+> # pre-edit: {measured value} → invariant: {value}   (mark invariant only if this gate must NOT move)
 > ```
 > If one of the three command types (connectivity/precondition, lint/format, exec/smoke)
 > does not apply to this task, replace that type's `{cmd_after_N}` line above with
 > `<!-- NEEDS-COMMAND -->` so the gap stays visible at review time — never leave the line blank.
+> Every `{cmd_after_N}` line carries the `# pre-edit: {value} → expect {expectation}` annotation
+> immediately beneath it (or `→ invariant: {value}` for a preservation gate) — see the constraint
+> below.
 
 ### Per-File-Type Commands
 
@@ -200,6 +206,29 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > CORRECT — scoped to the recorded base and to this sprint's own paths:
 > ```bash
 > git diff $<ABBREV>_S<NN>_BASE -- <paths> | grep -E '<pattern>'   # expect empty
+> ```
+
+> [!constraint] Every Before/After Gate Records Its Measured Pre-Edit Value
+> Each command in the Before/After blocks MUST carry an inline annotation recording the value
+> it measured **against the live pre-edit tree**, immediately beside the expectation it is meant
+> to contradict — never inferred from intent, memory, or a sibling gate. A gate whose recorded
+> pre-edit value already satisfies its post-edit expectation is vacuous by construction: it
+> passes with zero work done, so it cannot answer whether the work happened, and MUST be
+> rewritten before it ships — not relaxed, not shipped with a caveat. A gate asserting a value
+> must NOT move (a count a refactor must preserve, a block that must survive untouched) is
+> exempt from this finding, but only when marked `invariant:` in place of `expect` on the
+> annotation line — an unmarked gate whose pre-edit value already satisfies `expect` is not
+> exempt, whatever the surrounding prose claims. See `references/verification-task-authoring.md`
+> §10 for the full doctrine; this block states the requirement, the reference carries the rule.
+>
+> WRONG — the expectation stands alone; nothing records what the value was before the edit:
+> ```bash
+> grep -c '{token}' {file}   # expect >=1
+> ```
+> CORRECT — the measured pre-edit value sits inline, immediately beside the expectation:
+> ```bash
+> grep -c '{token}' {file}
+> # pre-edit: 0 → expect >=1
 > ```
 
 ---
