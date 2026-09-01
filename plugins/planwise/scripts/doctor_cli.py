@@ -38,6 +38,15 @@ except ImportError:
     )
 
 try:
+    from upgrade_io import _copy_bytes_exact
+except ImportError:
+    raise ImportError(
+        "upgrade_io is required for doctor_cli's prune pre-image copies "
+        "(_copy_bytes_exact); the scripts/ directory appears to be partially "
+        "installed"
+    )
+
+try:
     from doctor_sweeps import (
         lint_rule_overscope,
         compute_injection_families,
@@ -117,7 +126,10 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
     for f in removable:
         try:
             src = Path(f["path"])
-            (out_dir / f["filename"]).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+            # Byte-exact pre-image (same primitive as the upgrade backup):
+            # a text round-trip here rewrote CRLF files LF, so the "pre-image"
+            # was not the bytes the prune removed.
+            _copy_bytes_exact(src, out_dir / f["filename"])
             src.unlink()
             removed.append(f)
         except OSError as exc:
@@ -281,7 +293,7 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
             if src.is_dir():
                 shutil.copytree(src, backup_dst, dirs_exist_ok=True)
             else:
-                backup_dst.write_bytes(src.read_bytes())
+                _copy_bytes_exact(src, backup_dst)
         except OSError as exc:
             kept.append({**f, "klass": "REMOVE_FAILED",
                          "reason": f"could not back up ({exc}) — left in place, not removed"})

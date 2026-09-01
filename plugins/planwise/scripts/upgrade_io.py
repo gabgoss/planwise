@@ -73,9 +73,12 @@ def _installed_hash(source: "Path | str") -> str:
     subcommand and the verdict-override recompute below cannot drift apart
     again.
 
-    Preservation paths (`_write_backup_preimage`, `_transfer_customization`)
-    intentionally do the opposite — they copy/write bytes exactly — and are
-    untouched by this helper.
+    The preservation path (`_write_backup_preimage`, via `_copy_bytes_exact`)
+    intentionally does the opposite — it copies bytes exactly — and is
+    untouched by this helper. (`_transfer_customization` is neither: it writes
+    the DECODED installed text under a provenance header, a preservation
+    document for re-homing, not a byte pre-image — the backup is the
+    pre-image.)
     """
     raw = source.read_text(encoding="utf-8-sig") if isinstance(source, Path) else source
     normalized = raw.replace("\r\n", "\n").replace("\r", "\n")
@@ -158,12 +161,41 @@ def _load_verdict_override(
         return None
 
 
+def _copy_bytes_exact(src: Path, dst: Path) -> None:
+    """Copy `src` to `dst` as an exact byte image — the ONE copy primitive
+    every pre-image/backup site in the upgrade and prune flows uses.
+
+    Deliberately NOT a text round-trip (`read_text` -> `write_text`): text
+    mode applies universal-newline translation on read and the platform's
+    native ending on write, so a CRLF file is silently rewritten LF on POSIX
+    and an LF file rewritten CRLF on Windows; a leading BOM is dropped by a
+    `utf-8-sig` read; and a non-UTF-8 byte raises `UnicodeDecodeError` — a
+    ValueError, NOT an OSError, so it escapes a backup site's OSError guard
+    and aborts the whole run. A backup that is not the bytes it replaced is
+    not a backup.
+
+    This is the opposite of the hash pre-image (`_installed_hash`), which
+    normalizes line endings on purpose so a comparator digest stays stable
+    across checkouts. The two pipelines have different correct answers and
+    must never be unified: normalize-before-hash, preserve-bytes-on-copy.
+
+    Raises OSError on any I/O failure (each caller's failed-backup-blocks-
+    destruction contract handles it). `dst`'s parent must already exist.
+    """
+    dst.write_bytes(src.read_bytes())
+
+
 def _write_backup_preimage(
     cfg: "InitConfig", from_version: str, to_version: str, dst: Path
 ) -> bool:
     """Copy dst's CURRENT bytes to upgrade-backups/{from}-to-{to}/, mirroring
     its project-relative path. Call this BEFORE any destructive overwrite or
     removal of `dst`.
+
+    The copy is byte-exact (`_copy_bytes_exact`): line endings, a leading
+    BOM, and any non-UTF-8 content survive unchanged, so restoring from the
+    backup returns the file that was replaced — never a line-ending-rewritten
+    copy of it. No text-mode read or write touches the pre-image path.
 
     Returns True on success, False on any OSError (a stderr warning is
     printed). Callers MUST treat False as "abort the destructive step; leave
@@ -181,7 +213,7 @@ def _write_backup_preimage(
     try:
         backup_path = backup_root / rel
         backup_path.parent.mkdir(parents=True, exist_ok=True)
-        backup_path.write_text(dst.read_text(encoding="utf-8"), encoding="utf-8")
+        _copy_bytes_exact(dst, backup_path)
         return True
     except OSError as exc:
         print(
