@@ -39,6 +39,7 @@ try:
         _append_disposition_log,
         _load_raw_config,
         _transfer_customization,
+        verdicts_cache_path,
     )
 except ImportError:
     raise ImportError(
@@ -625,8 +626,28 @@ def _apply_feedback_dir(cfg: "InitConfig", config_path: Path) -> None:
     print(f"Feedback directory: {state} ({feedback_dir_path})")
 
 
-def _run_upgrade(cfg: "InitConfig") -> int:
-    """Execute the --upgrade flow and print a banner. Returns exit code."""
+def _run_upgrade(
+    cfg: "InitConfig", expected_pair: "tuple[str, str] | None" = None
+) -> int:
+    """Execute the --upgrade flow and print a banner. Returns exit code.
+
+    The upgrade version pair (config.yaml's pinned plugin_version -> the
+    installed plugin's plugin.json version) is resolved ONCE, right below,
+    and every pair-scoped path this run touches derives from that single
+    resolution: the verdict cache the artifact refresh and the de-scope
+    migration read, its retirement after the run, and the backup / transfer
+    / conflict directories.
+
+    `expected_pair` is the pair the interactive handler pinned at the start
+    of its own run (``--upgrade-pair FROM-to-TO``). When it is given and
+    disagrees with the live resolution the run is REFUSED before any write
+    (exit 2): the comparator fan-out analyzed the shipped bodies of the
+    pinned pair and wrote its verdicts under that pair's path, so a plugin
+    cache that moved mid-session would otherwise retarget both silently —
+    the cache missed (degrading to the inline primitive), and a shipped body
+    adopted that no comparator analyzed. Headless runs pass None: the pair
+    is still resolved once and recorded in the banner.
+    """
     if not HAS_YAML:
         print(
             "Upgrade failed: PyYAML is required for --upgrade. Install with `pip install pyyaml`.",
@@ -650,6 +671,22 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         return 2
     pinned_version = str(user_cfg.get("plugin_version", "0.0.0"))
     target_version = cfg.plugin_version
+
+    # Refusal gate — BEFORE the already-up-to-date branch, which writes too
+    # (root repoint, Token Saver flip, feedback dir): a moved pair means no
+    # write of any kind until the handler re-pins from its Step 1.
+    if expected_pair is not None and (pinned_version, target_version) != tuple(expected_pair):
+        print(
+            "Upgrade refused: the handler pinned upgrade pair "
+            f"{expected_pair[0]}-to-{expected_pair[1]} at the start of this run, but the "
+            f"pair now resolves live as {pinned_version}-to-{target_version} "
+            "(config.yaml plugin_version vs the installed plugin's plugin.json). The "
+            "plugin cache or the version pin moved mid-session; nothing was written. "
+            "Re-run /planwise upgrade from Step 1 so the comparator fan-out and this "
+            "writer agree on one pair.",
+            file=sys.stderr,
+        )
+        return 2
 
     if pinned_version == target_version:
         # The version pin is current, but a SEPARATE key — plugin_root — can
@@ -691,6 +728,17 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         return 0
 
     print(f"Plugin upgrade: {pinned_version} -> {target_version}")
+    # The pair is resolved exactly once (above) and every pair-scoped path
+    # below derives from it. `verdicts_path` is the SAME object the cache
+    # readers resolve to and the retirement step (4b) renames — recorded in
+    # the banner so the transcript shows which pair this run consumed under.
+    verdicts_path = verdicts_cache_path(cfg, pinned_version, target_version)
+    cache_state = "present" if verdicts_path.exists() else "absent"
+    pin_note = " — matches --upgrade-pair" if expected_pair is not None else ""
+    print(
+        f"Upgrade pair: {pinned_version}-to-{target_version} "
+        f"(resolved once for this run{pin_note}; verdict cache {cache_state}: {verdicts_path})"
+    )
     print()
 
     # 2. Run additive config merge.
@@ -818,11 +866,8 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         # against; once this run has consumed it, leaving it in place would
         # let a stale verdict fire on a later re-run or a different pair.
         # Renamed (not deleted) so the analysis remains inspectable next to
-        # INDEX.md.
-        verdicts_path = (
-            cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
-            / f"{pinned_version}-to-{target_version}" / "verdicts.json"
-        )
+        # INDEX.md. `verdicts_path` is the single per-run resolution from the
+        # banner above — the path the readers consumed, never re-derived.
         if verdicts_path.exists():
             try:
                 consumed_path = verdicts_path.with_name("verdicts.json.consumed")

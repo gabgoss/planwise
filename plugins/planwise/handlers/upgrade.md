@@ -24,8 +24,7 @@
   - [Step 4.3 — Interactive per-class cleanup offer](#step-43--interactive-per-class-cleanup-offer)
   - [Step 4.4 — Settings-grant normalization offer](#step-44--settings-grant-normalization-offer)
   - [Step 4.5 — GitHub CLI availability offer](#step-45--github-cli-availability-offer)
-- [Conflict Resolution Reference](#conflict-resolution-reference)
-- [Auto-Init Fallback](#auto-init-fallback)
+- [Part 2 — Conflict Resolution Reference and Recovery](#part-2--conflict-resolution-reference-and-recovery) — pointer to the separate file [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Conflict Resolution Reference, Auto-Init Fallback, Mid-Upgrade Failure, Config Recovery)
 
 ---
 
@@ -35,7 +34,7 @@ Locate `config.yaml` by checking, in order:
 
 1. `planwise/config.yaml` (default planwise root)
 2. One level down from project root for `*/config.yaml`
-3. If still not found → branch to [Auto-Init Fallback](#auto-init-fallback)
+3. If still not found → branch to [Auto-Init Fallback](upgrade-Part-2-RecoveryAndReference.md#auto-init-fallback) (Part 2 of this handler)
 
 Resolve **`{plugin_root}`** — used in every script invocation below — from this handler's own known location (the plugin base directory provided by SKILL.md), the same resolution [init.md](init.md) uses for first-time init. This is the LIVE, currently-invoked plugin; it is NOT read from `config.yaml`.
 
@@ -57,6 +56,9 @@ Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version` — the li
 > If `pinned == shipped` **but** the stored `plugin_root` differs → do NOT exit; skip the comparator fan-out (Steps 2.1–2.3 have nothing to compare — no artifact changed) and run the Step 2.4 script invocation, which repoints the root on its own. Report the result as "Plugin root repointed", not as a version change. See the mismatch note below.
 > If `pinned < shipped` (or `pinned` is absent) → proceed to Step 2.1.
 > If `pinned > shipped` → emit a warning ("Your config pins {pinned} but the installed plugin is {shipped} — did you downgrade?") and ask the user with `AskUserQuestion` whether to proceed.
+
+> [!constraint] Pin the version pair once, here — never re-derive it mid-run
+> Record `{from}` = the pinned `plugin_version` and `{to}` = the `version` just read from the live `plugin.json`, and use those two recorded values verbatim for every later `{from}` / `{to}` in this handler: the Step 2.3 cache path, the Step 2.4 `--upgrade-pair` argument, the Step 3 banner, and every `upgrade-conflicts/` / `upgrade-transfers/` / `upgrade-backups/` path in Step 4. Do NOT re-read `plugin.json` or `config.yaml` later to rebuild them. The comparator fan-out (Step 2.2) analyzes the shipped bodies of THIS pair and writes its verdicts under THIS pair's directory; if the plugin cache is refreshed mid-session, a re-derived `{to}` would point the writer at a different pair directory — the cache silently missed, the fan-out's work discarded, and a shipped body adopted that no comparator analyzed. The Step 2.4 script receives the pinned pair and refuses to run when its own live resolution disagrees; on that refusal, restart from this step.
 
 > [!note] "Already up to date" is a local comparison only
 > This check compares the pinned `plugin_version:` against the live plugin's own `.claude-plugin/plugin.json` in your local install cache — no step in this handler reads the marketplace source, so "already up to date" reflects your local cache, not necessarily the newest published release; keep the cache itself current with the two-stage refresh described in README.md's upgrade section.
@@ -141,7 +143,7 @@ Collect the N verdicts (each comparator's returned/`SendMessage`d JSON). If a co
 
 ### Step 2.3 — Write `verdicts.json`
 
-Write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to}/verdicts.json`, keyed by filename — the only place the writer reads this cache from disk. Each entry is the comparator's `StructuralVerdict` shape **plus an `installed_sha256` freshness binding** (see below). A SUBSET entry's `notes` is `""` when clean — non-empty `notes` is reserved for verbatim tolerated installed-only fragment text and routes the file to the customization-handling path (see the notes-contract constraint in [rule-comparator.md](../agents/rule-comparator.md)):
+Write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to}/verdicts.json`, keyed by filename — the only place the writer reads this cache from disk. `{from}` / `{to}` are the values pinned in Step 1. The writer reads exactly this path for the pair it resolves: when that file is absent but a `verdicts.json` exists under a *different* pair directory, it prints a stderr warning naming both paths and falls back to the inline primitive — it never consumes another pair's verdicts, and a genuinely absent cache (headless, or fan-out declined) stays silent. Each entry is the comparator's `StructuralVerdict` shape **plus an `installed_sha256` freshness binding** (see below). A SUBSET entry's `notes` is `""` when clean — non-empty `notes` is reserved for verbatim tolerated installed-only fragment text and routes the file to the customization-handling path (see the notes-contract constraint in [rule-comparator.md](../agents/rule-comparator.md)):
 
 ```json
 {
@@ -220,10 +222,12 @@ Write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to
 Append `--token-saver` only when `{token_saver}` (from Step 1.5) is `yes`:
 
 ```bash
-python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --upgrade --token-saver
+python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --upgrade --upgrade-pair "{from}-to-{to}" --token-saver
 ```
 
 Omit the trailing `--token-saver` when `{token_saver}` is `no` — the upgrade leaves the existing `context.token_saver` value untouched (migration is non-destructive; it never flips a user-set toggle off).
+
+`--upgrade-pair "{from}-to-{to}"` carries the pair pinned in Step 1 — pass it verbatim, always. The script resolves the pair itself (pinned `plugin_version` vs the live `plugin.json`) and, when the two disagree, **refuses** with exit code 2 before writing anything (`Upgrade refused: the handler pinned upgrade pair … but the pair now resolves live as …`). That is the plugin cache or the version pin having moved mid-session, not a script fault: restart from Step 1 so the fan-out and the writer agree on one pair. Never retry by dropping the flag.
 
 `{project_root}` is the absolute path of the project root (the directory containing `{planwise_root}/`). Pass it explicitly so the upgrade writes to the correct tree even when the user invokes `/planwise upgrade` from a subdirectory — the script's default of `Path.cwd()` is incorrect in that case.
 
@@ -325,6 +329,7 @@ The script emits a structured report. Pass it through verbatim to the user. The 
 
 ```
 Plugin upgrade: {from} -> {to}
+Upgrade pair: {from}-to-{to} (resolved once for this run — matches --upgrade-pair; verdict cache {present|absent}: {planwise_root}/upgrade-conflicts/{from}-to-{to}/verdicts.json)
 
 Config keys added:    {N}  ({list, or "(none)"})
 
@@ -537,77 +542,15 @@ A declined offer is not remembered — `gh` may be declined once and wanted late
 
 ---
 
-## Conflict Resolution Reference
+## Part 2 — Conflict Resolution Reference and Recovery
 
-> [!practice] Why transfer-then-adopt, and not silent overwrite
-> Rules in `.claude/rules/planwise/` are user-installable artifacts. A user may have hand-edited a rule to extend its `paths:` glob, refine its prose, or add a project-specific subsection. `/planwise upgrade` MUST NOT silently destroy that work. For the stale-subset majority (reflowed / reordered / reworded, no genuine customization), auto-adopting shipped is safe — there is nothing to lose. For the customization-bearing minority, the writer (under `customization_handoff: report+relocate`) moves the customization to a dormant preservation file under `{planwise_root}/upgrade-transfers/`, verifies the write, backs up the pre-image, and only then adopts shipped — a `.new` sidecar is reserved for the conservative handoff modes and the residual cases where a transfer, backup, or adoption write could not be safely completed.
+The remainder of this handler lives in [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) — split at this section boundary so each part stays within one Read-tool page. Read it for:
 
-| Scenario | What the script does | What the user does |
-|---|---|---|
-| Installed body matches shipped (normalised) | Skips rewrite (no-op) | Nothing — file is current |
-| Installed body matches shipped, but `paths:` differs | Skips rewrite | Nothing — `paths:` is per-project |
-| Installed body diverged → **SUBSET**, no tolerated notes (stale / reflowed / reordered) | **Auto-adopts shipped in place** (refresh; pre-image under `upgrade-backups/` first — failed backup = no overwrite); NO `.new` sidecar; counted under Refreshed "(was stale subset)". | Nothing — customization-free divergence resolved automatically |
-| Installed body diverged → **HAS_UNIQUE** or a SUBSET whose `notes` flag tolerated installed-only content — and `customization_handoff: report+relocate` | **Transfers** the installed body to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` (verified write; collisions uniquified, never clobbered), backs up the pre-image, **then adopts** shipped in place; NO `.new` sidecar on success | Review the transferred file and re-home it (Step 4.1 promote to an active rule, or Step 4.2 upstream) |
-| Same customization-bearing verdicts, but `customization_handoff` is `report` / `report+issue` (or absent) | Preserves byte-for-byte + `.new` sidecar + `INDEX.md` entry — conservative mode: no transfer, no adoption | Diff the sidecar, merge manually, delete `.new` (Step 4) — or relocate by hand (Step 4.1, case B) |
-| Customization transfer write failed, pre-image backup failed, adoption write failed, or the verdict is the degraded not-analyzed stand-in | Preserves byte-for-byte + `.new` sidecar + `INDEX.md` entry (never adopts without evidence, a verified transfer, AND a pre-image backup; a post-transfer adoption failure logs no false DISPOSITIONS row) | Diff the sidecar, merge manually, delete `.new` (Step 4) — or retry the relocation by hand (Step 4.1, case B) |
-| Diverged file with a comparator verdict in `verdicts.json` | Writer uses the comparator's **semantic** verdict (supersedes the inline primitive); disposition shape unchanged | Nothing — fidelity raised on the minority |
-| Installed file absent | Writes shipped body fresh | Nothing — file just appeared |
-| File present, not in manifest allowlist | Reports as Untracked | Nothing — file is the user's own |
-| De-scoped rule, installed body **and** `paths:` untouched (or a high-confidence stale subset, no tolerated notes) — AND, when `paths:` also diverges from the resolved default, `upgrade.descope_preserve_paths_edits` is `false` (opt-out disabled) | Removes the redundant installed copy (rule is now handler-loaded from `references/`; pre-image under `upgrade-backups/` first) | Nothing — the rule still applies, loaded on demand |
-| De-scoped rule, body diverged with a genuine customization (HAS_UNIQUE, or a SUBSET whose `notes` flag tolerated installed-only content), `paths:` matches the resolved default (or the preserve opt-out is disabled) — and `customization_handoff: report+relocate` | **Transfers** the installed body to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` (verified write), backs up the pre-image, **then removes** the installed copy | Review the transferred file and re-home it (Step 4.1 promote to an active rule, or Step 4.2 upstream) |
-| Same customization-bearing verdicts, but `customization_handoff` is `report` / `report+issue` (or absent); or the transfer/backup write failed; or `paths:` is customised — alone, or combined with a customized body — with the preserve opt-out enabled; or the SUBSET is reorg-inconclusive | Preserves byte-for-byte + emits an action-required re-home notice (never auto-deletes without a verified transfer, and a paths-customised copy is never given weaker protection than a body-only customization) | Re-home: keep as a project-local rule, re-scope `paths:` to the code dirs it governs, or upstream the change |
+- [Conflict Resolution Reference](upgrade-Part-2-RecoveryAndReference.md#conflict-resolution-reference) — the scenario table behind the Step 4 dispositions
+- [Auto-Init Fallback](upgrade-Part-2-RecoveryAndReference.md#auto-init-fallback) — the Config Gate's branch when no `config.yaml` exists
+- [Mid-Upgrade Failure](upgrade-Part-2-RecoveryAndReference.md#mid-upgrade-failure) — why re-running after a partial upgrade is safe
+- [Config Recovery](upgrade-Part-2-RecoveryAndReference.md#config-recovery) — manual repairs for a bricked config or a dangling `plugin_root` pin
 
 ---
 
-## Auto-Init Fallback
-
-If the config gate fails (no `config.yaml` found), the project hasn't been initialised. `--upgrade` will exit non-zero in that case. Surface this clearly:
-
-```
-This project doesn't have a planwise config yet. Run `/planwise init` first.
-```
-
-Offer to run `/planwise init` via `AskUserQuestion` and, on confirmation, dispatch to `init.md`'s Step 1. Once init completes, the upgrade is unnecessary (the freshly-generated config pins the current plugin version).
-
----
-
-## Mid-Upgrade Failure
-
-If an unexpected error interrupts the script anywhere after the config-merge step — during artifact refresh, rule de-scope migration, verdict-cache retirement, the advisory banner, or the version-pin commit itself — the script prints:
-
-```
-partial upgrade — re-run to resume; already-refreshed files are idempotent and the version pin is unchanged.
-```
-
-and exits non-zero, with the underlying error still surfaced for diagnosis. Re-running is safe, not just convenient: a per-file failure during artifact refresh is caught and reported individually without aborting the run, and the version pin plus the plugin-root path are written together, LAST, in one atomic commit — so a run that fails before reaching that commit leaves the pin at its pre-upgrade value while every file already refreshed keeps its new (idempotent) content. Simply re-run `/planwise upgrade`: already-current files are skipped as no-ops and the run picks up from where it stopped.
-
----
-
-## Config Recovery
-
-The two recoveries below apply when the Config Gate itself cannot complete — before any Workflow step runs. Both are manual repairs; the second requires no working handler at all.
-
-### Bricked config after an older upgrade
-
-**Symptom:** `config.yaml` fails to parse — the Config Gate can't extract `plugin_root`, `plugin_version`, or any `project.*` value, so every command that resolves through it fails.
-
-**Cause:** plugin versions before 1.0.5 wrote new or migrated keys into `config.yaml` without a parse-health check afterward. A flow-style value (`key: {...}`) rewritten by an older writer could be left with its previous block-style child lines still indented beneath it — a shape that isn't valid YAML.
-
-**Repair:**
-1. Get the current plugin version first: run the Stage 1 refresh (`/plugin marketplace update` then `/plugin install planwise@planwise-marketplace`) so you're diagnosing with 1.0.5 or later, which added the check below.
-2. If `config.yaml` no longer parses, run `/planwise doctor` — it prints a `Config parse check` block naming the offending key and the fix when the corruption is a recognised one, before failing loud.
-3. Hand-repair: open `config.yaml` and find the parent line the report names. The corruption signature is a single-line flow-style value (`{...}`) with its old block-style children still indented beneath it — delete those leftover indented lines; the flow-style value on the parent line already carries them. Save, then re-run `/planwise doctor` to confirm the file parses cleanly.
-
-### Dangling `plugin_root` pin
-
-**Symptom:** `/planwise upgrade` or `/planwise doctor` fails outright trying to read its own scripts, because `config.yaml`'s `plugin_root:` pin still names a version-specific cache directory that a later cache reap removed.
-
-**Repair — an out-of-band, manual pin repair; requires no working handler.** This is the bootstrap for exactly the state where the handler cannot start, since the handler's own commands live under the path that no longer resolves:
-1. Locate the live plugin cache — the version-agnostic plugin-family root (e.g. `~/.claude/plugins/cache/planwise-marketplace/planwise`) or the current version's directory beneath it.
-2. Edit `config.yaml` directly and set `plugin_root:` to that path.
-3. Verify by reading `.claude-plugin/plugin.json` at that path directly — its `version` field confirms which release you just pointed at (no handler required).
-4. Once confirmed, run `/planwise upgrade` normally — Step 1 resolves the live root itself and Step 2.4's repoint keeps `plugin_root:` and `plugin_version:` in sync going forward.
-
----
-
-*Cross-reference: [init.md](init.md), [agents/rule-comparator.md](../agents/rule-comparator.md), [migrate logic in scripts/init_project.py](../scripts/init_project.py).*
+*Cross-reference: [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Part 2 of this handler), [init.md](init.md), [agents/rule-comparator.md](../agents/rule-comparator.md), [migrate logic in scripts/init_project.py](../scripts/init_project.py).*

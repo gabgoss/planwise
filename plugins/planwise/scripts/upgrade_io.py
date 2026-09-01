@@ -35,22 +35,86 @@ except ImportError:
     )
 
 
-def _load_verdicts_cache(cfg: "InitConfig", from_version: str, to_version: str) -> dict:
-    """Load the interactive fan-out's verdicts.json cache, if present.
+def verdicts_cache_path(cfg: "InitConfig", from_version: str, to_version: str) -> Path:
+    """The ONE derivation of the interactive fan-out's cache path:
+    ``{planwise_root}/upgrade-conflicts/{from}-to-{to}/verdicts.json``.
 
-    Path: ``{planwise_root}/upgrade-conflicts/{from}-to-{to}/verdicts.json``. This
-    is the ONLY place the cache is read from disk — every ``--upgrade`` writer
-    site (the Site-1 de-scope migration and the Sites-2/3 artifact refresh)
-    calls this helper once, then looks up its own filename to build an
-    override. A missing file, an unreadable file, or malformed (non-dict)
-    JSON all degrade to ``{}`` — no ``verdicts.json`` is the headless-complete
-    baseline; the writer never requires the cache to run.
+    Every site that touches the cache — the reader below, and the
+    ``--upgrade`` run's retirement of a consumed cache — resolves the path
+    through this helper from the run's single (from, to) resolution, so the
+    reader can never look somewhere the writer did not. A caller that
+    already holds the `Path` passes it along rather than re-deriving it.
     """
-    path = (
+    return (
         cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
         / f"{from_version}-to-{to_version}" / "verdicts.json"
     )
+
+
+def _find_stray_verdicts_caches(cfg: "InitConfig", expected: Path) -> list[Path]:
+    """Every LIVE ``upgrade-conflicts/*/verdicts.json`` other than `expected`.
+
+    A live cache under another pair directory is a comparator fan-out whose
+    output the current run would otherwise miss silently. A retired
+    ``verdicts.json.consumed`` is NOT a stray — that is an earlier run's
+    cache, deliberately renamed so it can never fire again — and the glob's
+    exact filename excludes it. Sorted for stable output; any OSError while
+    scanning degrades to "no strays" (the scan is a diagnostic, never a
+    gate on the run).
+    """
+    root = cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
+    try:
+        if not root.is_dir():
+            return []
+        found = sorted(p for p in root.glob("*/verdicts.json") if p.is_file())
+    except OSError:
+        return []
+    return [p for p in found if p != expected]
+
+
+def _load_verdicts_cache(cfg: "InitConfig", from_version: str, to_version: str) -> dict:
+    """Load the interactive fan-out's verdicts.json cache, if present.
+
+    Path: `verdicts_cache_path()` for the run's resolved pair. This is the
+    ONLY place the cache is read from disk — every ``--upgrade`` writer site
+    (the de-scope migration and the artifact refresh) calls this helper
+    once, then looks up its own filename to build an override. The writer
+    never requires the cache to run; three on-disk states are distinguished:
+
+    * **Absent, and no other pair's cache exists** — ``{}``, silently. No
+      ``verdicts.json`` is the headless-complete baseline (no fan-out ran,
+      or it was declined), not an error.
+    * **Absent at the resolved pair, but a live ``verdicts.json`` exists
+      under a DIFFERENT pair directory** — ``{}`` with a stderr warning
+      naming the expected path and every path found. A fan-out DID run and
+      its output sits at another pair: the version pair moved between the
+      fan-out write and this read (a plugin cache refreshed mid-session is
+      the concrete trigger). Those verdicts analyzed a different shipped
+      version, so they are never reused — but the miss must be loud, because
+      to the caller it is otherwise indistinguishable from the baseline and
+      the whole fan-out's work would be discarded without a trace.
+    * **Present** — consumed. An unreadable file or malformed (non-dict)
+      JSON still degrades to ``{}``.
+
+    Both writer sites read through this helper, so on the one upgrade that
+    crosses the de-scope migration boundary the stray warning can print
+    twice; that duplication is accepted over a module-level "already warned"
+    flag, which would silence the second reader in a long-lived process.
+    """
+    path = verdicts_cache_path(cfg, from_version, to_version)
     if not path.exists():
+        strays = _find_stray_verdicts_caches(cfg, path)
+        if strays:
+            print(
+                f"  Warning: no verdict cache for upgrade pair {from_version}-to-{to_version} "
+                f"(expected {path}), but a comparator fan-out left one under a different "
+                f"pair: {', '.join(str(s) for s in strays)}. The version pair moved between "
+                "the fan-out and this run (a plugin cache update mid-session?); those "
+                "verdicts analyzed a different shipped version and are NOT reused. Falling "
+                "back to the inline primitive for every diverged file — re-run the fan-out "
+                "for this pair to restore comparator fidelity.",
+                file=sys.stderr,
+            )
         return {}
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))

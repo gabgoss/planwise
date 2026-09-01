@@ -571,6 +571,14 @@ def main():
     parser.add_argument("--upgrade", action="store_true",
                         help="Refresh installed rules and bump plugin_version: in "
                              "config.yaml after a plugin update.")
+    parser.add_argument("--upgrade-pair", default=None, metavar="FROM-to-TO",
+                        help="With --upgrade: the version pair the invoking handler "
+                             "resolved and pinned at the start of its run (e.g. "
+                             "1.0.4-to-1.0.5). The upgrade is refused (exit 2, nothing "
+                             "written) when the pair it resolves live differs — a "
+                             "plugin cache that moved mid-session must not silently "
+                             "retarget the comparator fan-out's verdicts.json or adopt "
+                             "a different shipped body than the one analyzed.")
     parser.add_argument("--doctor", action="store_true",
                         help="Read-only diagnostic: scan installed rules and report any "
                              "still scoped to plan/backlog/lessons globs (always-on context "
@@ -611,6 +619,19 @@ def main():
                              "verdicts.json entry's installed_sha256 must be computed "
                              "with this flag to be trusted. Does not require --name.")
     args = parser.parse_args()
+
+    # --upgrade-pair is validated up front so a malformed value is a parser
+    # error, never a half-run: it is the handler's pinned pair, and the
+    # writer's refusal gate depends on it being well-formed.
+    expected_pair = None
+    if args.upgrade_pair is not None:
+        if not args.upgrade:
+            parser.error("--upgrade-pair only applies together with --upgrade")
+        parts = args.upgrade_pair.split("-to-")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            parser.error("--upgrade-pair must be FROM-to-TO (e.g. 1.0.4-to-1.0.5), "
+                         f"got {args.upgrade_pair!r}")
+        expected_pair = (parts[0], parts[1])
 
     if args.hash_installed:
         # The upgrade handler interpolates an absolute path here once per verdict
@@ -666,7 +687,7 @@ def main():
     if args.upgrade:
         if args.migrate:
             print("Note: --migrate is redundant when --upgrade is used (upgrade internally calls migrate).", file=sys.stderr)
-        sys.exit(_run_upgrade(cfg))
+        sys.exit(_run_upgrade(cfg, expected_pair=expected_pair))
 
     if args.migrate:
         sys.exit(_run_migrate(cfg))
