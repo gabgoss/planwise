@@ -16,6 +16,7 @@
   - [Step 2.4 — Invoke the upgrade script](#step-24--invoke-the-upgrade-script)
   - [Step 2.5 — Refresh Token Saver calibration](#step-25--refresh-token-saver-calibration)
   - [Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)](#step-26--lessons-scaffolding-backfill-pyyaml-missing-fallback)
+  - [Step 2.7 — Feedback directory backfill and creation](#step-27--feedback-directory-backfill-and-creation)
   - [Step 3 — Render the banner](#step-3--render-the-banner)
   - [Step 4 — Resolve conflicts](#step-4--resolve-conflicts)
   - [Step 4.1 — Assisted relocation](#step-41--assisted-relocation)
@@ -89,6 +90,7 @@ Token Saver is a budget mode that keeps task sessions under ~150K and warns when
 > | 5 | Step 2.4 — invoke `--upgrade` (the single writer) consuming `verdicts.json` | both | **yes** |
 > | 6 | Step 2.5 — Token Saver recalibration | both | config |
 > | 7 | Step 2.6 — Lessons scaffolding backfill fallback | both | config (PyYAML-missing case only) |
+> | 8 | Step 2.7 — Feedback directory backfill/creation — see cross-reference; the write itself is part of Step 2.4's script call | both | (documented by Step 2.4) |
 >
 > Headless / non-interactive: skip rows 3–4; the writer (row 5) runs with no `verdicts.json` and disposes
 > every diverged file via the inline `_classify_diverged()` primitive — including the automated
@@ -285,6 +287,35 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
    > When the block is absent or empty, use the 4-bucket default from [../config.yaml.template](../config.yaml.template) (database / code / process / tooling) and add a banner line noting defaults were used. Suggest `python init_project.py --migrate` to seed the block into `config.yaml` for full customisation.
 4. If `{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md` is missing, also copy it from [../seed/00-Index-LessonsLearned.md](../seed/00-Index-LessonsLearned.md).
 5. Use **Write** to create the categorization file with the rendered result, and surface it under the banner's `Lessons scaffolding backfilled:` heading.
+
+---
+
+### Step 2.7 — Feedback directory backfill and creation
+
+Implemented inside Step 2.4's script invocation (`_apply_feedback_dir()` in
+`artifact_upgrade.py`), not as a separate handler-side procedure — called
+out as its own step here only because it closes a distinct half of the
+directory-creation contract; see [init.md](init.md) Step 10 and
+[doctor.md](doctor.md) Stage 17 for the other two entry points.
+
+On every `--upgrade` run that reaches an existing `config.yaml` — including
+the already-up-to-date early return, so a re-run at a current pin still
+closes the gap for an install that predates the key — the script:
+
+1. Backfills `project.feedback_dir` when absent, via the same
+   leave-and-re-point disposition `--migrate` uses: a pre-existing,
+   non-empty `{planwise_root}/feedback-drafts/` re-points the key there
+   (with a one-line notice); otherwise the key defaults to `Feedback`.
+   Nothing under `{planwise_root}` is ever moved, renamed, copied, or
+   deleted.
+2. Creates the resolved directory if it does not already exist — `project`
+   is not one of the top-level keys the config merge (item 1 above)
+   touches, so nothing else in Step 2.4 would otherwise create it.
+
+Both are additive-only and non-interactive, matching the rest of Step 2.4's
+config merge. Pass the script's output through verbatim: `Feedback
+directory: {created | already present} ({path})`, plus the re-point notice
+when it fires.
 
 ---
 

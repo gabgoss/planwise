@@ -438,6 +438,10 @@ def load_config(script_path: Path | None = None) -> dict:
         config["_lessons_dir"] = None
         config["_lessons_index"] = None
 
+    # Resolve feedback path
+    feedback_rel = project.get("feedback_dir", "Feedback")
+    config["_feedback_dir"] = planwise_root / feedback_rel
+
     return config
 
 

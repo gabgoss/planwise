@@ -587,6 +587,44 @@ def _split_formerly_managed(
     return still_untracked, formerly_managed
 
 
+def _apply_feedback_dir(cfg: "InitConfig", config_path: Path) -> None:
+    """Backfill `project.feedback_dir` and create the resolved directory.
+
+    Delegates the key backfill to init_project's own `_backfill_feedback_dir`
+    (the leave-and-re-point disposition already implements the never-moves
+    guarantee there — this function does not reimplement it) and then closes
+    the second half of the contract that helper does not cover: creating the
+    resolved directory when it is still absent, the same way
+    `create_directories()` does for a fresh `/planwise init`. Runs on every
+    `--upgrade` path that reaches an existing config, including the
+    already-up-to-date early return, so a re-run at a current pin still
+    closes the gap for an install that predates the key.
+
+    Deferred import, not a module-level one: `_backfill_feedback_dir` is
+    defined in init_project.py AFTER the line that imports THIS module
+    (artifact_upgrade), so resolving it at module load time would raise
+    ImportError against a partially-initialized module. By the time this
+    function is actually called, init_project has finished loading.
+    """
+    from init_project import _backfill_feedback_dir
+
+    notice = _backfill_feedback_dir(cfg, config_path)
+    if notice:
+        print(notice)
+
+    try:
+        parsed = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, OSError):
+        parsed = {}
+    project = parsed.get("project") if isinstance(parsed, dict) else None
+    feedback_rel = (project or {}).get("feedback_dir") or cfg.feedback_dir
+    feedback_dir_path = cfg.project_root / cfg.planwise_root / feedback_rel
+    already_present = feedback_dir_path.is_dir()
+    feedback_dir_path.mkdir(parents=True, exist_ok=True)
+    state = "already present" if already_present else "created"
+    print(f"Feedback directory: {state} ({feedback_dir_path})")
+
+
 def _run_upgrade(cfg: "InitConfig") -> int:
     """Execute the --upgrade flow and print a banner. Returns exit code."""
     if not HAS_YAML:
@@ -633,6 +671,11 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         # token_saver key at a current version pin is already anomalous and
         # is repaired by the next real upgrade's merge.
         toggled = bool(cfg.token_saver) and _flip_token_saver_on(config_path)
+        # A re-run at a current pin must still close the feedback-dir gap for
+        # an install whose config predates the key — this is the ONLY
+        # opportunity that population gets, since the version pin already
+        # matches and the guarded block below never runs.
+        _apply_feedback_dir(cfg, config_path)
         if needs_repoint:
             _repoint_plugin_root(config_path, cfg.plugin_root)
             print(f"Plugin version: {pinned_version}")
@@ -690,6 +733,13 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         # preserving any user-customised content verbatim.
         lessons_boot = bootstrap_lessons_artifacts(cfg)
         _emit_lessons_bootstrap_banner(lessons_boot)
+
+        # 2c. Backfill project.feedback_dir (leave-and-re-point disposition)
+        # and create the resolved directory if absent. `project` is not one
+        # of MIGRATABLE_TOP_LEVEL_KEYS, so the migrate_config() call above
+        # never touches it and never creates the directory either — this is
+        # the only place in the --upgrade path that closes both gaps.
+        _apply_feedback_dir(cfg, config_path)
 
         # 3. Refresh artifacts.
         manifest = load_artifact_manifest(cfg.plugin_root)

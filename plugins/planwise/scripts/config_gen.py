@@ -256,6 +256,7 @@ class InitConfig:
     plans_dir: str = "Plans"
     backlog_dir: str = "Backlog"
     lessons_dir: str = "LessonsLearned"
+    feedback_dir: str = "Feedback"
     install_scope: str = "project"
     plan_tier: str = "pro"
     plugin_version: str = "0.0.0"
@@ -304,6 +305,7 @@ def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:
     content = content.replace("{plans-dir}", cfg.plans_dir)
     content = content.replace("{backlog-dir}", cfg.backlog_dir)
     content = content.replace("{lessons-dir}", cfg.lessons_dir)
+    content = content.replace("{feedback-dir}", cfg.feedback_dir)
     content = content.replace("{plan-tier}", cfg.plan_tier)
     content = content.replace("{context-window}", str(cfg.context_window))
     content = content.replace("{plugin-version}", cfg.plugin_version)
@@ -372,6 +374,7 @@ def migrate_config(cfg: InitConfig) -> tuple[str, list[str], list[str]]:
     template_text = template_text.replace("{plans-dir}", cfg.plans_dir)
     template_text = template_text.replace("{backlog-dir}", cfg.backlog_dir)
     template_text = template_text.replace("{lessons-dir}", cfg.lessons_dir)
+    template_text = template_text.replace("{feedback-dir}", cfg.feedback_dir)
     template_text = template_text.replace("{plan-tier}", cfg.plan_tier)
     template_text = template_text.replace("{context-window}", str(cfg.context_window))
     template_text = template_text.replace("{plugin-version}", cfg.plugin_version)

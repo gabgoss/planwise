@@ -25,6 +25,7 @@ Options:
     --plans-dir     Plans subdirectory name (default: Plans)
     --backlog-dir   Backlog subdirectory name (default: Backlog)
     --lessons-dir   Lessons subdirectory name (default: LessonsLearned)
+    --feedback-dir  Feedback subdirectory name (default: Feedback)
     --scope         Install scope: project, user, or local (default: project)
     --plan-tier     Claude plan tier: pro (200K) or max (1M). Default: pro.
 """
@@ -228,6 +229,7 @@ def create_directories(cfg: InitConfig) -> list[str]:
         cfg.project_root / cfg.planwise_root / cfg.plans_dir,
         cfg.project_root / cfg.planwise_root / cfg.backlog_dir,
         cfg.project_root / cfg.planwise_root / cfg.lessons_dir,
+        cfg.project_root / cfg.planwise_root / cfg.feedback_dir,
         cfg.project_root / ".claude" / "rules" / "planwise",
     ]
     for d in dirs:
@@ -459,6 +461,49 @@ def _print_skipped_banner(skipped: list[SkippedArtifact]) -> None:
     print()
 
 
+def _backfill_feedback_dir(cfg: InitConfig, config_path: Path) -> str | None:
+    """Backfill `project.feedback_dir` into a config that predates the key.
+
+    Purely additive, mirroring migrate_config's own contract: runs only when
+    the key is absent from the config already on disk, and never overwrites
+    an existing value. When a pre-existing `feedback-drafts/` directory is
+    found non-empty, the key is pointed at it instead of the new default —
+    nothing is ever moved, renamed, copied, or deleted. Returns a one-line
+    notice to print for that re-point case, or None when no notice is
+    warranted (including when the key was already present).
+    """
+    if not HAS_YAML or not config_path.exists():
+        return None
+    try:
+        parsed = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return None
+    project = parsed.get("project") if isinstance(parsed, dict) else None
+    if not isinstance(project, dict) or "feedback_dir" in project:
+        return None
+
+    legacy_dir = cfg.project_root / cfg.planwise_root / "feedback-drafts"
+    notice = None
+    if legacy_dir.is_dir() and any(legacy_dir.iterdir()):
+        value = "feedback-drafts"
+        notice = (
+            f"Found an existing '{legacy_dir.name}/' directory — pointed "
+            f"project.feedback_dir at it instead of the new default."
+        )
+    else:
+        value = "Feedback"
+
+    text = config_path.read_text(encoding="utf-8")
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        match = re.match(r"^(\s*)lessons_dir:", line)
+        if match:
+            lines.insert(i + 1, f'{match.group(1)}feedback_dir: "{value}"')
+            write_config_checked(config_path, "\n".join(lines))
+            break
+    return notice
+
+
 def _run_migrate(cfg: InitConfig) -> int:
     """Execute the --migrate flow and print a focused report. Returns exit code."""
     try:
@@ -469,6 +514,8 @@ def _run_migrate(cfg: InitConfig) -> int:
     except RuntimeError as exc:
         print(f"Migration failed: {exc}", file=sys.stderr)
         return 2
+
+    feedback_notice = _backfill_feedback_dir(cfg, Path(path))
 
     print(f"Migration target: {path}")
     if added:
@@ -481,6 +528,8 @@ def _run_migrate(cfg: InitConfig) -> int:
         print("Top-level keys already present (preserved):")
         for key in present:
             print(f"  = {key}")
+    if feedback_notice:
+        print(feedback_notice)
     print()
     print("Migration complete.")
     return 0
@@ -495,6 +544,7 @@ def main():
     parser.add_argument("--plans-dir", default="Plans", help="Plans subdirectory name")
     parser.add_argument("--backlog-dir", default="Backlog", help="Backlog subdirectory name")
     parser.add_argument("--lessons-dir", default="LessonsLearned", help="Lessons subdirectory name")
+    parser.add_argument("--feedback-dir", default="Feedback", help="Feedback subdirectory name")
     parser.add_argument("--scope", default=InstallScope.PROJECT,
                         choices=[s.value for s in InstallScope],
                         help="Install scope: project, user, or local (default: project)")
@@ -592,6 +642,7 @@ def main():
         plans_dir=args.plans_dir,
         backlog_dir=args.backlog_dir,
         lessons_dir=args.lessons_dir,
+        feedback_dir=args.feedback_dir,
         install_scope=args.scope,
         plan_tier=args.plan_tier,
         plugin_version=read_plugin_version(_plugin_root),

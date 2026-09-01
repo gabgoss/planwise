@@ -14,7 +14,7 @@
 ## Config Gate
 
 1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
-2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.backlog_dir`, `project.lessons_dir` (absent → skip Stage 13), `project.index_files`, and the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`) plus the pinned `plugin_version`.
+2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.backlog_dir`, `project.lessons_dir` (absent → skip Stage 13), `project.feedback_dir` (absent → default `Feedback`), `project.index_files`, and the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`) plus the pinned `plugin_version`.
 3. If NOT found: this install is **not initialized**. Recommend `/planwise init` and **STOP** — `doctor` is read-only and never initializes on the user's behalf. (This is the same "not initialized" outcome the Preflight version-state gate reports; do not auto-init.)
 
 > [!gate] Config Malformed → diagnose FIRST, then FAIL LOUD
@@ -569,6 +569,57 @@ Upstream posting: {ENABLED — reports post directly | DRAFT-ONLY — reports ar
 Advisory only. Draft-only is a supported configuration, not a fault — this
 stage reports the state so the choice is deliberate, and never fails the
 doctor run.
+
+---
+
+### Stage 17: Feedback directory presence check (post-boundary)
+
+> [!constraint] Read-Only — bare doctor only recommends
+> Stage 17 checks whether the feedback directory resolved from `config.yaml`'s
+> `project.feedback_dir` (absent → default `Feedback`) exists on disk. It
+> READS `config.yaml` and the filesystem, then prints a report. It writes
+> nothing. To actually create the directory, the user opts in with the
+> separate writer `/planwise doctor --create-feedback-dir` (Stage 17b below)
+> — the same opt-in-writer shape as `--prune-stale` (Stage 8b) and
+> `--prune-upgrade-leftovers` (Stage 14b) above.
+
+Always-on, independent of Token Saver. A fresh `/planwise init` creates this
+directory alongside the plans/backlog/lessons directories, so this stage
+exists for every OTHER population an install can reach: a project whose
+config predates the key, or whose directory was removed by hand after
+creation. Resolve `{feedback_dir_path} = {planwise_root}/{project.feedback_dir}`
+(from the Config Gate) and check it with **Glob**.
+
+Print verbatim:
+
+```
+planwise doctor — feedback directory presence check
+
+  feedback directory:  {feedback_dir_path}
+  exists:               {yes|no}
+
+  {remedy line, only when absent:}
+  ! feedback directory is absent — the first draft written there will fail.
+      action: create it with /planwise doctor --create-feedback-dir,
+              or run /planwise init / /planwise upgrade (both create it)
+```
+
+If the directory exists: `Feedback directory: {feedback_dir_path} — present.`
+
+### Stage 17b: `--create-feedback-dir` (opt-in writer)
+
+When `$ARGUMENTS` contains `--create-feedback-dir`, this is another doctor
+path that mutates (alongside `--prune-stale` and `--prune-upgrade-leftovers`
+above). Ask one `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`,
+inferred default **skip** in unattended runs): "Create the missing feedback
+directory at `{feedback_dir_path}`?" On confirm, use **Bash** to create ONLY
+that single directory (`mkdir -p {feedback_dir_path}`) — the same
+Bash-for-directory-creation scope [init.md](init.md)'s Tool Usage Rules
+already establish. This never touches an existing directory's contents,
+never renames, never deletes, and never runs when Stage 17 already reported
+the directory present. Report the path created. On decline, or when no
+interactive answer is available, leave the directory absent and repeat the
+Stage 17 remedy line.
 
 ---
 

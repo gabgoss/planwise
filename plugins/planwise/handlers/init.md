@@ -260,6 +260,7 @@ Directories created:
   ✓ {planwise_root}/{plans_dir}/
   ✓ {planwise_root}/{backlog_dir}/
   ✓ {planwise_root}/{lessons_dir}/
+  ✓ {planwise_root}/{feedback_dir}/
 
 Seed files installed:
   ✓ {planwise_root}/{plans_dir}/00-Index-Plans.md
