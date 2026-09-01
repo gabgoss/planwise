@@ -440,6 +440,17 @@ flowchart LR
     A([Run command]) --> B[Answer bug/lesson/idea<br/>prompt] --> C[Review draft &amp;<br/>duplicates] --> D([Confirm &amp; post/comment,<br/>or save locally])
 ```
 
+#### Checking status and archiving posted drafts
+
+```
+/planwise feedback --status
+/planwise feedback --sweep
+```
+
+`--status` lists every local draft in `Feedback/` and whether it's been posted — a marked draft shows its issue number, state, and title (one read-only lookup per issue); a draft with no marker is listed as not known to have been posted, since it may have been filed by hand instead of through this command. It makes no changes and asks no questions.
+
+`--sweep` finds drafts already marked posted and offers to archive them — move each one, together with its marker, into `Feedback/Archive`. It never deletes anything, and it never touches a draft with no posted marker. It always lists the candidates first; nothing moves until you confirm, and Cancel is the pre-selected default. On a non-interactive session, including Auto Mode, it lists the candidates and stops without moving anything.
+
 ---
 
 ## 13. `/planwise harvest`
@@ -489,7 +500,7 @@ flowchart LR
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
-| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream |
+| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (`--status` to check posting state, `--sweep` to archive posted drafts) |
 | `/planwise harvest` | Run the lesson-to-artifact chain end to end, unattended |
 
 ---

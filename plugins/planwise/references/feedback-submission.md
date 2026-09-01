@@ -6,8 +6,10 @@ description: Feedback submission engine — the shared outward-post pipeline for
 
 **Purpose:** This file is the ONE place the outward submission pipeline is specified: the
 gate chain, the duplicate scan, the draft-first invocation, the posted-draft marking, the
-fallback posture, the Auto-Mode deviation, the issue body spec, and the privacy contract.
-It is a shared engine, not a handler — it has no entry point of its own.
+fallback posture, the Auto-Mode deviation, the issue body spec, and the privacy contract. It
+also specifies the two local, non-outward commands that operate on the same draft directory:
+sweeping posted drafts to an archive, and reporting each draft's status. It is a shared
+engine, not a handler — it has no entry point of its own.
 
 **Consumers (delegate here; do not re-specify any of the below locally):**
 - `handlers/feedback.md`
@@ -21,6 +23,8 @@ It is a shared engine, not a handler — it has no entry point of its own.
 - [Step 4.5 — Duplicate Scan (Non-Fatal)](#step-45--duplicate-scan-non-fatal)
 - [Draft-First, Then Post](#draft-first-then-post)
 - [Marking a Posted Draft](#marking-a-posted-draft)
+- [Sweeping Posted Drafts](#sweeping-posted-drafts)
+- [Reporting Draft Status](#reporting-draft-status)
 - [On Any Gate Failure or Post Failure](#on-any-gate-failure-or-post-failure)
 - [Auto Mode — A Deliberate, Documented Deviation](#auto-mode--a-deliberate-documented-deviation)
 - [Issue Body Spec](#issue-body-spec)
@@ -45,8 +49,9 @@ ALL gates below MUST pass, in this order, before a post is attempted:
    result (caveat line, then the ranked candidate table if any), then the rendered body
    **verbatim**, then offers: **post as a new issue**, **comment on #{NN}**, or **cancel**.
    The user approves the exact text that will be published, not a summary of it. This is
-   the pipeline's only consent site — the comment outcome rides this same call and MUST
-   NOT be implemented as a second prompt.
+   the post pipeline's only consent site — the comment outcome rides this same call and MUST
+   NOT be implemented as a second prompt. (The sweep pipeline below has its own, separate,
+   single consent site; the two are never shared or duplicated.)
 
 <!-- AUTO-MODE: critical -->
 
@@ -260,7 +265,7 @@ cancel and print `No issue number supplied — nothing was posted.` Validate the
 target read-only with `gh issue view {NN} -R {feedback.repo} --json number,title,state,url`;
 a non-zero exit or an empty result posts nothing and prints
 `Could not resolve issue #{NN} in {feedback.repo} — nothing was posted.` No further question
-is asked at any step — this pipeline has exactly one consent site.
+is asked at any step — this post pipeline has exactly one consent site.
 
 ---
 
@@ -311,8 +316,8 @@ draft posted more than once carries the most recent post.
 **No new consent site.** No question is asked here. Writing the marker is post-success
 bookkeeping into a file the consumer already owns, in the directory this engine already
 writes drafts to. It is not an outward action, so it introduces no `<!-- AUTO-MODE: -->`
-marker and this pipeline still has exactly one consent site. In Auto Mode nothing is ever
-posted, so nothing is ever marked.
+marker and this post pipeline still has exactly one consent site. In Auto Mode nothing is
+ever posted, so nothing is ever marked.
 
 **Marking is never a failure path — in either direction:**
 
@@ -324,13 +329,221 @@ posted, so nothing is ever marked.
    marked, then continue, exit 0 — never retry in a loop, never block, and never let a
    bookkeeping write turn a successful post into a failure.
 
-**Nothing sweeps this directory.** Feedback drafts, and the markers beside them, are the
-consumer's own prose and their own record of it. Nothing in this tool moves, renames, copies,
-or deletes a draft or a marker — not after a successful post, not at upgrade time, not as
-maintenance. The directory is deliberately not a machine-managed recovery surface: it carries
-no recovery-artifact disposition class, no upgrade-banner count, and no cleanup offer,
-precisely so that no automatic cleanup step can ever remove something a person wrote.
-Removing a draft is the consumer's own action, taken when they choose to take it.
+**Nothing sweeps this directory automatically.** Feedback drafts, and the markers beside them,
+are the consumer's own prose and their own record of it. No automatic step in this tool moves,
+renames, copies, or deletes a draft or a marker — not after a successful post, not at upgrade
+time, not as maintenance. The directory is deliberately not a machine-managed recovery
+surface: it carries no recovery-artifact disposition class, no upgrade-banner count, and no
+cleanup offer, precisely so that no automatic cleanup step can ever remove something a person
+wrote. The one disposition that exists is user-invoked and never destructive:
+`/planwise feedback --sweep` lists the drafts already recorded as posted and, only on an
+explicit answer naming them, moves each one and its marker into an archive subdirectory. It
+deletes nothing, it never touches an unmarked draft, and on a non-interactive session it lists
+and stops. Removing a draft remains the consumer's own action, taken when they choose to take
+it.
+
+**Why moving does not contradict the rejection of a filename change above.** That rejection
+was about a rename **at post time** — silently, as a side effect of posting, moving a file out
+from under the absolute path already printed to the consumer. `/planwise feedback --sweep`
+moves a file only when the consumer explicitly asked, after being shown the file's current
+path, and it prints the new one. The two are not the same operation.
+
+---
+
+## Sweeping Posted Drafts
+
+`/planwise feedback --sweep` is a second, separate pipeline in this file — a local file-move
+operation, not an outward post. It shares the draft directory and the posted-marker contract
+above with the post pipeline, and nothing else: it makes no network call, and it has its own
+single consent site, distinct from the post pipeline's.
+
+### Candidacy
+
+A sweep candidate is a `*.md` file directly in `{planwise_root}/{feedback_dir}`
+(non-recursive) that has a sibling posted-marker sidecar — the draft's own path with
+`.posted` appended, exactly as described above — and both files must exist. Nothing else is
+ever a candidate. **Age is never a candidacy criterion** and there is no age flag: an old
+*unposted* draft is exactly what an age rule would catch first, and it is exactly the file
+this command must never touch. Non-recursive walking is load-bearing, not incidental — it is
+what stops a later `--sweep` run from re-sweeping the archive it just created.
+
+### Action
+
+Sweeping **archives; it never deletes.** A candidate's draft and its `.posted` sidecar move
+together, as an inseparable pair, into `{archive_dir}`. It never copies.
+
+- The pair moves **together or not at all**. If a move succeeds for one file and fails for
+  the other, the succeeded half is moved back and the pair is reported as skipped.
+- If a candidate's filename already exists in `{archive_dir}`, that candidate is **skipped,
+  left in place, and reported.** Nothing already in `{archive_dir}` is ever overwritten.
+- A draft with no sidecar is not a candidate. A sidecar with no draft is an orphan: reported
+  and left in place, never moved and never removed.
+- `{archive_dir}` is created on first use only, after consent is given. A run that is
+  cancelled, or that finds no candidates, creates no directory.
+- On success, each moved pair's new absolute path is printed, so the consumer holds a
+  current path for every file that moved.
+
+**No `Delete` option exists, in the prompt or as a flag.** A consumer who wants the bytes
+gone deletes `{archive_dir}` themselves — that is genuinely their own action and needs no
+tool support.
+
+### Dry-run default
+
+`--sweep` always produces the candidate listing first, before any consent call and before
+any file moves. There is no `--dry-run` flag, because the listing is not an opt-in mode: it
+is the only thing that happens unless consent is explicitly given.
+
+Per candidate, the listing prints the draft's absolute path, its `posted:` date, `url:`, and
+`route:`; then one summary line: `{n} draft(s) already posted are eligible to archive.` With
+no candidates: `No posted drafts to archive.`, exit 0 — no prompt is raised.
+
+### Interaction Matrix
+
+One consent site, one `AskUserQuestion` call, raised only when the listing above found at
+least one candidate. The prompt shows the listing, states `{archive_dir}` by absolute path,
+and names the exact count in the option label.
+
+<!-- AUTO-MODE: critical -->
+
+| # | Branch | Offered as | What it does | Default | Files touched |
+|---|---|---|---|---|---|
+| 1 | Listing | not an option — runs unconditionally, before the prompt | Prints every candidate's absolute path, posted date, issue URL and route; then the count line | **Yes — always runs, and is all that runs unless branch 2 is explicitly chosen** | none |
+| 2 | Archive | `Archive {n} posted draft(s) to {archive_dir}` | Moves each draft + its sidecar into `{archive_dir}`; prints each new absolute path; skips and reports any collision or orphan | No | the `{n}` listed pairs only |
+| 3 | Cancel | `Cancel — leave all {n} drafts where they are` | Nothing. Prints `Nothing was moved.` | **Yes — pre-selected** | none |
+| 4 | Non-answer / non-interactive — Auto Mode, auto-deny, an unanswered or interrupted prompt, or any state in which `AskUserQuestion` cannot return an answer | not offered; this branch is taken without a question | The listing stands as the complete output. Prints `Non-interactive session — {n} posted draft(s) listed above were not moved. Re-run /planwise feedback --sweep interactively to archive them.` Exit 0. | **Yes — this is the branch taken** | none |
+| 5 | Any other answer, an unparseable answer, or an error raising the prompt | — | Treated as branch 3 (Cancel) | — | none |
+
+Branch 4 carries `<!-- AUTO-MODE: critical -->`, the same deviation shape as the post
+pipeline's Auto-Mode site below, for the same reason: the declined branch has a complete,
+correct outcome — the listing, already printed — so failing loud on auto-deny would break an
+otherwise-successful unattended run for no gain. Sweep's auto-deny writes nothing at all,
+which is a smaller footprint than the post pipeline's own auto-deny (which still writes a
+draft file).
+
+Every branch but 2 touches no file — branch 2 is reachable only through an explicit answer to
+a prompt that names the count and the destination, below a listing that names every affected
+file by absolute path. **Not gated on `feedback.enabled`.** `--sweep` makes no network call
+and touches only local files the consumer already owns; `feedback.enabled` is the consumer's
+opt-in for outward posting to a third-party repo, which a local file move is not. (`--status`
+below **is** gated on it, because it does call the tracker. The asymmetry is deliberate.)
+
+### Never Does
+
+1. **Never removes or moves an unmarked draft.** An unmarked draft is not a candidate at
+   all — no answer to any prompt makes one eligible.
+2. **Never runs implicitly as part of any other subcommand** — only an explicit
+   `/planwise feedback --sweep` invokes it.
+3. **Never invoked by `init`, `upgrade`, `doctor`, or the post pipeline** — not at init
+   scaffolding, not at version change, not as a doctor stage, not after a successful post.
+4. **Never deletes.** No delete branch, no delete flag, no force flag. Archiving is the only
+   disposition, and `{archive_dir}` is never swept, pruned, or emptied by this tool.
+5. **Never separates a draft from its marker.** The pair moves together or neither moves.
+6. **Never overwrites anything in `{archive_dir}`.** A name collision is skipped and
+   reported.
+7. **Never acquires a machine-managed disposition.** No recovery-artifact disposition class,
+   no upgrade-banner count, no upgrade cleanup offer, and no reachability from any automatic
+   cleanup writer. `{feedback_dir}` and `{archive_dir}` alike stay outside every automatic
+   cleanup surface.
+8. **Never sweeps on age, size, or count.** Candidacy is the presence of a posted marker and
+   nothing else.
+9. **Never makes a network call.** Sweeping is a local file operation.
+10. **Never writes, repairs, or removes a `.posted` marker.** `--sweep` relocates markers;
+    it is not a marker writer.
+
+---
+
+## Reporting Draft Status
+
+`/planwise feedback --status` is read-only: it queries the tracker for each locally posted
+draft's current state and never writes anything — not a fixed marker, not a cache, not a
+report file. It has no consent site: it posts nothing, so it asks no question and introduces
+no `<!-- AUTO-MODE: -->` marker. In Auto Mode it behaves exactly as it does interactively.
+
+**Gated on `feedback.enabled`.** Unlike `--sweep`, `--status` makes a network call to the
+tracker, so it is gated the same way the post pipeline is — see Degradation below for what it
+does instead when the gate is not met.
+
+### Query and Input
+
+`--status` enumerates `*.md` files directly in `{planwise_root}/{feedback_dir}`
+(non-recursive, the same set `--sweep` walks), then for each one reads its posted-marker
+sidecar if one exists.
+
+De-duplicated issue numbers are queried, one read-only call each:
+
+```
+gh issue view {NN} -R {feedback.repo} --json number,title,state,url
+```
+
+exactly the four fields already documented above as the engine's read-only validation call.
+**`gh search` is never used by `--status`** — every issue number is already on disk in a
+posted-marker sidecar, so a search would be a guess where an exact lookup already exists.
+
+**Budget**, mirroring the duplicate scan's: 10 seconds per call; 30 seconds for the whole
+run. On exceeding the per-call budget, that row degrades to `unknown` and the run continues;
+on exceeding the whole-run budget, no further calls are issued and every remaining row
+renders `unknown`. At most **20** distinct issue numbers are queried per run; beyond that,
+the run appends `… and {N} further issue(s) not queried (per-run lookup limit).` and renders
+those rows `unknown`.
+
+`{NN}` is the segment of `url:` after `/issues/`, truncated at any `#` fragment — the same
+rule covers the issue path and the comment path, since a comment's `url:` carries its parent
+issue's number. A marker whose `url:` yields no `/issues/{NN}` segment renders `MARKED —
+marker unreadable`, is not queried, and is not repaired.
+
+**Output**, one row per draft, grouped, most recent first:
+
+| Draft | Marked | Route | Issue | State | Title |
+|---|---|---|---|---|---|
+| `2026-08-18-bug-draft-path.md` | 2026-08-18 | issue | #412 | OPEN | Feedback drafts land in the wrong directory |
+| `2026-08-19-idea-sweep.md` | — | — | — | — | *not known to have been posted* |
+
+Followed, when `{archive_dir}` exists, by one line: `{N} archived draft(s) in {archive_dir}
+(not listed).` The archive is not walked or queried — bounding the output is the point of
+archiving.
+
+### Unmarked Drafts
+
+An unmarked draft is reported, in its own group headed `Not known to have been posted
+({n})`, as **`not known to have been posted`** — never as "unposted", never as "failed", and
+never omitted. The wording is deliberate: an unmarked draft may have been pasted into the web
+UI by hand, the fallback path this engine already prints instructions for, and no marker
+would exist for that. Reporting it as "unposted" would assert something `--status` cannot
+know.
+
+Their Issue / State / Title cells render `—`, never a guess. `--status` **never** searches
+the tracker to find a match for an unmarked draft — not by title, not by content, not by
+date — the same UNKNOWN/CLEAR discipline the duplicate scan follows above: a result that
+could not be determined must never be rendered as a finding.
+
+One trailing line names the remedy without inventing a capability: `A draft with no marker
+was either never posted, or was filed by hand outside this tool. Post it with
+/planwise feedback, or remove it yourself.`
+
+### Degradation
+
+Governed by the same posture as the post pipeline: never block, never error out. **Every
+branch below exits 0**, and every branch still prints the complete local half (draft, marked
+date, route, URL) read from disk, which needs no network and no permission.
+
+| Case | Behaviour | `{status_caveat}` |
+|---|---|---|
+| `feedback.enabled` is false | Local half only; no `gh` call is made | `Tracker state not checked — feedback.enabled is false in config.yaml. Only the local record is shown.` |
+| `gh` not on PATH | Local half only | `Tracker state unknown — gh was not found on PATH.` |
+| `gh auth status` exits non-zero | Local half only | `Tracker state unknown — gh is not authenticated (gh auth status exited non-zero).` |
+| `config.yaml` missing or unreadable | Local half only, `plugin_version: unknown` posture | `Tracker state not checked — config.yaml could not be read, so the feedback repo is unknown.` |
+| One `gh issue view` exits non-zero, returns empty, or exceeds its budget | That row only renders `unknown`; the run continues | `Tracker state unknown for {n} of {m} issue(s).` |
+| Whole-run budget exceeded | No further calls; remaining rows render `unknown` | `Tracker state unknown for {n} of {m} issue(s) — the lookup budget was reached.` |
+| `{planwise_root}/{feedback_dir}` absent or empty | `No feedback drafts found in {planwise_root}/{feedback_dir}.`, exit 0 | none — this is a complete, correct answer, not a degradation |
+
+**UNKNOWN is never rendered as a finding**, mirroring the duplicate scan's rule above: a row
+that could not be read says `unknown`; it never renders `CLOSED`, `missing`, or a blank that
+reads as absence. The first two cases above are worded `not checked` rather than `unknown`
+because the tool made a deliberate choice not to look, which is a different fact from a
+lookup that failed.
+
+`{status_caveat}` is one line, printed once at the head of the `--status` output — one
+string, one source of truth, the same shape as `{scan_caveat}` above.
 
 ---
 
@@ -414,7 +627,7 @@ required ID fields — a consumer does not have them).
 
 - planwise version: {plugin_version from config.yaml}
 - Subcommand involved: /planwise {subcommand}   (or "not command-specific")
-- OS / shell: {user-supplied}
+- OS / shell: {OS/shell, auto-detected}
 ```
 
 **`kind: lesson|idea`:** the first three headings become **What I learned / Why it
@@ -437,7 +650,7 @@ matters / Where it would apply**; Environment is unchanged.
 
 - planwise version: {plugin_version from config.yaml}
 - Subcommand involved: /planwise {subcommand}   (or "not command-specific")
-- OS / shell: {user-supplied}
+- OS / shell: {OS/shell, auto-detected}
 ```
 
 **Comment variant.** When gate 5's outcome is "comment on #{NN}", the body posted is the
@@ -458,7 +671,7 @@ is a consumer-local absolute path, which the Privacy Contract forbids attaching.
 
 ## Privacy Contract — Default-Closed
 
-Only `plugin_version` is auto-filled; everything else is user-typed or user-confirmed.
+`plugin_version` and `OS / shell` are auto-filled; everything else is user-typed or user-confirmed.
 
 **NEVER auto-attach:**
 - consumer project file contents
@@ -498,6 +711,7 @@ Every placeholder used above, for the four call sites that render this engine's 
 | `{slug}` | A short, filesystem-safe slug derived from the title. |
 | `{plugin_version from config.yaml}` | The installed planwise plugin version. |
 | `{subcommand}` | The `/planwise` subcommand involved, if any. |
+| `{OS/shell, auto-detected}` | The OS and shell the assistant already observes from its own runtime environment. |
 | `{user-supplied}` | Free text the user types or confirms; never auto-filled. |
 | `{NN}` | The target issue number for a comment outcome — digits only, no `#`. Rendered `#{NN}` in prose. |
 | `{comment_draft_path}` | `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{slug}.md`. |
@@ -506,7 +720,9 @@ Every placeholder used above, for the four call sites that render this engine's 
 | `{post_url}` | The URL `gh` prints on a successful post — the issue's URL after `gh issue create`, the comment's own anchor URL (which carries its parent issue's number) after `gh issue comment`. |
 | `{query}` | One duplicate-scan search key, already restricted to `^[A-Za-z0-9._/:+#-]{3,60}$` and always double-quoted on the command line. |
 | `{scan_caveat}` | The single-line duplicate-scan result string — the first line of the scan block at gate 5 and of the possible-duplicates block in a draft. |
-| `{n}`, `{k}`, `{N}` | Inline integer counts: `{n}` searches attempted (and the quantity in a rendered age), `{k}` of them that returned, `{N}` further or suppressed matches not shown. |
+| `{archive_dir}` | `{planwise_root}/{feedback_dir}/Archive` — the `--sweep` destination directory; created on first use, only after consent is given. |
+| `{status_caveat}` | The single-line `--status` degradation-result string, printed once at the head of the `--status` output — mirrors `{scan_caveat}` in shape. |
+| `{n}`, `{k}`, `{N}`, `{m}` | Inline integer counts: `{n}` searches attempted (and the quantity in a rendered age, or of `--sweep` candidates / `--status` drafts), `{k}` of them that returned, `{N}` further or suppressed matches (or un-queried issues) not shown, `{m}` the total issues queried by `--status`. |
 
 Two brace forms above are deliberately not placeholders and need no row: `{3,60}` in the search-key
 pattern is a regular-expression quantifier, and a self-describing slot inside a template fence
