@@ -563,7 +563,7 @@ planwise doctor — feedback capability probe
 
   {one remedy line per unmet gate, from the table above}
 
-Upstream posting: {ENABLED — reports post directly | DRAFT-ONLY — reports are saved to {planwise_root}/feedback-drafts/ and must be filed by hand}
+Upstream posting: {ENABLED — reports post directly | DRAFT-ONLY — reports are saved to {planwise_root}/{feedback_dir}/ and must be filed by hand}
 ```
 
 Advisory only. Draft-only is a supported configuration, not a fault — this

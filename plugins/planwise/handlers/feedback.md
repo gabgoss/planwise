@@ -42,8 +42,9 @@ pipeline to the shared submission engine.
 
 Before proceeding, read:
 - `references/feedback-submission.md` — the shared submission engine. It is the ONE
-  place the gate chain, the duplicate scan, draft-first invocation, fallback posture,
-  Auto-Mode deviation, issue body spec, and privacy contract are specified. This handler
+  place the gate chain, the duplicate scan, draft-first invocation, posted-draft
+  marking, fallback posture, Auto-Mode deviation, issue body spec, and privacy
+  contract are specified. This handler
   cites and delegates to it end to end; it does not re-specify, shortcut, or duplicate any
   of the above.
 
@@ -77,9 +78,10 @@ subcommand involved, if any (or "not command-specific"), and the OS/shell.
 ### Step 4: Delegate to the Engine
 
 Hand the collected `kind`, title, and body fields to `references/feedback-submission.md`.
-It owns the whole outward pipeline — gate chain, draft-first write, post-or-fallback, the
-Auto-Mode deviation — start to finish. This handler does not re-implement, shortcut, or
-duplicate any part of that pipeline; it supplies inputs and reports the result.
+It owns the whole outward pipeline — gate chain, draft-first write, post-or-fallback,
+marking a posted draft, the Auto-Mode deviation — start to finish. This handler does not
+re-implement, shortcut, or duplicate any part of that pipeline; it supplies inputs and
+reports the result.
 
 ### Step 5: Report the Outcome
 
@@ -89,6 +91,12 @@ duplicate any part of that pipeline; it supplies inputs and reports the result.
 - If the engine stopped at any gate (including the Config-Gate exception above), or the
   post failed: report the draft's absolute path and
   `https://github.com/gabgoss/planwise/issues`.
+
+On a successful post the engine also marks the draft posted — a sidecar file beside the
+draft, on the issue path and the comment path alike, recording the date and the URL. This
+handler never writes that marker itself and never reports an outcome the engine did not
+return. A draft whose post did not succeed simply stays unmarked. Nothing here, and nothing
+in the engine, ever removes a draft or its marker: that is the user's own action.
 
 This handler never auto-files a report. Detecting a possible bug, lesson, or idea
 elsewhere in planwise is **offer-only** — surfacing this handler as an option a user can

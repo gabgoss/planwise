@@ -5,9 +5,9 @@ description: Feedback submission engine — the shared outward-post pipeline for
 # Feedback Submission Engine
 
 **Purpose:** This file is the ONE place the outward submission pipeline is specified: the
-gate chain, the duplicate scan, the draft-first invocation, the fallback posture, the
-Auto-Mode deviation, the issue body spec, and the privacy contract. It is a shared engine,
-not a handler — it has no entry point of its own.
+gate chain, the duplicate scan, the draft-first invocation, the posted-draft marking, the
+fallback posture, the Auto-Mode deviation, the issue body spec, and the privacy contract.
+It is a shared engine, not a handler — it has no entry point of its own.
 
 **Consumers (delegate here; do not re-specify any of the below locally):**
 - `handlers/feedback.md`
@@ -20,6 +20,7 @@ not a handler — it has no entry point of its own.
 - [Gate Chain](#gate-chain)
 - [Step 4.5 — Duplicate Scan (Non-Fatal)](#step-45--duplicate-scan-non-fatal)
 - [Draft-First, Then Post](#draft-first-then-post)
+- [Marking a Posted Draft](#marking-a-posted-draft)
 - [On Any Gate Failure or Post Failure](#on-any-gate-failure-or-post-failure)
 - [Auto Mode — A Deliberate, Documented Deviation](#auto-mode--a-deliberate-documented-deviation)
 - [Issue Body Spec](#issue-body-spec)
@@ -216,7 +217,9 @@ sites.
 ## Draft-First, Then Post
 
 Draft first, always. Every body this engine publishes is written to a file before it is
-shown, and posted *from that file*:
+shown, and posted *from that file*. Before that first write, create the parent directory —
+`{planwise_root}/{feedback_dir}` — if it does not already exist; both the issue draft path and
+the comment draft path resolve under it:
 
 ```
 gh issue create -R {feedback.repo} --title "{title}" --body-file "{draft_path}" --label {label}
@@ -231,8 +234,8 @@ gh issue create -R {feedback.repo} --title "{title}" --body-file "{draft_path}" 
   — see the `{kind}` → `{label}` mapping below. A CLI-created issue never goes through
   the Issue Forms chooser, so without this flag the issue posts with no label at all,
   silently losing the categorization a web-filed report gets for free.
-- Issue draft path: `{planwise_root}/feedback-drafts/{YYYY-MM-DD}-{kind}-{slug}.md`.
-- Comment draft path: `{planwise_root}/feedback-drafts/{YYYY-MM-DD}-comment-{NN}-{slug}.md`.
+- Issue draft path: `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-{kind}-{slug}.md`.
+- Comment draft path: `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{slug}.md`.
 - Draft-first buys three things: approved text and posted text are byte-identical — on the
   comment path, the posted body is the approved body plus the single lead-in line the
   consent prompt states in advance; a failed post leaves a recoverable artifact; the
@@ -258,6 +261,76 @@ target read-only with `gh issue view {NN} -R {feedback.repo} --json number,title
 a non-zero exit or an empty result posts nothing and prints
 `Could not resolve issue #{NN} in {feedback.repo} — nothing was posted.` No further question
 is asked at any step — this pipeline has exactly one consent site.
+
+---
+
+## Marking a Posted Draft
+
+A draft that has been posted is marked posted. The mark is a **sidecar file** beside the
+draft — `{posted_marker_path}`, the draft's own path with `.posted` appended — and never a
+change to the draft itself:
+
+```
+posted: {posted_date}
+url: {post_url}
+route: issue
+```
+
+`route:` is the literal `issue` for a draft posted with `gh issue create` and `comment` for
+one posted with `gh issue comment`. `{post_url}` is the URL `gh` prints on the successful
+post — the issue's URL on the issue path, the comment's own anchor URL on the comment path,
+which carries its parent issue's number. Date plus URL is the whole record, and it is enough
+to identify the tracker item later without a second lookup and without asking the consumer
+anything.
+
+**The draft file itself is never touched**, and that is the entire point of the sidecar. The
+two alternative shapes both lose on exactly this:
+
+- **Frontmatter — or any other in-body marker — loses.** `--body-file` sends the *whole
+  file*, so a mark written inside the draft gets published verbatim the next time that draft
+  is posted. That breaks "approved text and posted text are byte-identical" on a re-post,
+  silently, in the one case nobody re-reads. This engine's existing in-file annotation makes
+  the point from the other side: the scan-annotation block is local, and the remedy is to
+  **truncate it away** before any `--body-file` post. A mark that has to survive the post
+  cannot live in a place whose only safe disposition is deletion.
+- **A filename change loses.** It does keep the body byte-identical, but it moves the file
+  out from under the absolute path the pipeline has already printed to the consumer, it gives
+  `{draft_path}` and `{comment_draft_path}` a second form every later reader has to know, and
+  a filename cannot hold a URL. Under-recording is the one thing that cannot be repaired
+  afterwards — the URL is the only handle a post ever hands back.
+
+The sidecar takes a non-`.md` extension so a marker is never mistaken for a draft, and it
+sits outside the draft body entirely, so the scan-annotation truncation never reaches it.
+
+**Where in the flow.** Strictly after a post returns success, at both post sites: after
+`gh issue create` on the issue path, and after `gh issue comment` on the comment path. Both
+drafts stay on disk exactly as before — the marker is an addition beside one, never a
+replacement, a move, or an edit of it. A marker is written on each successful post, so a
+draft posted more than once carries the most recent post.
+
+**No new consent site.** No question is asked here. Writing the marker is post-success
+bookkeeping into a file the consumer already owns, in the directory this engine already
+writes drafts to. It is not an outward action, so it introduces no `<!-- AUTO-MODE: -->`
+marker and this pipeline still has exactly one consent site. In Auto Mode nothing is ever
+posted, so nothing is ever marked.
+
+**Marking is never a failure path — in either direction:**
+
+1. A post that failed leaves the draft **unmarked**. No marker is written for a post that did
+   not succeed, so an unmarked draft means precisely "not known to have been posted." The
+   fallback posture below is unchanged by any of this.
+2. A marker that cannot be written does **not** fail the flow. The post has already succeeded
+   and its URL is already the reported outcome. Print one line saying the draft could not be
+   marked, then continue, exit 0 — never retry in a loop, never block, and never let a
+   bookkeeping write turn a successful post into a failure.
+
+**Nothing sweeps this directory.** Feedback drafts, and the markers beside them, are the
+consumer's own prose and their own record of it. Nothing in this tool moves, renames, copies,
+or deletes a draft or a marker — not after a successful post, not at upgrade time, not as
+maintenance. The directory is deliberately not a machine-managed recovery surface: it carries
+no recovery-artifact disposition class, no upgrade-banner count, and no cleanup offer,
+precisely so that no automatic cleanup step can ever remove something a person wrote.
+Removing a draft is the consumer's own action, taken when they choose to take it.
 
 ---
 
@@ -416,8 +489,9 @@ Every placeholder used above, for the four call sites that render this engine's 
 |---|---|
 | `{feedback.repo}` | `gabgoss/planwise` (literal default; never the consumer's own remote). |
 | `{title}` | The issue title, supplied by the caller. |
-| `{draft_path}` | `{planwise_root}/feedback-drafts/{YYYY-MM-DD}-{kind}-{slug}.md`. |
+| `{draft_path}` | `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-{kind}-{slug}.md`. |
 | `{planwise_root}` | The consumer's configured planwise root directory. |
+| `{feedback_dir}` | The consumer's configured directory for feedback drafts, resolved under `{planwise_root}`; defaults to `Feedback`. |
 | `{YYYY-MM-DD}` | The date the draft is written. |
 | `{kind}` | `bug`, `lesson`, or `idea` — selects the body variant. |
 | `{label}` | The single `gh issue create --label` value for `{kind}`: `bug` → `bug`; `lesson` or `idea` → `enhancement`. Mirrors the repo's own Issue Forms labels so a CLI-filed report is categorized identically to a web-filed one. |
@@ -426,7 +500,10 @@ Every placeholder used above, for the four call sites that render this engine's 
 | `{subcommand}` | The `/planwise` subcommand involved, if any. |
 | `{user-supplied}` | Free text the user types or confirms; never auto-filled. |
 | `{NN}` | The target issue number for a comment outcome — digits only, no `#`. Rendered `#{NN}` in prose. |
-| `{comment_draft_path}` | `{planwise_root}/feedback-drafts/{YYYY-MM-DD}-comment-{NN}-{slug}.md`. |
+| `{comment_draft_path}` | `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-comment-{NN}-{slug}.md`. |
+| `{posted_marker_path}` | The posted-marker sidecar: the draft's own path with `.posted` appended — `{draft_path}.posted` on the issue path, `{comment_draft_path}.posted` on the comment path. |
+| `{posted_date}` | The date the post succeeded. Distinct from the `{YYYY-MM-DD}` in the draft's filename, which is the date the draft was written. |
+| `{post_url}` | The URL `gh` prints on a successful post — the issue's URL after `gh issue create`, the comment's own anchor URL (which carries its parent issue's number) after `gh issue comment`. |
 | `{query}` | One duplicate-scan search key, already restricted to `^[A-Za-z0-9._/:+#-]{3,60}$` and always double-quoted on the command line. |
 | `{scan_caveat}` | The single-line duplicate-scan result string — the first line of the scan block at gate 5 and of the possible-duplicates block in a draft. |
 | `{n}`, `{k}`, `{N}` | Inline integer counts: `{n}` searches attempted (and the quantity in a rendered age), `{k}` of them that returned, `{N}` further or suppressed matches not shown. |

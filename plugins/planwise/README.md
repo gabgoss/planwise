@@ -431,7 +431,7 @@ Walks you through a short prompt — bug, lesson, or idea — and drafts a submi
 
 **Privacy.** The submitted body never contains your file contents, repo paths, or config values — only what you wrote in the prompt. If `gh` isn't installed, isn't authenticated, or you decline the post, your draft is preserved locally and the issues URL is printed so you can file it by hand.
 
-**Needs the [GitHub CLI](https://cli.github.com/) (`gh`) to post directly.** `/planwise init` and `/planwise upgrade` offer to install it when it's missing — always as a question, never silently. Because the draft fallback is silent by design, [`/planwise doctor`](#8-planwise-doctor) also probes all three posting gates (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and tells you whether reports are actually posting or quietly landing in `feedback-drafts/`.
+**Needs the [GitHub CLI](https://cli.github.com/) (`gh`) to post directly.** `/planwise init` and `/planwise upgrade` offer to install it when it's missing — always as a question, never silently. Because the draft fallback is silent by design, [`/planwise doctor`](#8-planwise-doctor) also probes all three posting gates (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and tells you whether reports are actually posting or quietly landing in your local feedback directory (`Feedback/` by default).
 
 #### How `feedback` works
 
