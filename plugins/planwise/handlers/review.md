@@ -17,6 +17,7 @@
 - [Phase 0: Plan Discovery](#phase-0-plan-discovery)
 - [Scale Detection](#scale-detection)
 - [Measurement Phase: The Review Discovery Fact Sheet](#measurement-phase-the-review-discovery-fact-sheet)
+- [Gate Lint Phase: Mechanical Verification-Gate Scan](#gate-lint-phase-mechanical-verification-gate-scan)
 - [No-Team Path (Trivial / Small)](#no-team-path-trivial--small)
 - [Team Path (Medium / Large / Very Large)](#team-path-medium--large--very-large)
 - [Reviewer Prompt Template](#reviewer-prompt-template)
@@ -143,6 +144,39 @@ Task(
 
 ---
 
+## Gate Lint Phase: Mechanical Verification-Gate Scan
+
+Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. One mechanical pass over the plan tree; the findings it writes are then consumed by whichever reviewer owns verification gates on the path Scale Detection selected.
+
+1. Bind `{GateLintPath}` = `{PlanPath}/Reviews/{Abbrev}-GateLint-{YYYY-MM-DD}.md`. Create `{PlanPath}/Reviews/` if it does not exist.
+
+2. Run the linter over the plan tree, capturing its findings:
+
+```bash
+python "{plugin_root}/scripts/lint_verification_gates.py" "{PlanPath}" > "{GateLintPath}"
+```
+
+The plan tree is a single positional argument; there is no output-path flag, so stdout is redirected to `{GateLintPath}`. Add `--no-execute` to disable the read-only executor — that skips the two checks that decide by running a command and leaves the five static checks — when the plan tree sits on a slow or untrusted mount.
+
+3. Read the exit code as a findings verdict, not a success flag:
+
+| Exit | Meaning | Disposition |
+|------|---------|-------------|
+| 0 | No findings | Continue; the sheet records a clean scan |
+| 1 | Findings present, none at ERROR severity | Continue; the findings are advisory |
+| 2 | At least one ERROR-severity finding, **or** the plan tree path did not resolve | Continue; tell the two apart by whether any finding was written |
+
+Exit `1` and exit `2` are the **normal findings-present outcomes**. Neither is a failure of this step and neither halts the review — a linter that exits non-zero because it found something is doing its job. A plan tree that does not resolve also exits `2` but writes nothing, so a `2` over an empty findings file is the unavailable case below, not an ERROR case.
+
+4. If the script could not be run at all, or exit `2` produced no findings, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did.
+
+5. Pass `{GateLintPath}` into the spawn prompt of the reviewer that owns verification gates on the selected path: the No-Team Path's combined content reviewer, or the Team Path's Verification-Gate Reviewer.
+
+> [!practice] Lint once, classify rather than re-derive
+> A verification gate is vacuous when its measured pre-edit value already satisfies its stated post-edit expectation — it then passes with zero work done, and no amount of reading detects that without measuring the gate against the live tree. That decision is mechanical work, so a reviewer's job here is to classify and report what the scan already found, not to re-derive the same findings by hand. Only the roles that own verification gates receive the path; handing it to every reviewer would be noise.
+
+---
+
 ## No-Team Path (Trivial / Small)
 
 For plans with 0-1 EIs and 1-2 sprints, use sequential subagent spawns with no team overhead.
@@ -198,6 +232,11 @@ Task(
     byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
+    Gate lint findings: {GateLintPath absolute path} -- mechanical verification-gate
+    findings from scripts/lint_verification_gates.py, already measured against the live
+    pre-edit tree. Read them and classify each one into your finding format rather than
+    re-deriving the same gates by hand. If the path reads `unavailable`, derive them
+    yourself and say explicitly that you did.
 
     Global numbering note: Spec numbers are assigned globally across all sprints.
     Non-sequential numbers within a single EI are expected, not errors.
@@ -472,7 +511,12 @@ Task(
     First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
 
     Your assigned role: Verification-Gate Reviewer
-    Execute Checks 074-075 from your protocol.
+    Execute Checks 074-075, 077 and 082 from your protocol.
+    Gate lint findings: {GateLintPath absolute path} -- mechanical verification-gate
+    findings from scripts/lint_verification_gates.py, already measured against the live
+    pre-edit tree. Read them and classify each one into your finding format rather than
+    re-deriving the same gates by hand. If the path reads `unavailable`, derive them
+    yourself and say explicitly that you did.
     ...
 )
 ```
