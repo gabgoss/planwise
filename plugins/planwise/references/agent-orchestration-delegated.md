@@ -246,6 +246,19 @@ Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatica
 > )
 > ```
 
+**The same injection discipline governs any shared pin, not only rules.** A baseline SHA — or any equivalent value every task in the session must agree on — is injected by the orchestrator as a **literal** into every task file and every spawn prompt. Instructing a runner to read it back from a shared file (Recovery, the Orchestration file, a scratch note) costs a read the §1.3 context boundary exists to avoid, and breaks outright under parallel dispatch, where that shared file is being written by a sibling runner at the moment the reader opens it. A pin the runner had to fetch is a pin that can arrive empty — and a gate pinned to an empty variable degrades **silently** rather than failing, so nothing downstream announces the loss. See [`measurement-discipline.md`](measurement-discipline.md) §8.7 sub-rule E for the liveness proof that makes such a pin falsifiable.
+
+> [!constraint] Inject the Literal, Do Not Indirect Through a File
+> WRONG — the spawn prompt names where the value lives, making every runner fetch it:
+> ```
+> prompt: "Execute {task file}. Pin every diff gate to the baseline SHA recorded in {Recovery file}."
+> ```
+> CORRECT — the orchestrator resolves it once and injects the resolved value:
+> ```
+> prompt: "Execute {task file}. Pin every diff gate to BASE={resolved SHA literal}.
+>   Do NOT read this value from any other file — it is authoritative as given here."
+> ```
+
 ## 1.7 Idle-Mid-Step Wake-Up via SendMessage
 
 Teammates (in agent team mode) go idle after every turn. This is NORMAL — idle does not mean stopped. When a teammate is idle mid-step (has more work to do but has not been prompted for the next step), the orchestrator sends a wake-up message:

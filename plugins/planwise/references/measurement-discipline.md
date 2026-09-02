@@ -195,7 +195,7 @@ Fix: Sanity-check up front per references/measurement-discipline.md §8.3; execu
 
 An empty result from a verification command is **ambiguous**. It means either "I checked and found nothing" or "I checked nothing." Those are opposite facts and the gate renders them identically. Every downstream reader — the verification report, the sprint signoff, the release battery — consumes the empty result as evidence of cleanliness.
 
-This is worse than a missing gate. A missing gate is visible in review; a gate that *cannot fail* is documented as coverage and actively suppresses the search for one. §8.1–§8.6 each measure a live surface rather than trusting a secondary reading. This section turns the same discipline on the gate itself: **verify the gate's input set, then its predicate.** The two sub-rules below are the two ways a gate ends up unable to fail — one where the input never arrived, one where the objective is satisfied by destroying the thing being checked.
+This is worse than a missing gate. A missing gate is visible in review; a gate that *cannot fail* is documented as coverage and actively suppresses the search for one. §8.1–§8.6 each measure a live surface rather than trusting a secondary reading. This section turns the same discipline on the gate itself: **verify the gate's input set, then its predicate.** The sub-rules below are the ways a gate ends up unable to fail. Five of them concern the gate's **input**: the input never arrived (A), the filter excluded it by construction (C, with D on keeping C's unfiltered counterpart usable against a mature tree), the pin that selected it was never proven to span the work (E), or a step the gate silently depends on was reported rather than asserted (F). One concerns the **objective**: B, where the input is fine and the goal is satisfied by destroying the very thing being checked.
 
 > [!constraint] A — A change-set-derived gate silently excludes whatever the change set omits
 > WRONG — the canonical shape. It reports the same empty result whether it inspected everything or nothing:
@@ -226,6 +226,8 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > **4. Dry-run every gate against known-bad input before trusting it.** Run it once against a file that genuinely carries the pattern and once against a clean file; the two runs MUST produce different results. Each of the three defects above would have surfaced in one such run. A gate that has only ever been run against clean input has never been shown to discriminate.
 >
 > **Generalisation:** the class is broader than git. Any check deriving its input from a *change set* — a diff, a changelog, a CI touched-files list, a migration delta — silently excludes whatever the change set omits, and inherits this whole failure mode.
+>
+> Sub-rules C–F extend this one rather than restating it: C and D on the filter and the on-disk sweep that answers the existence question, E on proving the baseline pin is live and spanning, F on asserting the preconditions the four remedies above silently depend on.
 
 > [!constraint] B — A size objective is satisfied by destroying the content the gate was meant to protect
 > A pointer's value is not its description — it is the **location**: file + section number + exact heading name. A summary that keeps a rule's topic but drops its section number converts a jump into a search through a long target; one that renames the heading breaks even the search. The pointer no longer points.
@@ -251,6 +253,79 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > **4. Require the gate output in the completion report, and re-run it independently.** In the originating incident the runner did not paste its gate output and reported COMPLETE in good faith; the loss was found only when the orchestrator ran the gate itself. **A conservation claim verified by the same agent that made the cut is not verification.**
 >
 > **Generalisation:** applies to any consolidation carrying a size objective — merging docs, deduping rules, collapsing config, summarising logs, compressing prompts. Ask what the artifact's *payload* is as distinct from its *prose*, and gate on the payload.
+
+> [!constraint] C — A `^\+`-filtered gate is a regression gate; it cannot answer an existence claim
+> The filter is not an implementation detail. It changes the question the gate asks. A gate that reads only added lines answers *"did this change introduce one?"* — and is structurally incapable of answering *"does one exist?"*, because everything predating the baseline is a context line and is invisible by construction.
+>
+> The two gates are not redundant, and neither substitutes for the other. **Regression** — the input is a change set, so the shell is correct here (the search consumes git's output, not a file tree):
+> ```bash
+> # did THIS change add one? (diff-pinned, ^\+ filtered)
+> git diff $BASE -- <paths> | grep -E '^\+' | grep -E '<pattern>'
+> ```
+> **Existence** — the input is files on disk, so this half is a dedicated-tool search, not a shell one:
+> ```
+> # does one exist AT ALL? (no diff, no filter — reads the tree as it stands)
+> Grep  pattern='<pattern>'  path='<paths>'  output_mode='content'
+> ```
+>
+> Any audit whose claim is that **the artifact is clean** — a release battery, a pre-ship sweep, a compliance check, a whole-tree audit — needs the second. A regression gate alone supports only the weaker claim that *this change did not make it worse*, and reporting that as cleanliness is the substitution this sub-rule exists to block.
+>
+> The failure is patient, which is why it survives review. A genuine violation can sit behind two green regression gates indefinitely, because every later session that reuses the shape re-asks the same regression question and gets the same honest empty answer. In the originating case it surfaced only by coincidence: an unrelated refactor relocated the enclosing section, which re-emitted a long-untouched line as an added line and finally exposed it to the filter.
+
+> [!practice] D — The unfiltered sweep's output is a ledger, not a verdict
+> An existence sweep over a mature tree returns legitimate matches — template placeholders, declared exemptions, the tool's own generic vocabulary, and the rule text that necessarily spells out the forbidden forms in order to forbid them. A sweep wired to fail on any hit therefore fails from the day it is added and never stops, and a gate that always fails gets softened, commented out, or quietly deleted. Blanket-fail and no gate at all arrive at the same destination by different roads.
+>
+> Treat the sweep's output as a **ledger**:
+>
+> 1. **Record every hit with its classification and the reason for it** — genuine violation, or benign and why.
+> 2. **Store the ledger where the next audit reads it**, so the classifications are inherited rather than re-litigated. A classification re-derived from scratch each run is a classification that will eventually be decided differently.
+> 3. **Gate on the delta, not on the count being zero.** A hit that is not in the ledger fails the gate; an unchanged set passes. This is what makes the sweep a check that can fail for exactly one reason.
+>
+> A representative sweep returned 8 hits: 1 genuine leak and 7 benign matches of the tool's own vocabulary. Failing on 8 conveys nothing a reader can act on; classifying once and then gating on the delta turns the identical command into a live check.
+>
+> **Never reword a benign match to quiet the gate.** The placeholder, the example, and the rule text naming the forbidden form are all there on purpose — editing them so they stop matching corrupts the artifact *and* destroys the gate's signal at once, because the ledger then describes a tree that was bent to fit the pattern rather than a pattern that describes the tree.
+
+> [!constraint] E — Pair every pinned gate with a positive liveness proof
+> A gate pinned to a baseline variable degrades **silently** when the variable is unset. `git diff $BASE -- <paths>` with an empty `$BASE` is not an error — it is a valid, zero-exit, warning-free `git diff -- <paths>` against HEAD. Once the prior session has committed, that degraded form excludes precisely the files the gate exists to validate. Measured across one session's three task files, occurrences of the variable every gate was pinned to came to 6, 6, and **0** — and the task carrying 0 was the one defining the sprint's verdict.
+>
+> WRONG — the guard that looks sufficient and is not:
+> ```bash
+> test -n "$BASE" || exit 1
+> ```
+> Three things it does not prove:
+> 1. **Non-empty is not resolvable.** An unsubstituted literal placeholder token is non-empty and passes this guard; one shipped that way.
+> 2. **Non-empty is not *spanning*.** A perfectly resolvable commit that post-dates the work covers none of it.
+> 3. **A pin can be set, resolvable, and still wrong** — the right shape aimed at the wrong point in history.
+>
+> CORRECT — resolve it, then prove it spans the work:
+> ```bash
+> BASE=<literal SHA>
+> test -n "$BASE" || { echo 'HALT: baseline missing'; exit 1; }
+> git -C <repo> cat-file -e $BASE^{commit} || { echo 'HALT: baseline does not resolve'; exit 1; }
+> # The load-bearing one — prove the pin SPANS the work it must inspect:
+> git -C <repo> diff --name-only $BASE -- <scope> | wc -l    # MUST be >= <expected file count>
+> git -C <repo> status --porcelain <scope> | grep -c '^??'   # MUST be 0
+> ```
+> **Record that spanned-file count in the verification report, beside the gate's own result.** A real empty sweep and an empty sweep over an empty input set produce byte-identical output; the count is the only thing that tells them apart afterwards, and afterwards is when every reader arrives.
+>
+> **Generalisation beyond git.** A variable used inside a command that remains *valid without it* is an unexploded failure — `git diff $BASE …` silently becomes a comparison against HEAD, `rm -rf "$PREFIX/"` silently targets the root, `curl "$BASE_URL/health"` silently probes a relative path. Where the degraded form fails **loudly**, a presence guard is proportionate. Where it fails in the **passing** direction, it is not: the whole risk is that nothing announces the degradation, and `test -n` is a check against the one failure mode that would have announced itself anyway.
+
+> [!constraint] F — Assert a precondition's observable state, never its self-report
+> Some steps exist only so that a later gate means something: registering untracked files before a diff gate, exporting a pinned baseline before running pinned diffs, installing a fixture before asserting on it, clearing a cache before measuring a cold path. None of them leaves a trace in the deliverable — and that absence is exactly what makes a false report of one undetectable.
+>
+> | | Observable in the deliverable? | Caught by a deliverable check? |
+> |---|---|---|
+> | Deliverable content | yes | yes |
+> | Verification gate result | reported, not observable | no — the report *is* the claim |
+> | Mechanical precondition | **no** | **no** |
+>
+> A falsely-reported precondition does not produce a wrong answer. It produces a **vacuous right answer**, which is worse, because it arrives carrying a green gate that suppresses the search for the problem. In the originating case a runner logged the registration step as done while the file it had just authored was still untracked; both of that task's gates would have returned empty having never inspected the 151 lines it wrote. Note what this is *not*: the deliverable existed and was correct, so no deliverable check could have caught it.
+>
+> Assert the state rather than accepting the report, before trusting any change-set-derived gate:
+> ```bash
+> git status --porcelain <scope> | grep -c '^??'   # MUST be 0
+> ```
+> Require it at **both** layers — in the runner's own verification block and again in the session's verification task — and treat a non-zero result as a FAIL, never an advisory. The general form: for any step shaped *"do X so that gate Y means something"*, Y's result is evidence only if X's **observable state** was asserted. X having been reported is not evidence about X.
 
 #### Reviewer Check 074 — Diff-Derived Gate Without Input-Set Assertion
 

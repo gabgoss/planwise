@@ -28,6 +28,7 @@ paths: {planwise_root}/{plans_dir}/**
   - [10.3 Invariant and preservation gates are exempt — and must be marked](#103-invariant-and-preservation-gates-are-exempt--and-must-be-marked)
   - [10.4 Why the annotation, and not just the discipline](#104-why-the-annotation-and-not-just-the-discipline)
   - [10.5 A gate over a verification report reads the verdict line, not a bare substring](#105-a-gate-over-a-verification-report-reads-the-verdict-line-not-a-bare-substring)
+  - [10.6 A diff-pinned or sweep-based criterion records its input-set counts](#106-a-diff-pinned-or-sweep-based-criterion-records-its-input-set-counts)
 
 ---
 
@@ -355,6 +356,22 @@ One adjacent shape cannot be caught by a pre-edit annotation at all, and it belo
 A verification report necessarily *describes* the checks it ran, so its own column headers, legend, and residual prose legitimately contain the tokens a naive gate searches for. A bare `grep -c 'FAIL' {report}` expecting `0` is satisfied by the report's own vocabulary and fires on a report that passed — and a gate that can never report success is exactly as uninformative as one that can never report failure.
 
 [templates/verification-report.md](../templates/verification-report.md) defines the convention that removes the ambiguity: a single machine-readable trailing `**Verdict:** PASS|FAIL` line, plus per-criterion status carried in a dedicated table cell. A gate consuming a verification report MUST match the verdict line, or the `| FAIL |` row-cell pattern that `verification-report.md` defines — never a bare substring search over the whole document.
+
+### 10.6 A diff-pinned or sweep-based criterion records its input-set counts
+
+§10.1 requires the report to record the *value* a gate measured. This section requires it to record what the gate was permitted to look at. The two are independent: a criterion can carry a correct, properly contradicting pre-edit value and still have run over an input set that excluded the work entirely — and its output is byte-identical either way, because an empty result renders "I checked and found nothing" and "I checked nothing" the same.
+
+The report is where that distinction has to be preserved, because it is the only artifact that outlives the tree state the counts were taken from.
+
+> [!verify] Record the spanned-file count and the untracked count beside the criterion's own result
+> Any verification report carrying a criterion whose input comes from a pinned diff or an on-disk sweep MUST record both counts adjacent to that criterion's verdict — not in a preamble, and not once for the report as a whole:
+> ```bash
+> git -C <repo> diff --name-only $BASE -- <scope> | wc -l    # files the pinned diff actually spanned
+> git -C <repo> status --porcelain <scope> | grep -c '^??'   # untracked within scope — MUST be 0
+> ```
+> A criterion reported PASS on a spanned count of 0, or alongside a non-zero untracked count, is not a PASS — the predicate never met the content it exists to inspect. Return FAIL or `[UNCERTAIN]` per §5, showing both counts.
+
+The commands are the liveness proof at [measurement-discipline.md](measurement-discipline.md) §8.7 sub-rule E; this section is the separate requirement that their output reach the report rather than stopping at the runner who ran them.
 
 #### Reviewer Check 082 — Verification Gate Without a Measured Pre-Edit Baseline
 
