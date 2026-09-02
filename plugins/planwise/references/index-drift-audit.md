@@ -23,6 +23,42 @@ Read the JSON file at the path it prints (`JSON: {path}`), shaped `{"drifts": [.
 | `drift` | A row (or, for lessons, the single counter) is out of sync with its source of truth | Yes — on explicit consent via `--write`, and only for rows still drifted at write time |
 | `anomaly` | The row's source cannot be resolved (linked file/plan not found, or a file exists with no index row) — a data-integrity signal, not a stale-cache signal | Never — reported only, so nothing is fabricated |
 
+## Monotonic Sequences Heal Forward Only
+
+The two Result Classes above are safe to apply symmetrically only for a certain kind of cached field, and the distinction decides whether a two-way sync is safe at all. Some cached fields describe **current state** — a status, a file location — and heal safely in either direction: the source of truth is unambiguous, and a wrongly-healed value is recoverable by re-running the audit. A field holding the **next value of an allocation sequence** is not a description of state. It is a *promise about future writes*, and the two directions of disagreement mean opposite things:
+
+| Stated vs computed | What it means | Safe to auto-correct? |
+|---|---|---|
+| Counter **behind** the max | A record was created outside the one writer that bumps the counter | **Yes** — the next write would otherwise collide |
+| Counter **ahead** of the max | An identifier was allocated and later withdrawn | **No** — lowering it re-opens a retired identifier |
+
+The consequence is what makes the asymmetry load-bearing: cross-references outlive the record itself. Archived records, promotion logs, commit messages and prose go on naming a retired number, so reissuing it silently repoints every one of them at different content. Nothing errors — the citations simply become false. Lowering is the dangerous direction precisely because it looks like tidying.
+
+**Encode the asymmetry in the classification, not only in the write path**, so the read-only report says the right thing too. A reconciler that classifies both directions as `drift` and merely declines to write one of them still tells its reader that a counter ahead of the max is a stale cache, which is the opposite of true.
+
+WRONG — one comparison, one disposition; a later `--write` heals whatever the detect pass called drift:
+```python
+if stated != computed:
+    drift.append(...)
+```
+CORRECT — the comparison splits, and only one branch is ever healable:
+```python
+if stated < computed:
+    drift.append(...)      # healable: heal FORWARD on consent, after the pre-write re-read
+elif stated > computed:
+    anomaly.append(...)    # reportable ONLY — never written, whatever consent was given
+```
+
+Two corollaries:
+
+- **A record present in the ledger but missing on disk still bounds the counter.** Its identifier was issued, so excluding it from the max would hand the same number out again. Report the missing file as an anomaly **and** keep its identifier in the max — the two dispositions are independent, and only doing the first re-opens the number.
+- **Never heal an anomaly automatically.** Drift has one correct resolution derivable from the data; an anomaly is a disagreement between sources where deciding which side is right needs a human. *A reconciler that heals anomalies has stopped reconciling and started guessing.*
+
+> [!practice] Review prompt for a reconciler spec
+> When a spec says "compute the correct value and correct the field to it", ask what the computed value being **lower** than the stated one would mean, and whether anything downstream still names what would be reissued. A spec that reads symmetrically in both directions usually has not been asked the question.
+
+The Lessons binding below is the worked instance: its `drift` class is defined as the counter being *behind* the true next ID, `counter_ahead` is an anomaly kind that is never healed, and `row_without_file` keeps a missing record's ID inside the max.
+
 ## Banner
 
 ```

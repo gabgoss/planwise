@@ -185,10 +185,10 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 
 ## Sub-role: Change-Surface Reviewer (NEW)
 
-- Verify that a plan pairing a new diagnostic with a new repair path also carries a deliverable editing the caller — code or document — that routes between them (`references/measurement-discipline.md` §8.8 sub-rule B)
-- Confirm that any deliverable changing a behavior described by a manifest, schema or frontmatter field also updates that structured field, not only the adjacent free-text prose (`references/measurement-discipline.md` §8.8 sub-rule A)
+- Verify that a plan pairing a new diagnostic with a new repair path also carries a deliverable editing the caller — code or document — that routes between them (`references/measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md` §8.8 sub-rule B)
+- Confirm that any deliverable changing a behavior described by a manifest, schema or frontmatter field also updates that structured field, not only the adjacent free-text prose (`references/measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md` §8.8 sub-rule A)
 
-- Check 076 — Detection + Repair With No Routing Deliverable → references/measurement-discipline.md §8.8
+- Check 076 — Detection + Repair With No Routing Deliverable → references/measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md §8.8
 
 ---
 
