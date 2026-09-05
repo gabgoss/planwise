@@ -1,12 +1,12 @@
 ---
-description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.29) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
+description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.30) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
 ---
 
 # DELEGATED Dispatch Discipline
 
-**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.29) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
+**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.30) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
 
-This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics; §1.19–§1.22 cover DELEGATED task-runner dispatch mechanics — model-tier overrides, launch-mode gating, and an anti-patterns checklist; §1.23–§1.27 cover cross-cutting dispatch-prompt and orchestrator discipline — triple-scoping every single-task dispatch, requiring a literal template (not prose) for structure contracts, adjudicating runner-surfaced decisions, keeping orchestrator verification read-only inside a runner's ownership window, and naming interpreter/tool paths explicitly in every spawn prompt; §1.28 bounds what a dispatch-completion return carries back into the orchestrator's own window; §1.29 binds what a spawn prompt must name in both directions, because a subagent's world is its own definition plus its prompt and nothing else. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
+This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics; §1.19–§1.22 cover DELEGATED task-runner dispatch mechanics — model-tier overrides, launch-mode gating, and an anti-patterns checklist; §1.23–§1.27 cover cross-cutting dispatch-prompt and orchestrator discipline — triple-scoping every single-task dispatch, requiring a literal template (not prose) for structure contracts, adjudicating runner-surfaced decisions, keeping orchestrator verification read-only inside a runner's ownership window, and naming interpreter/tool paths explicitly in every spawn prompt; §1.28 bounds what a dispatch-completion return carries back into the orchestrator's own window; §1.29 binds what a spawn prompt must name in both directions, because a subagent's world is its own definition plus its prompt and nothing else; §1.30 covers the runner that returns nothing at all, where death must be established before a replacement is dispatched. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
 
 ## Table of Contents
 
@@ -39,6 +39,7 @@ This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Trigger
 - [1.27 Interpreter Discipline in Every Spawn Prompt](#127-interpreter-discipline-in-every-spawn-prompt)
 - [1.28 Status-Block Return Contract](#128-status-block-return-contract)
 - [1.29 A Subagent's World Is Its Definition Plus Its Prompt](#129-a-subagents-world-is-its-definition-plus-its-prompt)
+- [1.30 Liveness — Establish Death Before Dispatching a Replacement](#130-liveness--establish-death-before-dispatching-a-replacement)
 
 ---
 
@@ -1079,6 +1080,60 @@ Both directions are one rule with the arrow reversed. The table below names what
 | Inbound — telemetry from the runner | An expectation of structured return | The delivery channel, not only the payload shape |
 
 Applied: any handler that both enumerates conditional references for the lead and delegates the checking to spawned agents MUST resolve the condition in the lead and push the resulting instruction into the prompt. Symmetrically, any orchestration expecting structured telemetry back MUST specify the delivery channel, not only the payload shape.
+
+## 1.30 Liveness — Establish Death Before Dispatching a Replacement
+
+A task-runner produces **no observable output between dispatch and its final status block**. For a short task that gap is seconds. For a fixture build or a probe loop it can be hours. Across that whole window the orchestrator cannot tell apart three states that demand opposite responses:
+
+| State | Correct response |
+|---|---|
+| Working normally | Wait. Touch nothing it owns (§1.26). |
+| Dead or killed | Re-dispatch. |
+| Stalled or looping | Intervene, then re-dispatch. |
+
+§1.17 classifies a runner that **returned**. This section covers the case where nothing arrives at all, which is exactly the case the orchestrator must resolve by inference rather than by reading a report.
+
+> [!constraint] Silence is not evidence of death — prove it before replacing the runner
+> The recovery action for a presumed-dead runner is re-dispatch, and re-dispatching onto a **live** runner puts two writers on one task's declared output set. Where the task writes only its own output file, that corrupts a deliverable. Where it writes machine-global state under inventory-and-restore, two concurrent restore sequences can leave a global config file holding fixture content, with no clean rollback and no error raised.
+>
+> So the ordering is binding: **establish death, then dispatch a replacement. Never the reverse.**
+
+**Two things that look like liveness signals are not.**
+
+1. **An agent listing may not show in-process subagents at all.** Measured with a dispatched task-runner actively writing files, the listing returned only peer interactive sessions and no subagent rows whatsoever — and a *completed* runner from earlier in the same session was equally absent. A listing that cannot tell running from finished from never-existed cannot support an inference either way. Reading absence there as death is unsound.
+2. **An idle notification means "available", not "finished".** It is a signal about the runner's turn, not about its work, and it says nothing at all about the case at issue here: sustained silence.
+
+**The check that settles it is the runner's own transcript.** It is cheap, it is available throughout the window, and it discriminates directly:
+
+```bash
+F={agent-transcript-path}          # the dispatched subagent's own JSONL transcript
+wc -l < "$F"                       # sample twice, a minute apart — growing => alive
+python -c "import json,sys;print(json.loads(open(sys.argv[1],encoding='utf-8').readlines()[-1])['timestamp'])" "$F"
+date -u -Iseconds                  # compare against the line above
+```
+
+A last-entry timestamp seconds old settles the question: alive. Minutes old **with no line growth across two samples** is a genuine stall. One sample proves nothing — a single reading is consistent with both hypotheses, which is the whole failure mode.
+
+> [!pitfall] A half-built output tree is not evidence of a dead process
+> **Problem:** the orchestrator inventories disk, finds a partial artifact tree, and reads it as the residue of a mid-write kill. In the measured incident that tree was a snapshot of a **live** agent mid-write; the runner wrote again minutes after being declared dead, having never stopped. Every input the orchestrator used was consistent with both hypotheses. It picked one and acted.
+> **Solution:** a disk inventory measures *what exists*, never *whether a writer is still attached to it*. Only the transcript check answers the second question. Run it before concluding anything from disk state.
+
+**The replacement runner self-checks before its first write.** When a re-dispatch does happen, the detection that catches a wrong death call belongs in the protocol rather than in luck. Tell the replacement, in its spawn prompt, that its inventory is a **frozen snapshot** taken at dispatch:
+
+```markdown
+The file inventory above was captured when you were dispatched and is a frozen
+snapshot. BEFORE your first write, compare it against live modification times.
+Anything created or modified between that snapshot and your first tool call
+means another writer is active on this task: HOLD and report it. Do NOT
+proceed to any irreversible step.
+```
+
+In the measured incident this is what held the line — the duplicate compared its snapshot against live mtimes, saw fixture files created minutes *before its own first tool call*, and stopped short of the irreversible swap. Blast radius was zero because the duplicate caught the error, not because the orchestrator's reasoning was sound.
+
+**A replacement's brief marks the dead runner's leftovers UNVERIFIED.** A partial artifact reads as a complete one to whatever consumes it next. When a re-dispatch is genuinely warranted, enumerate what the previous runner left on disk and label the inventory UNVERIFIED, so the replacement re-derives rather than trusting it.
+
+> [!practice] A toolchain that updates mid-run splits a measurement set silently
+> An auto-updating CLI can upgrade itself between dispatches, or during one. For a campaign treating measurements as per-build facts, an update landing between repetitions splits a rep set across two builds with nothing surfacing an error. The same event also produces a long quiet window that is easy to misread as a dead runner. Pin or record the build at session start, and re-record it at close; a measurement set that spans two builds is reported as two sets.
 
 ---
 

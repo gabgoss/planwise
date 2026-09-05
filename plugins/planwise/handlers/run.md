@@ -381,12 +381,21 @@ After a **parallel batch** of 3+ task-runners returns:
 
 ### Step 3.4: Handle Task Failure
 
-If a task fails or returns BLOCKED:
+**Reported failure** — the task fails or returns BLOCKED. Both arrive in a status block:
 
 1. Update recovery: mark task BLOCKED with description
 2. Update TaskList: leave as in_progress (do not mark completed)
 3. Decide: if remaining tasks depend on the blocked task, halt execution. If independent tasks remain, continue with those.
 4. Report to user: "Task {N} is BLOCKED: {reason}. Continue with remaining tasks?"
+
+**Unreported silence** — nothing arrives at all. This is a different branch, and it is the one where you must act on inference rather than on a report. A runner produces no observable output between dispatch and its final status block, so silence alone does not distinguish *working* from *dead* from *stalled*.
+
+1. **Do NOT re-dispatch yet.** Re-dispatching onto a live runner puts two writers on one task's declared output set. Where the task writes machine-global state under inventory-and-restore, two concurrent restore sequences can leave a global file holding fixture content with no clean rollback and no error raised.
+2. **Run the liveness check** in `references/agent-orchestration-delegated.md` §1.30: sample the runner's own transcript twice, a minute apart, and compare its last-entry timestamp against now. A timestamp seconds old means alive. Minutes old **with no line growth across both samples** is a genuine stall. Do not substitute an agent listing — it may not show in-process subagents at all, so absence there proves nothing. Do not substitute a disk inventory either: a half-built output tree is equally consistent with a live agent mid-write.
+3. **Alive** → wait, or steer the existing runner with a message (§1.7, §1.10). Do not replace it, and do not write to anything it owns (§1.26).
+4. **Stalled** → resume the SAME agent per §1.17, never a fresh one.
+5. **Genuinely dead** → re-dispatch, and put two things in the replacement's brief: an inventory of what the dead runner left on disk marked **UNVERIFIED** (a partial artifact reads as a complete one to the next consumer), and the frozen-snapshot self-check from §1.30 — the replacement compares that inventory against live modification times before its first write, and HOLDs if anything moved between the snapshot and its own first tool call.
+6. Record which branch fired in Recovery, with the measurement that settled it — not the conclusion alone.
 
 ### Step 3.5: Session-Length Checkpoint
 
