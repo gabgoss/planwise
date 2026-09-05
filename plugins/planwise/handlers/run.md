@@ -252,7 +252,7 @@ Read the orchestration's `## Execution Strategy` section.
 
 You are the ORCHESTRATOR. Choose dispatch mode for the current dependency layer (tasks whose `Depends On` are all COMPLETE): **Sequential** for 1-2 tasks, or when any task in the layer targets a file another layer task also targets (output-file collision); **Parallel** for 3+ tasks with no inter-dependencies and disjoint output files.
 
-Before dispatching, read `references/agent-orchestration-delegated.md`: §1.3 (context boundary), §1.6 (path-rule injection), §1.8 (HARD CONSTRAINTS skeleton), §1.13 (shared-edit-target strategy; parallel-dispatch Recovery contract), §1.17 (classify every return before consuming it — a `completed` status alone is not a deliverable check), §1.19 (Model-Floor Bridge), §1.20 (1M-Exception Dispatch), §1.21 (Background vs Foreground Gate), §1.22 (Anti-Patterns checklist).
+Before dispatching, read `references/agent-orchestration-delegated.md`: §1.3 (context boundary), §1.6 (path-rule injection), §1.8 (HARD CONSTRAINTS skeleton), §1.13 (shared-edit-target strategy; parallel-dispatch Recovery contract), §1.17 (classify every return before consuming it — a `completed` status alone is not a deliverable check), §1.19 (Model-Floor Bridge), §1.20 (1M-Exception Dispatch), §1.21 (Background vs Foreground Gate), §1.22 (Anti-Patterns checklist), §1.29 (a subagent's world is its definition plus its prompt — name the delivery channel, and push every lead-resolved condition into the prompt).
 
 The spawn prompt states the single-task scope in three positions — the opener, a hard-constraint line, and the return instruction — so the scope is stated even against a session-scoped identity that would otherwise outrank a single mention. When the project declares an isolated environment (Config Gate), it also adds an environment-discipline block naming interpreter/linter/runner paths in the platform-matched form (POSIX `./.venv/bin/{tool}` or Windows `.\.venv\Scripts\{tool}.exe` — emit the one matching the project's platform, never both), and on the session's FIRST dispatch only, a one-line interpreter diagnostic:
 
@@ -305,6 +305,14 @@ Task(
 
 **Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Task tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. After all runners return, classify each per §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
 
+Every parallel spawn prompt names the **delivery channel** as well as the block's format. A named or teammate-style runner's plain-text final message does not route to you — only an idle notification arrives — so a prompt giving the shape alone produces a block nobody receives (`references/agent-orchestration-delegated.md` §1.29.1). Add these two lines above the Status Block format in each parallel spawn prompt:
+
+```markdown
+## Status Block delivery (REQUIRED)
+Deliver your status block by calling the SendMessage tool with to="team-lead".
+Plain-text output does NOT reach the orchestrator.
+```
+
 > [!pitfall] Mixed-Mode Layer
 > **Problem:** A dependency layer where two tasks share an output file. Dispatching the whole layer in parallel races on that shared file (separate from the Recovery-file question).
 > **Solution:** Apply `references/agent-orchestration-delegated.md` §1.13 to the *output files*: if any two tasks in the layer share an output target, the layer is NOT parallel-eligible — fall back to Sequential dispatch for the whole layer, or split the offending pair into a separate sub-layer.
@@ -352,17 +360,18 @@ After each task completes (DIRECT or DELEGATED, sequential):
 
 After a **parallel batch** of 3+ task-runners returns:
 
-1. Parse the status block from each runner's final message (schema: `TASK_STATUS / TASK_ID / OUTPUT_FILES / LINES_PRODUCED / KEY_FINDINGS / ISSUES`)
-2. Verify referenced OUTPUT_FILES exist on disk for every COMPLETE row
-3. **Recovery file** -- write ONCE for the entire batch:
+1. Parse the status block each runner delivered by `SendMessage` (schema: `TASK_STATUS / TASK_ID / OUTPUT_FILES / LINES_PRODUCED / KEY_FINDINGS / ISSUES`)
+2. **On a missing block, name the tool AND the recipient in the re-request.** A generic re-request — "reply with your status block" — reproduces the original failure, because it leaves the channel unnamed a second time. Send the runner: `Deliver your status block now by calling the SendMessage tool with to="team-lead". Plain-text output does not reach me.` Acceptance does not wait on this: run the on-disk deliverable gate (`references/agent-orchestration-delegated.md` §1.17.4) meanwhile, which confirms COMPLETE independently of the block. The recovered block then supplies KEY_FINDINGS for the reconciliation below (§1.29.1).
+3. Verify referenced OUTPUT_FILES exist on disk for every COMPLETE row
+4. **Recovery file** -- write ONCE for the entire batch:
    - One Step Completion row per task in the batch, all with the reconciliation timestamp
    - Append every runner's KEY_FINDINGS to the "Key Findings" section
    - Append every runner's OUTPUT_FILES to the "Files Modified" section
    - One Change Log row per task (or one batch row noting the parallel group)
    - Update "Current Step" to the next dependency layer
-4. **TaskList** -- mark every batch task `completed`
-5. **Session-length checkpoint** -- evaluate ONCE for the whole batch, after the central Recovery reconciliation above. See [Step 3.5](#step-35-session-length-checkpoint). A batch boundary is the safest place in a delegated session to take a split, because no runner is in flight.
-6. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch)
+5. **TaskList** -- mark every batch task `completed`
+6. **Session-length checkpoint** -- evaluate ONCE for the whole batch, after the central Recovery reconciliation above. See [Step 3.5](#step-35-session-length-checkpoint). A batch boundary is the safest place in a delegated session to take a split, because no runner is in flight.
+7. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch)
 
 ### Step 3.4: Handle Task Failure
 
@@ -377,7 +386,7 @@ If a task fails or returns BLOCKED:
 
 The orchestrator's context window grows monotonically across a session — nothing in the task loop resets it, and compaction is rare (observed once in 99 measured sessions). The driver is session **length in turns**, not task count: the task-count correlation is weak, while every measured session above 500,000 tokens ran at least 194 turns and every session below 150,000 ran at most 89. This checkpoint is the one place the run flow observes that growth and offers to act on it.
 
-**Evaluate at each task boundary** — sequential Step 3.3 item 6, or once per parallel batch at the batch list's item 5 — and trip on whichever threshold is reached first:
+**Evaluate at each task boundary** — sequential Step 3.3 item 7, or once per parallel batch at the batch list's item 6 — and trip on whichever threshold is reached first:
 
 | Threshold | Config sub-key | Shipped default |
 |-----------|----------------|-----------------|

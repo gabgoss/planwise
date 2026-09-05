@@ -1,12 +1,12 @@
 ---
-description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.28) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
+description: DELEGATED dispatch discipline — orchestrator protocols (§1.1–§1.29) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
 ---
 
 # DELEGATED Dispatch Discipline
 
-**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.28) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
+**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.29) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
 
-This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics; §1.19–§1.22 cover DELEGATED task-runner dispatch mechanics — model-tier overrides, launch-mode gating, and an anti-patterns checklist; §1.23–§1.27 cover cross-cutting dispatch-prompt and orchestrator discipline — triple-scoping every single-task dispatch, requiring a literal template (not prose) for structure contracts, adjudicating runner-surfaced decisions, keeping orchestrator verification read-only inside a runner's ownership window, and naming interpreter/tool paths explicitly in every spawn prompt; §1.28 bounds what a dispatch-completion return carries back into the orchestrator's own window. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
+This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery, and §1.3 Orchestration Context Boundary establish the foundation; §1.4–§1.17 cover the full dispatch protocols; §1.18 covers verify-before-acting on LSP diagnostics; §1.19–§1.22 cover DELEGATED task-runner dispatch mechanics — model-tier overrides, launch-mode gating, and an anti-patterns checklist; §1.23–§1.27 cover cross-cutting dispatch-prompt and orchestrator discipline — triple-scoping every single-task dispatch, requiring a literal template (not prose) for structure contracts, adjudicating runner-surfaced decisions, keeping orchestrator verification read-only inside a runner's ownership window, and naming interpreter/tool paths explicitly in every spawn prompt; §1.28 bounds what a dispatch-completion return carries back into the orchestrator's own window; §1.29 binds what a spawn prompt must name in both directions, because a subagent's world is its own definition plus its prompt and nothing else. [`agent-orchestration.md`](agent-orchestration.md) §11 retains only a short pointer stub back to this file — the full text lives here.
 
 ## Table of Contents
 
@@ -38,6 +38,7 @@ This file is the complete DELEGATED dispatch discipline: §1.1 Mandatory Trigger
 - [1.26 The Ownership Window — Orchestrator Verification Is Read-Only](#126-the-ownership-window--orchestrator-verification-is-read-only)
 - [1.27 Interpreter Discipline in Every Spawn Prompt](#127-interpreter-discipline-in-every-spawn-prompt)
 - [1.28 Status-Block Return Contract](#128-status-block-return-contract)
+- [1.29 A Subagent's World Is Its Definition Plus Its Prompt](#129-a-subagents-world-is-its-definition-plus-its-prompt)
 
 ---
 
@@ -411,7 +412,9 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 > Return your completion as the structured status block below in your FINAL message.
 > The orchestrator reconciles Recovery centrally after all parallel runners return.
 >
-> ## Status Block (required final-message format)
+> ## Status Block delivery (REQUIRED)
+> Deliver your status block by calling the SendMessage tool with to="team-lead".
+> Plain-text output does NOT reach the orchestrator.
 > ```
 > TASK_STATUS:   COMPLETE | BLOCKED | PARTIAL
 > TASK_ID:       {Abbrev}-S{XX}-{YY}-{##}
@@ -953,6 +956,8 @@ When a dispatched task-runner completes, its final-message status block re-enter
 
 **This bound sits inside a directional finding, not a point fact.** Dispatching sessions measure heavier than direct-mode sessions (1.68× on median window size), but mode classification is a **lower bound** on delegated: a session that only continued an already-dispatched agent, issuing no fresh dispatch call, would classify as direct. Spot-checks found none such — not exhaustively ruled out. Any prose in this file or its siblings citing the ratio, or a "100% of delegated sessions" figure, carries this hedge.
 
+This section bounds the block's **payload**. It does not specify how the block reaches the orchestrator — §1.29.1 binds that, and a prompt that gives the shape without the channel produces a block nobody receives.
+
 **Four binding clauses, in every parallel-mode return:**
 
 1. **No re-quoted file content.** Cite a changed file by path and line count; never paste its body back into the orchestrator's window. The orchestrator already has the file on disk — quoting it a second time is the accumulation this section exists to stop.
@@ -992,6 +997,84 @@ When a dispatched task-runner completes, its final-message status block re-enter
 > KEY_FINDINGS:
 > - New §1.28 landed at live-max+1; ceiling=18 derived from field enumeration
 > ```
+
+## 1.29 A Subagent's World Is Its Definition Plus Its Prompt
+
+A spawned agent knows two things: what its own agent definition carries, and what its spawn prompt literally names. It inherits nothing else. It does not inherit the conditional reads the orchestrator performed, and it does not inherit a convention the protocol merely assumes.
+
+The failure is silent in both directions. An instruction the prompt omits never arrives. Telemetry the prompt never routed never returns. Neither omission raises an error. §1.29.1 binds the inbound direction, §1.29.2 the outbound one, and §1.29.3 states the shared rule.
+
+### 1.29.1 Name the delivery channel, not just the payload format
+
+A spawn prompt that specifies a status block's *format* has not specified how the block reaches the orchestrator. §1.28 bounds what the block carries; this section binds how it arrives. When runners are spawned as named or teammate-style agents, a plain-text final message does not route to the orchestrator — only an idle notification arrives. A protocol that says "RETURN a status block" then means "write a status block nobody receives."
+
+> [!constraint] Specify the mechanism, not only the shape
+> WRONG — the prompt gives the format and no channel:
+> ```markdown
+> ## Status Block (required final-message format)
+> TASK_STATUS:   COMPLETE | BLOCKED | PARTIAL
+> TASK_ID:       {task-id}
+> ...
+> ```
+> CORRECT — the prompt names the tool and the recipient:
+> ```markdown
+> ## Status Block delivery (REQUIRED)
+> Deliver your status block by calling the SendMessage tool with to="team-lead".
+> Plain-text output does NOT reach the orchestrator.
+> TASK_STATUS:   COMPLETE | BLOCKED | PARTIAL
+> TASK_ID:       {task-id}
+> ...
+> ```
+
+Two practices follow.
+
+**Acceptance may proceed on disk evidence while telemetry is recovered.** The on-disk deliverable gate confirms COMPLETE independently of the status block; §1.17.4 specifies that gate and this section does not restate it. The recovered block then supplies `KEY_FINDINGS` for Recovery reconciliation.
+
+**Name the tool and the recipient when re-requesting a missing block.** A generic re-request — "reply with your status block" — reproduces the original failure, because it leaves the channel unnamed a second time. In one measured 7-runner parallel dispatch every runner had executed correctly and written its deliverables, yet the orchestrator received only idle notifications. All 7 blocks arrived only after an explicit instruction to call the SendMessage tool with `to="team-lead"`. The generic re-request cost one wasted round-trip per runner.
+
+### 1.29.2 Push a lead-resolved condition into the spawn prompt
+
+A handler that enumerates conditional references for the orchestrator, then delegates the actual checking to spawned agents, has split the condition from the check. The orchestrator resolves the condition and never runs the check. The spawned agent runs the check and never sees the condition. The checklist row is then present, indexed, and never evaluated.
+
+> [!constraint] Resolve the condition in the lead, then name it in the prompt
+> WRONG — the prompt names the role, the plan type and the paths, but never the execution strategy or the conditional reference:
+> ```markdown
+> "You are reviewing plan {Abbrev} for task quality.
+>  Your assigned role: Task Reviewer
+>  Plan path: {PlanPath}
+>  Task files: {list}
+>  Orchestration files: {list}"
+> # The reviewer starts with a fresh context window. Nothing tells it the plan is
+> # DELEGATED, and nothing points it at the reference whose §§ its checklist cites.
+> ```
+> CORRECT — the lead appends a block naming the reference, the sections to verify, and the rows to report against:
+> ```markdown
+> "…Orchestration files: {list}
+>
+>  This plan declares Execution Strategy: DELEGATED. Read
+>  references/agent-orchestration-delegated.md and verify every Orchestration
+>  file against §1.1-§1.4, §1.8-§1.13, §1.16 and §1.23-§1.27. Report each miss
+>  against its Error Pattern Catalog row."
+> ```
+
+Two practices follow.
+
+**The lead already knows the trigger.** One Grep for `Execution Strategy:\s*DELEGATED` over the Master Plan and every Orchestration file decides whether to append the block. A handler that already runs that Grep for another check reuses the same result here, at no extra cost.
+
+**A checklist row with no loader is a false assurance.** When auditing a checklist-driven handler, verify for each row that *some* spawn prompt causes it to be evaluated. Counting how often the handler names the reference does not answer that question. A mention in a synthesis step, or in a lead-side conditional-reference list, loads nothing into the agent that runs the check. Read each prompt.
+
+Hand-extending one prompt for one pass does not fix this. The next run reverts to the shipped prompt and the blind spot returns. The extension has to land in the handler.
+
+### 1.29.3 The shared rule
+
+Both directions are one rule with the arrow reversed. The table below names what the orchestrator holds and what the prompt must therefore carry.
+
+| Direction | The orchestrator holds | The prompt MUST carry |
+|---|---|---|
+| Outbound — instruction to the runner | A condition it resolved, or a convention the protocol assumes | The resolved instruction, named literally |
+| Inbound — telemetry from the runner | An expectation of structured return | The delivery channel, not only the payload shape |
+
+Applied: any handler that both enumerates conditional references for the lead and delegates the checking to spawned agents MUST resolve the condition in the lead and push the resulting instruction into the prompt. Symmetrically, any orchestration expecting structured telemetry back MUST specify the delivery channel, not only the payload shape.
 
 ---
 

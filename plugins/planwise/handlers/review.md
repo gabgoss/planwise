@@ -18,6 +18,7 @@
 - [Scale Detection](#scale-detection)
 - [Measurement Phase: The Review Discovery Fact Sheet](#measurement-phase-the-review-discovery-fact-sheet)
 - [Gate Lint Phase: Mechanical Verification-Gate Scan](#gate-lint-phase-mechanical-verification-gate-scan)
+- [Strategy Phase: Resolve the DELEGATED Reviewer Block](#strategy-phase-resolve-the-delegated-reviewer-block)
 - [No-Team Path (Trivial / Small)](#no-team-path-trivial--small)
 - [Team Path (Medium / Large / Very Large)](#team-path-medium--large--very-large)
 - [Reviewer Prompt Template](#reviewer-prompt-template)
@@ -177,6 +178,52 @@ Exit `1` and exit `2` are the **normal findings-present outcomes**. Neither is a
 
 ---
 
+## Strategy Phase: Resolve the DELEGATED Reviewer Block
+
+Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. The Required References list above makes `references/agent-orchestration-delegated.md` a **conditional** read for the lead. The lead does not run the delegated checks — spawned reviewers do, in fresh context windows that inherit nothing the lead resolved. This phase resolves the condition once and pushes the result into the prompts, so the rows that cite that reference are actually evaluated rather than merely indexed (`references/agent-orchestration-delegated.md` §1.29.2).
+
+1. Grep the Master Plan and every Orchestration file for `Execution Strategy:\s*DELEGATED`. This is the same Grep Error Pattern Catalog row 66 already requires for the named-trigger check; run it once and reuse the result here.
+
+2. Bind `{DelegatedReviewBlock}`:
+
+   | Grep result | `{DelegatedReviewBlock}` |
+   |---|---|
+   | No match — the plan declares DIRECT throughout | Empty. Omit the line from every prompt. |
+   | One or more matches | The literal block in step 3. |
+
+3. On a match, the block is:
+
+```markdown
+This plan declares Execution Strategy: DELEGATED in {matching file paths}.
+Read references/agent-orchestration-delegated.md and verify every Orchestration
+file against §1.1-§1.4, §1.8-§1.13, §1.16 and §1.23-§1.27. Report each miss
+against its Error Pattern Catalog row, not as a free-form observation.
+```
+
+4. Append `{DelegatedReviewBlock}` to the spawn prompt of every reviewer that receives Orchestration or task files: the No-Team Path's combined content reviewer, and the Team Path's Task Reviewer, Dependency Reviewer and Design-Extension Reviewer. Those four roles own every catalog row that cites the delegated reference. Phase 1's structural reviewer and the EI/Coverage reviewers do not receive it — they hold no Orchestration file, so the block would be an instruction they cannot act on.
+
+> [!constraint] A catalog row whose reference no prompt names is never evaluated
+> A conditional reference in the lead's Required References list loads the file into the *lead*. The reviewer that runs the check starts fresh and sees only its own definition plus its prompt. Nothing in between carries the condition across.
+>
+> WRONG — the condition is resolved in the lead and the check is delegated, with no prompt connecting them:
+> ```
+> Required References:  "If reviewing a DELEGATED-orchestration plan: Read
+>                        references/agent-orchestration-delegated.md"
+> Task Reviewer prompt: role, plan type, file paths — no execution strategy,
+>                        no reference, no sections.
+> # The rows are present, indexed, and never evaluated. Every review of every
+> # DELEGATED plan misses the same class.
+> ```
+> CORRECT — the lead resolves the condition and pushes the resolved instruction into the prompt:
+> ```
+> Lead: Grep for `Execution Strategy:\s*DELEGATED` → matched
+>       → bind {DelegatedReviewBlock} → append it to the four owning prompts
+> ```
+>
+> **Audit by reading prompts, not by counting mentions.** To verify this stays true, take each catalog row citing a reference and confirm some spawn prompt causes it to be evaluated. A mention in a synthesis step or a lead-side conditional list is not a loader. Extending one prompt by hand for one review does not fix it either — the next review reverts to the shipped prompt and the blind spot returns.
+
+---
+
 ## No-Team Path (Trivial / Small)
 
 For plans with 0-1 EIs and 1-2 sprints, use sequential subagent spawns with no team overhead.
@@ -237,6 +284,7 @@ Task(
     pre-edit tree. Read them and classify each one into your finding format rather than
     re-deriving the same gates by hand. If the path reads `unavailable`, derive them
     yourself and say explicitly that you did.
+    {DelegatedReviewBlock}
 
     Global numbering note: Spec numbers are assigned globally across all sprints.
     Non-sequential numbers within a single EI are expected, not errors.
@@ -390,6 +438,7 @@ Task(
     byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
+    {DelegatedReviewBlock}
 
     Execute the Task Reviewer checklist from your protocol.
 
@@ -418,6 +467,7 @@ Task(
     byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
+    {DelegatedReviewBlock}
 
     Execute the Dependency Reviewer checklist from your protocol.
 
@@ -481,6 +531,7 @@ Task(
     First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
 
     Your assigned role: Design-Extension Reviewer
+    {DelegatedReviewBlock}
     Execute Checks 051-054 and 062 from your protocol.
     ...
 )
