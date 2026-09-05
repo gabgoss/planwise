@@ -45,7 +45,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 **Run-specific references (always load):**
 1. Read `references/session-execution-protocol.md`
-2. Read `references/read-confirm-act-protocol.md` — source for READ-CONFIRM-ACT, structural findings, and Cross-Task Coordination Flags (cited throughout this handler)
+2. Read `references/read-confirm-act-protocol.md` — source for READ-CONFIRM-ACT, structural findings, and Cross-Task Coordination Flags: §1.3 the sender side (recording, authoring, propagating), §1.4 the receiver side (the four-source input set, and why every value an inherited flag carries is expired). Cited throughout this handler
 
 **Conditional references:**
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
@@ -127,10 +127,16 @@ While reading, watch for structural findings beyond the literal task scope -- la
 > A binding coordination flag recorded in a sprint plan's `Carried-Forward Coordination Flags` section only reaches sessions scaffolded AFTER it lands. When THIS session was already scaffolded when the flag was recorded, the "re-propagate at scaffold time" step never fired — the session orchestrator reads only the orchestration / Recovery / task files, the flag is invisible, and tasks execute their stale EI-verbatim specs. In the incident this rule exists to prevent, a destructive prune operation shipped able to delete user content the contract existed to protect, and only a closeout cross-check caught it. Reconcile flags into the task files at session start, before the CONFIRM block.
 
 > [!checklist] Flag-Reconciliation Preflight (Phase 1, between READ and CONFIRM)
-> - [ ] Read the sprint plan's `Carried-Forward Coordination Flags` section (if present)
-> - [ ] For each flag recorded ON OR AFTER this session's scaffold date: check it appears in the orchestration's `Pre-Known Cross-Task Coordination Flags` AND in every affected task file
+> - [ ] **Enumerate all four flag sources first, then read every one.** Reading one source, finding nothing missing, and reporting success proves nothing — the failure is silent in the passing direction:
+>   - [ ] This session's orchestration file, `## Pre-Known Cross-Task Coordination Flags`
+>   - [ ] **Every immediately-upstream session's Recovery `Cross-Task Coordination Flags` table** — the session(s) named in this session's `Prerequisite:` field. This is the source most often skipped, and it is the ONLY path for a flag raised during execution rather than at plan time (see §1.4.B of the reference: an already-scaffolded session never re-reads the sprint plan)
+>   - [ ] The sprint plan's `## Carried-Forward Coordination Flags` section (if present)
+>   - [ ] The Master Plan's `## Carried-Forward Coordination Flags` section (if present)
+> - [ ] Diff the union of those four against what actually appears in the task files. A flag with no task-file hit is unrouted, however many plan files mention it
 > - [ ] Route each missing flag: write it into the affected task file(s) under `## Pre-Known Cross-Task Coordination Flags`, and carry it into that task's spawn prompt at dispatch
-> - [ ] Record the routing in Recovery (one Change Log row: "flag preflight — N flags routed to tasks X, Y")
+> - [ ] **Re-derive every value the flag supplies before acting on it** — its counts, its scope forecast, its classification, and its prescribed remedy. The location is usually still good; the values are expired. A flag's own supplied verify gate is the most dangerous artifact it carries, because a stale gate fails correct work and reads as "your fix is broken". See [read-confirm-act-protocol.md §1.4.C–§1.4.D](../references/read-confirm-act-protocol.md#14-reconciling-an-inherited-flag-receiver-side)
+> - [ ] Record the routing as a **table** in Recovery — one row per flag: `Flag | Source file | Destination task | Disposition` — so the count is auditable rather than asserted. Add the Change Log row alongside it ("flag preflight — N flags routed to tasks X, Y")
+> - [ ] Keep the sender's original wording; record any correction beside it with the measurement that settled it. A conditional flag whose condition was measured and NOT met is routed as *resolved, with its measurement* — never dropped, never left open
 > - [ ] If a routed flag CONTRADICTS an **Execution Step**, **Success Criterion**, or **Schema Pin** stated in a task file → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first
 > - [ ] A flag whose text is an unresolved fork must be pinned before dispatch — leaving a "pick one and say so" open means each runner resolves it ad hoc, with no recorded decision for downstream sessions to inherit
 

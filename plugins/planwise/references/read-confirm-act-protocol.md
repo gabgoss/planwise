@@ -1,5 +1,5 @@
 ---
-description: Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags
+description: Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags (sender §1.3, receiver-side reconciliation §1.4)
 ---
 
 # READ-CONFIRM-ACT Protocol
@@ -7,7 +7,7 @@ description: Mandatory READ-CONFIRM-ACT pattern — confirmation block, structur
 > [!binding] Enforcement
 > These are not guidelines. Violations cause context loss and incomplete work.
 
-**Purpose:** Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags.
+**Purpose:** Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags (sender §1.3, receiver-side reconciliation §1.4).
 **Extracted from session-execution-protocol.md; that file keeps the operational session rules (§2-§7).**
 
 ---
@@ -311,6 +311,104 @@ Mirror requirement is the same as §1.2: a flag recorded only in Recovery and ne
 
 > [!practice] Default to Propagation
 > If the consumer is ambiguous between a specific task and a whole session, propagate to BOTH — the task file for the agent that will act on it, the orchestration file for the orchestrator who will dispatch. Cost of duplication is two short paragraphs; cost of misrouting is a missed constraint.
+
+### 1.4 Reconciling an Inherited Flag (Receiver Side)
+
+§1.3 governs the sender — how a flag is recorded, authored and propagated. This section governs the receiver: the session that inherits a flag and has to act on it. The two failure modes are symmetric. The receiver reads too few sources, and it trusts the ones it does read too much.
+
+#### 1.4.A Enumerate the input set before reading any of it
+
+The preflight's first step is to enumerate its sources, not to open one file. A preflight that reads its single named source, finds nothing missing there, and reports success has proved nothing. The failure is silent in the passing direction.
+
+> [!checklist] The four flag sources — read ALL of them
+> - [ ] This session's own orchestration file, `## Pre-Known Cross-Task Coordination Flags`
+> - [ ] **Every immediately-upstream session's Recovery `Cross-Task Coordination Flags` table** — the session(s) named in this session's `Prerequisite:` field
+> - [ ] The sprint plan's `## Carried-Forward Coordination Flags` section
+> - [ ] The Master Plan's `## Carried-Forward Coordination Flags` section
+>
+> Then **diff that union against what actually appears in the task files**, and route the difference. Record the routing as a table, one row per flag, so the count is auditable rather than asserted:
+>
+> | Flag | Source file | Destination task | Disposition |
+> |---|---|---|---|
+> | {headline} | {upstream Recovery / sprint plan / orchestration / Master Plan} | {task-id}, or "none — no consumer in this session" | routed / already present / resolved-with-measurement / no consumer |
+>
+> **A flag with no task-file hit is unrouted, however many plan files mention it.** Presence in a plan file is not routing.
+
+The upstream Recovery table is the source most often left out, and it carries the highest-value class: flags discovered by doing the work, which no planner could have written at scaffold time. In one measured preflight nine flags had reached zero task files. Five of them — every flag raised by the immediately preceding session — lived only in that session's Recovery. One of the five recorded a measurement that **resolved** a conditional blocker; without it the downstream battery would have recorded a passing criterion as BLOCKED against a user decision that was never required. Another assigned a fourth work item no task owned, against criteria reading "all 3 sites".
+
+#### 1.4.B The scaffold-vs-execute seam
+
+A sprint-plan `Carried-Forward` entry reaches a session only at *that session's scaffold time*. Once the session exists on disk it never re-reads the sprint plan. A flag dropped there afterwards is invisible. The sender did its job, the receiver never looks again, and the flag dies in a file both parties consider correct.
+
+So the upstream Recovery sweep in §1.4.A is not a convenience. It is the only path an execution-time flag has into an already-scaffolded session.
+
+#### 1.4.C Treat the location as reliable and every value as expired
+
+> [!constraint] The flag tells you where to look, never what you will find
+> A flag's **location** — the file, the symbol, the section it points at — is usually still good. Every **value** it carries is expired by the time you read it. Three things go stale independently, and each needs its own re-derivation:
+>
+> 1. **The defect may already be gone.** Grep for the **defect**, not for the fix. An unrelated sweep can close a flagged problem without ever touching the flag. One flag reporting five identifier leaks measured **0** tree-wide.
+> 2. **A supplied count may be wrong — and the flag's own verify command may encode it.** Re-derive every count a flag hands you, including one that looks freshly written. A flag asserting "the handler count is now 10" measured **13**, and shipped a gate returning 10.
+> 3. **A scope forecast may be wrong in MEMBERSHIP, not only in size.** Compute the final set from measurements. **Never sum the forecasts.** Two flags each forecasting the final write-set produced a *different* seven than either had predicted.
+>
+> Item 2 is the expensive direction. A stale gate that fails correct work reads as *"your fix is broken"*, not as *"my number is old"* — so the reader debugs a fix that was right.
+>
+> WRONG — run the flag's supplied gate against the fix and believe the result:
+> ```
+> flag: "handler count is now 10; verify with the count gate below"
+> → apply the fix → run the flag's gate → returns 13, expected 10 → FAIL
+> → conclude the fix is broken and start debugging correct work
+> ```
+> CORRECT — re-derive the count first, then reconcile the two readings:
+> ```
+> → measure the live tree BEFORE trusting the gate → 13 handlers
+> → the flag's 10 was correct on the day it was written; 3 landed since
+> → both numbers are real and mean different things
+> → update the gate to 13; write text that contradicts neither reading
+> ```
+
+#### 1.4.D Re-derive the CONCLUSION, not just the count
+
+> [!constraint] A flag's classification and its prescribed remedy are claims too
+> §1.4.C expires a flag's *magnitudes*. This expires its *judgements*. A flag's classification of a finding, and the fix it prescribes, are each still plausible on their face and each capable of being wrong once traced.
+>
+> Two worked shapes:
+>
+> - **The classification does not survive tracing.** A finding correctly identified a concrete identifier, and prescribed rewriting it as a placeholder. Tracing showed the surrounding fields of that structured example are concrete **by design** — demonstrating their composition is the example's whole purpose — so the prescribed rewrite would have left the example internally incoherent.
+> - **The count is wrong in the direction that inverts the remedy.** At one outlier against a canonical form, "make the outlier conform" is right. At three of six call sites, each carrying real distinguishing meaning, the correct fix is the opposite one: widen the canonical. The same remedy is right or backwards depending on a number the flag supplied.
+>
+> **Where a flag says "this is a defect, fix it thus", verify both halves** — that it is a defect, and that the prescribed fix does not degrade the artifact.
+>
+> Both failing flags came from sessions that had done real work and written carefully. Diligence at write time is not what expires. The corpus moving underneath the flag is.
+
+#### 1.4.E Preserve the sender's text; record the correction beside it
+
+> [!constraint] Never silently rewrite a flag to match reality
+> The sender's wording is the trace a later reviewer needs to understand why the executed scope differs from the recorded plan. A quietly edited flag destroys the evidence that reality moved — it leaves a plan that looks like it always said the right thing, and no record of the correction. Keep the original text and record the re-derived value, the classification change, or the retraction **beside** it, with the measurement that settled it.
+>
+> Routing corollary: a **conditional** flag whose condition was measured and **not** met is routed as *resolved, with its measurement*, not dropped and not left open. "Flag exists" and "flag is open" are different facts. A downstream runner that re-evaluates stale conditional text from scratch can reach the opposite conclusion.
+
+#### 1.4.F Verify a claim before laundering it into a flag
+
+> [!constraint] A maintenance note asserting a defect elsewhere is a citation, and rots identically
+> A precise, confidently-worded note is not evidence. In one measured case every factual claim in such a note was false: the cited symbol existed nowhere in the tree except the note itself, the line locator pointed at a different section, the named catalog row was about a different file, and the real row already cited correctly. Of three forward-references examined in one session, two were defective.
+>
+> Three checks, before the claim goes anywhere:
+>
+> 1. **Grep for the cited symbol tree-wide**, not only at the named location. If the only hit is the note itself, the claim is dead. This one command settles most cases.
+> 2. **Check the locator independently.** Line numbers drift with every edit above them, so a locator is a hint, never an address.
+> 3. **Check whether the defect was already fixed.** This is the most common failure mode and the easiest to mistake for live work.
+>
+> Then dispose of it:
+>
+> | Verdict | Disposition |
+> |---|---|
+> | Claim false | Delete the false clause. Keep any load-bearing instruction sitting beside it — the note may be wrong about the defect and still right about the procedure. |
+> | Claim true | Act on it, and record the **generic condition** ("until a transfer flow exists"), never a schedule naming a specific plan or session. |
+>
+> **Do not launder an unverified claim into a coordination flag.** A flag carries institutional authority: the receiving session treats it as established fact and routes it straight into a task file. Recording "the note says X" as "do X" moves a rotted citation into a plan artifact, where it is harder to challenge and further from the evidence than it was in the note.
+>
+> Verify in **both** directions. When a subordinate agent challenges a flag, re-derive from primary evidence rather than deferring to either party's confidence.
 
 ---
 
