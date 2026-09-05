@@ -380,6 +380,10 @@ When N DELEGATED dispatches in a single session must write the same target (a sh
 > | 5–6 dispatches sharing a Recovery or content file | Option B — per-dispatch shards, orchestrator merges |
 > | 7+ dispatches sharing any target, **or** when in doubt | Option C — dispatches return deltas, orchestrator reconciles centrally |
 
+**A layer annotated "disjoint" must carry the computed evidence.** The matrix above applies whenever N dispatches share a target — which means something has to decide whether they do. That decision is a set intersection over the layer members' own `**Output:**` lines, and it is shown or it did not happen. A bare annotation (`L2 = {2, 3} (disjoint target files)`) reads identically whether the property holds or not, so it can never fail review. Declare the intersection per layer: `∅` means the parallelism stands and the matrix is inert; a non-empty result means the layer must name one of the three strategies above, or serialize. [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §17 owns the scaffold-close computation and its reviewer check; this section owns what to do once the result is non-empty.
+
+**The shared target may be a counter rather than a file.** Two dispatches whose `**Output:**` paths genuinely do not intersect still collide when what they share is an **allocation**: the next free reviewer-check number, the next free catalog row, the next free section number. Both read the same live maximum, both compute the same next value, and both write it into *different* files — so a path-based intersection returns `∅` and the layer passes while the identifier is duplicated. Treat a next-free allocation as a shared target and apply this matrix to it. The cheapest strategy is usually not on the matrix at all: the orchestrator resolves each dispatch's number before dispatch and injects it as a literal, per §1.6.
+
 > [!constraint] Never Run Uncoordinated Parallel Writes to the Same Target
 > WRONG — N parallel dispatches write the same shared file with no cap, no shards, no delta reconciliation:
 > ```

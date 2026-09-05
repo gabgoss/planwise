@@ -1,9 +1,9 @@
 ---
-description: Thirteen binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, run-time-sound verification commands and context pointers, retirement-deliverables deletion-set derivation, config-editing permission-round-trip scaffolding, first-task sprint diff-baseline recording, and computed write-set intersection for declared-parallel sprints
+description: Fourteen binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, run-time-sound verification commands and context pointers, retirement-deliverables deletion-set derivation, config-editing permission-round-trip scaffolding, first-task sprint diff-baseline recording, computed write-set intersection for declared-parallel sprints, and computed write-target intersection for declared-parallel dispatch layers
 ---
 # Scaffolding Hygiene
 
-**Purpose:** Enforce thirteen mechanical hygiene rules — and apply three advisory scaffolding practices (§8–§10) — when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
+**Purpose:** Enforce fourteen mechanical hygiene rules — and apply three advisory scaffolding practices (§8–§10) — when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
 
 This file is the §14 expansion referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols). Read it before generating any `Sprint-{XX}-{Name}/` folders.
 
@@ -25,6 +25,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 - [14. Scaffold a Config-Editing Plan for a Permission Round-Trip](#14-scaffold-a-config-editing-plan-for-a-permission-round-trip)
 - [15. First Task of Each Sprint Records the Diff Baseline](#15-first-task-of-each-sprint-records-the-diff-baseline)
 - [16. Declared Parallelism Requires a Computed Write-Set Intersection](#16-declared-parallelism-requires-a-computed-write-set-intersection)
+- [17. A Dispatch Layer Declares a Computed Write-Target Intersection](#17-a-dispatch-layer-declares-a-computed-write-target-intersection)
 
 ---
 
@@ -740,6 +741,72 @@ The mechanical enforcement of 16.3 is Check S05 in `agents/structural-reviewer.m
 - **Detection:** Read the Master Plan's `## Execution Ordering` section. For each `∥` pair on the declared-ordering line, assert a matching row exists in the `### Computed Write-Set Intersection` table carrying a shown result (`∅` or the named paths) and a Verdict; assert every sprint named on that line has a `## Write-Set` section in its own Sprint Plan; then Grep the Verdict and gate-marker cells for assertion-shaped text (`n/a`, `single-writer`, `assumed`, `should be`) with no command behind it. Any one → BLOCKER.
 - **Finding template:** `[BLOCKER] Declared-parallel pair {S0A ∥ S0B} has no computed write-set intersection | File: {Master Plan} | Fix per references/scaffolding-hygiene.md §16 | Confidence: HIGH`
 
+## 17. A Dispatch Layer Declares a Computed Write-Target Intersection
+
+§16 governs parallelism between **sprints**, computed from Sprint-Plan write-sets. This section governs parallelism between **tasks inside one session** — the dispatch layer, written in an Orchestration as `L2 = {2, 3} (disjoint target files)`. Same failure, different granularity, and neither substitutes for the other: a plan can pass §16 with genuinely disjoint sprints and still ship a session whose own layer members write one file.
+
+The evidence is already in the plan. Every task file carries an `**Output:**` line naming what it writes. Nothing intersects them.
+
+### 17.1 Compute the intersection from the Output lines, at scaffold close
+
+For each declared layer, collect every member task's `**Output:**` paths and intersect them pairwise. A non-empty intersection fails the layer. The check needs no judgment and runs against artifacts the scaffold has already produced.
+
+> [!constraint] "Disjoint target files" is a claim, and a claim needs its computation shown
+> An annotation asserting disjointness without the computed result is an assertion wearing a computation's clothes. It reads identically whether the property holds or not, which is exactly why it survives review.
+>
+> WRONG — the annotation asserts what the layer's own two Output lines contradict:
+> ```
+> Dispatch layers: L2 = {2, 3} (disjoint target files)
+>
+> Task 02  **Output:** in-place edits to `{handler-a}` — three spawn blocks
+> Task 03  **Output:** in-place edits to `{handler-b}`, `{handler-c}`, `{handler-a}`, `{handler-d}`
+>                                                        ^^^^^^^^^^^ also Task 02's target
+> ```
+> Two runners write `{handler-a}` concurrently. Lost-update risk on a shipped file — and Task 02's success criterion *"every existing block byte-untouched"* is unassertable against a file a sibling is writing.
+>
+> CORRECT — the layer carries the computed result, and the overlapping pair names its disposition:
+> ```
+> ### Computed Write-Target Intersection
+> | Layer | Members | Intersection | Verdict |
+> | L1 | {1, 4, 5, 7} | ∅ | ✅ disjoint — parallel stands |
+> | L2 | {2, 3} | `{handler-a}` | ❌ NOT disjoint — serialized: 3 after 2 on `{handler-a}` |
+> ```
+> The `∅` row is as much a computation as the `❌` row. Show it; do not leave it implicit because the answer was expected.
+
+A layer with a non-empty intersection has the four dispositions [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.13 already defines — serialize the pair, shard the target, route deltas to a single writer, or cap parallelism with genuinely disjoint regions inside the file. Name the choice. A bare "disjoint target files" is not one of them.
+
+### 17.2 The shared object may be a counter, not a file
+
+Two tasks can hold genuinely disjoint `**Output:**` paths and still collide, when what they share is an **allocation** rather than a path: the next free reviewer-check number, the next free catalog row, the next free section number. Both runners read the same live maximum, both compute the same next value, and both write it — into *different* files, so a path intersection returns `∅` and the layer passes.
+
+Treat a next-free-identifier allocation as a write target of its own. Either the orchestrator resolves each runner's number **before** dispatch and injects it as a literal, or the allocating tasks serialize. Pre-resolution is preferred: it costs nothing extra and it is the discipline [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.6 already applies to every shared pin.
+
+### 17.3 A per-task gate is scoped to that task's own outputs
+
+A gate that counts changed files across the whole working tree, asserted by a task that edited some of them, false-fails inside a parallel layer. The tree accumulates every layer member's edits with no commit between dispatches, so by the third task the repo-wide count reports three files where the task asserts one — and inside a parallel layer the reading depends on completion order, so the failure is non-deterministic.
+
+Non-determinism is what makes this expensive. An order-dependent gate reads as flakiness rather than as a defect, and runners learn to route around it. A gate routed around is indistinguishable from a gate never written, so any gate whose meaning depends on it becomes vacuous too.
+
+> [!constraint] Scope a per-task count to the paths that task declares
+> WRONG — repo-wide count, asserted by a task that edited one file:
+> ```
+> {vcs} diff --name-only {shared/dir}/ | wc -l   # MUST equal edited-file count
+> ```
+> CORRECT — scoped to this task's own declared Output paths:
+> ```
+> {vcs} diff --name-only -- {this task's declared output paths} | wc -l   # 1
+> ```
+> Keep the repo-wide form for a **session-closing sweep task**, where the whole-session delta genuinely is the subject. The two answer different questions; do not collapse one into the other.
+
+The scaffold emits the scoped form into every per-task gate, so the next plan inherits the correct shape rather than copying a repo-wide snippet out of a project-level document.
+
+#### Reviewer Check 083 — Dispatch Layer Without a Computed Write-Target Intersection
+
+- **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
+- **What:** An Orchestration declaring a multi-member dispatch layer without a computed write-target intersection shown for that layer; or a layer annotated "disjoint" whose member task `**Output:**` lines in fact overlap; or a per-task count gate scoped repo-wide inside a parallel layer.
+- **Detection:** For each Orchestration, read the declared dispatch layers. For every layer with 2+ members, collect each member task file's `**Output:**` paths and intersect them pairwise. Assert a `Computed Write-Target Intersection` row exists for that layer carrying a shown result (`∅` or the named paths) plus a Verdict, and that the computed result matches the shown one. Then Grep each member's gate commands for a tree-wide count with no path scoping. Any one → BLOCKER.
+- **Finding template:** `[BLOCKER] Dispatch layer {L2 = {2,3}} declared disjoint but write-targets intersect at {path} | File: {Orchestration path} | Fix per references/scaffolding-hygiene.md §17 | Confidence: HIGH`
+
 ---
 
-*Thirteen binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*
+*Fourteen binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*

@@ -107,6 +107,52 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 ---
 
+## Dispatch Layers <!-- REQUIRED for DELEGATED mode -->
+
+**Declared layers:** L1 = {1, 2} · L2 = {3} · L3 = {4, 5}
+
+<!-- A layer is the set of tasks whose `Depends On` are all satisfied at the same
+     point. Multi-member layers dispatch in parallel, so each one needs its
+     write-target intersection COMPUTED — never annotated "disjoint target files"
+     and left unshown. See references/scaffolding-hygiene.md §17. -->
+
+### Computed Write-Target Intersection <!-- REQUIRED for DELEGATED mode -->
+
+Collect every member task's `**Output:**` paths; intersect them pairwise. Show the result for every layer, including the empty ones — an `∅` is as much a computation as a conflict, and leaving it implicit is what makes the claim unfalsifiable.
+
+| Layer | Members | Member write-targets | Intersection | Verdict |
+|-------|---------|----------------------|--------------|---------|
+| L1 | {1, 2} | `{path-a}` / `{path-b}` | ∅ | ✅ disjoint — parallel stands |
+| L2 | {3} | `{path-c}` | ∅ | ✅ single member |
+| L3 | {4, 5} | `{path-d}`, `{path-e}` / `{path-e}` | `{path-e}` | ❌ NOT disjoint — serialized: 5 after 4 on `{path-e}` |
+
+<!-- A non-empty intersection has exactly four dispositions, per
+     references/agent-orchestration-delegated.md §1.13: serialize the pair,
+     shard the target, route deltas to a single writer, or cap parallelism with
+     genuinely disjoint regions inside the file. Name the one chosen — a bare
+     "disjoint" annotation is not a disposition.
+
+     A shared next-free IDENTIFIER (reviewer-check number, catalog row, section
+     number) is a write target too, even when the tasks write different files:
+     both members read the same live maximum and allocate the same value. Either
+     resolve each member's number pre-dispatch and inject it as a literal (§1.6),
+     or serialize the allocating tasks. -->
+
+> [!constraint] Per-task gates are scoped to that task's own outputs
+> The working tree accumulates every layer member's edits with no commit between dispatches. A count asserted repo-wide by a task that edited some of them false-fails — and inside a parallel layer the reading depends on completion order, so it false-fails non-deterministically, which reads as flakiness rather than as a defect.
+>
+> WRONG — repo-wide count, asserted by a task that edited one file:
+> ```
+> {vcs} diff --name-only {shared/dir}/ | wc -l   # MUST equal edited-file count
+> ```
+> CORRECT — scoped to this task's own declared Output paths:
+> ```
+> {vcs} diff --name-only -- {this task's declared output paths} | wc -l   # 1
+> ```
+> Keep the repo-wide form only in a **session-closing sweep task**, where the whole-session delta genuinely is the subject.
+
+---
+
 ## Success Criteria <!-- REQUIRED -->
 
 - [ ] {Measurable criterion 1}
