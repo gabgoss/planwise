@@ -167,6 +167,93 @@ Update `{Abbrev}-S{XX}-{YY}-Recovery.md` after EACH task completion.
 
 ---
 
+## Spawn-Prompt Skeleton <!-- REQUIRED for DELEGATED mode -->
+
+<!-- Fill this in. Do NOT replace it with a prose summary of what the spawn
+     prompt will contain — a summary carries only the clauses its author
+     happened to recall, and the procedural checks are the ones that vanish.
+     Full rule: references/agent-orchestration-delegated.md §1.8. -->
+
+```markdown
+You are dispatched to execute ONE task: {task-id}. The session has other tasks;
+you DO NOT execute them.
+
+Execute the following task YOURSELF, directly, with your own tool calls. Do NOT
+spawn, dispatch, or delegate to any other agent (no Agent/Task tool calls) —
+you ARE the task-runner.
+
+Task file:        {task-file-absolute-path}
+Session ID:       {Abbrev}-S{XX}-{YY}
+Output directory: {output-dir-absolute-path}
+
+## HARD CONSTRAINTS (non-negotiable)
+1. Modify ONLY files listed in this task's Required Context — no other files
+2. Do NOT read files not listed in Required Context
+3. Do NOT spawn sub-agents or create teams
+4. If you encounter an ambiguity requiring a file not in Required Context, STOP
+   and report it; do NOT expand scope
+
+## SCOPE BOUNDARY
+This task operates within:
+- **In scope:** {files/modules this task modifies}
+- **Out of scope:** {adjacent files/modules this task must NOT touch}
+
+## Status Block delivery (REQUIRED)
+Deliver your status block by calling the SendMessage tool with to="team-lead".
+Plain-text output does NOT reach the orchestrator.
+{status-block schema — see the Status Block Return Contract section below}
+
+Return after writing the single expected output file. Do NOT proceed to task
+{n+1}.
+```
+
+<!-- Add when the project declares an isolated environment (§1.27): an
+     ENVIRONMENT DISCIPLINE block naming interpreter/linter/runner paths in the
+     platform-matched form, plus a first-spawn interpreter diagnostic on the
+     session's first dispatch only.
+     Add when the task needs path-scoped rules (§1.6): inject the rule content
+     as a literal — a spawned context inherits no path triggers.
+     Add when the layer dispatches 3+ runners in parallel (§1.13): the PARALLEL
+     DISPATCH Recovery addendum — runners do not touch the Recovery file. -->
+
+---
+
+## Orchestrator Post-Dispatch Checklist <!-- REQUIRED for DELEGATED mode -->
+
+Run this against **every** returned dispatch, before reconciling Recovery and before dispatching the next layer. A returned runner is not a completed task.
+
+### Step 1 — Classify the return
+
+Per `references/agent-orchestration-delegated.md` §1.17.1. Classify by the final-message voice and the working-tree state, and note that three of the four states are failures:
+
+| Signal | Diagnosis | Action |
+|--------|-----------|--------|
+| Fast return, dispatch-voice reply ("I've dispatched the task-runner… I'll report back"), clean tree | Self-delegation — it spawned a nested duplicate instead of executing | Resume the SAME agent with the execute-yourself directive |
+| Mid-work narration ending in a colon or next-step phrase, dirty tree with genuine partial edits | Message-boundary stall — it executed part-way, then ended its message at a narration checkpoint | Resume the SAME agent with a continuation message enumerating only the remaining work |
+| `completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits required report fields | Mid-action stall masquerading as completion | Run Step 2's gate, then resume the SAME agent to finish |
+| Structured completion report whose deliverables verify on disk | Real completion | Reconcile normally |
+
+**On every failure state, resume the SAME agent — never dispatch a fresh one.** Its context already holds the task; a fresh runner re-reads everything and can race or duplicate the first one's partial work.
+
+### Step 2 — Gate acceptance on on-disk evidence, not the final message
+
+A harness `completed` status means the agent stopped with no live children. It is **not** a check that the deliverables were produced (§1.17.4). Before marking any task done:
+
+- [ ] Every path in `OUTPUT_FILES` exists on disk
+- [ ] **The orchestrator** runs `python "{plugin_root}/scripts/measure_files.py" {output files}` and compares against the task's declared Expected Output **token** budget — a deviation over 20% is a signal to review before the next dispatch (§1.4). The runner's self-reported count is not this check
+- [ ] Grep the edit target for the symbol that was supposed to change — confirm it is present, and that residual references meant to be swept are gone
+- [ ] `git status --short` shows the expected file set dirty and nothing unexpected
+- [ ] Every required status-block field is present and non-empty (a blanked field is not a short one)
+- [ ] If the Expected Output declared required headings or table-column headers, Grep the produced file for every one of them
+
+### Step 3 — Scan the return for a stalled tail
+
+Read the last paragraph of the returned message for forward-looking verbs — `will`, `next I will`, `the following step will`, `planned to` (§1.10). A hit means the runner intends to continue and has gone idle. Send a resume message quoting its own last line; do **not** mark the task COMPLETE.
+
+**On any miss in Steps 1–3, resume the SAME agent, then re-run these checks before accepting.**
+
+---
+
 ## Status Block Return Contract <!-- REQUIRED -->
 
 > [!constraint] DELEGATED parallel-mode runners MUST bound their return
