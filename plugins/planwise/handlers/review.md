@@ -68,7 +68,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If reviewing IPC/protocol/codec sessions: Read `references/verification-gates.md`
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
 - If reviewing a plan with verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
-- If reviewing a DELEGATED-orchestration plan: Read `references/agent-orchestration-delegated.md`
+- If reviewing a DELEGATED-orchestration plan: Read all three parts of the DELEGATED dispatch discipline — `references/agent-orchestration-delegated.md` (§1.1–§1.13), `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` (§1.14–§1.22), and `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` (§1.23–§1.30). The orchestration checks draw on all three. Each part sits under the Read-tool page cap; the combined text does not, which is why it ships split.
 - If the **effective** Token Saver value is `true` for the plan under review (its Master-Plan `Token Saver:` field over the project `context.token_saver` default — `get_effective_token_saver_config(config, plan_override)`): Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](../references/review-classification.md#token-saver-compliance-check))
 - When citing Error Pattern Catalog rows during synthesis or in a finding's Fix field: Read `references/error-pattern-catalog.md` (on demand -- not loaded up front)
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
@@ -180,7 +180,7 @@ Exit `1` and exit `2` are the **normal findings-present outcomes**. Neither is a
 
 ## Strategy Phase: Resolve the DELEGATED Reviewer Block
 
-Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. The Required References list above makes `references/agent-orchestration-delegated.md` a **conditional** read for the lead. The lead does not run the delegated checks — spawned reviewers do, in fresh context windows that inherit nothing the lead resolved. This phase resolves the condition once and pushes the result into the prompts, so the rows that cite that reference are actually evaluated rather than merely indexed (`references/agent-orchestration-delegated.md` §1.29.2).
+Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. The Required References list above makes the three-part DELEGATED dispatch discipline (`references/agent-orchestration-delegated.md` and its Part-2 and Part-3 siblings) a **conditional** read for the lead. The lead does not run the delegated checks — spawned reviewers do, in fresh context windows that inherit nothing the lead resolved. This phase resolves the condition once and pushes the result into the prompts, so the rows that cite those references are actually evaluated rather than merely indexed (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.2).
 
 1. Grep the Master Plan and every Orchestration file for `Execution Strategy:\s*DELEGATED`. This is the same Grep Error Pattern Catalog row 66 already requires for the named-trigger check; run it once and reuse the result here.
 
@@ -195,9 +195,16 @@ Runs on **both** paths, after Scale Detection and **before any reviewer is spawn
 
 ```markdown
 This plan declares Execution Strategy: DELEGATED in {matching file paths}.
-Read references/agent-orchestration-delegated.md and verify every Orchestration
-file against §1.1-§1.4, §1.8-§1.13, §1.16 and §1.23-§1.27. Report each miss
-against its Error Pattern Catalog row, not as a free-form observation.
+The DELEGATED dispatch discipline ships in three parts. Read each one and
+verify every Orchestration file against the sections that part holds:
+  - references/agent-orchestration-delegated.md
+      -> §1.1-§1.4, §1.8-§1.13
+  - references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md
+      -> §1.16
+  - references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md
+      -> §1.23-§1.27
+Report each miss against its Error Pattern Catalog row, not as a free-form
+observation.
 ```
 
 4. Append `{DelegatedReviewBlock}` to the spawn prompt of every reviewer that receives Orchestration or task files: the No-Team Path's combined content reviewer, and the Team Path's Task Reviewer, Dependency Reviewer and Design-Extension Reviewer. Those four roles own every catalog row that cites the delegated reference. Phase 1's structural reviewer and the EI/Coverage reviewers do not receive it — they hold no Orchestration file, so the block would be an instruction they cannot act on.
@@ -208,7 +215,8 @@ against its Error Pattern Catalog row, not as a free-form observation.
 > WRONG — the condition is resolved in the lead and the check is delegated, with no prompt connecting them:
 > ```
 > Required References:  "If reviewing a DELEGATED-orchestration plan: Read
->                        references/agent-orchestration-delegated.md"
+>                        references/agent-orchestration-delegated.md and its
+>                        Part-2 and Part-3 siblings"
 > Task Reviewer prompt: role, plan type, file paths — no execution strategy,
 >                        no reference, no sections.
 > # The rows are present, indexed, and never evaluated. Every review of every
@@ -307,7 +315,7 @@ Task(
 
 1. Collect findings from both subagent outputs
 2. Deduplicate: same file + same issue = merge; keep higher severity
-3. Recompute delegated verdicts: for each subagent that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated.md` §1.16)
+3. Recompute delegated verdicts: for each subagent that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16)
 4. Cross-check `[UNCERTAIN]` findings against Known Patterns Whitelist
 5. Assign finding IDs: BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
 6. Classify systemic findings (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification))
@@ -593,7 +601,7 @@ Task(
 ### Phase 3: Synthesis
 
 9. **Deduplicate:** same file + same issue = merge; keep higher severity.
-10. **Recompute delegated verdicts:** For each reviewer that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated.md` §1.16).
+10. **Recompute delegated verdicts:** For each reviewer that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16).
 11. **Cross-check [UNCERTAIN] findings:**
     - Check against [Known Patterns Whitelist](../references/review-classification.md#known-patterns-whitelist)
     - Cross-check against other reviewers' findings

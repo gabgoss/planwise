@@ -224,7 +224,7 @@ Run this against **every** returned dispatch, before reconciling Recovery and be
 
 ### Step 1 — Classify the return
 
-Per `references/agent-orchestration-delegated.md` §1.17.1. Classify by the final-message voice and the working-tree state, and note that three of the four states are failures:
+Per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.1. Classify by the final-message voice and the working-tree state, and note that three of the four states are failures:
 
 | Signal | Diagnosis | Action |
 |--------|-----------|--------|
@@ -257,7 +257,7 @@ Read the last paragraph of the returned message for forward-looking verbs — `w
 ## Status Block Return Contract <!-- REQUIRED -->
 
 > [!constraint] DELEGATED parallel-mode runners MUST bound their return
-> Full contract, derivation, and the over-tight failure mode: `references/agent-orchestration-delegated.md` §1.28. A dispatched runner's status block re-enters the orchestrator's own context window whole on return — bound it so that does not accumulate across N dispatches:
+> Full contract, derivation, and the over-tight failure mode: `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.28. A dispatched runner's status block re-enters the orchestrator's own context window whole on return — bound it so that does not accumulate across N dispatches:
 > - **No re-quoted file content** — cite `OUTPUT_FILES` by path + line count, never paste an edited file's body into the block.
 > - **No restated task text** — `TASK_ID` is the reference; never re-explain the brief.
 > - **18-line ceiling** on the whole block, derived from the field enumeration below — see §1.28 for the full per-field table and derivation. The ceiling never cuts a field reconciliation needs.

@@ -324,7 +324,8 @@ A related code-generation discipline applies when the LSP reports a diagnostic t
 > underlying cause. Inline suppression directives — illustratively, an
 > ignore-comment or an allow-attribute in whatever language is in use — are not a
 > substitute for either. (Verify stale-vs-real per the verify-before-acting LSP
-> discipline in `agent-orchestration-delegated.md` §1.18.)
+> discipline in `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`
+> §1.18.)
 
 ### Completion Tracking (BINDING)
 

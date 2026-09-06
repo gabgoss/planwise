@@ -47,7 +47,10 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 **Required for this handler:**
 - [`references/auto-mode-policy.md`](../references/auto-mode-policy.md) — the canonical gate-tagging convention: critical call-sites emit a `[!gate]` block and fail loud on auto-denial; convenience call-sites ask nothing, apply the inferred default, and log the inference. Every call-site in the Gate Call-Sites step below follows it.
-- [`references/agent-orchestration-delegated.md`](../references/agent-orchestration-delegated.md) — the foreground-only dispatch gate and the per-item dispatch discipline the Process stage runs under.
+- The three-part DELEGATED dispatch discipline, each part read for what it holds:
+  - [`references/agent-orchestration-delegated.md`](../references/agent-orchestration-delegated.md) — §1.1–§1.13, spawn-prompt construction.
+  - [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) — §1.21, the foreground-only dispatch gate.
+  - [`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](../references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) — §1.23–§1.30, the per-item dispatch discipline the Process stage runs under.
 - [`references/verify-backlog-citation-freshness.md`](../references/verify-backlog-citation-freshness.md) — the preflight Route A re-verifies an item's affected files against before dispatch, rather than copying them from the item file.
 - [`references/artifact-self-containment.md`](../references/artifact-self-containment.md) — the grep gate Route A's VERIFY step runs unconditionally against any diff touching a content-bearing artifact.
 

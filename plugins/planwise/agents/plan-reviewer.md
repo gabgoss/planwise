@@ -109,7 +109,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 059 — Verification Task Keyword-Proximity Coverage Gate → references/verification-task-authoring.md §4
 - Check 060 — Verification Task Verdict-Arithmetic Contract → references/verification-task-authoring.md §6
 - Check 066 — Fix-Task Execution-Time Fidelity (§7.3a–§7.3d) → references/verify-cross-repo-fix-discipline.md §7.3d
-- Check 067 — Orchestration Delegated Verdict Recompute Gate → references/agent-orchestration-delegated.md §1.16
+- Check 067 — Orchestration Delegated Verdict Recompute Gate → references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.16
 - Check 069 — File Line-Count Finding Requires `wc -l` → references/measurement-discipline.md §8.1
 - Check 070 — Plan Headline Metric vs Fixed Extraction Scope Reconciliation → references/measurement-discipline.md §8.3
 
