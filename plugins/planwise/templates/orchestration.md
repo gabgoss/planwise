@@ -83,7 +83,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 > **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + injected path-rule tokens + ~54K < the **dispatched model's** window (Sonnet/Haiku 200K, Opus 1M — NOT the parent `context_window`; see [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window)). See [Task-Level Estimation](../references/session-context-budget.md#task-level-estimation-binding) for the bottom-up estimation formula and conversion factor.
 
 <!-- Uncomment when any task's declared Output is under `.claude/**` — declares the
-     expected permission round-trip (see references/scaffolding-hygiene.md):
+     expected permission round-trip (see references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §14):
 > [!note] Task {NN} edits `.claude/**`
 > The harness permission classifier gates these writes independently of planwise
 > authorization. `/planwise run` invocation does not pre-clear it: expect a user
@@ -114,7 +114,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 <!-- A layer is the set of tasks whose `Depends On` are all satisfied at the same
      point. Multi-member layers dispatch in parallel, so each one needs its
      write-target intersection COMPUTED — never annotated "disjoint target files"
-     and left unshown. See references/scaffolding-hygiene.md §17. -->
+     and left unshown. See references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §17. -->
 
 ### Computed Write-Target Intersection <!-- REQUIRED for DELEGATED mode -->
 

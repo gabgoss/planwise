@@ -269,7 +269,7 @@ The reserved placeholder for later sources is intentional — it tells future cl
 >
 > The return edge goes to the **same destinations the propagation table above already defines** — the named task's file, the session's orchestration file, the sprint plan's `## Carried-Forward Coordination Flags` section, or the Master Plan — applied in **both** directions, each entry tagged with its own source session ID and surface date. Propagating one direction and leaving the other for a downstream orchestrator to infer fails the same way as not propagating at all: the writer who was never named has no reason to go looking, and a threshold nobody was told they share is measured by each of them alone.
 >
-> The plan-level counterpart is [scaffolding-hygiene.md](scaffolding-hygiene.md) §16.5, which imposes the same reciprocal requirement on cross-sprint flags at scaffold time, where the write-sets that make a file shared are first declared. This section governs the same reciprocity at flag-propagation time.
+> The plan-level counterpart is [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16.5, which imposes the same reciprocal requirement on cross-sprint flags at scaffold time, where the write-sets that make a file shared are first declared. This section governs the same reciprocity at flag-propagation time.
 
 #### Audit-Trail Requirement
 

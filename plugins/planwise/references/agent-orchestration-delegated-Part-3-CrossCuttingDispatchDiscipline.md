@@ -439,11 +439,11 @@ The same defect reaches the producing task's own first step whenever that step a
 > Apply these by reading the layer's task files. The dependency field cannot answer them.
 > - [ ] Does any task in this layer **produce** something another task in the same layer **consumes**? If yes they are not parallel — serialise them, or lift the shared step to the orchestrator.
 > - [ ] Does the consumer read that value from a file the dispatch contract **forbids it to touch**? That is a guaranteed deadlock, not a race.
-> - [ ] Does any task assert a property of the **whole working tree** — clean status, changed-file counts, "exactly N files changed"? Concurrent siblings violate such an assertion by construction, so it belongs pre-dispatch or post-batch, never inside a batch member. [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §17.3 carries the path-scoped form a per-task gate must use instead.
+> - [ ] Does any task assert a property of the **whole working tree** — clean status, changed-file counts, "exactly N files changed"? Concurrent siblings violate such an assertion by construction, so it belongs pre-dispatch or post-batch, never inside a batch member. [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17.3 carries the path-scoped form a per-task gate must use instead.
 
 **Why the eligibility check missed it.** Every task in the measured batch honestly declared no dependency, because the *file write-sets* really were disjoint — and disjoint write-sets are the criterion the parallel-eligibility check applies. The dependency was on a **shared variable**, and no field in the task schema represents one. Disjoint outputs are **necessary but not sufficient** for parallel dispatch: a shared input that one member generates serialises the layer exactly as hard as a shared output file does. So apply the check by reading the layer, not by trusting the field.
 
-[`scaffolding-hygiene.md`](scaffolding-hygiene.md) §17 computes a layer's write-target intersection at scaffold time, and §17.2 covers the sibling case where the shared object is an **allocation** — a next-free number — rather than a path. Those are the plan-time gates. This section is the dispatch-time obligation, and it stands whether or not the plan carried one.
+[`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17 computes a layer's write-target intersection at scaffold time, and §17.2 covers the sibling case where the shared object is an **allocation** — a next-free number — rather than a path. Those are the plan-time gates. This section is the dispatch-time obligation, and it stands whether or not the plan carried one.
 
 ---
 

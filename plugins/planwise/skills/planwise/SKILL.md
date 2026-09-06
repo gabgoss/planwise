@@ -97,7 +97,8 @@ ARGUMENTS: $ARGUMENTS
 
 **Loaded on demand, NOT pre-injected** — each is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. Key references (not exhaustive — handlers own the full set):
 
-- [Scaffolding hygiene](../../references/scaffolding-hygiene.md)
+- [Scaffolding hygiene](../../references/scaffolding-hygiene.md) — §1–§12, what the scaffold emits
+- [Scaffolding hygiene — Part 2: derivation and parallelism](../../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) — §13–§17, what the scaffold must compute before it closes
 - [Discovery and exit criteria](../../references/discovery-and-exit-criteria.md)
 - [Exit-criteria fidelity](../../references/exit-criteria-fidelity.md)
 - [Execution-time binding rules](../../references/execution-time-binding-rules.md)

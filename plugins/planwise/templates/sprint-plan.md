@@ -77,7 +77,7 @@ sprint's write-set can be checked against it, independent of landing order.
 ## Deliverables <!-- REQUIRED -->
 
 <!-- Removal / retirement deliverables: paste the sweep output that PRODUCED the list and cite
-     the command. Do not enumerate from memory — see scaffolding-hygiene.md §13, and note that
+     the command. Do not enumerate from memory — see scaffolding-hygiene-Part-2-DerivationAndParallelism.md §13, and note that
      the creator artifact (schema/DDL, migration, generator, packaging declaration) is the member
      whose omission silently undoes the retirement. -->
 

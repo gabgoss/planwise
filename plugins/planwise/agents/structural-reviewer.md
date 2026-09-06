@@ -137,7 +137,7 @@ Fix: Set Sprint Plan Status: PLANNED per references/scaffolding-hygiene.md §4 |
 ### Check S05 — Declared-Parallel Sprint Pair With Intersecting Write-Sets
 
 - **Severity:** BLOCKER
-- **Source:** `references/scaffolding-hygiene.md` §16
+- **Source:** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16
 - **Type:** NEW
 - **What:** A file listed under two sprints that the Master Plan's `## Execution Ordering` section declares `∥` is a contradiction between the ordering statement and the plan's own write-set declarations. Also BLOCKER: a `∥` pair with no `### Computed Write-Set Intersection` row at all, and a sprint named in a `∥` pair with no `## Write-Set` section in its own Sprint Plan.
 - **Detection:** Locate the Master Plan's `## Execution Ordering` section; extract every `∥` pair from the declared-ordering line. For each pair: (1) assert a matching row exists in the `### Computed Write-Set Intersection` table with a shown result; (2) read each named sprint's `## Write-Set` table; (3) compute the set intersection of the two path lists; (4) any shared path whose Verdict cell does not read as non-disjoint-and-dispositioned (serialized, or qualified per-file with an explicit task-level ordering edge) → BLOCKER. A sprint named in a `∥` pair with no `## Write-Set` section → BLOCKER.
@@ -146,5 +146,5 @@ Fix: Set Sprint Plan Status: PLANNED per references/scaffolding-hygiene.md §4 |
 [BLOCKER] Declared-parallel sprints share a write-set path
 File: {Master Plan path} | Location: Execution Ordering vs {Sprint Plan} Write-Set
 Issue: `{path}` appears under both {S0A} and {S0B}, declared `∥`, with no disjoint/dispositioned Verdict
-Fix: Serialize the pair or qualify per-file per references/scaffolding-hygiene.md §16 | Confidence: HIGH
+Fix: Serialize the pair or qualify per-file per references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §16 | Confidence: HIGH
 ```
