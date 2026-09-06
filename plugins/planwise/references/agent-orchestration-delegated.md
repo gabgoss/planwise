@@ -4,7 +4,7 @@ description: DELEGATED dispatch discipline, Part 1 of 3 — declaration, foundat
 
 # DELEGATED Dispatch Discipline — Part 1: Foundations and Dispatch-Prompt Construction
 
-**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.30) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
+**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.31) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
 
 The discipline spans **three files**, split by topic because the combined text exceeds the Read-tool page cap. Section numbers are continuous and unique across all three. A section keeps its `§1.N` identifier wherever it lands, so an existing `§`-anchor still names exactly one section — only the filename that holds it changes.
 
@@ -12,7 +12,7 @@ The discipline spans **three files**, split by topic because the combined text e
 |---|---|---|---|
 | 1 (this file) | `agent-orchestration-delegated.md` | §1.1–§1.13 | Declaration, foundations, and dispatch-prompt construction |
 | 2 | [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) | §1.14–§1.22 | Dispatch mechanics and post-return handling |
-| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.30 | Cross-cutting dispatch-prompt and orchestrator discipline |
+| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.31 | Cross-cutting dispatch-prompt and orchestrator discipline |
 
 This file holds the foundation and everything that shapes a spawn before it goes out. §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery and §1.3 Orchestration Context Boundary establish the ground rules. §1.4–§1.13 then cover dispatch-prompt construction: diagnostics verification, tool-use budget reservation, path-scoped rule injection, the wake-up protocol, the HARD CONSTRAINTS skeleton, fix tier-ranking, forward-looking-verb detection, ceiling disclaimers, the N>25 resume protocol, and the shared-edit-target strategy matrix.
 
@@ -34,7 +34,7 @@ Part 2 carries dispatch mechanics and what happens after a runner returns. Part 
 - [1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation](#112-n25-edit-task-resume-protocol-with-tool-use-budget-estimation)
 - [1.13 Shared-Edit-Target Strategy Matrix](#113-shared-edit-target-strategy-matrix)
 
-**Continued in Part 2** (§1.14–§1.22) and **Part 3** (§1.23–§1.30) — see the pointer table above.
+**Continued in Part 2** (§1.14–§1.22) and **Part 3** (§1.23–§1.31) — see the pointer table above.
 
 ---
 
@@ -273,6 +273,42 @@ SendMessage(
 > **Problem:** Teammate completes step N and goes idle, waiting for acknowledgment before proceeding to step N+1. Lead session treats idle as "done" and marks task complete.
 > **Solution:** After receiving partial results from a teammate, check whether the task file has more steps. If yes, send a continuation message. Only treat idle as "done" when the task file's final step is confirmed complete.
 
+### 1.7.1 An Idle Notification Does Not Close the Ownership Window
+
+The paragraphs above tell a reader not to conclude that an idle agent has stopped. This one tells the orchestrator what it may not do while that ambiguity stands: **write**.
+
+[Part 3](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.26 makes every file in a task's `Output:` line the runner's own from the moment of dispatch until the runner reports and the orchestrator accepts. An idle notification is neither of those. It is a signal about the runner's *turn*, not about its *work*, so the ownership window is still open when one arrives.
+
+> [!constraint] Do Not Write on an Idle Notification That Carries No Completion Report
+> WRONG — the orchestrator reads idle as "finished but did not report", finds the bookkeeping stale against disk, and writes the reconciliation itself:
+> ```
+> runner (mid-edit) → writing {shared bookkeeping file}
+> orchestrator      → idle notification → writes {shared bookkeeping file}
+> # Two "file modified since read" conflicts, both raised on the RUNNER's side.
+> # The orchestrator sees no error at all. Both sets of edits land.
+> ```
+> CORRECT — resolve the ambiguity read-only, then act:
+> ```
+> orchestrator → Read {deliverable}                    # read-only evidence check
+> orchestrator → SendMessage(runner, "{wake-up}")      # or ask whether it is done
+> orchestrator → write only once the runner has reported or demonstrably terminated
+> ```
+> The actor whose whole job is preventing concurrent-writer races becomes the second concurrent writer. The failure is silent on the writing side: nothing errors for the orchestrator, and the only evidence is the conflict the *runner* sees.
+
+**The resolution ladder.** On an idle notification carrying no structured completion report:
+
+1. **Check on-disk deliverable evidence, read-only.** Did the work land?
+2. **Work absent** — this is idle-mid-step. Send the wake-up above, enumerating only the remaining work and fencing off what is already done. Do not write, and do not re-dispatch.
+3. **Work present but bookkeeping stale** — ask the agent whether it is done before reconciling. Do not assume it abandoned the write.
+4. **Reconcile unilaterally only** once the agent has reported or demonstrably terminated.
+
+The positive instance is as cheap as the failure was expensive. In the measured session, the very next idle signal was handled by a read-only check that found the file byte-identical to the previous completion state. The orchestrator sent a wake-up instead of writing, and the runner resumed and finished normally. Cost of the check: one command.
+
+**Signal strength.** A `completed` status, an idle notification, and a clean-looking final message are all **weak** signals. The strong signal is deliverable evidence on disk. This is [Part 2](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.17.4's acceptance gate applied one step earlier — to whether the agent is *done*, not to whether it *succeeded*. Sustained silence with no idle signal at all is a different question again, and [Part 3](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.30 answers that one: establish death before dispatching a replacement.
+
+> [!practice] Record the observation; attribute a cause only when you can support it
+> When writing up *why* something went wrong, separate what you **observed** from what you **inferred**. "{Bookkeeping file} was stale at {timestamp}" is an observation. "The runner stalled" is an inference — and in the measured incident it was the wrong one, because the runner had been raced rather than stalled. An unverified causal claim written into a permanent audit trail is corrected only if the other actor happens to push back, so write the observation and leave the cause unstated until it is established.
+
 ## 1.8 HARD CONSTRAINTS Spawn-Prompt Skeleton + SCOPE BOUNDARY Clause
 
 Every DELEGATED spawn prompt MUST include a HARD CONSTRAINTS section and a SCOPE BOUNDARY clause:
@@ -459,7 +495,7 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 
 ---
 
-**Continues in:** [Part 2 — Dispatch Mechanics and Returns](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.30)
+**Continues in:** [Part 2 — Dispatch Mechanics and Returns](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.31)
 
 *Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12 (DELEGATED Dispatch Discipline + Verify-Before-Acting on LSP Diagnostics); §1.19–§1.22 folded from `handlers/run.md`'s Delegated Execution Protocol (2026-08-10). That file now carries only a short §11 pointer stub back to this file. Split into three topical parts (2026-09-06) because the combined text exceeded the Read-tool page cap; section numbers were frozen across the split.*
 *Cross-reference: [agent-orchestration.md](agent-orchestration.md), [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*

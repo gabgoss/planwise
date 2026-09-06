@@ -1,10 +1,10 @@
 ---
-description: DELEGATED dispatch discipline, Part 3 of 3. This file holds §1.23–§1.30, the cross-cutting dispatch-prompt and orchestrator discipline. Part 1 of 3 is agent-orchestration-delegated.md.
+description: DELEGATED dispatch discipline, Part 3 of 3. This file holds §1.23–§1.31, the cross-cutting dispatch-prompt and orchestrator discipline. Part 1 of 3 is agent-orchestration-delegated.md.
 ---
 
 # DELEGATED Dispatch Discipline — Part 3: Cross-Cutting Dispatch Discipline
 
-**Purpose:** Part 3 of the DELEGATED dispatch discipline. It covers the constraints that bind every spawn prompt and the orchestrator's own conduct, whatever the task: triple-scoping a single-task dispatch, giving a structure contract a literal template, adjudicating a decision a runner surfaces, keeping verification read-only inside a runner's ownership window, naming the interpreter, the status-block return contract, what a spawn prompt must name in both directions, and how to establish that a silent runner is dead before dispatching a replacement.
+**Purpose:** Part 3 of the DELEGATED dispatch discipline. It covers the constraints that bind every spawn prompt and the orchestrator's own conduct, whatever the task: triple-scoping a single-task dispatch, giving a structure contract a literal template, adjudicating a decision a runner surfaces, keeping verification read-only inside a runner's ownership window, naming the interpreter, the status-block return contract, what a spawn prompt must name in both directions, how to establish that a silent runner is dead before dispatching a replacement, and who resolves a precondition a whole dispatch layer shares.
 
 Section numbers are continuous across all three parts. A section keeps its `§1.N` identifier wherever it lands, so an existing `§`-anchor still names exactly one section — only the filename that holds it changes.
 
@@ -12,7 +12,7 @@ Section numbers are continuous across all three parts. A section keeps its `§1.
 |---|---|---|---|
 | 1 | [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) | §1.1–§1.13 | Declaration, foundations, and dispatch-prompt construction |
 | 2 | [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) | §1.14–§1.22 | Dispatch mechanics and post-return handling |
-| 3 (this file) | `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` | §1.23–§1.30 | Cross-cutting dispatch-prompt and orchestrator discipline |
+| 3 (this file) | `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` | §1.23–§1.31 | Cross-cutting dispatch-prompt and orchestrator discipline |
 
 These sections apply to every DELEGATED spawn. Read this file whenever you construct a spawn prompt, adjudicate a runner's report, or decide what to do about a runner that has gone quiet — Part 1 alone does not carry them.
 
@@ -26,6 +26,7 @@ These sections apply to every DELEGATED spawn. Read this file whenever you const
 - [1.28 Status-Block Return Contract](#128-status-block-return-contract)
 - [1.29 A Subagent's World Is Its Definition Plus Its Prompt](#129-a-subagents-world-is-its-definition-plus-its-prompt)
 - [1.30 Liveness — Establish Death Before Dispatching a Replacement](#130-liveness--establish-death-before-dispatching-a-replacement)
+- [1.31 A Shared Precondition Belongs to the Orchestrator](#131-a-shared-precondition-belongs-to-the-orchestrator)
 
 ---
 
@@ -413,6 +414,36 @@ In the measured incident this is what held the line — the duplicate compared i
 
 > [!practice] A toolchain that updates mid-run splits a measurement set silently
 > An auto-updating CLI can upgrade itself between dispatches, or during one. For a campaign treating measurements as per-build facts, an update landing between repetitions splits a rep set across two builds with nothing surfacing an error. The same event also produces a long quiet window that is easy to misread as a dead runner. Pin or record the build at session start, and re-record it at close; a measurement set that spans two builds is reported as two sets.
+
+## 1.31 A Shared Precondition Belongs to the Orchestrator
+
+A precondition that every task in a dispatch layer depends on — a baseline SHA, a resolved schema version, a next-free identifier — is the **orchestrator's** to establish. It is not the first task's. Resolve it once, before the layer goes out, and hand every runner the resolved value.
+
+```
+# WRONG — task 01 produces it, tasks 02-06 consume it, all dispatched together
+Task 01: BASE=$({pin command}); write BASE to {shared bookkeeping file}
+Task 0N: BASE=$(read back from {shared bookkeeping file}); test -n "$BASE" || exit 1
+
+# CORRECT — orchestrator resolves once, pre-dispatch
+orchestrator:          assert preconditions; BASE=$({pin command}); record centrally
+spawn prompt (all N):  "BASE={resolved literal value}"
+```
+
+The WRONG shape fails twice over, and the two failures compound. All N tasks dispatch **concurrently**, so task 01 has produced nothing at the moment its siblings need the value. And the parallel-dispatch contract forbids a runner to touch the shared bookkeeping file at all — runners return status blocks and the orchestrator reconciles centrally — so task 01 could never write it and the others could never read it. Executed literally, N-1 runners HALT at the guard. Executed loosely, a runner improvises, and an unset variable degrades the gate **silently** rather than failing it, restoring the very unscoped behaviour the guard existed to prevent. **The failure is worse when the guard is skipped than when it fires.**
+
+The same defect reaches the producing task's own first step whenever that step asserts a clean write-set. Run concurrently, it observes its siblings' in-flight edits and HALTs on correct work.
+
+**The delivery mechanism is already specified — this section does not restate it.** [Part 1](agent-orchestration-delegated.md) §1.6 states that a shared pin is injected as a **literal** into every task file and every spawn prompt, and carries the WRONG/CORRECT spawn-prompt pair for it. What this section adds is **who resolves the value**: the orchestrator, before dispatch. §1.6 assumes that assignment rather than making it.
+
+> [!checklist] Diagnostic questions for a declared-parallel layer
+> Apply these by reading the layer's task files. The dependency field cannot answer them.
+> - [ ] Does any task in this layer **produce** something another task in the same layer **consumes**? If yes they are not parallel — serialise them, or lift the shared step to the orchestrator.
+> - [ ] Does the consumer read that value from a file the dispatch contract **forbids it to touch**? That is a guaranteed deadlock, not a race.
+> - [ ] Does any task assert a property of the **whole working tree** — clean status, changed-file counts, "exactly N files changed"? Concurrent siblings violate such an assertion by construction, so it belongs pre-dispatch or post-batch, never inside a batch member. [`scaffolding-hygiene.md`](scaffolding-hygiene.md) §17.3 carries the path-scoped form a per-task gate must use instead.
+
+**Why the eligibility check missed it.** Every task in the measured batch honestly declared no dependency, because the *file write-sets* really were disjoint — and disjoint write-sets are the criterion the parallel-eligibility check applies. The dependency was on a **shared variable**, and no field in the task schema represents one. Disjoint outputs are **necessary but not sufficient** for parallel dispatch: a shared input that one member generates serialises the layer exactly as hard as a shared output file does. So apply the check by reading the layer, not by trusting the field.
+
+[`scaffolding-hygiene.md`](scaffolding-hygiene.md) §17 computes a layer's write-target intersection at scaffold time, and §17.2 covers the sibling case where the shared object is an **allocation** — a next-free number — rather than a path. Those are the plan-time gates. This section is the dispatch-time obligation, and it stands whether or not the plan carried one.
 
 ---
 

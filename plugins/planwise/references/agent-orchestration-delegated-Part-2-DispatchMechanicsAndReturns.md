@@ -12,7 +12,7 @@ Section numbers are continuous across all three parts. A section keeps its `§1.
 |---|---|---|---|
 | 1 | [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) | §1.1–§1.13 | Declaration, foundations, and dispatch-prompt construction |
 | 2 (this file) | `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` | §1.14–§1.22 | Dispatch mechanics and post-return handling |
-| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.30 | Cross-cutting dispatch-prompt and orchestrator discipline |
+| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.31 | Cross-cutting dispatch-prompt and orchestrator discipline |
 
 Read Part 1 first when declaring a DELEGATED session — it holds the mandatory triggers and the context boundary this file assumes. Read Part 3 alongside this one when constructing a spawn prompt.
 
@@ -326,7 +326,7 @@ Quick-reference checklist for common DELEGATED-mode mistakes; several map to ful
 
 ---
 
-**Part of a three-file discipline:** [Part 1 — Foundations and Dispatch-Prompt Construction](agent-orchestration-delegated.md) (§1.1–§1.13) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.30)
+**Part of a three-file discipline:** [Part 1 — Foundations and Dispatch-Prompt Construction](agent-orchestration-delegated.md) (§1.1–§1.13) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.31)
 
 *Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12; §1.19–§1.22 folded from `handlers/run.md`'s Delegated Execution Protocol (2026-08-10). Split into three topical parts (2026-09-06) because the combined text exceeded the Read-tool page cap; section numbers were frozen across the split.*
 *Cross-reference: [agent-orchestration.md](agent-orchestration.md), [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*
