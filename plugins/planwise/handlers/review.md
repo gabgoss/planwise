@@ -63,7 +63,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
-- If reviewing a scaffolded multi-sprint plan: Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§17) — the hygiene reference is split across two files, and Checks 078 and 083 live in Part 2
+- If reviewing a scaffolded multi-sprint plan: Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§17) — the hygiene reference is split across two files, and Checks 078, 083 and 093 live in Part 2
 - If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
 - If reviewing IPC/protocol/codec sessions: Read `references/verification-gates.md`
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`

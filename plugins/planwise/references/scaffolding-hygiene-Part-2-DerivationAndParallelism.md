@@ -1,5 +1,5 @@
 ---
-description: Five binding hygiene rules for what a multi-sprint scaffold must compute before it closes — retirement-deliverables deletion-set derivation, config-editing permission-round-trip scaffolding, first-task sprint diff-baseline recording, computed write-set intersection for declared-parallel sprints, and computed write-target intersection for declared-parallel dispatch layers. Part 2 of 2 — §1–§12, the rules governing what the scaffold emits, live in scaffolding-hygiene.md
+description: Five binding hygiene rules for what a multi-sprint scaffold must compute before it closes — retirement-deliverables deletion-set derivation and roster-change enumeration-surface re-derivation, config-editing permission-round-trip scaffolding, first-task sprint diff-baseline recording, computed write-set intersection for declared-parallel sprints, and computed write-target intersection for declared-parallel dispatch layers. Part 2 of 2 — §1–§12, the rules governing what the scaffold emits, live in scaffolding-hygiene.md
 ---
 # Scaffolding Hygiene — Part 2: Derivation and Parallelism
 
@@ -14,7 +14,7 @@ This file is part of the §14 expansion referenced from the Companion Files and 
 
 ## Table of Contents
 
-- [13. Retirement Deliverables Must Derive the Deletion Set](#13-retirement-deliverables-must-derive-the-deletion-set)
+- [13. Retirement Deliverables Must Derive the Deletion Set](#13-retirement-deliverables-must-derive-the-deletion-set) — and §13.4, the roster-change enumeration sweep
 - [14. Scaffold a Config-Editing Plan for a Permission Round-Trip](#14-scaffold-a-config-editing-plan-for-a-permission-round-trip)
 - [15. First Task of Each Sprint Records the Diff Baseline](#15-first-task-of-each-sprint-records-the-diff-baseline)
 - [16. Declared Parallelism Requires a Computed Write-Set Intersection](#16-declared-parallelism-requires-a-computed-write-set-intersection)
@@ -25,6 +25,8 @@ This file is part of the §14 expansion referenced from the Companion Files and 
 ## 13. Retirement Deliverables Must Derive the Deletion Set
 
 A Deliverables list that removes a persistent artifact is produced by a sweep, not written from memory: run the sweep first, paste its output into the plan, and let that output be the list. Two sweep passes are needed because they catch different misses, and the hits must then be classified by ROLE — not file type — because exactly one role can silently undo the retirement.
+
+§13.1–§13.3 govern that retirement case. §13.4 turns the same sweep-and-classify machinery on the doc surfaces a **roster change** invalidates — and it fires whether the change adds an artifact or removes one.
 
 ### 13.1 Derive the Deletion Set Before Authoring Deliverables
 
@@ -74,6 +76,83 @@ The Deliverables list MUST either contain a Creator-role member, or state explic
 ### 13.3 Citers Are Edited, Not Deleted
 
 The same grep that derives the deletion set also finds every Citer. Citers are **edited, not deleted** — a docstring naming a deleted module as a precedent needs the precedent restated or the sentence dropped, not the docstring removed. Enumerate citers in the Deliverables list as a separate group with an explicit count, so the executor can verify the count rather than judge completeness by eye.
+
+### 13.4 A Roster Change Derives Its Enumeration Surfaces the Same Way
+
+§13.1–§13.3 derive the file set a **removal** touches. This subsection derives the doc surfaces a **roster change** invalidates, in either direction, using the same sweep-then-classify machinery. It lives here because the machinery is shared, not because the trigger is retirement.
+
+The failure is narrow and repeatable. A landing surface is derived once, for the artifact type the sprint set out to add. A second create of a *different* type is discovered later, added to the deliverable list, and never sent back through the enumeration hunt. Every doc surface that counts or rosters that second type then goes stale at landing — while the sprint's own Execution Input correctly calls out the identical defect class for the first type, one artifact type over.
+
+**Why a deliverable checklist cannot catch this.** The deliverable list is derived per *artifact*. The enumeration hunt is derived per *artifact type*. Nothing connects them. Adding an artifact of a type not already in scope adds a row to the first list and triggers nothing in the second.
+
+> [!constraint] When a deliverable of a NEW artifact type is added or removed, re-derive the landing surface FOR THAT TYPE
+> **The trigger is the deliverable list changing — not scaffolding starting.** The second create is normally discovered *after* the surface was derived, so a check that runs once at scaffold start runs before the fact it needs. Re-derive whenever a deliverable of a type not already in scope enters or leaves the list, including when a review adds one.
+>
+> **Addition and removal are the same rule.** An artifact removed invalidates exactly the surfaces an artifact added invalidates. State the trigger as *the roster changed*, never as *an artifact was added*.
+>
+> **The derivation, for each changed artifact's parent directory:**
+>
+> ```
+> Grep  pattern='{directory-name}/'                         output_mode='content'  -n=true
+> Grep  pattern='[0-9]+ [a-z ]*{type-noun}'                 output_mode='content'  -n=true
+> Grep  pattern='(one|two|three|four|five|six|seven|eight|nine|ten) [a-z ]*{type-noun}'
+>                                                            output_mode='content'  -n=true  -i=true
+> Grep  pattern='{member-stem-a}|{member-stem-b}|…'         output_mode='files_with_matches'
+> ```
+>
+> Spelled-out numbers need their own pass: a prose roster count is written in words far more often than in digits, and the digit pattern cannot reach it. The fourth pass sweeps the roster's **existing member names**, because a file naming several members is a roster surface even when it states no count anywhere. Key every pattern on the claim's **shape**, never on the phrasings already known to be stale — the discipline [scaffolding-hygiene.md](scaffolding-hygiene.md) §12.4 states for a single document, applied here across the doc tree.
+>
+> **A hit anchors a SECTION, not a line.** Read the whole section each hit sits in, and treat every roster claim inside it as part of the surface. This is not a refinement — it is the half of the derivation that reaches the sites no pattern can match. A roster **table** states membership with no count of its own, and an **invocation list** beside it names commands rather than members, so neither carries a digit, a number word, or a member stem the patterns above could catch. Both sit beside the prose count that IS matched, and both go stale on the same change. Measured on a four-surface roster: the count patterns reach two sites, and section-anchoring from either one reaches all four.
+>
+> **Then classify every hit by what the list DESCRIBES**, exactly as §13.2 classifies deletion-sweep hits by role:
+>
+> | Surface | What it claims | Disposition on a roster change |
+> |---|---|---|
+> | Prose count | the current roster's size | Re-derive and update |
+> | Roster table | the current roster's membership | Add or remove the row |
+> | File-structure comment | the current roster's size | Re-derive and update |
+> | Invocation or capability list | which commands reach the type | Update when the change alters that set |
+> | **Frozen historical list** | a **past** roster, deliberately not current | **Leave unchanged** |
+>
+> **The discriminator is current-roster versus historical-roster, and only current-roster surfaces move.** A rule reading "update every list naming this type" is wrong, and it is wrong in the dangerous direction: it corrupts a working sweep.
+
+> [!constraint] Do not fire the rule on a frozen historical roster
+> WRONG — the rule is applied to every list naming the type:
+> ```
+> New artifact: {dir}/{new-member}
+>   → prose count updated          ✅
+>   → roster table row added       ✅
+>   → file-structure comment       ✅
+>   → scripts/doctor_sweeps.py FORMERLY_MIRRORED_AGENTS += "{new-member}"   ❌
+> ```
+> `FORMERLY_MIRRORED_AGENTS` is a frozen list of agents *formerly mirrored* into consumer projects, walked by the orphaned-mirror sweep to recognise an installed copy that no longer has a live install list behind it. A brand-new artifact was never mirrored, so adding it makes the sweep look for an orphan that cannot exist. The list is correct while it disagrees with the current roster — that disagreement is its entire purpose.
+>
+> CORRECT — each hit is classified before it is touched, and the historical list is recorded as verified-not-owed:
+> ```
+> Surfaces derived for {dir}/ : 4 current-roster + 1 historical
+>   3 count/roster surfaces + 1 invocation list → updated, re-derived against the tree
+>   FORMERLY_MIRRORED_AGENTS  → historical roster, NOT owed (recorded, not silently skipped)
+> ```
+> Record the not-owed hit explicitly. A surface nobody wrote down looks identical to a surface nobody checked.
+
+#### Reviewer Check 093 — Roster-Change Enumeration Surfaces Not Re-Derived
+
+- **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
+- **What:** A sprint whose deliverables create or remove an artifact of a type the shipped docs enumerate MUST have re-derived the landing surface **for that type**, with each hit classified current-roster or historical-roster. A surface derived only for the artifact type the sprint began with does not satisfy this. Neither does a rule application that updates a frozen historical list.
+- **Detection:**
+  1. Collect every create and every delete in the sprint's deliverable list, and group them by parent directory. Two or more distinct directories is the trigger condition — the sprint spans more than one artifact type.
+  2. For each directory, run all four §13.4 passes over the doc tree — the directory name, the digit-plus-noun count shape, the spelled-out-number count shape, and the existing member names — then expand every hit to its enclosing section. A review that checked only the matched lines has not checked the roster table or the invocation list beside them.
+  3. Assert every current-roster hit appears in some task's edit scope. A hit in no task's scope → BLOCKER.
+  4. Assert the post-sprint value of each count surface is stated and matches the roster the sprint will land, rather than the roster it started from.
+  5. Assert each historical-roster hit is recorded as verified-not-owed. Silently absent → ERROR; scheduled for update → BLOCKER, the sweep it feeds will break.
+  6. Check the deliverable arithmetic against the enumerated rows. A total asserted at several sites while the enumeration is short by one is the same omission surfacing second-order.
+- **Finding template:**
+```
+[BLOCKER] Roster-change enumeration surfaces not re-derived for this artifact type
+File: {EI or Sprint Plan} | Location: {deliverables | landing surface}
+Issue: sprint lands {N} artifacts of type {dir}/ but the landing surface was derived only for {other type}; {M} current-roster surfaces name {dir}/ and are in no task's scope
+Fix: Re-derive the landing surface for every artifact type in the deliverable list and classify each hit current-roster vs historical-roster, per references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §13.4 | Confidence: HIGH
+```
 
 ---
 
