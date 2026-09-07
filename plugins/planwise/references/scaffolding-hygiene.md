@@ -459,7 +459,18 @@ See also: `handlers/plan.md` Step 10 (the gate's mechanical enforcement point), 
 
 ## 12. Verification Commands and Context Pointers Must Be Run-Time Sound
 
-Content written into a task file at **scaffold** time can encode an assumption about the on-disk world that is no longer true — or was never true — at **run** time, while every per-task gate still passes because the scaffolded artifact is internally well-formed. Four surfaces are prone to this: Required-Context line pointers (§12.1), verification-command paths (§12.2), rows asserting a state rather than citing a path (§12.3), and a count restated in more than one place in a document that was only partly refreshed (§12.4). All four must be treated as run-time-derived facts, not scaffold-time constants.
+Content written into a task file at **scaffold** time can encode an assumption about the on-disk world that is no longer true — or was never true — at **run** time, while every per-task gate still passes because the scaffolded artifact is internally well-formed. Six surfaces are prone to this:
+
+| Surface | Subsection |
+|---|---|
+| Required-Context line pointers | §12.1 |
+| Verification-command paths | §12.2 |
+| Rows asserting a state rather than citing a path | §12.3 |
+| A count restated in more than one place in a document that was only partly refreshed | §12.4 |
+| A figure a gate compares against | §12.5 |
+| A convention or landed fix adopted after the sprint was scaffolded | §12.6 |
+
+None of the six may be carried as a scaffold-time constant. Each is re-derived against the live world before it is relied on.
 
 ### 12.1 Required-Context Line Pointers Are Cost Hints — Locate by Symbol Before Reading/Editing
 
@@ -624,6 +635,94 @@ Fix: Re-run the assertion against the live artifact and record the measured valu
 > - [ ] Any figure that IS derived checked against decisions taken since its as-of date. An approved change that adds mass to the measured artifact invalidates the number without touching it.
 
 The longer the gap between scaffolding and dispatch, the more of the plan is fiction. A plan scaffolded for many sprints in one pass carries the widest gap on its last sprint, which is also the sprint whose figures nobody re-reads.
+
+### 12.6 A Convention Adopted After a Sprint Is Scaffolded Reaches It Only Through a Register
+
+§12.1–§12.5 each govern a *fact* that went stale between scaffold time and run time. This subsection governs a *rule* that arrived late. The signature is identical. The sprint's files stay internally well-formed, every per-task gate passes, and the content is non-conformant to a convention the plan adopted after that sprint was written.
+
+Two classes of late rule exist, and only the first is usually noticed:
+
+- **Scaffold-pass conventions.** A pass adopts a convention — a density measure, a model-assignment rule, a serialization rule. Sprints authored in earlier passes inherit nothing.
+- **Review-landed fixes.** A review finds a defect in one sprint and repairs it at that sprint's own sites. The identical defect survives in every other sprint, because a fix is not filed as a convention and nothing propagates it.
+
+The second class is the sharper one. A fix applied at eight sites in one sprint, and never propagated, reappears unfixed three sprints later. The next reviewer then files it as a fresh finding rather than as a regression against landed precedent.
+
+> [!constraint] A convention or a landed fix is carried by a register entry with a runnable predicate — never by a prose note
+> **Prose does not carry a convention.** A note in the Master Plan reaches a sprint only when a human reads it and acts on it. That is a diagnosis, not a remedy. Once every sprint is on disk there is no future scaffold pass left to catch anything.
+>
+> **Every adopted convention and every review-landed fix earns an entry.** Five fields:
+>
+> | Field | Content |
+> |---|---|
+> | `id` | A stable handle that sprint reviews cite back |
+> | `adopted-at` | The scaffold pass or the review that adopted it |
+> | `requires` | What a conformant sprint must contain |
+> | `predicate` | A runnable check — a `Grep` pattern plus its expected result, or a command plus its expected output |
+> | `basis` | The value measured when the entry was written, plus the date |
+>
+> **A predicate that cannot fail is not a predicate.** Dry-run each one against a known-bad sprint and a known-good sprint before the entry ships. The two runs MUST return different results. An entry only ever run against conformant input has never been shown to discriminate.
+>
+> **Discharge re-measures. It never reads the entry's own claim.** The `basis` field is a scaffold-time snapshot, exactly like the state assertion §12.3 governs, and it expires the same way. A discharge runs the `predicate` against the live sprint and records what came back.
+>
+> **Scope is every sprint that has not yet run** — not only the sprints authored after the adoption. A sprint authored *before* the convention is the whole population the register exists to reach.
+
+**Ownership — adoption registers, the pre-run review discharges.** The adopting side is the mechanical half. A pass or a review that adopts a convention MUST write the entry before it closes, and a prose note stops counting as adoption. The discharging side is each sprint's own pre-run review, which runs every open entry's predicate against that sprint. This puts the discharge on a gate that already runs once per sprint, immediately before that sprint can do harm. The predicate is what makes the choice safe: discharging by reviewer judgment is only as good as the reviewer, and discharging by running a stated command is not.
+
+Two alternatives were considered and are recorded here so the choice is not relitigated:
+
+- **Back-propagate at adoption time** — edit every already-scaffolded sprint the moment a convention is adopted. This is the most coherent option and it is not the default, because it re-opens sprints that are already reviewed or running, and it turns each adoption into an N-sprint edit sweep. Reserve it for an entry a pre-run review cannot repair in place.
+- **A tree-wide scripted sweep** — deferred rather than rejected. It needs tooling that can execute an arbitrary per-entry predicate, which the `predicate` field is designed to feed. Adopt it once that tooling exists.
+
+> [!constraint] Register the convention, or the carrier is a note that can itself go stale
+> WRONG — the convention rides in prose, and the prose expires without anything re-deriving it:
+> ```
+> Master Plan note: "three conventions each reached only the sprints scaffolded
+> after they were adopted — each remaining pre-run review must check all three."
+>
+> …and further down: "every sprint inherits the unscoped gate form; there is no
+> correct instance in the batch to copy, so the fix belongs in the rule."
+>    ← true when written. False two sprints later, once two sprints had landed
+>      the correct form. A reviewer relied on the line and under-classified a
+>      regression as an inherited default.
+> ```
+> Nothing re-derived the note before a reviewer acted on it, because a note is not a check.
+>
+> CORRECT — the entry carries a predicate, and the discharge runs it:
+> ```
+> | id | adopted-at | requires | predicate | basis |
+> | {C3} | {Sprint-N} review | per-task gates path-scoped to the task's own outputs | `Grep` `--name-only -- ` in the sprint's EI → ≥ 1 hit | 0 of {N} sprints conformant, measured {date} |
+>
+> Discharge at {Sprint-M}'s pre-run review:
+>   Grep  pattern='--name-only -- '  path='{Sprint-M EI}'  output_mode='content'
+>   → 0 hits ⇒ NOT conformant. Filed against this sprint, citing {C3}.
+>   dry-run pair: the same Grep returns ≥ 1 on {a conformant sprint's EI}
+> ```
+> The discharge names what it ran and what came back. The `basis` field was never consulted.
+
+Applies to:
+
+- Any multi-sprint plan that adopts a convention, or lands a review fix, after its first scaffold pass — which is every plan scaffolded in more than one pass.
+- Review-landed fixes as much as scaffold-pass conventions. The fix class has no carrier at all until it is registered.
+- Each sprint's pre-run review, which owns the discharge and records the run output beside each entry it discharged.
+
+#### Reviewer Check 092 — Convention Register Not Discharged Against This Sprint
+
+- **Severity / Role:** ERROR — BLOCKER when a discharge is recorded with no re-measurement | Scaffolding Hygiene Reviewer | NEW
+- **What:** A multi-sprint plan that adopted any convention, or landed any review fix, after its first scaffold pass MUST carry a convention register. Each sprint's pre-run review MUST discharge every open entry against that sprint by running the entry's predicate. A prose note in the Master Plan is not a register. A discharge citing the entry's `basis` field instead of a fresh run is not a discharge.
+- **Detection:**
+  1. Read the Master Plan for adopted conventions, and for review findings repaired at one sprint's own sites only. Each one is an owed register entry.
+  2. Assert a register exists carrying `id`, `adopted-at`, `requires`, `predicate` and `basis` per entry. Prose carrier only → ERROR.
+  3. For each open entry, run its `predicate` against the sprint under review and compare the result with the review's recorded discharge.
+  4. A discharge recorded with no run output, or one whose only stated authority is the entry's `basis` field → BLOCKER. The entry's claim is a snapshot and expires exactly as §12.3 describes.
+  5. Dry-run each `predicate` against one conformant and one non-conformant sprint. Identical results → ERROR, because the predicate does not discriminate.
+  6. Confirm the register covers review-landed fixes and not only scaffold-pass conventions. A fix applied at one sprint's own sites with no entry → ERROR.
+- **Finding template:**
+```
+[ERROR] Convention register not discharged against this sprint
+File: {Master Plan or review report} | Location: {register | convention audit}
+Issue: {no register exists — the carrier is a prose note} | {entry {id} has no discharge record for this sprint} | {entry {id} discharged by reading its basis field, not by running its predicate}
+Fix: Register each adopted convention and review-landed fix with a runnable predicate, and discharge every open entry by running it against this sprint, per references/scaffolding-hygiene.md §12.6 | Confidence: HIGH
+```
 
 ---
 
