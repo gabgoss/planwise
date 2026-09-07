@@ -83,9 +83,9 @@ Missing Schema Pin for SQL-emitting tasks = BLOCKER at `/planwise review`.
 
 When this task edits a file that an earlier sprint of the same plan also edited (per the Sprint Plan's `## Cross-Sprint File Touches` section), Step 1 MUST be a grep gate that verifies the prior sprint's delta marker is present in the file. The gate makes the cross-sprint dependency mechanical: the executor cannot proceed against an outdated baseline.
 
-```bash
+```
 # Step 1: Cross-sprint prerequisite — verify {prior-sprint-task-id} delta landed
-grep -c '{prior-delta-marker}' {path/to/cross-sprint-file.ext}
+Grep  pattern='{prior-delta-marker}'  path='{path/to/cross-sprint-file.ext}'  output_mode='count'
 # Expected: ≥1 (marker inserted by {prior-sprint-task-id}). If 0 → HALT, prior sprint incomplete.
 ```
 
@@ -97,6 +97,25 @@ Authoring rules:
 - The gate is Step 1 (before any read of the file's "Current state" anchor) — anchor reads against an outdated baseline produce false matches that mask the real defect.
 
 Missing prerequisite grep gate when the Sprint Plan declares a Cross-Sprint File Touch for this file = BLOCKER at `/planwise review`.
+
+**When the two sprints have NO declared ordering**, there is no "prior" delta to gate on, and the gate above cannot be authored as written. That case is more dangerous, not exempt: emit the gate into the first writing task of BOTH sprints, and write it to accept either observed state rather than to HALT on absence.
+
+```
+# Step 1: Co-writer state — {other-sprint-task-id} also edits this file, no ordering declared
+Grep  pattern='{co-writer-delta-marker}'  path='{path/to/shared-file.ext}'  output_mode='count'
+# 1 → the co-writer landed first. Edit ON TOP of its delta; do NOT re-baseline from the EI anchor.
+# 0 → this task is first. Record that in Recovery, and do NOT whole-file Write this file.
+```
+
+**A shared file also needs a co-writer content assertion, not only a diff count.** A path-scoped diff verifies the presence of *this* task's edit and can never show the absence of *another* writer's loss — it is the right discipline aimed at the wrong question, so applying it more rigorously does not close the gap. Any task editing a file another task also writes therefore adds, to its Verification Commands, a content grep for a literal the co-writer authored (or that literal's documented absence when this task ran first), alongside its diff count.
+
+```
+# After: this task's own delta landed AND the co-writer's delta survived
+Grep  pattern='{this-task-delta-marker}'  path='{path/to/shared-file.ext}'  output_mode='count'   # expect: 1
+Grep  pattern='{co-writer-delta-marker}'  path='{path/to/shared-file.ext}'  output_mode='count'   # expect: the value Step 1 observed
+```
+
+Never whole-file `Write` a file listed under `## Cross-Sprint File Touches`. A targeted `Edit` applies against the file's current content, so a disjoint-region edit landing second preserves the first; a whole-file write silently discards it. Stage this file by explicit path at closeout, so a co-writer's uncommitted change is not swept into this sprint's commit and misattributed.
 
 **Mapping Disambiguation:** When a task creates X→Y mapping logic (enum→domain, type→template, event→category), include either:
 - A complete mapping table in the task file, OR

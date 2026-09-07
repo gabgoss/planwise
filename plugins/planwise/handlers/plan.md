@@ -520,6 +520,27 @@ PLAN CREATED: {PlanName}
 4. Execute Sprint-01/Session-01 using `/planwise run` or manually following READ-CONFIRM-ACT
 ```
 
+### Step 9a: Emit the Cross-Sprint File-Touch Declarations
+
+**Runs when this invocation authored 2+ Sprint Plan files.** It runs after every sprint's files exist — the matrix cannot be built before then — and before Step 9b.
+
+Build the file-touch matrix across the sprints this pass authored: for every path named as an edit target, the set of `(sprint, task)` writers. Take it from each Sprint Plan's `## Write-Set` section, which [`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16.1 already requires. **Intersect every sprint pair, not only the pairs the ordering line joins with `∥`.**
+
+For each path with two or more writing sprints, emit all three of these — none is optional, and §16.6 owns the full rule:
+
+| Emit | Into | Content |
+|------|------|---------|
+| A `## Cross-Sprint File Touches` row | **each** involved Sprint Plan | the file, every writing task, and the region each one touches |
+| A Step-1 prerequisite gate | the first writing task of the later sprint — or, where the pair has no declared ordering, of **both** sprints | read the live file and record its observed co-writer state before editing |
+| An ordering edge, **or** a `MUST NOT run concurrently (shared file: {path})` row | the Master Plan's Sprint Dependencies table | whichever disposition the pair takes; a blank cell is not a third option |
+
+> [!constraint] An Unordered Shared File Is the Dangerous Case, Not the Exempt One
+> The sequential rule speaks of "the *later* sprint". A pair with no declared ordering has no later sprint, so a matrix walked only for ordered pairs skips it — while that pair is precisely the one free to run in either order or at once. Emit into both sprints and close the ordering explicitly.
+>
+> Add the co-writer content assertion to each writing task's Verification Commands as well: a path-scoped diff count verifies the presence of that task's own edit and can never show the absence of another writer's loss, so it cannot be the control for a shared file no matter how rigorously it is applied.
+
+Record the matrix's outcome — the shared paths found and how each pair was closed, or `no shared paths` — in the Step 9 confirmation block.
+
 ### Step 9b: Post-Pass Harmonization
 
 **Runs when this invocation authored 2+ Sprint Plan files** — the same `n_sprints_scaffolded_this_pass` count Step 10 uses — **or fanned out to 2+ scaffolding subagents.** Skip it for a single-sprint pass. It runs after every sprint's files exist and **before** the Step-10 review gate.

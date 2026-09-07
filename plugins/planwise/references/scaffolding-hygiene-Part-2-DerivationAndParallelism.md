@@ -166,7 +166,7 @@ This section owns **who** records a baseline, **when**, and **where** it lives; 
 
 ## 16. Declared Parallelism Requires a Computed Write-Set Intersection
 
-A `∥` in a Master Plan's ordering is not a scheduling preference — it is a claim that two sprints never write the same file. The claim is about file sets, so only a file-set operation can support it, and a sprint's *name* is not evidence of one. "Agents vs handlers, disjoint files" describes two clusters; a cluster is not a write-set, and the distance between the two is exactly where concurrent sessions overwrite each other. This section makes the intersection an artifact the plan has to **show**, so that a parallel declaration is either computed or absent — never inferred, and never asserted behind a marker that cannot fail.
+A `∥` in a Master Plan's ordering is not a scheduling preference — it is a claim that two sprints never write the same file. The claim is about file sets, so only a file-set operation can support it, and a sprint's *name* is not evidence of one. "Agents vs handlers, disjoint files" describes two clusters; a cluster is not a write-set, and the distance between the two is exactly where concurrent sessions overwrite each other. This section makes the intersection an artifact the plan has to **show**, so that a parallel declaration is either computed or absent — never inferred, and never asserted behind a marker that cannot fail. 16.1–16.5 govern pairs the ordering line joins with `∥`; **16.6 extends the same computation to every pair whose write-sets overlap, including pairs the ordering line does not join at all**, and makes the scaffolder emit the resulting declaration rather than leaving it for a reviewer to miss.
 
 > [!constraint] A declared-parallel pair is unsupported until its write-sets are intersected and the result is shown
 > **16.1 — Every sprint declares a write-set.** Each Sprint Plan carries a `## Write-Set` section listing every directory or file the sprint **EDITS** — not the ones it merely reads — as a `| Path | Task |` table naming the task that writes each path. The read/edit distinction is the whole point: nearly every sprint reads broadly while only a handful of paths are ever written to, so an intersection computed over read-sets is meaningless. The `## Write-Set` declaration is distinct from a sequential Cross-Sprint File-Touch declaration, which compares this sprint against a *prior* sprint's already-landed delta; the write-set is the declaration an intersection is computed **from**, independent of landing order.
@@ -178,6 +178,45 @@ A `∥` in a Master Plan's ordering is not a scheduling preference — it is a c
 > **16.4 — A gate marker may not be an assumption.** A marker reading `n/a — single-writer per sprint` is not a gate; it is an assertion with no check behind it, and it reports the same result whether or not the property it names holds. A gate marker must be a **runnable command whose failure is possible** against the pre-edit tree — for a write-set concern, typically a baseline-pinned, path-scoped diff whose output must never name the parallel sprint's files (`git -C <repo> diff --name-only $..._BASE -- {dir}/`). Before trusting any marker, confirm it can return the failing result at all: a check that cannot fail is not evidence, it is decoration.
 >
 > **16.5 — Cross-sprint coordination flags must be reciprocal.** If sprint A raises a flag about a file sprint B also writes, B's flag chain names A and vice versa. Without the return edge each sprint measures a **shared** threshold — a file-size gate, a line budget — against its own contribution alone, and against a baseline the other sprint has already moved. Both sprints then pass a limit their combined delta breaks, and each one's arithmetic is locally correct.
+>
+> **16.6 — Every file with 2+ sprint writers is DECLARED, whether or not the sprints are ordered — and the scaffolder emits the declaration.** 16.1–16.5 govern pairs the ordering line joins with `∥`. A pair the ordering line says nothing about is not thereby safe: it is a pair the plan has left free to run in either order, or at once, with nothing on paper recording that they share a file. That is strictly **more** dangerous than a declared-parallel pair, not exempt from the rule. Three obligations follow, all discharged at scaffold close, from the write-sets 16.1 already collects:
+>
+> - **Emit the declaration.** Intersect the write-sets of **every** sprint pair, not only the `∥` ones. For each path appearing under two or more sprints, write a `## Cross-Sprint File Touches` row into **each** involved Sprint Plan, naming the file, every writing task, and the region each one touches.
+> - **Emit the gate into both sprints when there is no "later" one.** The sequential rule places the Step-1 prerequisite content gate in the first task of the *later* sprint. Where no ordering exists there is no later sprint, so emit the gate into the first writing task of **both** sprints, each reading the live file and recording its observed state before editing.
+> - **Close the ordering, one way or the other.** Emit into the Master Plan's Sprint Dependencies table either a real ordering edge between the two sprints, or an explicit `MUST NOT run concurrently (shared file: {path})` row. Leaving the cell blank is not a third disposition — it is the defect.
+>
+> **A per-task path-scoped diff cannot be the control for a shared file.** It verifies the presence of *my own* edit; it can never show the absence of *someone else's* loss. It is the right discipline pointed at the wrong question, so no amount of rigor in applying it closes this gap. A task that shares a file with another writer therefore asserts one more invariant alongside its diff count: a **content grep for a literal the other writer authored** — or for that literal's documented absence, when this task is the one expected to run first. That makes a lost update detectable from inside the very task that would otherwise mask it.
+
+> [!constraint] An unordered shared file is the dangerous case, not the exempt one
+> WRONG — two sprints edit one file, the ordering line joins them with nothing, and every gate still passes:
+> ```
+> Sprint Dependencies:  {Sprint-M} → (no edge) ← {Sprint-N}
+>   {Sprint-N}'s Orchestration: "independent of {Sprint-M}"
+>
+> {path/to/shared.ext}   edited by {Sprint-M} Task {##} (body)
+>                        edited by {Sprint-N} Task {##} (frontmatter)
+>
+> Neither Sprint Plan carries `## Cross-Sprint File Touches` — the section's
+> trigger reads "a file already edited by a PRIOR sprint", and with no ordering
+> declared, neither sprint is prior. Both tasks pass their own path-scoped diff.
+> ```
+> Nothing on paper records that the file has two owners, so a reviewer and every later maintainer see a single-writer file. Whichever sprint closes second stages "by name" and sweeps the other's uncommitted change into its own commit, mixing and misattributing two sprints' work.
+>
+> CORRECT — the intersection is computed for the pair, the declaration is emitted into both Sprint Plans, and the ordering is closed explicitly:
+> ```
+> ### Computed Write-Set Intersection
+> | Declared pair | Intersection | Verdict |
+> | {Sprint-M}, {Sprint-N} (no edge) | `{path/to/shared.ext}` | ❌ shared — MUST NOT run concurrently (shared file: `{path/to/shared.ext}`) |
+>
+> Both Sprint Plans, `## Cross-Sprint File Touches`:
+> | `{path/to/shared.ext}` | co-writer {Abbrev}-S{XX_other}-{YY}-{##} | {region the other writer touches} | {this sprint's region} |
+>
+> Both first writing tasks, Step 1:
+>   Grep `{literal the co-writer authored}` in `{path/to/shared.ext}`
+>   → present ⇒ the co-writer landed first; edit on top of it, do not re-baseline
+>   → absent  ⇒ this sprint is first; record that, and do NOT whole-file Write
+> ```
+> The `MUST NOT run concurrently` row and the ordering edge are interchangeable dispositions; a blank cell is neither.
 
 > [!constraint] Compute the intersection, or the `∥` is an unbacked claim
 > WRONG — the parallelism inferred from cluster names, while the plan's own tables say otherwise:
@@ -221,8 +260,8 @@ The mechanical enforcement of 16.3 is Check S05 in `agents/structural-reviewer.m
 #### Reviewer Check 078 — Declared Parallelism Without a Computed Intersection
 
 - **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
-- **What:** A Master Plan declaring any sprint pair parallel without a computed write-set intersection shown for that pair; or a sprint named on the ordering line with no declared write-set; or a gate marker that is an assertion rather than a runnable command.
-- **Detection:** Read the Master Plan's `## Execution Ordering` section. For each `∥` pair on the declared-ordering line, assert a matching row exists in the `### Computed Write-Set Intersection` table carrying a shown result (`∅` or the named paths) and a Verdict; assert every sprint named on that line has a `## Write-Set` section in its own Sprint Plan; then Grep the Verdict and gate-marker cells for assertion-shaped text (`n/a`, `single-writer`, `assumed`, `should be`) with no command behind it. Any one → BLOCKER.
+- **What:** A Master Plan declaring any sprint pair parallel without a computed write-set intersection shown for that pair; or a sprint named on the ordering line with no declared write-set; or a gate marker that is an assertion rather than a runnable command; or (§16.6) a path appearing in two sprints' write-sets with no `## Cross-Sprint File Touches` row in either Sprint Plan and no ordering edge or `MUST NOT run concurrently` row closing the pair.
+- **Detection:** Read the Master Plan's `## Execution Ordering` section. For each `∥` pair on the declared-ordering line, assert a matching row exists in the `### Computed Write-Set Intersection` table carrying a shown result (`∅` or the named paths) and a Verdict; assert every sprint named on that line has a `## Write-Set` section in its own Sprint Plan; then Grep the Verdict and gate-marker cells for assertion-shaped text (`n/a`, `single-writer`, `assumed`, `should be`) with no command behind it. Then, for §16.6, intersect **every** sprint pair's declared write-sets — not only the `∥` ones. For each non-empty intersection, assert a `## Cross-Sprint File Touches` row naming that path in each involved Sprint Plan, a Step-1 gate in each involved sprint's first writing task, and either an ordering edge or a `MUST NOT run concurrently (shared file: …)` row in the Sprint Dependencies table. Any one → BLOCKER.
 - **Finding template:** `[BLOCKER] Declared-parallel pair {S0A ∥ S0B} has no computed write-set intersection | File: {Master Plan} | Fix per references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §16 | Confidence: HIGH`
 
 ## 17. A Dispatch Layer Declares a Computed Write-Target Intersection

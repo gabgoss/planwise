@@ -219,7 +219,7 @@ Sprints created: {N}
 
 For a complete scaffolding example, see [sample-scaffolding-output.md](../examples/sample-scaffolding-output.md).
 
-After the scaffolding confirmation, run [handlers/plan.md Step 9b: Post-Pass Harmonization](plan.md#step-9b-post-pass-harmonization) — a `--scaffold` pass authors 2+ sprints by construction, so the step always applies here — and then proceed to [handlers/plan.md Step 10: Plan Review Gate](plan.md#step-10-plan-review-gate).
+After the scaffolding confirmation, run [handlers/plan.md Step 9a: Emit the Cross-Sprint File-Touch Declarations](plan.md#step-9a-emit-the-cross-sprint-file-touch-declarations) and then [Step 9b: Post-Pass Harmonization](plan.md#step-9b-post-pass-harmonization) — a `--scaffold` pass authors 2+ sprints by construction, so both steps always apply here — and then proceed to [handlers/plan.md Step 10: Plan Review Gate](plan.md#step-10-plan-review-gate).
 
 ---
 

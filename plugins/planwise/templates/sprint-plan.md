@@ -105,14 +105,16 @@ sprint's write-set can be checked against it, independent of landing order.
 
 ---
 
-## Cross-Sprint File Touches <!-- OPTIONAL — include when this sprint edits a file already edited by a prior sprint -->
+## Cross-Sprint File Touches <!-- OPTIONAL — include when this sprint edits a file ANY other sprint of the same plan also edits, ordered or not -->
 
-List every file this sprint edits that was ALSO edited by an earlier sprint of the same plan. Each row pairs the file with the prior sprint's edit so the executor can verify the prior delta landed before applying this sprint's delta.
+List every file this sprint edits that ANOTHER sprint of the same plan also edits. Each row pairs the file with the co-writing sprint's edit so the executor can verify the other delta's state before applying this sprint's delta.
 
-| File | Prior Sprint Task | Prior Delta Marker (grep target) | This Sprint Adds |
-|------|-------------------|----------------------------------|------------------|
-| `{path/to/file.ext}` | {Abbrev}-S{XX_prior}-{YY}-{##} | `{grep-anchor text the prior sprint inserted}` | {delta this sprint adds} |
-| `{path/to/file2.ext}` | {Abbrev}-S{XX_prior}-{YY}-{##} | `{grep-anchor text}` | {delta this sprint adds} |
+**Include a row whether or not the two sprints are ordered.** The unordered case is the more dangerous one: with no ordering edge, the two sprints may run in either order or at once, and nothing else in the plan records that the file has two owners. Per `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16.6, an unordered pair also needs either an ordering edge or a `MUST NOT run concurrently (shared file: …)` row in the Master Plan's Sprint Dependencies table, and the row below goes in BOTH sprints' Sprint Plans.
+
+| File | Co-Writer Task | Co-Writer Delta Marker (content anchor) | Ordering | This Sprint Adds |
+|------|----------------|----------------------------------------|----------|------------------|
+| `{path/to/file.ext}` | {Abbrev}-S{XX_prior}-{YY}-{##} | `{anchor text the prior sprint inserted}` | prior — that sprint runs first | {delta this sprint adds} |
+| `{path/to/file2.ext}` | {Abbrev}-S{XX_other}-{YY}-{##} | `{anchor text the co-writer inserts}` | **none declared** — see Sprint Dependencies | {delta this sprint adds} |
 
 <!-- Declaring a row here mechanically implies three obligations in the consuming task:
      (a) Step-1 prerequisite grep gate — see templates/task-file.md "Cross-Sprint
