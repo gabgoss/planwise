@@ -15,6 +15,13 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 ---
 
 ## Vision <!-- REQUIRED -->
+<!-- Counts stated here (handler files, references, agents, open backlog rows, test files)
+     are the copies a later refresh forgets: they are prose, so a sweep written against the
+     Sprint Overview or an inventory table's wording never matches them. When any count in
+     this file is refreshed against a live source, re-derive EVERY other statement of that
+     same fact in the same pass — keyed on the claim's shape (`[0-9]+ {noun}`), not on the
+     phrasings already known to be stale. See scaffolding-hygiene.md §12.4. -->
+
 
 {User's vision statement - 2-3 sentences describing what this plan accomplishes and why it matters}
 

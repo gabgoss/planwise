@@ -459,7 +459,7 @@ See also: `handlers/plan.md` Step 10 (the gate's mechanical enforcement point), 
 
 ## 12. Verification Commands and Context Pointers Must Be Run-Time Sound
 
-Content written into a task file at **scaffold** time can encode an assumption about the on-disk world that is no longer true — or was never true — at **run** time, while every per-task gate still passes because the scaffolded artifact is internally well-formed. Two surfaces are especially prone to this: Required-Context line pointers and verification-command paths. Both must be treated as run-time-derived facts, not scaffold-time constants.
+Content written into a task file at **scaffold** time can encode an assumption about the on-disk world that is no longer true — or was never true — at **run** time, while every per-task gate still passes because the scaffolded artifact is internally well-formed. Four surfaces are prone to this: Required-Context line pointers (§12.1), verification-command paths (§12.2), rows asserting a state rather than citing a path (§12.3), and a count restated in more than one place in a document that was only partly refreshed (§12.4). All four must be treated as run-time-derived facts, not scaffold-time constants.
 
 ### 12.1 Required-Context Line Pointers Are Cost Hints — Locate by Symbol Before Reading/Editing
 
@@ -552,6 +552,42 @@ Applies to:
 - Scaffolding Step 4 (Create Execution Inputs) of the scaffolding workflow — see `handlers/plan-scaffolding.md`.
 - Companion to §10.4 in `references/ei-source-promise-integrity.md` (cited-authority currency): that subsection covers a claim whose support comes from ANOTHER artifact's conclusion; this subsection covers a claim whose support is a directly-measurable fact about the artifact itself. A row can fail either, both, or neither independently.
 
+### 12.4 A Count Refresh Sweeps the WHOLE Document — Key the Sweep on Claim Shape, Not on Known Phrasings
+
+> [!constraint] A refresh of any count, inventory, or file list is not complete until every OTHER statement of that same fact in the same document has been re-derived in the same pass
+> Sweep the document's own count claims. Do not spot-fix only the section that prompted the refresh. The failure this prevents states in one line: **after a partial refresh, one document asserts two different values for one fact, and its reader has no way to know which number to trust.**
+>
+> §12.3 governs a single row: re-run its assertion against the live artifact and record the measured value inline. This subsection governs what §12.3 alone never reaches — the *other* copies of the same fact, elsewhere in the same document, that the refresh never visited. A document is re-verified against a moved source, the sections the author was thinking about are correctly updated, and the restatements keep their old values. Nothing re-checks them, because nothing knows they exist.
+>
+> **Key the sweep on the SHAPE of a count claim, never on remembered phrasings.** For each noun under refresh, `Grep` the document for the digit-plus-noun pattern (`[0-9]+ {noun}` and its plural), enumerate **every** occurrence, and reconcile each against the measured value. Do not `Grep` for the specific strings already known to be stale.
+>
+> That distinction is the whole rule, and it is not a refinement: **a sweep keyed to the phrasings you have already found cannot find the ones you have not.** Two sections routinely state one fact in different words. A sweep written against the first section's wording passes silently over the second, which is exactly how a stale copy survives several independent reviewers and a synthesis pass, to be caught later by a verification sweep run after the fixes were already applied.
+>
+> WRONG — the sweep is written from the stale copies already in hand:
+> ```
+> refreshed §{Inventory}: "{N} {artifact-class}"   ← measured, correct
+> Grep '{N_old} {artifact-class}'                  ← finds the copy you already knew about
+> …§{Overview} still reads "{M} {artifact-class-synonym}", phrased differently → never matched
+> ```
+> CORRECT — the sweep is written from the claim's shape, so an unseen phrasing is still enumerated:
+> ```
+> Grep  pattern='[0-9]+ {artifact-class}'          output_mode='content'  -n=true
+> Grep  pattern='[0-9]+ {artifact-class-synonym}'  output_mode='content'  -n=true
+> → reconcile EVERY hit against the measured value, in this same pass
+> ```
+> **Reconcile every hit against the MEASURED value, never against another cell in the same document.** Measure the live source once, then compare each enumerated occurrence to that number. Comparing the occurrences only to each other is not the same check and will report a wholly stale document as consistent.
+>
+> Two shapes escape the `[0-9]+ {noun}` pattern and need reconciling separately, or the sweep leaves the authoritative copy unchecked:
+>
+> - **A two-column inventory table** (`| {noun} | {N} |`) puts the number in its own cell, so no digit ever precedes the noun. This is usually the very section the refresh updated — reconcile it directly against the measurement.
+> - **A file list.** A path named in a table headed "read by task agents" is a claim about the tree, and a renamed or split file leaves it pointing at nothing. Resolve every path, not only the counts.
+
+Applies to:
+
+- Any Master Plan, Sprint Plan, Execution Input, or Consolidated Context part re-verified against a moved or changed source tree.
+- Any document whose header records a re-verification date — the date is a promise about the whole file, not about the sections the author happened to open.
+- Free-prose sections as much as tables. A Vision or Overview paragraph restating a count in its own words is the copy a table-shaped sweep misses.
+
 #### Reviewer Check 081 — State-Asserting Row Re-Derivation at Scaffold Close
 
 - **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
@@ -561,6 +597,7 @@ Applies to:
   2. For each match, check whether the row carries an inline measured value + date (e.g., "measured {date}: {value}").
   3. If absent, re-run the assertion against the live artifact yourself and compare to the row's claim.
   4. If the row lacks a measured value + date, OR the live re-derivation contradicts the row's claim → BLOCKER.
+  5. **§12.4 — document self-consistency.** For each noun whose count the document refreshed, `Grep` the whole file for the claim's shape (`[0-9]+ {noun}`, plural included), not for the phrasings already known to be stale. Two hits giving different values for one fact → BLOCKER, regardless of which one is correct. Check free-prose sections, not only tables: a Vision or Overview paragraph restating a count in its own words is the copy a table-shaped sweep misses.
 - **Finding template:**
 ```
 [BLOCKER] State-asserting row not re-derived at scaffold close
