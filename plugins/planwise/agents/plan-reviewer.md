@@ -184,11 +184,14 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Confirm no gate asserts a format or spelling pattern where the property at stake is resolution, and that a gate-repair deliverable's criteria are not satisfiable entirely by fixtures with no live sweep of the guarded tree (`references/verification-gates.md` §10 obligations B and D)
 - Verify that a deliverable containing a move, extraction, consolidation or collapse carries at least one blast-radius gate — a copy-count probe at both ends, a set-difference audit of the deleted copy against the survivor, a test-surface sweep for patches steering the moved symbols, or an execution-stage gate beyond collection (`references/session-execution-protocol.md` §6.1)
 - Confirm every refactor size band carries an inline derivation and the signal-not-target clause, and that the derivation does not subtract the full volume of a region the same plan marks verbatim-frozen, anchor-protected, or subject to in-place replacement (`references/ei-citation-and-token-reconciliation.md` §8.3)
+- Verify every mechanical anchor, exit criterion and EI gate accepts each terminal outcome its owning task's Execution Steps define — enumerate the task's branches first, then the anchor's accepted set, and report a strict subset as WARNING, escalating to ERROR only where no accepted outcome remains for the branch the task will actually produce (`references/verification-task-authoring.md` §10.7 and `references/exit-criteria-fidelity.md` §16.10.6). Zero-hit, nothing-to-do and already-resolved branches are the ones dropped most often. Report a disagreement against the task file, never against whichever copy is in the majority
+- Check each anchor's command against the four semantics traps — `grep -c` counting lines rather than matches, `-B1`/`-A1` emitting the match line itself, a set-membership claim hardened into a count equality, and a path that cannot resolve from the cwd its own table header declares (`references/verification-task-authoring.md` §10.8)
 
 - Check 074 — Diff-Derived Gate Without Input-Set Assertion → references/measurement-discipline.md §8.7
 - Check 075 — Size Gate Without Content-Conservation Gate → references/measurement-discipline.md §8.7
 - Check 077 — Diff-Scoped Gate Not Baseline-Pinned → references/verification-gates.md §8
 - Check 082 — Verification Gate Without a Measured Pre-Edit Baseline → references/verification-task-authoring.md §10
+- Check 095 — Anchor Enumerates Fewer Outcome Branches Than Its Task Produces → references/verification-task-authoring.md §10.7
 - Check 086 — Numeric Gate Stated Without a Derivation → references/measurement-discipline.md §8.9
 - Check 087 — Bug-Fix Criteria With No Fixture and No Unfixed-Artifact Run → references/verification-gates.md §10
 - Check 088 — Gate Asserts Format Where the Property Is Resolution, or Is Fixture-Satisfiable → references/verification-gates.md §10

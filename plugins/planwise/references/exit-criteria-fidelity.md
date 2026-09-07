@@ -592,6 +592,35 @@ Applies to:
 - The Sprint Plan `## Deliverables` block, which owns the total and is the only artifact permitted to state it.
 - Enforcement of the caption itself at scaffold time — see `references/scaffolding-hygiene.md` §12.7 and Reviewer Check 094, which check a caption count against the table it captions before the count is carried forward.
 
+#### 16.10.6 An Exit Criterion Is Dry-Run Pre-Change, and Accepts Every Branch Its Task Produces
+
+§16.10 opens with the rule that an anchor checks the form of a check rather than the truth of a claim. This subsection adds the two things that must be true of the check itself before the criterion ships.
+
+**Dry-run against the pre-change tree.** A criterion authored from the expected landed state has never been shown to discriminate. Run it before the work, and record what it returned beside the expectation it is meant to contradict.
+
+> [!constraint] A criterion that PASSES pre-change is a scaffold-time failure
+> The recorded pre-change value is what separates a working gate from one that was green before the sprint started. Where the value already satisfies the expectation, rewrite the criterion — raise the threshold past the measured baseline, or narrow the pattern to what the work introduces. Shipping it with a caveat is not an option, because a criterion that always passes displaces the one that would have caught the failure.
+>
+> The same recorded value is the Before baseline. A criterion asserting "unchanged vs Before" or "Before + 1" with no baseline captured cannot be computed at all, and a runner reports the absolute number and calls it PASS.
+>
+> A preservation criterion, where the value must not move, is exempt — mark it `invariant: {N}` rather than annotating a bare value. The mechanics live in `references/verification-task-authoring.md` §10.
+
+**Accept every terminal branch the owning task produces.** This is the mirror defect, and it fails in the opposite direction: not a gate that cannot fail, but one that cannot pass.
+
+> [!constraint] A criterion's accepted-outcome set equals its task's terminal branch set
+> Enumerate the outcomes from the owning task's Execution Steps, not from the result the criterion's author expects. Zero-hit, nothing-to-do, and already-resolved branches are dropped most often, and are frequently the measured and expected outcome.
+>
+> A criterion accepting a strict subset FAILs a correct execution. The runner must then halt or manufacture an outcome the criterion will take. When the criterion is gate-defining, that failure fails the sprint on correct work.
+>
+> Where the Execution Input, the exit criteria, and the Signoff anchor each state the branch set, the task file's Execution Steps are the source and the other two are copies. Report a disagreement against the source, never against whichever copy is in the majority. See `references/verification-task-authoring.md` §10.7 and Reviewer Check 095.
+
+**Never harden a set-membership claim into a count equality.** A criterion claiming one set contains another is satisfied by a correct superset. Rewritten as an equality of totals, it fails that superset while its actual claim still holds.
+
+Applies to:
+
+- Every EI exit criterion, Signoff Mechanical Anchor row, and Success Criterion carrying a measurable expectation.
+- Scaffold close, which is the last moment the pre-change tree still exists to be measured.
+
 ---
 
 ## Scaffolding Template 2 — Sprint Signoff Checklist Block (§16.3)
@@ -612,17 +641,25 @@ Applies to:
 >
 > - [ ] §{N}.{M} row 1: "{verbatim EI exit-criterion text}"
 >       Mechanical: `{verification command + expected result}`.
+>       Pre-change: {measured value} → expect {expectation}
+>       Branches: {accepted}/{terminal branches of task {ID}}
 >       **Deviation:** {design-decision document path}  [omit when matches verbatim]
 >
 > - [ ] §{N}.{M} row 2: "{verbatim EI exit-criterion text}"
 >       Mechanical: `{verification command + expected result}`.
+>       Pre-change: {measured value} → expect {expectation}
+>       Branches: {accepted}/{terminal branches of task {ID}}
 >
 > ... (one row per EI exit-criterion item; row count MUST equal EI item count)
 > ```
 >
 > Authoring rules: (1) verbatim quote at the head; (2) one row per EI criterion;
 > (3) one mechanical anchor per row; (4) `**Deviation:** <path>` annotation
-> whenever the implementation deviates from verbatim text.
+> whenever the implementation deviates from verbatim text; (5) a `Pre-change:`
+> value measured against the pre-change tree, which MUST contradict the
+> expectation — or `invariant: {N}` for a preservation row (§16.10.6);
+> (6) a `Branches:` count whose two numbers are equal, derived from the owning
+> task's Execution Steps (§16.10.6).
 
 ---
 

@@ -29,6 +29,8 @@ paths: {planwise_root}/{plans_dir}/**
   - [10.4 Why the annotation, and not just the discipline](#104-why-the-annotation-and-not-just-the-discipline)
   - [10.5 A gate over a verification report reads the verdict line, not a bare substring](#105-a-gate-over-a-verification-report-reads-the-verdict-line-not-a-bare-substring)
   - [10.6 A diff-pinned or sweep-based criterion records its input-set counts](#106-a-diff-pinned-or-sweep-based-criterion-records-its-input-set-counts)
+  - [10.7 An anchor accepts exactly the outcome set its own task can produce](#107-an-anchor-accepts-exactly-the-outcome-set-its-own-task-can-produce)
+  - [10.8 Four command semantics that make a well-formed gate mean something else](#108-four-command-semantics-that-make-a-well-formed-gate-mean-something-else)
 
 ---
 
@@ -221,6 +223,9 @@ Fix: Constrain verdict per references/verification-task-authoring.md §5 (FAIL o
 > - [ ] Coverage denominators scope-restricted to real construct instances; prose, table rows, and fenced code excluded — OR check re-classified as `INVESTIGATE` (§4).
 > - [ ] Verdict-arithmetic contract honored: if Actual contradicts Expected per the comparison operator, the verdict is FAIL or `[UNCERTAIN]`, never PASS (§5).
 > - [ ] BLOCKER-from-heuristic adjudication protocol declared in the orchestration — orchestrator validates flagged sites against source before routing rework (§6).
+> - [ ] Every gate carries its measured pre-edit value inline, and that value contradicts the expectation — or the gate is marked `invariant:` (§10.1-§10.3).
+> - [ ] Every anchor's accepted-outcome set diffed against its owning task's terminal branches, and the count carried inline (§10.7).
+> - [ ] All four command-semantics traps checked: `grep -c` counts lines, `-B1` emits the match, set membership is not count equality, every path resolves from the declared cwd (§10.8).
 
 ---
 
@@ -391,6 +396,90 @@ File: {task file path} | Location: Verification Commands After block / Success C
 Issue: Gate `{command}` states `expect {comparator}{N}`; recorded/measured pre-edit value is {M}, which already satisfies it — the gate passes with zero work done and cannot detect whether the work happened
 Fix: Rewrite so the pre-edit value contradicts the expectation per references/verification-task-authoring.md §10 (raise the threshold past the measured baseline, or narrow the pattern to the construct the edit introduces), or mark the gate `invariant:` if pre == post is the intended outcome | Confidence: HIGH
 ```
+
+### 10.7 An anchor accepts exactly the outcome set its own task can produce
+
+§10.2 catches a gate that cannot fail. This section catches the mirror defect: a gate that cannot pass. Both ship green-looking artifacts, and both report a wrong verdict on a correct execution.
+
+An anchor is written from the outcome its author expects. A task's Execution Steps usually define more outcomes than that — a zero-hit branch, a nothing-to-do branch, an already-resolved branch. When the anchor enumerates fewer, the runner executes correctly, produces a legitimate terminal outcome, and the gate rejects it. The runner must then halt or invent a result that the anchor will accept.
+
+> [!constraint] Diff the anchor's accepted-outcome set against the owning task's terminal branches at scaffold close
+> If the task's Execution Steps define N terminal outcomes, the anchor accepts N. This is set equality, not a subset relation in either direction.
+>
+> WRONG — the task defines three terminal outcomes, the anchor accepts two:
+> ```markdown
+> Task step 4:  hits + unambiguous → repoint
+>               hits + ambiguous   → route to the orchestrator
+>               zero hits          → drift already resolved; record CLOSED-NO-ACTION
+>
+> Anchor 6:     PASS when the report records `repoint` or `route`
+> ```
+> The measured and expected outcome is zero hits. The anchor rejects it.
+>
+> CORRECT — the anchor's branch list is derived from the task's, not authored beside it:
+> ```markdown
+> Anchor 6:     PASS when the report records `repoint`, `route`, or `CLOSED-NO-ACTION`
+>               (3 branches — matches task step 4's 3 terminal outcomes)
+> ```
+> Carry the parenthetical count. It is what makes the parity checkable by someone who is not re-reading both files.
+
+**The derivation is mechanical, so it belongs at scaffold close.** Enumerate the task's terminal branches from its Execution Steps, enumerate the anchor's accepted outcomes, and compare the two sets. A mismatch in either direction is a scaffold-time failure:
+
+| Direction | What it means | Fix |
+|-----------|---------------|-----|
+| Anchor accepts fewer than the task produces | The gate fails a correct execution | Widen the anchor to the task's full branch set |
+| Anchor accepts more than the task produces | The extra branches are unreachable, so the gate is looser than it reads | Narrow the anchor, or add the missing task branch if the task is the incomplete one |
+
+**Set agreement is not count equality.** An anchor asserting that one set contains another must not be hardened into an equality of totals. A correct execution that produces a legitimate superset then fails a gate whose real claim it satisfied. See §10.8 trap 3.
+
+**Where the branch set is written more than once, all copies are derived from the task.** A plan typically states the outcome set in the task file, again in the Execution Input, and again in the Signoff anchor. The task file's Execution Steps are the source. The other two are copies, and a copy authored independently is how the sets drift apart.
+
+#### Reviewer Check 095 — Anchor Enumerates Fewer Outcome Branches Than Its Task Produces
+
+- **Severity / Role / Type:** WARNING (HIGH confidence) | Verification-Gate Reviewer | NEW
+- **What:** A mechanical anchor, exit criterion, or Execution Input gate MUST accept every terminal outcome its owning task's Execution Steps can produce. An anchor accepting a strict subset fails a correct execution.
+- **Severity rationale — this class false-FAILs, so it is a WARNING, not a BLOCKER.** The defects in §10.2 hide *incorrect* work behind a gate that cannot fail. This one rejects *correct* work. A false-FAIL is visible at the moment it fires and recoverable by hand, so the class sits a tier below the vacuous-gate family whatever the criterion's status. Escalate to ERROR on one condition only: the anchor's rejection leaves the runner no accepted outcome to record, so the run must either halt or manufacture a result. That is the point at which a reporting defect becomes a data-integrity one.
+- **Detection:**
+  1. Open the owning task file's Execution Steps and enumerate its terminal outcomes — every branch that ends the step rather than continuing it. Include zero-hit, nothing-to-do, and already-resolved branches.
+  2. Open every artifact carrying an anchor for that task: the Signoff Mechanical Anchor Checks table, the exit criteria, and the Execution Input's own gate blocks.
+  3. Compare the two sets. Accepted set smaller than the task's → WARNING, escalating to ERROR where no accepted outcome remains for the branch the task will actually produce.
+  4. Accepted set larger → WARNING. Either the extra branches are unreachable, or the task is missing a branch it should define.
+  5. An anchor asserting set membership (`⊇`) whose expectation is written as a count equality → WARNING. A correct superset fails it.
+  6. Where two artifacts state the same branch set and disagree with each other, report against the task file's Execution Steps as the source, never against whichever copy is in the majority.
+- **Finding template:**
+```
+[WARNING] Anchor accepts fewer outcome branches than its task produces
+File: {anchor file path} | Location: {anchor row / exit criterion number}
+Issue: Task {task id} Execution Steps define {N} terminal outcomes ({list}); anchor accepts {M} ({list}) — the measured-and-expected outcome `{branch}` is not accepted, so a correct execution FAILs this gate
+Fix: Widen the anchor to accept all {N} branches and carry the count inline, per references/verification-task-authoring.md §10.7 | Confidence: HIGH
+```
+
+### 10.8 Four command semantics that make a well-formed gate mean something else
+
+The gates in this family are not vacuous and not narrow. They are well-formed commands that do not measure what their author read them as measuring. A pre-edit annotation does not catch them, because the annotation records the same misread value.
+
+Check all four before a gate ships:
+
+| # | Trap | What the author assumed | What the command does |
+|---|------|-------------------------|-----------------------|
+| 1 | `grep -c` counts matches | One count per occurrence | Counts matching **lines**. A `≥ 2` threshold over a two-phrase alternation false-fails a file naming both phrases on one line. Use `grep -o … \| wc -l` when occurrences are the subject. |
+| 2 | `-B1` / `-A1` / `-C1` emit context only | The output holds only surrounding lines | The output holds the match line **as well**. A count over context output includes every match, so a per-hit budget is off by the hit count. |
+| 3 | Set membership hardened into count equality | `expected ⊆ actual` and `count(actual) == count(expected)` agree | They disagree on every correct superset. Assert the membership the criterion actually claims, one member per assertion, per §2. |
+| 4 | A path resolves from wherever the runner stands | The anchor runs from the plan folder, or the repo root | It runs from the cwd the anchor's **own table header** declares. A plan-relative path under a repo-root header fails unconditionally, and the criterion FAILs work that passed. |
+
+> [!constraint] Resolve every path in an anchor against the cwd its own table declares
+> WRONG — the table header declares the plugin repo as cwd, and the row runs a path relative to the session folder. It cannot resolve, so the anchor fails on every execution:
+> ```markdown
+> Run all anchors from `{repo}/`.
+> | 2 | {criterion} | `test -f Outputs/{Report}.md` | PASS / FAIL |
+> ```
+> CORRECT — the path is written from the declared cwd, or the header carries a stated exception for the row:
+> ```markdown
+> | 2 | {criterion} | `test -f {plan_path}/{Session}/Outputs/{Report}.md` | PASS / FAIL |
+> ```
+> Trap 4 is the cheapest of the four to catch and the easiest to miss, because the anchor reads correctly in the task file it was drafted beside.
+
+Trap 1 is additionally detected mechanically by `scripts/lint_verification_gates.py`. Traps 2, 3 and 4 are authoring-side checks with no linter coverage — run them by hand at scaffold close.
 
 ---
 

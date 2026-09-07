@@ -57,11 +57,32 @@ For each exit criterion, document the mechanical anchor (grep / SQL / file prese
 >
 > The `verified-absent` class is the usual cause of a mismatch. Read the Sprint Plan's stated ledger treatment for that class. Never infer it. See `references/exit-criteria-fidelity.md` §16.10.5.
 
-| # | Exit Criterion (verbatim) | Mechanical Anchor | Result |
-|---|---------------------------|-------------------|--------|
-| 1 | {Criterion 1 verbatim} | `grep -c "{pattern}" {file}` (expect: ≥ 1) | PASS / FAIL |
-| 2 | {Criterion 2 verbatim} | `SELECT COUNT(*) FROM {table} WHERE …` (expect: ≥ {N}) | PASS / FAIL |
-| 3 | {Criterion 3 verbatim} | File exists: `{path}` | PASS / FAIL |
+> [!constraint] Every anchor is dry-run against the pre-change tree before it ships
+> An anchor written from the expected landed state has never been shown to discriminate. Run each one against the **pre-change** tree at scaffold close and record the value it returned in the Pre-Change column.
+>
+> **An anchor that PASSES pre-change is a scaffold-time failure, not a warning.** It returns the same verdict on an untouched tree as on a finished one, so nothing the sprint does or fails to do can move it. Rewrite it — raise the threshold past the measured baseline, or narrow the pattern to what the work introduces. Do not ship it with a caveat.
+>
+> The recorded pre-change value doubles as the Before baseline. An anchor asserting a delta ("unchanged vs Before", "Before + 1") without one cannot be computed, and a runner then reports the absolute number and calls it PASS.
+>
+> A preservation anchor, where `pre == post` is the intended outcome, is exempt — write `invariant: {N}` in the Pre-Change cell instead of a bare value. See `references/verification-task-authoring.md` §10.
+
+> [!constraint] Each anchor accepts every terminal outcome its owning task can produce
+> Enumerate the owning task's terminal branches from its Execution Steps, then check that this anchor accepts all of them. Carry the count in the Branches column as `{accepted}/{task}`.
+>
+> The two numbers MUST match. An anchor accepting fewer fails a correct execution, and the runner must halt or manufacture an outcome the anchor will take. Zero-hit, nothing-to-do, and already-resolved branches are the ones most often dropped, and they are frequently the expected outcome.
+>
+> Never harden a set-membership claim into an equality of counts — a correct superset then fails a gate whose actual claim it satisfied. See `references/verification-task-authoring.md` §10.7.
+
+Before recording any Result, check each anchor's command against the four traps in `references/verification-task-authoring.md` §10.8: `grep -c` counts matching **lines** rather than matches, `-B1`/`-A1` emit the match line itself, a set-membership claim must not become a count equality, and every path MUST resolve from the cwd this table's own header declares.
+
+| # | Exit Criterion (verbatim) | Mechanical Anchor | Pre-Change | Branches | Result |
+|---|---------------------------|-------------------|-----------|----------|--------|
+| 1 | {Criterion 1 verbatim} | `grep -c "{pattern}" {file}` (expect: ≥ 1) | 0 | 2/2 | PASS / FAIL |
+| 2 | {Criterion 2 verbatim} | `SELECT COUNT(*) FROM {table} WHERE …` (expect: ≥ {N}) | {measured} | {a}/{b} | PASS / FAIL |
+| 3 | {Criterion 3 verbatim} | File exists: `{path}` | absent | 1/1 | PASS / FAIL |
+
+**Pre-Change** — the value the anchor returned against the pre-change tree, or `invariant: {N}` for a preservation anchor. A value that already satisfies the anchor's expectation is a failure to fix, not a result to record.
+**Branches** — `{outcomes this anchor accepts}/{terminal branches the owning task defines}`. The two MUST be equal.
 
 ---
 
