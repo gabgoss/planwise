@@ -1,11 +1,11 @@
 ---
-description: Empirical verification discipline — measure the live, whole-surface truth instead of trusting a secondary, stale, or projected reading; wc-l line-count authority, broad-gate-over-audit-list authority, metric reconciliation, doctrinal-claim sweeps, markdown-field normalization, idempotent-append safety, and gate-input-set verification (§8.1-§8.7). Behavior-change surface sweeps (§8.8) live in measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md
+description: Empirical verification discipline — measure the live, whole-surface truth instead of trusting a secondary, stale, or projected reading; wc-l line-count authority, broad-gate-over-audit-list authority, metric reconciliation, doctrinal-claim sweeps, markdown-field normalization, idempotent-append safety, gate-input-set verification (§8.1-§8.7), and recorded-figure provenance — drift, absent derivation, expired projection (§8.9). Behavior-change surface sweeps (§8.8) live in measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Measurement Discipline — Measure It, Don't Infer It
 
-**Purpose:** §8 Empirical Verification Discipline, split out of [verification-gates.md](verification-gates.md) (§1-§7 stay on that anchor). The cross-cutting "measure it, don't infer it" counterpart to that file's cross-process/build/runtime gate discipline — eight cases where an agent or planner trusted a secondary, stale, or projected representation of reality instead of measuring the live, whole-surface truth. This file carries §8.1–§8.7; §8.8 and Reviewer Check 076 were split out to [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md) when this file crossed the Read-tool token gate.
+**Purpose:** §8 Empirical Verification Discipline, split out of [verification-gates.md](verification-gates.md) (§1-§7 stay on that anchor). The cross-cutting "measure it, don't infer it" counterpart to that file's cross-process/build/runtime gate discipline — eight cases where an agent or planner trusted a secondary, stale, or projected representation of reality instead of measuring the live, whole-surface truth. This file carries §8.1–§8.7 and §8.9; §8.8 and Reviewer Check 076 were split out to [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md) when this file crossed the Read-tool token gate.
 
 ---
 
@@ -367,6 +367,133 @@ Fix: Add a pre-edit-derived conservation gate (`for s in '<coordinate>' '<exact 
 **Moved.** §8.8 and Reviewer Check 076 now live in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md), split out when this file crossed the Read-tool token gate. The content is unchanged: sub-rules A–C (update the structured field, not just the prose beside it; a detection plus a repair is not a remediation until something routes between them; a previously-unreachable branch is unproven code) and sub-rules D–E, their data-cleanup counterpart (Grep for the instruction that regenerates the defect, not only for its instances; migrate the value FORM, not just the key).
 
 §8.7 above asks whether a gate can fail. §8.8 asks the prior question — whether the change was even applied everywhere it is stated.
+
+### 8.9 A gate's recorded figure needs its own verification, separate from its reading
+
+Every verification gate compares two things: a **live reading** of an artifact and a **recorded figure** the reading is compared against. §8.1–§8.8 harden the left-hand side — measure with `wc -l` rather than a Read-output line number, prefer the broad gate to an audit's enumerated list, assert the input set before trusting the predicate, sweep every surface the change touches. None of them touches the right-hand side. **Re-measuring the artifact validates the reading and says nothing about the figure.**
+
+The figure fails in three independent ways, and their remedies do not substitute for each other:
+
+| Sub-rule | The figure was… | What catches it |
+|---|---|---|
+| A | right when written, and drifted | re-measuring it at execution time |
+| B | never derived at all | tracing its provenance to an origin |
+| C | derived correctly, then invalidated by a later decision | checking its as-of date against decisions since |
+
+Re-measurement fixes A and is useless against B and C. A fabricated threshold is never stale, and staleness is what re-measurement detects. A documented derivation stays internally consistent while the world it modelled moves on. Write the three to compose; a merged "check your numbers" rule loses exactly the distinction that makes them worth stating.
+
+> [!constraint] Sub-rule A — Re-measure every scaffold-time figure a gate depends on, at execution time
+> **Scope: figures a command compares against**, not figures in prose — a pre-edit baseline, a file line count, a symbol or call-site count, an expected file-set size, a size or count band. A narrating figure is harmless when stale. A figure a predicate reads decides PASS or FAIL.
+>
+> The drift is not symmetric, and the silent direction is the common one:
+>
+> | Drift direction | Symptom | Detected? |
+> |---|---|---|
+> | Stated baseline **higher** than live | Gate demands work that does not exist | Loud — the task cannot satisfy it |
+> | Stated baseline **lower** than live | Gate is satisfied early; the remainder is never swept | **Silent — reads as PASS** |
+>
+> A baseline of 3 against a live 14 produces a green run that inspected 21% of the surface. Both figures were measured correctly on the day the plan was scaffolded.
+>
+> **The gate's own Before command IS the re-measurement.** Run it at preflight, before dispatch — not at execution, where the task is already committed to the number. When a figure disagrees with the live artifact, correct the task file, the execution input, and every verbatim quote of the figure **together**. A partial correction creates a second defect: two documents that disagree while each claims to be the same figure.
+>
+> Record the **cause**, not just the new number.
+>
+> WRONG — a corrected number with no auditable reason:
+> ```
+> Baseline: 14, not 3.
+> ```
+> CORRECT — the correction carries what moved, so the next reader can check it:
+> ```
+> Baseline: 14 — two sub-rules entered the anchor after the plan was scaffolded.
+> Measure live before relying on it.
+> ```
+>
+> Two corollaries:
+>
+> - **Exposure scales with the scaffold-to-execution gap.** The longer a plan waits between scaffolding and dispatch, the more of it is fiction. A plan scaffolded for many sprints in one pass carries the widest gap on its last sprint — which is also the sprint whose figures nobody re-reads.
+> - **When the drift ADDED structure, conserve by NAME, not by count.** A size band passes a result that silently dropped two sections and gained two others, because a band only knows totals. Diff the name set — heading names, section numbers, symbol names — against the pre-image. That is the only check that sees a substitution.
+
+> [!constraint] Sub-rule B — A threshold that cites no derivation cannot be caught by re-measurement
+> The tell is **not an old figure — an underived one.** Every reading of the artifact can be accurate, every reading recorded, and every one compared against a number nobody ever measured. Three sessions measured one file at 553, then 646, then 717 lines; all three readings were correct, and all three missed that the `≤700` they were compared against had a single origin — one scaffold-time courtesy carve-out — and no measurement behind it anywhere.
+>
+> The two kinds read identically in running prose. One sentence can carry four numbers, two traceable to a measured tool constant and two traceable to nothing:
+>
+> ```
+> "Keep the file under 700 lines; the reader refuses above 262,144 bytes and
+>  its page caps at 25,000 tokens, so split anything past 2,000 lines."
+>   ^^^ underived        ^^^^^^^ measured        ^^^^^^ measured   ^^^^^ underived
+> ```
+>
+> Ask of any threshold: **what measurement produced this, and can I re-run it?** If the answer is "it has always been the number", it is a habit, not a gate.
+>
+> 1. **A threshold ships with its derivation, or it is labelled advisory.** One clause naming the measurement is enough. Without it the figure is an opinion wearing a gate's clothes.
+> 2. **Trace provenance BEFORE escalating a breach** — always before proposing a structural change or putting a decision to the user. Splitting a file cited from three handlers is expensive; proving the number that demanded the split is not.
+> 3. **A flag citing a previous flag is not provenance.** Follow the chain to a measurement or to the origin sentence. A number forwarded three times has been verified zero times, and by the fourth forward it carries three sprints of apparent authority, all of it circular.
+> 4. **When a real gate sits beside an invented one, prefer the real one.** Report the advisory overshoot **with its headroom** — "17 lines over the advisory target, with 78% byte and 57% token headroom against the binding gates" — never as a bare count. A bare count invites the next session to re-escalate the same non-problem.
+> 5. **Correct the propagation, not just the instance.** Mark every superseded flag, so downstream inherits the correction instead of re-litigating it.
+>
+> One cheap sanity check closes most breaches: if a sibling artifact 526 lines larger has been shipping untouched the whole time, the threshold is not the constraint anyone believes it is.
+
+> [!constraint] Sub-rule C — A projection promoted to a criterion expires on the next decision
+> Distinguish this from sub-rule B in one line: **there the derivation never existed; here it was documented and correct when written.**
+>
+> Three ordered questions for a missed numeric criterion:
+>
+> 1. **Is it a constraint or a projection?** A *constraint* has an external basis — a context-window size, a byte cap, an API limit. A *projection* is arithmetic over the thing being built. The tell is a derivation in the criterion's own text (`543 measured + 73-line head + re-export block`). **A projection cannot be violated, only wrong.**
+> 2. **What is its as-of date, and what has been decided since?** Any approved change that adds mass to the measured artifact silently invalidates it — replacing silent fallbacks with loud failure guards, added logging, a stricter error-handling convention. Nobody re-derives an estimate once it has been promoted to a criterion.
+> 3. **Is the overshoot explained by that decision quantitatively?** Measuring that 7 guarded blocks span 138 lines where plain imports would run ~25 accounts for ~110 lines of residual — the entire overshoot. That step converts an argument into arithmetic.
+>
+> Handling rules once the answer is in:
+>
+> - **Present options with the causal finding, never the bare miss.** "Over by 110" invites trimming. "Over by 110, all of it the loud-failure guard convention approved three days after the band was computed" invites a decision.
+> - **Never let a runner improvise against a stale number.** A frozen interface contract outranks every size target.
+> - **Amend the narrowest clause actually invalidated.** A residual figure can move while a per-module ceiling does not.
+> - **Record provenance inline at every echoing site**, in the amended figure itself:
+>
+>   WRONG — the amended number, alone, at one of five echoing sites:
+>   ```
+>   # Residual target ~810 lines
+>   ```
+>   CORRECT — the amendment carries what moved it, at every site that echoes it:
+>   ```
+>   # Residual target ~810 lines (was ~700; +110 for the loud-failure guard
+>   # convention approved {date} — 7 guarded blocks, 138 lines vs ~25 plain).
+>   ```
+
+> [!verify] Trace a threshold to its origin before acting on it
+> ```
+> # 1. ORIGIN. Search the shipped artifact and the plan tree for the figure.
+> #    The FIRST appearance is the origin — read its whole sentence, because a
+> #    derivation is a clause, not a number.
+> Grep  pattern='{threshold}'  path='{artifact root}'  output_mode='content'  -n=true
+> Grep  pattern='{threshold}'  path='{plan tree}'      output_mode='content'  -n=true
+>
+> # 2. COMPARISON. Measure the same artifact against the gates that DO carry a
+> #    derivation, and report headroom rather than a bare overshoot.
+> python "{plugin_root}/scripts/measure_files.py" --model {model} --content dense-md {file}
+>
+> # 3. SANITY. Is a larger sibling already shipping without incident?
+> wc -l {sibling files}
+> ```
+> A figure whose step 1 returns only forwarding citations — each one pointing at the last — has no origin. Derive it or label it advisory. A figure whose step 2 shows the binding gates with headroom is an advisory target, not a breach.
+
+#### Reviewer Check 086 — Numeric Gate Stated Without a Derivation
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** A numeric threshold a plan uses as a **binding gate** MUST carry its derivation — the measurement that produced it, or a named external basis (a tool's documented cap, a byte limit, an API limit) — in its own text. A threshold whose text cites only a previous flag, a previous sprint, or nothing at all is underived, and no amount of re-measurement can detect that: re-measurement compares live state against the recorded figure and validates only the live state. The same check covers the expiry case — a size or count criterion that DOES carry a computed derivation, but whose as-of date precedes a decision recorded later in the same plan that adds mass to the measured artifact. Both ship a number no correct execution can be judged against.
+- **Detection:**
+  1. Collect every numeric threshold the plan states as a gate — a Success Criterion predicate, an Expected Output band, a "MUST be under N" clause, a cross-sprint flag carrying a figure.
+  2. For each, read the sentence carrying it. Present derivation (`{N} measured + {M} added`), or a named external basis? Absent both → WARNING.
+  3. Where the only stated authority is another flag or a prior sprint, follow the chain. A chain terminating in another citation rather than a measurement → WARNING (name the forwarding depth).
+  4. For a threshold that DOES carry a derivation: compare its as-of date against decisions recorded later in the plan. A later approved change that adds mass to the same artifact, with the figure unamended → WARNING.
+  5. Check that a stated overshoot against an advisory threshold is reported with headroom against the binding gates, not as a bare count. Bare count → WARNING.
+- **Finding template:**
+```
+[WARNING] Numeric gate stated without a derivation
+File: {plan or task file path} | Location: {Success Criteria | Expected Output | coordination flag}
+Issue: Threshold {N} used as a binding gate carries {no derivation | only a citation of {prior flag}, forwarded {depth} times | a derivation dated {date}, superseded by {decision} recorded later in this plan}
+Fix: Trace the figure to a measurement or to its origin sentence and inline the derivation; where no origin exists, label it advisory and gate on the thresholds that carry one, reporting overshoot with headroom per references/measurement-discipline.md §8.9 | Confidence: MEDIUM
+```
 ---
 
 *Cross-references: [verification-gates.md](verification-gates.md) (§1-§7 — cross-process/build/runtime gate discipline this section generalizes from; split anchor, keeps the original filename).*

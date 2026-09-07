@@ -610,6 +610,21 @@ Issue: row asserts "{claim}" with no measured value + date; live re-derivation s
 Fix: Re-run the assertion against the live artifact and record the measured value + date inline, per references/scaffolding-hygiene.md §12.3 | Confidence: HIGH
 ```
 
+### 12.5 Re-Measure Every Gate-Bound Figure at Preflight, Before Dispatch
+
+§12.3 re-derives a row that *asserts* a state. This one covers the figure a gate *compares against*. The two differ in who reads them: a stale assertion misleads a human, while a stale gate figure decides PASS or FAIL with nobody in the loop. A baseline stated lower than live satisfies its gate early and leaves the remainder unswept — a green run over a fraction of the surface, with no symptom.
+
+> [!checklist] Preflight — Gate-Bound Figures
+> Run this after scaffolding and immediately before dispatch, once per session, over every gate whose predicate compares against a stated figure (a pre-edit baseline, a file line count, a symbol or call-site count, an expected file-set size, a size or count band):
+>
+> - [ ] Every such gate identified, and its **Before command re-run** against the live artifact. The gate's own Before command IS the re-measurement — no separate instrument is needed.
+> - [ ] Every disagreeing figure corrected in **all** its copies together — the task file, the Execution Input, and every verbatim quote of it. A partial correction ships two documents that disagree while each claims to be the same figure.
+> - [ ] Each correction records the **cause**, not just the new value ("14 — two sub-rules entered the anchor after scaffolding", not "14, not 3").
+> - [ ] Every figure with **no derivation in its own text** traced to an origin, or demoted to advisory. A figure whose only stated authority is another flag has been forwarded, not verified.
+> - [ ] Any figure that IS derived checked against decisions taken since its as-of date. An approved change that adds mass to the measured artifact invalidates the number without touching it.
+
+The longer the gap between scaffolding and dispatch, the more of the plan is fiction. A plan scaffolded for many sprints in one pass carries the widest gap on its last sprint, which is also the sprint whose figures nobody re-reads.
+
 ---
 
 *Nine binding hygiene rules plus three advisory practices for what a multi-sprint scaffold emits — Part 1 of 2. The five derivation-and-parallelism rules (§13–§17) live in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md). Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*
