@@ -626,10 +626,12 @@ def _sweep_settings_grants(cfg: "InitConfig") -> list[dict]:
                                                       on disk.
       "version-pinned dangling or orphan-marked"    — names a version-pinned
                                                       child that no longer
-                                                      exists, or exists but
-                                                      is superseded by the
-                                                      currently-pinned
-                                                      version.
+                                                      exists, still exists but
+                                                      carries an `.orphaned_at`
+                                                      marker (the reaper will
+                                                      collect it), or exists
+                                                      and is superseded by the
+                                                      currently-pinned version.
     Only the latter two are returned — findings needing normalization.
     Entries outside the plugin-cache path family (unrelated user grants) are
     never touched or reported. This is DISTINCT from the Preflight plugin
@@ -657,12 +659,22 @@ def _sweep_settings_grants(cfg: "InitConfig") -> list[dict]:
             if not _grant_covers(family_root, entry):
                 continue  # outside the plugin-cache path family — untouched
             entry_path = Path(entry)
-            if _norm_path(entry) == _norm_path(live_root) and entry_path.exists():
-                klass = "version-pinned live"
-                detail = "still the currently-pinned version"
-            elif not entry_path.exists():
+            # Order matters. Existence first, then the orphan marker, then
+            # liveness. The cache manager marks a superseded version with an
+            # `.orphaned_at` file rather than deleting it at once, so a
+            # marked directory is one the reaper will collect — reporting it
+            # as merely "superseded", or worse as "live" when the config
+            # still pins it, understates a grant that is about to dangle.
+            if not entry_path.exists():
                 klass = "version-pinned dangling or orphan-marked"
                 detail = "path does not exist"
+            elif (entry_path / ".orphaned_at").exists():
+                klass = "version-pinned dangling or orphan-marked"
+                detail = ("carries an .orphaned_at marker — the cache reaper will "
+                          "collect this directory, and the grant dangles when it does")
+            elif _norm_path(entry) == _norm_path(live_root):
+                klass = "version-pinned live"
+                detail = "still the currently-pinned version"
             else:
                 klass = "version-pinned dangling or orphan-marked"
                 detail = f"superseded by the currently-pinned {live_root}"

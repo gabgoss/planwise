@@ -533,6 +533,13 @@ After a successful upgrade, read the project's `.claude/settings.json` (and `.cl
 > [!practice] Target shape — cross-referenced, not restated
 > Grant the plugin-family root once, version-agnostic, never a version-pinned leaf. This doctrine is already landed prose — see `handlers/init-fallback.md`'s grant step ("Apply parent-aware, normalized dedup before modifying `additionalDirectories`") and `handlers/init.md`, which references the same grant. This step is the upgrade-time audit/offer sequel to that init-time writer, not a second, differently-worded copy of its rule.
 
+> [!hazard] A stale grant misdirects reads long before it dangles
+> A version-pinned grant does not simply stop working. While the pinned directory still exists, it makes the OLD version's tree the naturally-accessible one. A session that compares an installed artifact against "the shipped reference" can therefore read the superseded copy and never notice. The content it gets is plausible and outdated, which is harder to catch than an outright failure — the comparison has to be redone once someone spots it.
+>
+> The dangling failure arrives later, and separately. The plugin cache manager marks a superseded version with an `.orphaned_at` file rather than deleting it at once. When the reaper collects that directory, the grant points at nothing and the project loses plugin-file access entirely. That detonates days after the upgrade that caused it, far from any signal connecting the two.
+>
+> Both harms share one remedy, which is why this step classifies live pins and dangling pins alike rather than only the broken ones. The family root covers every version, survives every upgrade, and needs no refresh.
+
 Classify every matching entry:
 
 | Class | Shape | Offered action |
@@ -542,6 +549,18 @@ Classify every matching entry:
 | `version-pinned dangling or orphan-marked` | Entry names a version-pinned child directory that no longer exists on disk, or exists but is superseded by the currently-pinned version | Offer normalization to the parent grant, naming the dangling/orphaned path |
 
 The **report always renders**, regardless of consent — every matching entry and its class is printed even when the user declines to act. The **write happens only on explicit interactive approval**: `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`), inferred default **report-only, change nothing** (stated inline — an unattended/non-interactive run never rewrites `additionalDirectories`). On confirm, apply the same parent-aware, normalized dedup the init-time writer uses — prune the superseded version-pinned entries, append the family root — then read the file back to confirm the write landed. On decline, or when no interactive answer is available, print the report and leave every settings file untouched.
+
+A report that only names the problem leaves an unattended run with nowhere to go, so the report carries its own remedy. After the entry list, print the exact `additionalDirectories` value the settings file should hold — the family root, with the pinned entries dropped:
+
+```json
+"permissions": {
+  "additionalDirectories": [
+    "{plugin_family_root}"
+  ]
+}
+```
+
+Preserve every entry outside the plugin-cache path family in that snippet. Only the pinned children are replaced, never a user's unrelated grant. This is what makes the headless path complete: it reports, it shows the target state, and it changes nothing.
 
 When no `additionalDirectories` entry falls in the plugin-cache path family at all (a pre-parent-aware-writer install, or the family root is already the only entry present), report "No plugin-cache grants found needing normalization." and skip the offer — there is nothing to act on.
 

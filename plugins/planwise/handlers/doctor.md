@@ -522,10 +522,17 @@ documented at `handlers/init-fallback.md`'s grant step / `handlers/init.md`:
 - **version-pinned live** — the entry names a version-pinned child directory
   that still exists on disk. Reported with a normalization recommendation.
 - **version-pinned dangling or orphan-marked** — the entry names a
-  version-pinned child directory that no longer exists on disk, or that
-  exists but is superseded by the currently-pinned version. Reported with
-  the dangling/orphaned path named and the same normalization
-  recommendation.
+  version-pinned child directory that no longer exists on disk, that still
+  exists but carries an `.orphaned_at` marker, or that exists and is
+  superseded by the currently-pinned version. Reported with the
+  dangling/orphaned path named and the same normalization recommendation.
+
+The three conditions are tested in that order, and the marker check outranks
+liveness deliberately. The plugin cache manager marks a superseded version
+with an `.orphaned_at` file rather than deleting it at once, so a marked
+directory is one the reaper will collect. Reporting it as merely superseded —
+or as `version-pinned live`, which is what a config still pinning it would
+otherwise produce — understates a grant that is about to dangle.
 
 Print verbatim:
 

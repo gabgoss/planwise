@@ -135,6 +135,43 @@ class TestSettingsGrantSweep(unittest.TestCase):
             findings[0]["detail"], f"superseded by the currently-pinned {self.live_root}"
         )
 
+    def test_orphan_marker_is_named_in_the_detail(self):
+        """The cache manager marks a superseded version with `.orphaned_at`
+        rather than deleting it at once, so a marked directory is one the
+        reaper will collect. The class name promises this check; without it
+        the detail reads 'superseded', which understates the deadline."""
+        stale = self.plugin_root.parent / "1.0.2"
+        stale.mkdir(parents=True, exist_ok=True)
+        (stale / ".orphaned_at").write_text("2026-07-08T09:05:00\n", encoding="utf-8")
+        self._write_settings(self.settings_path, [str(stale)])
+
+        findings = doctor_cli._sweep_settings_grants(self.cfg)
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["klass"], "version-pinned dangling or orphan-marked")
+        self.assertIn(".orphaned_at", findings[0]["detail"])
+        self.assertNotIn("superseded", findings[0]["detail"])
+
+    def test_orphan_marker_outranks_liveness(self):
+        """A config can still pin a root the reaper has already marked. That
+        grant is about to dangle, so reporting it as `version-pinned live`
+        would be the worst of the three answers."""
+        (self.plugin_root / ".orphaned_at").write_text("2026-07-08T09:05:00\n", encoding="utf-8")
+        self._write_settings(self.settings_path, [self.live_root])
+
+        findings = doctor_cli._sweep_settings_grants(self.cfg)
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["klass"], "version-pinned dangling or orphan-marked")
+        self.assertIn(".orphaned_at", findings[0]["detail"])
+
+    def test_an_unmarked_live_root_is_still_classified_live(self):
+        # Contrast case for the two above: without the marker, the same
+        # entry keeps its original classification.
+        self._write_settings(self.settings_path, [self.live_root])
+        findings = doctor_cli._sweep_settings_grants(self.cfg)
+        self.assertEqual(findings[0]["klass"], "version-pinned live")
+
     # ------------------------------------------------------------------
     # Entries outside the plugin-cache path family are never touched or
     # reported.
