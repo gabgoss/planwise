@@ -270,6 +270,8 @@ Use these tables to compute bottom-up token estimates for each task.
 | Read 15 KiB file | ~5-6K | Medium file |
 | Read 30 KiB file | ~10-12K | Large reference doc or entity |
 | Read 60 KiB file | ~20-23K | At/near the 22K token warn — page it or split it |
+| Read a section span (`§X`–`§Y`) | bytes of the resolved range ÷ 2.6–3.3 | Resolve both headings in the live file first; where the last section runs to EOF the span is the range to EOF, not to an assumed next heading |
+| Consume a command corpus (`Grep` family, file-set loop, script report) | returned bytes ÷ 2.6–3.3 | **Not a file — no file measurement prices it.** Dry-run the command once at its declared scope and price the volume it returned; price each command family separately |
 
 **Output Generation Costs:**
 

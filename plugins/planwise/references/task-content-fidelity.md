@@ -502,6 +502,73 @@ Cross-reference: `measurement-discipline.md` §8.6 covers cross-route APPEND saf
 Catalog row: "Duplicate assertion label within a task file" → ERROR.
 Catalog row: "Assert-vs-report disposition mismatch for one label across two files" → ERROR.
 
+### 9.A.14 Measure every Required Context row at scaffold close
+
+> [!constraint] Measurement is applied at ROW grain, in a sweep at scaffold close — never per file at authoring time
+> A measurement convention applied per *file*, at the moment its author is thinking about that file, reaches the surfaces in view and defaults silently everywhere else. The default is invisible: the unmeasured rows carry the same cell shape as the measured ones. It recurs within a single task, and across tasks of one sprint written by one author in one sitting.
+>
+> The convention is therefore applied as a **sweep over every row**, run at scaffold close — after every task file exists, before the plan is committed. Each row's `KiB` / `~Tokens` cells come from `measure_files.py` (or `wc -c` ÷ the §9.A.3 content-class ratio) run against **the span that row actually cites**. Not from a rate applied to a guessed size. Not from a figure carried across from a sibling row.
+>
+> Nothing in this sweep is a judgement call. Every figure is one measurement away, and the sweep is complete when every row has one.
+
+**Rows citing a section span are measured as a span, not as a section-sized guess.** A row reading `§X + §Y` names a byte range, not a file. Resolve both headings against the live file and measure the range they bound. The case that produces the largest misses is a span whose last section **runs to EOF**: an author assumes it ends at the next heading, no next heading exists, and the row is priced at a fraction of the real span.
+
+The error runs in both directions, so the check is symmetric. A span measured at most of its file is a full-file read under another name — and on a plan whose discipline is scoped reading, a row that says "scoped" while costing a full read defeats the discipline it appears to honour. Say so in the row instead.
+
+> [!constraint] Span rows carry their resolution
+> WRONG — a two-section span priced from an assumed section length, with nothing recording how the figure was reached:
+> ```markdown
+> | 1 | {reference-file} §8.7 + §8.8 | ~4 | ~1.6K | {purpose} |
+> ```
+> CORRECT — both headings resolved against the live file, the span measured, and the EOF case named so a reviewer can repeat the resolution:
+> ```markdown
+> <!-- Span resolved {YYYY-MM-DD}: §8.7 at :{start} → §8.8 runs to EOF = {N} lines / {B} bytes -->
+> | 1 | {reference-file} §8.7–§8.8 (§8.8 runs to EOF) | {K} | ~{T}K | {purpose} |
+> ```
+> When the resolved span covers most of the file, the row says **full read** and is budgeted as one — an "~{N} of {N+16} lines scoped" row is a full read with a scoped label.
+
+**A command corpus is its own row type, and the only way to price it is to run it.** A row whose subject is a command's *output* — a `Grep` family, a loop over a file set, a script's report — is not a file, and no file measurement prices it. It MUST be dry-run once at scaffold close and priced from the volume that run actually returned.
+
+This row type has no size intuition to fall back on, which is why it is the one most often left unmeasured. A classification pass over a mid-size tree routinely returns several times what an author would guess, and such rows habitually bundle several command families behind a single figure — so the under-estimate is multiplied by the number of families hidden in the row. A row of this shape lands most often on the highest-risk task in a sprint, where the budget margin matters most.
+
+> [!constraint] Command-corpus rows are dry-run and decomposed
+> WRONG — one figure covering five command families, none of them run:
+> ```markdown
+> | 1 | Grep-family outputs (F1 + F2 + F3 + F4 + F5) | — | ~6K | {purpose} |
+> ```
+> CORRECT — each family dry-run at its own declared scope, priced from the returned volume, with the run recorded so a reviewer can repeat it:
+> ```markdown
+> <!-- Dry-run {YYYY-MM-DD}: F1 over {scope} → {N} matched lines / {B} bytes -->
+> | 1 | Grep F1 over {scope} — {N} lines / {B} bytes returned | {K} | ~{T}K | {purpose} |
+> | 1 | Grep F2 over {scope} — {N} lines / {B} bytes returned | {K} | ~{T}K | {purpose} |
+> ```
+> Where one figure genuinely covers several families, the row states the per-family breakdown. A bundled total a reviewer cannot decompose is not a measurement.
+
+**An unmeasured size adjective is a scaffold-close failure.** `small`, `full (small)`, `read in full`, `scoped`, `brief`, `large` — standing in a `KiB` / `~Tokens` cell, a Purpose column, or a Notes-for-Agent line **in place of** a number — are the recurring tell that the row was never measured. Each MUST carry its measured figure beside it, or be replaced by it. The adjective is not forbidden; the adjective without the number is.
+
+The label decays independently of the file, which is what makes it worse than a stale number: a stale number can be compared against a fresh measurement and found wrong, while "small" stays plausible at any size. Two files carrying the same "full (small)" label routinely differ by 3×.
+
+#### Reviewer Check 084 — Required Context Rows Measured at Row Grain
+
+- **Severity / Role / Type:** WARNING (ERROR when the task's bottom-up estimate crosses a dispatch ceiling once corrected) | Task Reviewer | NEW
+- **What:** Every Required Context row MUST carry a measured figure for the span it cites. Four failure modes:
+  1. **Unmeasured row** — a row's `KiB` / `~Tokens` disagrees with a live `measure_files.py` measurement of the cited span by more than ±10%, while a sibling row in the same task is measured accurately (the half-applied-convention signature).
+  2. **Unresolved span** — a row citing `§X`/`§X + §Y` carries no span-resolution comment, or its figure matches a section-sized guess rather than the measured heading-to-heading range.
+  3. **Un-run command corpus** — a row whose subject is command output carries no dry-run record, or bundles multiple command families behind one undecomposed figure.
+  4. **Unmeasured size adjective** — a size adjective appears in a size cell, Purpose column, or Notes-for-Agent line with no measured figure beside it.
+- **Detection:**
+  1. For each row naming a file path: run `measure_files.py --model {assigned Agent}` on it and compare against the row's cells.
+  2. For each row naming a `§` anchor: resolve the heading(s) in the live file, measure the bounded range (to EOF where no next heading exists), and compare.
+  3. For each row whose subject is command output: check for a dry-run comment recording scope, returned line count and byte count.
+  4. Grep the task file for `\b(small|large|brief|scoped|full)\b` within Required Context rows and Notes-for-Agent; each hit must have a numeric figure on the same line.
+- **Finding template:**
+```
+[{WARNING|ERROR}] Required Context row not measured at row grain
+File: {task file path} | Location: Required Context row {N}
+Issue: {row cites {file} at {stated} against a measured {actual} (±{pct}%) while row {M} is measured | span {§X–§Y} unresolved — measured {N} lines to EOF against a stated ~{stated} | command-corpus row bundles {K} families with no dry-run | size adjective "{adj}" carries no measured figure}
+Fix: Re-run the row-grain sweep per references/task-content-fidelity.md §9.A.14 | Confidence: HIGH
+```
+
 ---
 
 ## Plan-Review Enforcement Summary
@@ -519,6 +586,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 7 | Action tier contradicts its own evidence tier | A derived status cell in the action tier disagrees with the evidence section's recorded observation for the same item | §9.A.11 |
 | 8 | Comparison task sized without reference coverage | A comparison/reconciliation task brief omits the reference-side coverage measurement that should set its size and shape | §9.A.12 |
 | 9 | Assertion label and validation cell not 1:1 | A task file enumerating validation cells carries no assertion-label ↔ cell-ID table; or a label appears twice within one task file; or one label's assert-vs-report disposition differs between two files | §9.A.13 |
+| 10 | Required Context row not measured at row grain | A row disagrees with a live measurement of the span it cites while a sibling row is measured; or a `§` span row carries no resolution; or a command-corpus row was never dry-run; or a size adjective stands in place of a number | §9.A.14 |
 
 For the Verify-Before-Cite checks (§9.B: cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / Pre-SQL verification), see [verify-before-cite.md](verify-before-cite.md)'s Plan-Review Enforcement Summary.
 

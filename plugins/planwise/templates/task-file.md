@@ -29,6 +29,23 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 |----------|------|----:|--------:|---------|
 | 1 | {file path} | {K} | ~{X}K | {why needed} {⚠ PAGED ≥25K {model}-tok / ⚠ REFACTOR ≥256 KiB — OPTIONAL read-handling annotation, Token Saver only} |
 | 2 | {file path} | {K} | ~{X}K | {why needed} |
+| 3 | {file path} §{X}–§{Y} ({§Y} runs to EOF) | {K} | ~{X}K | {why needed} — span row, see the resolution comment below |
+| 4 | Grep {family} over {scope} — {N} lines / {B} bytes returned | {K} | ~{X}K | {why needed} — command-corpus row, priced from the dry-run below |
+
+<!-- Row-grain measurement (per references/task-content-fidelity.md §9.A.14) — every row's figure is measured
+     against the span THAT ROW cites, in a sweep at scaffold close, after all task files exist:
+     - Span row (`§X`–`§Y`): resolve BOTH headings in the live file and measure the range they bound. Where the
+       last cited section runs to EOF, the span runs to EOF — not to an assumed next heading. Record the
+       resolution:   Span resolved {YYYY-MM-DD}: §{X} at :{start} → §{Y} runs to EOF = {N} lines / {B} bytes
+       A span covering most of its file is a full read: say `full read` and budget it as one.
+     - Command-corpus row: a command's OUTPUT is not a file and no file measurement prices it. Dry-run it once
+       at its declared scope and price the returned volume; price each command family as its own row. Record it:
+       Dry-run {YYYY-MM-DD}: {family} over {scope} → {N} matched lines / {B} bytes
+     - No unmeasured size adjective: `small`, `full (small)`, `read in full`, `scoped`, `brief`, `large` may not
+       stand in place of a number in a size cell, a Purpose column, or a Notes for Agent line. The adjective is
+       fine beside its measured figure; the adjective without it is a scaffold-close failure. -->
+<!-- Delete rows 3 and 4 above when the task cites no span and no command corpus. -->
+
 
 <!-- OPTIONAL read-handling annotation (Token Saver only): append to a row's Purpose for any file the doctor read-gate scan flagged.
      `⚠ PAGED ≥25K {model}-tok` — file is above the per-assigned-model 25K-token page cap; the runner MUST page it (offset/limit/Grep), it does NOT all arrive in one Read.
