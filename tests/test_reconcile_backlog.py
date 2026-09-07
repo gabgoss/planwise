@@ -31,11 +31,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import config_loader  # noqa: E402
+import reconcile_backlog  # noqa: E402
 from reconcile_backlog import detect_drift, reconcile  # noqa: E402
 from parse_backlog import parse_backlog_table  # noqa: E402
 
@@ -313,6 +315,62 @@ class TestEscapedPipeRows(_BacklogFixtureBase):
 
         self.assertEqual(result["drifts"], [])
         self.assertEqual(result["anomalies"], [])
+
+
+class TestMoveFailureOverlay(_BacklogFixtureBase):
+    """The classifier's per-file prediction (drift + needs_move -> "moved to
+    Archive") must be OVERLAID with the mover's actual per-file result once
+    archive_item_files has run, never trusted on its own. A row with two
+    drifted, needs-move files pins the overlay: one link's file is patched to
+    fail the move (simulating a raised exception -- permission error, locked
+    file, disk full), the other moves for real. The failing link must stay
+    unprefixed even though the classifier predicted success for it before the
+    mover ran; the succeeding sibling link in the same row must still gain
+    its Archive/ prefix.
+    """
+
+    def test_move_failure_overlay_keeps_that_link_unprefixed(self):
+        self.write_index(
+            "| 070 | Mixed move outcome | Medium | COMPLETE | INFRA | - | "
+            "[01](moves-fine-INFRA-item.md) [02](fails-to-move-INFRA-item.md) |\n"
+        )
+        self.write_item_file("moves-fine-INFRA-item.md", archived=False)
+        self.write_item_file("fails-to-move-INFRA-item.md", archived=False)
+
+        real_archive_item_files = reconcile_backlog.archive_item_files
+
+        def fake_archive_item_files(backlog_dir, archive_dir, filenames):
+            results = []
+            for filename in filenames:
+                if filename == "fails-to-move-INFRA-item.md":
+                    # Simulate shutil.move raising -- the file never moves.
+                    results.append((filename, False, "simulated move failure"))
+                else:
+                    results.extend(
+                        real_archive_item_files(backlog_dir, archive_dir, [filename])
+                    )
+            return results
+
+        with patch(
+            "reconcile_backlog.archive_item_files", side_effect=fake_archive_item_files
+        ):
+            written = reconcile(self.config)
+
+        self.assertEqual(written, 1)
+
+        # The genuinely-moved file is archived; the failed one never moved.
+        self.assertTrue((self.archive_dir / "moves-fine-INFRA-item.md").exists())
+        self.assertTrue((self.backlog_dir / "fails-to-move-INFRA-item.md").exists())
+        self.assertFalse((self.archive_dir / "fails-to-move-INFRA-item.md").exists())
+
+        rows = parse_backlog_table(self.read_index_text())
+        row = next(r for r in rows if r["id"] == "070")
+        paths = [f["path"] for f in row["files"]]
+        self.assertEqual(paths[0], "Archive/moves-fine-INFRA-item.md")
+        # Left byte-unchanged -- prefixing it would claim an archive that
+        # never happened.
+        self.assertEqual(paths[1], "fails-to-move-INFRA-item.md")
+        self.assertEqual(sum(1 for p in paths if p.startswith("Archive/")), 1)
 
 
 if __name__ == "__main__":

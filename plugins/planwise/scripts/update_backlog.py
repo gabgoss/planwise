@@ -117,10 +117,38 @@ def archive_item_files(
     return results
 
 
-def update_index_links_to_archive(content: str, item_id: str) -> str:
-    """Update file links in the index row to point to Archive/ subfolder."""
-    lines = content.split("\n")
+def update_index_links_to_archive(
+    content: str, item_id: str, results: list[tuple[str, bool, str]]
+) -> tuple[str, list[str], list[tuple[str, str]]]:
+    """Update file links in the index row to point to Archive/ subfolder.
 
+    Rewrites per LINK, not per row: a link is prefixed Archive/ only when
+    `results` — the archive_item_files-shaped (basename, success, message)
+    list, keyed on basename — reports success for that link's basename. A
+    link whose file was not successfully archived (file not found, or any
+    other failure including the exception path) is left byte-unchanged;
+    prefixing it would produce a path that can never exist. A link already
+    prefixed Archive/ is never matched by the regex and is left alone either
+    way, which is what keeps a second call idempotent.
+
+    A link's basename is looked up in `results` the same way the caller built
+    `results` in the first place — a link may be a bare filename or a longer
+    (possibly out-of-dir) relative path, but the mover only ever sees and
+    reports on basenames.
+
+    Returns (updated_content, rewritten, skipped):
+      * rewritten: basenames that gained the Archive/ prefix this call.
+      * skipped: (basename, reason) pairs left unchanged because their file
+        was not successfully archived.
+    """
+    success_by_basename = {
+        filename: (success, message) for filename, success, message in results
+    }
+
+    rewritten: list[str] = []
+    skipped: list[tuple[str, str]] = []
+
+    lines = content.split("\n")
     match = find_row_by_id(lines, item_id)
     if match is not None:
         i, cells = match
@@ -128,15 +156,28 @@ def update_index_links_to_archive(content: str, item_id: str) -> str:
         files_idx = _files_cell_index(cells) + _RAW_OFFSET
         if len(parts) > files_idx:
             files_cell = parts[files_idx]
+
+            def _rewrite_one(m: re.Match) -> str:
+                path = m.group(1)
+                basename = path.rsplit("/", 1)[-1]
+                success, message = success_by_basename.get(
+                    basename, (False, "not archived this run")
+                )
+                if success:
+                    rewritten.append(basename)
+                    return f"](Archive/{path})"
+                skipped.append((basename, message))
+                return m.group(0)
+
             updated_cell = re.sub(
                 r'\]\((?!Archive/)([^)]+)\)',
-                r'](Archive/\1)',
+                _rewrite_one,
                 files_cell,
             )
             parts[files_idx] = updated_cell
             lines[i] = "|".join(parts)
 
-    return "\n".join(lines)
+    return "\n".join(lines), rewritten, skipped
 
 
 def sync_yaml_status(item_file_path: Path, new_status: str) -> bool:
@@ -182,11 +223,13 @@ def reconcile_archival(
 
     Reads the index fresh, extracts the row's linked files, moves any still
     outside Archive/ (archive_item_files reports "already in Archive" for ones
-    already moved), then repoints any index link not already prefixed Archive/.
-    A linked file present in neither location is reported "file not found" — a
-    deleted/renamed anomaly is surfaced, never fabricated. Prints only what it
-    actually reconciled and writes the index only when a link changed, so a
-    second call on an already-archived item changes nothing and stays quiet.
+    already moved), then repoints only the index links whose file the mover
+    just reported successful. A linked file present in neither location is
+    reported "file not found" — a deleted/renamed anomaly is surfaced, never
+    fabricated, and its link is left byte-unchanged rather than prefixed onto
+    a path that cannot exist. Prints only what it actually reconciled and
+    writes the index only when a link changed, so a second call on an
+    already-archived item changes nothing and stays quiet.
 
     Returns True when it moved a file or rewrote a link, False otherwise.
     """
@@ -206,10 +249,17 @@ def reconcile_archival(
         prefix = "  +" if success else "  !"
         print(f"{prefix} {filename}: {message}")
 
-    relinked = update_index_links_to_archive(content, item_id)
+    relinked, rewritten, skipped = update_index_links_to_archive(content, item_id, results)
     if relinked != content:
         index_path.write_text(relinked, encoding="utf-8")
-        print("  Index links updated to Archive/")
+        total = len(rewritten) + len(skipped)
+        if skipped:
+            reasons = "; ".join(
+                f"'{name}' left unchanged: {reason}" for name, reason in skipped
+            )
+            print(f"  Index links updated to Archive/ ({len(rewritten)} of {total} — {reasons})")
+        else:
+            print(f"  Index links updated to Archive/ ({len(rewritten)} of {total})")
         changed = True
 
     return changed

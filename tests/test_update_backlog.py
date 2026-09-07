@@ -250,6 +250,62 @@ class TestEscapedPipeRows(_UpdateBacklogFixtureBase):
         self.assertEqual(self.row("062")["status"], "BLOCKED")
 
 
+class TestPerLinkArchivalGate(_UpdateBacklogFixtureBase):
+    """archive_item_files reports a per-file result; the index-link rewrite
+    must honor it per LINK, not blanket-prefix the whole row with one regex.
+    A row with one resolvable file and one unresolvable (out-of-dir) file
+    link pins both halves: the resolvable link gets Archive/, the
+    unresolvable one — the mover reports it "file not found" — is left
+    byte-unchanged rather than prefixed onto a path that can never exist.
+    """
+
+    MIXED_ROW = (
+        "| 141 | Mixed links | Medium | COMPLETE | INFRA | - | "
+        "[01](resolvable-INFRA-item.md) [02](../agents/backlog-planner.md) |\n"
+    )
+
+    def test_unresolvable_link_stays_unchanged_resolvable_gets_prefixed(self):
+        self.write_index(self.MIXED_ROW)
+        self.write_item_file("resolvable-INFRA-item.md", status="COMPLETE", archived=False)
+        # Intentionally no file at either resolution for the second link — it
+        # names a path outside the backlog dir, reproducing the "file not
+        # found" mover result an out-of-dir Files entry legitimately gets.
+
+        out = self.run_update("141", "COMPLETE")
+
+        self.assertIn("resolvable-INFRA-item.md: moved to Archive", out)
+        self.assertIn("backlog-planner.md: file not found", out)
+
+        paths = [f["path"] for f in self.row("141")["files"]]
+        self.assertEqual(paths[0], "Archive/resolvable-INFRA-item.md")
+        # The out-of-dir link is untouched — no Archive/ prefix on a path
+        # that can never exist.
+        self.assertEqual(paths[1], "../agents/backlog-planner.md")
+        # Exactly one Archive/-prefixed link in the row.
+        self.assertEqual(sum(1 for p in paths if p.startswith("Archive/")), 1)
+
+        self.assertTrue((self.archive_dir / "resolvable-INFRA-item.md").exists())
+        self.assertFalse((self.backlog_dir / "resolvable-INFRA-item.md").exists())
+
+        # The summary line states the split and names the skipped link + reason.
+        self.assertIn("Index links updated to Archive/ (1 of 2", out)
+        self.assertIn("backlog-planner.md", out.split("Index links updated")[-1])
+
+    def test_second_run_on_mixed_row_stays_idempotent(self):
+        self.write_index(self.MIXED_ROW)
+        self.write_item_file("resolvable-INFRA-item.md", status="COMPLETE", archived=False)
+
+        self.run_update("141", "COMPLETE")
+        after_first = self.read_index_text()
+
+        out = self.run_update("141", "COMPLETE")
+
+        # No double prefix, no unstable re-write on the already-healed link.
+        self.assertNotIn("Archive/Archive/", self.read_index_text())
+        self.assertEqual(self.read_index_text(), after_first)
+        self.assertIn("already in Archive", out)
+
+
 class TestBacklogCliSurface(_UpdateBacklogFixtureBase):
     """CLI-level behavior of main(): input validation and the --create path.
 

@@ -147,10 +147,21 @@ def reconcile(config: dict) -> int:
     are never touched — a deleted/renamed file is not fabricated.
 
     For each still-drifted row, moves any file still outside `Archive/` into it
-    and repoints any index link not already prefixed `Archive/`. Every other
-    column, the row's surrounding whitespace padding, and the file's original
-    line endings are preserved (read/write via reconcile_common's newline=""
-    helpers so a CRLF index round-trips untranslated, matching reconcile_plans'
+    and repoints only the index links whose file was actually confirmed in
+    `Archive/` — never an "anomaly" link, whose file exists in neither
+    location. The row-wide link rewrite is fed a per-file classification
+    rather than re-deriving one: an "ok"/"drift" file starts out recorded
+    with the classifier's prediction, then any file handed to
+    `archive_item_files` has that prediction OVERLAID with the mover's actual
+    per-file result, so a move that raises (permission error, locked file,
+    disk full) is reflected as a failure rather than as the optimistic
+    prediction that never came true. An anomaly link excluded from
+    `move_basenames` stays excluded from the relink too; blanket-prefixing
+    either kind onto a link whose file was never actually archived would
+    produce a path that can never exist. Every other column, the row's
+    surrounding whitespace padding, and the file's original line endings are
+    preserved (read/write via reconcile_common's newline="" helpers so a CRLF
+    index round-trips untranslated, matching reconcile_plans'
     destructive-write discipline).
 
     Returns the number of rows (items) reconciled.
@@ -169,10 +180,35 @@ def reconcile(config: dict) -> int:
 
         move_basenames = []
         needs_relink = False
+        # Per-file (basename -> (success, message)) results shaped like
+        # archive_item_files' own return, fed straight into
+        # update_index_links_to_archive so its per-link gate sees the same
+        # anomaly/drift verdict this loop just computed instead of
+        # re-deriving (or losing) it. Values recorded here for a file about
+        # to be moved are the classifier's PREDICTION — overlaid below with
+        # the mover's ACTUAL result once archive_item_files has run, so a
+        # raised exception (permission error, locked file, disk full) is
+        # never masked by an optimistic "moved to Archive" that never
+        # actually happened.
+        link_results: dict[str, tuple[bool, str]] = {}
         for f in item["files"]:
             c = _classify_file(f["path"], backlog_dir, archive_dir)
+            if c["kind"] == "anomaly":
+                link_results[c["file"]] = (
+                    False,
+                    "linked file not found in backlog dir or Archive/",
+                )
+                continue  # never reconciled or relinked
+            # "ok" and "drift" both end this pass with the file in Archive/ —
+            # "ok" is already there; "drift" either sits there already
+            # (relink-only) or is about to be moved there below, pending the
+            # mover's actual confirmation.
+            link_results[c["file"]] = (
+                True,
+                "moved to Archive" if c["needs_move"] else "already in Archive",
+            )
             if c["kind"] != "drift":
-                continue  # "ok" needs nothing; "anomaly" is never reconciled
+                continue  # "ok" needs nothing further
             if c["needs_move"]:
                 move_basenames.append(c["file"])
             if c["needs_relink"]:
@@ -182,9 +218,20 @@ def reconcile(config: dict) -> int:
             continue
 
         if move_basenames:
-            archive_item_files(backlog_dir, archive_dir, move_basenames)
+            # Overlay the mover's ACTUAL per-file result onto the
+            # classifier's prediction — a raised exception must win over the
+            # optimistic guess above, or a failed move still gets its link
+            # prefixed onto a path that was never actually archived.
+            for basename, success, message in archive_item_files(
+                backlog_dir, archive_dir, move_basenames
+            ):
+                link_results[basename] = (success, message)
         if needs_relink:
-            content = update_index_links_to_archive(content, item["id"])
+            content, _, _ = update_index_links_to_archive(
+                content,
+                item["id"],
+                [(name, ok, msg) for name, (ok, msg) in link_results.items()],
+            )
         reconciled += 1
 
     if reconciled:
