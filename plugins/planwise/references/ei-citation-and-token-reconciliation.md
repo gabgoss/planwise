@@ -432,6 +432,97 @@ Issue: wc -l range {documented_range} matches EI §{section} section length ({se
 Fix: Recompute range against the marked body block per references/ei-citation-and-token-reconciliation.md §8.2 (and add body delimiters to EI §{section} if missing) | Confidence: MEDIUM
 ```
 
+### 8.3 Estimating a Refactor's Output Size — State the Derivation, Model the Constraints, Ship the Band as a Signal
+
+§8.2 fixes the *scope* an estimate is computed over. This subsection fixes the *arithmetic* — how a computed size band goes wrong when its inputs move, when it models the wrong operation, and what the band is allowed to do once it is wrong.
+
+Two failures, from one session, describe a band no correct execution could reach. Both were caught only because the band had been labelled advisory. Had either been enforced, the only way to reach the number was deleting content the objective said to keep.
+
+> [!constraint] Sub-rule A — re-derive downstream figures when you correct an input, and prefer the derivation to the result
+> Two failure modes, kept distinct because they are caught by different means:
+>
+> - **Premise corrected, arithmetic stale.** A fix lands in one paragraph and a number three paragraphs down still encodes the old premise. A task file stated *"anchor ~295-310 lines (computed: 472 − 172 extracted = 300)"* while the **same file**, twelve lines earlier, carried a binding callout added by a review that had corrected which steps move — and that callout's spans sum to **134**, giving 338. The review corrected the premise and never re-ran the arithmetic. Self-inconsistency **inside a single file** is the tell, and it is checkable statically, because both halves are present.
+> - **Derivation omits a governing rule.** Internally consistent arithmetic modelling the wrong operation. Nothing in the file contradicts it, so nothing static catches it — only execution does. That is the reason the band must be **reported as a finding, never enforced as a target**.
+>
+> Write the derivation, not the result:
+>
+> ```markdown
+> <!-- WRONG: result only. When the premise moves, nothing signals the number is stale. -->
+> Anchor ~295-310 lines.
+>
+> <!-- RIGHT: derivation inline, so a premise change makes the contradiction visible -->
+> Anchor ~338 lines (472 total - 134 extracted: lines 99-147 = 49, 186-270 = 85).
+> Steps 5.1/8.5/9 stay on the anchor and are NOT in the extracted span.
+> ```
+>
+> Three detection rules:
+>
+> 1. **Re-add the file's own stated spans before trusting any figure derived from them.** Where two numbers describe the same extraction, **the ranges are authoritative over the total — the ranges were measured, the total was typed.**
+> 2. **When a review corrects a scope decision, treat every downstream number as dirty**: sizes, token estimates, line counts, any "N of M" phrasing.
+> 3. **Ask whether a governing rule changes the *shape* of the transformation rather than its volume.** That question is the whole of sub-rule B.
+
+> [!constraint] Sub-rule B — enumerate the constraint classes before computing a band
+> At least four constraint classes break naive subtraction, and they are not exotic — in the originating file **three of the four applied simultaneously while only one was modelled.**
+>
+> | Constraint | Effect on size | Naive estimate assumes |
+> |---|---|---|
+> | **Relocate a block** | full removal from source | correct |
+> | **In-place citation** (interleaved clauses) | ~net zero | full removal |
+> | **Verbatim / byte-freeze** (contracts, row-numbered tables) | zero change, cannot be touched | available for trimming |
+> | **Anchor-protected** (named by no seam, explicitly kept) | zero change | implicitly trimmable |
+>
+> The in-place class is the one that surprises, because the content genuinely IS redundant — it just cannot be *removed*. Where redundant math is braided through sentences carrying unique load-bearing content, the governing rule replaces it **in place with a citation of comparable length**:
+>
+> ```markdown
+> BEFORE (92 lines) — the derivation restated inline, braided into surrounding prose:
+>   … the band is 295-310 because 472 total minus the 172 lines the two
+>   relocated sections carry leaves 300, and the ±5 tolerance covers renderer
+>   differences, so a task landing at 338 is over by …
+>
+> AFTER (92 lines) — duplication removed, meaning preserved, length unchanged:
+>   … the band is derived in §8.3 sub-rule A, and the ±5 tolerance covers
+>   renderer differences, so a task landing outside it is a finding to report …
+> ```
+>
+> Duplication removed, meaning preserved, **section 92 lines before and 92 after.** The estimate that counted those 92 lines as leaving was wrong by 92 lines while every step of its arithmetic was correct.
+>
+> **The detection question, asked per region:** *what rule governs this edit?* If the answer is "replace in place", "keep verbatim", or "do not touch", that region contributes **zero** to the reduction — regardless of how redundant its content is. **Sum only the regions that genuinely leave.** In the originating file, 299 of the 466 landed lines were anchor-protected sections no seam had named.
+
+> [!constraint] Sub-rule C — every computed band ships as a signal, not a target
+> Inline this clause verbatim beside every computed band:
+>
+> > The band is a signal, not a target. An anchor outside it is a finding to report with its residual driver named, never something to hit by trimming content the seams did not name.
+>
+> The asymmetry that justifies it: **a wrong band that is advisory costs a correction; a wrong band that is binding costs an artifact.** An enforced band leaves one route to the number — deleting content the objective said to keep, which in the originating cases meant breaking initialization for every consumer, and trimming anchor-protected sections.
+>
+> **Orchestrator-side corollary.** When a runner lands outside a band, names a residual driver, and refuses to trim, **that is the correct outcome, not a failure to report.** Four steps follow:
+>
+> 1. Check the driver against the file.
+> 2. Correct the band.
+> 3. Record the correction where the plan states the band.
+> 4. **Tell the verification task the corrected band explicitly.** It has no way to know the plan text was wrong, and will otherwise re-fail correct work against a superseded number.
+>
+> Sub-rule A here covers the band's *construction*. [`measurement-discipline.md`](measurement-discipline.md) §8.9 sub-rule C covers a projection's *expiry* — a derivation that was correct when written and was invalidated by a later decision. Neither restates the other.
+
+#### Reviewer Check 090 — Size Band Stated Without Its Derivation
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** A size or count band stated for a refactor MUST carry an **inline derivation** (the total, the spans subtracted, and what stays) and the **signal-not-target clause**. A bare band cannot be checked when its premise moves — nothing signals that the number is stale — and a band read as a target sends a runner to trim content the seams never named. The check also covers the modelling defect: a derivation that subtracts the full volume of a region the same plan elsewhere marks verbatim-frozen, anchor-protected, or subject to in-place replacement is internally consistent arithmetic over the wrong operation, and no static reading of the number alone will catch it.
+- **Detection:**
+  1. Collect every size or count band the plan states for a refactor, decomposition, or extraction — Expected Output ranges, anchor-size targets, "reduce to ~N lines" criteria.
+  2. For each, check the band's own text for an inline derivation naming the total, the spans removed, and what stays. Absent → WARNING.
+  3. Check for the signal-not-target clause beside the band. Absent → WARNING.
+  4. Where the plan states spans elsewhere, re-add them and compare against the band's total. Disagreement → WARNING, and report the **spans** as authoritative: ranges are measured, totals are typed.
+  5. Cross-check each subtracted region against the plan's own constraint markers. A region marked verbatim/byte-frozen, anchor-protected, or subject to in-place clause replacement, yet counted at full volume in the derivation → WARNING (name the region and the class).
+  6. Where a review or binding callout elsewhere in the same file corrected which content moves, check every downstream figure was re-derived. Unamended → WARNING.
+- **Finding template:**
+```
+[WARNING] Size band stated without its derivation
+File: {plan or task file path} | Location: {Expected Output | Success Criteria}
+Issue: Band {range} carries {no inline derivation | no signal-not-target clause | a total contradicting the file's own stated spans, which sum to {N} | a subtraction counting {region}, marked {verbatim-frozen|anchor-protected|in-place replacement}, at full volume}
+Fix: State the derivation inline (total, spans removed with their line ranges, what stays), sum only regions that genuinely leave, and add the signal-not-target clause, per references/ei-citation-and-token-reconciliation.md §8.3 | Confidence: MEDIUM
+```
+
 ---
 
 *Anchor: [ei-fidelity.md](ei-fidelity.md) (§1-§4 EI-as-archival, severity vocabulary preservation, threshold alignment, UNCONFIRMED four-site enforcement — segment A of this file's 4-way split, 2026-08-10). Sibling segments: [ei-completeness.md](ei-completeness.md) (§9, segment C), [ei-source-promise-integrity.md](ei-source-promise-integrity.md) (§10-§11, segment D).*

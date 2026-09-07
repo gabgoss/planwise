@@ -181,6 +181,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Verify that a bug-fix deliverable's criteria include one phrased against a fixture reproducing the defect and one requiring the probe to fail on the unfixed artifact — criteria querying live project data pass identically against unfixed code (`references/verification-gates.md` §10 obligation A)
 - Confirm no gate asserts a format or spelling pattern where the property at stake is resolution, and that a gate-repair deliverable's criteria are not satisfiable entirely by fixtures with no live sweep of the guarded tree (`references/verification-gates.md` §10 obligations B and D)
 - Verify that a deliverable containing a move, extraction, consolidation or collapse carries at least one blast-radius gate — a copy-count probe at both ends, a set-difference audit of the deleted copy against the survivor, a test-surface sweep for patches steering the moved symbols, or an execution-stage gate beyond collection (`references/session-execution-protocol.md` §6.1)
+- Confirm every refactor size band carries an inline derivation and the signal-not-target clause, and that the derivation does not subtract the full volume of a region the same plan marks verbatim-frozen, anchor-protected, or subject to in-place replacement (`references/ei-citation-and-token-reconciliation.md` §8.3)
 
 - Check 074 — Diff-Derived Gate Without Input-Set Assertion → references/measurement-discipline.md §8.7
 - Check 075 — Size Gate Without Content-Conservation Gate → references/measurement-discipline.md §8.7
@@ -190,6 +191,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 087 — Bug-Fix Criteria With No Fixture and No Unfixed-Artifact Run → references/verification-gates.md §10
 - Check 088 — Gate Asserts Format Where the Property Is Resolution, or Is Fixture-Satisfiable → references/verification-gates.md §10
 - Check 089 — Refactor Deliverable With No Blast-Radius Sweep → references/session-execution-protocol.md §6.1
+- Check 090 — Size Band Stated Without Its Derivation → references/ei-citation-and-token-reconciliation.md §8.3
 
 ## Sub-role: Change-Surface Reviewer (NEW)
 
