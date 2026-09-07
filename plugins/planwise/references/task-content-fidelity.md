@@ -329,6 +329,31 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan.m
 
 **Canonical homes — do not restate.** The cost-threshold derivation formulas (`available_per_task`, `critical`, `warn`) are computed by `token_saver.derive_thresholds()`; see [token-saver-profile.md](token-saver-profile.md) § Token Saver Threshold Derivation for the formulas and the `40,000`-guaranteed-warn-ceiling explanation. The Read tool's three FIXED mechanical gates — `READ_PAGE_CAP_TOKENS` / `READ_FILE_BYTE_CAP` / `READ_LINE_CAP`, their values and warn bands, the per-model bytes-per-token ratios, and the `measure_files.py` measurement discipline — live in [session-context-budget.md](session-context-budget.md) § Read-Tool Hard Limits. All are module-level constants in `scripts/read_limits.py` (re-exported by `scripts/token_saver.py`), NOT `/context`-measured.
 
+> [!constraint] Measure because the hard read gate depends on the number — not merely for budget accuracy
+> Every `~Tokens` figure feeds two consumers, and they fail differently. As a **budget** input, an under-estimate costs margin: the task runs, tighter than planned. As a **gate** input, the hard read gate is computed from that same figure — it decides `read_level` — and an under-estimate routes a file that *cannot* be read in one Read into a row asserting that it can. The runner then follows an instruction impossible to execute: the Read returns a silently truncated first page, or hard-errors with zero content.
+>
+> That asymmetry is why §9.A.3's "derive from measured bytes, never a line count" is a MUST and not a preference, and why it MUST NOT be softened to "measure if uncertain" at the point where the figure reaches this ladder. An escape hatch phrased as a suggestion is read as optional by exactly the author whose file needs it. The row carries a plausible number, the gate conclusion is computed from that same number and agrees with it, and every step followed the rule as written.
+>
+> So state the dependency wherever the derivation is stated. A rule that says "measure" without saying **what breaks when you do not** is the one that gets skipped.
+>
+> WRONG — a dense reference doc priced from a per-line rate, with the gate conclusion drawn from that same figure:
+> ```markdown
+> | 1 | {dense-reference}.md | — | ~{N}K | {purpose} |
+>
+> ## Notes for Agent
+> - One Read covers ~{L} lines at {r} tok/line ≈ ~{N}K — under the 25K page cap.
+> ```
+> The file measures 2–3× that figure, the Read refuses it, and the task has named no `offset`/`limit` fallback for its primary edit target.
+>
+> CORRECT — measured bytes ÷ the §9.A.3 content-class ratio, the gate conclusion drawn from the measurement, and the read tactic named in the row:
+> ```markdown
+> | 1 | {dense-reference}.md | {K} | ~{N}K | {purpose} — ⚠ PAGED ≥25K {model}-tok |
+>
+> ## Notes for Agent
+> - Measured {B} bytes ÷ 2.6 ≈ ~{N}K — OVER the 25K page cap. Page it:
+>   Read(offset=1, limit={L}) → check the `PARTIAL view` header → continue to the next page.
+> ```
+
 `level = max(cost_level, read_level)`; `reason` records the driver:
 
 | Level | Cost threshold | Read threshold (per assigned model) | Action |
