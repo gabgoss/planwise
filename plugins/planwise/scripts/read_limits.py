@@ -18,9 +18,9 @@ import math
 import os
 
 # ---------------------------------------------------------------------------
-# FIXED Read-tool limit constants (empirically re-measured 2026-08-26 on
-# Haiku 4.5, Sonnet 5, Opus 5, and Fable 5 — the caps are identical on all
-# four; only the tokenizer weight differs).
+# FIXED Read-tool limit constants (empirically re-measured 2026-09-07 on CLI
+# 2.1.263 across Haiku 4.5, Sonnet 5, Opus 5, and Fable 5 — the caps are
+# identical on all four; only the tokenizer weight differs).
 #
 # These are mechanical harness facts about the Read tool, NOT derived from a
 # `/context` report and NOT written by calibrate(). Re-validate via a headless
@@ -41,8 +41,14 @@ import os
 READ_PAGE_CAP_TOKENS = 25000
 READ_TOKEN_WARN = 22000
 
-# Byte gate (SECONDARY, model-independent): Read refuses a file >= this size
-# without an offset/limit. 256 KiB hard cap; warn at 240 KiB.
+# Byte gate (SECONDARY, model-independent): without an offset/limit, Read
+# refuses a file STRICTLY LARGER than this cap, reporting "exceeds maximum
+# allowed size (256KB)". Measured boundary (2026-09-07, CLI 2.1.263): a
+# 262,145-byte file refuses; a 262,144-byte file does NOT. `_read_level`
+# compares with `>=`, so it flags the one exact-cap size a byte early — a
+# deliberate conservatism, and unreachable in practice: 256 KiB of text is
+# far past the token gate (measured 100,610 tokens) and already Critical
+# there. 256 KiB hard cap; warn at 240 KiB.
 READ_FILE_BYTE_CAP = 262144   # 256 * 1024
 READ_BYTE_WARN = 245760       # 240 * 1024
 
@@ -53,23 +59,37 @@ READ_BYTE_WARN = 245760       # 240 * 1024
 READ_LINE_CAP = 2000
 
 # Empirical bytes-per-token ratios by model family and content class
-# (harness-reported token counts / on-disk bytes, measured 2026-08-26).
-# Opus and Fable share a tokenizer (identical token count on an identical
-# file); the Haiku/Sonnet family tokenizes ~1.44x lighter (fewer tokens for
-# the same bytes). A SMALLER ratio means MORE tokens per byte, so the
-# gate-conservative choice is the smallest ratio available.
-DEFAULT_BYTES_PER_TOKEN = 2.6  # most restrictive measured: dense markdown, Opus/Fable tokenizer
+# (harness-reported token counts / on-disk bytes). Every cell was measured
+# 2026-09-07 on CLI 2.1.263 against a 150 KB corpus of its own content class;
+# no cell is derived from another.
+#
+# The tokenizer splits by model GENERATION, not by model size: Opus 5,
+# Sonnet 5 and Fable 5 report the SAME token count for the same file (a 1-2
+# token spread over ~54K), and Haiku 4.5 alone is lighter, by ~1.31-1.38x.
+# A superseded reading had Sonnet in a "~1.44x lighter Haiku/Sonnet family";
+# that grouping is measured false, and it under-estimated Sonnet's token cost
+# by ~42% — the unsafe direction, because it returns a passing verdict for a
+# file the harness then refuses to read whole.
+#
+# A SMALLER ratio means MORE tokens per byte, so the gate-conservative choice
+# is the smallest ratio available and every cell is rounded DOWN from its
+# measurement. Note that code tokenizes DENSER than prose, not lighter.
+#
+# Measured (bytes / harness-reported tokens), before the rounding down:
+#   Claude 5 family   dense-md 2.605 · prose 2.906 · code 2.783
+#   Haiku 4.5         dense-md 3.540 · prose 4.023 · code 3.657
+DEFAULT_BYTES_PER_TOKEN = 2.6  # most restrictive measured: dense markdown, Claude 5 tokenizer
 BYTES_PER_TOKEN = {
-    "opus":   {"dense-md": 2.6, "prose": 3.0, "code": 3.3},
-    "fable":  {"dense-md": 2.6, "prose": 3.0, "code": 3.3},   # tokenizer identical to opus (measured)
-    "sonnet": {"dense-md": 3.7, "prose": 4.3, "code": 4.7},   # derived x1.44 from the opus family; unconfirmed directly
-    "haiku":  {"dense-md": 3.7, "prose": 4.7, "code": 4.7},   # prose measured 4.67; others derived x1.44
+    "opus":   {"dense-md": 2.6, "prose": 2.9, "code": 2.7},
+    "fable":  {"dense-md": 2.6, "prose": 2.9, "code": 2.7},   # same tokenizer as opus (measured)
+    "sonnet": {"dense-md": 2.6, "prose": 2.9, "code": 2.7},   # same tokenizer as opus (measured directly)
+    "haiku":  {"dense-md": 3.5, "prose": 4.0, "code": 3.6},   # Haiku 4.5 — the one lighter family
 }
 
 # Provenance so `doctor` can flag staleness and a re-validation task can compare
 # the constants against the live tool.
-READ_LIMITS_MEASURED_ON = "2026-08-26"
-READ_LIMITS_MEASURED_CLI = "2.1.246"
+READ_LIMITS_MEASURED_ON = "2026-09-07"
+READ_LIMITS_MEASURED_CLI = "2.1.263"
 
 _LEVELS = ("Green", "Notice", "Warn", "Critical")
 _LEVEL_RANK = {name: i for i, name in enumerate(_LEVELS)}
@@ -167,7 +187,7 @@ def classify_file(
     (estimate the delta as added lines x that file's observed bytes/line).
 
     A `read`-reason Critical is NOT resolvable by the 1M context exception:
-    every model shares the same mechanical caps, and the Opus/Fable-family
+    every model shares the same mechanical caps, and the Claude 5 family
     tokenizer trips the token gate on FEWER bytes; the remedy is paged reads
     (offset/limit/Grep), and for a core/to-be-edited dependency, a refactor.
 

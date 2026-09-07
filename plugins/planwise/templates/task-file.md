@@ -50,7 +50,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 <!-- OPTIONAL read-handling annotation (Token Saver only): append to a row's Purpose for any file the doctor read-gate scan flagged.
      `⚠ PAGED ≥25K {model}-tok` — file is above the per-assigned-model 25K-token page cap; the runner MUST page it (offset/limit/Grep), it does NOT all arrive in one Read.
      `⚠ REFACTOR ≥256 KiB` — file is at/over the 256 KiB byte gate; Read refuses it without offset/limit — page it, and refactor + backlog if it is a core/edited dependency.
-     Both are read-reason flags — NOT resolved by the 1M-exception (the Opus/Fable tokenizer trips the page cap on fewer bytes). -->
+     Both are read-reason flags — NOT resolved by the 1M-exception (the Claude 5 tokenizer trips the page cap on fewer bytes than Haiku 4.5's). -->
 
 **Context subtotal:** ~{R}K (reads — the sum of the ~Tokens column) + ~{O}K (output) + ~{W}K (working) = **~{T}K total**
 

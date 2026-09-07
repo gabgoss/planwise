@@ -275,7 +275,7 @@ Applies to every DELEGATED task-runner launch, sequential or parallel; uses the 
 > ```
 > read-reason Critical context file  → raise dispatch to 1M  → "the bigger window reads it"  ← FALSE
 > ```
-> CORRECT — the Read tool's **25K-token page cap** and **256 KiB byte refusal** apply on EVERY model; the Opus/Fable-family tokenizer is ~1.44× heavier so it trips the page cap on *fewer bytes* (~65 KB of dense markdown vs ~92 KB for Sonnet/Haiku). The 1M-exception covers **only** a `cost`-reason Critical (a context-window/carrying-cost overflow). It does NOT cover a `read`-reason Critical — that file must be **paged** by the runner (`offset`/`limit`/Grep) even on Opus, or refactored:
+> CORRECT — the Read tool's **25K-token page cap** and **256 KiB byte refusal** apply on EVERY model; the Claude 5 tokenizer (Opus, Sonnet and Fable alike) is ~1.31–1.38× heavier than Haiku 4.5's, so it trips the page cap on *fewer bytes* (~65 KB of dense markdown vs ~87 KB for Haiku). The 1M-exception covers **only** a `cost`-reason Critical (a context-window/carrying-cost overflow). It does NOT cover a `read`-reason Critical — that file must be **paged** by the runner (`offset`/`limit`/Grep) even on Opus, or refactored:
 > ```
 > read-reason Critical context file  → log `paged-read required` (NOT 1M-exception)  → runner pages it (offset/limit/Grep) on its declared model
 > ```

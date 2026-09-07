@@ -372,7 +372,7 @@ Token Saver is an optional budget mode that keeps each task session lean — und
 
 - **Sizes tasks by carrying cost**, warning (or splitting) a task whose Required Context would push a runner past its measured budget.
 - **Flags files that are too large to read in one pass** — a file at or over the Read tool's ~25K-token page cap, 256 KiB byte cap, or 2,000-line window is marked for paged reads (`offset`/`limit`/Grep) or refactor. Measure any file yourself with `scripts/measure_files.py` (KiB + estimated tokens + gate level per file). (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
-- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (the Opus/Fable-family tokenizer hits the page cap on fewer bytes); it is paged or refactored instead.
+- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (the Claude 5 tokenizer hits the page cap on fewer bytes than Haiku 4.5's); it is paged or refactored instead.
 
 **Toggle it anytime** — you don't have to wait for an init or upgrade:
 

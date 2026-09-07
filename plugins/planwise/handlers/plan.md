@@ -392,7 +392,7 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
    - **Notice** — advisory only. Docs/specs → note a Multi-Part split is advisable; code → note for awareness. No backlog item.
    - **Warn** (`reason=cost` ≥ `warn`, or `reason=read` ≥ 240 KiB / ≥ 22K model-tok) — recommend the remedy by file type (below) **and file a backlog item** via the consumer project's backlog mechanism (`handlers/backlog.md` Phase 7 create flow — generic, no project identifiers).
    - **Critical / `reason=cost`** (≥ `critical`) — warn + file a backlog item + flag the task **`1M-exception`** (dispatch on Opus / 1M) so the plan still completes; the file won't fit a lean task even alone.
-   - **Critical / `reason=read`** (≥ 25K model-tok page cap OR ≥ 256 KiB byte cap OR ≥ 2,000 lines) — warn + file a backlog item + recommend a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. Do **NOT** flag `1M-exception`: the 1M window does not raise the per-Read page cap, and the Opus/Fable-family tokenizer trips it on *fewer bytes* than Sonnet/Haiku's.
+   - **Critical / `reason=read`** (≥ 25K model-tok page cap OR ≥ 256 KiB byte cap OR ≥ 2,000 lines) — warn + file a backlog item + recommend a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. Do **NOT** flag `1M-exception`: the 1M window does not raise the per-Read page cap, and the Claude 5 tokenizer trips it on *fewer bytes* than Haiku 4.5's.
    - The scan is **never a hard stop** — a source-file Critical advises and files an item; it does not abort planning.
 
 4. **Differentiate the remedy by file type** in the recommendation:
@@ -407,7 +407,7 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
 > ```
 > # 280 KiB external doc → classify_file → {level: Critical, reason: read}
 > Task flagged: 1M-exception   ← WRONG: the per-Read page cap is unchanged by the window,
->                                and the Opus/Fable tokenizer trips the token gate on FEWER bytes than Sonnet's
+>                                and the Claude 5 tokenizer trips the token gate on FEWER bytes than Haiku 4.5's
 > ```
 > CORRECT — `reason=read` Critical recommends a paged read / refactor and files a backlog item; only `reason=cost` Critical earns `1M-exception`:
 > ```

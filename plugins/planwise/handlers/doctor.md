@@ -737,7 +737,7 @@ Report the FIXED Read-tool constants and flag them stale when the harness CLI ha
 1. Report the constants' provenance and measured baseline — the values themselves are the read-gate canonical in [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits; this step never restates them:
 
    ```
-   Fixed Read-tool limits (token_saver.py) — see references/session-context-budget.md § Read-Tool Hard Limits for the current values
+   Fixed Read-tool limits (read_limits.py) — see references/session-context-budget.md § Read-Tool Hard Limits for the current values
      Measured on:           {READ_LIMITS_MEASURED_ON}
      Measured CLI:          {READ_LIMITS_MEASURED_CLI}
    ```
@@ -754,12 +754,21 @@ Report the FIXED Read-tool constants and flag them stale when the harness CLI ha
    ! Read-limit constants measured on CLI {READ_LIMITS_MEASURED_CLI}; live CLI is {live-version}.
      The hardcoded Read-tool caps may be stale. Re-probe with the read-limit re-validation
      procedure (headless `claude -p --model X` probes against synthetic files) and update the
-     constants + READ_LIMITS_MEASURED_ON / READ_LIMITS_MEASURED_CLI in scripts/token_saver.py.
+     constants + READ_LIMITS_MEASURED_ON / READ_LIMITS_MEASURED_CLI in scripts/read_limits.py.
+     That is where all four are DEFINED; scripts/token_saver.py only re-exports them,
+     and editing the re-export changes no value.
    ```
 
    This is the drift tripwire for the hardcoded read constants. It is advisory — `doctor` never edits the constants; it surfaces the mismatch so the one-shot live re-probe can be run.
 
-The read-constant tripwire is paired with a cross-model ratio-band assertion: the plugin's test suite asserts the cross-model ratio band holds for the same file. A ratio drift outside that band signals a tokenizer-weight change in the `BYTES_PER_TOKEN` constants.
+The read-constant tripwire is paired with a cross-model ratio-band assertion in the plugin's test suite, which pins two properties of `BYTES_PER_TOKEN` for the same file. A drift in either signals a tokenizer-weight change:
+
+| Property | Assertion |
+|---|---|
+| Cross-generation band | Opus token count is 1.25–1.45× Haiku (measured 1.31–1.38× across the three content classes) |
+| Intra-family equality | Opus, Sonnet and Fable estimate **identically** — the Claude 5 models share one tokenizer |
+
+The split is by model **generation, not model size**. A drift in the equality pin means a family regrouped, which is the more consequential of the two: it silently re-rates every file measured for that model.
 
 ---
 

@@ -70,29 +70,38 @@ class TestReadLimits(unittest.TestCase):
         )
 
     def test_cross_model_ratio_band(self):
-        """Opus token count must be 1.4–1.55× Sonnet for the same file.
+        """Opus token count must be 1.25–1.45× Haiku for the same file.
+
+        The tokenizer splits by model GENERATION, not by model size: Opus 5,
+        Sonnet 5 and Fable 5 report the same token count for the same file, and
+        Haiku 4.5 alone is lighter. So the drift signal is the Claude 5 family
+        against Haiku (measured 1.31–1.38× across the three content classes),
+        plus exact equality inside the family.
 
         The bytes-per-token ratios are content-class averages — they are NOT
-        expected to match any single fixture exactly. The cross-family band
-        (measured ~1.44–1.54× on same-file A/Bs) is the correct drift signal:
-        assert direction + band, not an absolute per-byte rate.
+        expected to match any single fixture exactly. Assert direction + band,
+        never an absolute per-byte rate.
         """
         ts = _engine()
         path = self._write_lines("ratio_probe.txt", 500)
-        sonnet_tokens = ts.classify_file(path, "sonnet")["tokens"]
+        haiku_tokens = ts.classify_file(path, "haiku")["tokens"]
         opus_tokens = ts.classify_file(path, "opus")["tokens"]
-        ratio = opus_tokens / sonnet_tokens
+        ratio = opus_tokens / haiku_tokens
         self.assertGreaterEqual(
-            ratio, 1.4,
-            f"Opus/Sonnet token ratio must be ≥ 1.4 (got {ratio:.3f})"
+            ratio, 1.25,
+            f"Opus/Haiku token ratio must be ≥ 1.25 (got {ratio:.3f})"
         )
         self.assertLessEqual(
-            ratio, 1.55,
-            f"Opus/Sonnet token ratio must be ≤ 1.55 (got {ratio:.3f})"
+            ratio, 1.45,
+            f"Opus/Haiku token ratio must be ≤ 1.45 (got {ratio:.3f})"
         )
-        # Fable shares the opus tokenizer — identical estimate for the same file.
-        fable_tokens = ts.classify_file(path, "fable")["tokens"]
-        self.assertEqual(fable_tokens, opus_tokens)
+        # Sonnet and Fable share the opus tokenizer — identical estimate for
+        # the same file. A drift here means a family regrouped.
+        for peer in ("sonnet", "fable"):
+            self.assertEqual(
+                ts.classify_file(path, peer)["tokens"], opus_tokens,
+                f"{peer} must estimate identically to opus (same tokenizer)",
+            )
 
     def test_bytes_per_token_helper(self):
         ts = _engine()
@@ -127,16 +136,17 @@ class TestReadLimits(unittest.TestCase):
     def test_per_model_token_gate(self):
         ts = _engine()
         # ~1,148 lines × 61 B/line ≈ 70,028 B — under the byte warn and the
-        # line window, but the opus/fable tokenizer (2.6 B/tok) estimates
-        # ~26.9K tokens (above the 25K page cap) while sonnet (3.7 B/tok)
-        # estimates ~18.9K (below the 22K warn).
+        # line window, but the Claude 5 tokenizer (2.6 B/tok) estimates ~26.9K
+        # tokens (above the 25K page cap) while haiku (3.5 B/tok) estimates
+        # ~20.0K (below the 22K warn). Haiku is the lighter family here;
+        # sonnet shares the opus tokenizer and trips the same gate.
         path = self._write_lines("mid.txt", 1148)
-        sonnet = ts.classify_file(path, "sonnet")
+        haiku = ts.classify_file(path, "haiku")
         opus = ts.classify_file(path, "opus")
         self.assertNotEqual(
-            sonnet["level"],
+            haiku["level"],
             "Critical",
-            "sonnet must stay below the token page-cap for a ~70 KB file",
+            "haiku must stay below the token page-cap for a ~70 KB file",
         )
         self.assertEqual(
             opus["level"],

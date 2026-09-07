@@ -239,7 +239,7 @@ Run `/context` to measure your project's domain rule costs. Add rows with your p
 
 Task token estimates MUST be computed bottom-up from measured file sizes, not just matched to qualitative categories (Small/Medium/Large). The `/planwise plan` handler's Step 8c enforces this.
 
-**Measurement:** run `measure_files.py` over every Required Context file — tokens = bytes ÷ the assigned model's bytes-per-token ratio (see [Read-Tool Hard Limits](#read-tool-hard-limits)). For a file that does not exist yet, estimate its byte size and divide: ≈ bytes ÷ 3.0 for prose/code, ÷ 2.6 for dense markdown (tables, link-heavy rows). Never derive a token figure from a line count.
+**Measurement:** run `measure_files.py` over every Required Context file — tokens = bytes ÷ the assigned model's bytes-per-token ratio (see [Read-Tool Hard Limits](#read-tool-hard-limits)). For a file that does not exist yet, estimate its byte size and divide: on the Claude 5 family ≈ bytes ÷ 2.9 for prose, ÷ 2.7 for code, ÷ 2.6 for dense markdown (tables, link-heavy rows). Never derive a token figure from a line count.
 
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
 **DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Sonnet/Haiku 200K, Opus 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
@@ -445,19 +445,26 @@ The read-gate canonical: the Read tool's fixed mechanical limits, the discipline
 
 ### Read-Tool Hard Limits
 
-The Read tool has three mechanical limits, SEPARATE from the carrying-cost budget — a file can fit the session budget yet be unreadable in one Read. These constants are **FIXED harness facts** (empirically re-measured 2026-08-26 across four models; re-validate via headless `claude -p --model X`), defined as module-level constants in `scripts/read_limits.py` (re-exported by `scripts/token_saver.py`) — they are **NOT** `/context`-measured and are **NOT** written by `calibrate()`. Measure any file against them with `scripts/measure_files.py`.
+The Read tool has three mechanical limits, SEPARATE from the carrying-cost budget — a file can fit the session budget yet be unreadable in one Read. These constants are **FIXED harness facts** (every cell empirically re-measured 2026-09-07 on CLI 2.1.263 across four models; re-validate via headless `claude -p --model X`), defined as module-level constants in `scripts/read_limits.py` (re-exported by `scripts/token_saver.py`) — they are **NOT** `/context`-measured and are **NOT** written by `calibrate()`. Measure any file against them with `scripts/measure_files.py`.
 
 Gate priority: **tokens first, then bytes, then lines — whichever comes first.** The caps and warn thresholds are identical on every model; only the tokenizer weight (bytes-per-token) differs.
 
-| Model family | Token cap (hard) | Token warn | Byte cap (hard) | Byte warn | Line gate | Bytes-per-token (measured) |
+| Model family | Token cap (hard) | Token warn | Byte cap (hard) | Byte warn | Line gate | Bytes-per-token (measured 2026-09-07) |
 |---|---|---|---|---|---|---|
-| Haiku | 25,000 | 22,000 | 262,144 (256 KiB) | 245,760 (240 KiB) | 2,000 (defensive) | prose ~4.7 |
-| Sonnet | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | ~3.7–4.7 (derived from the family ratio; worst measured case — synthetic filler — 2.15) |
-| Opus | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | dense markdown 2.6 · prose 3.0 · docs+code 3.3 |
-| Fable | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | tokenizer identical to Opus (same file → same token count): dense markdown 2.6 · prose 3.0 |
+| Opus 5 | 25,000 | 22,000 | 262,144 (256 KiB) | 245,760 (240 KiB) | 2,000 (defensive) | dense markdown 2.6 · prose 2.9 · code 2.7 |
+| Sonnet 5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | same tokenizer as Opus: 2.6 · 2.9 · 2.7 |
+| Fable 5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | same tokenizer as Opus: 2.6 · 2.9 · 2.7 |
+| Haiku 4.5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | dense markdown 3.5 · prose 4.0 · code 3.6 |
+
+> [!constraint] The tokenizer splits by model GENERATION, not by model size
+> Opus 5, Sonnet 5 and Fable 5 return the **same** token count for the same file — measured to within 1–2 tokens over ~54K. Haiku 4.5 alone is lighter, by ~1.31–1.38×. Do not group models by size or by cost tier when estimating.
+>
+> A superseded reading placed Sonnet in a *"~1.44× lighter Haiku/Sonnet family"*. That grouping is measured false, and it under-estimated Sonnet's token cost by **~42%** — the unsafe direction, because it returns a passing verdict for a file the harness then refuses to read whole. A 90 KB dense-markdown file rated "Warn, readable" under the old Sonnet ratio actually measures ~34.5K tokens and hard-errors.
+>
+> Note also that **code tokenizes denser than prose** (2.7 vs 2.9 on the Claude 5 family), not lighter. Each cell is rounded DOWN from its measurement, because a smaller ratio estimates more tokens and so fires the gate sooner.
 
 - **Token page-cap gate (PRIMARY; model-dependent ratio):** a file above **~25,000 tokens** (`READ_PAGE_CAP_TOKENS`) does not return whole. Without an explicit `limit`, the Read soft-truncates to a first page of **~21,200 tokens (~85% of the cap)** plus a `PARTIAL view` banner reporting the file's exact total; with an explicit `limit` spanning more than the cap it **hard-errors with zero content** (the error still reports the exact token count — a zero-cost measurement oracle). Warn at **~22,000 tokens** (`READ_TOKEN_WARN`) — the warn threshold produces **no runtime marker**, so it MUST be checked proactively (`measure_files.py`), never waited for.
-- **Byte gate (model-independent):** a file ≥ **262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused outright unless `offset`/`limit` is passed — no partial page, no pointer. Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
+- **Byte gate (model-independent):** a file **larger than 262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused outright unless `offset`/`limit` is passed — no partial page, no pointer, and the error reads `exceeds maximum allowed size (256KB)`. The boundary is strictly greater-than, measured at one-byte resolution: 262,145 bytes refuses, 262,144 does not. `classify_file` compares with `>=` and so flags the one exact-cap size a byte early; that conservatism is unreachable in practice, because 256 KiB of text is already Critical on the token gate (a measured 100,610 tokens). Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
 - **Line gate (DISTANT THIRD, defensive):** **2,000 lines** (`READ_LINE_CAP`) — the first-page line window; a per-model total-read ceiling of roughly 10–20 pages is reported but UNCONFIRMED (measured sessions returned 3,000+-line single pages). Treat < 2,000 lines as the defensive target for generated artifacts; it binds alone only on many-short-line files that pass the token and byte gates.
 
 **Estimating tokens:** `tokens ≈ bytes ÷ bytes-per-token` for the READING model, gate-conservative — unknown reader or content class → **2.6 B/tok** (the densest measured content on the heaviest tokenizer). Line-based token rates are unreliable and MUST NOT be used: measured per-line rates ranged 7–365 tokens/line depending on content; bytes predict the gate, lines do not.
@@ -469,7 +476,7 @@ These FOLD into the per-file warning ladder. `token_saver.classify_file()` compu
 > ```
 > classify_file(...) → {level: Critical, reason: read}   → "route to Opus, the 1M window fixes it"  ← FALSE
 > ```
-> CORRECT — routing to Opus does NOT raise the per-Read page cap, and the Opus/Fable-family tokenizer trips the token gate on FEWER bytes (~65 KB of dense markdown vs ~92 KB for the Sonnet/Haiku family). The remedy is **paged reads** (`offset`/`limit`/Grep), and for a core or to-be-edited dependency, **refactor + backlog**:
+> CORRECT — routing to Opus does NOT raise the per-Read page cap, and the Claude 5 tokenizer (Opus, Sonnet and Fable alike) trips the token gate on FEWER bytes than Haiku 4.5 — ~65 KB of dense markdown against ~87 KB. The remedy is **paged reads** (`offset`/`limit`/Grep), and for a core or to-be-edited dependency, **refactor + backlog**:
 > ```
 > classify_file(...) → {level: Critical, reason: read}
 >   → page it: Read(offset/limit) or Grep the needed section

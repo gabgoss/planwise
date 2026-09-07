@@ -120,14 +120,15 @@ Fix: Measure with measure_files.py and write the numeric value per references/ta
 >   Subagent budget: ~{task_T}K + 54K overhead = ~{total_T}K, well within 200K.
 > ```
 >
-> Content-class ratio guide (Opus/Fable-family; the Sonnet/Haiku family
-> tokenizes ~1.44× lighter — more bytes per token):
+> Content-class ratio guide (Claude 5 family — Opus, Sonnet and Fable share
+> one tokenizer; Haiku 4.5 alone is ~1.31–1.38× lighter, so it carries more
+> bytes per token. The split is by model generation, not by model size):
 >
 > | Content class | Bytes/token | Heuristic |
 > |---------------|-------------|-----------|
 > | Dense markdown (tables, link-heavy rows) | ~2.6 | Gate-conservative default — use when unsure |
-> | Prose / typical markdown | ~3.0 | |
-> | Docs with code blocks / source code | ~3.3 | |
+> | Prose / typical markdown | ~2.9 | |
+> | Docs with code blocks / source code | ~2.7 | Code tokenizes DENSER than prose, not lighter |
 > | Wide-line reference docs | ~4.1+ | Light — measure, never assume |
 > | Compressed JSON / minified JS / notebook JSON | ~1.9–2.6 | Dense structures tokenize heavy; keep the conservative default |
 >
@@ -136,7 +137,7 @@ Fix: Measure with measure_files.py and write the numeric value per references/ta
 #### Reviewer Check 017 — Task Byte-Ratio Band Conformance
 
 - **Severity / Role / Type:** WARNING | Task Reviewer | NEW
-- **What:** Per-file ratio (measured bytes ÷ `~Tokens`) MUST fall within the measured band for the assigned model family — `[2.4, 3.5]` Opus/Fable, `[3.5, 5.0]` Sonnet/Haiku (conservative-default estimates land in the Opus/Fable band).
+- **What:** Per-file ratio (measured bytes ÷ `~Tokens`) MUST fall within the measured band for the assigned model family — `[2.4, 3.5]` for the Claude 5 family (Opus, **Sonnet**, Fable), `[3.5, 5.0]` for Haiku 4.5 (conservative-default estimates land in the Claude 5 band). Sonnet moved into the Claude 5 band on 2026-09-07; a correctly-measured Sonnet task rated against the Haiku band false-fires.
 - **Detection:** For each Required Context row, compute `bytes ÷ tokens`. Outside the assigned family's band → WARNING.
 - **Finding template:**
 ```
@@ -364,7 +365,7 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan.m
 | Critical / `read` | — | ≥ 25K model-tok OR ≥ 256 KiB OR ≥ 2,000 lines | warn + backlog + **paged read / refactor**; **NOT** `1M-exception` |
 
 > [!constraint] A `read`-reason Critical Is NOT `1M-Exception`-Resolvable
-> A **cost-reason** Critical earns the `1M-exception` flag — the file is simply too big for a lean per-task budget, and the 1M window absorbs it. A **read-reason** Critical does NOT: the per-Read page cap is unchanged by the window, and the Opus/Fable-family tokenizer trips the token gate on *fewer bytes* than Sonnet/Haiku's. The remedy is a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. A source-file Critical is never a hard stop — it advises and files an item.
+> A **cost-reason** Critical earns the `1M-exception` flag — the file is simply too big for a lean per-task budget, and the 1M window absorbs it. A **read-reason** Critical does NOT: the per-Read page cap is unchanged by the window, and the Claude 5 tokenizer trips the token gate on *fewer bytes* than Haiku 4.5's. The remedy is a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. A source-file Critical is never a hard stop — it advises and files an item.
 
 **Single oversized file vs. per-task sum.** On a default/light install the cost bands sit *above* the FIXED 25K read cap (`warn` is 40K, derived `critical` higher still), so any single file large enough to be cost-Warn/Critical has already crossed the read gate — it classifies `reason=read` (paged-read/refactor), **never** cost-`1M-exception`. Cost-`1M-exception` therefore surfaces for a single file only on a **heavy** install where derived `critical` drops below 25K; otherwise it fires on a **per-task sum** of several mid-size files whose combined estimate trips `critical` while no single file trips the read cap. Do **not** expect a lone giant file to be `1M-exception`'d on a default install — that is the intended `max(cost, read)` + ties-go-to-`read` behavior, not a miss.
 
@@ -379,7 +380,7 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan.m
   2. **Warn+ file with no backlog item** (WARNING) — a Required Context file classifies Warn or Critical (cost or read) but the task records no large-file recommendation / backlog item.
   3. **`1M-exception` on a 200K-window agent** (ERROR) — a `1M-exception` task is declared `Agent: Sonnet`/`Haiku` without the run-time override note (the flag dispatches on Opus/1M).
   4. **Uncovered read-gate crossing** (WARNING) — a Required Context file crosses a FIXED read gate (measured bytes ≥ 256 KiB, OR `bytes ÷ {assigned-model B/tok}` ≥ 25K tokens, OR ≥ 2,000 lines) and the task records neither a paged-read note (`offset`/`limit`/Grep) nor a refactor+backlog item.
-  5. **Read-reason Critical mis-flagged `1M-exception`** (ERROR) — a file classifying Critical with `reason=read` is flagged `1M-exception`. The 1M window does not raise the per-Read page cap / byte refusal, and the Opus/Fable-family tokenizer trips the token gate on *fewer bytes* than Sonnet/Haiku's — read-Critical is paged or refactored, never `1M-exception`'d. Only `reason=cost` Critical earns the flag.
+  5. **Read-reason Critical mis-flagged `1M-exception`** (ERROR) — a file classifying Critical with `reason=read` is flagged `1M-exception`. The 1M window does not raise the per-Read page cap / byte refusal, and the Claude 5 tokenizer trips the token gate on *fewer bytes* than Haiku 4.5's — read-Critical is paged or refactored, never `1M-exception`'d. Only `reason=cost` Critical earns the flag.
   6. **Oversized generated artifact not split** (ERROR) — a plan-generated artifact a runner MUST read (task file, Orchestration, Recovery, Consolidated Context part, Execution Input, task Output file) exceeds the HARD read ceiling (≥ 25K tokens at the reading model's ratio, OR ≥ 256 KiB, OR ≥ 2,000 lines) without a Multi-Part split. External source files the runner reads but does not generate stay advisory (sub-checks 2 and 4).
 - **Detection:**
   1. Read `context.token_saver` from `config.yaml`. If false → emit no findings (no-op).
