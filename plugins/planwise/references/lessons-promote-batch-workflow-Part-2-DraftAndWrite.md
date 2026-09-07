@@ -383,7 +383,7 @@ So a decomposed lesson can legitimately read `status: promoted` **and** `applied
 
 > [!constraint] Categorisation Must Be Up to Date
 > WRONG — proceed with grouping when LL-X is in the master index but missing from `00-Categorization-By-Domain.md`.
-> CORRECT — STOP and tell the user to run `/planwise lessons curate --phase=categorize` first. Part-1 §3.2's gate catches this.
+> CORRECT — STOP and tell the user to run `/planwise lessons curate --phase=categorize` first. `handlers/lessons.md` Pre-condition **Gate 2** catches this corpus-wide, before the workflow is entered.
 
 > [!constraint] Skip Lessons Already Owned By Any BB (Active or Archived)
 > WRONG — a `documented` lesson is bundled into a new BB without checking whether an active or archived BB already cites it; result: duplicate promotion paths, conflicting rule edits, corrupted Promotion Log.
