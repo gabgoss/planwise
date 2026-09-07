@@ -160,7 +160,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, each opt-in) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |

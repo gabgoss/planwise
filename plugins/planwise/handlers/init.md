@@ -196,6 +196,25 @@ Use `AskUserQuestion`:
 <!-- AUTO-MODE: convenience -->
 <!-- Default: No — an unattended run NEVER invokes a package manager. SUPPRESSED ENTIRELY when --auto-from flag is set (subroutine mode). -->
 
+> [!note] Where this step's three contracts are defined
+> **The gates.** The two checks below are gates 3 and 4 of the submission engine's
+> Gate Chain ([`references/feedback-submission.md`](../references/feedback-submission.md)).
+> This step evaluates them to decide whether to offer the install; it owns the
+> offer, never the gate definitions.
+>
+> **The Auto-Mode log line.** The convenience-site contract — skip the question,
+> apply the inferred default, log the inference — is stated once in
+> [`references/auto-mode-policy.md`](../references/auto-mode-policy.md)
+> § Convenience Question Behavior, and applies here by that policy. No call site
+> in this plugin restates the log line's format, and this one does not either.
+>
+> **The population the suppression skips.** Suppressing under `--auto-from` is
+> correct: eight handlers invoke init as a subroutine, and an install prompt
+> firing mid-`/planwise backlog` would be wrong. Nobody is stranded by it —
+> [upgrade.md](upgrade.md) Step 4.5 makes the same offer to every install that
+> only ever auto-inits, and [doctor.md](doctor.md) Stage 16 reports the gate
+> state on demand.
+
 Probe for the GitHub CLI by running `gh --version`. Three outcomes, reported
 distinctly — the installed-but-unauthenticated case is the one most likely to
 confuse, because the binary is present and posting still will not happen:

@@ -17,6 +17,15 @@ engine, not a handler — it has no entry point of its own.
 - `handlers/lessons.md` (capture-prompt upstream option)
 - `handlers/backlog.md` (create-prompt upstream option)
 
+**Read-only gate-state consumers** — these evaluate and report the Gate Chain without ever
+entering the post pipeline. They are consumers on the same terms: they delegate the gate
+definitions here and re-specify none of them locally. What each adds on top is its own
+reporting or offer text, which this file does not own.
+- `handlers/doctor.md` Stage 16 (feedback capability probe) — reports whether gates 1, 3 and 4
+  are met, with a remedy line per unmet gate. It posts nothing, so gates 2 and 5 do not apply.
+- `handlers/init.md` Step 9.5 and `handlers/upgrade.md` Step 4.5 (GitHub CLI offer) — evaluate
+  gates 3 and 4 to decide whether to offer the install, then own the offer itself.
+
 ## Table of Contents
 
 - [Gate Chain](#gate-chain)

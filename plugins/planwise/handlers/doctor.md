@@ -89,6 +89,23 @@ Nothing here is automatic — the linter only converts an invisible cost into a 
 
 ---
 
+> [!note] What `(post-boundary)` means in this handler
+> The *boundary* is a **version-migration boundary**. A stage labelled
+> `(post-boundary)` is a permanent, always-on diagnostic that catches what a
+> version-gated one-shot migration never reached or can no longer reach —
+> `sweep_stale_descoped_rules()` walks the leftovers `migrate_installed_rules()`
+> missed once its version gate was spent, and `sweep_orphaned_agent_mirrors()`
+> is "a permanent, always-on diagnostic rather than a version-boundary-gated
+> one-shot" because the mirror behavior it cleans up after was dropped outright.
+> Stages 8, 10, 14 and 15 carry the label on that basis.
+>
+> **The label does not mean "implemented in a script."** Stage 9 runs
+> `lint_installed_divergence()` and carries no label, because ongoing divergence
+> has no spent migration behind it. Do not re-derive the label from which stages
+> happen to be script-backed, and do not apply it to a stage — an environment
+> probe, a presence check — whose subject is the current state of the machine
+> rather than the residue of a version change.
+
 ### Stage 8: Stale de-scoped rule sweep (post-boundary)
 
 > [!constraint] Read-Only — bare doctor only recommends
@@ -142,8 +159,9 @@ If the sweep returns nothing: `No stale de-scoped rules found — install is pas
 
 ### Stage 8b: `--prune-stale` (opt-in writer)
 
-When `$ARGUMENTS` contains `--prune-stale`, this is one of the two doctor paths
-that mutate (the other is `--prune-upgrade-leftovers`, Stage 14b). Run the writer:
+When `$ARGUMENTS` contains `--prune-stale`, this is one of the three doctor paths
+that mutate (the others are `--prune-upgrade-leftovers`, Stage 14b, and
+`--create-feedback-dir`, Stage 17b). Run the writer:
 
 ```bash
 python "{plugin_root}/scripts/init_project.py" --prune-stale --project-root "{project_root}"
@@ -408,9 +426,9 @@ version-pair backups, transfers, or conflict artifacts on disk.`
 
 ### Stage 14b: `--prune-upgrade-leftovers` (opt-in writer)
 
-When `$ARGUMENTS` contains `--prune-upgrade-leftovers`, this is the other
-doctor path that mutates (alongside `--prune-stale`, Stage 8b). Run the
-writer:
+When `$ARGUMENTS` contains `--prune-upgrade-leftovers`, this is another doctor
+path that mutates (alongside `--prune-stale`, Stage 8b, and
+`--create-feedback-dir`, Stage 17b). Run the writer:
 
 ```bash
 python "{plugin_root}/scripts/init_project.py" --prune-upgrade-leftovers --project-root "{project_root}"
@@ -525,7 +543,7 @@ plugin-cache grant exists yet.`
 
 ---
 
-### Stage 16: Feedback capability probe (post-boundary)
+### Stage 16: Feedback capability probe
 
 > [!constraint] Read-Only — probes, never installs
 > Stage 16 runs two capability checks against the environment and reads
@@ -544,13 +562,30 @@ run for a long time without discovering that their reports never left the
 machine. This stage surfaces the gate state up front rather than at the
 moment someone tries to file a report.
 
-Probe all three, in the engine's own gate order:
+> [!constraint] The engine defines the gates; this stage only reports them
+> The engine is the ONE place the gate chain is specified, and its consumers
+> delegate rather than re-specify. So this stage does **not** restate what each
+> gate tests or how to evaluate it — read
+> [`references/feedback-submission.md`](../references/feedback-submission.md)
+> § Gate Chain for that, and evaluate gates 1, 3 and 4 exactly as it defines
+> them. What belongs here, and only here, is the **remedy line** each unmet
+> gate prints: that is doctor's own reporting, which the engine does not own.
+> Gate 2 (interactive session) and gate 5 (explicit consent) are properties of
+> a post attempt, not of the install, so a read-only probe cannot evaluate them
+> and never reports on them.
 
-| Gate | Probe | Reported when unmet |
-|---|---|---|
-| 1 — `feedback.enabled` | Read `feedback.enabled` from `config.yaml` (absent ⇒ `false`, the documented default) | `feedback.enabled is false — /planwise feedback drafts locally and posts nothing` |
-| 3 — `gh` on PATH | Run `gh --version`; a non-zero exit or an unresolvable binary means absent | `gh not found on PATH — install from https://cli.github.com/, or run /planwise upgrade to be offered the install` |
-| 4 — `gh` authenticated | Run `gh auth status`; exit 0 means authenticated | `gh is installed but not authenticated — run: gh auth login` |
+Evaluate gates 1, 3 and 4 per the engine, in its own gate order, and report each
+unmet one with the matching line:
+
+| Gate (defined by the engine) | Reported when unmet |
+|---|---|
+| 1 — `feedback.enabled` | `feedback.enabled is false — /planwise feedback drafts locally and posts nothing` |
+| 3 — `gh` on PATH | `gh not found on PATH — install from https://cli.github.com/, or run /planwise upgrade to be offered the install` |
+| 4 — `gh` authenticated | `gh is installed but not authenticated — run: gh auth login` |
+
+`{gh_version_when_present}` is the version string `gh --version` reports once gate
+3 has resolved. It is a reporting detail of this stage, not part of the gate —
+the engine's gate 3 tests resolvability and nothing more.
 
 Print verbatim:
 
@@ -572,7 +607,7 @@ doctor run.
 
 ---
 
-### Stage 17: Feedback directory presence check (post-boundary)
+### Stage 17: Feedback directory presence check
 
 > [!constraint] Read-Only — bare doctor only recommends
 > Stage 17 checks whether the feedback directory resolved from `config.yaml`'s

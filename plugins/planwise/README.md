@@ -341,15 +341,17 @@ flowchart LR
 - **Index drift audits** — cross-checks the plans index against each Master Plan's actual status, and the backlog index against archival state.
 - **Feedback capability probe** — checks the three gates that decide whether [`/planwise feedback`](#12-planwise-feedback) actually posts (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and names the one-line remedy for each unmet gate. The fallback is silent by design, so without this check a consumer can draft reports for months believing they were filed.
 - **Upgrade recovery-leftover sweep** — walks the backup, transfer, and conflict directories that past [`/planwise upgrade`](#10-planwise-upgrade) runs left behind. They accumulate per upgrade and nothing purges them on its own, so the sweep sorts each one into what still needs you (unresolved conflicts, transferred customizations awaiting a re-homing decision) and what is now discardable (pre-change backups, consumed caches).
+- **Feedback directory presence check** — reports whether the directory your feedback drafts are written to actually exists. A project whose config predates the setting, or whose directory was removed by hand, would otherwise discover the gap only when the first draft failed to write.
 
-**Opt-in cleanup:** `doctor` has exactly two invocations that write, and neither runs unless you ask for it by name.
+**Opt-in writers:** `doctor` has exactly three invocations that write, and none of them runs unless you ask for it by name. Two clean up; the third creates one missing directory.
 
-| Invocation | What it deletes | What it never touches | Backup + audit log |
+| Invocation | What it changes | What it never touches | Backup + audit log |
 |---|---|---|---|
-| `/planwise doctor --prune-stale` | Only what the stale-rule sweep and the mirror sweep flagged as provably removable | Any rule or agent copy carrying content of your own — always preserved in place | `{planwise_root}/upgrade-backups/prune-{date}/`, beside a `PRUNED.md` log |
-| `/planwise doctor --prune-upgrade-leftovers` | Only the leftovers the recovery sweep flagged as discardable — pre-change backups and consumed caches | Unresolved conflict sidecars and transferred customizations — never offered for deletion, no matter what | `{planwise_root}/upgrade-prune-logs/upgrade-leftovers-{date}/`, beside a `PRUNED-LEFTOVERS.md` log |
+| `/planwise doctor --prune-stale` | Deletes only what the stale-rule sweep and the mirror sweep flagged as provably removable | Any rule or agent copy carrying content of your own — always preserved in place | `{planwise_root}/upgrade-backups/prune-{date}/`, beside a `PRUNED.md` log |
+| `/planwise doctor --prune-upgrade-leftovers` | Deletes only the leftovers the recovery sweep flagged as discardable — pre-change backups and consumed caches | Unresolved conflict sidecars and transferred customizations — never offered for deletion, no matter what | `{planwise_root}/upgrade-prune-logs/upgrade-leftovers-{date}/`, beside a `PRUNED-LEFTOVERS.md` log |
+| `/planwise doctor --create-feedback-dir` | Creates the feedback drafts directory the presence check reported missing — that one directory, nothing else, and only after you confirm | Any existing directory or its contents; it never renames, never deletes, and never runs when the directory is already there | None — it only adds an empty directory, so there is nothing to back up |
 
-Both writers copy every path into their run's log folder before removing it, so a prune stays recoverable. A copy that fails leaves the original in place rather than delete without a backup, and a same-day rerun gets its own numbered folder instead of overwriting an earlier run's log. The two flags target unrelated artifact classes and write to separate log roots, so one is never a shorthand for the other. `--prune-upgrade-leftovers` confirms with you once per class of leftover before it removes anything, and accepts `--prune-classes` to narrow the run further — `--prune-classes inert` drops the consumed caches and keeps the backups.
+Both pruners copy every path into their run's log folder before removing it, so a prune stays recoverable. A copy that fails leaves the original in place rather than delete without a backup, and a same-day rerun gets its own numbered folder instead of overwriting an earlier run's log. The two prune flags target unrelated artifact classes and write to separate log roots, so one is never a shorthand for the other. `--prune-upgrade-leftovers` confirms with you once per class of leftover before it removes anything, and accepts `--prune-classes` to narrow the run further — `--prune-classes inert` drops the consumed caches and keeps the backups.
 
 Run it any time for a quick health check — especially right after a [`/planwise upgrade`](#10-planwise-upgrade).
 
@@ -543,7 +545,7 @@ flowchart LR
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, each opt-in) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
