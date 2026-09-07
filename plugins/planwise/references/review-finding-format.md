@@ -47,6 +47,16 @@ Confidence: HIGH | MEDIUM | LOW
 | WARNING | Minor issue — execution can proceed but quality is reduced |
 | INFO | Observation — no action required |
 
+### Procedural and Documentation Findings Carry Their Observed Consequence
+
+A severity assigned to a finding whose subject is a **documented procedure, worked example, or recipe** MUST be accompanied by the observed consequence — what running it now returns — or be marked `[SEVERITY UNASSESSED]`. Surface form ("a stale example in a docs file") and consequence ("the documented procedure now returns an occupied identifier") describe identical bytes and imply opposite dispositions.
+
+```
+[WARNING] Stale worked example in the allocation section      <- unassessed; no run
+[ERROR] Allocation recipe returns an occupied identifier
+        Observed: ran the recipe verbatim, returned 071; 071 is already taken.
+```
+
 ---
 
 **Applies to:** `plan-reviewer` and `structural-reviewer` cite the Finding Report Format and Severity Classification above verbatim (their two copies were byte-identical modulo whitespace before this extraction). `rule-comparator` cites this file for the Startup protocol only — it returns a structured JSON verdict rather than per-finding reports, so the Finding Report Format and Severity Classification do not apply to it.

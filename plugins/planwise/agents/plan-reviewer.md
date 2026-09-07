@@ -131,6 +131,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Identify gaps — requirements mentioned in Master Plan but not addressed by any task
 - Check for redundant tasks that duplicate effort
 - Verify session objectives align with sprint goals
+- Verify that any finding the plan defers on low severity, whose subject is a documented procedure, worked example or recipe, records what running that procedure now returns — and that its attached remedy was checked against the surface the fix will touch, not only against the site that produced the finding (`references/review-classification.md` § The Three Claims in a Finding)
 
 - Check 040 — §15.1 Discovery Count-by-Execution → references/discovery-and-exit-criteria.md §15.1
 - Check 041 — §15.2 Persist IDs Not Just Counts → references/discovery-and-exit-criteria.md §15.2
@@ -138,6 +139,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 043 — §16.3 EI Exit Criteria With Mechanical Anchors → references/exit-criteria-fidelity.md §16.3
 - Check 044 — §16.3 BLI-Cited Audit Anchor Re-Verification → references/exit-criteria-fidelity.md §16.3
 - Check 045 — §15/§16 Cross-Layer Cohort Discovery Scope → references/exit-criteria-fidelity.md §16 / references/discovery-and-exit-criteria.md §15
+- Check 091 — Procedural Finding Deferred on Unassessed Severity → references/review-classification.md § The Three Claims in a Finding
 
 ---
 
