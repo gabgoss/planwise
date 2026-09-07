@@ -261,7 +261,18 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 >    required (e.g., `**Total Estimated:** ~50K`).
 > 3. **Class C — Scaffold folder absent when scaffolding is done inline.**
 >    `Scaffold-{Abbrev}/` folder missing because scaffolding ran inline rather
->    than in a dedicated session.
+>    than in a dedicated session. **Phase-gated — grade this class only past
+>    Discovery.** `Scaffold-{Abbrev}/` and `Exec-{Abbrev}/` are both created by
+>    the scaffolding pass. A plan still at Discovery has neither by
+>    construction, and cannot acquire them without inventing artifacts its own
+>    phase does not call for — which §7 forbids. **The phase test is the
+>    presence of `Exec-{Abbrev}/`.** Absent ⇒ the plan is at Discovery, and
+>    this class does not apply. Do NOT read the `Meta-{Abbrev}/` Master Plan's
+>    `**Phase:**` field instead: that field records the Meta-Plan's own phase
+>    and keeps reading `1 of 3` after the execution plan exists, so it cannot
+>    separate the two cases. Without the gate, every Discovery-phase review
+>    opens on a phantom BLOCKER, halts at the Phase-1 structural gate, and
+>    reaches no content reviewer.
 >
 > Mitigation hooks:
 > - `/planwise review` Phase 1 structural check runs three greps — one per
@@ -279,7 +290,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 #### Reviewer Check 049 — Parallel-Scaffold Deviation Classes
 
 - **Severity / Role:** ERROR/WARNING/BLOCKER (by class) | Scaffolding Hygiene Reviewer | NEW
-- **Detection:** Compare scaffolded sprint outputs against template; classify deviations: A (section-header drift = WARNING), B (optional-formatting omission = ERROR), C (Scaffold-folder absence = BLOCKER).
+- **Detection:** Compare scaffolded sprint outputs against template; classify deviations: A (section-header drift = WARNING), B (optional-formatting omission = ERROR), C (Scaffold-folder absence = BLOCKER). Gate Class C on phase first: Glob for `Exec-{Abbrev}/`, and skip the class entirely when it is absent. A Discovery-phase plan carrying `Meta-{Abbrev}/` alone is correct, not deviant. Grade Class C only when `Exec-{Abbrev}/` exists and `Scaffold-{Abbrev}/` does not.
 - **Finding template:** `[{SEVERITY}] Parallel-scaffold deviation class {A|B|C} | Fix per references/scaffolding-hygiene.md §8`
 
 ---

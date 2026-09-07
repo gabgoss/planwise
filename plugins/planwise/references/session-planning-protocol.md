@@ -340,8 +340,9 @@ Before starting ANY session, verify:
 > - [ ] If DELEGATED: Orchestration Required Context lists ONLY plan files
 > - [ ] If DELEGATED: Heavy context files appear ONLY in task file Required Context
 > - [ ] If DELEGATED: Context Boundary subsection present in Execution Strategy
-> - [ ] If plan uses Meta-Plan: `Exec-{Abbrev}/` folder exists (not writing into Meta parent)
-> - [ ] If plan uses Meta-Plan: `Scaffold-{Abbrev}/` folder exists (scaffolding phase was run)
+> - [ ] If plan uses Meta-Plan AND this session is past Discovery: `Exec-{Abbrev}/` folder exists (not writing into Meta parent)
+> - [ ] If plan uses Meta-Plan AND this session is past Discovery: `Scaffold-{Abbrev}/` folder exists (scaffolding phase was run)
+> - [ ] Both rows above are phase-gated. A Discovery-phase session runs inside `Meta-{Abbrev}/`, and the scaffolding pass has not yet created either folder — test for `Exec-{Abbrev}/`, and skip both rows while it is absent
 > - [ ] If the plan is a Discovery / Meta-Plan workflow, verify user-action gates per `session-execution-protocol.md §4.5` BEFORE setting Master Plan status to COMPLETE (gates may legitimately hold status at IN_PROGRESS even when all sprints are done)
 > - [ ] All prerequisite sprints marked COMPLETE before starting this sprint
 > - [ ] Outputs/ folder for this session exists (with `.gitkeep` if empty)

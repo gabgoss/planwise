@@ -20,7 +20,8 @@ The custom agents (`structural-reviewer` and `plan-reviewer`) carry their own ch
 - `Outputs/` directory exists per session
 - Status fields present in Recovery and Orchestration files
 - Cross-reference links resolve (no dead paths)
-- [Meta-Plan] `Meta-{Abbrev}/`, `Scaffold-{Abbrev}/`, `Exec-{Abbrev}/` folders all present
+- [Meta-Plan] `Meta-{Abbrev}/` folder present
+- [Meta-Plan, past Discovery only] `Scaffold-{Abbrev}/` and `Exec-{Abbrev}/` folders present. Both are created by the scaffolding pass, so require them ONLY once the plan has advanced past Discovery. **The phase test is the presence of `Exec-{Abbrev}/`**: absent ⇒ the plan is at Discovery, carries `Meta-{Abbrev}/` alone, and is correct — report neither folder as missing. Do NOT use the `Meta-{Abbrev}/` Master Plan's `**Phase:**` field as the test: it records that Meta-Plan's own phase and keeps reading `1 of 3` after the execution plan exists
 - Declared-parallel (`∥`) sprint pairs have a computed write-set intersection with the result shown; no path shared between two `∥` sprints (Check S05)
 
 ### EI Reviewer (Phase 2)
@@ -69,6 +70,7 @@ These patterns look like errors but are intentional. Discard findings that match
 | Cross-sprint spec reference that appears orphaned to a single-sprint reviewer | An EI reviewer given only one sprint's scope may flag a valid cross-sprint reference as unresolved. EI reviewers must receive ALL spec outputs to avoid this. |
 | Line-count finding where the evidence is a Read-output last line number (not `wc -l`) | `Read` paginates; the last visible line is structurally smaller than the file's true line count. This is a false-positive candidate — verify via `wc -l <path>` before promoting it from `[UNCERTAIN]`. |
 | Doctrinal correction that edits only one named file while sibling files still carry the same claim | Scope was deliberately bounded; the executor surfaced the out-of-scope instances as structural findings per `references/read-confirm-act-protocol.md` §1.2. A non-empty doctrinal grep that returns only classified legitimate-pattern rows is intentional. |
+| Discovery-phase Meta-Plan carrying `Meta-{Abbrev}/` alone, with no `Scaffold-{Abbrev}/` and no `Exec-{Abbrev}/` | The plan is at the first of three phases. Both other folders are created by the later scaffolding pass, so a Discovery-phase plan cannot carry them without inventing artifacts its own phase does not produce — which `references/scaffolding-hygiene.md` §7 forbids. Confirm by the absence of `Exec-{Abbrev}/`, then discard the finding. A plan that HAS `Exec-{Abbrev}/` but no `Scaffold-{Abbrev}/` is NOT whitelisted and still grades BLOCKER under `references/scaffolding-hygiene.md` §8 Class C. |
 
 > [!practice] Check Whitelist Before Reporting
 > Reviewers should verify each finding against the Known Patterns Whitelist before sending it to the team lead. If the pattern matches, discard it. If uncertain, send with `[UNCERTAIN]` prefix rather than discarding outright.
