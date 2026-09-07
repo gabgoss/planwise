@@ -30,6 +30,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config, get_scoring_weights
 from constants import OPEN_STATUSES
+from frontmatter_parser import split_frontmatter_block
 from markdown_parser import (
     is_section_boundary,
     parse_markdown_table,
@@ -99,17 +100,22 @@ def parse_index_table(content: str) -> list[dict]:
 
 
 def read_item_frontmatter(filepath: Path) -> dict:
-    """Read YAML frontmatter from an item file. Returns dict or empty dict."""
+    """Read YAML frontmatter from an item file. Returns dict or empty dict.
+
+    The split is the shared `frontmatter_parser` primitive; only the file I/O
+    and the typed-value parse are this function's own. Absence of any kind —
+    a missing file, no frontmatter block, an unterminated one, or a block YAML
+    cannot parse — is reported the same way, as an empty dict, because every
+    caller here reads scoring inputs off the result and must not have to
+    distinguish "no data" from "bad data" mid-scoring.
+    """
     if not filepath.exists():
         return {}
     content = filepath.read_text(encoding="utf-8")
-    if not content.startswith("---"):
+    parts = split_frontmatter_block(content)
+    if parts is None:
         return {}
-    try:
-        end = content.index("---", 3)
-    except ValueError:
-        return {}
-    raw = content[3:end]
+    raw, _body = parts
 
     if HAS_YAML:
         try:

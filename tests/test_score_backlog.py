@@ -26,6 +26,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
@@ -271,6 +272,143 @@ class TestReconciliationWarning(unittest.TestCase):
         with contextlib.redirect_stderr(err):
             write_scores_to_index(content, {"061": 10, "900": 5})
         self.assertIn("WARNING: computed 2 score(s) but wrote 1.", err.getvalue())
+
+
+class TestReadItemFrontmatter(unittest.TestCase):
+    """Characterization coverage for `read_item_frontmatter`, the module's own
+    frontmatter parse.
+
+    This path feeds the scoring inputs directly — `blocks` and `created` are
+    read straight off the returned dict — so a parse discrepancy silently
+    reorders the backlog rather than raising. It was a zero-coverage path;
+    these tests pin its contract (a `dict`, never `None`; an empty dict for
+    every absence and every malformed shape) so a consolidation onto a shared
+    parser is verifiable rather than taken on inspection.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="score_backlog_fm_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _item(self, body: str) -> Path:
+        path = self.tmp / "item.md"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_missing_file_returns_empty_dict(self):
+        missing = self.tmp / "nope.md"
+        self.assertEqual(score_backlog.read_item_frontmatter(missing), {})
+
+    def test_file_without_frontmatter_returns_empty_dict(self):
+        # The real corpus carries these: an older item whose header is a plain
+        # H1 with bold key/value lines and no YAML block at all.
+        path = self._item("# BB-143-01 - A legacy item\n\n**ID:** BB-143\n")
+        self.assertEqual(score_backlog.read_item_frontmatter(path), {})
+
+    def test_unterminated_frontmatter_returns_empty_dict(self):
+        path = self._item("---\nid: 081\nstatus: NOT_STARTED\n\n# No closing fence\n")
+        self.assertEqual(score_backlog.read_item_frontmatter(path), {})
+
+    def test_wellformed_frontmatter_parses_to_typed_values(self):
+        path = self._item(
+            "---\n"
+            "id: 081\n"
+            'title: "Frontmatter parse consolidation"\n'
+            "priority: Low\n"
+            "status: NOT_STARTED\n"
+            "created: 2026-08-12\n"
+            "blocks: [143, 185]\n"
+            "---\n"
+            "\n"
+            "# Body\n"
+        )
+
+        fm = score_backlog.read_item_frontmatter(path)
+
+        # A leading zero keeps the id a string in YAML — the index and the
+        # frontmatter therefore agree on "081", not on 81.
+        self.assertEqual(fm["id"], "081")
+        self.assertEqual(fm["priority"], "Low")
+        self.assertEqual(fm["blocks"], [143, 185])
+        # YAML types a bare date; compute_score's age factor depends on this.
+        self.assertEqual(str(fm["created"]), "2026-08-12")
+
+    def test_empty_blocks_list_survives_as_a_list(self):
+        path = self._item("---\nid: 081\nblocks: []\n---\n\n# Body\n")
+
+        fm = score_backlog.read_item_frontmatter(path)
+
+        self.assertEqual(fm["blocks"], [])
+
+    def test_malformed_yaml_returns_empty_dict_rather_than_raising(self):
+        path = self._item("---\nid: 081\n  bad: [unclosed\n---\n\n# Body\n")
+        self.assertEqual(score_backlog.read_item_frontmatter(path), {})
+
+    def test_empty_frontmatter_block_returns_empty_dict(self):
+        path = self._item("---\n---\n\n# Body\n")
+        self.assertEqual(score_backlog.read_item_frontmatter(path), {})
+
+    def test_a_value_containing_three_dashes_no_longer_truncates_the_block(self):
+        """The one deliberate behaviour change of the parser consolidation.
+
+        The old inline split closed the block at the first `---` found
+        anywhere from offset 3, so a value merely containing `---` cut the
+        frontmatter mid-token; YAML then failed on the fragment and the item
+        scored with no frontmatter at all — silently, since every failure
+        here returns an empty dict. The shared split requires a full
+        `\\n---\\n` delimiter line, so the block survives intact.
+        """
+        path = self._item(
+            "---\n"
+            'title: "a---b"\n'
+            "id: 081\n"
+            "blocks: [143]\n"
+            "---\n"
+            "\n"
+            "# Body\n"
+        )
+
+        fm = score_backlog.read_item_frontmatter(path)
+
+        self.assertEqual(fm["title"], "a---b")
+        self.assertEqual(fm["blocks"], [143])  # scoring input recovered
+
+    def test_regex_fallback_reads_created_and_blocks_without_yaml(self):
+        """The no-yaml branch is a real shipped contract: it extracts only
+        `created` and `blocks`, the two keys scoring consumes."""
+        path = self._item(
+            "---\n"
+            "id: 081\n"
+            "created: 2026-08-12\n"
+            "blocks: [143, 185]\n"
+            "---\n"
+            "\n"
+            "# Body\n"
+        )
+
+        with unittest.mock.patch.object(score_backlog, "HAS_YAML", False):
+            fm = score_backlog.read_item_frontmatter(path)
+
+        self.assertEqual(fm["created"], "2026-08-12")
+        self.assertEqual(fm["blocks"], ["143", "185"])
+        self.assertNotIn("id", fm)  # the fallback reads only the scoring keys
+
+    def test_regex_fallback_reads_a_yaml_block_sequence(self):
+        path = self._item(
+            "---\n"
+            "id: 081\n"
+            "blocks:\n"
+            "  - 143\n"
+            "  - 185\n"
+            "---\n"
+            "\n"
+            "# Body\n"
+        )
+
+        with unittest.mock.patch.object(score_backlog, "HAS_YAML", False):
+            fm = score_backlog.read_item_frontmatter(path)
+
+        self.assertEqual(fm["blocks"], ["143", "185"])
 
 
 CONFIG_YAML_FIXTURE = """project:

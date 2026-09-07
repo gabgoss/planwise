@@ -10,6 +10,20 @@ to a conservative preserve-on-doubt verdict rather than crashing).
 import re
 import types
 
+# The frontmatter split/parse primitives, bound under this module's long-standing
+# private names so `init_project`'s re-export block and any external caller keep
+# resolving them. The implementations live in one module now; before, three of
+# them were mirrored here and disagreed with each other on BOM handling and on
+# their absence signal.
+from frontmatter_parser import (
+    BOM_CHAR as _BOM_CHAR,  # noqa: F401 -- re-exported for callers of rule_divergence
+    FM_KEY_LINE_RE as _FM_KEY_LINE_RE,  # noqa: F401 -- re-exported for callers of rule_divergence
+    PATHS_LINE_RE as _FALLBACK_PATHS_LINE_RE,  # noqa: F401 -- re-exported for callers of rule_divergence
+    parse_frontmatter_map as _parse_frontmatter_map,  # noqa: F401 -- re-exported for callers of rule_divergence
+    split_frontmatter_block as _split_frontmatter_block,  # noqa: F401 -- re-exported for callers of rule_divergence
+    split_frontmatter_without_paths as _split_frontmatter_fallback,  # noqa: F401 -- re-exported for callers of rule_divergence
+)
+
 
 try:
     import structural_compare
@@ -59,41 +73,18 @@ def normalize_rule_for_diff(content: str) -> str:
     braces) and the installed file's resolved paths value are normalized
     identically.
 
-    Delegates the split to structural_compare.split_frontmatter() when the
-    module is importable, with a byte-identical inline fallback when it is
-    not, so a degraded install keeps diffing correctly. (Sibling helpers
-    update_frontmatter/_extract_paths_value retain their own inline
-    frontmatter handling — keep the three consistent when editing any.)
+    Calls the shared frontmatter_parser split directly, so this normalization
+    keeps producing the same output whether or not structural_compare is
+    importable — the split no longer travels through it, which is what used to
+    require a byte-identical inline mirror here. (Sibling helpers
+    update_frontmatter/_extract_paths_value still carry their own inline
+    frontmatter handling — keep the two consistent with this split when
+    editing either.)
     """
-    if structural_compare is not None:
-        cleaned_frontmatter, body = structural_compare.split_frontmatter(content)
-    else:
-        cleaned_frontmatter, body = _split_frontmatter_fallback(content)
+    cleaned_frontmatter, body = _split_frontmatter_fallback(content)
     if not cleaned_frontmatter:
         return body
     return f"---\n{cleaned_frontmatter}\n---\n{body}"
-
-
-_FALLBACK_PATHS_LINE_RE = re.compile(r"^paths:.*$\n?", re.MULTILINE)
-
-
-def _split_frontmatter_fallback(content: str):
-    """Byte-identical inline mirror of structural_compare.split_frontmatter.
-
-    Used only when the structural_compare module is unavailable, so
-    normalize_rule_for_diff keeps producing the same output in a degraded
-    install. Returns (None, content) when there is no frontmatter, else
-    (frontmatter_minus_paths, body).
-    """
-    if not content.startswith("---\n"):
-        return None, content
-    end = content.find("\n---\n", 4)
-    if end == -1:
-        return None, content
-    frontmatter_text = content[4:end]
-    body = content[end + 5:]
-    cleaned = _FALLBACK_PATHS_LINE_RE.sub("", frontmatter_text, count=1)
-    return cleaned.rstrip(), body
 
 
 def _extract_paths_value(content: str) -> str | None:
@@ -162,59 +153,6 @@ def _classify_diverged(
             notes="structural_compare unavailable; degraded to preserve",
         )
     return _classify_blocks(installed_norm, shipped_norm)
-
-
-_FM_KEY_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(.*)$")
-
-
-# UTF-8 byte-order mark as a code point — kept as chr() so this source file
-# stays pure ASCII (an invisible literal BOM in source is exactly the bug
-# class the guard below exists to defeat).
-_BOM_CHAR = chr(0xFEFF)
-
-
-def _split_frontmatter_block(content: str) -> "tuple[str, str] | None":
-    """Split `content` into (frontmatter_text, body). BOM-tolerant.
-
-    Returns None when there is no complete, well-delimited frontmatter block
-    (missing opening `---`, or no closing delimiter). A leading UTF-8 BOM is
-    stripped before the delimiter check so a BOM'd file cannot silently
-    defeat frontmatter-anchored logic.
-    """
-    content = content.lstrip(_BOM_CHAR)
-    if not content.startswith("---\n"):
-        return None
-    end = content.find("\n---\n", 4)
-    if end == -1:
-        return None
-    return content[4:end], content[end + 5:]
-
-
-def _parse_frontmatter_map(frontmatter_text: str) -> "dict[str, str] | None":
-    """Parse a frontmatter block into a {key: value-text} map, or None.
-
-    A top-level `key: value` line maps to its stripped scalar value; any
-    continuation lines (indented content, `- ` list items, block scalars)
-    are appended verbatim with their newlines, so a multi-line value is
-    detectable via `"\\n" in value` AND two different multi-line values
-    never compare equal. Returns None when a line cannot be attributed to
-    any key (structurally unparseable — the guard treats that as
-    cannot-guard).
-    """
-    result: dict[str, str] = {}
-    current_key: "str | None" = None
-    for line in frontmatter_text.split("\n"):
-        if not line.strip():
-            continue
-        m = _FM_KEY_LINE_RE.match(line)
-        if m:
-            current_key = m.group(1)
-            result[current_key] = m.group(2).strip()
-            continue
-        if current_key is None:
-            return None            # leading continuation with no key — unparseable
-        result[current_key] += "\n" + line.rstrip()
-    return result
 
 
 def _verdict_not_analyzed(v) -> bool:

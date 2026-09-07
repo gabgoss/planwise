@@ -13,13 +13,23 @@ decision primitive for telling "this installed file is safe to silently
 refresh/remove" apart from "this file carries a customization and must be
 preserved."
 
-Pure stdlib only; imports nothing project-specific.
+Pure stdlib apart from `frontmatter_parser`, the shared frontmatter split
+this module's `split_frontmatter` name is bound to; that module is itself
+stdlib-only, so this one still imports no heavyweight project machinery.
 """
 
 import collections
 import dataclasses
 import re
 import unicodedata
+
+from frontmatter_parser import split_frontmatter_without_paths
+
+# The rule-normalization split: frontmatter minus `paths:`, (None, content)
+# when there is no complete block. Bound here under its long-standing name so
+# `segment_blocks` and `rule_divergence` keep calling it unchanged, while the
+# implementation lives in one module instead of being mirrored per caller.
+split_frontmatter = split_frontmatter_without_paths
 
 MIN_BLOCK_TOKENS = 4
 UNIQUE_SAMPLE_LIMIT = 12
@@ -32,8 +42,6 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 _CALLOUT_RE = re.compile(r"^>\s*\[!(\w+)\]\s*(.*)$")
 _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 _QUOTED_FENCE_RE = re.compile(r"^\s*>\s?\s*(`{3,}|~{3,})")
-
-_PATHS_LINE_RE = re.compile(r"^paths:.*$\n?", re.MULTILINE)
 
 # --- normalize_tokens patterns ----------------------------------------------
 
@@ -101,37 +109,6 @@ class StructuralVerdict:
         kwargs.setdefault("installed_only_chars", 0)
         kwargs.setdefault("unique_sample_tokens", [])
         return cls(**kwargs)
-
-
-def split_frontmatter(content: str):
-    """Split off YAML frontmatter, removing the ``paths:`` key.
-
-    Returns ``(frontmatter_minus_paths, body)``:
-
-    - ``frontmatter_minus_paths`` is ``None`` when ``content`` has no
-      frontmatter delimiters (does not start with ``"---\\n"``, or no
-      closing ``"\\n---\\n"`` is found); ``body`` is then the original
-      ``content``, unchanged.
-    - Otherwise ``frontmatter_minus_paths`` is the frontmatter text with the
-      single ``paths:`` line removed and trailing whitespace stripped
-      (possibly ``""`` if ``paths:`` was the only key), and ``body`` is the
-      text following the closing delimiter.
-
-    This replicates the current frontmatter-split behavior byte-for-byte:
-    reconstructing ``"" -> body``, otherwise
-    ``f"---\\n{frontmatter}\\n---\\n{body}"``, must equal the pre-refactor
-    output exactly.
-    """
-    if not content.startswith("---\n"):
-        return None, content
-    end = content.find("\n---\n", 4)
-    if end == -1:
-        return None, content
-    frontmatter_text = content[4:end]
-    body = content[end + 5:]
-    cleaned = _PATHS_LINE_RE.sub("", frontmatter_text, count=1)
-    cleaned = cleaned.rstrip()
-    return cleaned, body
 
 
 def normalize_tokens(text: str) -> collections.Counter:
