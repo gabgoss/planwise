@@ -595,6 +595,33 @@ Issue: {row cites {file} at {stated} against a measured {actual} (±{pct}%) whil
 Fix: Re-run the row-grain sweep per references/task-content-fidelity.md §9.A.14 | Confidence: HIGH
 ```
 
+### 9.A.15 The large-file scan is run, not reproduced by hand
+
+The per-file ladder above has a shipped driver. `handlers/plan.md` Step 8c invokes it:
+
+```bash
+python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}
+```
+
+It classifies every Required Context row in every task against that task's assigned model and **exits non-zero while any file lands Warn or worse**. Reproducing its judgement by hand is a defect even when the judgement is right.
+
+> [!constraint] A hand-written annotation and a computed one are indistinguishable
+> WRONG — the author reads the ladder, decides a file is oversized, and types the marker into the row:
+> ```
+> | 1 | `{some/large/index.md}` | 233 | ~88K | ⚠ PAGED ≥25K sonnet-tok   ← typed from judgement
+> ```
+> A **correct** annotation reached this way is the worst case, not the acceptable one. It produces no symptom, so nothing prompts a second look; no thresholds were derived, no sibling file was classified, and no Warn+ backlog item was filed. Every checklist box still ticks, because the item was a checkbox over prose.
+>
+> CORRECT — the marker is the tool's output and the exit code is the evidence the scan ran:
+> ```bash
+> python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}
+> # → per-file blocks + backlog filing worklist; exit 1 while any Warn+ file is unaddressed
+> ```
+
+Two of the scan's outputs are decisions rather than documentation, which is why skipping it is not merely untidy. A cost-reason Critical that is never computed is never flagged `1M-exception`, so the task dispatches under-budgeted. Warn+ backlog items are how oversized context files enter the queue at all, so a skipped scan silently absorbs files that should have generated follow-up work.
+
+**Token figures come from bytes, never from lines.** The scan defines no band of its own; it delegates to `classify_file`, which computes `bytes ÷ the reading model's bytes-per-token ratio`. Measured per-line rates range 7–365 tokens/line depending on content, so a per-line model under-reports worst on exactly the dense index files the scan exists to catch.
+
 ---
 
 ## Plan-Review Enforcement Summary
@@ -613,6 +640,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 8 | Comparison task sized without reference coverage | A comparison/reconciliation task brief omits the reference-side coverage measurement that should set its size and shape | §9.A.12 |
 | 9 | Assertion label and validation cell not 1:1 | A task file enumerating validation cells carries no assertion-label ↔ cell-ID table; or a label appears twice within one task file; or one label's assert-vs-report disposition differs between two files | §9.A.13 |
 | 10 | Required Context row not measured at row grain | A row disagrees with a live measurement of the span it cites while a sibling row is measured; or a `§` span row carries no resolution; or a command-corpus row was never dry-run; or a size adjective stands in place of a number | §9.A.14 |
+| 11 | Large-file scan hand-reproduced | `context.token_saver: true` AND a task carries a `⚠ PAGED` / `⚠ REFACTOR` annotation with no recorded scan run behind it; or the Step 8c checklist item is ticked with no exit code recorded | §9.A.15 |
 
 For the Verify-Before-Cite checks (§9.B: cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / Pre-SQL verification), see [verify-before-cite.md](verify-before-cite.md)'s Plan-Review Enforcement Summary.
 

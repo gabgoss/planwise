@@ -18,6 +18,18 @@ modules split along their own natural seam:
 module exposed, including the underscore-prefixed helpers some callers reach
 through this facade, is re-exported here by explicit name so no caller needs
 to change.
+
+It is also runnable, as the driver for the `handlers/plan.md` Step 8c
+large-file scan:
+
+    python token_saver.py --scan --plan {plan_path} --config {config}
+
+The scan walks every task's Required Context, classifies each file against
+that task's assigned model, emits the recommendation blocks and the
+`PAGED`/`REFACTOR` annotations, and exits non-zero when any file classifies
+Warn or worse. The walker lives in `token_saver_scan`; only the entry point
+is here, mirroring the split doctor already uses (`doctor_cli` over
+`doctor_sweeps`).
 """
 
 from context_calibration import (
@@ -101,3 +113,20 @@ __all__ = [
     "parse_context_report",
     "set_token_saver",
 ]
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the Step 8c large-file scan; delegate to the walker module.
+
+    Imported lazily so the facade's import cost stays what it was for the many
+    callers that only want the re-exported names.
+    """
+    from token_saver_scan import main as _scan_main
+
+    return _scan_main(argv)
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())

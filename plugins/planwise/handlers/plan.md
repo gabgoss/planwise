@@ -368,7 +368,19 @@ Resolve the **effective** Token Saver value for THIS plan ONCE here — it gates
 
 When the effective `token_saver` is `true`, after the bottom-up estimate above, run a per-file large-file scan over **every** Required Context file in **every** task. This is the plan-author-time instance of the per-file warning ladder anchored in `references/task-content-fidelity.md` §9.A.8 (levels, formulas, and the `reason=cost|read` contract live there — read it before authoring the scan output). The scan folds the carrying-cost ladder and the two FIXED Read-tool gates into one verdict, so it also catches files that are unreadable in a single Read — including files a task will push past a gate once it edits them.
 
-1. **Derive the cost thresholds** from the measured overhead (never hardcode):
+**Run the scan — do not hand-annotate it.** The scan is a shipped tool, not a procedure to reproduce by judgement:
+
+```bash
+python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config} [--json]
+```
+
+It walks every task file under `{plan_path}`, reads each task's assigned **Agent**, resolves every Required Context row to a path, classifies it, prints one recommendation block per Warn-or-worse file with the citing tasks, prints the backlog filing worklist, and **exits non-zero when any file lands Warn or worse**. Add `--projected {path}={bytes}` for a file this plan will grow. Rows that are not files — a command corpus, a not-yet-written output, a glob — are reported by reason rather than classified.
+
+Run it rather than reproducing it by judgement. Why a *correct* hand-written annotation is the worst case, with the WRONG/CORRECT pair, is [`references/task-content-fidelity.md`](../references/task-content-fidelity.md) §9.A.15.
+
+The contract the tool implements, for reference when reading its output:
+
+1. **Cost thresholds** are derived from the measured overhead, never hardcoded:
 
    ```
    thresholds = token_saver.derive_thresholds(
@@ -377,7 +389,7 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
    # → {available_per_task, critical, warn}
    ```
 
-2. **Classify each Required Context file** against the runner that will read it (the task's assigned **Agent** — tokens = bytes ÷ that model family's bytes-per-token ratio; the byte cap and line window are model-independent). For a file the **same task will modify**, pass the projected byte delta (projected added lines × the file's observed average bytes/line) so a file that *will* cross a gate post-edit is flagged pre-emptively:
+2. **Each Required Context file is classified** against the runner that will read it (the task's assigned **Agent** — tokens = bytes ÷ that model family's bytes-per-token ratio; the byte cap and line window are model-independent). For a file the **same task will modify**, the projected byte delta (projected added lines × the file's observed average bytes/line) is passed so a file that *will* cross a gate post-edit is flagged pre-emptively:
 
    ```
    verdict = token_saver.classify_file(
@@ -387,6 +399,8 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
        thresholds = thresholds)
    # → {level, reason, bytes, tokens, lines}; level = max(cost_level, read_level)
    ```
+
+   Token figures come from **bytes ÷ the reading model's ratio**. Never derive one from a line count: measured per-line rates range 7–365 tokens/line by content, so a per-line band under-reports exactly the dense index files this scan exists to catch.
 
 3. **Emit a recommendation block per file** at **Notice / Warn / Critical** (Green files are silent), naming the driving `reason`:
    - **Notice** — advisory only. Docs/specs → note a Multi-Part split is advisable; code → note for awareness. No backlog item.
@@ -685,7 +699,7 @@ Before completing `/planwise plan`, verify:
 [ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED
 [ ] If DELEGATED: Orchestration Required Context = plan files only
 [ ] If DELEGATED: Context Boundary subsection lists what orchestrator never reads
-[ ] If effective Token Saver on (plan Master-Plan `Token Saver:` field over the project `context.token_saver` default) — Token Saver large-file scan run over every task's Required Context (Step 8c); Warn+ files have a backlog item; cost-reason Critical tasks flagged 1M-exception (read-reason → paged-read/refactor, never 1M-exception); generated artifacts a runner reads are under the line/byte/token read gates
+[ ] If effective Token Saver on (plan Master-Plan `Token Saver:` field over the project `context.token_saver` default) — the Step 8c large-file scan was **run, not reproduced by hand**, and its exit code recorded: `python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}`. **Exit 0 ticks this box.** A non-zero exit names the Warn+ files: each needs a backlog item, a cost-reason Critical needs its task flagged `1M-exception`, and a read-reason Critical needs a paged-read/refactor note — never `1M-exception`. Re-run until it exits 0, or record per remaining file why it stands. Generated artifacts a runner reads must also be under the line/byte/token read gates. This item is the tool's exit code, not a judgement — a ticked box with no run behind it is the failure the scan exists to prevent
 [ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
 [ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
 [ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
