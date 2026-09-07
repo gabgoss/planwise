@@ -61,7 +61,7 @@ All paths resolve from `config.yaml` (`project.planwise_root`, `project.lessons_
 
 > [!protocol] Four-Phase BB Drafting
 > 1. **Phase 1 — Resolve scope AND read every in-scope lesson body in full.** Parse `$ARGUMENTS`. Read the categorisation file and the master index. Validate each lesson against the five-step gate in §3.2 (file exists, NOT archived, status is `documented`, categorised, NOT cited by any BB in `{backlog_dir}/` or `{backlog_dir}/Archive/`). Then **read every surviving in-scope lesson body in full** — Context, Lesson, Applies To. Grouping cannot be decided from index summaries alone; multi-part lessons (Part-2 §9) require body content to detect decomposition opportunities.
-> 2. **Phase 2 — Group lesson fragments into BBs.** Group by destination artifact using the decision tree in §4. A single lesson MAY be decomposed across multiple BBs when its body covers content for multiple distinct rules (Part-2 §9). Each group becomes one BB. Default grouping = one BB per top-level bucket (or per sub-bucket if `--category=C1` targets a sub-bucket id). **No-limbo principle (§4.2):** every in-scope `documented` lesson MUST land in at least one BB deliverable — `documented` is not a valid resting state for a lesson the workflow has accepted into scope.
+> 2. **Phase 2 — Group lesson fragments into BBs.** Group by destination artifact using the decision tree in §4. A single lesson MAY be decomposed across multiple BBs when its body covers content for multiple distinct rules (Part-2 §9). Each group becomes one BB. Default grouping = one BB per root-cause cluster inside the scoped bucket or sub-bucket (§4.1), which collapses to one BB for the whole bucket only when that bucket yields a single cluster. **No-limbo principle (§4.2):** every in-scope `documented` lesson MUST land in at least one BB deliverable — `documented` is not a valid resting state for a lesson the workflow has accepted into scope.
 > 3. **Phase 3 — Draft each BB.** Use the lesson bodies already in context from Phase 1 (no re-read). Decide each lesson fragment's promotion strategy (rule / applied-to-code / applied-to-settings / CLAUDE.md addition / decomposed across N BBs), and draft deliverables — including the rule's outline with content INLINED (no `see LL-XXX` references) and a CLAUDE.md binding callout when relevant.
 > 4. **Phase 4 — Write files, then capture the lessons.** Write each BB to `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md`, append rows to `{backlog_index}`, run `score_backlog.py` to compute scores, bump the index `Last Updated` line. Then **capture every in-scope lesson** (Part-2 §6.6): flip it to `status: promoted`, populate `promoted-to:`, `git mv` it to `{lessons_dir}/Archive/`, and update its Master Table row. Report summary to chat. Full write scope: §1.
 
@@ -142,13 +142,36 @@ Under `--dry-run`, this read still happens — the dry-run output is meaningless
 
 ### 4.1 Default grouping rule
 
+The grouping unit is the **root-cause cluster**, not the bucket. Partition each bucket's in-scope lessons into clusters that share one root cause (§4.3), then draft one BB per cluster. A bucket that yields a single cluster produces a single BB. That outcome is the degenerate case of this rule, not the standing default.
+
 > [!decide] Grouping Strategy
 > | Scope | Default grouping |
 > |-------|------------------|
-> | One top-level bucket (e.g., `--category=A`) | One BB for the whole bucket |
-> | One sub-bucket (e.g., `--category=C1`) | One BB for that sub-bucket; sub-buckets cluster more loosely than top-level buckets |
-> | Mixed buckets (`--all-documented`) | One BB per top-level bucket; never bundle a database lesson with a tooling lesson into one BB |
-> | A specific list of LL IDs | If the IDs span buckets, ask the user whether to merge or split via `AskUserQuestion` |
+> | One top-level bucket (e.g., `--category=A`) | One BB per root-cause cluster inside the bucket. A bucket yielding one cluster produces one BB. |
+> | One sub-bucket (e.g., `--category=C1`) | One BB per root-cause cluster inside the sub-bucket. Sub-buckets cluster more loosely, so they yield fewer clusters, never one by default. |
+> | Mixed buckets (`--all-documented`) | Cluster inside each top-level bucket separately. Never merge clusters across buckets, and never bundle a database lesson with a tooling lesson into one BB. |
+> | A specific list of LL IDs | If the IDs span buckets, ask the user whether to merge or split via `AskUserQuestion`. Within one bucket, cluster as above. |
+
+**Precedence.** Where this section and §4.3 give different groupings, **§4.3 wins** — a one-BB-per-bucket grouping carries no mechanism to satisfy the file-size rule in [Part-2 §6.2](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#62-write-each-bb-file), so at scale it produces the failure §4.4 describes.
+
+**Sizing.** A cluster of roughly 2-5 lessons is the working band. Project each cluster's BB against the [Part-2 §6.2](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#62-write-each-bb-file) token budget before Phase 3 begins. Split any cluster whose BB is projected to exceed that budget, along its next-strongest shared cause. Merge two clusters only when their root causes turn out to be one cause. The projection is an estimate — §6.2's measured check at write time stays the binding gate.
+
+**Reporting.** A run that produces more than one BB for a bucket states the clustering basis in its Phase 2 chat report: one line per cluster, naming that cluster's shared root cause and its lesson count. Report the resulting BB count to the user before Phase 3 rather than letting Phase 4 reveal it.
+
+> [!constraint] Size the Groups Before Drafting, Not After
+> WRONG — a bucket holding 30 lessons across several root causes is drafted as one BB, because the bucket was treated as the grouping unit:
+> ```markdown
+> ## Deliverables
+> 1. Rule: {name}.md — content of all 30 in-scope lessons inlined
+> ```
+> The receiving BB either breaches the Part-2 §6.2 budget or silently summarises most of those lessons away. That is the §4.4 failure one level up, at bucket grain rather than lesson grain.
+>
+> CORRECT — the same bucket is partitioned by root cause first, and each cluster becomes its own BB, sized against the budget before drafting:
+> ```markdown
+> Cluster 1 (4 lessons) — shared cause: {cause}  → BB 1
+> Cluster 2 (3 lessons) — shared cause: {cause}  → BB 2
+> Cluster 3 (5 lessons) — shared cause: {cause}  → BB 3
+> ```
 
 ### 4.2 Sub-grouping inside a BB — by destination artefact
 
@@ -191,6 +214,8 @@ Most lessons are single-purpose and promote 1:1 (a single `promotion-target:` va
 > WRONG — LL-X has content covering four distinct fragments (a)/(b)/(c)/(d) that map to different destination rules. The workflow bundles all of LL-X into one BB (say, the C1 bucket BB). The receiving BB either inflates past the one-read token budget OR the (c)/(d) fragments get summarised away because they don't fit C1's narrative.
 >
 > CORRECT — LL-X is decomposed: the (a) fragment lands in the C1 BB; the (c) fragment lands in a tooling/agent-extension BB; the (d) fragment lands in a CLAUDE.md hooks BB. Each BB's Evidence table cites LL-X with the specific fragment it owns; each BB's rule design inlines ONLY the WRONG/CORRECT examples relevant to its destination. `promoted-to:` on the lesson accumulates ALL owning backlog item ids — one per fragment's BB — not just the first.
+
+**Where this failure comes from.** The inflate-or-summarise outcome above is what §4.1's grouping produces whenever more than one root cause is forced into a single BB. At lesson grain that means a multi-destination lesson routed whole, as in the WRONG case above. At bucket grain it means a whole bucket drafted as one BB — which is why §4.1 makes the root-cause cluster the grouping unit rather than the bucket. The mechanism is identical at both grains: the receiving BB inflates past its token budget, or the content that does not fit its narrative is summarised away.
 
 Decomposition signal: during Phase 1 full-body reads (§3.4), an LL whose Context section names ≥2 distinct rule files OR whose "Applies To" lists ≥2 distinct file domains is a decomposition candidate. Flag in the Phase 2 grouping output: *"LL-X decomposes across BBs P, Q, R — fragments listed below."*
 
