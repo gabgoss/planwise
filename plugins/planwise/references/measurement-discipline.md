@@ -208,7 +208,7 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > 2. **`^\+` filtering hides everything predating the base.** A defect older than `$BASE` is a context line, not an added line, so it is invisible by construction — and stays invisible across every later session reusing the shape.
 > 3. **A pattern narrower than the forms it must catch misses them even unfiltered.** A pattern written as `{PREFIX}-[0-9]` matches only the citation spelling; the same identifier glued into a file name (`…-{PREFIX}SomeTopicName.md` — no hyphen, no digit) slips straight through, so widening the scope without widening the pattern still returns empty on a visibly leaking file.
 >
-> CORRECT — four remedies, all of them cheap:
+> CORRECT — five remedies, all of them cheap:
 >
 > **1. Register new files before diffing.** Intent-to-add puts the path in the index without staging content or creating a commit:
 > ```bash
@@ -224,6 +224,8 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > **3. Add one unfiltered sweep for pre-existing content.** `^\+`-filtered gates correctly answer "did this change introduce X"; they cannot answer "does X exist". A whole-tree audit or release battery needs a sweep over files **on disk**, not over a diff — and it must **classify** hits rather than blanket-fail, since legitimate template placeholders and rule text that enumerates the forbidden forms will match. Widening a pattern without widening the classification step converts a silent miss into a noisy blanket-fail, which gets ignored just as fast.
 >
 > **4. Dry-run every gate against known-bad input before trusting it.** Run it once against a file that genuinely carries the pattern and once against a clean file; the two runs MUST produce different results. Each of the three defects above would have surfaced in one such run. A gate that has only ever been run against clean input has never been shown to discriminate.
+>
+> **5. A parameterised pattern must name what binds its parameter in every context it runs.** A gate written around a placeholder — the executing plan's abbreviation, the live sprint name, a task id — is well-defined only in the context that supplies the value. Everywhere else the placeholder is skipped, or filled with whatever the previous run left behind, and the gate returns empty because it tested a token nobody was using. That empty result is the same shape as a clean one, so it reads as coverage. Either state the binding for each context the gate must run in, or give the unbound contexts a companion form that binds the variable **structurally** — matching the *shape* of the forbidden name rather than one known value — paired with a lookup that classifies what the wider pattern returns. A release battery, a whole-tree audit, and any cross-plan sweep are all unbound contexts by construction, and they are where the gate matters most.
 >
 > **Generalisation:** the class is broader than git. Any check deriving its input from a *change set* — a diff, a changelog, a CI touched-files list, a migration delta — silently excludes whatever the change set omits, and inherits this whole failure mode.
 >

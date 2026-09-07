@@ -213,6 +213,8 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 > ```
 > `{PLAN_ABBREV}` is the executing plan's abbreviation, parameterised per plan (substitute the live abbreviation before running).
 >
+> **This form is insufficient for a whole-tree audit, and its green result must not be read as one.** Substituting one plan's abbreviation tests exactly that one abbreviation, so an empty result says nothing about any other authoring plan's names in the tree. A release battery, a whole-tree audit, and a backlog-route promotion all have no executing plan, so there is no value to substitute at all — the free variable is either skipped or filled with whatever abbreviation the last plan happened to leave behind. Those contexts MUST run the release-time form in *Release-Time Plan-Structure Sweep* below instead of this one.
+>
 > Steps 1–3 are not optional decoration — they are what makes step 4's empty result mean anything. `git diff` does not report untracked files at all, so a promotion that ADDS a file gets an empty result from a pipeline that never saw the file's content, and an empty result that inspected nothing is indistinguishable from one that inspected everything. See `measurement-discipline.md` §8.7 *Verify the gate's input set before trusting its predicate*.
 
 **Gate semantics:**
@@ -241,7 +243,28 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 >
 > The distinguishing question for the last two rows is whether the token names an artifact that exists in some authoring repo. An invented sample abbreviation in a format example is vocabulary; a real project's abbreviation attached to that project's real file names is a citation wearing an example's clothes.
 
-**Dry-run every one of these gates against known-bad input before trusting it.** Run each gate once against a file that genuinely carries the pattern and once against a clean file; the two runs MUST produce different results. A gate that has only ever been run against clean input has never been shown to discriminate — and all three defects this section corrects (untracked blindness, `^\+` blindness, a too-narrow pattern) would have surfaced in a single such run.
+Both sweeps above still carry `{PLAN_ABBREV}`, so neither is runnable at release time — that variable is bound only inside a plan session. Bind it **structurally** instead: match the *shape* of a plan-artifact name rather than one known abbreviation, and the pattern needs no substitution in any context.
+
+> [!verify] Release-Time Plan-Structure Sweep — No Free Variable
+> ```
+> Grep  pattern='\b[A-Z]{2,5}-(META-S[0-9]|Consolidated-Context|S[0-9]{2}-[0-9]{2}-)'
+>       path='plugins/planwise'  output_mode='content'  -o=true  -n=true
+> ```
+>
+> This yields candidate abbreviations, not verdicts. **The classification step is the gate; the pattern alone is not.** Take the distinct abbreviations it returns and look each one up in the authoring project's own plans index:
+>
+> | Abbreviation is in the plans index | What it is | Disposition |
+> |---|---|---|
+> | Yes | A real plan in the authoring repo, resolvable to nobody outside it | **Leak — reword to invented sample vocabulary** |
+> | No | Sample vocabulary minted for the doc itself | False positive — leave it |
+>
+> The lookup separates the two buckets mechanically, with no judgment about authorial intent. It is what makes the wide pattern safe: a shape-matching sweep is *expected* to return the tool's own sample abbreviations on every run, and without the index lookup its output is unreadable noise that gets waived wholesale.
+>
+> Measured on one live tree: the same six lines of one reference file returned a plans-index abbreviation before that file's repair and an invented one after. The pattern fired identically both times — only the index lookup told the leak from the sample.
+
+**Dry-run every one of these gates against known-bad input before trusting it.** Run each gate once against a file that genuinely carries the pattern and once against a clean file; the two runs MUST produce different results. A gate that has only ever been run against clean input has never been shown to discriminate — and all four defects this section corrects (untracked blindness, `^\+` blindness, a too-narrow pattern, and a pattern whose free variable nothing binds at release time) would have surfaced in a single such run.
+
+For the release-time sweep the two runs are compared on their **classification**, not on emptiness. That sweep returns the tool's own sample abbreviations on any input, so "empty vs non-empty" cannot grade it; the known-bad run must produce an abbreviation the plans index resolves and the clean run must produce none.
 
 ### 4.4 Where the Displaced Note Goes — Banning the Reference Must Not Lose the Information
 
