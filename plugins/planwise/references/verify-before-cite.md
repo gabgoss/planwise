@@ -723,6 +723,56 @@ Applies to tasks that fetch from web pages, paginated APIs, large remote documen
 > [!constraint] A task that cites the current state of a file must record which tree it read and when
 > Verify-before-cite proves a citation is accurate *now*; it does not by itself record *which tree* "now" was read against, or pin that tree's state so the claim can be reproduced. When a task's deliverable is itself a verdict about code state — not just a citation used in passing — see [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) §12 (Verification Task Tree-State Pin) for the tree-naming and read-window-pinning discipline this triggers.
 
+### 9.B.21 A target's structure is verified in that file, never generalised from its siblings
+
+> [!constraint] "In native format" / "matching the existing" names a structure that MUST be proven to exist in the NAMED target
+> An edit instruction phrased as *"a {row} in native format"*, *"matching the existing"*, *"verbatim, as the other {N} files carry it"*, or naming a section of the target, generalises a structure observed across a **family** of files onto **one** file that may not have it. The generalisation is invisible at review: the instruction reads as a precise citation, and the family really does carry the structure — just not in the named target.
+>
+> The runner is then left with two options, and both fail silently. It can invent the missing structure — unscoped work on a file the task was never chartered to restructure. Or it can land something that cannot satisfy its own success criterion, because that criterion is measured against a shape the target does not have.
+>
+> Before such a row ships, run a locator against **that file** and record the result in the row:
+> ```
+> Grep  pattern='^## {Section Name}'  path='{path/to/named-target.md}'  output_mode='count'
+> ```
+> A count of 0 does not block the row. It changes what the row must say.
+
+**Where the structure is absent, the row states the fallback form.** A row whose target lacks the structure MUST name the form to use — an inline note, or a new section — rather than leaving the runner to choose. When creating the section is genuinely intended, that is its own named deliverable with its own scope and its own success criterion, never a side effect of a citation row.
+
+A second trap rides along with the first: **copyable text whose structural home does not exist**. Where the "verbatim" text a row calls for lives, in every file that has it, *inside* the missing section, the text is copyable but its position is not. A row that says "verbatim" while its positional phrasing describes an inline note ("near the {stage} audit") is specifying two different edits in one sentence. One runner reads it as a row, another as a note, and sibling rows across two targets produce structurally non-comparable output. State the form first, then the text.
+
+> [!constraint] Prove the structure in the named file, then state the form
+> WRONG — the row generalises from the family, and its success criterion cannot be met in the target:
+> ```markdown
+> | {row-id} | Add a Required-References row in native format | {target-handler}.md |
+> ```
+> The named file has no such section, so "in native format" has no local referent — and the criterion "byte-identical to the {N} existing files' note text" is measured against a shape the target lacks.
+>
+> CORRECT — the locator is run against the named file, its result sits in the row, and the row states the form the absence implies:
+> ```markdown
+> <!-- Verified {YYYY-MM-DD}: Grep '^## Required References' {target-handler}.md → 0
+>      (present in {M} of {N} handlers; absent here) -->
+> | {row-id} | Section absent in this target — add the base-references text as an INLINE note directly above `## {Existing Section}` (:{line}). Creating a `## Required References` section here is explicitly NOT in scope. | {target-handler}.md |
+> ```
+
+The generalisation is worth naming as a distinct failure because a plan can state the discipline and violate it on the same page. A sprint whose binding method is *"'every file needs X' generalisations are the over-reach this method exists to prevent"* will still ship such a row a few lines later, because nothing mechanical checks the premise — the prohibition is prose, and the row looks like a citation.
+
+#### Reviewer Check 085 — Target Structure Proven in the Named File
+
+- **Severity / Role / Type:** ERROR | Structural Reviewer | NEW
+- **What:** Any row or instruction specifying an edit "in native format", "matching the existing", "verbatim as the other {N} carry", or naming a section of its target, MUST carry a locator result measured against the **named target** — not its siblings. Where the locator returns 0, the row MUST state the fallback form.
+- **Detection:**
+  1. Grep plan rows and task Execution Steps for `native format|matching the existing|verbatim as|the existing \w+ carry` and for rows naming a `^##`/`^###` section of a named target file.
+  2. For each hit, run the locator against the named target and compare with the row's recorded evidence. No recorded evidence → ERROR.
+  3. Where the live locator returns 0 and the row does not state a fallback form (inline note vs. new section) → ERROR.
+  4. Where the row's success criterion is measured against sibling files' text but the target lacks the surrounding structure → ERROR.
+- **Finding template:**
+```
+[ERROR] Target structure assumed from siblings
+File: {plan or task file path} | Location: row {id} / Execution Step {N}
+Issue: {row specifies "{phrase}" against {target}, which has no {structure} (live locator → 0; present in {M} of {N} siblings) | row records no locator evidence for the named target | locator returns 0 and no fallback form is stated}
+Fix: Run the locator against the named target and state the fallback form per references/verify-before-cite.md §9.B.21 | Confidence: HIGH
+```
+
 ---
 
 ## Plan-Review Enforcement Summary (Verify-Before-Cite)
@@ -736,6 +786,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 3 | Facade re-export gap | A plan enforces a facade architecture rule but the facade module does not re-export every type referenced in downstream task briefs | §9.B.3 |
 | 4 | Vacuous column-presence check | A task says "verify column X is in INSERT/UPDATE" against an upsert helper that uses dynamic column mapping | §9.B.4 |
 | 5 | Missing Schema Pin OR Pre-SQL Schema Verification on SQL-emitting task | A task file's Execution Steps include SQL-emitting verbs against project tables AND the file has neither a Schema Pin section nor a `Pre-SQL Schema Verification` block in Notes for Agent | §9.B.5 |
+| 6 | Target structure assumed from siblings | A row specifying an edit "in native format" / "matching the existing" / naming a section of its target carries no locator evidence measured against that target; or the live locator returns 0 and the row states no fallback form | §9.B.21 |
 
 ---
 

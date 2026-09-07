@@ -488,6 +488,10 @@ Corollaries:
 - Task Step-1 gates and dispatch prompts gate on **symbols** (`grep -c 'def _classify_diverged' …`), never on line numbers.
 - An orchestrator forwarding context to a runner passes the **symbol names** and flags the line numbers as possibly stale.
 
+**A named section is a hypothesis too — and it fails differently.** The discipline above treats a line number as a cost hint and re-locates by symbol. A *named section* (`## Required References`, `### Config Gate`) is equally a hypothesis, but its failure mode is not drift. The section may never have existed in that file at all, because the name was generalised from sibling files that do have it.
+
+Re-locating by symbol cannot rescue that case, which is why it needs stating separately. The locator returns 0, and a runner reads 0 as "my pointer went stale" when it actually means "my premise was wrong" — so the two failures need different responses. A stale line number is re-derived and the row proceeds unchanged. An **absent** section changes what the row must say: the row states the fallback form (inline note vs. new section), and creating the section becomes its own scoped deliverable rather than a side effect. See [verify-before-cite.md](verify-before-cite.md) §9.B.21 for that discipline. This subsection states only the part that belongs here — a named section, exactly like a line number, is verified against the named file before the row ships.
+
 ### 12.2 Scaffolded Verification Commands Derive the Repo Root — Never Assume Directory Depth
 
 > [!constraint] A relative `git -C ../../..` depth is a guess about the on-disk tree; the repo root is a derivable fact
