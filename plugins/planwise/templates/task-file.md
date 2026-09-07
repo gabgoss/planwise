@@ -52,8 +52,33 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
      `⚠ REFACTOR ≥256 KiB` — file is at/over the 256 KiB byte gate; Read refuses it without offset/limit — page it, and refactor + backlog if it is a core/edited dependency.
      Both are read-reason flags — NOT resolved by the 1M-exception (the Opus/Fable tokenizer trips the page cap on fewer bytes). -->
 
-**Context subtotal:** ~{X}K tokens (reads) + ~{X}K (output) = ~{X}K total
-<!-- Reconciliation: this total MUST match the Estimated Tokens in this task's header. -->
+**Context subtotal:** ~{R}K (reads — the sum of the ~Tokens column) + ~{O}K (output) + ~{W}K (working) = **~{T}K total**
+
+> [!constraint] The Context subtotal is a strict identity, not a prose estimate
+> `sum(Required Context ~Tokens) + output + working` **equals** the header's `**Estimated Tokens:**`, with the addends shown as above. No qualifier may close a gap between the two. When the sum moves, the **header follows** — and the session Orchestration total and the Sprint Plan figure re-roll with it.
+>
+> A genuine discount — a targeted read, a re-read allowance — is **its own addend carrying a value**, never prose attached to the total. "Rounding" covers the ±0.5K a rounded header actually implies. It does not cover a 5% shortfall.
+>
+> WRONG — the gap is closed by a qualifier that performs no arithmetic:
+> ```markdown
+> **Estimated Tokens:** ~34K
+> **Context subtotal:** ~33.3K reads + ~5.9K output = ~39.2K
+> <!-- netted to ~34K by the targeted-read discipline (the open-row extraction is the ceiling, typically less) -->
+> ```
+> The qualifier reads as a justification while calculating nothing, and 39.2 ≠ 34.
+>
+> CORRECT — the discount is an addend with a value, so the header equals the sum:
+> ```markdown
+> **Estimated Tokens:** ~34K
+> **Context subtotal:** ~33.3K reads − ~5.2K (targeted-read discount, rows 3 + 5: ~{X}K → ~{Y}K)
+>                       + ~5.9K output = ~34.0K total
+> ```
+>
+> **Where a consolidation multiplier applies**, it is an explicit factor on the reads term — `~{R}K reads × {M} (consolidation overhead)` per `references/task-content-fidelity.md` §9.A.5 — and the identity holds with the factor applied. Apply it **once**: a multiplier stated in the formula plus a second allowance folded into `working` double-counts the same overhead.
+>
+> **Budget the ceiling, not the hope.** Where a row's cost is a range, the row carries the ceiling. An under-budget task costs nothing; an over-budget one stalls mid-run.
+>
+> **One formula per task.** If two derivations appear in one file, the file has no single answer and a reader cannot tell which is authoritative. Two derivations can also disagree with each other while landing on the same total — so the totals agreeing is not evidence that either derivation is right.
 <!-- Populate KiB/~Tokens with `python "{plugin_root}/scripts/measure_files.py" {files...} --model {assigned Agent} --md` — tokens are measured bytes ÷ the assigned model's bytes-per-token ratio, never lines × a rate. See reference.md Token Estimation Reference for output costs. -->
 <!-- Shared-context rule: a file cited by MULTIPLE tasks MUST carry the same measured KiB/~Tokens (from measure_files.py on the live file) in every task — it is a single source of truth, not a per-task guess. -->
 
