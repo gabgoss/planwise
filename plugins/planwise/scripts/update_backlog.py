@@ -32,6 +32,10 @@ from markdown_parser import (
     render_id,
     split_row_raw,
 )
+from reconcile_common import (
+    read_text_preserving_newlines,
+    write_text_preserving_newlines,
+)
 
 # A row's raw segments carry one extra leading element — the text before the
 # row's opening pipe, normally empty. So the raw index of cell N is N + 1.
@@ -240,7 +244,7 @@ def reconcile_archival(
 
     Returns True when it moved a file or rewrote a link, False otherwise.
     """
-    content = index_path.read_text(encoding="utf-8")
+    content = read_text_preserving_newlines(index_path)
     filenames = extract_file_links(content, item_id)
     if not filenames:
         return False
@@ -258,7 +262,7 @@ def reconcile_archival(
 
     relinked, rewritten, skipped = update_index_links_to_archive(content, item_id, results)
     if relinked != content:
-        index_path.write_text(relinked, encoding="utf-8")
+        write_text_preserving_newlines(index_path, relinked)
         total = len(rewritten) + len(skipped)
         if skipped:
             reasons = "; ".join(
@@ -313,9 +317,15 @@ def append_backlog_row(
         last_table_idx = i
         i += 1
 
+    # Match the neighbouring row's line ending. The caller reads with
+    # newline="", so a CRLF index keeps its "\r\n" and every element of `lines`
+    # carries a trailing "\r". A row rendered without one would be the only LF
+    # line in the file — a mixed-ending index, and a diff on a line the append
+    # never touched once any later writer normalizes it.
+    eol = "\r" if lines[last_table_idx].endswith("\r") else ""
     new_row = (
         f"| {item_id} | {feature} | {priority} | {status} | "
-        f"{abbrev} | {score} | {files_cell} |"
+        f"{abbrev} | {score} | {files_cell} |" + eol
     )
     lines.insert(last_table_idx + 1, new_row)
     return "\n".join(lines)
@@ -429,7 +439,7 @@ def create_backlog_item(args) -> None:
         print(f"Error: Backlog index not found at {index_path}", file=sys.stderr)
         sys.exit(1)
 
-    content = index_path.read_text(encoding="utf-8")
+    content = read_text_preserving_newlines(index_path)
 
     # Stored ID form: an explicit id_format config key wins; otherwise infer
     # the index's own predominant existing form (bare on an empty index). A
@@ -483,7 +493,7 @@ def create_backlog_item(args) -> None:
     updated_content = append_backlog_row(
         content, item_id, feature, priority, status, abbrev, files_cell
     )
-    index_path.write_text(updated_content, encoding="utf-8")
+    write_text_preserving_newlines(index_path, updated_content)
     print(f"Created backlog item {item_id}: {feature} [{priority}/{status}/{abbrev}]")
 
 
@@ -552,7 +562,11 @@ def main():
         print(f"Error: Backlog index not found at {index_path}", file=sys.stderr)
         sys.exit(1)
 
-    content = index_path.read_text(encoding="utf-8")
+    # newline="" both ways: update_item_status rebuilds the whole file to change
+    # one Status cell, so a universal-newline round-trip would retranslate every
+    # other row to the platform's os.linesep and turn a one-cell edit into a
+    # whole-file diff.
+    content = read_text_preserving_newlines(index_path)
 
     try:
         updated_content, old_status = update_item_status(content, args.id, new_status)
@@ -575,7 +589,7 @@ def main():
             reconcile_archival(index_path, backlog_dir, archive_dir, args.id)
         return
 
-    index_path.write_text(updated_content, encoding="utf-8")
+    write_text_preserving_newlines(index_path, updated_content)
     print(f"Updated item {args.id} status: {old_status} → {new_status}")
 
     # Sync YAML frontmatter status in item files

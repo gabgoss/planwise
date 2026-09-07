@@ -22,13 +22,16 @@ Run with:  python -m pytest tests/test_score_backlog.py -q
 
 import contextlib
 import io
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import score_backlog  # noqa: E402
 from markdown_parser import split_row_cells  # noqa: E402
 from score_backlog import parse_index_table, write_scores_to_index  # noqa: E402
 
@@ -268,6 +271,125 @@ class TestReconciliationWarning(unittest.TestCase):
         with contextlib.redirect_stderr(err):
             write_scores_to_index(content, {"061": 10, "900": 5})
         self.assertIn("WARNING: computed 2 score(s) but wrote 1.", err.getvalue())
+
+
+CONFIG_YAML_FIXTURE = """project:
+  name: "ScoreBacklogFixtureProject"
+  backlog_dir: "Backlog"
+  index_files:
+    backlog: "00-Index-Backlog.md"
+"""
+
+
+class TestLineEndingsPreserved(unittest.TestCase):
+    """The score write-back must not translate the index's line endings.
+
+    `main()` reads the index and writes the Score column back in place. A
+    `read_text` / `write_text` pair round-trips through Python's
+    universal-newline translation: the read collapses any line ending to
+    "\\n", and the write turns every "\\n" back into the running platform's
+    `os.linesep`. A one-cell score update then rewrites every line in the
+    file — including the prose section below the table, which the write-back
+    walker deliberately stops before. The content survives; the diff does
+    not, and reviewing what a destructive script actually changed becomes
+    impossible.
+
+    Both directions are asserted because each fails on only one platform:
+    the LF case fails on Windows (`os.linesep == "\\r\\n"`), the CRLF case
+    on POSIX. One direction alone is a coin flip on which platform catches
+    the regression.
+
+    Fixtures are written with `write_bytes`, never `write_text` —
+    `write_text` applies the same `os.linesep` translation the defect
+    applies, so a fixture built with it matches the platform by
+    construction, cancels the defect out, and leaves the test vacuous
+    everywhere.
+    """
+
+    LF_INDEX = (
+        b"# Backlog Index\n"
+        b"\n"
+        b"## Backlog Items\n"
+        b"\n"
+        b"| ID  | Feature | Priority | Status | Abbrev | Score | Files |\n"
+        b"|-----|---------|----------|--------|--------|-------|-------|\n"
+        b"| 062 | An open item | High | NOT_STARTED | DOC | - | [01](a.md) |\n"
+        b"| 063 | A closed item | Low | COMPLETE | DOC | - | [01](b.md) |\n"
+        b"\n"
+        b"## Notes\n"
+        b"\n"
+        b"A bystander line the write-back walker never reaches.\n"
+    )
+    CRLF_INDEX = LF_INDEX.replace(b"\n", b"\r\n")
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="score_backlog_eol_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+        self.planwise_dir = self.tmp / "planwise"
+        self.backlog_dir = self.planwise_dir / "Backlog"
+        self.backlog_dir.mkdir(parents=True, exist_ok=True)
+        self.config_path = self.planwise_dir / "config.yaml"
+        self.config_path.write_text(CONFIG_YAML_FIXTURE, encoding="utf-8")
+        self.index_path = self.backlog_dir / "00-Index-Backlog.md"
+
+    def write_index_bytes(self, content: bytes) -> Path:
+        self.index_path.write_bytes(content)
+        return self.index_path
+
+    def run_score(self) -> str:
+        """Invoke score_backlog.main() via an injected argv; return stdout."""
+        saved_argv = sys.argv
+        sys.argv = ["score_backlog", "--config", str(self.config_path)]
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                score_backlog.main()
+        finally:
+            sys.argv = saved_argv
+        return buf.getvalue()
+
+    def _score_cell(self, item_id: str) -> str:
+        text = self.index_path.read_text(encoding="utf-8")
+        return _row_cells(text, item_id)[5]
+
+    def test_lf_index_stays_lf(self):
+        self.write_index_bytes(self.LF_INDEX)
+
+        self.run_score()
+
+        raw = self.index_path.read_bytes()
+        self.assertNotIn(
+            b"\r\n", raw, "an LF index must not gain a single CRLF line ending"
+        )
+        # The write really ran — otherwise the assertion above passes vacuously.
+        self.assertNotEqual(self._score_cell("062"), "-")
+
+    def test_crlf_index_stays_crlf(self):
+        self.write_index_bytes(self.CRLF_INDEX)
+
+        self.run_score()
+
+        raw = self.index_path.read_bytes()
+        self.assertEqual(
+            raw.count(b"\n"),
+            raw.count(b"\r\n"),
+            "every line ending in a CRLF index must still be CRLF",
+        )
+        self.assertNotEqual(self._score_cell("062"), "-")
+
+    def test_bystander_prose_below_the_table_is_byte_identical(self):
+        """The walker breaks at the `## Notes` boundary, so this line is one
+        the score write-back never intended to touch. It must come back
+        byte-for-byte, newline included."""
+        self.write_index_bytes(self.LF_INDEX)
+
+        self.run_score()
+
+        self.assertIn(
+            b"A bystander line the write-back walker never reaches.\n",
+            self.index_path.read_bytes(),
+        )
 
 
 if __name__ == "__main__":

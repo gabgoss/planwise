@@ -98,5 +98,89 @@ class TestCleanupWithEscapedPipes(unittest.TestCase):
         self.assertEqual(row[3], "NOT_STARTED")
 
 
+class TestLineEndingsPreserved(unittest.TestCase):
+    """The archive sweep must not translate the index's line endings.
+
+    `cleanup_index` reads and writes the index in place. A `read_text` /
+    `write_text` pair round-trips through Python's universal-newline
+    translation: the read collapses any line ending to "\\n", and the write
+    turns every "\\n" back into the running platform's `os.linesep`. Every
+    line is rewritten, including the rows the sweep deliberately kept, so
+    removing one closed row produces a whole-file diff and the audit trail
+    the index exists to carry is destroyed.
+
+    Both directions are asserted because each fails on only one platform:
+    the LF case fails on Windows (`os.linesep == "\\r\\n"`), the CRLF case
+    on POSIX. One direction alone is a coin flip on which platform catches
+    the regression.
+
+    Fixtures are written with `write_bytes`, never `write_text` —
+    `write_text` applies the same `os.linesep` translation the defect
+    applies, so a fixture built with it matches the platform by
+    construction, cancels the defect out, and leaves the test vacuous
+    everywhere.
+    """
+
+    LF_INDEX = (
+        b"# Backlog Index\n"
+        b"\n"
+        b"## Backlog Items\n"
+        b"\n"
+        b"| ID  | Feature | Priority | Status | Abbrev | Score | Files |\n"
+        b"|-----|---------|----------|--------|--------|-------|-------|\n"
+        b"| 062 | Closed item | High | COMPLETE | DOC | - | [01](a.md) |\n"
+        b"| 063 | Open item | Low | NOT_STARTED | DOC | 10 | [01](b.md) |\n"
+    )
+    CRLF_INDEX = LF_INDEX.replace(b"\n", b"\r\n")
+    CLOSED_ROW_LF = b"| 062 | Closed item | High | COMPLETE | DOC | - | [01](a.md) |\n"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cleanup_backlog_eol_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.index_path = self.tmp / "00-Index-Backlog.md"
+
+    def write_index_bytes(self, content: bytes) -> Path:
+        self.index_path.write_bytes(content)
+        return self.index_path
+
+    def test_lf_index_stays_lf_and_only_the_closed_row_goes(self):
+        self.write_index_bytes(self.LF_INDEX)
+
+        removed = cleanup_index(self.index_path)
+
+        self.assertEqual(removed, 1)
+        self.assertEqual(
+            self.index_path.read_bytes(),
+            self.LF_INDEX.replace(self.CLOSED_ROW_LF, b""),
+            "an LF index must stay byte-identical apart from the removed row",
+        )
+
+    def test_crlf_index_stays_crlf_and_only_the_closed_row_goes(self):
+        self.write_index_bytes(self.CRLF_INDEX)
+
+        removed = cleanup_index(self.index_path)
+
+        self.assertEqual(removed, 1)
+        self.assertEqual(
+            self.index_path.read_bytes(),
+            self.CRLF_INDEX.replace(
+                self.CLOSED_ROW_LF.replace(b"\n", b"\r\n"), b""
+            ),
+            "a CRLF index must stay byte-identical apart from the removed row",
+        )
+
+    def test_kept_row_is_byte_identical_after_an_lf_sweep(self):
+        """The surviving row is one the sweep never intended to touch; it must
+        come back byte-for-byte, newline included."""
+        self.write_index_bytes(self.LF_INDEX)
+
+        cleanup_index(self.index_path)
+
+        self.assertIn(
+            b"| 063 | Open item | Low | NOT_STARTED | DOC | 10 | [01](b.md) |\n",
+            self.index_path.read_bytes(),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

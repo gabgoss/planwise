@@ -37,6 +37,10 @@ from markdown_parser import (
     split_row_raw,
     warn_on_unparsed_rows,
 )
+from reconcile_common import (
+    read_text_preserving_newlines,
+    write_text_preserving_newlines,
+)
 
 # Try yaml import; fall back to regex extraction if unavailable
 try:
@@ -410,7 +414,12 @@ def main():
         print(f"Error: Backlog index not found at {index_path}", file=sys.stderr)
         sys.exit(1)
 
-    content = index_path.read_text(encoding="utf-8")
+    # newline="" both ways: the write-back rebuilds the whole file to update one
+    # Score cell per row, so a universal-newline round-trip would retranslate
+    # every line — including the prose below the table the walker stops before —
+    # to the platform's os.linesep, destroying the diff this index exists to
+    # support.
+    content = read_text_preserving_newlines(index_path)
     items = parse_index_table(content)
 
     if not items:
@@ -460,7 +469,7 @@ def main():
 
     if not args.dry_run:
         updated_content = write_scores_to_index(content, scores)
-        index_path.write_text(updated_content, encoding="utf-8")
+        write_text_preserving_newlines(index_path, updated_content)
         print(f"\nScores written to {index_path.name}")
     else:
         print("\n(dry-run mode — no changes written)")

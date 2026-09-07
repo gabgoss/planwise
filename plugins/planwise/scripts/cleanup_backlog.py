@@ -21,6 +21,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import ARCHIVE_STATUSES
 from markdown_parser import split_row_cells
+from reconcile_common import (
+    read_text_preserving_newlines,
+    write_text_preserving_newlines,
+)
 
 
 def cleanup_index(index_path: Path) -> int:
@@ -32,7 +36,10 @@ def cleanup_index(index_path: Path) -> int:
         print(f"Error: Index file not found: {index_path}", file=sys.stderr)
         sys.exit(1)
 
-    content = index_path.read_text(encoding="utf-8")
+    # newline="" both ways: the sweep rewrites the whole file to remove a row,
+    # so a universal-newline round-trip would retranslate every kept row to the
+    # platform's os.linesep and turn a one-row removal into a whole-file diff.
+    content = read_text_preserving_newlines(index_path)
 
     section_match = re.search(r"## Backlog Items\s*\n", content)
     if not section_match:
@@ -81,7 +88,7 @@ def cleanup_index(index_path: Path) -> int:
 
     if removed > 0:
         new_content = before + "\n".join(kept_lines)
-        index_path.write_text(new_content, encoding="utf-8")
+        write_text_preserving_newlines(index_path, new_content)
 
     return removed
 

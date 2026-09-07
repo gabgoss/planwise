@@ -567,5 +567,158 @@ class TestIdFormatConfigValidation(_UpdateBacklogFixtureBase):
         self.assertTrue((self.backlog_dir / "idfmt-TEST-item.md").exists())
 
 
+class TestLineEndingsPreserved(_UpdateBacklogFixtureBase):
+    """None of the three index write paths may translate the line endings.
+
+    `main()` (status update), `create_backlog_item` (append a row) and
+    `reconcile_archival` (repoint links to Archive/) each read the index and
+    write it back in place. A `read_text` / `write_text` pair round-trips
+    through Python's universal-newline translation: the read collapses any
+    line ending to "\\n", and the write turns every "\\n" back into the
+    running platform's `os.linesep`. A one-cell status change then rewrites
+    every row in the file, so the diff no longer shows which row moved.
+
+    Both directions are asserted for each path because each fails on only
+    one platform: the LF case fails on Windows (`os.linesep == "\\r\\n"`),
+    the CRLF case on POSIX. One direction alone is a coin flip on which
+    platform catches the regression.
+
+    Fixtures are written with `write_bytes`, never `write_text` —
+    `write_text` applies the same `os.linesep` translation the defect
+    applies, so a fixture built with it matches the platform by
+    construction, cancels the defect out, and leaves the test vacuous
+    everywhere.
+    """
+
+    INDEX_HEADER_BYTES = (
+        b"# Backlog Index\n"
+        b"\n"
+        b"## Backlog Items\n"
+        b"\n"
+        b"| ID  | Feature | Priority | Status | Abbrev | Score | Files |\n"
+        b"|-----|---------|----------|--------|--------|-------|-------|\n"
+    )
+
+    def write_index_bytes(self, rows: bytes, *, crlf: bool = False) -> Path:
+        content = self.INDEX_HEADER_BYTES + rows
+        if crlf:
+            content = content.replace(b"\n", b"\r\n")
+        path = self.backlog_dir / "00-Index-Backlog.md"
+        path.write_bytes(content)
+        return path
+
+    def index_bytes(self) -> bytes:
+        return (self.backlog_dir / "00-Index-Backlog.md").read_bytes()
+
+    def assert_all_lf(self) -> None:
+        raw = self.index_bytes()
+        self.assertNotIn(
+            b"\r\n", raw, "an LF index must not gain a single CRLF line ending"
+        )
+
+    def assert_all_crlf(self) -> None:
+        raw = self.index_bytes()
+        self.assertEqual(
+            raw.count(b"\n"),
+            raw.count(b"\r\n"),
+            "every line ending in a CRLF index must still be CRLF",
+        )
+
+    # --- Path 1: the status-update write ---------------------------------
+
+    STATUS_ROW = b"| 050 | Some item | Medium | NOT_STARTED | INFRA | - | [01](item.md) |\n"
+
+    def test_status_update_keeps_an_lf_index_lf(self):
+        self.write_index_bytes(self.STATUS_ROW)
+        self.write_item_file("item.md", status="NOT_STARTED", archived=False)
+
+        self.run_update("050", "IN_PROGRESS")
+
+        self.assertEqual(self.row("050")["status"], "IN_PROGRESS")
+        self.assert_all_lf()
+
+    def test_status_update_keeps_a_crlf_index_crlf(self):
+        self.write_index_bytes(self.STATUS_ROW, crlf=True)
+        self.write_item_file("item.md", status="NOT_STARTED", archived=False)
+
+        self.run_update("050", "IN_PROGRESS")
+
+        self.assertEqual(self.row("050")["status"], "IN_PROGRESS")
+        self.assert_all_crlf()
+
+    def test_sibling_row_is_byte_identical_after_an_lf_status_update(self):
+        """The bystander row is one the status write never targets; it must
+        come back byte-for-byte, newline included."""
+        bystander = b"| 051 | Bystander | Low | NOT_STARTED | INFRA | 10 | [01](other.md) |\n"
+        self.write_index_bytes(self.STATUS_ROW + bystander)
+        self.write_item_file("item.md", status="NOT_STARTED", archived=False)
+
+        self.run_update("050", "IN_PROGRESS")
+
+        self.assertIn(bystander, self.index_bytes())
+
+    # --- Path 2: the --create append write --------------------------------
+
+    def _create_099(self) -> tuple[str, str, object]:
+        return self._run_main(
+            [
+                "--config", str(self.config_path),
+                "--create",
+                "--id", "099",
+                "--feature", "A newly created item",
+                "--priority", "High",
+                "--abbrev", "TEST",
+                "--files", "new-TEST-item.md",
+            ]
+        )
+
+    def test_create_keeps_an_lf_index_lf(self):
+        self.write_index_bytes(b"")
+
+        _, _, code = self._create_099()
+
+        self.assertIsNone(code)
+        self.assert_all_lf()
+
+    def test_create_keeps_a_crlf_index_crlf(self):
+        """Also pins the appended row itself: a row rendered with a bare "\\n"
+        would be the only LF line in an otherwise CRLF file."""
+        self.write_index_bytes(b"", crlf=True)
+
+        _, _, code = self._create_099()
+
+        self.assertIsNone(code)
+        self.assert_all_crlf()
+
+    # --- Path 3: the archival relink write --------------------------------
+
+    ARCHIVAL_ROW = (
+        b"| 046 | Drift reconcile | Medium | COMPLETE | INFRA | - "
+        b"| [01](stranded-INFRA-item.md) |\n"
+    )
+
+    def test_archival_relink_keeps_an_lf_index_lf(self):
+        self.write_index_bytes(self.ARCHIVAL_ROW)
+        self.write_item_file("stranded-INFRA-item.md", status="COMPLETE", archived=False)
+
+        self.run_update("046", "COMPLETE")
+
+        self.assertEqual(
+            self.row("046")["files"][0]["path"], "Archive/stranded-INFRA-item.md"
+        )
+        self.assert_all_lf()
+
+    def test_archival_relink_keeps_a_crlf_index_crlf(self):
+        self.write_index_bytes(self.ARCHIVAL_ROW, crlf=True)
+        self.write_item_file("stranded-INFRA-item.md", status="COMPLETE", archived=False)
+
+        self.run_update("046", "COMPLETE")
+
+        self.assertEqual(
+            self.row("046")["files"][0]["path"], "Archive/stranded-INFRA-item.md"
+        )
+        self.assert_all_crlf()
+
+
 if __name__ == "__main__":
     unittest.main()
