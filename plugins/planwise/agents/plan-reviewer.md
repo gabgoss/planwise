@@ -178,12 +178,16 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Verify that every task's `git diff` is scoped to a recorded `{ABBREV}_S{NN}_BASE` and path-scoped with `-- <paths>` rather than a `grep` pipe (`references/verification-gates.md` §8)
 - Verify that every After-block gate records its measured pre-edit value beside its post-edit expectation, and that no gate's recorded pre-edit value already satisfies that expectation — such a gate passes with zero work done and is vacuous by construction (`references/verification-task-authoring.md` §10)
 - Verify that every numeric threshold used as a binding gate carries its derivation — the measurement that produced it or a named external basis — and that a derived size/count criterion has not been invalidated by a decision recorded later in the same plan (`references/measurement-discipline.md` §8.9)
+- Verify that a bug-fix deliverable's criteria include one phrased against a fixture reproducing the defect and one requiring the probe to fail on the unfixed artifact — criteria querying live project data pass identically against unfixed code (`references/verification-gates.md` §10 obligation A)
+- Confirm no gate asserts a format or spelling pattern where the property at stake is resolution, and that a gate-repair deliverable's criteria are not satisfiable entirely by fixtures with no live sweep of the guarded tree (`references/verification-gates.md` §10 obligations B and D)
 
 - Check 074 — Diff-Derived Gate Without Input-Set Assertion → references/measurement-discipline.md §8.7
 - Check 075 — Size Gate Without Content-Conservation Gate → references/measurement-discipline.md §8.7
 - Check 077 — Diff-Scoped Gate Not Baseline-Pinned → references/verification-gates.md §8
 - Check 082 — Verification Gate Without a Measured Pre-Edit Baseline → references/verification-task-authoring.md §10
 - Check 086 — Numeric Gate Stated Without a Derivation → references/measurement-discipline.md §8.9
+- Check 087 — Bug-Fix Criteria With No Fixture and No Unfixed-Artifact Run → references/verification-gates.md §10
+- Check 088 — Gate Asserts Format Where the Property Is Resolution, or Is Fixture-Satisfiable → references/verification-gates.md §10
 
 ## Sub-role: Change-Surface Reviewer (NEW)
 
