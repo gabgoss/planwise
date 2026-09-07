@@ -520,9 +520,42 @@ PLAN CREATED: {PlanName}
 4. Execute Sprint-01/Session-01 using `/planwise run` or manually following READ-CONFIRM-ACT
 ```
 
+### Step 9b: Post-Pass Harmonization
+
+**Runs when this invocation authored 2+ Sprint Plan files** — the same `n_sprints_scaffolded_this_pass` count Step 10 uses — **or fanned out to 2+ scaffolding subagents.** Skip it for a single-sprint pass. It runs after every sprint's files exist and **before** the Step-10 review gate.
+
+The three deviation classes in [`references/scaffolding-hygiene.md`](../references/scaffolding-hygiene.md) §8 accumulate whenever plan files are authored in parallel from one template set. The scaffolder is the cheapest place to catch them, because it still holds every file it just wrote: at authoring time a rename has no consumers, while after the fact the same rename is an edit sweep through every citing task file across every sprint.
+
+Sweep this pass's own output for all three classes, then harmonize what surfaces:
+
+| Class | Sweep | Harmonize to |
+|-------|-------|--------------|
+| **A — section-header drift** | `Grep` each template-mandated `##` / `###` heading across every Orchestration, Sprint Plan and task file this pass authored. A heading whose hit count is below the file count is missing from the remainder | The template's exact wording, restored in every file that dropped it |
+| **B — optional formatting lines omitted** | `Grep` the same file set for the template's non-structural lines — the `**Total Estimated:**` line after the Session Task List, the `**Mode:**` line in Execution Strategy | The line restored wherever it is absent |
+| **C — `Scaffold-{Abbrev}/` absent** | `Glob` for `Exec-{Abbrev}/` first: absent ⇒ the plan is still at Discovery and this class does not apply. Present ⇒ `Glob` for `Scaffold-{Abbrev}/` | The folder created, per §8 Class C |
+
+> [!constraint] The Output-Naming Scheme Is a Pass-Level Decision, Not a Per-Sprint One
+> Task-output filenames may number by **task** ordinal or by **session** ordinal. Either is fine. Mixing the two across sprints in one pass is not.
+>
+> WRONG — each sprint picks its own scheme, and the single-session sprint hides which one it used:
+> ```
+> Sprint-01 (1 session):  {Abbrev}-S01-01-{Topic} … {Abbrev}-S01-05-{Topic}   ← numbered by TASK
+> Sprint-02 (3 sessions): {Abbrev}-S02-02-{TopicA/B/C}                        ← numbered by SESSION
+> ```
+> Read across sprints, `{Abbrev}-S01-02-…` parses as sprint-session when it is in fact sprint-task. A single-session sprint never reveals which scheme it used, so the ambiguity stays invisible until a later multi-session sprint picks the other one — by which time every consuming task file cites the old names and harmonizing means editing every citation.
+>
+> CORRECT — one scheme, chosen for the pass and applied to every sprint in it:
+> ```
+> Sprint-01 … Sprint-{N}: all task outputs numbered by the SAME ordinal,
+>                         with the topic disambiguating within a number
+> ```
+> Choose the scheme once, apply it uniformly including to single-session sprints, and state the choice in the Master Plan rather than leaving it implicit.
+
+Record the outcome — the classes found and what was harmonized, or `clean` — in the Step 9 confirmation block. Step 10's review then **confirms** the sweep instead of discovering the drift. The review-side checks stay in force regardless: they are what still catches a hand-authored or resumed scaffold that skipped this step.
+
 ### Step 10: Plan Review Gate
 
-After outputting the Step 9 confirmation, offer plan review options.
+After outputting the Step 9 confirmation and running Step 9b, offer plan review options.
 
 **Mega-Scaffold Gate — count sprints authored this pass.**
 

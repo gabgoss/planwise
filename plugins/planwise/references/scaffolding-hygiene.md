@@ -274,11 +274,33 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 >    opens on a phantom BLOCKER, halts at the Phase-1 structural gate, and
 >    reaches no content reviewer.
 >
-> Mitigation hooks:
-> - `/planwise review` Phase 1 structural check runs three greps — one per
->   class — against the plan tree.
-> - The reviewer flags each deviation by class severity (A = WARNING,
->   B = ERROR, C = BLOCKER) and prompts the orchestrator to harmonize.
+> Mitigation hooks, in the order they run:
+>
+> 1. **The scaffolder sweeps its own output — this is the first line of
+>    defence.** After a pass that authors 2+ sprints, or that fans out to 2+
+>    scaffolding subagents, and BEFORE handing the plan to `/planwise review`,
+>    the scaffolder runs the three class sweeps over the files it just wrote
+>    and harmonizes what they surface: section headers restored to the
+>    template's wording, optional formatting lines restored, and the pass's
+>    output-naming scheme applied to every sprint in the pass. The mechanics
+>    live at `handlers/plan.md` Step 9b. The cost asymmetry is the whole
+>    argument — at authoring time a rename has no consumers, while after the
+>    fact the same rename is an edit sweep through every citing task file
+>    across every sprint.
+> 2. **`/planwise review` Phase 1 CONFIRMS that sweep rather than discovering
+>    the drift.** Its structural check runs the same three class sweeps against
+>    the plan tree. Keep them: they are what still catches a hand-authored or
+>    resumed scaffold that skipped Step 9b entirely.
+> 3. The reviewer flags each surviving deviation by class severity
+>    (A = WARNING, B = ERROR, C = BLOCKER) and prompts the orchestrator to
+>    harmonize.
+>
+> **The output-naming scheme is a pass-level decision, not a per-sprint one.**
+> A single-session sprint does not reveal which ordinal its task outputs number
+> by, so a per-sprint choice stays invisible until a later multi-session sprint
+> picks the other one — by which time every consuming task file cites the old
+> names. Choose once for the pass, apply it to every sprint including
+> single-session ones, and state the choice in the Master Plan.
 >
 > WRONG — parallel scaffolders silently produce inconsistent files; the
 > reviewer trusts the variance is intentional.
