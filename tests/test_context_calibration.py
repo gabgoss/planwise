@@ -22,6 +22,7 @@ Run with:  python -m pytest tests/test_context_calibration.py
 """
 
 import re
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -531,6 +532,184 @@ class TestCalibrateParseGuard(unittest.TestCase):
             result.get("calibrated", True),
             "A zero-active-total report must be marked uncalibrated",
         )
+
+
+class TestStructuralFloor(unittest.TestCase):
+    """derive_structural_floor() derives the per-subcommand floor from a tree.
+
+    The floor counts the skill body + handler body + that handler's own
+    "always load" references, and EXCLUDES the base-context references the
+    skill merely links — per-Read transcript attribution shows those never
+    load, so counting them would store ~22.5K tok/invocation of phantom cost
+    into a live budget input.
+    """
+
+    def _tree(self, handler_body, always_load_files=()):
+        """Build a minimal plugin tree on disk and return its root."""
+        import tempfile
+
+        root = Path(tempfile.mkdtemp())
+        (root / "skills" / "planwise").mkdir(parents=True)
+        (root / "handlers").mkdir()
+        (root / "references").mkdir()
+        # Skill body: 3 newlines.
+        (root / "skills" / "planwise" / "SKILL.md").write_text(
+            "a\nb\nc\n", encoding="utf-8"
+        )
+        (root / "handlers" / "demo.md").write_text(handler_body, encoding="utf-8")
+        for name, body in always_load_files:
+            (root / "references" / name).write_text(body, encoding="utf-8")
+        # A base-context reference that nothing may count.
+        (root / "references" / "callout-conventions.md").write_text(
+            "x\n" * 5000, encoding="utf-8"
+        )
+        self.addCleanup(shutil.rmtree, root, True)
+        return root
+
+    def test_always_load_references_extracts_the_declared_set(self):
+        """always_load_references() reads the handler's own always-load block."""
+        ts = _engine()
+        body = (
+            "## Required References\n\n"
+            "**Base references** (`markdown-conventions.md`) are pre-injected by SKILL.md.\n\n"
+            "**Demo-specific references (always load):**\n"
+            "1. Read `references/alpha.md`\n"
+            "2. Read `references/beta.md` -- with trailing prose\n\n"
+            "**Conditional references:**\n"
+            "- If X: Read `references/gamma.md`\n\n"
+            "---\n"
+        )
+        self.assertEqual(
+            ts.always_load_references(body),
+            ["alpha.md", "beta.md"],
+            "Only the always-load block counts; conditional and base refs must not",
+        )
+
+    def test_always_load_absent_yields_empty(self):
+        """A handler with no always-load block contributes no references."""
+        ts = _engine()
+        body = "## Required References\n\n**Conditional references:**\n- Read `references/g.md`\n\n---\n"
+        self.assertEqual(ts.always_load_references(body), [])
+
+    def test_floor_sums_skill_handler_and_always_load(self):
+        """The floor is skill + handler + always-load, by newline count and bytes."""
+        ts = _engine()
+        handler = (
+            "h1\nh2\n"
+            "**Demo-specific references (always load):**\n"
+            "1. Read `references/alpha.md`\n\n"
+            "---\n"
+        )
+        root = self._tree(handler, [("alpha.md", "r1\nr2\nr3\n")])
+        floor = ts.derive_structural_floor(root)
+        demo = floor["subcommands"]["demo"]
+
+        skill_lines = 3
+        handler_lines = handler.count("\n")
+        self.assertEqual(demo["lines"], skill_lines + handler_lines + 3)
+        self.assertEqual(demo["always_load"], ["alpha.md"])
+        self.assertEqual(
+            demo["tokens"],
+            int(round(demo["bytes"] / ts.STRUCTURAL_FLOOR_BYTES_PER_TOKEN)),
+            "Tokens must come from bytes, never from a per-line rate",
+        )
+
+    def test_floor_excludes_the_base_context(self):
+        """The linked base context must NOT be counted, however large it is."""
+        ts = _engine()
+        handler = "h1\n\n---\n"
+        root = self._tree(handler)
+        floor = ts.derive_structural_floor(root)
+        demo = floor["subcommands"]["demo"]
+
+        # callout-conventions.md is 10,000 bytes in the fixture tree.
+        self.assertLess(
+            demo["bytes"],
+            1000,
+            "A base-context reference the skill only LINKS must not enter the floor",
+        )
+        self.assertTrue(floor["excludes_base_context"])
+
+    def test_floor_is_tree_labelled(self):
+        """A floor figure without its tree label is unusable — carry the label."""
+        ts = _engine()
+        root = self._tree("h\n\n---\n")
+        floor = ts.derive_structural_floor(root)
+        self.assertEqual(floor["tree"], str(root))
+        self.assertTrue(floor["derived_on"])
+        self.assertEqual(
+            floor["bytes_per_token"], ts.STRUCTURAL_FLOOR_BYTES_PER_TOKEN
+        )
+
+    def test_floor_degrades_on_a_missing_tree(self):
+        """A missing/None tree yields an empty floor, never a crash."""
+        ts = _engine()
+        self.assertEqual(ts.derive_structural_floor(None)["subcommands"], {})
+        self.assertEqual(
+            ts.derive_structural_floor("/nonexistent/plugin/root")["subcommands"], {}
+        )
+
+    def test_format_floor_is_single_line_flow_mapping(self):
+        """The rendered value stays on one line for the targeted write-back."""
+        ts = _engine()
+        root = self._tree("h\n\n---\n")
+        rendered = ts._format_floor(ts.derive_structural_floor(root))
+        self.assertTrue(rendered.startswith("{") and rendered.endswith("}"))
+        self.assertNotIn("\n", rendered)
+        self.assertIn("demo:", rendered)
+        self.assertIn("excludes_base_context: true", rendered)
+        self.assertEqual(ts._format_floor({}), "{}")
+
+    def test_calibrate_carries_the_floor_on_the_fallback_path(self):
+        """A failed capture must still yield a tree-derived floor.
+
+        The floor comes from the tree, not the capture — a failed /context
+        capture says nothing about how much instruction text an invocation
+        carries, so it must not blank the floor.
+        """
+        ts = _engine()
+        root = self._tree(
+            "h1\n**Demo-specific references (always load):**\n"
+            "1. Read `references/alpha.md`\n\n---\n",
+            [("alpha.md", "r\n" * 10)],
+        )
+        result = ts.calibrate(plugin_root=root, capture=lambda *_a, **_k: None)
+        self.assertFalse(result["calibrated"])
+        floor = result["token_saver_structural_floor"]
+        self.assertIn("demo", floor["subcommands"])
+        self.assertGreater(floor["subcommands"]["demo"]["tokens"], 0)
+
+    def test_calibrate_routes_the_floor_through_the_checked_writer(self):
+        """The floor write must go through _write_back, not a bypass write.
+
+        Regression guard for the checked-writer contract: every calibration
+        value reaches config.yaml through the same parse-checked path.
+        """
+        ts = _engine()
+        root = self._tree("h\n\n---\n")
+        seen = {}
+
+        # calibrate() resolves `_write_back` in its OWN defining module, so the
+        # patch has to land there — patching the re-exporting facade would not
+        # intercept the call and the test would pass vacuously.
+        engine = sys.modules["context_calibration"]
+        original = engine._write_back
+        try:
+            engine._write_back = lambda path, values: seen.update(values)
+            ts.calibrate(
+                config_path=root / "config.yaml",
+                plugin_root=root,
+                capture=lambda *_a, **_k: None,
+            )
+        finally:
+            engine._write_back = original
+
+        self.assertIn(
+            "token_saver_structural_floor",
+            seen,
+            "The structural floor must be written through the checked writer",
+        )
+        self.assertNotIn("\n", seen["token_saver_structural_floor"])
 
 
 if __name__ == "__main__":
