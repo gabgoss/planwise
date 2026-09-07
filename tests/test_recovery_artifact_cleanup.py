@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 import init_project as ip  # noqa: E402
 import artifact_upgrade  # noqa: E402 -- patch-target home for the scan/banner/split functions under test
 import doctor_cli  # noqa: E402 -- patch-target home for the prune writer's shutil
+import doctor_sweeps  # noqa: E402 -- home of the read-only leftover sweep
 
 from conftest import _MigrationFixtureBase  # noqa: E402
 
@@ -494,6 +495,111 @@ class TestPruneUpgradeLeftoversScope(_RecoveryArtifactFixtureMixin, _MigrationFi
         self.assertTrue(backup.parent.exists(), "an unconfirmed prunable class must be kept")
         self.assertTrue(transfer.exists(), "review-then-discard is never deletable, even if passed")
         self.assertTrue(sidecar.exists(), "action-required is never deletable, even if passed")
+
+
+class TestBannerAnswersTheHousekeepingQuestion(_RecoveryArtifactFixtureMixin,
+                                               _MigrationFixtureBase):
+    """The class label says what a surface IS and when it is safe to act.
+    It does not rule out the worse possibility a user has to consider when
+    reading an unfamiliar directory list: that one of these is load-bearing
+    and deleting it breaks the install. The banner closes by saying so, so
+    the transfers-vs-backups question is answerable without opening the
+    handler."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def _banner(self, surfaces) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            artifact_upgrade._emit_recovery_artifacts_banner(surfaces)
+        return buf.getvalue()
+
+    def test_populated_banner_closes_with_the_housekeeping_line(self):
+        self.write_backup(self.PAIR)
+        self.write_transfer(self.PAIR)
+
+        stdout = self._banner(artifact_upgrade._scan_recovery_artifacts(self.cfg))
+
+        self.assertIn(
+            "Nothing above is loaded as a rule or needed for planwise to run", stdout
+        )
+        self.assertIn("housekeeping only", stdout)
+
+    def test_the_line_comes_after_every_surface(self):
+        # "Nothing ABOVE" is only true if it is last.
+        self.write_backup(self.PAIR)
+        self.write_transfer(self.PAIR)
+
+        stdout = self._banner(artifact_upgrade._scan_recovery_artifacts(self.cfg))
+        lines = [ln for ln in stdout.splitlines() if ln.strip()]
+
+        self.assertIn("housekeeping only", lines[-1])
+
+    def test_empty_banner_omits_the_line(self):
+        # Nothing to reassure the user about when no surface exists.
+        stdout = self._banner(artifact_upgrade._scan_recovery_artifacts(self.cfg))
+
+        self.assertIn("None found.", stdout)
+        self.assertNotIn("housekeeping", stdout)
+
+
+class TestLeftoverSweepReportsBytes(_RecoveryArtifactFixtureMixin,
+                                    _MigrationFixtureBase):
+    """A file count says how much there is to review. Only a byte total says
+    how much a prune reclaims, and the two do not track each other."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def test_every_finding_carries_a_byte_total_matching_its_files(self):
+        self.write_backup(self.PAIR, content=b"x" * 300)
+        self.write_transfer(self.PAIR, content="y" * 40)
+
+        findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+
+        by_surface = {f["surface"]: f for f in findings}
+        self.assertEqual(by_surface["upgrade-backups"]["bytes"], 300)
+        self.assertEqual(by_surface["upgrade-transfers"]["bytes"], 40)
+
+    def test_count_and_bytes_are_independent(self):
+        # Many tiny files against one large one: a count-only report would
+        # rank these the wrong way round for a caller deciding what to prune.
+        for i in range(5):
+            self.write_consumed_cache(f"1.0.{i}-to-1.1.0")
+        self.write_backup(self.PAIR, content=b"z" * 5000)
+
+        findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+        inert = [f for f in findings if f["klass"] == "inert"]
+        backups = [f for f in findings if f["klass"] == "safe-to-discard"]
+
+        self.assertEqual(sum(f["count"] for f in inert), 5)
+        self.assertEqual(sum(f["count"] for f in backups), 1)
+        self.assertGreater(
+            sum(f["bytes"] for f in backups), sum(f["bytes"] for f in inert),
+            "the single large backup must outweigh five tiny cache markers",
+        )
+
+    def test_a_stat_failure_undercounts_rather_than_aborting(self):
+        # A read-only diagnostic must still report when one file refuses a
+        # stat mid-sweep.
+        self.write_backup(self.PAIR, content=b"x" * 100)
+        real_stat = Path.stat
+
+        def flaky_stat(self_path, *args, **kwargs):
+            if self_path.name == "somefile.md":
+                raise OSError("simulated stat failure")
+            return real_stat(self_path, *args, **kwargs)
+
+        with mock.patch.object(Path, "stat", flaky_stat):
+            findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["count"], 1, "the file is still counted")
+        self.assertEqual(findings[0]["bytes"], 0, "its size degrades to zero, not a crash")
+
+    def test_format_bytes_uses_binary_units(self):
+        self.assertEqual(doctor_sweeps.format_bytes(512), "512 B")
+        self.assertEqual(doctor_sweeps.format_bytes(1536), "1.5 KiB")
+        self.assertEqual(doctor_sweeps.format_bytes(3 * 1024 * 1024), "3.0 MiB")
 
 
 if __name__ == "__main__":

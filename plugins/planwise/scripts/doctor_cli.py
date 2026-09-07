@@ -54,6 +54,7 @@ try:
         sweep_orphaned_agent_mirrors,
         lint_installed_divergence,
         sweep_upgrade_leftovers,
+        format_bytes,
     )
 except ImportError:
     raise ImportError(
@@ -843,7 +844,8 @@ def _run_doctor(cfg: "InitConfig") -> int:
             mark = "!" if f["klass"] == "action-required" else "~"
             print(f"  {mark} {f['pair']}   {f['surface']}   {f['klass']}")
             print(f"      path:    {f['path']}")
-            print(f"      size:    {f['count']} file(s), {f['age_days']}d old")
+            print(f"      size:    {f['count']} file(s), {format_bytes(f['bytes'])}, "
+                  f"{f['age_days']}d old")
             print(f"      meaning: {RECOVERY_ARTIFACT_CLASSES[f['klass']]}")
             if f["klass"] in ("inert", "safe-to-discard"):
                 print("      action:  remove with /planwise doctor --prune-upgrade-leftovers")
@@ -851,8 +853,13 @@ def _run_doctor(cfg: "InitConfig") -> int:
                 print("      action:  resolve per handlers/upgrade.md Step 4 — never auto-pruned")
         prunable = [f for f in leftovers if f["klass"] in ("inert", "safe-to-discard")]
         print()
+        # The reclaimable total is reported over the PRUNABLE subset only.
+        # A total over every finding would overstate what the prune writer
+        # can actually recover: action-required and review-then-discard
+        # surfaces are never deleted by it, however large they are.
         print(f"Total prunable (inert/safe-to-discard) leftover(s): {len(prunable)} of "
-              f"{len(leftovers)} found.")
+              f"{len(leftovers)} found, "
+              f"{format_bytes(sum(f['bytes'] for f in prunable))} reclaimable.")
 
     # Stage 15: settings-grant sweep — read-only, always-on.
     print()

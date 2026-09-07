@@ -590,6 +590,15 @@ def _emit_recovery_artifacts_banner(surfaces: list[tuple[str, int, str]]) -> Non
     scale with upgrade COUNT never go unreported (see
     RECOVERY_ARTIFACT_CLASSES for what each class means and when it is safe
     to act).
+
+    A populated banner closes with one reassurance line. The classes above
+    say what each surface IS and when it is safe to act, but a user reading
+    an unfamiliar directory list still has to rule out the worse
+    possibility — that one of these is load-bearing and deleting it breaks
+    the install. Nothing here is: the transfer documents live outside
+    `.claude/rules/` by construction, and every other surface is a copy or a
+    spent cache. Saying so once, in the banner, is what lets the whole
+    question be answered without opening the handler.
     """
     print("Recovery artifacts:")
     if not surfaces:
@@ -598,6 +607,10 @@ def _emit_recovery_artifacts_banner(surfaces: list[tuple[str, int, str]]) -> Non
         return
     for path, count, klass in surfaces:
         print(f"  {path} ({count} file(s)) — {klass}: {RECOVERY_ARTIFACT_CLASSES[klass]}")
+    print(
+        "  Nothing above is loaded as a rule or needed for planwise to run — "
+        "keeping or deleting is housekeeping only."
+    )
     print()
 
 

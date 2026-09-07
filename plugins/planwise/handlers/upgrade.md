@@ -388,6 +388,7 @@ De-scoped rules preserved (action required): {N} (headless-inconclusive, paths: 
 Recovery artifacts:
   {path} ({N} file(s)) — {class}: {class description}
   …   ("  None found." when no surface has any content — report-what-exists, never assumes all four surfaces exist)
+  Nothing above is loaded as a rule or needed for planwise to run — keeping or deleting is housekeeping only.   (printed only when at least one surface exists)
 
 Over-scope advisory: {N} rule(s) still scoped to plan/backlog paths (~{X}K injected per task-runner)
   run `/planwise doctor` for the full report

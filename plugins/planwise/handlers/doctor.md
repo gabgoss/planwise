@@ -414,12 +414,16 @@ planwise doctor — upgrade recovery-leftover sweep
 Leftover recovery artifacts across {N} version pair(s):
   ~ {pair}   {surface}   {klass}
       path:    {absolute path}
-      size:    {N} file(s), {D}d old
+      size:    {N} file(s), {B} {B|KiB|MiB}, {D}d old
       meaning: {the class's one-line meaning}
       action:  {remove with /planwise doctor --prune-upgrade-leftovers | resolve per handlers/upgrade.md Step 4 — never auto-pruned}
 
-Total prunable (inert/safe-to-discard) leftover(s): {N} of {M} found.
+Total prunable (inert/safe-to-discard) leftover(s): {N} of {M} found, {B} {B|KiB|MiB} reclaimable.
 ```
+
+The size line carries a file count **and** a byte total, because the two answer different questions. The count says how much there is to review. Only the byte total says how much a prune reclaims, and the two do not track each other — one transferred rule body can outweigh a hundred spent cache markers.
+
+The reclaimable total on the last line covers the **prunable** findings only. Reporting it over every finding would overstate what the Stage 14b writer recovers: it never deletes an action-required or review-then-discard surface, however large.
 
 If the sweep returns nothing: `No leftover recovery directories found — no
 version-pair backups, transfers, or conflict artifacts on disk.`

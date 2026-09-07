@@ -598,9 +598,16 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
       {pair (the "{from}-to-{to}" directory name), surface
        ("upgrade-backups" | "upgrade-transfers" | "upgrade-conflicts" |
        "upgrade-conflicts/issue-drafts" | "upgrade-conflicts (consumed
-       verdict cache)"), path, count (file(s) at that surface), age_days
-       (days since the surface's directory/file was last modified),
-       klass (a RECOVERY_ARTIFACT_CLASSES key)}
+       verdict cache)"), path, count (file(s) at that surface), bytes
+       (total on-disk size of those files), age_days (days since the
+       surface's directory/file was last modified), klass (a
+       RECOVERY_ARTIFACT_CLASSES key)}
+
+    `bytes` is carried alongside `count` because the two answer different
+    questions and a caller deciding what to prune needs the second one. A
+    file count says how much there is to review; only a byte total says how
+    much a prune reclaims, and the two do not track each other — one
+    transferred rule body can outweigh a hundred spent cache markers.
 
     A surface with zero matching files is omitted entirely — report what
     exists, never assume all surfaces are present (backups fire on every
@@ -618,39 +625,56 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
             return 0
         return (today - datetime.date.fromtimestamp(mtime)).days
 
+    def _bytes_of(files: "list[Path]") -> int:
+        """Total on-disk size of `files`, skipping any that vanish or refuse
+        a stat mid-sweep. A read-only diagnostic must never abort on one
+        unreadable file — an under-count is a lesser failure than no report
+        at all, and the count column still shows what was found."""
+        total = 0
+        for f in files:
+            try:
+                total += f.stat().st_size
+            except OSError:
+                continue
+        return total
+
     backups_root = root / "upgrade-backups"
     for pair_dir in sorted(p for p in backups_root.glob("*-to-*") if p.is_dir()):
-        count = sum(
-            1 for f in pair_dir.rglob("*") if f.is_file() and f.name != "DISPOSITIONS.md"
-        )
-        if count:
+        files = [
+            f for f in pair_dir.rglob("*") if f.is_file() and f.name != "DISPOSITIONS.md"
+        ]
+        if files:
             findings.append({"pair": pair_dir.name, "surface": "upgrade-backups",
-                             "path": str(pair_dir), "count": count,
+                             "path": str(pair_dir), "count": len(files),
+                             "bytes": _bytes_of(files),
                              "age_days": _age_days(pair_dir), "klass": "safe-to-discard"})
 
     transfers_root = root / "upgrade-transfers"
     for pair_dir in sorted(p for p in transfers_root.glob("*-to-*") if p.is_dir()):
-        count = sum(1 for f in pair_dir.rglob("*") if f.is_file())
-        if count:
+        files = [f for f in pair_dir.rglob("*") if f.is_file()]
+        if files:
             findings.append({"pair": pair_dir.name, "surface": "upgrade-transfers",
-                             "path": str(pair_dir), "count": count,
+                             "path": str(pair_dir), "count": len(files),
+                             "bytes": _bytes_of(files),
                              "age_days": _age_days(pair_dir), "klass": "review-then-discard"})
 
     conflicts_root = root / "upgrade-conflicts"
     for pair_dir in sorted(p for p in conflicts_root.glob("*-to-*") if p.is_dir()):
-        sidecar_count = sum(1 for f in pair_dir.rglob("*.new") if f.is_file())
-        if sidecar_count:
+        sidecars = [f for f in pair_dir.rglob("*.new") if f.is_file()]
+        if sidecars:
             findings.append({"pair": pair_dir.name, "surface": "upgrade-conflicts",
-                             "path": str(pair_dir), "count": sidecar_count,
+                             "path": str(pair_dir), "count": len(sidecars),
+                             "bytes": _bytes_of(sidecars),
                              "age_days": _age_days(pair_dir), "klass": "action-required"})
 
         issue_drafts_dir = pair_dir / "issue-drafts"
         if issue_drafts_dir.is_dir():
-            draft_count = sum(1 for f in issue_drafts_dir.rglob("*") if f.is_file())
-            if draft_count:
+            drafts = [f for f in issue_drafts_dir.rglob("*") if f.is_file()]
+            if drafts:
                 findings.append({"pair": pair_dir.name,
                                  "surface": "upgrade-conflicts/issue-drafts",
-                                 "path": str(issue_drafts_dir), "count": draft_count,
+                                 "path": str(issue_drafts_dir), "count": len(drafts),
+                                 "bytes": _bytes_of(drafts),
                                  "age_days": _age_days(issue_drafts_dir),
                                  "klass": "action-required"})
 
@@ -659,8 +683,23 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
             findings.append({"pair": pair_dir.name,
                              "surface": "upgrade-conflicts (consumed verdict cache)",
                              "path": str(consumed_cache), "count": 1,
+                             "bytes": _bytes_of([consumed_cache]),
                              "age_days": _age_days(consumed_cache), "klass": "inert"})
 
     return findings
+
+
+def format_bytes(total: int) -> str:
+    """Render a byte total as a short human-readable string.
+
+    Binary units, one decimal above the KiB threshold. Used by the doctor
+    report so a size column reads at a glance rather than as a raw integer
+    the reader has to divide in their head.
+    """
+    if total < 1024:
+        return f"{total} B"
+    if total < 1024 * 1024:
+        return f"{total / 1024:.1f} KiB"
+    return f"{total / (1024 * 1024):.1f} MiB"
 
 
