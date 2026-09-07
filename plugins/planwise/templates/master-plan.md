@@ -38,6 +38,19 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 
 ---
 
+## Deferred Authoring <!-- OPTIONAL — include ONLY when a declared sprint or session was deliberately not authored this pass -->
+
+<!-- Omit this section entirely when every declared sprint and session was authored.
+     When present, the plan-completeness checks subtract these rows before comparing
+     declared counts against what is on disk, so an undeclared shortfall still fails.
+     Each trigger must be concrete — something a future session can test — not "later". -->
+
+| Sprint / Session | Not authored because | Unblocked when |
+|------------------|----------------------|----------------|
+| Sprint-{XX} ({SprintName}) | {why its design depends on an earlier sprint's finding} | {the concrete trigger} |
+
+---
+
 ## Execution Ordering <!-- REQUIRED -->
 
 **Declared ordering:** `Sprint-01 → { Sprint-02 ∥ Sprint-03 }`

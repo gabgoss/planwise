@@ -194,8 +194,20 @@ Use `AskUserQuestion` to collect:
 **Question 2: Scope**
 - How many sprints do you anticipate? (1-5)
 - For EACH sprint in that count, what is its name and purpose? (e.g., "Sprint 1: CoreAuth — login and registration; Sprint 2: AdvancedAuth — SSO and MFA")
+- For EACH sprint, how many sessions does it need, and what is each session's name? (default: 1 session per sprint)
 
-**Every sprint named here gets fully scaffolded in this pass** (Steps 3-9 below) — this handler does not stop after Sprint 1.
+**Bind the answers before leaving this step.** Later steps consume them by name, so record them explicitly rather than leaving the count in the conversation:
+
+| Bound value | From | Consumed by |
+|-------------|------|-------------|
+| `{sprint_count}` | the sprint count above | Step 3 (folder tree), Steps 5-7 (per-sprint cardinality), the Validation Checklist |
+| `{sprint_names[XX]}` | each sprint's name | Step 3, Step 4's Sprint Overview table |
+| `{session_count[XX]}` | sessions in sprint `{XX}` | Step 3, Steps 6-8 (per-session cardinality), the Validation Checklist |
+| `{session_names[XX][YY]}` | each session's name | Step 3, Step 9's confirmation block |
+
+**Every sprint AND every session named here gets fully scaffolded in this pass** (Steps 3-9 below) — this handler does not stop after Sprint 1, and it does not stop after each sprint's Session-01. `sum({session_count[XX]})` over all sprints is the number of Orchestration files this pass must produce.
+
+If some sprints are deliberately left unauthored, that is legitimate but MUST be declared — see [Deferred Authoring](#deferred-authoring) before proceeding.
 
 ### Step 2: Validate
 
@@ -238,33 +250,36 @@ If validation fails, ask user to correct.
 
 ### Step 3: Create Folder Structure
 
-Create the following structure under the configured `{plans_dir}`, repeating the `Sprint-{XX}-{SprintName}/` block for **every** sprint gathered in Step 1 (`{XX}` = `01`, `02`, ... up to the sprint count) — do not stop after the first sprint:
+Create the following structure under the configured `{plans_dir}`. **Two nested loops, both bound in Step 1:** repeat the `Sprint-{XX}-{SprintName}/` block for every sprint (`{XX}` = `01` … `{sprint_count}`), and inside each one repeat the `Session-{YY}-{SessionName}/` block for every session of that sprint (`{YY}` = `01` … `{session_count[XX]}`). Do not stop after the first sprint, and do not stop after each sprint's first session.
+
+```
+{plans_dir}/{PlanName}/
+├── {Abbrev}-Master-Plan.md
+└── Sprint-{XX}-{sprint_names[XX]}/                    # for XX = 01 … {sprint_count}
+    ├── {Abbrev}-S{XX}-Sprint-Plan.md                  # one per sprint
+    └── Session-{YY}-{session_names[XX][YY]}/          # for YY = 01 … {session_count[XX]}
+        ├── {Abbrev}-S{XX}-{YY}-Orchestration.md       # one per SESSION
+        ├── {Abbrev}-S{XX}-{YY}-Recovery.md            # one per SESSION
+        ├── {Abbrev}-S{XX}-{YY}-{##}-{Agent}-{Task}.md # one per task in that session
+        └── Outputs/
+            └── .gitkeep                               # Required so Outputs/ is tracked by git
+```
+
+Worked example — 2 sprints, the second with 2 sessions (`{sprint_count}` = 2, `{session_count}` = `[1, 2]`, so 3 Orchestrations):
 
 ```
 {plans_dir}/{PlanName}/
 ├── {Abbrev}-Master-Plan.md
 ├── Sprint-01-{Sprint1Name}/
 │   ├── {Abbrev}-S01-Sprint-Plan.md
-│   └── Session-01-{Sprint1SessionName}/
-│       ├── {Abbrev}-S01-01-Orchestration.md
-│       ├── {Abbrev}-S01-01-Recovery.md
-│       ├── {Abbrev}-S01-01-{##}-{Agent}-{Task}.md   # One file per task
-│       └── Outputs/
-│           └── .gitkeep                              # Required so Outputs/ is tracked by git
-├── Sprint-02-{Sprint2Name}/
-│   ├── {Abbrev}-S02-Sprint-Plan.md
-│   └── Session-01-{Sprint2SessionName}/
-│       ├── {Abbrev}-S02-01-Orchestration.md
-│       ├── {Abbrev}-S02-01-Recovery.md
-│       ├── {Abbrev}-S02-01-{##}-{Agent}-{Task}.md   # One file per task
-│       └── Outputs/
-│           └── .gitkeep
-├── ...                                                # same shape for every remaining sprint
-└── Sprint-{N}-{SprintNName}/
-    └── Session-01-{SprintNSessionName}/ ...
+│   └── Session-01-{Name}/  → {Abbrev}-S01-01-Orchestration.md, -Recovery.md, task files, Outputs/.gitkeep
+└── Sprint-02-{Sprint2Name}/
+    ├── {Abbrev}-S02-Sprint-Plan.md
+    ├── Session-01-{Name}/  → {Abbrev}-S02-01-Orchestration.md, -Recovery.md, task files, Outputs/.gitkeep
+    └── Session-02-{Name}/  → {Abbrev}-S02-02-Orchestration.md, -Recovery.md, task files, Outputs/.gitkeep
 ```
 
-**Every sprint gathered in Step 1 gets its own folder here.** A plan with 3 anticipated sprints creates `Sprint-01/`, `Sprint-02/`, and `Sprint-03/` in this same pass, not just `Sprint-01/`.
+**Every sprint AND every session bound in Step 1 gets its own folder here.** A plan with 3 sprints creates `Sprint-01/`, `Sprint-02/` and `Sprint-03/` in this same pass; a sprint declaring 4 sessions creates `Session-01/` through `Session-04/` inside it. `{YY}` is a loop variable, not the literal `01`.
 
 **Task File Naming:** `{##}` = two-digit task number (01, 02, 03...) matching the task list.
 
@@ -285,16 +300,16 @@ Use templates from `{plugin_root}/templates/`:
 
 | Step | Template | Output File | Cardinality |
 |------|----------|-------------|-------------|
-| 4 | [master-plan.md](../templates/master-plan.md) | `{Abbrev}-Master-Plan.md` | Once — Sprint Overview table lists **all** sprints gathered in Step 1 |
-| 5 | [sprint-plan.md](../templates/sprint-plan.md) | `{Abbrev}-S{XX}-Sprint-Plan.md` | **Once per sprint** (`{XX}` = `01`..sprint count) |
-| 6 | [orchestration.md](../templates/orchestration.md) | `{Abbrev}-S{XX}-01-Orchestration.md` | **Once per sprint** |
-| 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S{XX}-01-Recovery.md` | **Once per sprint** |
+| 4 | [master-plan.md](../templates/master-plan.md) | `{Abbrev}-Master-Plan.md` | Once — Sprint Overview lists **all** `{sprint_count}` sprints; **Total Sessions** equals `sum({session_count[XX]})` |
+| 5 | [sprint-plan.md](../templates/sprint-plan.md) | `{Abbrev}-S{XX}-Sprint-Plan.md` | **Once per sprint** (`{XX}` = `01` … `{sprint_count}`) — its Sessions table lists all `{session_count[XX]}` sessions |
+| 6 | [orchestration.md](../templates/orchestration.md) | `{Abbrev}-S{XX}-{YY}-Orchestration.md` | **Once per SESSION** (`{YY}` = `01` … `{session_count[XX]}`, for every sprint) |
+| 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S{XX}-{YY}-Recovery.md` | **Once per SESSION** |
 
-Steps 5-7 repeat for every sprint gathered in Step 1 — do not stop after Sprint-01.
+Step 5 repeats for every sprint; Steps 6-7 repeat for every session of every sprint. Their cardinality is **not** the sprint count — a 3-sprint plan whose second sprint has 3 sessions produces 3 Sprint Plans and **5** Orchestration/Recovery pairs. Do not stop after Sprint-01, and do not stop after each sprint's Session-01.
 
 ### Step 8: Generate Task Files
 
-**Steps 8 through 8e repeat for every sprint's Session-01 Orchestration file created in Step 6** — finish one sprint's task files before moving to the next. Step 8d (Update Plans Index) is the one exception: it runs once, after every sprint has been scaffolded.
+**Steps 8 through 8e repeat for EVERY Orchestration file created in Step 6 — every session of every sprint, not one per sprint.** Finish one session's task files before moving to the next, and one sprint's sessions before moving to the next sprint. Step 8d (Update Plans Index) is the one exception: it runs once, after every sprint has been scaffolded.
 
 **Search the lessons index for the artifact classes this plan will touch, before authoring task files.**
 
@@ -314,7 +329,7 @@ The payoff scales with repetition: a plan that repeats one task chain across sev
 
 For each task, create a file using the [task-file.md](../templates/task-file.md) template.
 
-**File name pattern:** `{Abbrev}-S{XX}-01-{##}-{Agent}-{TaskName}.md` (`{XX}` = the current sprint being processed)
+**File name pattern:** `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md` (`{XX}` = the sprint being processed, `{YY}` = the session being processed — both loop variables, neither a literal `01`)
 
 After creating task files, update the Orchestration file's Task Files table with links.
 
@@ -504,14 +519,16 @@ PLAN CREATED: {PlanName}
 
 **Files Created:**
 - {Abbrev}-Master-Plan.md
-- Sprint-01-{Sprint1Name}/{Abbrev}-S01-Sprint-Plan.md
-- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-Orchestration.md
-- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-Recovery.md
-- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-{##}-{Agent}-{Task}.md (x{N1} task files)
-- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/Outputs/ (folder)
-- ... (same block repeated for Sprint-02 through Sprint-{count}, using each sprint's own name/session/task files)
+- Sprint-{XX}-{sprint_names[XX]}/{Abbrev}-S{XX}-Sprint-Plan.md            (x{sprint_count})
+- Sprint-{XX}-.../Session-{YY}-.../{Abbrev}-S{XX}-{YY}-Orchestration.md   (one per session)
+- Sprint-{XX}-.../Session-{YY}-.../{Abbrev}-S{XX}-{YY}-Recovery.md        (one per session)
+- Sprint-{XX}-.../Session-{YY}-.../{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{Task}.md (one per task)
+- Sprint-{XX}-.../Session-{YY}-.../Outputs/.gitkeep                       (one per session)
+- ... enumerate the real path of every file, for every sprint AND every session
 
-**Task Files Created:** {N} files total across all {count} sprints (one per task, per sprint)
+**Sprints Authored:** {sprint_count}   **Sessions Authored:** {sum of session_count}
+**Task Files Created:** {N} files total (one per task, per session)
+{If any sprint or session was deliberately not authored, name it here and point at the Master Plan's `## Deferred Authoring` section.}
 
 **Next Steps:**
 1. Review and refine the Master Plan
@@ -645,7 +662,14 @@ Before completing `/planwise plan`, verify:
 ```
 [ ] Abbreviation is 2-4 chars and unique
 [ ] Master Plan has Vision and Sprint Overview
-[ ] Sprint Plan has Objective and Sessions table
+[ ] COMPLETENESS — Sprint Plan files on disk == Sprint Overview rows in the Master Plan
+    (minus any sprint listed under `## Deferred Authoring`). Count both; a mismatch FAILS.
+[ ] COMPLETENESS — Session folders on disk == Sessions-table rows summed across all Sprint
+    Plans (minus any session listed under `## Deferred Authoring`). Count both; a mismatch FAILS.
+    Both checks are counts that can fail, not prose to affirm. Run them by Glob-ing
+    `Sprint-*/` and `Sprint-*/Session-*/` and comparing against the declared tables — a plan
+    that declares 6 sprints and authored 1 must FAIL here and name the 5 it did not author.
+[ ] Every Sprint Plan has Objective and Sessions table
 [ ] Orchestration has Task List
 [ ] Orchestration has Task Files table with links
 [ ] Task files exist (one per task, numbered 01, 02, 03...)
@@ -668,6 +692,33 @@ Before completing `/planwise plan`, verify:
 [ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
 [ ] Scope favors the coherent treatment — no known-partial fix is planned without a recorded constraint and a named residual defect (see the callout below)
 ```
+
+### Deferred Authoring
+
+Authoring a later sprint is sometimes correctly postponed — a sprint whose design depends on what an earlier sprint finds cannot be written honestly up front. Deferral is legitimate. **Silent deferral is not**, because an unauthored sprint and a forgotten sprint look identical on disk.
+
+Declare it in the Master Plan, so the two completeness checks above can pass against a declared subset instead of forcing every plan to author everything:
+
+```markdown
+## Deferred Authoring
+
+| Sprint / Session | Not authored because | Unblocked when |
+|------------------|----------------------|----------------|
+| Sprint-{XX} ({Name}) | {why its design depends on an earlier sprint's finding} | {the concrete trigger} |
+| Sprint-{XX} Session-{YY} | {reason} | {trigger} |
+```
+
+Each row names a concrete trigger, not "later" — the trigger is what a future session tests to know the deferral has expired.
+
+> [!pitfall] Read the Deferral Set From the FIRST Column Only
+> The "Unblocked when" cell routinely names another sprint (*"Sprint-01 Recovery shows COMPLETE"*). A check that scans the whole section for `Sprint-NN` counts those trigger mentions as deferrals, over-counts the deferred set, and can subtract away a sprint that was never declared deferred at all — masking the shortfall the check exists to catch. Parse the **Sprint / Session column** only.
+
+> [!constraint] A Deferral Is Declared or It Is a Shortfall
+> WRONG — the Master Plan declares 6 sprints, the pass authors 1, the checklist is affirmed as prose, and the plan reports success. Every later session has to be authored mid-execution, in a session whose context budget was sized for running tasks rather than writing them.
+>
+> CORRECT — either author all `{sprint_count}` sprints and all `sum({session_count[XX]})` sessions, or list the unauthored ones under `## Deferred Authoring` with a trigger apiece. The completeness checks subtract the declared rows and still fail on anything undeclared.
+
+An absent instruction reads as a boundary: without this section, an authoring agent that produced one session of one sprint can pass the checklist and assert the shortfall was prescribed. The counts above are what make that claim testable.
 
 > [!practice] Plan the Right Fix, Not the Easy Fix
 > When scoping reveals two treatments — a complete one that touches more surface (a full renumber, a schema migration, propagating a change through every consumer) and a narrower patch that leaves known incoherence behind — scope the complete treatment and cost it honestly. Budget pressure is answered by SPLITTING the coherent fix across tasks or sessions (see `references/session-context-budget.md` § Task-Level Estimation / Task Sizing Categories), never by shrinking it into a partial fix that is cheaper to execute. If a real constraint genuinely forces the partial path (an interface external consumers depend on, an irreversible boundary, a user-set deadline), record the constraint and the residual defect in the plan so the gap is a visible decision, not an accident. Overall project quality comes from doing the hard thing once, not the easy thing twice. Full principle, exception clause, and stage table: [do-the-hard-things.md](../references/do-the-hard-things.md).

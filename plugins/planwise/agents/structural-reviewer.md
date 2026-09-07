@@ -79,14 +79,17 @@ See `references/review-finding-format.md` for the Finding Report Format template
 - **Severity:** BLOCKER
 - **Source:** `references/scaffolding-hygiene.md` §5
 - **Type:** NEW
-- **What:** Sum of physical `Sprint-XX-*/Session-YY-*/` folders MUST equal sum of Sessions-table row counts across all Sprint Plans AND equal Master Plan Sprint Overview row count summed across sprints.
-- **Detection:** Glob `Sprint-*/Session-*/`; sum rows in each Sprint Plan Sessions table; cross-check Master Plan. Mismatch → BLOCKER.
+- **What:** Two counts, both of which must hold. (a) Sprint Plan **files** on disk MUST equal Master Plan Sprint Overview rows. (b) Physical `Sprint-XX-*/Session-YY-*/` folders MUST equal the sum of Sessions-table row counts across all Sprint Plans. A plan that declares 6 sprints and authored 1 fails (a) even when every folder it did author is internally consistent.
+- **Detection:** Glob `Sprint-*/*-Sprint-Plan.md` and count Master Plan Sprint Overview rows; Glob `Sprint-*/Session-*/` and sum the rows of every Sprint Plan's Sessions table. **Subtract any sprint or session declared under the Master Plan's `## Deferred Authoring` section before comparing** — a declared deferral is legitimate and passes; an undeclared shortfall fails. Read that set from the section's **first column only**: the "Unblocked when" cell routinely names another sprint, and scanning the whole section over-counts the deferred set and can subtract away a sprint nobody declared, masking the very shortfall this check exists to catch. Either mismatch → BLOCKER, and name the specific missing sprints or sessions.
 - **Finding template:**
 ```
-[BLOCKER] Folder-count inconsistency
-File: {Plan root path} | Location: Sprint Plan Sessions tables vs disk folders
-Issue: Disk has {N_disk} sessions; Sprint Plans declare {N_declared}
-Fix: Reconcile per references/scaffolding-hygiene.md §5 | Confidence: HIGH
+[BLOCKER] Plan-completeness shortfall
+File: {Plan root path} | Location: Sprint Overview / Sessions tables vs disk
+Issue: Master Plan declares {N_declared_sprints} sprints and {N_declared_sessions} sessions;
+       disk has {N_disk_sprints} Sprint Plans and {N_disk_sessions} session folders;
+       {N_deferred} declared deferred. Missing and undeclared: {names}
+Fix: Author the missing sprints/sessions, or declare them under `## Deferred Authoring`
+     with a trigger apiece, per handlers/plan.md Deferred Authoring | Confidence: HIGH
 ```
 
 ### Check S02 — Per-Session Outputs/ with .gitkeep
