@@ -157,6 +157,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 
 6. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
 
+<!-- AUTO-MODE: critical — discharged by auto-escalation, not by a prompt. See step 7's Auto Mode paragraph. -->
 7. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
 
    ```bash
@@ -168,6 +169,14 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
    > **Scoped-rule conflict detected:** destination `{path}` is covered by a scoped rule in `{rule-file}`. Verify the fix targets the correct file before delegating.
 
    This gate applies regardless of route (Route A or Route B) — do not skip it.
+
+   **Auto Mode.** This is a human-judgment gate, so it is classified `critical`. It issues
+   no `AskUserQuestion`, so it is discharged differently from the critical sites in
+   `references/auto-mode-policy.md` § Critical Question Behavior: under automation the item
+   **auto-escalates to Route C** rather than prompting or failing loud. The placement
+   decision cannot be inferred, and the Phase-5 mechanical gate cannot backstop it — a
+   misplaced-but-valid file builds clean and leaks nothing, so nothing downstream would
+   report the error.
 
 8. Present the scope assessment to the user:
 
@@ -212,7 +221,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 ## Phase 4: ACT
 
 <!-- AUTO-MODE: convenience -->
-<!-- Default: Accept Phase 3 recommended route (DIRECT_FIX / TASK_LIST / SESSION_PLANNING). -->
+<!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Triage route confirmation (backlog.md Phase 4)". -->
 **Use `AskUserQuestion` to confirm the routing:**
 - Option 1: Recommended route (from Phase 3 assessment)
 - Option 2: Alternative route
@@ -483,7 +492,7 @@ Present each candidate to the user with the auto-recommendation heuristic:
 > ```
 
 <!-- AUTO-MODE: convenience -->
-<!-- Default: skip all (do not auto-create BBs unattended; user explicitly invokes /planwise backlog to surface). -->
+<!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Follow-up candidate filing (backlog.md Phase 7)". -->
 Use `AskUserQuestion`: "Create backlog item from this candidate?"
 - Option 1: Yes — create BLI
 - Option 2: No — skip
@@ -584,7 +593,7 @@ When the number of items filed differs from the number of candidates surfaced, n
 After closing all triaged items, prompt for lessons learned.
 
 <!-- AUTO-MODE: convenience -->
-<!-- Default: No. -->
+<!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Lessons capture acknowledgment". -->
 **Ask the user:** "Were any lessons learned during this triage session? (y/n)"
 
 **If no:** Skip this phase and finish.
