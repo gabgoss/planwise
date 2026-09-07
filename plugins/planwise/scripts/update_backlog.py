@@ -41,6 +41,13 @@ from markdown_parser import (
 _RAW_OFFSET = 1
 _CELL_STATUS = 3
 
+# Accepted values for the optional top-level `id_format` config key. An
+# unrecognized value is announced on stderr and falls back to "bare" — see
+# create_backlog_item. That fallback is deliberate and MUST NOT become fatal:
+# the permissive behavior shipped first, and existing configs may carry the
+# key.
+VALID_ID_FORMATS = ("prefixed", "bare")
+
 
 def _files_cell_index(cells: list[str]) -> int:
     """Return the index of the Files cell — always the row's last cell.
@@ -427,14 +434,29 @@ def create_backlog_item(args) -> None:
     # Stored ID form: an explicit id_format config key wins; otherwise infer
     # the index's own predominant existing form (bare on an empty index). A
     # bare config.get() is enough here -- id_format is a plain optional
-    # string with no coercion/validation beyond "key present or not", so a
-    # config_loader accessor would add a layer with nothing to do.
+    # string, and the one check it needs (an unrecognized value) is announced
+    # in place below, so a config_loader accessor would add a layer with
+    # nothing to do.
     id_format = config.get("id_format")  # "prefixed" | "bare" | None
     prefix = ""
     if id_format is None:
         id_format, prefix = infer_predominant_id_form(content)  # "bare" on an empty index
     elif id_format == "prefixed":
         _, prefix = infer_predominant_id_form(content)
+    elif id_format not in VALID_ID_FORMATS:
+        # Announce, then continue with the existing permissive fallback --
+        # NOT fatal, no non-zero exit. Same stderr convention as
+        # score_backlog.py's computed-vs-written shortfall warning, which the
+        # backlog handler already requires be surfaced verbatim rather than
+        # swallowed.
+        print(
+            f"WARNING: unrecognized id_format '{id_format}' in config. "
+            f"Accepted values: {', '.join(sorted(VALID_ID_FORMATS))}. "
+            f"Falling back to 'bare' -- the new row's ID renders in the "
+            f"legacy bare form.",
+            file=sys.stderr,
+        )
+        id_format = "bare"
     item_id = render_id(args.id, id_format, prefix=prefix)
 
     if _row_id_exists(content, item_id):

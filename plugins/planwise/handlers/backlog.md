@@ -50,7 +50,7 @@ Where `{inferred_project_name}` = current git repo name or `cwd` basename (strip
 
 All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Backlog`). All script invocations should pass `--config {planwise_root}/config.yaml`.
 
-The optional top-level `id_format` key (`prefixed` or `bare`) controls how a newly created item's ID is rendered in the index's canonical stored form; when the key is absent, the index's predominant form is inferred. Any other value is treated as `bare` — a typo in this key silently yields the legacy form.
+The optional top-level `id_format` key (`prefixed` or `bare`) controls how a newly created item's ID is rendered in the index's canonical stored form. When the key is absent, the index's predominant form is inferred. Any other value falls back to `bare` and `update_backlog.py --create` prints a stderr `WARNING: unrecognized id_format …` naming the offending value and the accepted set. That warning is deliberately non-fatal — the item is still created — and, like the `score_backlog.py` warning in Phase 1, it MUST be surfaced to the user verbatim rather than swallowed.
 
 ---
 

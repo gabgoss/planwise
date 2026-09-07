@@ -101,6 +101,26 @@ class _UpdateBacklogFixtureBase(unittest.TestCase):
             sys.argv = saved_argv
         return buf.getvalue()
 
+    def _run_main(self, argv_tail: list[str]) -> tuple[str, str, object]:
+        """Invoke update_backlog.main() with a raw argv tail.
+
+        Returns (stdout, stderr, exit_code). exit_code is None when main()
+        returned normally instead of calling sys.exit().
+        """
+        saved_argv = sys.argv
+        sys.argv = ["update_backlog"] + argv_tail
+        out, err = io.StringIO(), io.StringIO()
+        exit_code = None
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    update_backlog.main()
+                except SystemExit as e:
+                    exit_code = e.code
+        finally:
+            sys.argv = saved_argv
+        return out.getvalue(), err.getvalue(), exit_code
+
     def read_index_text(self) -> str:
         return (self.backlog_dir / "00-Index-Backlog.md").read_text(encoding="utf-8")
 
@@ -315,26 +335,6 @@ class TestBacklogCliSurface(_UpdateBacklogFixtureBase):
     non-archival status transition, and item creation.
     """
 
-    def _run_main(self, argv_tail: list[str]) -> tuple[str, str, object]:
-        """Invoke update_backlog.main() with a raw argv tail.
-
-        Returns (stdout, stderr, exit_code). exit_code is None when main()
-        returned normally instead of calling sys.exit().
-        """
-        saved_argv = sys.argv
-        sys.argv = ["update_backlog"] + argv_tail
-        out, err = io.StringIO(), io.StringIO()
-        exit_code = None
-        try:
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                try:
-                    update_backlog.main()
-                except SystemExit as e:
-                    exit_code = e.code
-        finally:
-            sys.argv = saved_argv
-        return out.getvalue(), err.getvalue(), exit_code
-
     def test_invalid_status_is_rejected_without_changing_the_file(self):
         self.write_index(
             "| 046 | Drift reconcile | Medium | NOT_STARTED | INFRA | - | [01](item.md) |\n"
@@ -472,6 +472,99 @@ class TestBacklogCliSurface(_UpdateBacklogFixtureBase):
         self.assertIn("already exists", err)
         self.assertEqual(self.read_index_text(), before)  # no second row appended
         self.assertFalse((self.backlog_dir / "dup-TEST-item.md").exists())
+
+
+class TestIdFormatConfigValidation(_UpdateBacklogFixtureBase):
+    """The four branches of the optional top-level `id_format` config key.
+
+    An unrecognized value is announced on stderr and still falls back to
+    "bare" — the permissive behavior is deliberate, so the warning must not
+    change the outcome, raise, or produce a non-zero exit. The three
+    recognized branches (absent, "prefixed", "bare") must stay silent.
+
+    Every fixture seeds the index with a PREFIXED row, so inference and an
+    explicit "bare" pin disagree; that is what makes the rendered form
+    discriminate between the branches instead of matching for free.
+    """
+
+    def _create_099(self) -> tuple[str, str, object]:
+        return self._run_main(
+            [
+                "--config", str(self.config_path),
+                "--create",
+                "--id", "099",
+                "--feature", "Id format branch probe",
+                "--priority", "Low",
+                "--abbrev", "TEST",
+                "--files", "idfmt-TEST-item.md",
+            ]
+        )
+
+    def _seed_prefixed_index(self) -> None:
+        self.write_index(
+            "| PFX-050 | Existing | High | NOT_STARTED | TEST | - | "
+            "[01](existing-TEST-item.md) |\n"
+        )
+
+    def test_absent_id_format_infers_the_predominant_form_silently(self):
+        self._seed_prefixed_index()  # config carries no id_format key
+
+        _, err, code = self._create_099()
+
+        self.assertIsNone(code)
+        self.assertEqual(err, "")  # no warning on the inference path
+        self.assertIn("PFX-099", self.read_index_text())
+
+    def test_prefixed_id_format_is_accepted_silently(self):
+        self.config_path.write_text(
+            CONFIG_YAML_FIXTURE + "id_format: prefixed\n", encoding="utf-8"
+        )
+        self._seed_prefixed_index()
+
+        _, err, code = self._create_099()
+
+        self.assertIsNone(code)
+        self.assertEqual(err, "")
+        self.assertIn("PFX-099", self.read_index_text())
+
+    def test_bare_id_format_is_accepted_silently(self):
+        self.config_path.write_text(
+            CONFIG_YAML_FIXTURE + "id_format: bare\n", encoding="utf-8"
+        )
+        self._seed_prefixed_index()
+
+        _, err, code = self._create_099()
+
+        self.assertIsNone(code)
+        self.assertEqual(err, "")
+        index_text = self.read_index_text()
+        self.assertNotIn("PFX-099", index_text)  # the explicit pin beat inference
+        self.assertIn("099", index_text)
+
+    def test_unrecognized_id_format_warns_and_still_falls_back_to_bare(self):
+        # "prefix" is the near-miss typo the warning exists to catch.
+        self.config_path.write_text(
+            CONFIG_YAML_FIXTURE + "id_format: prefix\n", encoding="utf-8"
+        )
+        self._seed_prefixed_index()
+
+        out, err, code = self._create_099()
+
+        # Announced, not fatal: no exception, no non-zero exit, row written.
+        self.assertIsNone(code)
+        self.assertIn("Created backlog item 099", out)
+
+        # The warning names both the offending value and the accepted set.
+        self.assertIn("WARNING", err)
+        self.assertIn("'prefix'", err)
+        self.assertIn("prefixed", err)
+        self.assertIn("bare", err)
+
+        # Behavior is unchanged — still the legacy bare form.
+        index_text = self.read_index_text()
+        self.assertNotIn("PFX-099", index_text)
+        self.assertIn("099", index_text)
+        self.assertTrue((self.backlog_dir / "idfmt-TEST-item.md").exists())
 
 
 if __name__ == "__main__":
