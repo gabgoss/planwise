@@ -91,8 +91,9 @@ When extracting from Meta-Plan Discovery outputs, scaffolding agent MUST consume
 2. Tier 1 raw outputs carry detail that Tier 2/3 consolidated parts shed; skipping Tier 1 is BLOCKER.
 3. Every sprint's EI MUST include a **Deferred / Out-of-Scope Log** at `{Abbrev}-S{XX}-Deferred-OutOfScope-Log.md` enumerating:
    - Content from Tier 1/2/3 NOT extracted into this sprint's EI
-   - Rationale for deferral (e.g., "covered by Sprint-03", "out of scope per Master Plan §X")
+   - Rationale for deferral (e.g., "covered by Sprint-{XX}", "out of scope per Master Plan §X")
    - Target sprint or "Out of scope"
+4. **Where a source's prose states a count over a table, count the table before carrying the number forward.** A caption is a derived claim about the rows beneath it, and it can disagree with them. A caption reading "nine required edits, one new file" above a nine-row table whose fourth row IS the new file double-counts that row. The scaffold that trusts the caption inherits a total the table never supported, and every artifact built from it agrees with the wrong number. On disagreement the table wins: record the measured row count with its date, and note that the caption is superseded. See `references/scaffolding-hygiene.md` §12.7 for the full rule, both shapes, and Reviewer Check 094.
 
 **Deferred / Out-of-Scope Log template:**
 

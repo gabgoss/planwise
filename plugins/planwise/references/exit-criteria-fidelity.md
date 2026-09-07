@@ -570,6 +570,28 @@ That combination is worse than a vague criterion, not better. A prose-only row g
 >
 > This is the counterpart to §16.4 and the two should be read together. §16.4 prevents a **false FAIL** — do the arithmetic before declaring a labelling difference a data divergence. §16.10.4 prevents a **false PASS** — no delta is reported until baseline reproduction succeeds against the old number.
 
+#### 16.10.5 A Criterion Counting Deliverables Cites the Table, Never a Copied Total
+
+§16.10.1 requires a literal in a criterion to carry its provenance. This subsection names the one literal whose provenance is almost always another copy of itself: the deliverable total.
+
+> [!constraint] An exit criterion counting deliverables names the table, not a number
+> A sprint's deliverable total belongs in exactly one place — as a caption of the Sprint Plan's `## Deliverables` table, derived by counting its rows. Every other artifact cites the table. An exit criterion that restates the number is a copy, and a copy drifts.
+>
+> - WRONG: `all 11 deliverables landed` — a literal with no derivation, satisfied by whichever copy the runner happens to read
+> - CORRECT: `every row of the Sprint Plan ## Deliverables table landed` — a relationship the table maintains, checkable without predicting a value
+>
+> **A restated decomposition sums where it is written, or it is not written.** If a criterion says "{a} edits + {b} creates", the classes MUST add to the table's total in that same clause. A decomposition stated in one artifact and re-derived in another is two claims, and nothing reconciles them.
+>
+> **Name the ledger treatment of the verified-absent class, or two artifacts reach two totals.** Deliverables in absence form — edits deliberately not taken, verified absent — are counted three defensible ways: one ledger row each, one aggregate row for the class, or a landed deliverable and a ledger row both. The Sprint Plan states which it chose. A criterion or sweep that assumes a different one lands on a different total from the same table.
+
+Why review is the wrong place to catch this: it is arithmetic, not judgement. The label is copied faster than it is checked, and each copy reads as authoritative because the other artifacts agree with it. In the observed instance five artifacts carried one stated total, three of them implied a different one, and the gate-defining criterion was among them. A runner recomputing the ledger had to either halt or manufacture a row to make the stated total true.
+
+Applies to:
+
+- Any exit criterion, Signoff anchor, or sweep task that counts deliverables, files touched, or rows landed.
+- The Sprint Plan `## Deliverables` block, which owns the total and is the only artifact permitted to state it.
+- Enforcement of the caption itself at scaffold time — see `references/scaffolding-hygiene.md` §12.7 and Reviewer Check 094, which check a caption count against the table it captions before the count is carried forward.
+
 ---
 
 ## Scaffolding Template 2 — Sprint Signoff Checklist Block (§16.3)

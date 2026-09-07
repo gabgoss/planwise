@@ -724,6 +724,62 @@ Issue: {no register exists — the carrier is a prose note} | {entry {id} has no
 Fix: Register each adopted convention and review-landed fix with a runnable predicate, and discharge every open entry by running it against this sprint, per references/scaffolding-hygiene.md §12.6 | Confidence: HIGH
 ```
 
+### 12.7 A Caption That Counts a Table Is Checked Against That Table Before It Is Carried Forward
+
+§12.3 re-derives a row that asserts a state. §12.4 sweeps the *other* copies of a count already in the document. This subsection governs the moment earlier than both — the moment a count **enters** the plan tree, read out of a source document's prose.
+
+A source document opens a landing surface with a caption: *"nine required edits, one new file"*, above a table. The scaffold reads the caption and carries the number forward. Nothing counts the table. If the caption double-counts a row the table already holds — a row that IS the new file — the scaffold inherits a wrong total and every downstream artifact agrees with it.
+
+> [!constraint] Count the table. Never carry a source's caption forward as the count.
+> **The table is the source of truth. The caption is a derived claim about it.** When a source's prose states a count over a table, count the table's rows before using the number. On disagreement the table wins, and the scaffold records both values plus the date.
+>
+> **A total is stated once, as a caption of the rows beneath it.** Every consuming artifact — the Orchestration, the Execution Input, the exit criteria, the Signoff, the sweep task — cites the table rather than restating the number. See `references/exit-criteria-fidelity.md` §16.10.5 for the exit-criterion half of this rule.
+>
+> **A written decomposition sums in place.** If a plan writes "{a} edits + {b} creates", those classes MUST add to the stated total in the same block. A decomposition whose parts live in one artifact and whose total lives in another is two claims that nothing reconciles.
+>
+> **Deliverables in absence form need a declared home.** An edit deliberately not taken, verified absent, is counted three defensible ways: one ledger row each, one aggregate row for the class, or a landed deliverable and a ledger row both. The Sprint Plan states which it chose. Leave it unstated and two artifacts reach two totals from the same table, with no way to tell which is right.
+>
+> WRONG — the caption is read as the count, and the miscount propagates:
+> ```
+> Source: "Nine required edits, one new file"  ← above a NINE-row table whose row 4 IS the new file
+> Scaffold reads "nine edits" as excluding the new file, adds a second create it found itself
+> → total 11, copied verbatim into six artifacts, one of them a gate-defining exit criterion
+> → the sweep task's own parenthetical enumerates 8 edits; the criterion's trio clause implies 10
+> ```
+> CORRECT — the table is counted, and the caption is reconciled against it:
+> ```
+> Source caption: "Nine required edits, one new file"
+> Table row count (measured {date}): 9 rows, of which row 4 is the create
+> → 8 edits + 1 create = 9. The caption double-counts the create.
+> Scaffold records: "9 source deliverables (8 edits + 1 create) — the source's 'nine edits'
+>                    caption counts the create twice; superseded by the row count."
+> ```
+
+Applies to:
+
+- Scaffolding Step 4.5 (Multi-Tier Discovery Extraction), where a source's caption is first read — see `handlers/plan-scaffolding.md`.
+- Any Sprint Plan, Orchestration, Execution Input, exit criterion, Signoff anchor, or sweep task that states a deliverable total.
+- Any prose count over any table, not deliverables alone — a roster caption, a check-count caption, a file-list caption.
+
+#### Reviewer Check 094 — Deliverable Total Asserted Rather Than Derived
+
+- **Severity / Role / Type:** BLOCKER when the total gates a criterion, ERROR otherwise | Scaffolding Hygiene Reviewer | NEW
+- **What:** A sprint's deliverable total MUST be stated once, as a derived count of the Sprint Plan `## Deliverables` table's rows. Every other artifact cites the table rather than restating the number. A stated decomposition MUST sum to the total in the same block, and the ledger treatment of the verified-absent class MUST be declared.
+- **Detection:**
+  1. Count the rows of the Sprint Plan `## Deliverables` table. This is the total; nothing else is.
+  2. `Grep` the sprint tree for the count's shape (`[0-9]+ deliverables`, the spelled-out form, and `[0-9]+ edits`), not for the phrasing already in hand. Every hit outside the Sprint Plan's own caption is a copy.
+  3. Compare each hit against the measured row count. Two hits giving different values for one fact → BLOCKER, regardless of which is correct.
+  4. For any stated decomposition, add the classes. A sum that misses the stated total → BLOCKER.
+  5. Assert the Sprint Plan declares the ledger treatment of any `verified-absent` row. Undeclared, with a sweep task that reconciles a ledger → ERROR.
+  6. Where the total was read from a source document's caption, count that source's table too. A caption disagreeing with its own table, carried forward unreconciled → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Deliverable total asserted rather than derived from the table
+File: {Sprint Plan / EI / Signoff / sweep task} | Location: {section}
+Issue: {artifact states "{N} deliverables" while the Sprint Plan table holds {M} rows} | {decomposition "{a} edits + {b} creates" sums to {a+b}, not the stated {N}} | {verified-absent rows have no declared ledger treatment; the sweep and the criterion reach different totals}
+Fix: State the total once as a derived caption of the deliverable table, cite the table from every other artifact, and declare the verified-absent class's ledger treatment, per references/scaffolding-hygiene.md §12.7 | Confidence: HIGH
+```
+
 ---
 
 *Nine binding hygiene rules plus three advisory practices for what a multi-sprint scaffold emits — Part 1 of 2. The five derivation-and-parallelism rules (§13–§17) live in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md). Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*

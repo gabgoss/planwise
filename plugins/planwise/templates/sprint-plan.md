@@ -81,8 +81,35 @@ sprint's write-set can be checked against it, independent of landing order.
      the creator artifact (schema/DDL, migration, generator, packaging declaration) is the member
      whose omission silently undoes the retirement. -->
 
-1. **{Deliverable 1}:** {Description of what will be produced}
-2. **{Deliverable 2}:** {Description of what will be produced}
+| # | Deliverable | Class | Description |
+|---|-------------|-------|-------------|
+| 1 | {Deliverable 1} | edit | {What will be produced} |
+| 2 | {Deliverable 2} | create | {What will be produced} |
+| 3 | {Deliverable 3} | verified-absent | {What is deliberately NOT taken, and the check that proves it absent} |
+
+**Total: {N} deliverables** — count the rows above.
+
+Every other artifact cites "every row of this table" rather than repeating {N}. That
+includes the Orchestration, the Execution Input, the exit criteria, the Signoff, and any
+sweep task that reconciles a ledger.
+
+<!-- The total is a CAPTION of the table, derived by counting its rows. It is never an
+     independent claim. Do NOT carry a total in from a source document — a source's own
+     prose caption may disagree with the table it introduces, and that miscount is
+     inherited silently. Count these rows. See references/scaffolding-hygiene.md §12.7. -->
+
+<!-- If you also write a decomposition ("{a} edits + {b} creates"), the classes MUST sum
+     to {N} in this same block. Draw every class name from the Class column above and
+     nowhere else, so the arithmetic is checkable where it is written. -->
+
+**Ledger treatment of the `verified-absent` class:** {one ledger row each | one aggregate
+ledger row for the whole class | a landed deliverable AND a ledger row}. State the choice
+here — a sweep reads this line to know how many rows to expect.
+
+<!-- Why this is stated rather than assumed: a verified-absent set folded into one
+     aggregate row in one artifact, and expanded to one row EACH in another, yields two
+     different totals from the same table. A runner recomputing the ledger then either
+     halts or manufactures a row to make the stated total true. -->
 
 ---
 

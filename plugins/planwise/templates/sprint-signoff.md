@@ -47,6 +47,16 @@ Use this template when closing out a sprint as `{Abbrev}-S{XX}-Sprint-Signoff.md
 
 For each exit criterion, document the mechanical anchor (grep / SQL / file presence) that verifies it. One row per criterion. Re-run BLI-cited anchors at signoff time even if previously checked (per `references/exit-criteria-fidelity.md` §16.3).
 
+> [!constraint] A deliverable-count criterion anchors on the Sprint Plan table, never on a copied total
+> A criterion reading "all {N} deliverables landed" carries a number copied from somewhere else. Its anchor MUST resolve that number against the Sprint Plan's own `## Deliverables` table. Anchoring it on another copy of {N} confirms the copy, not the work.
+>
+> WRONG — the anchor names a second copy: `11 items in the Orchestration checklist`.
+> CORRECT — the anchor counts the source rows, then checks each one: `count the rows of {Abbrev}-S{XX}-Sprint-Plan.md ## Deliverables (must equal its stated Total), then verify each row's artifact`.
+>
+> When a criterion states a decomposition ("{a} edits + {b} creates"), verify the classes sum to the table's total before recording PASS. A decomposition that does not sum means two artifacts are counting different sets.
+>
+> The `verified-absent` class is the usual cause of a mismatch. Read the Sprint Plan's stated ledger treatment for that class. Never infer it. See `references/exit-criteria-fidelity.md` §16.10.5.
+
 | # | Exit Criterion (verbatim) | Mechanical Anchor | Result |
 |---|---------------------------|-------------------|--------|
 | 1 | {Criterion 1 verbatim} | `grep -c "{pattern}" {file}` (expect: ≥ 1) | PASS / FAIL |
