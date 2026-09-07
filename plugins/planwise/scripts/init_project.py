@@ -579,6 +579,14 @@ def main():
                              "plugin cache that moved mid-session must not silently "
                              "retarget the comparator fan-out's verdicts.json or adopt "
                              "a different shipped body than the one analyzed.")
+    parser.add_argument("--allow-downgrade", action="store_true",
+                        help="With --upgrade: proceed even when config.yaml pins a "
+                             "NEWER plugin_version than the plugin executing this "
+                             "run. Without it such a run is refused (exit 2, nothing "
+                             "written) — invoking an older plugin cache's script "
+                             "would otherwise run the upgrade backwards silently. A "
+                             "sanctioned downgrade still writes plugin_version and "
+                             "plugin_root together in one commit.")
     parser.add_argument("--doctor", action="store_true",
                         help="Read-only diagnostic: scan installed rules and report any "
                              "still scoped to plan/backlog/lessons globs (always-on context "
@@ -632,6 +640,12 @@ def main():
             parser.error("--upgrade-pair must be FROM-to-TO (e.g. 1.0.4-to-1.0.5), "
                          f"got {args.upgrade_pair!r}")
         expected_pair = (parts[0], parts[1])
+
+    # Same up-front shape as --upgrade-pair: a flag that only means anything
+    # on the --upgrade path is a parser error elsewhere, never a silent no-op
+    # that leaves the caller believing a guard was waived.
+    if args.allow_downgrade and not args.upgrade:
+        parser.error("--allow-downgrade only applies together with --upgrade")
 
     if args.hash_installed:
         # The upgrade handler interpolates an absolute path here once per verdict
@@ -687,7 +701,8 @@ def main():
     if args.upgrade:
         if args.migrate:
             print("Note: --migrate is redundant when --upgrade is used (upgrade internally calls migrate).", file=sys.stderr)
-        sys.exit(_run_upgrade(cfg, expected_pair=expected_pair))
+        sys.exit(_run_upgrade(cfg, expected_pair=expected_pair,
+                              allow_downgrade=args.allow_downgrade))
 
     if args.migrate:
         sys.exit(_run_migrate(cfg))

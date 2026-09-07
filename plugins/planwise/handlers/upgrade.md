@@ -55,7 +55,22 @@ Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version` — the li
 > If `pinned == shipped` **and** the config's stored `plugin_root` matches the live `{plugin_root}` → report "Plugin version: {version} — already up to date." and exit.
 > If `pinned == shipped` **but** the stored `plugin_root` differs → do NOT exit; skip the comparator fan-out (Steps 2.1–2.3 have nothing to compare — no artifact changed) and run the Step 2.4 script invocation, which repoints the root on its own. Report the result as "Plugin root repointed", not as a version change. See the mismatch note below.
 > If `pinned < shipped` (or `pinned` is absent) → proceed to Step 2.1.
-> If `pinned > shipped` → emit a warning ("Your config pins {pinned} but the installed plugin is {shipped} — did you downgrade?") and ask the user with `AskUserQuestion` whether to proceed.
+> If `pinned > shipped` → emit a warning ("Your config pins {pinned} but the installed plugin is {shipped} — did you downgrade?") and ask the user with `AskUserQuestion` whether to proceed. On decline, exit without writing. On approval, continue and append `--allow-downgrade` to the Step 2.4 invocation.
+
+> [!constraint] Compare the two versions numerically, and carry an approval into Step 2.4
+> Compare `pinned` and `shipped` **per component, as integers** — never as strings. Read as text, `1.0.10` sorts below `1.0.9`, so a lexical test reads the tenth patch release of any minor line as a downgrade. Zero-pad the shorter side when the component counts differ, so a four-component hotfix (`1.0.5.1`) sorts above the three-component release it patches. The script applies the same rule and refuses a backwards run on its own.
+>
+> That refusal is the reason an approval here is not self-executing. The Step 2.4 writer exits 2 with `Upgrade refused: config.yaml pins plugin_version {pinned}, which is NEWER than the plugin executing this run …` unless the invocation carries `--allow-downgrade`. Approve the question and omit the flag, and the run stops at the writer with nothing written — the user sees a refusal they already consented past.
+>
+> WRONG — the gate approves, and Step 2.4 runs its ordinary invocation:
+> ```bash
+> python "{plugin_root}/scripts/init_project.py" … --upgrade --upgrade-pair "{from}-to-{to}"
+> ```
+> CORRECT — the approval is carried as the flag the writer requires:
+> ```bash
+> python "{plugin_root}/scripts/init_project.py" … --upgrade --upgrade-pair "{from}-to-{to}" --allow-downgrade
+> ```
+> Never add the flag on any other branch. It is the recorded answer to this question, not a default.
 
 > [!constraint] Pin the version pair once, here — never re-derive it mid-run
 > Record `{from}` = the pinned `plugin_version` and `{to}` = the `version` just read from the live `plugin.json`, and use those two recorded values verbatim for every later `{from}` / `{to}` in this handler: the Step 2.3 cache path, the Step 2.4 `--upgrade-pair` argument, the Step 3 banner, and every `upgrade-conflicts/` / `upgrade-transfers/` / `upgrade-backups/` path in Step 4. Do NOT re-read `plugin.json` or `config.yaml` later to rebuild them. The comparator fan-out (Step 2.2) analyzes the shipped bodies of THIS pair and writes its verdicts under THIS pair's directory; if the plugin cache is refreshed mid-session, a re-derived `{to}` would point the writer at a different pair directory — the cache silently missed, the fan-out's work discarded, and a shipped body adopted that no comparator analyzed. The Step 2.4 script receives the pinned pair and refuses to run when its own live resolution disagrees; on that refusal, restart from this step.
@@ -228,6 +243,8 @@ python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" -
 Omit the trailing `--token-saver` when `{token_saver}` is `no` — the upgrade leaves the existing `context.token_saver` value untouched (migration is non-destructive; it never flips a user-set toggle off).
 
 `--upgrade-pair "{from}-to-{to}"` carries the pair pinned in Step 1 — pass it verbatim, always. The script resolves the pair itself (pinned `plugin_version` vs the live `plugin.json`) and, when the two disagree, **refuses** with exit code 2 before writing anything (`Upgrade refused: the handler pinned upgrade pair … but the pair now resolves live as …`). That is the plugin cache or the version pin having moved mid-session, not a script fault: restart from Step 1 so the fan-out and the writer agree on one pair. Never retry by dropping the flag.
+
+`--allow-downgrade` is appended **only** when the Step 1 gate took its `pinned > shipped` branch and the user approved it there. The script runs its own direction check and refuses a backwards run with exit code 2 before any write (`Upgrade refused: config.yaml pins plugin_version … which is NEWER than the plugin executing this run …`), naming the pinned version, the executing plugin's version, and the executing plugin root so the user can see which tree they invoked. The refusal is deliberate coverage for direct invocation: this script is a documented entry point, and the Step 1 gate protects only runs that come through this handler. A sanctioned downgrade takes the ordinary path from here on and reaches the same commit point, so `plugin_version` and `plugin_root` are still written together in one write.
 
 `{project_root}` is the absolute path of the project root (the directory containing `{planwise_root}/`). Pass it explicitly so the upgrade writes to the correct tree even when the user invokes `/planwise upgrade` from a subdirectory — the script's default of `Path.cwd()` is incorrect in that case.
 

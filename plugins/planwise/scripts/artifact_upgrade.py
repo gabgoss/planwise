@@ -457,6 +457,49 @@ def _same_path(a: "str | Path", b: "str | Path") -> bool:
     return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(os.path.normpath(str(b)))
 
 
+def _version_tuple(version: str) -> "tuple[int, ...] | None":
+    """Return a dotted version string as a tuple of ints, or None when it is
+    not purely numeric per component.
+
+    Used to compare a config's pinned `plugin_version` against the executing
+    plugin's own version by DIRECTION, not merely for inequality. The
+    comparison must be per-component and numeric: compared as strings,
+    `"1.0.10" < "1.0.9"` is True, so a lexical test would read a genuine
+    upgrade as a downgrade on the tenth patch release of any minor line.
+
+    Component count varies in the wild (`0.0.0` is the never-pinned sentinel,
+    and a hotfix ships as a four-component `1.0.5.1`), so callers compare the
+    tuples after zero-padding the shorter one — `(1, 0, 5)` and `(1, 0, 5, 1)`
+    must not compare equal, and the four-component form must sort ABOVE the
+    three-component one.
+
+    Returns None for a component that is not a plain non-negative integer (a
+    pre-release suffix, a git describe string, an empty component). A caller
+    that gets None cannot establish a direction and MUST NOT refuse on that
+    basis: an unparseable version is an unknown direction, never a proven
+    backwards one.
+    """
+    parts = str(version).split(".")
+    if not parts or any(not p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def _compare_versions(pinned: str, target: str) -> "int | None":
+    """Return -1 / 0 / 1 for pinned <, ==, > target, or None when either
+    version is not numerically comparable.
+
+    Zero-pads the shorter tuple so component counts may differ.
+    """
+    a, b = _version_tuple(pinned), _version_tuple(target)
+    if a is None or b is None:
+        return None
+    width = max(len(a), len(b))
+    a += (0,) * (width - len(a))
+    b += (0,) * (width - len(b))
+    return (a > b) - (a < b)
+
+
 # Recovery-artifact disposition classes — see _scan_recovery_artifacts() /
 # _emit_recovery_artifacts_banner() below. Two of these previously had NO
 # stated end-of-life anywhere (pre-change backups, the consumed verdict
@@ -627,7 +670,9 @@ def _apply_feedback_dir(cfg: "InitConfig", config_path: Path) -> None:
 
 
 def _run_upgrade(
-    cfg: "InitConfig", expected_pair: "tuple[str, str] | None" = None
+    cfg: "InitConfig",
+    expected_pair: "tuple[str, str] | None" = None,
+    allow_downgrade: bool = False,
 ) -> int:
     """Execute the --upgrade flow and print a banner. Returns exit code.
 
@@ -647,6 +692,22 @@ def _run_upgrade(
     the cache missed (degrading to the inline primitive), and a shipped body
     adopted that no comparator analyzed. Headless runs pass None: the pair
     is still resolved once and recorded in the banner.
+
+    `allow_downgrade` opts a run into the BACKWARDS direction. Without it a
+    run whose pinned version is NEWER than the executing plugin's is refused
+    (exit 2) before any write. This script is a documented, directly-runnable
+    entry point — every handler invokes it as a plain `python …/init_project.py
+    … --upgrade` — so nothing stops a user, a wrapper script, or a session that
+    resolved a superseded plugin root from handing it an older tree, and the
+    interactive front door's own "did you downgrade?" gate protects only
+    handler-mediated invocations. The script is non-interactive, so a
+    backwards run cannot be resolved by asking; the honest shapes are refuse,
+    or proceed on an explicit opt-in. Both are kept: the accidental case is
+    never silent, and the deliberate case stays possible. A sanctioned
+    downgrade takes the ordinary path and therefore reaches the same commit
+    point, writing `plugin_version` and `plugin_root` together in one write —
+    a half-written pair is the defect that pairing exists to prevent, and a
+    downgrade is not an exception to it.
     """
     if not HAS_YAML:
         print(
@@ -687,6 +748,33 @@ def _run_upgrade(
             file=sys.stderr,
         )
         return 2
+
+    # Direction gate — BEFORE the migrate phase and before the
+    # already-up-to-date branch, so a backwards run writes NOTHING by
+    # default. `pinned != target` was the script's only go-ahead condition
+    # until now, which made an older cache's --upgrade run a full upgrade
+    # backwards with no warning and no prompt. Unparseable versions yield
+    # None: an unknown direction is not a proven backwards one, so the run
+    # proceeds exactly as it did before rather than refusing on a guess.
+    direction = _compare_versions(pinned_version, target_version)
+    if direction == 1:
+        if not allow_downgrade:
+            print(
+                f"Upgrade refused: config.yaml pins plugin_version {pinned_version}, "
+                f"which is NEWER than the plugin executing this run ({target_version} "
+                f"at {cfg.plugin_root}) — this would run the upgrade backwards, "
+                "rewriting installed artifacts from the older tree and repointing "
+                "the config at it. Nothing was written. Either invoke the newer "
+                "plugin's own script, or pass --allow-downgrade to proceed "
+                "deliberately.",
+                file=sys.stderr,
+            )
+            return 2
+        print(
+            f"Downgrade authorized (--allow-downgrade): {pinned_version} -> "
+            f"{target_version} from {cfg.plugin_root}. Installed artifacts are "
+            "refreshed from the OLDER tree and the config is repointed at it."
+        )
 
     if pinned_version == target_version:
         # The version pin is current, but a SEPARATE key — plugin_root — can
