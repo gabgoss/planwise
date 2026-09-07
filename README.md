@@ -45,9 +45,9 @@ This guide walks you through everything from zero. No prior experience with plug
 > If you see something like `Python 3.11.5`, you're good to go.
 > If not, download Python from [python.org](https://www.python.org/downloads/).
 
-### Optional: install PyYAML
+### Install PyYAML
 
-planwise works fine without it, but installing PyYAML gives you slightly better config file parsing.
+Day-to-day commands work without it, but **`/planwise upgrade` requires it** — without PyYAML that command stops and changes nothing. Everywhere else planwise degrades quietly rather than failing, so install it now and skip the surprise later.
 
 ```bash
 pip install pyyaml
@@ -160,7 +160,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, feedback capability, Token Saver staleness (`--prune-stale` to clean up) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |

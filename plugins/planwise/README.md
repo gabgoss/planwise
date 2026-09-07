@@ -7,6 +7,7 @@ planwise is a plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude
 ## Table of contents
 
 - [The problem](#the-problem)
+- [Requirements](#requirements)
 - [1. `init` — set up planwise in your project](#1-planwise-init)
 - [2. `plan` — create a plan](#2-planwise-plan)
 - [3. `review` — review a plan before executing](#3-planwise-review)
@@ -37,6 +38,44 @@ Ever had Claude Code forget what you were working on? Started a new session and 
 Every command starts with `/planwise` followed by a subcommand. The sections below cover each one in order.
 
 > **Not installed yet?** Add the marketplace and install the plugin first (see the repository's top-level README), then come back and start with `init`.
+
+---
+
+## Requirements
+
+Three dependencies, and only the first is needed to use planwise at all. Each row states what breaks without it, so you can decide rather than install on faith.
+
+| Dependency | Needed for | If absent |
+|---|---|---|
+| **Python 3.8+** | Every script-backed step — backlog scoring, config read/write, `init`, `upgrade`, `doctor` | Most of the plugin does not function |
+| **PyYAML** | Config validation, the artifact manifest, and `/planwise upgrade` | `/planwise upgrade` stops with `PyYAML is required for --upgrade` and changes nothing. Elsewhere planwise degrades quietly: config writes go through unverified, and the artifact manifest reads as empty so categorization falls back to built-in defaults |
+| **[GitHub CLI](https://cli.github.com/) (`gh`), authenticated** | `/planwise feedback` posting upstream, and the optional `upgrade.github_issue` report | **Optional — nothing breaks.** Both flows degrade to a written draft plus the issues URL, so you file it by hand |
+
+**Installing them**
+
+```bash
+python --version        # confirm 3.8 or newer; try python3 --version if that fails
+pip install pyyaml      # or pip3
+```
+
+For `gh`, run the one command matching your platform:
+
+| Platform | Command |
+|---|---|
+| Windows | `winget install --id GitHub.cli` |
+| macOS | `brew install gh` |
+| Linux (Debian 12+ / Ubuntu 23.04+) | `sudo apt install gh` |
+| Linux (Fedora) | `sudo dnf install gh` |
+| Anything else | See the [installation manual](https://cli.github.com/manual/installation) |
+
+Installing `gh` is not the whole job — two more gates stand between the binary and a posted report:
+
+1. `gh auth login` — an interactive browser flow. Run it yourself; planwise never authorizes an account on your behalf.
+2. Set `feedback.enabled: true` in `{planwise_root}/config.yaml`. Posting is opt-in and off by default.
+
+Until both are done, [`/planwise feedback`](#12-planwise-feedback) saves a local draft instead of posting. That is a supported configuration, not a broken install.
+
+> **You do not have to install `gh` up front.** [`/planwise init`](#1-planwise-init) and [`/planwise upgrade`](#10-planwise-upgrade) each probe for it and offer to install it when it is missing — always as a question, never silently, and a declined or failed install never blocks either command. [`/planwise doctor`](#8-planwise-doctor) reports the same three gates any time you want to check.
 
 ---
 
@@ -301,8 +340,16 @@ flowchart LR
 - **Orphaned agent mirror sweep** — flags agent copies under `.claude/agents/` left behind by older versions that mirrored agents into the project; agents now run directly from the plugin, so copies you never edited are safe to remove.
 - **Index drift audits** — cross-checks the plans index against each Master Plan's actual status, and the backlog index against archival state.
 - **Feedback capability probe** — checks the three gates that decide whether [`/planwise feedback`](#12-planwise-feedback) actually posts (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and names the one-line remedy for each unmet gate. The fallback is silent by design, so without this check a consumer can draft reports for months believing they were filed.
+- **Upgrade recovery-leftover sweep** — walks the backup, transfer, and conflict directories that past [`/planwise upgrade`](#10-planwise-upgrade) runs left behind. They accumulate per upgrade and nothing purges them on its own, so the sweep sorts each one into what still needs you (unresolved conflicts, transferred customizations awaiting a re-homing decision) and what is now discardable (pre-change backups, consumed caches).
 
-**Opt-in cleanup:** `/planwise doctor --prune-stale` is the one doctor invocation that writes. It removes only what the stale-rule sweep and the mirror sweep flagged as provably removable — every deleted file is first backed up next to a `PRUNED.md` audit log under `{planwise_root}/upgrade-backups/`, and anything carrying content of your own is always preserved in place.
+**Opt-in cleanup:** `doctor` has exactly two invocations that write, and neither runs unless you ask for it by name.
+
+| Invocation | What it deletes | What it never touches | Backup + audit log |
+|---|---|---|---|
+| `/planwise doctor --prune-stale` | Only what the stale-rule sweep and the mirror sweep flagged as provably removable | Any rule or agent copy carrying content of your own — always preserved in place | `{planwise_root}/upgrade-backups/prune-{date}/`, beside a `PRUNED.md` log |
+| `/planwise doctor --prune-upgrade-leftovers` | Only the leftovers the recovery sweep flagged as discardable — pre-change backups and consumed caches | Unresolved conflict sidecars and transferred customizations — never offered for deletion, no matter what | `{planwise_root}/upgrade-prune-logs/upgrade-leftovers-{date}/`, beside a `PRUNED-LEFTOVERS.md` log |
+
+Both writers copy every path into their run's log folder before removing it, so a prune stays recoverable. A copy that fails leaves the original in place rather than delete without a backup, and a same-day rerun gets its own numbered folder instead of overwriting an earlier run's log. The two flags target unrelated artifact classes and write to separate log roots, so one is never a shorthand for the other. `--prune-upgrade-leftovers` confirms with you once per class of leftover before it removes anything, and accepts `--prune-classes` to narrow the run further — `--prune-classes inert` drops the consumed caches and keeps the backups.
 
 Run it any time for a quick health check — especially right after a [`/planwise upgrade`](#10-planwise-upgrade).
 
@@ -431,7 +478,7 @@ Walks you through a short prompt — bug, lesson, or idea — and drafts a submi
 
 **Privacy.** The submitted body never contains your file contents, repo paths, or config values — only what you wrote in the prompt. If `gh` isn't installed, isn't authenticated, or you decline the post, your draft is preserved locally and the issues URL is printed so you can file it by hand.
 
-**Needs the [GitHub CLI](https://cli.github.com/) (`gh`) to post directly.** `/planwise init` and `/planwise upgrade` offer to install it when it's missing — always as a question, never silently. Because the draft fallback is silent by design, [`/planwise doctor`](#8-planwise-doctor) also probes all three posting gates (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and tells you whether reports are actually posting or quietly landing in your local feedback directory (`Feedback/` by default).
+**Needs the [GitHub CLI](https://cli.github.com/) (`gh`) to post directly** — see [Requirements](#requirements) for the install command and the two gates that follow it. `/planwise init` and `/planwise upgrade` offer to install it when it's missing — always as a question, never silently. Because the draft fallback is silent by design, [`/planwise doctor`](#8-planwise-doctor) also probes all three posting gates (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and tells you whether reports are actually posting or quietly landing in your local feedback directory (`Feedback/` by default).
 
 #### How `feedback` works
 
@@ -496,7 +543,7 @@ flowchart LR
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, feedback capability, Token Saver staleness (`--prune-stale` to clean up) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
@@ -588,7 +635,7 @@ To remove the marketplace:
 
 **Python scripts show errors**
 - Check that Python 3.8+ is installed: `python --version`
-- If you see YAML-related warnings, install PyYAML: `pip install pyyaml` (optional but silences warnings)
+- If you see YAML-related warnings, install PyYAML: `pip install pyyaml`. It is optional for day-to-day use, but `/planwise upgrade` requires it — see [Requirements](#requirements)
 
 **Plans or backlog seem out of date after a plugin update**
 - Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules into your project

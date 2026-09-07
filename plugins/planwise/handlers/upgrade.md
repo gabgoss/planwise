@@ -531,9 +531,9 @@ When no `additionalDirectories` entry falls in the plugin-cache path family at a
 
 ### Step 4.5 — GitHub CLI availability offer
 
-After a successful upgrade, probe for the GitHub CLI by running `gh --version`. If it resolves, skip this step silently — there is nothing to offer.
+After a successful upgrade, probe for the GitHub CLI by running `gh --version`. If it resolves, probe the auth state with `gh auth status` and report the installed-but-unauthenticated case exactly as [init.md](init.md) Step 9.5 specifies — one line, no question, never blocking. On exit 0, skip this step silently; there is nothing to offer.
 
-If it does not resolve, offer the install exactly as [init.md](init.md) Step 9.5 specifies. That step owns the platform command table, the one-command-only failure posture, and the post-install `gh auth login` / `feedback.enabled` instruction; this step invokes it and does not restate or re-derive any of it. `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`), inferred default **No — install nothing** (an unattended run never invokes a package manager).
+If it does not resolve, offer the install exactly as [init.md](init.md) Step 9.5 specifies. That step owns the platform command table, the one-command-only failure posture, the unauthenticated-case report line, and the post-install `gh auth login` / `feedback.enabled` instruction; this step invokes it and does not restate or re-derive any of it. `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`), inferred default **No — install nothing** (an unattended run never invokes a package manager).
 
 > [!practice] Why the offer runs at upgrade time and not only at init
 > The two steps reach disjoint populations. Every install that predates this offer has already run its `init` and will never run it again, so an init-only placement leaves those consumers permanently unaware that `/planwise feedback` has been drafting locally rather than posting — the engine's fallback is silent by design ([`references/feedback-submission.md`](../references/feedback-submission.md)), so nothing else would ever tell them.

@@ -1,11 +1,11 @@
 ---
-description: Sessions delivering IPC/protocol/codec layers MUST include round-trip evidence before COMPLETE; Sprint exit-gate verdicts reflect the gate-defining step's status, not a step-count percentage; build-clean ≠ computation-correct, build-fresh ≠ deploy-fresh, and runtime-correct-on-one-target ≠ all-targets for in-process numeric/codec and multi-target code; §10 turns the discipline on the instrument itself — a gate must be able to fail, must not fail correct work, must see the shape it counts, and must be pointed at the live subject as well as at fixtures
+description: Sessions delivering IPC/protocol/codec layers MUST include round-trip evidence before COMPLETE; Sprint exit-gate verdicts reflect the gate-defining step's status, not a step-count percentage; build-clean ≠ computation-correct, build-fresh ≠ deploy-fresh, and runtime-correct-on-one-target ≠ all-targets for in-process numeric/codec and multi-target code; §10 turns the discipline on the instrument itself — a gate must be able to fail, must not fail correct work, must see the shape it counts, and must be pointed at the live subject as well as at fixtures; §11 sorts gates into change-detecting and state-detecting shapes — a battery of only diff-shaped gates proves the change was clean and says nothing about the artifact's condition, so every plan names at least one state-detecting gate
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Verification Gates — Build-Clean Is Not Runtime-Correct
 
-**Purpose:** Gate-discipline rules for planwise sessions whose deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec). Codifies the two failure modes (build-clean ≠ runtime-correct; partial-PASS ≠ gate progress), the round-trip evidence requirement, the gate-is-the-gate Sprint Overview discipline, and the Recovery-vs-task-spec drift practice surfaced at closeout. Sections 5–7 extend the build-clean-is-not-enough principle past cross-process boundaries into in-process numeric/codec computation (§5), build-vs-deploy freshness (§6), and multi-target runtime parity (§7). §8 turns the same discipline on the verification command itself: a `git diff` gate that names no tree state silently measures the whole working tree instead of the sprint's own delta.
+**Purpose:** Gate-discipline rules for planwise sessions whose deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec). Codifies the two failure modes (build-clean ≠ runtime-correct; partial-PASS ≠ gate progress), the round-trip evidence requirement, the gate-is-the-gate Sprint Overview discipline, and the Recovery-vs-task-spec drift practice surfaced at closeout. Sections 5–7 extend the build-clean-is-not-enough principle past cross-process boundaries into in-process numeric/codec computation (§5), build-vs-deploy freshness (§6), and multi-target runtime parity (§7). §8 turns the same discipline on the verification command itself: a `git diff` gate that names no tree state silently measures the whole working tree instead of the sprint's own delta. §11 asks what a diff-shaped gate can answer at all — a battery composed entirely of change-detecting gates is blind by construction to any defect that predates the diff.
 **Companion file:** [measurement-discipline.md](measurement-discipline.md) (§8 Empirical Verification Discipline — the cross-cutting "measure it, don't infer it" counterpart to this file's cross-process/build/runtime gate discipline).
 
 ## Table of Contents
@@ -20,6 +20,7 @@ paths: {planwise_root}/{plans_dir}/**
 - [8. Diff-Scoped Gates Pin a Recorded Baseline](#8-diff-scoped-gates-pin-a-recorded-baseline)
 - [9. Empirical Verification Discipline → measurement-discipline.md](measurement-discipline.md) — relocated; the number stays reserved so citations to it keep resolving
 - [10. The Instrument's Four Proof Obligations](#10-the-instruments-four-proof-obligations)
+- [11. Change-Detecting vs State-Detecting Gates](#11-change-detecting-vs-state-detecting-gates)
 
 ---
 
@@ -489,6 +490,86 @@ File: {plan or task file path} | Location: {Verification Commands | Success Crit
 Issue: {gate asserts {pattern} where the property is resolution — a house-style citation scores 0 and a citation to a nonexistent file scores 1 | gate-repair criteria are satisfied entirely by fixtures; the guarded tree is never swept}
 Fix: {Rewrite the gate to resolve the reference — confirm the named file exists, the section number is present as a heading, and no placeholder token remains — and dry-run it against a known-GOOD house-style file as well as known-bad | Add a live-sweep criterion over the guarded tree phrased so fixtures cannot satisfy it, and state that findings outside this item's file list are filed, not absorbed}, per references/verification-gates.md §10 obligations B and D | Confidence: MEDIUM
 ```
+
+---
+
+## 11. Change-Detecting vs State-Detecting Gates
+
+§10 asks whether the instrument is sound. This section asks a different question about a battery that is *entirely* sound: **what question is its shape able to answer at all?** A gate can discharge all four proof obligations and still be structurally blind to a defect that was already there when the session opened.
+
+Sort every gate into one of two shapes:
+
+| Shape | Recognisable by | The question it answers |
+|---|---|---|
+| **Change-detecting** | It reads a diff — `\| grep '^\+'`, `\| grep '^-'`, `--name-only`, a removed-line-set count, any predicate over `git diff` output | *Did this change introduce a defect?* |
+| **State-detecting** | It reads the artifact as it stands — a whole-file count, an equality between two surfaces, a directory listing compared against a declaration, a resolve-every-reference pass | *Does a defect exist?* |
+
+The two are not interchangeable, and the gap is not a matter of degree. Anything predating the diff is a **context line**: invisible to a change-detecting gate by construction, not by oversight. A battery composed entirely of change-detecting gates proves your change was clean and says **nothing** about the artifact's condition.
+
+> [!constraint] Every verification plan names at least one state-detecting gate
+> Or it records explicitly that no state property is at risk. A battery of only change-shaped gates is not a strong battery with a gap — it is a battery that cannot answer the question a reader will assume it answered.
+
+**Enumeration drift is the worst case for a change-shaped battery.** A missing entry is an *absence* — there is no line for any pattern to match — and a stale count is *syntactically valid*, so nothing is malformed; the number is merely false. Neither leaves a trace in a diff that did not touch them.
+
+### 11.1 The sharp edge — a pre-existing omission can arm a gate against correct work
+
+A pre-existing omission is not only invisible going in. It can **detonate on the way out**, and the resulting failure is undiagnosable from inside the task that hits it.
+
+The shape: a task's exit gate derives its expected figure **from** the very enumeration it is checking. Landing the literal scope — add the new member, derive both figures live — moves one side and not the other, because the pre-existing omission was never in scope. The gate reports a mismatch and fails **correct work**, with the true cause sitting in a line the task had no reason to open.
+
+```bash
+# WRONG — the expected value is derived from the enumeration under test.
+# A member missing from that parenthetical for reasons predating this task
+# makes the gate fail work that is entirely correct.
+grep -o '({first-member}.*{last-member})' {doc} | tr ',' '\n' | wc -l   # must equal the declared count
+```
+
+Derive the two sides from **independent** surfaces, or the gate is checking a thing against itself.
+
+### 11.2 The cross-surface equality invariant
+
+Where two surfaces enumerate the same set, assert their **equality**. Never assert either one against a remembered number.
+
+```bash
+# Table-of-contents entries must equal numbered body sections.
+# Both sides derived live; no constant appears anywhere in the gate.
+[ "$(grep -cE '^- \[[0-9]+\.' README.md)" = "$(grep -c '^## [0-9]' README.md)" ] || echo MISMATCH
+```
+
+Four properties make this the right shape, and a threshold gate has none of them:
+
+| Property | Why |
+|---|---|
+| Absence-detecting | It compares cardinalities, so a missing member moves one side. No pattern has to match the thing that is not there. |
+| State-based | It evaluates the file as it stands. A defect three sprints old fails it today. |
+| Self-maintaining | Both sides are derived live. There is no baseline to re-measure and no threshold to drift. |
+| Cannot false-fail correct work | Correct work moves both sides together — precisely the failure §11.1 describes. |
+
+> [!verify] The equality gate must reference no constant
+> If a number appears on either side, it is a threshold wearing an equality's clothes, and it will drift. The gate above names `README.md` and two patterns; it names no count.
+
+### 11.3 Compare sets, not counts
+
+Cardinality equality is necessary and **not sufficient**. Three surfaces at thirteen rows each can still disagree on membership — one lists a member another omits, and a fourth carries a member that no longer exists. Both counts read thirteen and every count-based gate passes.
+
+Extract the member set from each surface and assert the **symmetric difference is empty** against a designated reference surface — typically the router or dispatch table, the one surface that is executable rather than descriptive:
+
+```bash
+# Extract each surface's members, then diff the sorted sets pairwise.
+# A non-empty diff names the divergent member, which a count never can.
+diff <(sort surface-a.txt) <(sort surface-b.txt)   # MUST be empty
+```
+
+Report the divergent member, not the counts. A gate that says `13 != 12` sends the reader to count rows; a gate that says `harvest present in the router, absent from the quick reference` sends them to the line.
+
+### 11.4 Emit the surface set at landing time
+
+The root cause of enumeration drift is that a feature's surfaces are **not mechanically linked**. Nothing fails when one of four is missed, so the set has to be *remembered* — and one landing routinely leaves two or three surfaces stale across sprints.
+
+The durable fix is not a sharper reviewer. It is making the set **enumerable rather than remembered**: a task that lands a new member of any enumerated set names every surface that enumerates it, in the task file, as a checklist the exit gate walks. Where the surfaces live in one repo, §11.3's set comparison then holds the checklist honest without anyone re-deriving it.
+
+> [!constraint] Dry-run an equality gate in BOTH directions before trusting it
+> Run it against a state where the defect is genuinely present — an earlier revision is the cheapest source — and show it **FAIL**. Then run it against a correct state and show it **PASS**. The FAIL proves it discriminates; the PASS proves it does not fail correct work, which §11.1 shows is the specific way this gate class goes wrong. A gate never shown to fail is not evidence, and a gate never shown to pass on correct input is a retry loop waiting to happen.
 
 ---
 

@@ -196,10 +196,22 @@ Use `AskUserQuestion`:
 <!-- AUTO-MODE: convenience -->
 <!-- Default: No — an unattended run NEVER invokes a package manager. SUPPRESSED ENTIRELY when --auto-from flag is set (subroutine mode). -->
 
-Probe for the GitHub CLI by running `gh --version`. If it resolves, skip this step
-silently — there is nothing to offer.
+Probe for the GitHub CLI by running `gh --version`. Three outcomes, reported
+distinctly — the installed-but-unauthenticated case is the one most likely to
+confuse, because the binary is present and posting still will not happen:
 
-If it does not resolve, use `AskUserQuestion`:
+**If it resolves,** probe the auth state with `gh auth status`. On exit 0 skip this
+step silently — there is nothing to offer. On any non-zero exit, print one line and
+continue (no question, no install, never blocking):
+
+```
+gh installed ({version}) but not authenticated — /planwise feedback will save a
+local draft instead of posting.
+  remediation: run `gh auth login` (an interactive browser/device flow), and set
+               feedback.enabled: true in {planwise_root}/config.yaml
+```
+
+**If it does not resolve,** use `AskUserQuestion`:
 
 > "The GitHub CLI (`gh`) isn't installed. planwise uses it so `/planwise feedback` can
 > file your bugs, lessons, and ideas upstream directly. Without it feedback still works —

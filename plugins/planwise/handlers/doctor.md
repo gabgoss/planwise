@@ -142,8 +142,8 @@ If the sweep returns nothing: `No stale de-scoped rules found — install is pas
 
 ### Stage 8b: `--prune-stale` (opt-in writer)
 
-When `$ARGUMENTS` contains `--prune-stale`, this is the ONE doctor path that mutates.
-Run the writer:
+When `$ARGUMENTS` contains `--prune-stale`, this is one of the two doctor paths
+that mutate (the other is `--prune-upgrade-leftovers`, Stage 14b). Run the writer:
 
 ```bash
 python "{plugin_root}/scripts/init_project.py" --prune-stale --project-root "{project_root}"
