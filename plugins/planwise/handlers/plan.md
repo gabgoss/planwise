@@ -77,6 +77,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
 - If planning a scaffolded multi-sprint plan (Discovery → Scaffolding workflow): Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§17) — the hygiene reference is split across two files, and Part 2 carries the rules a scaffold must satisfy before it closes
 - If the plan contains verification tasks (grep/awk match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
+- If a task's deliverable is a gate (guard, hook, linter, validation pass), or an acceptance criterion cites a gate run as proof: Read `references/verification-gate-evidence.md`
 - If planning a task with DB writes (SQL INSERT/UPDATE/MERGE): Read `references/schema-pin-requirement.md`
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 - If a task's deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec): Read `references/verification-gates.md` before populating that task's Verification Commands (Step 8e)
