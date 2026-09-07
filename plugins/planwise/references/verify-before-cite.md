@@ -790,4 +790,4 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 
 ---
 
-*Anchor: [task-content-fidelity.md](task-content-fidelity.md) (§9.A Required Context Fidelity — split anchor, R1 filename-frozen). Companion: [schema-pin-requirement.md](schema-pin-requirement.md).*
+*Anchor: [task-content-fidelity.md](task-content-fidelity.md) (§9.A Required Context Fidelity — split anchor, filename frozen by that split). Companion: [schema-pin-requirement.md](schema-pin-requirement.md).*
