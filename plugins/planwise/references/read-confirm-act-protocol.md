@@ -410,6 +410,136 @@ So the upstream Recovery sweep in §1.4.A is not a convenience. It is the only p
 >
 > Verify in **both** directions. When a subordinate agent challenges a flag, re-derive from primary evidence rather than deferring to either party's confidence.
 
+#### 1.4.G Resolve the claim's REFERENT before re-deriving its truth
+
+> [!constraint] A check confirms a true statement about whichever object it was pointed at
+> §1.4.C expires a flag's values. §1.4.D expires its judgements. Both assume the claim's **referent** is unambiguous, and that only its truth value can drift. When the referent is the thing that is wrong, running the check harder converges on the same wrong answer.
+>
+> Nothing in a reproducing measurement reports which object it measured. The confirmation therefore reads identically whether the referent was right or wrong.
+>
+> ```bash
+> # WRONG — confirms the claim inside the scope the claim chose:
+> grep -n '<positional-label>' <the-one-file-the-claim-named>   # → nothing. Claim "confirmed".
+>
+> # CORRECT — asks whether the SUBJECT is referenced anywhere at all:
+> grep -rn '<subject-symbol>' <whole-tree> | grep -v '<subject-own-file>'
+> ```
+>
+> Both greps are correct. Both return what they should. The referent table is what makes the failure legible:
+>
+> | | The claim | What was checked | Verdict |
+> |---|---|---|---|
+> | Referent | "the agent is dispatched from nowhere" | the one handler the claim named | correctly identified as dispatching nothing |
+> | Referent actually needed | the same agent | the *other* handler, carrying its own route of the same name | never looked at |
+>
+> **The CORRECT grep excludes the subject's own file, and that exclusion is load-bearing.** A definition site is not a caller. The subject's own file always contains the symbol, so leaving it in the result set guarantees at least one hit — which turns an absence check into a tautology.
+
+Three corollaries follow.
+
+- **An absence claim is only as wide as the search that produced it.** Grep for the thing alleged to be orphaned, never for the container alleged to be empty.
+- **A short, positional identifier is a warning sign.** `Route C`, `Step 3`, `Phase 2` and `stage 4` are labels that recur across files by construction. An inherited claim hinging on one must have its referent resolved before anything acts on it.
+- **Where an inherited claim prescribes a fix, check the fix against the live tree, not just the claim.** "Wire X so the citation becomes true" is falsified the moment X turns out already wired. That check is one grep, and it holds independently of whether the claim itself reproduces. §1.4.D requires verifying that a prescribed fix does not degrade the artifact. This requires verifying that the fix is still needed at all.
+
+The same shape appears wherever a coordination artifact hands forward a defect *description* rather than a defect *location* — a section number that exists in two files, a step number two handlers both use, a config key present in a template and in an instance. The receiving session re-measures faithfully inside the frame it was handed, and the frame is the error.
+
+The cost is not tidiness. In the measured case, acting on the confirmed claim would have added a second dispatcher for an already-dispatched agent. That manufactures the exact defect the work existed to remove, and reports the row closed.
+
+#### 1.4.H Availability is not applicability — verify the source covers the scope it is cited for
+
+> [!practice] A presence check measures the wrong property, and reads exactly like measuring the right one
+> ```
+> WRONG — the dependency check that shipped:
+> file exists?  ✅   wc -l → 2,325   → record "Present", assign to the PreToolUse cluster
+>
+> CORRECT — one additional question, answerable in a single call:
+> file exists?  ✅   does it REGISTER for the event I am citing it for?
+>   grep -nE '"(PreToolUse|PostToolUse|Stop)"' hooks.json   → no PreToolUse key → NOT ground truth
+> ```
+>
+> A source can be genuinely rich and still be rich about the wrong thing. That asymmetry is the whole point:
+>
+> | Fact class | Transfers to the cited event? | Why |
+> |---|---|---|
+> | `tool_input` shapes | **Yes** | the same object is passed at both events |
+> | `tool_response` shapes (`stdout`/`stderr`/`interrupted`, no `exit_code`) | **No** | `tool_response` does not exist before the tool runs |
+
+Ask the applicability question of every cited source. It generalises by artifact class:
+
+| Citing a… | Availability check | Applicability check |
+|---|---|---|
+| Hook script, for an event's contract | file exists | its manifest registers **that event** |
+| Test file, as coverage for a behaviour | file exists | a test in it actually exercises that behaviour |
+| Doc page, as the spec for a field | page loads | the page documents **that** field, not a sibling |
+| Reference implementation, for a version | repo present | it targets the version under discussion |
+
+Three guardrails govern what you do with the answer.
+
+- **A presence check produces a concrete measurement of the wrong property**, and that reads exactly like a concrete measurement of the right one. `2,325 lines` and `✅ Present` feel like verification.
+- **A rich source that fails the applicability check is re-scoped, not discarded.** It stops being the second independent implementation a criterion counted on. It remains excellent evidence for the events it does register.
+- **Label the event, version or platform on every extracted fact.** Once one source spans several, an unlabelled fact is un-auditable, and downstream readers will silently promote it into the wrong contract.
+
+The cost asymmetry is stark. The applicability check above was one grep of a 96-line manifest at plan time. Skipping it surfaced the problem inside the session's largest task, where it cost a coordination flag, a re-brief and a weakened exit criterion.
+
+This check is deliberately not written as one universal command. It is artifact-class-specific — a manifest for a hook, a test body for a test file, a version target for a reference implementation. A one-size command would be exactly the concrete measurement of the wrong property this section warns about.
+
+#### 1.4.I An existence claim expires differently from a count — deliver the RESULT, not the claim
+
+> [!constraint] Counts get re-measured by habit — existence claims rot
+> §1.4.C item 1 already requires grepping for the defect rather than for the fix. This section governs what you owe **downstream** when that grep returns zero on a claim you are about to relay.
+>
+> Nothing in a flag's own text changes when the tree does. So run both commands before relaying any carried ABSENT / EXISTS / UNVERIFIED claim:
+>
+> ```bash
+> # does the thing still exist?
+> grep -rn '<the string>' <tree>
+> # if not, WHEN did it stop existing — the answer belongs in the handoff
+> git log -S'<the string>' -- <the named files>
+> ```
+>
+> Then deliver the **result**, not the claim: `DISCHARGED, closed by <commit>`. Never silently drop it — the next scaffold re-adds it from the sprint plan. Never pass it on unqualified either.
+
+**The danger inverts on relay.** As a *prohibition* an expired scope boundary is harmless, forbidding an action nobody can take. As an *open item* delivered downstream it is actively dangerous, because **a "fix this absence" instruction handed to an agent whose job is filling absences can produce the defect it was written to prevent.**
+
+Three tells identify the class before it bites.
+
+- A flag phrased as a scope boundary ("do NOT fix X") is a latent existence claim.
+- A flag whose recorded date precedes any refactor commit touching its named files is suspect by construction.
+- A runner's politely-framed disagreement ("returns zero, before and after my edit") is a finding, not noise.
+
+Preflight figures save real work and should keep being handed down. One standing clause is what makes handing them down safe, and every spawn prompt carrying a preflight figure MUST carry it verbatim:
+
+> **"if a live measurement disagrees, the live measurement wins — report the disagreement."**
+
+The clause earns its place only when runners actually exercise it. Recovering the case above depended on a runner doing exactly that.
+
+#### 1.4.J The refresh you produce is itself a derived artifact — dry-run its own claims before dispatch
+
+> [!constraint] A successor map feels like ground truth because it was just measured
+> A refresh exists to protect downstream agents from stale claims. It is produced by the same inference shortcuts it exists to protect against, and every downstream agent consumes it as authoritative. **A wrong entry is worse than a stale task file, because the task file announces its age while the map announces freshness.**
+>
+> Four entries in one ten-file refresh were wrong. Each came from treating a cheap proxy as the fact:
+>
+> | Asserted in the refresh | Live reality | The proxy that produced the error |
+> |---|---|---|
+> | pointer "ends near §1.15" | reads `§1.1–§1.18` | read the **shipped cache** copy, not the dev tree |
+> | "both files carry section X" | one hosts it; the other merely *mentions* it | counted `grep` hits without checking for a **heading** |
+> | "the subcommand count is no longer N" | still N — a retirement changed a row's **disposition** | inferred a count change from a file deletion |
+> | "symbol moved out of `<module>`" | still **defined** there; others **import** it | read a `grep -l` filename list as evidence of relocation |
+>
+> Distinguish all four explicitly, in their generic form:
+>
+> - definition vs **import** — `Grep` the symbol with `output_mode='content'`, never a `files_with_matches` filename list
+> - heading vs **mention** — `Grep` for `^#+.*X`, not for a bare `X`
+> - existence vs **disposition** — a row can survive with new behaviour
+> - dev tree vs **shipped cache** — they diverge, so name which one you read
+
+The dispatching side carries two obligations.
+
+- **Tell the runners the map is fallible, and require corrections as an explicit status-block field** rather than an afterthought. All four errors above were caught only because that field existed. It is what makes shipping an unverified map safe.
+- **Verify each correction yourself before propagating it.** A runner's correction is also a derived claim. Two of these were confirmed only after an independent heading dump and a definition-vs-import check.
+
+One authoring rule follows. Prefer stating the *generic condition* over a specific number wherever the runner will re-derive anyway. An unnecessary figure in a brief is a liability with no upside.
+
 ---
 
 *Anchor: [session-execution-protocol.md](session-execution-protocol.md) — §2-§7 operational session rules (Reference Documents, Settings Modification Protocol, Session Rules, Discovery/Meta-Plan Status Gates, Task Tracking, Refactoring Safety, Git Workflow).*
