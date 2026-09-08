@@ -1,5 +1,5 @@
 ---
-description: Sessions delivering IPC/protocol/codec layers MUST include round-trip evidence before COMPLETE; Sprint exit-gate verdicts reflect the gate-defining step's status, not a step-count percentage; build-clean ≠ computation-correct, build-fresh ≠ deploy-fresh, and runtime-correct-on-one-target ≠ all-targets for in-process numeric/codec and multi-target code; §10 turns the discipline on the instrument itself — a gate must be able to fail, must not fail correct work, must see the shape it counts, and must be pointed at the live subject as well as at fixtures; §11 sorts gates into change-detecting and state-detecting shapes — a battery of only diff-shaped gates proves the change was clean and says nothing about the artifact's condition, so every plan names at least one state-detecting gate
+description: Sessions delivering IPC/protocol/codec layers MUST include round-trip evidence before COMPLETE; Sprint exit-gate verdicts reflect the gate-defining step's status, not a step-count percentage; build-clean ≠ computation-correct, build-fresh ≠ deploy-fresh, and runtime-correct-on-one-target ≠ all-targets for in-process numeric/codec and multi-target code; §10 turns the discipline on the instrument itself — a gate must be able to fail, must not fail correct work, must see the shape it counts, and must be pointed at the live subject as well as at fixtures; §11 sorts gates into change-detecting and state-detecting shapes — a battery of only diff-shaped gates proves the change was clean and says nothing about the artifact's condition, so every plan names at least one state-detecting gate; §12 points at the reachability gate (verify-caller-before-complete.md) — a definition is not a caller
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -21,6 +21,7 @@ paths: {planwise_root}/{plans_dir}/**
 - [9. Empirical Verification Discipline → measurement-discipline.md](measurement-discipline.md) — relocated; the number stays reserved so citations to it keep resolving
 - [10. The Instrument's Four Proof Obligations](#10-the-instruments-four-proof-obligations)
 - [11. Change-Detecting vs State-Detecting Gates](#11-change-detecting-vs-state-detecting-gates)
+- [12. Reachability Gates → verify-caller-before-complete.md](verify-caller-before-complete.md) — a definition is not a caller; the section below is a pointer so `§12` citations resolve
 
 ---
 
@@ -570,6 +571,12 @@ The durable fix is not a sharper reviewer. It is making the set **enumerable rat
 
 > [!constraint] Dry-run an equality gate in BOTH directions before trusting it
 > Run it against a state where the defect is genuinely present — an earlier revision is the cheapest source — and show it **FAIL**. Then run it against a correct state and show it **PASS**. The FAIL proves it discriminates; the PASS proves it does not fail correct work, which §11.1 shows is the specific way this gate class goes wrong. A gate never shown to fail is not evidence, and a gate never shown to pass on correct input is a retry loop waiting to happen.
+
+---
+
+## 12. Reachability Gates — a Definition Is Not a Caller
+
+Every gate in §1–§11 measures **presence**; none measures whether production ever reaches the thing. The reachability gate — assert a **caller** that supplies the activating argument, not a definition; quote a production call site per behaviour-adding deliverable in the closing-sweep ledger; classify a runner's "dormant until a follow-up wires it" return as PARTIAL, never COMPLETE — lives in its own reference: [verify-caller-before-complete.md](verify-caller-before-complete.md). This section reserves the number so `§12` citations resolve; the body is not restated here.
 
 ---
 

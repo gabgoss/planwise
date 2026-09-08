@@ -106,6 +106,9 @@ sprint's write-set can be checked against it, independent of landing order.
 | 2 | {Deliverable 2} | create | {What will be produced} |
 | 3 | {Deliverable 3} | verified-absent | {What is deliberately NOT taken, and the check that proves it absent} |
 
+> [!constraint] A row that lands new behaviour names its production caller
+> For a `create` (or `edit`) row that adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch, `Description` also states where production invokes it — the call site that supplies the activating argument, the parser registration, the subscription. At signoff that row anchors on a call-site search over production paths, never on the definition; a definition no production caller reaches is not a landed deliverable, and a runner's "dormant until a follow-up wires it" is PARTIAL, not COMPLETE. See `references/verify-caller-before-complete.md`.
+
 **Total: {N} deliverables** — count the rows above.
 
 Every other artifact cites "every row of this table" rather than repeating {N}. That

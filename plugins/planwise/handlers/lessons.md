@@ -430,7 +430,7 @@ If skipped, discard the draft. No file is written.
 
 ## Lesson Status Lifecycle
 
-Lessons graduate through a branching set of five statuses:
+Lessons graduate through a branching set of five statuses. The value list is declared once, as `lesson_statuses:` in `config.yaml` beside the backlog `statuses:` (declarative — the workflows below match the literals as written; the template's comment records the decision):
 
 ```
                   ┌─ single-lesson promote / already-landed ──────────────────────┐

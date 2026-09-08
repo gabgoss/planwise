@@ -10,6 +10,8 @@ rather than re-deriving it.
 """
 
 import datetime
+import hashlib
+import json
 import re
 from pathlib import Path  # noqa: F401 -- used by the nested _check() helper below
 
@@ -67,6 +69,56 @@ FORMERLY_MIRRORED_AGENTS = [
     "task-runner.md",
     "rule-comparator.md",
 ]
+
+# Shipped manifest of every body each formerly-mirrored agent has EVER shipped
+# with, as sha256 digests of the normalized text. The divergence classifier
+# assumes shipped files only ever grow — "installed ⊆ shipped means stale" —
+# and a release that relocates content OUT of an agent (a check-body fold, a
+# split) inverts that: every pre-existing mirror becomes a SUPERSET of shipped,
+# which is exactly the signature of a user customization, so the sweep returns
+# PRESERVE/unique for provably stale shipped content and the orphan is never
+# cleanable. The discriminator that resolves it — "does this installed body
+# match any version we ever shipped?" — needs history a consumer install does
+# not carry, so the history ships as data. Regenerate with
+# tools/gen_agent_history.py (dev repo only) whenever a listed agent changes;
+# tests/test_agent_history.py fails until the current body is listed.
+AGENT_HISTORY_MANIFEST = Path("manifests") / "agent-history.json"
+
+
+def _history_normalize(text: str) -> str:
+    """The one normalization the history digests use: CRLF → LF. A mirror
+    copied on Windows may carry CRLF where the shipped body carries LF; nothing
+    else (whitespace, BOM handling beyond utf-8-sig on read) is folded, so a
+    match stays byte-exact in every respect that could carry a customization."""
+    return text.replace("\r\n", "\n")
+
+
+def history_digest(text: str) -> str:
+    """sha256 hex of the normalized body — the key both the manifest generator
+    and the sweep compute, so the two can never disagree on normalization."""
+    return hashlib.sha256(_history_normalize(text).encode("utf-8")).hexdigest()
+
+
+def load_agent_history(plugin_root: Path) -> dict[str, set[str]]:
+    """Return {agent filename: {digest of every body ever shipped}}.
+
+    An absent, unreadable or malformed manifest returns {} — the sweep then
+    degrades to its pre-manifest verdicts (a superset stays PRESERVE), never a
+    confident REMOVABLE on incomplete evidence.
+    """
+    path = plugin_root / AGENT_HISTORY_MANIFEST
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    agents = doc.get("agents") if isinstance(doc, dict) else None
+    if not isinstance(agents, dict):
+        return {}
+    history: dict[str, set[str]] = {}
+    for filename, digests in agents.items():
+        if isinstance(digests, list):
+            history[filename] = {d for d in digests if isinstance(d, str)}
+    return history
 
 
 def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
@@ -342,21 +394,30 @@ def sweep_orphaned_agent_mirrors(cfg: "InitConfig") -> list[dict]:
        [, unique_blocks]}
 
     REMOVABLE requires EITHER a byte-identical installed/shipped pair (fast
-    path — the primitive is never consulted) OR a high-confidence subset
-    verdict from `_classify_diverged()` that clears `_destructively_removable`
+    path — the primitive is never consulted), OR a body whose normalized
+    digest matches a PREVIOUSLY shipped body of the same agent in the
+    shipped agent-history manifest (confidence "historical-exact" — also a
+    fast path; this is what makes a stale copy classifiable after a release
+    that shrank the agent), OR a high-confidence subset verdict from
+    `_classify_diverged()` that clears `_destructively_removable`
     (is_subset AND is_safe_to_remove AND an empty verdict.notes field) —
     non-empty notes means the matcher tolerated installed-only content it
     could not prove was noise, which flips the disposition to PRESERVE
     rather than risk deleting a genuine short customization. A missing
     shipped reference, an unreadable installed/shipped file, and a degraded
     (structural_compare unavailable) verdict all PRESERVE — never a
-    confident recommendation on incomplete evidence.
+    confident recommendation on incomplete evidence. When the shipped body
+    is smaller than the installed one and no historical body matched, the
+    PRESERVE reason says so, because "shipped shrank" is the one shape that
+    makes stale content look like a customization.
     """
     agents_dir = cfg.project_root / ".claude" / "agents"
     agents_src_dir = cfg.plugin_root / "agents"
     findings: list[dict] = []
     if not agents_dir.exists():
         return findings
+
+    history = load_agent_history(cfg.plugin_root)
 
     for filename in FORMERLY_MIRRORED_AGENTS:
         dst = agents_dir / filename
@@ -400,11 +461,39 @@ def sweep_orphaned_agent_mirrors(cfg: "InitConfig") -> list[dict]:
                                        "mirror"})
             continue
 
+        # Historical-exact fast path: the body is not the CURRENT shipped one,
+        # but it is byte-exact (modulo CRLF) to a body this agent shipped with
+        # before. A user could not have produced that by editing, so it is
+        # stale shipped content — removable regardless of whether the current
+        # shipped body grew or shrank since.
+        if history_digest(installed_raw) in history.get(filename, ()):
+            findings.append({**base, "verdict": "REMOVABLE",
+                             "confidence": "historical-exact",
+                             "reason": "byte-exact copy of a previously shipped body of "
+                                       "this agent — stale shipped content, not a "
+                                       "customization"})
+            continue
+
         v = _classify_diverged(installed_raw, shipped_raw)
         # `v.notes` (set by classify_blocks) flags sub-noise-floor installed-only
         # content tolerated during matching — surface it in the reason whenever
         # present so a human sees the caveat before acting on the verdict.
         notes_suffix = f" ({v.notes})" if getattr(v, "notes", "") else ""
+        # The shrink case: a content-relocating release makes every stale
+        # mirror a superset of shipped, which reads as a customization. Say so
+        # in the reason so a consumer can tell "PRESERVE because you edited it"
+        # from "PRESERVE because the classifier cannot see past a refactor".
+        shipped_lines = shipped_raw.count("\n") + (0 if shipped_raw.endswith("\n") else 1)
+        shrink_suffix = ""
+        if shipped_lines < line_count:
+            shrink_suffix = (f"; shipped body is smaller than the installed copy "
+                             f"({shipped_lines} vs {line_count} lines) — a "
+                             f"content-relocating refactor makes a stale copy look "
+                             f"customized, and ")
+            shrink_suffix += ("no previously shipped body matched"
+                              if filename in history else
+                              "the shipped agent-history manifest is unavailable, so a "
+                              "stale older copy cannot be ruled out")
         if _destructively_removable(v):
             findings.append({**base, "verdict": "REMOVABLE", "confidence": v.confidence,
                              "reason": "stale/reorganized subset of the shipped agent"})
@@ -423,7 +512,8 @@ def sweep_orphaned_agent_mirrors(cfg: "InitConfig") -> list[dict]:
             findings.append({**base, "verdict": "PRESERVE", "confidence": v.confidence,
                              "unique_blocks": v.unique_blocks,
                              "reason": "genuine customization (unique content) — keep or "
-                                       "upstream, do NOT delete" + notes_suffix})
+                                       "upstream, do NOT delete" + notes_suffix
+                                       + shrink_suffix})
     return findings
 
 

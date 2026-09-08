@@ -22,29 +22,70 @@ except ImportError:
     HAS_YAML = False
 
 
-def find_config_upward(start_path: Path) -> Path | None:
-    """Walk upward from start_path to find config.yaml.
+# Every planwise config.yaml opens with a top-level `project:` mapping (the
+# first block config.yaml.template renders). It is the discriminator the
+# upward walk uses to tell this project's config from an unrelated file that
+# merely shares the name.
+_PLANWISE_CONFIG_MARKER = re.compile(r"^project:[ \t]*(#.*)?$", re.MULTILINE)
+
+
+def _is_planwise_config(candidate: Path) -> bool:
+    """True when `candidate` is a planwise config.yaml, not a foreign one.
+
+    find_config_upward() reads directories this project does not own — every
+    ancestor of the invocation directory, and each ancestor's immediate
+    children. Any `config.yaml` an unrelated tool left in that chain would
+    otherwise be resolved and read as this project's, which then reports
+    another project's plans with no warning. A file without the marker is
+    skipped and the walk continues, so the outcome of "no planwise config
+    here" is load_config()'s fail-loud error, never a plausible wrong answer.
+    An unreadable candidate is treated as foreign for the same reason.
+    """
+    try:
+        text = candidate.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return _PLANWISE_CONFIG_MARKER.search(text) is not None
+
+
+def find_config_upward(start_path: Path, stop_at: Path | None = None) -> Path | None:
+    """Walk upward from start_path to find this project's config.yaml.
 
     At each directory level, checks:
     1. Direct: {dir}/config.yaml
     2. One level down: {dir}/*/config.yaml (finds planwise/config.yaml)
 
+    A candidate is accepted only when _is_planwise_config() recognises it —
+    the walk crosses directories this project does not own, and a foreign
+    `config.yaml` there must never be read as this project's. `stop_at`
+    bounds the walk (inclusive) so a caller that knows its tree — a test, a
+    tool with a known project root — never leaves it; production callers
+    leave it None and walk to the filesystem root.
+
     Returns the Path to config.yaml if found, or None if not found.
     """
     current = start_path.resolve()
-    while current != current.parent:
+    stop = stop_at.resolve() if stop_at is not None else None
+    while True:
         # Direct check
         candidate = current / "config.yaml"
-        if candidate.exists():
+        if candidate.is_file() and _is_planwise_config(candidate):
             return candidate
         # One level down (e.g., planwise/config.yaml)
-        for subdir in current.iterdir():
-            if subdir.is_dir() and not subdir.name.startswith("."):
-                candidate = subdir / "config.yaml"
-                if candidate.exists():
-                    return candidate
+        try:
+            children = sorted(
+                p for p in current.iterdir()
+                if p.is_dir() and not p.name.startswith(".")
+            )
+        except OSError:
+            children = []
+        for subdir in children:
+            candidate = subdir / "config.yaml"
+            if candidate.is_file() and _is_planwise_config(candidate):
+                return candidate
+        if current == stop or current == current.parent:
+            return None
         current = current.parent
-    return None
 
 
 class ConfigWriteError(RuntimeError):

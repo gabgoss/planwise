@@ -231,14 +231,22 @@ A Coordination Flag Row is either **informational** — safe to deliver as conte
 
 #### Propagating the Flag (At Closeout)
 
-At Phase 4 closeout, the orchestrator MUST add each flag to the downstream consumer's task file (preferred) or orchestration file. The destination depends on who the consumer is:
+A flag reaches an executing task in **two hops**, and each hop has exactly one owner. At Phase 4 closeout the closing orchestrator (the **sender**) MUST deliver each flag to the downstream consumer's **front door** — an orchestration file, a sprint plan, or a Master Plan — and never into another session's task files. The downstream session's orchestrator (the **receiver**) routes each flag the last hop into its own task files at its Phase-1 Flag-Reconciliation Preflight ([handlers/run.md](../handlers/run.md) Step 1.1a): it is the single writer of its own decomposition, it already reads every task file, and it re-derives every value the flag supplies before acting on it. The destination depends on who the consumer is:
 
 | Downstream Consumer | Propagate To |
 |---------------------|--------------|
-| A specific named task in a later session | That task's file under a `## Pre-Known Cross-Task Coordination Flags` section |
+| A specific named task in a later session that is already scaffolded on disk | That session's orchestration file under a `## Pre-Known Cross-Task Coordination Flags` section, naming the consuming task — the receiver routes it into that task's file at Step 1.1a |
 | A whole session (consumer task unclear) | That session's orchestration file under a `## Pre-Known Cross-Task Coordination Flags` section |
-| A future sprint (consumer task not yet authored) | The sprint plan's `## Carried-Forward Coordination Flags` section, to be re-propagated when tasks are scaffolded |
+| A future sprint (downstream session not yet scaffolded on disk) | The sprint plan's `## Carried-Forward Coordination Flags` section, to be re-propagated when tasks are scaffolded |
 | A follow-up plan not yet written | The current Master Plan's `## Carried-Forward Coordination Flags` section + the rollup/handoff task file |
+
+> [!constraint] The sender delivers to the front door; the receiver routes the last hop and stamps it
+> WRONG — the closing session writes the flag straight into a downstream task file. That bypasses the receiving orchestrator's dispatch-time validation entirely: nothing re-derives the flag's counts, scope forecast or supplied gate when the gap finally clears (in one measured case every authoring-time consumer had already completed and the corpus figures had turned over before the flag reached a runner), and a concurrent session editing the same task files is raced.
+> CORRECT — the sender writes the entry at the front door, tagged as below. At its Step 1.1a the receiver routes it into the task file(s) and stamps the entry in place, so the delivery is auditable from either end:
+> ```
+> ✅ ROUTED {YYYY-MM-DD} into {task file} § Pre-Known Cross-Task Coordination Flags
+> ```
+> An entry with no stamp after the receiving session's Phase 1 is an unrouted flag, and the receiver's Recovery routing table (Step 1.1a) is where the miss is recorded.
 
 Each propagated entry MUST be tagged with the source session ID and the surface date so the downstream agent recognizes it as orchestrator-validated context (do NOT re-derive) and can age it for staleness.
 

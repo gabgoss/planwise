@@ -80,6 +80,7 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
     "categorization",
     "upgrade",          # HAS_UNIQUE handoff routing + de-scope paths-only-edit policy
     "feedback",         # opt-in upstream issue-create block
+    "lesson_statuses",  # declarative lesson lifecycle vocabulary, paired with `statuses:`
 ]
 
 

@@ -20,6 +20,10 @@
 > [!gate] Config Malformed → FAIL LOUD
 > If `config.yaml` is present but malformed, DO NOT auto-init. FAIL LOUD: "config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise list." STOP.
 
+> [!constraint] Resolution is exactly a) and b) from the invocation directory — never inferred from a path string
+> WRONG — neither a) nor b) finds a `config.yaml`, so the handler decodes another project's location out of a directory *name* (a temp directory that embeds the project path, an ancestor, a sibling checkout), reads that project's `config.yaml`, and lists its plans as if they were this one's. The output is a plausible table for the wrong project, with no warning.
+> CORRECT — a) and b) both miss → step 3 exactly: announce, auto-init, re-resolve, fail loud. A `config.yaml` that lives anywhere other than a) or b) belongs to a different project and is never read. (`config_loader.py`'s script-side resolver applies the same rule: it accepts only a file carrying a top-level `project:` block and otherwise fails loud.)
+
 All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 ---

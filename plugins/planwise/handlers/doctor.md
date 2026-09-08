@@ -291,11 +291,11 @@ planwise doctor — orphaned agent mirror sweep
 Orphaned agent mirrors still installed under .claude/agents/:
   ~ {filename}.md   REMOVABLE
       size:    {N} lines (~{X} tokens)
-      reason:  {untouched shipped agent, orphaned by the dropped mirror | stale/reorganized subset of the shipped agent}
+      reason:  {untouched shipped agent, orphaned by the dropped mirror | byte-exact copy of a previously shipped body of this agent — stale shipped content, not a customization | stale/reorganized subset of the shipped agent}
       action:  remove with /planwise doctor --prune-stale
   ! {filename}.md   PRESERVE
       size:    {N} lines (~{X} tokens)
-      reason:  {genuine customization (unique content) | matcher tolerated installed-only content | shipped reference unavailable/unreadable | installed file unreadable — cannot classify}
+      reason:  {genuine customization (unique content) [; shipped body is smaller than the installed copy — a content-relocating refactor makes a stale copy look customized, and no previously shipped body matched | the shipped agent-history manifest is unavailable] | matcher tolerated installed-only content | shipped reference unavailable/unreadable | installed file unreadable — cannot classify}
       action:  keep in place — customization detected, do NOT delete
 
 Total REMOVABLE orphaned agent mirror(s): {N} of {M} found.

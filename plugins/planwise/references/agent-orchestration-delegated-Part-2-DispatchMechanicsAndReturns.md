@@ -137,6 +137,10 @@ Issue: DELEGATED session synthesizes sub-agent verdicts but lacks recompute-from
 Fix: Add recompute gate per references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.16 | Confidence: MEDIUM
 ```
 
+### 1.16.3 A runner's "dormant until a follow-up wires it" note is a BLOCKING classification
+
+A third recompute, in the same spirit as §1.16.1: read the runner's evidence for a **production call site**, not its status label. A deliverable that adds a function, an optional parameter, a CLI flag, a config key or a guarded branch is terminal only when the runner quotes where production invokes it with the activating argument. A return that says the behaviour is complete but *"dormant until a follow-up task passes the argument / registers the flag"* is recomputed to **PARTIAL or BLOCKED — never COMPLETE** — and the wiring is routed inside the session, because the site and the value it needs are usually already in scope and the fix is one to four lines. Once the session closes, a deferred activation is indistinguishable from a dropped one: the handoff has no owner and no gate. The gate, its call-site search and the closing-sweep ledger requirement: [verify-caller-before-complete.md](verify-caller-before-complete.md).
+
 ## 1.17 Task-Runner Dispatch Failure Modes and Resume Protocol
 
 A dispatched task-runner has four post-return states — three failure modes and one real completion. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by the final-message voice and the working-tree state; and when the return *reads* as complete, gate acceptance on **on-disk deliverable evidence** before believing it — a stall can masquerade as completion (§1.17.4). For every failure state the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner. A fresh runner re-reads everything and can race or duplicate the first one's partial work.

@@ -73,6 +73,9 @@ For each exit criterion, document the mechanical anchor (grep / SQL / file prese
 >
 > Never harden a set-membership claim into an equality of counts — a correct superset then fails a gate whose actual claim it satisfied. See `references/verification-task-authoring.md` §10.7.
 
+> [!constraint] New behaviour anchors on a production caller, never on a definition
+> For a criterion that lands a new function, optional parameter, CLI flag, config key, event subscription or guarded branch, the Mechanical Anchor is a call-site search over production paths that names the activating argument or the registration, and the Result cell quotes the site as `{file}:{line}`. A definition search, a unit test that supplies the argument itself, and documentation of the flag all measure presence and stay green on code production never reaches; a criterion whose only anchor is one of those is not PASS. See `references/verify-caller-before-complete.md`.
+
 Before recording any Result, check each anchor's command against the four traps in `references/verification-task-authoring.md` §10.8: `grep -c` counts matching **lines** rather than matches, `-B1`/`-A1` emit the match line itself, a set-membership claim must not become a count equality, and every path MUST resolve from the cwd this table's own header declares.
 
 | # | Exit Criterion (verbatim) | Mechanical Anchor | Pre-Change | Branches | Result |

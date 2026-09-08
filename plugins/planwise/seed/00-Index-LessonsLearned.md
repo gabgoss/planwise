@@ -23,6 +23,8 @@
 
 ## Status Definitions
 
+The value list is declared in `config.yaml` as `lesson_statuses:` (beside the backlog `statuses:`); this table defines what each value means.
+
 | Status | Meaning |
 |--------|---------|
 | `documented` | Captured; not yet owned by any backlog item. |

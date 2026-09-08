@@ -586,7 +586,7 @@ Ask the user: "Were any lessons learned during this session?"
 
    | Downstream Consumer | Propagate To |
    |---------------------|--------------|
-   | A specific named task in a later session | That task's file under `## Pre-Known Cross-Task Coordination Flags` |
+   | A specific named task in a later session, already scaffolded | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags`, naming the task — the receiver routes it into the task file at Step 1.1a |
    | A whole session (consumer task unclear) | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` |
    | A future sprint, downstream sessions NOT yet scaffolded on disk | That sprint plan's `## Carried-Forward Coordination Flags` section |
    | A future sprint whose downstream session is ALREADY scaffolded on disk | That session's orchestration file under `## Pre-Known Cross-Task Coordination Flags` (the sprint-plan `Carried-Forward` entry remains as the record) |
@@ -597,7 +597,7 @@ Ask the user: "Were any lessons learned during this session?"
 
 3. Use the Propagated Flag Block format from §1.3 — group flags under `### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}` and reserve a `### From {next-source-session-id} — to be appended when session completes` placeholder so later closeouts know where to append.
 4. If the destination file does not yet have a `## Pre-Known Cross-Task Coordination Flags` (or `## Carried-Forward Coordination Flags`) section, create it; if it does, append under it.
-5. Update the orchestration file at the destination (if propagating to a task file) with a one-line pointer to the new section, so the destination orchestrator surfaces the flags to its dispatcher.
+5. Name the consuming task in the entry whenever it is known, so the receiving orchestrator routes it at Step 1.1a without re-deriving the consumer; it stamps the entry `✅ ROUTED {date} into {task file}` once routed (§1.3).
 6. Update the Summary file's `Cross-Task Coordination Flags` block (in Context Notes) to fill the `Propagated To` column with the destination path for every flag.
 7. Verify: every Recovery flag row now has a non-empty `Propagated To` entry in the Summary. A flag with no destination is a closeout error — return to step 2 and route it.
 

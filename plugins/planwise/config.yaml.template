@@ -170,5 +170,24 @@ statuses:
   - COMPLETE
   - CLOSED
 
+# Two status vocabularies live side by side here: `statuses:` above is the
+# backlog item lifecycle (parse_backlog.py / update_backlog.py validate
+# against it); `lesson_statuses:` below is the lesson lifecycle.
+#
+# `lesson_statuses` is DECLARATIVE. This list is the single place the lesson
+# vocabulary is stated as data; the seed's 00-Index-LessonsLearned.md Status
+# Definitions table defines what each value MEANS and defers to this list for
+# the values. The lessons workflows (capture, curate, promote-batch) and
+# scripts/flip_lesson_status.py match these literals as written — they do not
+# read this key at run time — so editing it documents an intent rather than
+# renaming a status. The plugin's test suite pins the three surfaces (this
+# list, the seed table, flip_lesson_status.VALID) to each other.
+lesson_statuses:
+  - documented
+  - promoted
+  - applied
+  - rule
+  - orphaned
+
 build_commands:
   default: "echo 'Configure build_commands in config.yaml'"

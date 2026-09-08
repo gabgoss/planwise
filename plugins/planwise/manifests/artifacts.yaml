@@ -125,6 +125,28 @@ artifacts:
       Handlers default to plan_tier=pro / context_window=200000 when the
       block is absent, so init does not block on this — but `--migrate`
       MUST add the block to existing configs so the values are explicit.
+      Upgrade-time writers of this block, audited against the scripts:
+      THREE, of different kinds. (1) migrate_config() — purely additive:
+      adds the block when absent and merges missing sub-keys
+      (MIGRATABLE_CONTEXT_SUBKEYS) into an existing block, never
+      overwriting a present value; this is the writer `migrate_only`
+      names, and it owns the block's STRUCTURE. (2) The Token Saver
+      opt-in flip (`_flip_token_saver_on()`, run by `--upgrade
+      --token-saver` when the user accepts handlers/upgrade.md Step 1.5)
+      — rewrites the single `token_saver` sub-key from false to true.
+      (3) calibrate() in scripts/context_calibration.py — a measured-value
+      REWRITE of its six calibrate-written `token_saver_*` sub-keys in
+      place, run by handlers/upgrade.md Step 2.5 ONLY when
+      `context.token_saver` resolves true after Step 1.5; skipped
+      silently when off, and the template default is false. Writers (2)
+      and (3) touch measured or opt-in VALUES under the block, never its
+      structure, and both are conditional on the user's opt-in, so
+      `migrate_only` stays the honest structural disposition: no enum
+      value describes a conditional value rewrite, the calibrate-refreshed
+      rows below already record the same value-ownership pattern
+      (`preserve` + a notes: line naming calibrate()), and a new enum
+      value would move this fact out of the row that documents it. Keep
+      this note current when a fourth writer lands.
 
   - id: token_saver_injection_ceiling_key
     on_disk: "{planwise_root}/config.yaml (key: context.token_saver_injection_ceiling)"
@@ -447,7 +469,12 @@ artifacts:
       explicitly (automated transfer-then-adopt via the upgrade-transfers/
       preservation dir), while the absent-key fallback stays the conservative
       report (preserve + sidecar, no transfer); `--migrate` adds the block to
-      existing configs.
+      existing configs. Upgrade-time writers, audited against the scripts:
+      ONE — migrate_config() (additive, adds the block when absent). The
+      three keys are read by artifact_upgrade.py, rule_descope_migration.py
+      and upgrade_io.py and are never rewritten by the upgrade commit
+      point, the artifact-refresh loop, the Token Saver flip or
+      calibrate(), so `migrate_only` is exact for this row.
 
   - id: customization_report
     on_disk: "{planwise_root}/upgrade-conflicts/{from}-to-{to}/ (INDEX.md + .new sidecars + verdicts.json)"
