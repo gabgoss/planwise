@@ -62,6 +62,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 **Conditional references:**
 - Loaded at Phase 3, step 3a (pivot check), for High-priority / top-scored / aged items or multi-item cohorts: Read `references/backlog-triage-pivot-detection.md`
+- Loaded at Phase 3 beside the existence-premise probe and the already-satisfied check, for any item whose Proposed Solution adds a mechanism to a failing system or names a cause from one observed instance: Read `references/verify-cause-before-remedy.md` — count the population before diagnosing, read both writers, and check whether the failure was measured with the proposed remedy already in force
 - If a task creates or modifies agents: Read `references/agent-authoring.md`
 - If a task creates or modifies skills: Read `references/skill-authoring.md`
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
