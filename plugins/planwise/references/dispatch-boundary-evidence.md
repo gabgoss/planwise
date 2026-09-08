@@ -18,6 +18,7 @@ Three neighbouring rules own machinery this file builds on. [`agent-orchestratio
 - [2. A Flag's Named Consumer Is a Hypothesis — Resolve It Against the Partition Key](#2-a-flags-named-consumer-is-a-hypothesis--resolve-it-against-the-partition-key)
 - [3. Diff Attribution Is the Orchestrator's Job, Not the Runner's](#3-diff-attribution-is-the-orchestrators-job-not-the-runners)
 - [4. A Silent Resume Means the Reply Exists and Did Not Route](#4-a-silent-resume-means-the-reply-exists-and-did-not-route)
+- [5. A Flag the Sender Says It Delivered Is a Claim; Only the Destination File Is Evidence](#5-a-flag-the-sender-says-it-delivered-is-a-claim-only-the-destination-file-is-evidence)
 
 ---
 
@@ -168,6 +169,44 @@ A whole-line match on the same file returns `[Omitted long matching line]` and y
 > §3 is about a status block that **arrived and said something its window could not support**. §4 is about a status block that **never arrived at all**. The correctives run in opposite directions — §3 discounts the report and re-derives from the artifact, §4 goes and fetches the report. A merged section collapses into "don't trust status blocks", which is true of neither.
 
 Sustained silence with **no** idle signal at all is a different question again. [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.30 answers that one: establish death before dispatching a replacement.
+
+---
+
+## 5. A Flag the Sender Says It Delivered Is a Claim; Only the Destination File Is Evidence
+
+**Run this check before §2's.** Both act at the same preflight moment — routing an inherited artifact into task files. There is nothing to adjudicate about a flag that is not there.
+
+> [!constraint] Diff the sender's manifest against the destination, and match on subject
+> WRONG — read the front door and assume it is complete:
+> ```
+> Read orchestration's `## Pre-Known Cross-Task Coordination Flags`
+> → 30 flags present → route all 30 → dispatch
+> # A flag the sprint plan says was delivered here, but was not, is never noticed.
+> ```
+>
+> CORRECT — diff the sender's manifest against the destination:
+> ```
+> Read the sprint plan's Carried-Forward table; select rows whose Consuming Session is THIS one
+> For each: confirm a row with that flag's SUBJECT (not merely its id) exists at the front door
+> Zero hits → recover it from the sprint plan, route it, and record the gap
+> ```
+
+**Three sub-rules, each with its reason.** A bare instruction to "check arrivals" loses what makes every one of them non-obvious.
+
+- **Match on subject, never on id alone.** Flag ids are assigned per-sender and collide freely across senders. Two upstream sessions both numbering a flag `G-06` is normal, not a bug. An id match is therefore not an arrival check. Search the destination for the flag's distinguishing content — a claim id, an anchor, a file name.
+- **When you recover a flag whose id is already taken at the destination, renumber it rather than overwrite** (`G-06b`), and state in the routed text that the id was reused upstream. Silently replacing the occupant destroys a live flag in order to deliver another.
+- **Record the propagation gap as a finding, not a fix.** The sender's record stays wrong until someone corrects it. A receiver who quietly patches the hole leaves the next session inheriting the same false assurance.
+
+**Why this lands on the receiver, and can land nowhere else.** The sender cannot verify its own delivery. It writes the `Delivered To` cell in the same pass that performs — or fails to perform — the write, so the claim and the act come from one intent. An intermediate session reading the sender's column propagates the claim without testing it. That is how a false assurance gains a second, more credible-looking source: the second record comes from a different party and is therefore read as independent corroboration, while in fact it is a copy. **The destination file is only ever readable from the destination.** Without this, the section reads as optional diligence that a careful sender could make unnecessary, and a reader will reasonably conclude the sender should simply be more careful.
+
+**The measured incident, and how the flag was recovered.** A sprint plan's Carried-Forward table recorded a flag whose `Delivered To` column named the downstream session's orchestration file. An intermediate session's preflight then recorded, in its own Recovery file, that the flag was "a no-op for this session — it belongs to that session and was already delivered there." Both records were half right. The flag genuinely belonged to the downstream session, and it had never been written into that session's orchestration file. Two mechanisms kept the absence invisible and they compound: **the id was occupied** — the receiving orchestration already carried a row with that number from an unrelated flag by the same upstream session, so a reader scanning for the id finds it and stops — and **two independent records asserted delivery, neither of which was the destination file.** It was recovered only because the receiving orchestrator searched the *destination folder* for the flag's subject matter rather than for its id, and got zero hits across the entire session directory. Had it stayed lost, both claims the flag governs were in that session's pull, and their protocols would have been authored against a field that disagreed with the ledger.
+
+**This is not planwise-specific.** The shape appears in any hand-off protocol where a producer records what it delivered and a consumer reads a separate front-door location: cross-session and cross-sprint carried-forward sections, ticket hand-offs with a "notified" field, migration checklists with a "propagated" column. The risk is highest when flag ids are sender-scoped, so collisions are expected, and when an intermediate party restates the sender's claim.
+
+> [!practice] §5 is a distinct section, not part of §2
+> §2's subject is a flag that **arrived and named the wrong consumer**. §5's is a flag that **never arrived**. The correctives run in opposite directions: one re-adjudicates a row that is in front of you, the other goes looking for a row that is not. This is the same arrived-but-wrong versus never-arrived distinction that keeps §3 and §4 apart. Merged, the pair collapses into "check your flags", which is true of neither.
+
+[`../handlers/run.md`](../handlers/run.md) Step 1.1a owns the four-source enumeration and the union-diff against task files. This section is the half that check does not specify: **how to match.** A union-diff run on ids alone returns a false negative exactly when the destination already carries that id, which is the condition the measured incident was in.
 
 ---
 
