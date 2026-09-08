@@ -1,5 +1,5 @@
 ---
-description: Behavior-change surface sweeps — after a change lands, sweep the surfaces that describe and call it: structured manifest/schema fields (not just the prose beside them), the caller that routes a detection to its repair, a newly-reachable branch, and the data-cleanup counterpart — the instruction that regenerates a defect, and the value FORM a migration must take.
+description: Behavior-change surface sweeps — after a change lands, sweep the surfaces that describe and call it: structured manifest/schema fields (not just the prose beside them), the caller that routes a detection to its repair, a newly-reachable branch, the data-cleanup counterpart — the instruction that regenerates a defect, and the value FORM a migration must take — and the claim-truth counterpart: closing an item, retracting a finding, or deleting quoted prose each leave other artifacts asserting the old truth.
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -14,6 +14,8 @@ paths: {planwise_root}/{plans_dir}/**
 A behavior change lands on surfaces beyond the code that implements it. **The tests cover the code. Nothing covers the metadata that *describes* the code, or the document that *invokes* it.** Both can therefore be left asserting the old behavior with the suite fully green — and both are read as authoritative: the metadata by tooling and by the next author, the document by the user following it.
 
 §8.7 asks whether a gate can fail. This section asks a prior question: whether the change was even applied everywhere it is stated. Sub-rules A–C are one sweep, in causal order — C only ever arises as a consequence of acting on B, so they are not separable. Sub-rules D and E are the same discipline turned on **data cleanup** rather than behavior change: where A–C ask which surfaces still *describe* the old behavior, D asks which surface is still *producing* the old data, and E asks whether the new data actually took the shape the destination scheme defines.
+
+Sub-rules F–H turn it on a third subject: **a claim whose truth changed.** Closing an item, retracting a finding, and deleting a quoted sentence each falsify statements recorded elsewhere, and every one of those statements was correct when written — so no reviewer of those files flags anything. They are wrong only relative to a change made elsewhere, later.
 
 > [!constraint] A — Update the field, not just the prose beside it
 > WRONG — the fix updates the human-readable half and leaves the machine-readable half asserting the old behavior. The row now asserts two contradictory things about the same key, and the authoritative half is the false one:
@@ -149,6 +151,76 @@ A behavior change lands on surfaces beyond the code that implements it. **The te
 > Report the form change in the closeout, so the human sees the migration did more than the spec's literal wording. And note what the criteria cannot do for you: acceptance criteria written in terms of **key names** ("the value now sits in the new field") **pass on a nonconformant value form**. They cannot detect this class at all, so the two reads above are the only check there is.
 
 **Applies-to surface (sub-rules D–E).** Any item whose scope is enumerated instances of a superseded form — a frontmatter-key migration, a renamed field, a deprecated API's call sites, a normalisation pass over archived records. The sweep for the instruction is part of executing such an item, not a follow-up to it.
+
+> [!constraint] F — Closing an item is not complete until every artifact that recorded it open says otherwise
+> **Writing a claim down is distributed. Changing its truth is centralized.** A good runner records an open item wherever a reader might need it, which is exactly the behaviour you want. Closing it is one edit, in one file, by whoever owns that file. Nothing in the close touches the recording sites, and nothing errors.
+>
+> Required close sequence:
+>
+> ```
+> 1. BEFORE closing, Grep for the item's distinctive phrasings and list every site.
+>    Do this FIRST — the phrasings are easiest to find while the open text is still in front of you.
+> 2. Apply the substantive fix.
+> 3. Sweep every site to RESOLVED, carrying the evidence (what was checked, against what,
+>    and the outcome) — not merely deleting the sentence.
+> 4. Re-run the Grep across the whole tree and confirm no live assertion survives.
+>    Expect legitimate hits inside negations ("leaves NO open action item") and inside
+>    labelled quotations in bookkeeping files; classify rather than blanket-fail.
+> 5. Decrement any open-item tally the assertion fed, and if it reaches zero, say so explicitly.
+> ```
+>
+> Step 4's classify-don't-blanket-fail clause is load-bearing. **A sweep that fails on its own negations trains readers to ignore it.**
+>
+> **These assertions are instructions to distrust, which is what raises this above tidiness.** One resolved item left three live instructions behind: an Absorption note ending *"a designer working this claim must read this note, not the canonical entry"*, a `### Merged` table row asserting an unverified condition, and a finding ending *"This is the one open action item this task creates."* The edit was routed to the file's owner and verified on disk the same session. All three statements became false, and none changed — so the register now routed a downstream designer **away** from a canonical entry that was in fact complete. That is strictly worse than a stale comment, which merely fails to help.
+>
+> **Keep the finding, change its status.** A cross-file constraint the decomposition could not satisfy is a real and reusable record, and deleting it loses the evidence that the limit exists. Flip OPEN → RESOLVED with the outcome, and state plainly when the premise turned out not to hold.
+>
+> **Verification corollary — an agent's idle notification is not a completion signal.** One sweep dispatch reported idle with the target file byte-identical to its pre-instruction size (186 lines / 16,924 bytes). After a second prompt it measured 186 / 18,046 with the edit present. Two readings survive that evidence — the edit had not been written when the check ran, or it was in flight with the reply dropped — and the orchestrator cannot distinguish them from outside, since both present as "idle notification, deliverable absent from disk". **That indistinguishability is what selects the corrective.** Resuming the SAME agent is correct under both readings: under the first it does the missing work, and under the second a competent runner answers "already applied" rather than double-applying. Dispatching a *fresh* agent is wrong under both, because it re-reads everything and may race or duplicate. So check disk, resume the same agent, verify the landed artifact afterward, and treat a dropped reply as expected rather than exceptional. The general liveness reading of an idle notification is [agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md); what is specific here is that this step is what makes step 3 auditable.
+
+> [!constraint] G — A retraction belongs inline at every citation site, not only at the original claim
+> A pointer of one clause — *"(justification superseded — see notice at §X)"* — is enough. What fails is placing it only where the claim was first made.
+>
+> One Master Plan appended a supersession notice directly under its Empirical Baseline table, retracting three findings. Elsewhere in the same file a Binding Constraints section cited those findings as live. The consuming task was scoped to read *"§Expected Output + §Binding Constraints"* — the retraction is in neither. Not hidden, not far away, just outside the two sections it was told to read. Two other retracted findings were cited by two further constraints, so the same trap was set three times over.
+>
+> **The tempting fix is wrong in the other direction.** When the retraction was routed in by hand, striking the whole constraint would have removed a requirement the new evidence makes *more* necessary:
+>
+> | Half of the constraint | Disposition |
+> |---|---|
+> | **Requirement** — fresh temp dir per case, with teardown | **SURVIVES, and is strengthened.** Nondeterminism makes contamination *worse*: a leftover config file deterministically suppresses the auto-init branch in the next case, converting a flaky branch into a silently-wrong one |
+> | **Justification** — "a deterministic 10-file tree" | **RETRACTED.** 3 observations, 2 wrote the tree, 1 wrote nothing |
+>
+> **A retraction invalidates a premise, not necessarily the rule the premise was used to argue for.**
+>
+> Four further rules:
+>
+> - **When you retract a finding, `Grep` the document for its citations.** The retracting party is the only one who knows the retraction happened, and every downstream citation is a live claim until someone walks them.
+> - **Separate the surviving requirement from the retracted justification explicitly, in a table**, stating each half's disposition. Nothing is then blanket-failed because its stated reason expired, and nothing is preserved silently as if nothing changed.
+> - **A section-scoped Required Context is a blind-spot generator.** When a task is scoped to named sections, check whether anything *outside* those sections modifies what is *inside* them. That check belongs to whoever writes the Required Context, at scaffold time.
+> - **A retracted premise cited by a passing gate makes the gate's green result meaningless while looking identical to a real pass.**
+
+> [!constraint] H — Cite the load-bearing anchor, not the quotable prose
+> ```
+> WRONG — defend a decision with the sentence that reads best:
+> "…and §8.1 calls Read-output line numbers 'decorative, not authoritative'"
+>    ← deleted one sprint later by the row whose whole job was to bound it
+>
+> CORRECT — defend it with the normative clause, and name file + section so a reword is still findable:
+> "…and §8.1's scoped MUST — 'A file's line count for a review finding MUST come
+>  from `Bash` running `wc -l <path>`' — which the bounding row's paired gate asserts unchanged"
+> ```
+>
+> **The two citations are not interchangeable, and the quotable one is the fragile one.** Quotable prose — the memorable closing sentence, the vivid phrase — is disproportionately likely to be the target of a later editing pass, precisely because vivid absolutes are what over-reach and get bounded. Here a sibling sprint **deleted the closing sentence by design** one day later: it was an unscoped absolute reaching past its own rule's scope, and bounding it was the entire point of that row. A closeout verifier grepping the flag's quoted evidence then gets 0 tree-wide — correct behaviour, reading as a vanished anchor. The dry, scoped MUST that reads like boilerplate is the load-bearing anchor and the one that survives.
+>
+> Four practical rules:
+>
+> - **Prefer the normative clause (MUST / MUST NOT) over the illustrative one.** Illustrative sentences are editorial. Normative clauses are contractual.
+> - **Anchor by file + section number + heading, not by quoted string alone.** A section number survives a reword. A quoted string does not.
+> - **When you delete or reword prose, `Grep` the open flags for it.** The deleting session is the only party that knows the deletion was intentional.
+> - **Supersede, don't rewrite.** Append a supersession notice naming the stale citation, quoting the replacement wording verbatim, and confirming the conclusion still stands. Never edit another session's recorded flag — that destroys the record of what was known when. The sender-side form of this rule is [read-confirm-act-protocol.md](read-confirm-act-protocol.md) §1.4.E.
+>
+> **Reader-side rule: a citation returning 0 hits means "verify why", not "the justification collapsed."** That is the reading a closeout reconciliation session owes an upstream flag whose quoted evidence has vanished.
+
+**Applies-to surface (sub-rules F–H).** Any close, retraction, or deletion that changes the truth of a claim other artifacts already recorded. F walks forward from a close to the sites that recorded the item open. G walks forward from a retraction to the citations that keep asserting it. H walks backward from a deletion to the flags that quoted the deleted prose. The three directions are distinct and a merged sweep will run only one of them.
 
 #### Reviewer Check 076 — Detection + Repair With No Routing Deliverable
 

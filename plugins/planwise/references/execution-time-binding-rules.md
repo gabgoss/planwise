@@ -1,12 +1,12 @@
 ---
-description: Execution-time binding rules — design-extension traceability with inline What/Why/Source documentation, cross-tier audit-finding triage into Remediation vs pre-emptive-flag buckets, the bounded-temp-fix that seeds a deferred Discovery, and spike-instrument synthetic-fixture verdict partitioning
+description: Execution-time binding rules — design-extension traceability with inline What/Why/Source documentation, cross-tier audit-finding triage into Remediation vs pre-emptive-flag buckets, the bounded-temp-fix that seeds a deferred Discovery, spike-instrument synthetic-fixture verdict partitioning, and re-homing a standing mechanism's post-gate qualification out of the plan artifacts that expire and into the artifact that governs the mechanism
 ---
 
 # Execution-Time Binding Rules
 
-**Purpose:** Binding rules covering plan-fidelity concerns that surface during execution rather than at Discovery or signoff time — design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), and spike-instrument verdict discipline (§20). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
+**Purpose:** Binding rules covering plan-fidelity concerns that surface during execution rather than at Discovery or signoff time — design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), spike-instrument verdict discipline (§20), and re-homing a post-gate qualification about a standing mechanism (§21). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
-This file is the §17-§20 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §16 lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md). Extracted to keep all three files comfortably within a single Read call. Read it before authoring design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
+This file is the §17-§21 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §16 lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md). Extracted to keep all three files comfortably within a single Read call. Read it before authoring design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
 
 ## Table of Contents
 
@@ -15,6 +15,7 @@ This file is the §17-§20 segment of a 3-way split of `discovery-and-exit-crite
 - [19. Narrow Fix Reveals a Systemic Gap — Bounded Temp Fix That Seeds the Deferred Discovery](#19-narrow-fix-reveals-a-systemic-gap--bounded-temp-fix-that-seeds-the-deferred-discovery-binding)
 - [20. Spike Instrument Verdict Discipline](#20-spike-instrument-verdict-discipline-binding)
   - [20.1 Synthetic-Fixture Verdict Partitioning](#201-synthetic-fixture-verdict-partitioning)
+- [21. Re-Home a Standing Mechanism's Qualification Into the Artifact That Governs It](#21-re-home-a-standing-mechanisms-qualification-into-the-artifact-that-governs-it-binding)
 
 ---
 
@@ -196,6 +197,59 @@ Applies to:
 - Discovery / de-risk spikes whose probe instrument runs on synthetic or stand-in input because the real artifact is gated behind a later live step.
 - Any tolerance / threshold-sweep finding: separate "instrument validated + structural behaviour confirmed" from "magnitude confirmed" and defer the latter to real-input data.
 - Perf-budget constants written as plan-mode placeholders: anchor against measured scaling before pinning them into a test assertion.
+
+---
+
+## 21. Re-Home a Standing Mechanism's Qualification Into the Artifact That Governs It (BINDING)
+
+A pre-gate defect blocks, so the fix lands in the artifact and the gate re-runs. A **post-gate qualification** has no blocking force, no failing check, and no unfinished deliverable to attach to. **Every instrument the workflow offers at the moment of discovery is a record of what happened, and what is needed is a statement of what is true.**
+
+A deny control was proved in force, both directions, 4/4. Orchestrator verification *afterwards* ran a shape the probe set never contained and found the control silently inert for it — and, given the project's path conventions, inert for the **dominant** everyday invocation shape. The finding was recorded in four places, handled well by every available convention, and at plan close all four were expiring:
+
+| Where it was recorded | Lifetime |
+|---|---|
+| Task `Outputs/` report | Archival the moment it was written; read again only by an auditor who already knows to look |
+| Session Summary | A record of one session, superseded by the next |
+| Master Plan header | Superseded at plan close — that is what closing a plan means |
+| Cross-task coordination flag | Consumed by exactly one downstream session, then dead by design |
+
+Meanwhile the control keeps running, indefinitely, with no expiry of its own — and its only durable on-disk statement is a settings-file array element, which cannot carry a comment because JSON has none.
+
+> [!constraint] The operative statement moves to the artifact that governs the mechanism
+> ```
+> WRONG — the qualification lives only where it was discovered, and the plan closes:
+>   Outputs/…-Disposition.md §6   ← the boundary text
+>   Summary §3                     ← "found afterward, routed forward"
+>   Master Plan header             ← "one measured qualification travels to the next sprint"
+>   coordination flag              ← consumed once, then gone
+>   settings.json                  ← the live control. No comment. No qualifier.
+>
+> CORRECT — the operative statement moves to the live, path-scoped rule that governs the control;
+>           the discovering report is demoted to the measurement record and carries a pointer:
+>   .claude/rules/<governing-rule>.md §N   ← SOURCE OF TRUTH: coverage as measured,
+>                                             the generalisable mechanic, the widening gate
+>   Outputs/…-Disposition.md §6            ← amended, marked superseded, points at the rule
+> ```
+>
+> **The one-question test: if this plan's directory were deleted tomorrow, would the qualification survive?** If no, and the thing it qualifies is still running, it has no home yet.
+
+Three things get discovered together, and only two are re-homed. Re-homing the third is wasted motion, while leaving the first two in a session report is the defect:
+
+1. **The generalisable mechanic** — *why* the control has the blind spot, stated so it applies to the next control anyone writes. Belongs in doctrine permanently.
+2. **The coverage qualification for this specific installed entry** — the sentence anyone must attach when describing the control. Belongs beside the doctrine, scoped to the live config.
+3. **The measurement record** — the probes, the transcripts, the exact observed output. Legitimately stays in the session report. It is evidence, and evidence is meant to be archival.
+
+Two corollaries:
+
+- **A correct scope boundary can leave a finding homeless, and the flag must then name the re-home as a deliverable.** Here the discovering task's own scope forbade touching the rules directory, because a sibling task owned that surface in the same session. That boundary was right. The consequence is that the finding's correct home was unreachable to the only party who knew about it. A flag that *reports* a finding hands the next session information. A flag that *assigns* a re-home hands it an obligation, and only the second survives a busy closeout.
+- **Reporting corollary: until the re-home lands, every restatement of the control's status carries the qualifier inline** — *"in force for shape A; silently inert for shape B"*. An unqualified "LIVE, proven both directions" is true of the shape that was tested and false of the shape the project actually produces, and a status line is exactly what a later reader trusts without re-deriving.
+
+**Closeout question:** treat *"does any live mechanism carry a qualification recorded only in this plan's own artifacts?"* as a standing plan-close check, alongside status propagation and lessons capture.
+
+Applies to:
+- Any finding about a guard, hook, deny rule, linter or other standing control that surfaces AFTER that control's verification gate has passed.
+- Any qualification whose subject outlives the plan that discovered it — the test is the mechanism's lifetime, not the finding's severity.
+- Closeout of any plan that installed or modified a standing control.
 
 ---
 
