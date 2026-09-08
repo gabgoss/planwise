@@ -53,6 +53,8 @@ Three neighbouring rules own machinery this file builds on. [`agent-orchestratio
 >   is evidence; divergence on another is a finding
 > ```
 
+The qualitative twin of this rule — a stated *expectation* or a named cause rather than a figure, why hedging it does not help, and what to do once such a premise has already shipped — is [`dispatch-brief-neutrality.md`](dispatch-brief-neutrality.md) §1, §2 and §7. The two meet on the same discriminator question.
+
 **Say why you are withholding.** An agent that notices a conspicuous gap in an otherwise thorough briefing may go and find the data itself — reading a sibling's output file, or asking. Naming the withholding as deliberate closes that path. Telling the runner that a surprising honest number outranks a plausible one licenses it to report the outlier.
 
 **The withholding paid twice in the measured session.** On the surface that agreed, a warm-run cache-read token count came in at **30,705 against 30,691**, across separate operating-system processes that never saw each other's data. That is corroboration anyone can trust. On the surface that disagreed, the divergence *was* the finding: one run wrote **zero** files and enumerated a different project, where two same-day runs had written the expected 10-file tree. The 2-to-1 split proved the surface non-deterministic and invalidated an inherited baseline finding the whole plan rested on.
