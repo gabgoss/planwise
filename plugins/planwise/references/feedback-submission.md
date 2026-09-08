@@ -709,7 +709,7 @@ Every placeholder used above, for the four call sites that render this engine's 
 
 | Placeholder | Resolves to |
 |---|---|
-| `{feedback.repo}` | `gabgoss/planwise` (literal default; never the consumer's own remote). |
+| `{feedback.repo}` | `gabgoss/planwise` (literal default; never the consumer's own remote). A configured value that is blank, non-string, or not shaped like `owner/name` also falls back to this default — the loader rejects it before it ever reaches a `gh` invocation. |
 | `{title}` | The issue title, supplied by the caller. |
 | `{draft_path}` | `{planwise_root}/{feedback_dir}/{YYYY-MM-DD}-{kind}-{slug}.md`. |
 | `{planwise_root}` | The consumer's configured planwise root directory. |

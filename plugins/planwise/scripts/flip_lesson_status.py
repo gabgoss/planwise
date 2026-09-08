@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 # Sibling-module import. The newline-preserving read/write pair is the shared
@@ -70,6 +71,50 @@ LANDED = ("rule", "applied")
 
 ROW_RE = re.compile(r"^\|\s*\*{0,2}(LL-\d{3})\*{0,2}\s*\|")
 TAIL_RE = re.compile(r"\|\s*\*{0,2}(documented|promoted|rule|applied)\*{0,2}\s*\|\s*$")
+
+# The lessons index's `**Last Updated:**` header sits at the TOP of the file
+# (unlike the backlog index's bottom-of-file placement). Bumping it after a
+# Status-cell flip used to be a prose instruction to the agent running this
+# script rather than behaviour of the script itself, so a run that changed
+# a cell could leave the header stale — the same drift class the index's
+# "Next available ID" counter had before it grew a reconciler. Folding the
+# bump into this write makes the two updates atomic.
+#
+# The middle segment is intentionally unconstrained ([^\r]*, not a date
+# pattern): it swallows whatever currently follows the label — a real date,
+# an already-appended parenthetical, or the seed template's literal
+# "YYYY-MM-DD" placeholder — so any of those shapes is replaced cleanly.
+# The trailing `(\r?)` group is captured (not consumed by the middle
+# segment) and spliced back verbatim, so a CRLF file's line ending survives
+# the rewrite untouched.
+HEADER_RE = re.compile(r"^(\*\*Last Updated:\*\*[ \t]*)[^\r]*(\r?)$")
+
+
+def _bump_last_updated_header(lines: list[str], changed_count: int) -> None:
+    """Rewrite the index's `Last Updated` header line in place, if present.
+
+    Mutates `lines`. Only the label prefix and the line's own trailing "\\r"
+    (if any) survive from the old line; the label's date/parenthetical is
+    replaced with today's date and a short parenthetical naming what
+    changed, matching the convention the categorisation file already uses.
+
+    If no line matches, the header is never fabricated: one stderr note is
+    printed and `lines` is left untouched. Callers must invoke this only
+    when at least one Status cell was actually rewritten and the run is not
+    `--dry-run` — a no-op run (idempotent skip, or every change REFUSED) is
+    not a write, and must never call this at all.
+    """
+    today = date.today().isoformat()
+    stamp = f"{today} (`flip_lesson_status.py`: {changed_count} status change(s))"
+    for i, line in enumerate(lines):
+        m = HEADER_RE.match(line)
+        if m:
+            lines[i] = m.group(1) + stamp + m.group(2)
+            return
+    print(
+        "note: index has no 'Last Updated:' header line — header not bumped",
+        file=sys.stderr,
+    )
 
 
 def parse_map(path: Path) -> dict[str, str]:
@@ -156,6 +201,7 @@ def main() -> int:
         changed.append((lid, current, want))
 
     if not dry_run and changed:
+        _bump_last_updated_header(lines, len(changed))
         write_text_preserving_newlines(index, "\n".join(lines))
 
     print(f"{'would change' if dry_run else 'changed'}: {len(changed)}")

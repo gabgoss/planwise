@@ -53,6 +53,7 @@ from config_loader import (  # noqa: E402
     load_config,
 )
 from context_calibration import derive_thresholds  # noqa: E402
+from markdown_parser import split_row_cells  # noqa: E402
 from read_limits import (  # noqa: E402
     READ_FILE_BYTE_CAP,
     READ_PAGE_CAP_TOKENS,
@@ -85,8 +86,13 @@ def parse_agent(text: str) -> str | None:
 
 
 def _split_row(line: str) -> list[str]:
-    """Split one markdown table row into stripped cells."""
-    return [c.strip() for c in line.strip().strip("|").split("|")]
+    """Split one markdown table row into stripped cells.
+
+    Delegates to the escape-aware helper: a Purpose cell may legitimately
+    carry an escaped pipe (e.g. a shell pipeline shown inline), and a naive
+    split there would shift every subsequent column right by one.
+    """
+    return split_row_cells(line)
 
 
 def parse_required_context(text: str) -> list[dict]:

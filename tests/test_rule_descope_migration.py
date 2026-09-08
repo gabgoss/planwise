@@ -582,6 +582,19 @@ class TestUpgradeConfigFoundation(unittest.TestCase):
             "an explicitly-null customization_handoff must fall back to 'report'",
         )
 
+    def test_get_upgrade_config_strips_whitespace_from_handoff(self):
+        import config_loader as cl
+
+        result = cl.get_upgrade_config(
+            {"upgrade": {"customization_handoff": "  report+relocate  "}}
+        )
+        self.assertEqual(
+            result["customization_handoff"],
+            "report+relocate",
+            "a customization_handoff value must be returned stripped of "
+            "leading/trailing whitespace, not verbatim",
+        )
+
     def test_upgrade_in_migratable_top_level_keys(self):
         self.assertIn(
             "upgrade",

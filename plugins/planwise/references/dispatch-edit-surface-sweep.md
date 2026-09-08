@@ -143,6 +143,8 @@ The verified payoff: the runner renumbered all six sites, final state `### 5.A`/
 
 Write the full table, not only the expected value. A rule that only says "expected value is 2" teaches a reader to memorise a number rather than to write what each deviation means. The general obligation — build the correct post-state by hand and run the gate against it before annotating an expected value — is [`verification-gate-evidence.md`](verification-gate-evidence.md) §3; [`verification-task-authoring.md`](verification-task-authoring.md) §10.7 requires the anchor to accept exactly the outcome set its own task can produce.
 
+The old-home citation sweep that follows a reference split has the same shape and one more trap: a line citing both halves of the former anchor matches even when both citations are correct, so a correctly repointed corpus returns non-zero, and the obvious tightening of the pattern silently drops real stale citations. Its exit criterion, the content-ordering remedy, and the classification ledger it needs are [`verification-gate-evidence.md`](verification-gate-evidence.md) §15.
+
 ---
 
 ## 7. When Applying an Upstream Change in Place, Enumerate the Operative Sites — Not the Prose Sites

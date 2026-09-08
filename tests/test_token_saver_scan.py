@@ -82,6 +82,18 @@ class TestParsing(unittest.TestCase):
             tss._clean_file_cell("`a/b.md` §3–§7 (§7 runs to EOF)"), "a/b.md"
         )
 
+    def test_purpose_cell_with_escaped_pipe_does_not_shift_columns(self):
+        # A Purpose cell may legitimately name a shell pipeline inline. A
+        # naive `.split("|")` there would shift the row's own trailing
+        # columns, but here Purpose is the last column, so the hazard is a
+        # phantom extra cell rather than a shift -- either way the File
+        # cell must still resolve to exactly the same value as a clean row.
+        row = r"| 1 | `a/b.md` | 10 | ~4K | uses \| in a shell pipeline |"
+        parsed = tss.parse_required_context(_task(TEMPLATE_COLUMNS, row))
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["file_cell"], "`a/b.md`")
+        self.assertEqual(parsed[0]["purpose"], "uses | in a shell pipeline")
+
     def test_command_corpus_rows_are_not_paths(self):
         self.assertTrue(tss.is_command_corpus("Grep family over scope"))
         self.assertTrue(tss.is_command_corpus("`python parse_backlog.py --all`"))

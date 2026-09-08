@@ -3,6 +3,12 @@
 
 Extracts rows from a markdown table under a given section header,
 delegating column interpretation to a caller-supplied processor.
+
+Contract: a write-back loop MUST rebuild a row from ``split_row_raw``, never
+from ``split_row_cells``. ``split_row_cells`` unescapes ``\\|`` and strips
+whitespace for reading, so rejoining its output with ``"|".join(...)`` is NOT
+round-trip-safe -- it silently drops the author's escaping and reflows the
+row's padding. Only ``"|".join(split_row_raw(row)) == row`` holds.
 """
 
 import re

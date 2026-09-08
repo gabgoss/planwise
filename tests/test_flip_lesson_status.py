@@ -21,6 +21,7 @@ import io
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
@@ -403,6 +404,118 @@ class TestStatusCellFormattingPreserved(FlipLessonStatusTestCase):
         self.assertEqual(
             index.read_bytes(), b"| LL-051 | A lesson |   promoted   |\n"
         )
+
+
+class TestLastUpdatedHeaderBump(FlipLessonStatusTestCase):
+    """The lessons index's `Last Updated` header sits at the TOP of the file
+    (unlike the backlog index's bottom-of-file placement). Bumping it after a
+    Status-cell flip used to be a prose instruction to the agent running this
+    script rather than behaviour of the script itself, so a run that changed
+    a cell could leave the header stale. These cases fold the bump into the
+    same write the script already performs: it fires only when at least one
+    Status cell was actually rewritten and the run is not `--dry-run`, and it
+    never fires on a no-op — an idempotent skip or a fully-REFUSED map is not
+    a write.
+    """
+
+    HEADER_WITH_LAST_UPDATED = (
+        "# Lessons Learned Index\n\n"
+        "**Last Updated:** 2020-01-01\n\n"
+        "## Master Table\n\n"
+        "| ID | Title | Category | Severity | Language | Technology | Domain | Source | Status |\n"
+        "|----|-------|----------|----------|----------|------------|--------|--------|--------|\n"
+    )
+
+    def _run_main_full(self, argv: list[str]):
+        """Like `_run_main`, but also captures stderr: returns (code, stdout, stderr)."""
+        old_argv = sys.argv
+        sys.argv = ["flip_lesson_status.py"] + argv
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = main()
+        finally:
+            sys.argv = old_argv
+        return code, out.getvalue(), err.getvalue()
+
+    def test_bump_on_write_updates_last_updated_header(self):
+        index = self._write(
+            "index.md",
+            self.HEADER_WITH_LAST_UPDATED + _row("LL-100", "A lesson", "documented"),
+        )
+        map_file = self._write("map.txt", "LL-100: promoted\n")
+
+        code, _ = self._run_main([str(index), str(map_file)])
+
+        self.assertEqual(code, 0)
+        rewritten = index.read_text(encoding="utf-8")
+        today = date.today().isoformat()
+        self.assertIn(f"**Last Updated:** {today}", rewritten, "header must bump to today")
+        self.assertNotIn("2020-01-01", rewritten, "the stale date must not survive the bump")
+        self.assertIn("| promoted |", rewritten, "the Status cell must still flip")
+
+    def test_dry_run_leaves_header_unchanged(self):
+        index = self._write(
+            "index.md",
+            self.HEADER_WITH_LAST_UPDATED + _row("LL-101", "A lesson", "documented"),
+        )
+        map_file = self._write("map.txt", "LL-101: promoted\n")
+        before = index.read_bytes()
+
+        code, out = self._run_main([str(index), str(map_file), "--dry-run"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("would change: 1", out)
+        self.assertEqual(
+            index.read_bytes(), before, "dry-run must write nothing at all, header included"
+        )
+
+    def test_no_op_run_leaves_header_unchanged(self):
+        """Every mapped lesson already at target: nothing was written, so the
+        header must not move even though the run touched the index's rows."""
+        index = self._write(
+            "index.md",
+            self.HEADER_WITH_LAST_UPDATED + _row("LL-102", "A lesson", "documented"),
+        )
+        map_file = self._write("map.txt", "LL-102: documented\n")
+        before = index.read_bytes()
+
+        code, out = self._run_main([str(index), str(map_file)])
+
+        self.assertEqual(code, 0)
+        self.assertIn("already documented", out)
+        self.assertEqual(index.read_bytes(), before, "an idempotent skip is not a write")
+
+    def test_all_refused_run_leaves_header_unchanged(self):
+        """Every change REFUSED by the never-downgrade guard: a refusal is
+        not a write, so the header must stay put."""
+        index = self._write(
+            "index.md",
+            self.HEADER_WITH_LAST_UPDATED + _row("LL-103", "A landed lesson", "rule"),
+        )
+        map_file = self._write("map.txt", "LL-103: documented\n")
+        before = index.read_bytes()
+
+        code, out = self._run_main([str(index), str(map_file)])
+
+        self.assertEqual(code, 1)
+        self.assertIn("REFUSED", out)
+        self.assertEqual(index.read_bytes(), before, "a refusal is not a write")
+
+    def test_missing_header_line_does_not_crash(self):
+        """An index with no `Last Updated:` header line at all must still
+        flip the Status cell cleanly — the header is never fabricated."""
+        index = self._write(
+            "index.md",
+            INDEX_HEADER + _row("LL-104", "A lesson", "documented"),
+        )
+        map_file = self._write("map.txt", "LL-104: promoted\n")
+
+        code, out, err = self._run_main_full([str(index), str(map_file)])
+
+        self.assertEqual(code, 0)
+        self.assertIn("| promoted |", index.read_text(encoding="utf-8"))
+        self.assertIn("no 'Last Updated:' header line", err)
 
 
 if __name__ == "__main__":

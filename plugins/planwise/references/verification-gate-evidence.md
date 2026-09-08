@@ -1,13 +1,13 @@
 ---
-description: What a verification gate's output is evidence of — positive and mutation controls, the correct-post-state arm, specifying the artifact the PASS branch must leave behind, and which side is the defect when a gate and correct work disagree. Consult before citing any guard, linter, hook, or MUST-be-empty check as proof, and when your correct edit and a gate's expected value disagree.
+description: What a verification gate's output is evidence of — positive and mutation controls, the correct-post-state arm, specifying the artifact the PASS branch must leave behind, which side is the defect when a gate and correct work disagree, why a gate that fails everything is a suspect until its dry-run pair differs, and how to write and classify the old-home citation sweep that follows a reference split. Consult before citing any guard, linter, hook, or MUST-be-empty check as proof, when your correct edit and a gate's expected value disagree, when a gate returns FAIL on every input, and when you author the exit criterion for a citation sweep after moving a section.
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Verification-Gate Evidence (Proving the Instrument Before Citing It)
 
-**Purpose:** Rules for the gap between *"the gate returned this"* and *"this is true"*. A gate's output becomes evidence only after the gate has been exercised in the direction that carries information, over an input set that could have contained the defect. This file governs the exercising; [`verification-task-authoring.md`](verification-task-authoring.md) governs the match pattern, and [`verification-gates.md`](verification-gates.md) §10 governs the instrument's four proof obligations. §10-§13 govern the other direction: the instrument is already in play and disagrees with correct work anyway. They fix which side yields, what the runner reports, what the orchestrator re-derives, and what a dispatcher pre-classifies.
+**Purpose:** Rules for the gap between *"the gate returned this"* and *"this is true"*. A gate's output becomes evidence only after the gate has been exercised in the direction that carries information, over an input set that could have contained the defect. This file governs the exercising; [`verification-task-authoring.md`](verification-task-authoring.md) governs the match pattern, and [`verification-gates.md`](verification-gates.md) §10 governs the instrument's four proof obligations. §10-§13 govern the other direction: the instrument is already in play and disagrees with correct work anyway. They fix which side yields, what the runner reports, what the orchestrator re-derives, and what a dispatcher pre-classifies. §14 binds the comparison between a dry-run pair's two arms: a gate that fails everything has not been shown to discriminate any more than one that passes everything. §15 applies the whole file to one recurring gate, the old-home citation sweep that follows a reference split.
 
-**Read this when** you author a guard, hook, linter, validation pass, or "MUST be empty" check, and again when you are about to cite one of them as proof that work is correct. Read §10-§13 when your correct edit and a gate's annotated value disagree, when a runner reports that it shaped content to satisfy a gate, or when you dispatch an authoring task whose content is a live gate's subject.
+**Read this when** you author a guard, hook, linter, validation pass, or "MUST be empty" check, and again when you are about to cite one of them as proof that work is correct. Read §10-§13 when your correct edit and a gate's annotated value disagree, when a runner reports that it shaped content to satisfy a gate, or when you dispatch an authoring task whose content is a live gate's subject. Read §14 when a gate returns FAIL on every input it was given. Read §15 before writing the exit criterion for a citation sweep after moving a section between files.
 
 ## Table of Contents
 
@@ -24,6 +24,8 @@ paths: {planwise_root}/{plans_dir}/**
 - [11. A Gate Annotation Predicts the Shape of Correct Work — It Never Constrains It](#11-a-gate-annotation-predicts-the-shape-of-correct-work--it-never-constrains-it)
 - [12. A Disclosure That a Gate Influenced the Artifact Is a Re-Derivation Trigger](#12-a-disclosure-that-a-gate-influenced-the-artifact-is-a-re-derivation-trigger)
 - [13. Pre-Adjudicate a Doctrine Artifact's Collision With a Live Gate at Dispatch](#13-pre-adjudicate-a-doctrine-artifacts-collision-with-a-live-gate-at-dispatch)
+- [14. A Gate That Fails Everything Is Not More Trustworthy Than One That Passes Everything](#14-a-gate-that-fails-everything-is-not-more-trustworthy-than-one-that-passes-everything)
+- [15. An Old-Home Citation Sweep Is a Substring Match — Order the Content, Classify the Hits, Never Tighten the Pattern](#15-an-old-home-citation-sweep-is-a-substring-match--order-the-content-classify-the-hits-never-tighten-the-pattern)
 
 ---
 
@@ -431,4 +433,88 @@ This section is its own first test case. It quotes gate-shaped text, shell verbs
 
 ---
 
-*Cross-references: [verification-gates.md](verification-gates.md) §10 (the instrument's four proof obligations — fixture-vs-live-sweep, the gate that fails correct work, and the pattern that cannot see the shape it counts), §11 (change-detecting vs state-detecting shapes) and §11.1 (a pre-existing omission can arm a gate against correct work), [verification-task-authoring.md](verification-task-authoring.md) §10 (pre-edit value annotation), §10.7 (an anchor accepts exactly its task's outcome set), §10.8 (command semantics that make a well-formed gate mean something else) and §10.9 (the construction corollaries §10-§13 assume — regex dialect, window size, exact counts), [measurement-discipline.md](measurement-discipline.md) §8.5 (normalize on both read and write; annotated rather than clean fixtures) and §8.7 (verify the gate's input set before trusting its predicate).*
+## 14. A Gate That Fails Everything Is Not More Trustworthy Than One That Passes Everything
+
+§3 requires dry-running a MUST-be-N gate in both directions. Direction-checking alone leaves one failure uncaught, and an asymmetry in how readers weigh results is what lets it through.
+
+A 17-of-17 FAIL reads as a serious finding and invites acting on it. The alarming direction therefore gets less scrutiny than the reassuring one: a full-pass result is questioned, a full-fail result is believed and repaired against. Treat a total-failure result as a gate-construction suspect until the known-bad/known-good pair has been shown to *differ*.
+
+> [!constraint] A total-failure result is a suspect gate until its dry-run pair differs
+> A closeout audit asserted that each of 17 Part files carried its pinned Scope string exactly once, via a per-file count piped through a field split on `:`. It reported FAIL on all 17, including files that were provably correct. The count tool prefixes each result with the filename when given more than one input, and splitting an absolute Windows path on `:` puts the drive letter in the second field and a path fragment after it — never the count. Run only against the real, clean tree, it would have produced a loud, plausible, entirely false 17-file failure.
+>
+> What caught it was the dry-run pair. The doctored file returned FAIL *and* the clean files returned FAIL — identical results on inputs that were supposed to differ, which is the signature of a gate that does not discriminate. The parsing bug behind it was one keystroke.
+>
+> ```
+> WRONG — treat the direction as the proof:
+>   run gate on clean tree → 17 FAIL → "17 files are wrong; start repairing"
+>
+> CORRECT — require the pair to DIFFER before believing either arm:
+>   doctored file → FAIL
+>   clean file    → FAIL      ← identical: the gate is the suspect, not the files
+>   fix the gate  → doctored FAIL, clean PASS → now a FAIL means something
+> ```
+>
+> The requirement is not "run a dry-run". It is "run the pair and require the two results to differ." A gate only ever run against clean input has never been shown to work; its empty — or full — result is vacuous either way.
+
+The parsing bug is one instance of a class, misparsed tool output, that no amount of care eliminates. The discrimination check, not the fix, is the durable half. §1's positive control and §3's correct-post-state arm each exercise one direction; this section binds the comparison between them.
+
+---
+
+## 15. An Old-Home Citation Sweep Is a Substring Match — Order the Content, Classify the Hits, Never Tighten the Pattern
+
+Splitting an oversized reference along a seam, keeping the anchor's filename, and repointing every inbound citation ends with a sweep for citations still pointing at the old home:
+
+```
+grep -rEn '{anchor}\.md.*§({moved-range})' . --include='*.md' | wc -l   # expect 0
+```
+
+That pattern is a substring match, not a parser. `{anchor}\.md.*§N` asks only whether the two strings appear in that order on one line. It cannot tell a stale citation from two correct citations that happen to share a line. So **on a correctly-repointed corpus this sweep can return non-zero, and the exit criterion must be written to expect that.** A criterion reading "expect 0" hands the runner three options, and two of them are wrong in ways nothing downstream detects: reword the corpus until the count reaches zero (corrupts the artifact and destroys the gate's signal); tighten the pattern so it cannot span (§15.2 — converts a false positive into a false negative); or order the content so the sibling citation precedes the anchor citation (§15.1 — correct, and it encodes an invariant nothing local explains).
+
+### 15.1 The dual-citation false match — write the sibling citation first
+
+> [!pitfall] A line citing both halves of a former anchor false-matches whenever the anchor's filename precedes the moved section number
+> The false-match case is a single line citing **two** files that were once one anchor: one section that stayed, one that moved.
+> ```
+> WRONG — anchor filename first; §{moved} appears later on the line ⇒ MATCH (false):
+>   `{anchor}.md` §{stayed} / `{sibling}.md` §{moved}
+>
+> CORRECT — sibling citation first; the anchor filename is followed only by §{stayed}:
+>   `{sibling}.md` §{moved} / `{anchor}.md` §{stayed}
+> ```
+> Both lines are accurate. Only the order differs, and only the second passes the sweep. The remedy makes reading order load-bearing, so record it where the next writer of that file will see it — a one-line note beside the citation, or in the file's authoring conventions. The correct form may cite a higher section number before a lower one. That is deliberate, not a typo to fix.
+
+### 15.2 Do NOT tighten the pattern — prefer the failure you can inspect
+
+> [!constraint] Bounding the wildcard converts a loud false positive into a silent false negative
+> Replacing `.*` with an adjacency-bounded `[^§]*` looks like the clean fix. Measured over one authoring corpus — every `.md` file in a project tree, re-measured 2026-09-08 — for two anchors whose sections had moved:
+>
+> | Sweep | `.*` (correct) | `[^§]*` (tightened) |
+> |-------|----------------|---------------------|
+> | `{anchor-A}.md` §{moved range A} | 334 | **276** |
+> | `{anchor-B}.md` §{moved range B} | 405 | **300** |
+>
+> The hits the bounded form stops matching mix two shapes the pattern cannot tell apart. One is the dual-citation line of §15.1, which the sweep should indeed stop flagging. The other is a **real stale citation** — one file, two sections, only the second of which moved:
+> ```
+> `{anchor}.md` §{stayed}/§{moved}
+> ```
+> The bounded pattern stops at `§{stayed}` and never sees the stale `§{moved}`. The tightening trades a false positive a human reads and classifies for a leak that ships behind a green gate — the strictly worse trade for a leak gate, and a reader who reaches for it is making the failure worse while believing they fixed it.
+>
+> **When a gate is imprecise, prefer the failure mode you can inspect.** Evaluate any loosening or tightening of a gate's pattern on *which direction it fails in*, never on the hit count it returns.
+
+### 15.3 A non-zero sweep is a list to classify, not a verdict
+
+> [!practice] Gate on the delta against a recorded ledger, never on the raw count
+> For each hit, read the line and ask whether every citation on it is accurate.
+>
+> | Every citation on the line accurate? | Disposition |
+> |---|---|
+> | Yes | False positive — record the line and the reason in the ledger |
+> | No | Real stale citation — FAIL; repoint it |
+>
+> The gate is then `hits − ledgered false positives = 0`, not `hits = 0`. The ledger lives where the next audit reads it — beside the sweep command in the sprint's verification task, or in the file's authoring conventions — because a classification nobody can find is re-derived from scratch, and a blanket-fail gate that keeps firing on known-correct lines gets softened or ignored instead of fixed. This is the discipline the on-disk identifier sweeps already use for the plugin's own scaffold vocabulary: surface candidates, classify each one, gate on what survives classification ([artifact-self-containment.md](artifact-self-containment.md) §4.3).
+
+The three rules assume the sweep inspected what you think it did. Pair them with the input-set assertions — register untracked files, assert zero untracked remain, assert the diff covered the expected file count — from [measurement-discipline.md](measurement-discipline.md) §8.7. Together they are what make an empty *or* non-empty sweep interpretable.
+
+---
+
+*Cross-references: [verification-gates.md](verification-gates.md) §10 (the instrument's four proof obligations — fixture-vs-live-sweep, the gate that fails correct work, and the pattern that cannot see the shape it counts), §11 (change-detecting vs state-detecting shapes) and §11.1 (a pre-existing omission can arm a gate against correct work), [verification-task-authoring.md](verification-task-authoring.md) §10 (pre-edit value annotation), §10.7 (an anchor accepts exactly its task's outcome set), §10.8 (command semantics that make a well-formed gate mean something else) and §10.9 (the construction corollaries §10-§13 assume — regex dialect, window size, exact counts), [measurement-discipline.md](measurement-discipline.md) §8.5 (normalize on both read and write; annotated rather than clean fixtures) and §8.7 (verify the gate's input set before trusting its predicate), [dispatch-edit-surface-sweep.md](dispatch-edit-surface-sweep.md) §5-§6 (hunting `§` pointers after a renumbering, and a renumbering gate's true expected count — the sibling of §15), [artifact-self-containment.md](artifact-self-containment.md) §4.3 (the classify-do-not-blanket-fail sweep §15.3 mirrors).*

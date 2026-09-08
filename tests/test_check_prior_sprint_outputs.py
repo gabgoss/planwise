@@ -178,6 +178,44 @@ class TestTrackedModificationBlocks(_GitFixtureBase):
 
 
 @unittest.skipIf(shutil.which("git") is None, "git not on PATH")
+class TestEscapedPipeInTrackingRowDoesNotShiftColumns(_GitFixtureBase):
+    """A Session cell may legitimately carry an escaped pipe (e.g. a shell
+    pipeline named inline). A naive `.split("|")` would shift every column
+    after it one position right, so the Status cell would never read
+    COMPLETE and the guard would silently stop protecting this row."""
+
+    def test_escaped_pipe_in_session_cell_still_matches_and_blocks(self):
+        outputs_dir = (
+            self.plans_dir / "Widgets" / "Exec-TP" / "Sprint-01-Core"
+            / "Session-01-Build" / "Outputs"
+        )
+        outputs_dir.mkdir(parents=True, exist_ok=True)
+        summary_file = outputs_dir / "summary.md"
+        summary_file.write_text("Original summary content.\n", encoding="utf-8")
+
+        plan_dir = self.plans_dir / "Widgets"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        content = (
+            "# Master Plan\n\n"
+            "## Session Completion Tracking\n\n"
+            "| Sprint | Session | Status | Summary File |\n"
+            "|--------|---------|--------|---------------|\n"
+            r"| Sprint-01-Core | Uses \| in a shell pipeline | ✅ COMPLETE "
+            r"| [Summary](Exec-TP/Sprint-01-Core/Session-01-Build/Outputs/summary.md) |"
+            "\n"
+        )
+        (plan_dir / "TP-Master-Plan.md").write_text(content, encoding="utf-8")
+        self._commit_all()
+
+        summary_file.write_text("Silently overwritten.\n", encoding="utf-8")
+
+        out, err, code = _run_main(["--config", str(self.config_path)])
+
+        self.assertEqual(code, 1)
+        self.assertIn("BLOCKING", out)
+
+
+@unittest.skipIf(shutil.which("git") is None, "git not on PATH")
 class TestUntrackedAddIsAllowed(_GitFixtureBase):
     def test_untracked_file_in_outputs_is_allowed_and_exits_0(self):
         outputs_dir = (

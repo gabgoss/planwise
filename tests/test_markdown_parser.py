@@ -132,6 +132,17 @@ class TestSplitRowCells(unittest.TestCase):
         self.assertEqual(count_cells(ESCAPED_ROW), len(split_row_cells(ESCAPED_ROW)))
 
 
+class TestWritePathContract(unittest.TestCase):
+    """The module docstring's contract: a write-back loop must rebuild a row
+    from `split_row_raw`, never from `split_row_cells`. Rejoining the cells
+    view is NOT round-trip-safe -- it silently drops the author's escaping
+    and reflows the row's padding."""
+
+    def test_raw_round_trips_but_cells_do_not_for_an_escaped_row(self):
+        self.assertEqual("|".join(split_row_raw(ESCAPED_ROW)), ESCAPED_ROW)
+        self.assertNotEqual("|".join(split_row_cells(ESCAPED_ROW)), ESCAPED_ROW)
+
+
 class TestRaggedRowGuard(unittest.TestCase):
     """A row whose width disagrees with the header must never parse to shifted
     values — it is reported, and the caller can see the shortfall."""

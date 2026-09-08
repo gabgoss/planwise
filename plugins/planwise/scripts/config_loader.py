@@ -571,6 +571,22 @@ def _as_bool_flag(value, default: bool) -> bool:
     return default
 
 
+def _as_str_flag(value, default: str) -> str:
+    """Coerce a config string flag, stripping surrounding whitespace.
+
+    Mirrors `_as_bool_flag`'s convention for the string-valued keys: non-str
+    or blank (including all-whitespace) falls back to the documented
+    default; otherwise the value is returned STRIPPED, never verbatim. A
+    YAML folded/literal scalar or a hand-edited config commonly carries
+    invisible leading/trailing whitespace, so returning the raw value would
+    silently pass a malformed-looking string on to a consumer that compares
+    it against an exact enum or interpolates it into a shell command.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return default
+    return value.strip()
+
+
 def get_upgrade_config(config: dict) -> dict:
     """Extract the `upgrade:` block from config, with conservative defaults.
 
@@ -610,9 +626,7 @@ def get_upgrade_config(config: dict) -> dict:
     upgrade = config.get("upgrade", {})
     if not isinstance(upgrade, dict):
         upgrade = {}
-    handoff = upgrade.get("customization_handoff", "report")
-    if not isinstance(handoff, str) or not handoff.strip():
-        handoff = "report"
+    handoff = _as_str_flag(upgrade.get("customization_handoff", "report"), "report")
     return {
         "customization_handoff": handoff,
         "github_issue": _as_bool_flag(upgrade.get("github_issue"), False),
@@ -620,6 +634,9 @@ def get_upgrade_config(config: dict) -> dict:
             upgrade.get("descope_preserve_paths_edits"), True
         ),
     }
+
+
+_REPO_SHAPE_RE = re.compile(r"[\w.-]+/[\w.-]+")
 
 
 def get_feedback_config(config: dict) -> dict:
@@ -633,12 +650,21 @@ def get_feedback_config(config: dict) -> dict:
       * enabled             -> False                  (opt-in, interactive only)
       * repo                -> "gabgoss/planwise"      (upstream target)
       * include_environment -> True                    (auto-filled Environment block)
+
+    `repo` additionally must match an `owner/name` shape (see `_REPO_SHAPE_RE`):
+    the value is interpolated directly into a `gh` invocation by the feedback
+    engine, and a value carrying flags, shell metacharacters, or missing the
+    owner/name slash would alter that invocation rather than name a
+    repository. A value that fails the shape check falls back to the same
+    documented default as an absent or blank value; the feedback handler's
+    own docs note this fallback at the point of use, since the engine's
+    failure posture is to degrade silently otherwise.
     """
     feedback = config.get("feedback", {})
     if not isinstance(feedback, dict):
         feedback = {}
-    repo = feedback.get("repo", "gabgoss/planwise")
-    if not isinstance(repo, str) or not repo.strip():
+    repo = _as_str_flag(feedback.get("repo", "gabgoss/planwise"), "gabgoss/planwise")
+    if not _REPO_SHAPE_RE.fullmatch(repo):
         repo = "gabgoss/planwise"
     return {
         "enabled": _as_bool_flag(feedback.get("enabled"), False),

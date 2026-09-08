@@ -84,6 +84,30 @@ class TestFeedbackConfigFoundation(unittest.TestCase):
             "a blank repo must fall back to the literal default",
         )
 
+    def test_get_feedback_config_strips_whitespace_from_repo(self):
+        import config_loader as cl
+
+        result = cl.get_feedback_config({"feedback": {"repo": "  myorg/fork  "}})
+        self.assertEqual(
+            result["repo"],
+            "myorg/fork",
+            "a repo value must be returned stripped of leading/trailing "
+            "whitespace, not verbatim",
+        )
+
+    def test_get_feedback_config_rejects_malformed_repo_shape(self):
+        import config_loader as cl
+
+        for bad_repo in ("owner/name --web", "-flag", "no-slash"):
+            with self.subTest(bad_repo=bad_repo):
+                result = cl.get_feedback_config({"feedback": {"repo": bad_repo}})
+                self.assertEqual(
+                    result["repo"],
+                    "gabgoss/planwise",
+                    f"a repo value not shaped like owner/name ({bad_repo!r}) "
+                    "must fall back to the documented default",
+                )
+
     def test_get_feedback_config_honors_user_supplied_values(self):
         import config_loader as cl
 

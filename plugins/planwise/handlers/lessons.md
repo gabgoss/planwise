@@ -57,7 +57,7 @@ Parse `$1` to determine the mode. If `$1` is `curate`, enter curate mode and par
 
 ## Lessons-Index Write Convention
 
-Any write to the lessons index — a Master Table row, a Status-cell flip, a Rule Promotion Log row, or the next-available-ID counter — updates the file's `Last Updated:` header to today's date in the same edit, with a short parenthetical naming what changed (matching the convention the categorization file already uses). A stale `Last Updated` is worse than an absent one: an absent field prompts a reader to check; a stale one answers them incorrectly.
+Any write to the lessons index — a Master Table row, a Status-cell flip, a Rule Promotion Log row, or the next-available-ID counter — updates the file's `Last Updated:` header to today's date in the same edit, with a short parenthetical naming what changed (matching the convention the categorization file already uses). The one exception is a Status-cell flip made via `flip_lesson_status.py`: the script bumps the header itself in that same write, so the agent does not bump again for it — a hand-edited Status-cell flip (single-lesson Promote Mode, Stage 7) still needs the agent's own bump. A stale `Last Updated` is worse than an absent one: an absent field prompts a reader to check; a stale one answers them incorrectly.
 
 This binds every mode below that writes `{lessons_dir}/{lessons_index}` — Curate, Batch-Promote, Promote, and Capture — and is stated here once rather than restated per mode.
 

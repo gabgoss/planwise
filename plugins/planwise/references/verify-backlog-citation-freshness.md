@@ -1,10 +1,10 @@
 ---
-description: BLI triage-time verification recipes (motivating-driver still-active recheck, un-tested-axes-first reproducer ordering, cluster-batch driver recheck, cross-cutting audit-candidate coverage at fix-agent delegation time), verifying source edits when the installed plugin is older than the source, and backlog-item citation freshness (pinned sequential identifiers, code anchors, narrative attributions) at execution time
+description: BLI triage-time verification recipes (motivating-driver still-active recheck, un-tested-axes-first reproducer ordering, cluster-batch driver recheck, cross-cutting audit-candidate coverage at fix-agent delegation time), verifying source edits when the installed plugin is older than the source, and backlog-item citation freshness (pinned sequential identifiers, code anchors, narrative attributions, hand-authored tallies and membership lists, stated stale-side directions, contested counts) at execution time
 ---
 
 # BLI Triage-Time Recipes and Backlog-Item Citation Freshness
 
-Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md) §1-§5 (the Exec-phase SDK/identifier verification core). This file carries two co-located disciplines that both operate on the backlog-item (BLI) surface: the BLI triage-time recipes peeled from that file's §3 ladder (§3h, §3h.untested-axes, §3h.cluster, §3i) plus its §8 (installed-plugin-version skew) and §9 (.1-.3) (backlog-item citation freshness at execution time) — original §-numbers preserved — plus this file's own §10 (backlog-item claim verification at filing time), §11 (re-alignment verb premise probing), and §12 (verification task tree-state pin), native to this file rather than peeled from the parent.
+Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md) §1-§5 (the Exec-phase SDK/identifier verification core). This file carries two co-located disciplines that both operate on the backlog-item (BLI) surface: the BLI triage-time recipes peeled from that file's §3 ladder (§3h, §3h.untested-axes, §3h.cluster, §3i) plus its §8 (installed-plugin-version skew) and §9 (.1-.3) (backlog-item citation freshness at execution time) — original §-numbers preserved — plus this file's own §9.4-§9.6 (tallies, stated directions and contested counts as claims to re-derive), §10 (backlog-item claim verification at filing time), §11 (re-alignment verb premise probing), and §12 (verification task tree-state pin), native to this file rather than peeled from the parent.
 
 ## Table of Contents
 
@@ -17,6 +17,9 @@ Companion to [verify-against-shipped-artifact.md](verify-against-shipped-artifac
   - [9.1 Re-derive pinned sequential identifiers from the live artifact](#91-re-derive-pinned-sequential-identifiers-from-the-live-artifact)
   - [9.2 Re-locate cited code anchors by symbol; re-check acceptance criteria against HEAD](#92-re-locate-cited-code-anchors-by-symbol-re-check-acceptance-criteria-against-head)
   - [9.3 Verify pre-drafted narrative attributions against the live file](#93-verify-pre-drafted-narrative-attributions-against-the-live-file)
+  - [9.4 Enumerations, counts and memberships are pointers too](#94-enumerations-counts-and-memberships-are-pointers-too)
+  - [9.5 A stated direction is a hypothesis scoped to the instance that produced it](#95-a-stated-direction-is-a-hypothesis-scoped-to-the-instance-that-produced-it)
+  - [9.6 Derive a contested set; do not pick either number](#96-derive-a-contested-set-do-not-pick-either-number)
 - [10. Backlog-Item Claim Verification at Filing Time](#10-backlog-item-claim-verification-at-filing-time)
   - [10.1 An item is a factual claim about the current repository](#101-an-item-is-a-factual-claim-about-the-current-repository)
   - [10.2 "File N items" specifies scope, not that N conditions hold](#102-file-n-items-specifies-scope-not-that-n-conditions-hold)
@@ -313,6 +316,71 @@ This is the backlog-execution sibling of `verify-cross-repo-fix-discipline.md` �
 > ```
 >
 > Rule of thumb: a "paste verbatim" mandate covers the rule content and its WRONG/CORRECT examples; it never covers a factual claim about which test / section / function / check carries a behavior — those must match the live artifact.
+
+### 9.4 Enumerations, counts and memberships are pointers too
+
+§9.1-§9.3 cover pointers whose *target* moved. A count is a different kind of claim: a measurement taken once at authoring time, against a corpus that has since moved — or one that was never taken carefully in the first place. It degrades the verification rather than the fix, which is why the work passing does not catch it.
+
+> [!constraint] A tally in an item is a claim to re-derive — check membership, not only the named members
+> An item's Proposed Solution said *"preserve list-valued pointers as lists (three named records carry YAML lists, not scalars)"*, and an acceptance criterion restated the same three. Dumping the frontmatter of all eleven in-scope records showed **six** carried lists. The parenthetical was not a pointer to anything. It was a count someone derived once and wrote down, wrong by a factor of two.
+>
+> The consequence is quiet. A migration script branching on the actual node type still handles all six. A reviewer verifying "list-valued pointers remain lists (A, B, C)" checks three files, sees three passes, and signs off having never looked at the other three.
+>
+> - For every "N items do X" claim, run the query that computes N from the live corpus, and reconcile it against the item's number.
+> - For every explicit membership list, compute the true membership set — **check for members the item omitted**, not only that the named ones qualify.
+> - Where the item's tally and the live count disagree, fix the item's derived **acceptance criteria** too. A criterion naming the wrong members verifies the wrong thing.
+> - Report the correction in the closeout. A silently widened scope reads as unrequested scope creep.
+>
+> ```
+> WRONG — verify the named members and stop:
+>   item: "three records carry lists (A, B, C)"  →  check A, B, C  →  3 passes  →  sign off
+>   [three other qualifying records were never examined]
+>
+> CORRECT — derive the set, then compare it to the item's list:
+>   query every in-scope record for the property  →  {A, B, C, D, E, F}
+>   item named 3 of 6  →  widen the criterion to all six; report the correction
+> ```
+>
+> The calibration point: in the same item, two sibling tallies reconciled correctly. That is the argument for the check rather than against it. It is cheap, and it separates the tallies you can trust from the one you cannot.
+
+[measure-aggregate-provenance.md](measure-aggregate-provenance.md) §3 owns the same defect on the reporting side — a bare count in prose is a claim, so name the members inline. This sub-rule is the triage-time consumer of such a count.
+
+### 9.5 A stated direction is a hypothesis scoped to the instance that produced it
+
+> [!constraint] "Which side is wrong" does not distribute across instances — re-derive it for every one
+> An item reported that a handler and its binding reference disagreed about write scope, under a heading reading *"Why the handler is the one that is wrong"*, and proposed correcting the handler. For the reported instance that was right, and the reasoning was sound: it argued from the downstream contract. The item also asked, as an acceptance criterion, that the *sibling* mode in the same handler be checked for the same defect. There the disagreement was equally real and the direction was **exactly inverted**. Applying the item's stated direction mechanically would have deleted a correct description and replaced it with a stale one, as a "fix", with the item closing green.
+>
+> The trap is that the stated direction usually *is* right for the instance that motivated it. That instance was investigated, and the reader inherits well-earned confidence and spends it on instances that were never checked. A contradiction tells you two documents disagree and nothing more. Which one drifted is a separate inference requiring separate evidence, and it does not distribute: same author, same file pair, same defect class, opposite answer — because each side drifted at a different time for a different reason.
+>
+> 1. Read the stated direction as per-instance. Re-derive it from scratch for every additional instance; "same defect class" is a reason to look, never a reason to conclude.
+> 2. **Break the tie on the downstream contract, not on document authority.** "The reference is binding" and "the handler is the entry point" are constant across both instances and therefore cannot distinguish them. Ask what a real consumer's behaviour depends on.
+> 3. Use corroboration count as evidence. One isolated cell contradicting three concordant descriptions elsewhere is the stale cell.
+> 4. **Write acceptance criteria that mandate the check without presupposing its outcome.**
+>    ```
+>    WRONG — presupposes the direction:  "correct the handler in both places"
+>        [corrupts the inverted instance via a reviewer following the item faithfully]
+>    CORRECT — demands the comparison:   "checked for the same drift; any mismatch fixed"
+>        [leaves the direction open for each instance]
+>    ```
+>
+> An inverted finding changes which file gets edited. Report it at the approval gate; never absorb it silently.
+
+The brief-side of rule 4 — keep the dispatcher's expectation out of the instruction, and supply the discriminator rather than the destination — is [dispatch-brief-neutrality.md](dispatch-brief-neutrality.md) §2.
+
+### 9.6 Derive a contested set; do not pick either number
+
+> [!constraint] When two artifacts disagree on a count, find the rule that generates the set — a disagreement means at least one number was not derived, and usually neither was
+> A scaffolded task said add **3** sibling references to a curated list. An upstream flag, recorded after that task was scaffolded, said the task owns all **11** the previous sprint created. Both were defensible. Neither was derived. The generating rule — a sibling joins the list if and only if its split anchor is already in the list — yielded **10 added, 1 excluded**. Neither 3 nor 11.
+>
+> 1. Treat **both** numbers as suspect.
+> 2. **Find the rule that generates the set** from a property of the items themselves — something checkable per item, not a tally.
+> 3. **Derive independently at both ends.** A pre-computed answer travels only when labelled as a cross-check with halt-on-disagreement: if the receiving end's own derivation differs from the number it was handed, stop and reconcile before acting. A cross-check that arrives labelled "the answer" is not a check.
+> 4. **Record the excluded items with their reason.** "10 added" is unauditable; "10 added, one excluded because its anchor is unlisted" can be re-checked by anyone.
+> 5. **Gate on the derivation, not the count.** Assert both the total *and* that the excluded item is absent, because a bare total passes even when the wrong 10 were added.
+>
+> A count gate confirms arithmetic. A derivation gate confirms **selection**.
+
+The three sub-rules share one premise — the item's own prose is a claim — and fail differently, so their remedies do not substitute. Recomputing a tally does nothing for an inverted direction; re-deriving a direction does nothing for a contested count where **both** stated numbers are wrong. The flag-side of the same discipline — input-set enumeration, preserving a sender's text, re-deriving a flag's conclusion — is [read-confirm-act-protocol.md](read-confirm-act-protocol.md) §1.4.
 
 ---
 

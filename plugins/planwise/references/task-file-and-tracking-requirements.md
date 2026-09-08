@@ -341,6 +341,7 @@ A related code-generation discipline applies when the LSP reports a diagnostic t
 1. Update Sprint Plan status to COMPLETE
 2. Update Master Plan's Sprint Overview table to mark sprint COMPLETE
 3. Update Master Plan's Session Completion Tracking table
+4. Fill the Sprint Signoff verdict in this same step — never leave it "pending review" — and advance the Sprint Plan `Status:`, the signoff verdict, and every index or rollup row together. Where two of them already disagree, resolve against the verification report and the Recovery, never against the more convenient record (`exit-criteria-fidelity.md` §16.11)
 
 **After entire Plan completes:**
 1. Update Master Plan status to COMPLETE
