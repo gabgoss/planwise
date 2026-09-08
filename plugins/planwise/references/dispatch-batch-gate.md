@@ -32,6 +32,8 @@ Three neighbouring rules own machinery this file builds on and does not restate.
 
 Fan-out makes this systematic rather than rare. Splitting work across agents to get fresh context means each agent sees a slice. Wherever two slices overlap or must compose, each can be locally right and jointly wrong.
 
+The single-runner form of the same blindness — a status block whose every field is accurate and which still cannot see a coverage or uniqueness invariant — is [`verify-verdict-source.md`](verify-verdict-source.md) §4, with the member-naming gate output in its §6.
+
 ---
 
 ## 2. Run Every Session Criterion at the First Task That Makes It Runnable
