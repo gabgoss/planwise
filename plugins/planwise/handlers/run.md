@@ -59,6 +59,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a session authors a gate (guard, hook, linter, validation pass) or is about to report a gate's result as evidence: Read `references/verification-gate-evidence.md` — run the positive control before citing the pass, and preserve evidence a wrong-but-passing run could not have produced
 - If a task authors or modifies a content-bearing artifact (a rule, agent, skill, or handler): Read `references/artifact-self-containment.md` — content-bearing artifacts must inline content from their source rather than cite it; see Step 3.3's self-containment grep gate
 - If a session reports a total, a labelled aggregate, or a count stated in prose — in a Recovery file, a summary, or a handler doc: Read `references/measure-aggregate-provenance.md` — verify the addends, state the population beside the figure, and name the members inline where the count is load-bearing
+- If a task measures model or harness behaviour, tests a hypothesis whose magnitude could differ in a consuming project, or reports that the record does not capture something: Read `references/measure-scope-and-sample.md` — declare n per cell before looking at any result, return a conditional verdict with the deciding property named, and name which record-keeping layers were swept
 
 ---
 

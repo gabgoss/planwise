@@ -76,6 +76,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 - If the plan under review authors or promotes content into a rule, agent, skill, handler, or CLAUDE.md callout (promoting lesson/backlog content): Read `references/artifact-self-containment.md`
 - If a plan or its outputs state a total, a labelled aggregate, or a count in prose as a finding or a criterion: Read `references/measure-aggregate-provenance.md` — an exact match on a derived aggregate is weak evidence, and a figure whose population is unstated cannot be audited
+- If a plan's hypothesis, baseline, or evidence-gap statement rests on one dispatch, one project, or one swept corpus: Read `references/measure-scope-and-sample.md` — check that the sample size, the project boundary, and the corpus boundary are written into the sentence that states the finding
 
 ---
 
