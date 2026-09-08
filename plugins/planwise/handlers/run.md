@@ -60,6 +60,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task authors or modifies a content-bearing artifact (a rule, agent, skill, or handler): Read `references/artifact-self-containment.md` — content-bearing artifacts must inline content from their source rather than cite it; see Step 3.3's self-containment grep gate
 - If a session reports a total, a labelled aggregate, or a count stated in prose — in a Recovery file, a summary, or a handler doc: Read `references/measure-aggregate-provenance.md` — verify the addends, state the population beside the figure, and name the members inline where the count is load-bearing
 - If a task measures model or harness behaviour, tests a hypothesis whose magnitude could differ in a consuming project, or reports that the record does not capture something: Read `references/measure-scope-and-sample.md` — declare n per cell before looking at any result, return a conditional verdict with the deciding property named, and name which record-keeping layers were swept
+- If a task runs a did-the-figure-fall re-measure or dispatches probes under a budget guard: Read `references/measure-instrument-placement.md` — assert the traffic precondition before measuring, report n = 0 as a data gap with an owner, and put a verified per-call ceiling on every probe
 
 ---
 

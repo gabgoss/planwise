@@ -78,6 +78,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a plan or its outputs state a total, a labelled aggregate, or a count in prose as a finding or a criterion: Read `references/measure-aggregate-provenance.md` — an exact match on a derived aggregate is weak evidence, and a figure whose population is unstated cannot be audited
 - If a plan's hypothesis, baseline, or evidence-gap statement rests on one dispatch, one project, or one swept corpus: Read `references/measure-scope-and-sample.md` — check that the sample size, the project boundary, and the corpus boundary are written into the sentence that states the finding
 - If a plan grades probes or dry-runs, or its evidence names the control that produced a result: Read `references/measure-from-the-record.md` — a correct verdict is not evidence the attribution was correct, and a permission result scored on `is_error` alone cannot separate a denial from a downstream failure
+- If a plan schedules a re-measure as its closing sprint, states only a method criterion for a headline figure, or bounds probe spend with a cumulative guard: Read `references/measure-instrument-placement.md` — a window opening at the install is empty by construction, a method criterion is satisfied by an empty window, and a between-calls guard cannot catch an overrun inside the first call
 
 ---
 
