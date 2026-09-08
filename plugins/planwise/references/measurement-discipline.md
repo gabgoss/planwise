@@ -214,6 +214,7 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > ```bash
 > git add -N <each new file>       # then run the gate
 > ```
+> This remedy is scoped to a **pattern-presence** gate — one asking whether a forbidden token appears in the added lines. It inverts a **diff-property** gate — one asserting the change was comment-only, logic-identical, or exactly N lines. Intent-to-add records the path against an empty blob, so every pre-existing line renders as an addition and the gate fails correct work. See [`gate-baseline-independence.md`](gate-baseline-independence.md) §2 for the class test, and §3 there for the recorded-baseline form that discriminates.
 >
 > **2. Assert the gate's input was non-empty.** A gate over a diff must prove the diff covered the intended file set — never trust the pattern result alone:
 > ```bash
