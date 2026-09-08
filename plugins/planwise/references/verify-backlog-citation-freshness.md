@@ -400,6 +400,8 @@ A task whose deliverable is a verdict about code state must record which tree it
 > ```
 >
 > Both stamps go in the output header and the status block. The `SAME`/`DIFFERENT` matrix also halves the reading — only diverged files need a second pass.
+>
+> These stamps pin *which tree* was read. Where a concurrent writer is possible, they do not say whether the files' bytes held still between the two stamps; add the content-hash pins at both ends and both layers from [measure-artifact-identity.md](measure-artifact-identity.md) §2.
 
 ### 12.3 Make divergence loud, not resolvable
 
