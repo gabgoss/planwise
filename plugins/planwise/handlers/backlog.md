@@ -118,6 +118,7 @@ Display the table to the user.
 **If `$1` was provided** (an item ID):
 - Use that item ID directly — skip the selection prompt
 - Read the JSON temp file to get the full item data
+- **Held-item notice:** if the item's `status` is `BLOCKED`, the direct-ID path bypasses the table's own hold filtering entirely, so check this explicitly. Surface the hold and, before proceeding to Phase 3, use `AskUserQuestion` to confirm: "Item {item_id} is BLOCKED. Triage it anyway?" (Yes — proceed / No — leave at BLOCKED). Do NOT route silently past a hold just because it was requested by ID.
 
 **If no arguments:**
 - Present the table from Phase 1 (only selectable items — blocked items are excluded)

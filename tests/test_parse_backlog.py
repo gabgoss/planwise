@@ -22,6 +22,7 @@ Run with:  python -m pytest tests/test_parse_backlog.py -q
 
 import contextlib
 import io
+import json
 import shutil
 import sys
 import tempfile
@@ -32,10 +33,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import parse_backlog  # noqa: E402
+from constants import ARCHIVE_STATUSES, CLOSED_STATUSES  # noqa: E402
 from parse_backlog import (  # noqa: E402
     FilterCriteria,
     build_blocked_by_map,
     filter_items,
+    format_blocked_summary,
     parse_backlog_table,
     parse_dependencies_table,
 )
@@ -98,6 +101,18 @@ class _ParseBacklogFixtureBase(unittest.TestCase):
         finally:
             sys.argv = saved_argv
         return out.getvalue().strip(), err.getvalue()
+
+    def run_parse(self, extra_args: list[str] | None = None) -> tuple[str, str]:
+        """Invoke parse_backlog.main() with the plain CLI path; return (stdout, stderr)."""
+        saved_argv = sys.argv
+        sys.argv = ["parse_backlog", "--config", str(self.config_path), *(extra_args or [])]
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                parse_backlog.main()
+        finally:
+            sys.argv = saved_argv
+        return out.getvalue(), err.getvalue()
 
 
 class TestNextIdAllocatorMatrix(_ParseBacklogFixtureBase):
@@ -277,6 +292,92 @@ class TestBlockedByMapFailOpenGuard(unittest.TestCase):
 
         self.assertIn("PFX-002", [i["id"] for i in filtered])
         self.assertEqual(blocked, [])
+
+
+class TestArchiveStatusesNotAliasedToClosedStatuses(unittest.TestCase):
+    """BB-077 AC1: setting a hold status must not risk archiving the item file.
+    ARCHIVE_STATUSES used to be a bare alias (`ARCHIVE_STATUSES = CLOSED_STATUSES`),
+    so the two names pointed at the identical frozenset object -- widening one
+    concept silently widened the other. They must now be independent objects,
+    even though their current membership (COMPLETE, CLOSED) still matches."""
+
+    def test_archive_and_closed_statuses_are_independent_objects(self):
+        self.assertIsNot(
+            ARCHIVE_STATUSES, CLOSED_STATUSES,
+            "ARCHIVE_STATUSES is aliased to CLOSED_STATUSES -- adding a hold "
+            "status to one would silently change the other's archival behavior",
+        )
+        # Membership is unchanged by the split -- this is a decoupling, not a
+        # behavior change to what already archives.
+        self.assertEqual(ARCHIVE_STATUSES, CLOSED_STATUSES)
+
+
+class TestHoldStatusSelectabilityFilter(_ParseBacklogFixtureBase):
+    """BB-077 AC2/AC3: a BLOCKED item with no dependency edges is inert today --
+    parse_backlog.py filters selectability only on closed-ness and the
+    blocks: dependency graph, never on the item's own status. These pin the
+    fix: BLOCKED excludes an item from the selectable table/JSON the same way
+    a dependency block does, is distinguishable from a dependency block in the
+    blocked summary, and is still resolvable by a direct --id lookup so the
+    hold can be surfaced rather than silently bypassed."""
+
+    def test_held_item_with_no_dependency_edges_is_excluded_from_filtered(self):
+        items = [
+            {"id": "067", "feature": "Held item", "priority": "Medium",
+             "status": "BLOCKED", "abbrev": "DOC", "score": 25, "files": []},
+            {"id": "068", "feature": "Ordinary item", "priority": "Medium",
+             "status": "NOT_STARTED", "abbrev": "DOC", "score": 20, "files": []},
+        ]
+        filtered, blocked = filter_items(items, FilterCriteria(), blocked_by_map={})
+
+        self.assertNotIn("067", [i["id"] for i in filtered])
+        self.assertIn("068", [i["id"] for i in filtered])
+        self.assertIn("067", [i["id"] for i in blocked])
+
+    def test_show_blocked_still_reveals_a_held_item(self):
+        items = [
+            {"id": "067", "feature": "Held item", "priority": "Medium",
+             "status": "BLOCKED", "abbrev": "DOC", "score": 25, "files": []},
+        ]
+        filtered, blocked = filter_items(
+            items, FilterCriteria(show_blocked=True), blocked_by_map={}
+        )
+        self.assertIn("067", [i["id"] for i in filtered])
+        self.assertEqual(blocked, [])
+
+    def test_blocked_summary_distinguishes_hold_from_dependency_block(self):
+        held = {"id": "067", "feature": "Held item", "priority": "Medium",
+                "status": "BLOCKED", "abbrev": "DOC", "score": 25, "files": []}
+        dep_blocked = {"id": "070", "feature": "Dependency-blocked item", "priority": "Medium",
+                       "status": "NOT_STARTED", "abbrev": "DOC", "score": 20, "files": []}
+        # blocked_by_map keys/values are normalize_id'd by build_blocked_by_map
+        # (leading zeros stripped) -- mirror that here rather than the raw ID.
+        summary = format_blocked_summary([held, dep_blocked], blocked_by_map={"70": ["69"]})
+
+        held_line = next(line for line in summary.splitlines() if "067" in line)
+        dep_line = next(line for line in summary.splitlines() if "070" in line)
+        self.assertIn("held (status: BLOCKED)", held_line)
+        self.assertIn("blocked by: 69", dep_line)
+
+    def test_direct_id_lookup_on_a_held_item_still_resolves_via_json(self):
+        # The direct-ID path (`/planwise backlog <id>`) skips the selectable
+        # table entirely and reads the JSON temp file for item data. A held
+        # item must still be resolvable there so the hold can be surfaced --
+        # a filter that empties the JSON on a held item's only match makes
+        # the direct-ID path fail silently instead of surfacing the hold.
+        rows = _row("067", status="BLOCKED", feature="Held item")
+        self.write_index(rows)
+
+        out, err = self.run_parse(["--id", "067"])
+        self.assertEqual(err, "")
+
+        json_line = next(line for line in out.splitlines() if line.startswith("JSON: "))
+        json_path = json_line.removeprefix("JSON: ")
+        with open(json_path, encoding="utf-8") as f:
+            items = json.load(f)
+
+        self.assertEqual([i["id"] for i in items], ["067"])
+        self.assertEqual(items[0]["status"], "BLOCKED")
 
 
 if __name__ == "__main__":

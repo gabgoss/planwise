@@ -17,7 +17,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
-from constants import CLOSED_STATUSES
+from constants import CLOSED_STATUSES, HOLD_STATUSES
 from markdown_parser import (
     id_number,
     normalize_id,
@@ -143,8 +143,11 @@ def filter_items(
         if criteria.item_id and normalize_id(item["id"]) != normalize_id(criteria.item_id):
             continue
 
-        if blocked_by_map and not criteria.show_blocked:
-            if blocked_by_map.get(normalize_id(item["id"])):
+        if not criteria.show_blocked:
+            if item["status"].upper() in HOLD_STATUSES:
+                blocked.append(item)
+                continue
+            if blocked_by_map and blocked_by_map.get(normalize_id(item["id"])):
                 blocked.append(item)
                 continue
 
@@ -206,21 +209,24 @@ def format_table(items: list[dict], sort_by: str = "score") -> str:
 def format_blocked_summary(
     blocked_items: list[dict], blocked_by_map: dict[str, list[str]]
 ) -> str:
-    """Format a summary of blocked items with their blockers."""
+    """Format a summary of blocked items with their blockers or hold status."""
     if not blocked_items:
         return ""
 
-    lines = ["", "--- Blocked Items (resolve blockers first) ---"]
+    lines = ["", "--- Blocked Items (resolve blockers or holds first) ---"]
 
     for item in sorted(blocked_items, key=lambda x: (-x.get("score", 0), x["id"])):
-        blockers = blocked_by_map.get(item["id"], [])
-        blocker_str = ", ".join(blockers)
+        blockers = blocked_by_map.get(normalize_id(item["id"]), [])
+        if blockers:
+            reason = f"blocked by: {', '.join(blockers)}"
+        else:
+            reason = f"held (status: {item['status']})"
         feature = item["feature"]
         if len(feature) > 45:
             feature = feature[:42] + "..."
         score_str = str(item.get("score", 0))
         lines.append(
-            f"  {item['id']} | {feature:<45} | {score_str:>3} pts | blocked by: {blocker_str}"
+            f"  {item['id']} | {feature:<45} | {score_str:>3} pts | {reason}"
         )
 
     lines.append(f"\n{len(blocked_items)} item(s) blocked.")
@@ -292,8 +298,11 @@ def main():
     if blocked:
         print(format_blocked_summary(blocked, blocked_by_map))
 
-    if filtered:
-        json_path = write_json(filtered)
+    # Combine both buckets: a direct `--id` lookup on a held or dependency-blocked
+    # item must still resolve the item's data (status included) so the caller can
+    # surface the hold before routing, rather than finding nothing.
+    if filtered or blocked:
+        json_path = write_json(filtered + blocked)
         print(f"JSON: {json_path}")
 
 
