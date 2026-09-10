@@ -37,6 +37,11 @@ All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 ---
 
+> [!practice] Session-Level Effort for Large Runs
+> This handler executes inline in the calling session — there is no dispatched orchestrator agent to carry an `effort:` frontmatter field (only `planwise:task-runner`, in DELEGATED mode, can). For a large DELEGATED session or a multi-sprint run, consider running `/effort high` (or your project's measured preference) before invoking this command, or set a standing default in *your own project's* `.claude/settings.json` (`effortLevel`, or a per-model entry under `modelSettings`) — never a value this plugin ships itself. This recommendation is advisory only.
+
+---
+
 ## Required References
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:

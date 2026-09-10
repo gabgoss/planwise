@@ -31,6 +31,7 @@ An agent definition is a Markdown file in `.claude/agents/` with YAML frontmatte
 | `tools` | string | No | All tools | Comma-separated allowlist. `Task(agent_type)` restricts spawning. |
 | `disallowedTools` | string | No | None | Comma-separated denylist. Removed from `tools` set (or all tools). |
 | `model` | string | No | `inherit` | `haiku`, `sonnet`, `opus`, or `inherit` |
+| `effort` | string | No | Claude Code default (`xhigh`) | `low`, `medium`, `high`, `xhigh`, `max` — availability depends on the dispatched model |
 | `permissionMode` | string | No | `default` | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` |
 | `maxTurns` | number | No | unlimited | Max agentic turns before agent stops |
 | `skills` | list | No | None | Skill names to preload. Full SKILL.md injected at startup. |
@@ -87,6 +88,14 @@ disallowedTools: Edit   # Result: Read, Grep, Glob
 | `sonnet` | Code modification | Balanced cost/quality |
 | `opus` | Full access or complex decisions | Reserve for high-stakes reasoning |
 
+**`effort`** — `low`, `medium`, `high`, `xhigh`, `max`. Independent of `model:` — sets the reasoning-effort parameter for this agent's own dispatches, overriding the session's effort for that subagent only. Changing effort mid-session invalidates prompt cache, so pick a value for an agent's whole run rather than varying it turn-to-turn.
+
+| Effort | Recommended Scope | Rationale |
+|--------|--------------------|-----------|
+| `low` / `medium` | Narrow, well-specified briefs (single-file edits, scripted verification) | Lower effort suits subagents and simple, well-scoped tasks |
+| `high` / `xhigh` | Open-ended or judgment-heavy dispatches (design decisions, ambiguous scope) | Matches Claude Code's own default; more thorough exploration before acting |
+| `max` | Reserved — not recommended for routine subagent dispatch | Highest cost; use only where correctness must be maximized regardless of spend |
+
 **`permissionMode`** — `default` (prompt on sensitive ops), `acceptEdits` (auto-accept edits), `dontAsk` (auto-deny prompts), `bypassPermissions` (skip all checks), `plan` (read-only planning).
 
 **`maxTurns`** — Maximum API round-trips. No value = unlimited.
@@ -133,6 +142,7 @@ hooks:
 
 - `name` must match filename without `.md` extension
 - YAML booleans must be lowercase: `true` / `false`
+- `effort` values are lowercase, same as `model`
 - Use 2-space indentation (not tabs) in hooks YAML
 - `memory: any` auto-enables Read/Write/Edit regardless of `tools`
 - Parent `bypassPermissions` overrides subagent `permissionMode` — cannot be narrowed
@@ -145,7 +155,7 @@ description: One-line summary of what this agent does and when to use it
 ---
 ```
 
-**Full example (all 13 fields):**
+**Full example (all 14 fields):**
 ```yaml
 ---
 name: code-reviewer
@@ -153,6 +163,7 @@ description: Reviews pull request diffs for style violations and logic errors. U
 tools: Read, Grep, Glob, Bash(git *)
 disallowedTools: Write, Edit
 model: sonnet
+effort: high
 permissionMode: dontAsk
 maxTurns: 30
 background: false
