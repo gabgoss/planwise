@@ -4,7 +4,12 @@ description: >
   Executes individual planned tasks during session execution. Reads task files,
   loads required context, runs execution steps, writes output files, and updates
   recovery state. Use when delegating task execution in /planwise run DELEGATED mode.
-tools: Read, Write, Edit, Glob, Grep, Bash, SendMessage, ToolSearch
+tools: Read, Write, Edit, Glob, Grep, Bash, SendMessage, ToolSearch, NotebookEdit, WebFetch, WebSearch
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. NotebookEdit/WebFetch/WebSearch
+# are kept available even though no current task-file instruction exercises
+# them, since this agent executes arbitrary task-file content.
+disallowedTools: TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree
 model: inherit
 maxTurns: 50
 ---

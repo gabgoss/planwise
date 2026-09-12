@@ -15,6 +15,11 @@ description: >
 # instead of each deriving its own. Bash is for those counts and nothing else
 # here — listing, viewing, and searching route through Glob, Read, and Grep.
 tools: Read, Glob, Grep, Bash, Write
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. Write is Step 5's fact-sheet
+# write only — Edit is deliberately absent: "Do not modify any file in the
+# plan tree. Your only write is the fact sheet."
+disallowedTools: Edit, NotebookEdit, WebFetch, WebSearch, SendMessage, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree, ToolSearch
 model: sonnet
 maxTurns: 25
 ---

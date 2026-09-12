@@ -6,6 +6,12 @@ description: >
   Route C, reports that the plan is ready for review, and stops — it never
   executes the plan. Use when routing backlog items to session planning
   (Route C) via /planwise backlog automation.
+tools: Read, Write, Edit, Glob, Grep, Bash
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. Every spawn site dispatches
+# this agent as a plain foreground Task with a plain-text status-block
+# return — never team mode — so SendMessage/ToolSearch are unneeded.
+disallowedTools: NotebookEdit, WebFetch, WebSearch, SendMessage, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree, ToolSearch
 model: opus
 maxTurns: 50
 ---
@@ -100,7 +106,7 @@ An `APPROVED` verdict does not certify destructive-path safety. This is document
 ## Constraints
 
 - `background` is omitted and MUST never be set true — backgrounding a write-producing agent silently denies its Write/Edit/Bash calls.
-- Full tool access (no `tools:` field) — matches the existing fix and task-runner agents.
+- `tools: Read, Write, Edit, Glob, Grep, Bash` — matches `fix-agent`'s grant, not `task-runner`'s: this agent never uses SendMessage/ToolSearch, since every spawn site is a plain foreground `Task` with a plain-text status-block return, never team mode.
 - Plan one backlog item at a time.
 - Do not update the backlog index — the orchestrator handles that.
 - Do not execute the plan under any circumstance, including an `APPROVED` review verdict.

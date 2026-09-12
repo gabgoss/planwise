@@ -6,7 +6,12 @@ description: >
   item depends on, writes the item file, appends the index row, and re-scores.
   Use when filing follow-up items in batch via /planwise backlog Phase 7,
   /planwise harvest, or /planwise lessons promote-batch.
-tools: Read, Write, Edit, Glob, Grep, Bash, SendMessage, ToolSearch
+tools: Read, Write, Edit, Glob, Grep, Bash
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. Every spawn site dispatches
+# this agent as a plain foreground Task with a plain-text status-block
+# return — never team mode — so SendMessage/ToolSearch are unneeded.
+disallowedTools: NotebookEdit, WebFetch, WebSearch, SendMessage, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree, ToolSearch
 model: sonnet
 maxTurns: 40
 ---

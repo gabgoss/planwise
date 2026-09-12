@@ -6,6 +6,10 @@ description: >
   Execution Input fidelity. Use as Phase 2 reviewer in /planwise review teams
   for deep content analysis. Receives a specific review role via spawn prompt.
 tools: Read, Glob, Grep, SendMessage, ToolSearch
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. This is a pure read-and-report
+# role across every review role variant — no Write/Edit/Bash at any spawn site.
+disallowedTools: Write, Edit, Bash, NotebookEdit, WebFetch, WebSearch, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree
 model: sonnet
 maxTurns: 30
 ---

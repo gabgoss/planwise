@@ -31,7 +31,7 @@ An agent definition is a Markdown file in `.claude/agents/` with YAML frontmatte
 | `tools` | string | No | All tools | Comma-separated allowlist. `Task(agent_type)` restricts spawning. |
 | `disallowedTools` | string | No | None | Comma-separated denylist. Removed from `tools` set (or all tools). |
 | `model` | string | No | `inherit` | `haiku`, `sonnet`, `opus`, or `inherit` |
-| `effort` | string | No | Claude Code default (`xhigh`) | `low`, `medium`, `high`, `xhigh`, `max` — availability depends on the dispatched model |
+| `effort` | string | No | Inherits the session's level (Claude Code's default is `high` on every current model; Opus 4.7 alone defaults to `xhigh`) | `low`, `medium`, `high`, `xhigh`, `max` — availability depends on the dispatched model |
 | `permissionMode` | string | No | `default` | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` |
 | `maxTurns` | number | No | unlimited | Max agentic turns before agent stops |
 | `skills` | list | No | None | Skill names to preload. Full SKILL.md injected at startup. |
@@ -93,7 +93,7 @@ disallowedTools: Edit   # Result: Read, Grep, Glob
 | Effort | Recommended Scope | Rationale |
 |--------|--------------------|-----------|
 | `low` / `medium` | Narrow, well-specified briefs (single-file edits, scripted verification) | Lower effort suits subagents and simple, well-scoped tasks |
-| `high` / `xhigh` | Open-ended or judgment-heavy dispatches (design decisions, ambiguous scope) | Matches Claude Code's own default; more thorough exploration before acting |
+| `high` / `xhigh` | Open-ended or judgment-heavy dispatches (design decisions, ambiguous scope) | `high` is Claude Code's own default; `xhigh` buys more exploration before acting at two to four times the thinking spend |
 | `max` | Reserved — not recommended for routine subagent dispatch | Highest cost; use only where correctness must be maximized regardless of spend |
 
 **`permissionMode`** — `default` (prompt on sensitive ops), `acceptEdits` (auto-accept edits), `dontAsk` (auto-deny prompts), `bypassPermissions` (skip all checks), `plan` (read-only planning).

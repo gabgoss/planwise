@@ -6,6 +6,10 @@ description: >
   Use as Phase 1 reviewer in /planwise review teams to catch structural blockers
   before content review begins.
 tools: Read, Glob, Grep, SendMessage, ToolSearch
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. This is a pure read-and-report
+# role in both No-Team and Team dispatch — no Write/Edit/Bash at any spawn site.
+disallowedTools: Write, Edit, Bash, NotebookEdit, WebFetch, WebSearch, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree
 model: sonnet
 maxTurns: 20
 ---
