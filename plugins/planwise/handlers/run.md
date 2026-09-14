@@ -38,7 +38,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}`.
 ---
 
 > [!practice] Session-Level Effort for Large Runs
-> This handler executes inline in the calling session — there is no dispatched orchestrator agent to carry an `effort:` frontmatter field (only `planwise:task-runner`, in DELEGATED mode, can). For a large DELEGATED session or a multi-sprint run, consider running `/effort high` (or your project's measured preference) before invoking this command, or set a standing default in *your own project's* `.claude/settings.json` (`effortLevel`, or a per-model entry under `modelSettings`) — never a value this plugin ships itself. This recommendation is advisory only.
+> This handler executes inline in the calling session — there is no dispatched orchestrator agent to carry an `effort:` frontmatter field. The session's `/effort` setting (or `effortLevel` in *your own project's* `.claude/settings.json`) therefore governs the orchestrator: for a large DELEGATED session or a multi-sprint run, consider `/effort high` before invoking this command. It does NOT reach `planwise:task-runner`: that agent ships `effort: medium`, pinned in its frontmatter from a measured grid, and a frontmatter value overrides the session setting for that agent's dispatches. See `references/agent-authoring.md` § Shipped Effort Levels for the values, the measurement, and when to re-measure. This recommendation is advisory only.
 
 ---
 

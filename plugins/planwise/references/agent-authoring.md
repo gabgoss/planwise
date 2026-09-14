@@ -92,9 +92,28 @@ disallowedTools: Edit   # Result: Read, Grep, Glob
 
 | Effort | Recommended Scope | Rationale |
 |--------|--------------------|-----------|
-| `low` / `medium` | Narrow, well-specified briefs (single-file edits, scripted verification) | Lower effort suits subagents and simple, well-scoped tasks |
-| `high` / `xhigh` | Open-ended or judgment-heavy dispatches (design decisions, ambiguous scope) | `high` is Claude Code's own default; `xhigh` buys more exploration before acting at two to four times the thinking spend |
-| `max` | Reserved — not recommended for routine subagent dispatch | Highest cost; use only where correctness must be maximized regardless of spend |
+| `low` | Not recommended for any dispatch that writes code or judges quality | Measured (see below): on the smaller model `low` passed 6 of 32 baseline runs against 20 of 28 at `high` (Fisher p = 0.0002) |
+| `medium` | Task execution against a written brief (single- or multi-file edits, scripted verification) | Measured: indistinguishable from `high` on baseline pass rate on both models (19/28 vs 20/28, p = 1.0000; 28/28 vs 28/28) at 0.705× / 0.757× the cost |
+| `high` | Review and judgment (defect finding, design decisions, ambiguous scope) | Claude Code's own default. Measured: the review floor — `medium` lost on the worst repetition (6 vs 7 defects found) and on one model's median (7.0 vs 8.0) |
+| `xhigh` | No measured gain over `high` on either arm | Two to four times the thinking spend; execution 20/28 vs 24/28 (p = 0.3290) and 28/28 vs 28/28 — no significant difference |
+| `max` | Reserved — not recommended for routine subagent dispatch | Highest cost; unmeasured |
+
+### Shipped Effort Levels
+
+The plugin pins `effort:` on the agents it measured and leaves the rest inheriting the session level.
+
+| Agent | `effort:` | Basis |
+|-------|-----------|-------|
+| `task-runner` | `medium` (pinned) | Execution arm, measured 2026-09 |
+| `plan-reviewer` | `high` (pinned) | Review arm, measured 2026-09 |
+| `structural-reviewer` | `high` (pinned) | Review arm, measured 2026-09 |
+| `fix-agent`, `backlog-author`, `backlog-planner`, `review-discovery`, `rule-comparator` | inherited (not set) | Not yet measured |
+
+**How the values were measured.** Seven execution tasks with scripted graders (a newline round-trip, a diff-gate baseline, shell quoting, test-collection scope, an aggregate filter, and two under-specified briefs — one parse, one merge), 4 repetitions per cell, on Sonnet 5 and Opus 5, at each of `low`, `medium`, `high`, `xhigh`. The execution arm dispatched `claude --agent task-runner -p` against a frozen copy of the shipped agent file with only its `effort:` line changed. The review arm dispatched a reviewer against a document carrying eight seeded defects, 4 repetitions per cell at the same four levels, and counted defects found. Verdicts use one rule: a cheaper level HOLDS when its pass rate is at least the dearer level's, else it REGRESSES. The figures in the table above are the pooled baseline-run pass rates and the review medians from that grid.
+
+**What a pinned value does.** An agent's `effort:` overrides the session's `/effort` setting and the `effortLevel` in `settings.json` for that agent's dispatches only. The Agent tool has no effort parameter, and a plugin-namespaced agent cannot be shadowed by a project-local copy, so a pinned value is the effective value on every dispatch of that agent. A session-level setting still governs everything that runs inline — the orchestrator in `/planwise run`, the planner in `/planwise plan`, and every agent in the inherited row.
+
+**When to re-measure.** A pinned effort value is a cost claim about the models and the agent body it was measured on. Re-measure before changing a pinned value, and re-measure when the model family changes, when an agent's tool set or role changes class, or when a consumer's task mix differs from the corpus above. The review cells were n=4 per level, below the 20-per-level bar the measurement set for lowering a review floor. A consumer who wants `medium` on a reviewer should run 16 more review repetitions per cell at `medium` and `high` before changing it.
 
 **`permissionMode`** — `default` (prompt on sensitive ops), `acceptEdits` (auto-accept edits), `dontAsk` (auto-deny prompts), `bypassPermissions` (skip all checks), `plan` (read-only planning).
 

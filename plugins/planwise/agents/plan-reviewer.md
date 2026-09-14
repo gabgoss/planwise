@@ -11,6 +11,13 @@ tools: Read, Glob, Grep, SendMessage, ToolSearch
 # role across every review role variant — no Write/Edit/Bash at any spawn site.
 disallowedTools: Write, Edit, Bash, NotebookEdit, WebFetch, WebSearch, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree
 model: sonnet
+# effort: high — pinned, not inherited, so a session-level `/effort low` does
+# not silently degrade review. Measured 2026-09 on a defect-finding review
+# task, 4 repetitions per cell, Sonnet 5 and Opus 5: the floor stayed `high`
+# (Sonnet worst rep at `medium` 6 vs 7 defects found; Opus median found
+# regressed 7.0 vs 8.0 at medium vs high); `xhigh` bought nothing. Every
+# review cell was n=4 — re-measure with more repetitions before lowering.
+effort: high
 maxTurns: 30
 ---
 

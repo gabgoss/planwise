@@ -11,6 +11,15 @@ tools: Read, Write, Edit, Glob, Grep, Bash, SendMessage, ToolSearch, NotebookEdi
 # them, since this agent executes arbitrary task-file content.
 disallowedTools: TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree
 model: inherit
+# effort: medium — measured 2026-09 on seven scripted-grader execution tasks,
+# 4 repetitions per cell, Sonnet 5 and Opus 5, dispatched as `claude --agent task-runner -p`
+# against a frozen copy of this file. `medium` matched `high` on baseline
+# pass rate (Sonnet 19/28 vs 20/28, Fisher p = 1.0000; Opus 28/28 vs 28/28)
+# at 0.705x / 0.757x the cost of `high`; `low` failed (Sonnet 6/32 vs 20/28,
+# p = 0.0002); `xhigh` bought nothing on either model. This value overrides
+# the session's /effort setting for this agent's dispatches only. Re-measure
+# before changing it, and re-measure when the model family changes.
+effort: medium
 maxTurns: 50
 ---
 
