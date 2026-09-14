@@ -11,8 +11,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 **Agent:** {Haiku|Sonnet|Opus}
 **Estimated Tokens:** ~{X}K
 **Token Budget:** ~{X}K (exception: {none | 1M (cost) | paged-read (read) | refactor-pending})  <!-- OPTIONAL — Token Saver only. Add only when the warning engine flags this task. `1M (cost)` raises the dispatch to Opus/1M (cost-reason Critical, oversized indivisible file); `paged-read (read)` means a Required Context file trips a Read gate and the runner pages it (read-reason Critical — NOT 1M-resolvable); `refactor-pending` means a core/edited file must be split before this task is safe. -->
-**Depends On:** {task numbers, or "cross-sprint: {Abbrev}-S{XX}-{YY}-{##}", or "-"}
-**Cross-Sprint Refs:** {list of cross-sprint files in Required Context, or "None"}  <!-- Add only when Required Context cites cross-sprint files (per task-file-and-tracking-requirements.md cross-sprint dependency convention) -->
+**Depends On:** {task numbers for same-session producers; "cross-session: {Abbrev}-S{XX}-{YY}-{##}" for a file from an earlier session of the SAME sprint; "cross-sprint: {Abbrev}-S{XX}-{YY}-{##}" for a file from an earlier sprint; or "-"}  <!-- Every Required Context row that cites another task's output is mirrored here with that producer's full Task ID and the prefix its class requires (task-file-and-tracking-requirements.md §9 mirroring table). A same-sprint prior-session read is `cross-session:`, never `cross-sprint:` — the reviewer's Check 038 matches on the literal prefix. Listing the file in Cross-Sprint Refs below does not replace the mirror. -->
+**Cross-Sprint Refs:** {list of cross-sprint files in Required Context, or "None"}  <!-- Add only when Required Context cites cross-sprint files (per task-file-and-tracking-requirements.md cross-sprint dependency convention). This field names the FILES; the producer Task IDs still go in Depends On. -->
 **Output:** {path where deliverable should be saved, e.g., Outputs/{Abbrev}-{description}.md}
 
 ---

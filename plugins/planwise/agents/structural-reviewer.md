@@ -65,7 +65,7 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - [ ] Session numbers are sequential within sprints (01, 02, ...)
 - [ ] Task numbers are sequential within sessions (01, 02, ...)
 - [ ] Token estimate sums in orchestration match individual task estimates
-- [ ] Sequential-sprint prerequisite declaration: each Sprint Plan where sprint number > 01 declares prior-sprint prerequisite (S03)
+- [ ] Sequential-sprint prerequisite declaration: each sequential sprint's first-session Orchestration (sprint number > 01) carries a `**Prerequisite:**` line naming the prior sprint's completion (S03)
 - [ ] Declared-parallel (`∥`) sprint pairs have a computed, disjoint or explicitly-dispositioned write-set intersection; no shared path under two `∥` sprints (S05)
 
 ---
@@ -116,14 +116,14 @@ Fix: Create Outputs/.gitkeep per references/scaffolding-hygiene.md §5 | Confide
 - **Severity:** ERROR
 - **Source:** `references/scaffolding-hygiene.md` §6
 - **Type:** NEW
-- **What:** Each Sprint Plan where sprint number > 01 MUST declare prior-sprint prerequisite in Prerequisites section.
-- **Detection:** For each Sprint-NN Sprint Plan where NN > 01, grep `Prerequisite:\s*Sprint\s+(\d+)\s+COMPLETE`. Absent → ERROR.
+- **What:** Each sequential sprint's first-session Orchestration where sprint number > 01 MUST carry an explicit `**Prerequisite:**` line at the top naming the prior sprint's completion. §6 binds the Orchestration, because that is the file the executor opens; a Sprint Plan `## Prerequisites` bullet is not what §6 requires and does not satisfy this check on its own.
+- **Detection:** For each `Sprint-NN-*/Session-01-*/{Abbrev}-SNN-01-Orchestration.md` where NN > 01, `Grep` for `\*\*Prerequisite:\*\*.*COMPLETE`. Either form passes: the §6 form `**Prerequisite:** Sprint {NN-1} session COMPLETE — …` or a session-ID form `**Prerequisite:** {Abbrev}-S{NN-1}-{YY} COMPLETE (…)`. Absent → ERROR. Do NOT run this `Grep` over the Sprint Plan: a plan whose Sprint Plan reads `- Sprint-{NN-1} COMPLETE: …` while its Orchestration carries the line is compliant, and a plan whose Sprint Plan carries it but whose Orchestration does not is the defect §6 describes.
 - **Finding template:**
 ```
 [ERROR] Sequential-sprint prerequisite declaration missing
-File: {Sprint Plan path} | Location: Prerequisites section
-Issue: Sprint {NN} > 01 lacks "Prerequisite: Sprint {NN-1} COMPLETE"
-Fix: Add prerequisite per references/scaffolding-hygiene.md §6 | Confidence: HIGH
+File: {Orchestration path} | Location: header, above Session Objective
+Issue: Sprint {NN} > 01 Orchestration lacks a "**Prerequisite:** … COMPLETE" line
+Fix: Add `**Prerequisite:** Sprint {NN-1} session COMPLETE — {what must exist}` at the top of the Orchestration per references/scaffolding-hygiene.md §6 | Confidence: HIGH
 ```
 
 ### Check S04 — Master Plan Sole READY_TO_EXECUTE Status
