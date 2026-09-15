@@ -88,6 +88,7 @@ The annotations are inert during ordinary interactive runs — they guide Auto M
 
 Parse `$ARGUMENTS` to identify the orchestration file:
 - `$1` or `@file` syntax -- path to orchestration file or Master Plan
+- `--resume` -- optional flag. Recorded for Step 1.3; it changes nothing in Phase 0.
 
 <!-- AUTO-MODE: critical -->
 If no argument provided, ask the user:
@@ -193,6 +194,15 @@ If the user approves Option A (or any expansion beyond the literal scope), the P
 Use `AskUserQuestion`: "Ready to proceed with {next action}?"
 
 Only proceed after user approval. If Step 1.2a surfaced a structural finding, the AskUserQuestion options are the A (Coherent) / B (Literal) pair, not a generic "proceed?" -- the user's choice IS the Phase-1 approval reference recorded in Recovery and Summary.
+
+> [!gate] `--resume` — skip the approval only for a proven mid-session resume
+> When `--resume` was passed at Step 0.1, skip the `AskUserQuestion` above ONLY when ALL three hold, read from the Recovery file Step 1.1 loaded:
+> 1. `**Session Status:** IN_PROGRESS`
+> 2. the `## Session Boundary Note` section is present (see `templates/recovery.md`)
+> 3. `**Resume State:** complete`
+>
+> When all three hold: append `Resume: --resume accepted — {the Next Dispatch line}` to the Step 1.2 `CONTEXT LOADED` block, log a Recovery Change Log row `RESUMED (--resume)`, and proceed to Phase 2 with no question asked. Phase 0, Step 1.1, Step 1.1a, and Step 1.2 are NOT skipped — their reads are what a re-entry needs.
+> When any condition fails: ignore the flag, append `Resume: --resume ignored — {the failing condition}` to the block, and ask as usual. A structural finding at Step 1.2a always asks, flag or no flag.
 
 ---
 
@@ -384,7 +394,7 @@ After each task completes (DIRECT or DELEGATED, sequential):
    ```
    If matches -- do NOT mark the task complete; re-dispatch the runner with the grep output requesting the cited content be inlined, or open a follow-up task. See [§4.1](../references/artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover) for the exempt zones. A task whose output touches ONLY bookkeeping artifacts skips this gate.
 7. **Session-length checkpoint** -- evaluate the configured thresholds now that Recovery is current, and on a trip recommend a session boundary. See [Step 3.5](#step-35-session-length-checkpoint). It observes and recommends; it never halts the loop on its own.
-8. **THEN** proceed to next task
+8. **THEN** proceed to next task — after the layer-edge stop gate below, when it applies.
 
 After a **parallel batch** of 3+ task-runners returns:
 
@@ -399,7 +409,20 @@ After a **parallel batch** of 3+ task-runners returns:
    - Update "Current Step" to the next dependency layer
 5. **TaskList** -- mark every batch task `completed`
 6. **Session-length checkpoint** -- evaluate ONCE for the whole batch, after the central Recovery reconciliation above. See [Step 3.5](#step-35-session-length-checkpoint). A batch boundary is the safest place in a delegated session to take a split, because no runner is in flight.
-7. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch)
+7. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch) — after the layer-edge stop gate below, when it applies.
+
+> [!gate] Layer-edge stop — `context.run_layer_stop` (`off` by default)
+> Read `run_layer_stop` through `scripts/config_loader.py::get_token_saver_extension_config()` — never hardcode it. When it is `off`, this gate does nothing. When it is `on`, and the task just reconciled closes a dependency layer — every task whose `Depends On` were satisfied at the same point is now COMPLETE or BLOCKED; number the layers from L1 in dispatch order, or take the orchestration's `**Declared layers:**` line when it has one — do these three things BEFORE the next dispatch:
+>
+> 1. **Write Recovery `## Session Boundary Note`** (the section is in `templates/recovery.md`): `**Next Dispatch:** task {n} ({Agent}), layer L{k+1}` — or `none` when no PENDING task remains; `**Resume State:** complete` only when every box of the Resume-State Completeness checklist holds (`references/session-execution-protocol.md` § Session-Length Checkpoint), otherwise `incomplete`; `**Written At:** {timestamp}`.
+> 2. **Print exactly this line and END YOUR TURN** — no further tool call, no next dispatch, nothing after it:
+>    ```
+>    LAYER BOUNDARY: L{k} complete. Next dispatch: task {n} ({Agent}), layer L{k+1}. Say "continue" to proceed.
+>    ```
+>    When no task remains the line reads `LAYER BOUNDARY: L{k} complete. Next dispatch: none. Say "continue" to proceed to Phase 4.`
+> 3. **On the next user prompt**, resume at the Next Dispatch line without re-running Phase 0 or Phase 1 — Recovery is current, and this is the same session. If the session was cleared in between, `/planwise run <orchestration> --resume` re-enters through Phase 0 (Step 0.1).
+>
+> The stop is a fixed point a supervisor can act on: a person types `continue`, or a hook module reads the Recovery note and decides between continuing, compacting, or clearing. The gate itself never compacts and never clears.
 
 ### Step 3.4: Handle Task Failure
 
@@ -438,7 +461,7 @@ Read both values through `scripts/config_loader.py::get_token_saver_extension_co
 **On a trip, in order:**
 
 1. **Complete the in-flight task.** Never interrupt a dispatch — a half-finished runner is precisely the incomplete handoff this checkpoint exists to avoid.
-2. **Write complete resume state.** Recovery current through the last completed task; every Cross-Task Coordination Flag routed per Step 4.4; and a session-boundary note naming the **exact next dispatch** (task id, its agent, and the dependency layer it belongs to). This write is the load-bearing half of the feature — the completeness checklist is in [session-execution-protocol.md](../references/session-execution-protocol.md#session-length-checkpoint) §4 Session-Length Checkpoint.
+2. **Write complete resume state.** Recovery current through the last completed task; every Cross-Task Coordination Flag routed per Step 4.4; and a session-boundary note naming the **exact next dispatch** (task id, its agent, and the dependency layer it belongs to) — written into Recovery's `## Session Boundary Note` section, the same lines the layer-edge stop gate writes. This write is the load-bearing half of the feature — the completeness checklist is in [session-execution-protocol.md](../references/session-execution-protocol.md#session-length-checkpoint) §4 Session-Length Checkpoint.
 3. **Recommend a boundary — never force one.**
    <!-- AUTO-MODE: convenience -->
    <!-- Default: Continue (log the advisory and proceed). A split is disruptive, and an unattended run must not self-truncate on an advisory. -->
@@ -708,6 +731,7 @@ If you lose context mid-session:
 2. **READ** Outputs/ folder contents -- load completed task results and Key Findings
 3. **RESUME** from next incomplete task -- mark it IN_PROGRESS immediately
 4. **UPDATE** recovery after completing resumed task
+5. **RE-ENTER** with `/planwise run <orchestration> --resume` when the session was cleared and the Recovery note reads `Resume State: complete`; the flag skips only the Step 1.3 approval.
 
 ### Agent Escalation
 

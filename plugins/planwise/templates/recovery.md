@@ -25,6 +25,24 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 
 ---
 
+## Session Boundary Note
+
+**Next Dispatch:** none
+**Resume State:** incomplete
+**Written At:** -
+
+*Written by the run handler at each dependency-layer edge when `context.run_layer_stop` is `on`, and by the session-length checkpoint when it offers a boundary. `--resume` accepts a session only when `Resume State` reads `complete`.*
+
+**Field reference:**
+
+| Line | Content |
+|------|---------|
+| Next Dispatch | `task {n} ({Agent}), layer L{k}` — the exact next dispatch, or `none` |
+| Resume State | `complete` only when every box of the Resume-State Completeness checklist holds (`references/session-execution-protocol.md` § Session-Length Checkpoint); otherwise `incomplete` |
+| Written At | timestamp of the last write, or `-` |
+
+---
+
 ## Key Findings
 
 *Populated as steps complete*

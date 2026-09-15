@@ -295,6 +295,7 @@ class TestGetTokenSaverExtensionConfigDefaults(unittest.TestCase):
             result["token_saver_session_checkpoint"],
             {"window": 400000, "turns": 194},
         )
+        self.assertEqual(result["run_layer_stop"], "off")
 
     def test_absent_keys_within_a_present_context_block_use_defaults(self):
         config = {"context": {"plan_tier": "pro"}}
@@ -311,6 +312,7 @@ class TestGetTokenSaverExtensionConfigMalformedBlock(unittest.TestCase):
         self.assertEqual(
             result["token_saver_session_checkpoint"], {"window": 400000, "turns": 194}
         )
+        self.assertEqual(result["run_layer_stop"], "off")
 
     def test_null_context_falls_back_to_all_defaults(self):
         result = config_loader.get_token_saver_extension_config({"context": None})
@@ -397,6 +399,56 @@ class TestGetTokenSaverExtensionConfigCoercion(unittest.TestCase):
             result["token_saver_session_checkpoint"],
             {"window": 400000, "turns": 194},
         )
+
+    def test_run_layer_stop_absent_key_defaults_to_off(self):
+        config = {"context": {"plan_tier": "pro"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "off")
+
+    def test_run_layer_stop_accepts_on(self):
+        config = {"context": {"run_layer_stop": "on"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "on")
+
+    def test_run_layer_stop_accepts_off(self):
+        config = {"context": {"run_layer_stop": "off"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "off")
+
+    def test_run_layer_stop_normalizes_case_and_whitespace(self):
+        config = {"context": {"run_layer_stop": " On "}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "on")
+
+    def test_run_layer_stop_unrecognized_value_falls_back(self):
+        config = {"context": {"run_layer_stop": "maybe"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "off")
+
+    def test_run_layer_stop_yaml_boolean_maps_onto_enum(self):
+        # PyYAML (YAML 1.1) reads a bare `on` / `off` scalar as a boolean, so
+        # the documented `run_layer_stop: on` reaches the accessor as True.
+        # The boolean maps onto the enum; it is not a malformed value.
+        on = config_loader.get_token_saver_extension_config({"context": {"run_layer_stop": True}})
+        off = config_loader.get_token_saver_extension_config({"context": {"run_layer_stop": False}})
+        self.assertEqual(on["run_layer_stop"], "on")
+        self.assertEqual(off["run_layer_stop"], "off")
+
+    def test_run_layer_stop_bare_yaml_scalars_round_trip(self):
+        # The exact text a consumer writes in config.yaml, parsed the way the
+        # loader parses it, must reach the enum value the text names.
+        import yaml
+
+        for text, expected in (("on", "on"), ("off", "off"), ('"on"', "on")):
+            config = yaml.safe_load(f"context:\n  run_layer_stop: {text}\n")
+            result = config_loader.get_token_saver_extension_config(config)
+            self.assertEqual(result["run_layer_stop"], expected, text)
+
+    def test_run_layer_stop_non_bool_non_string_falls_back(self):
+        # An int is neither a YAML boolean nor a string; it is malformed.
+        config = {"context": {"run_layer_stop": 1}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "off")
 
 
 # ---------------------------------------------------------------------------

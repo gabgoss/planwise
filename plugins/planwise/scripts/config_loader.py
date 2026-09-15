@@ -699,6 +699,7 @@ def get_effective_token_saver_config(config: dict, plan_override=None) -> dict:
 
 
 _TOKEN_SAVER_ADVISORY_VALUES = ("measured", "off")
+_RUN_LAYER_STOP_VALUES = frozenset({"off", "on"})
 
 
 def _as_int_default(value, default: int) -> int:
@@ -738,7 +739,7 @@ def _as_int_subkey_dict(value, default: dict, keys: tuple) -> dict:
 def get_token_saver_extension_config(config: dict) -> dict:
     """Extract the Token Saver extension keys, with defaults.
 
-    These five `context.token_saver_*` keys are additive to the six
+    These six `context.token_saver_*` keys are additive to the six
     `get_token_saver_config` already reads. They live in their own accessor
     rather than being folded into that function, because that function's
     docstring and existing callers assume exactly the original six-key
@@ -763,6 +764,12 @@ def get_token_saver_extension_config(config: dict) -> dict:
         (chosen operating defaults derived from the measured
         accumulation bands, NOT a "top-decile onset" threshold; read by the
         run-handler's session-length checkpoint lever)
+      * run_layer_stop                      -> "off"
+        (enum "off" | "on"; a YAML boolean maps True -> "on", False -> "off"
+        because PyYAML reads a bare `on`/`off` scalar as a bool; any other
+        value falls back to "off". off = the shipped loop; on = the run
+        handler stops at each dependency layer's Recovery reconcile instead
+        of continuing to the next layer)
     """
     context = config.get("context", {})
     if not isinstance(context, dict):
@@ -773,6 +780,17 @@ def get_token_saver_extension_config(config: dict) -> dict:
         advisory = advisory.strip().lower()
     else:
         advisory = "measured"
+
+    run_layer_stop = context.get("run_layer_stop", "off")
+    if isinstance(run_layer_stop, bool):
+        # YAML 1.1 (PyYAML) parses a bare `on` / `off` scalar as a boolean,
+        # so an unquoted `run_layer_stop: on` reaches us as True. Map the
+        # boolean back onto the enum rather than treating it as malformed.
+        run_layer_stop = "on" if run_layer_stop else "off"
+    elif isinstance(run_layer_stop, str) and run_layer_stop.strip().lower() in _RUN_LAYER_STOP_VALUES:
+        run_layer_stop = run_layer_stop.strip().lower()
+    else:
+        run_layer_stop = "off"
 
     return {
         "token_saver_injection_ceiling": _as_int_default(
@@ -792,4 +810,5 @@ def get_token_saver_extension_config(config: dict) -> dict:
             {"window": 400000, "turns": 194},
             ("window", "turns"),
         ),
+        "run_layer_stop": run_layer_stop,
     }

@@ -62,6 +62,11 @@ context:
   # CHOSEN OPERATING DEFAULTS derived from the measured accumulation
   # bands -- not a "top-decile onset" threshold.
   token_saver_session_checkpoint: {window: 400000, turns: 194}
+  # Layer-edge stop for /planwise run. off = the shipped loop (never stops
+  # between tasks); on = after each dependency layer's Recovery reconcile the
+  # orchestrator writes the Session Boundary Note, prints one LAYER BOUNDARY
+  # line, and ends its turn. Read by the run handler at Step 3.3.
+  run_layer_stop: off
 
 abbreviations:
   APP: "Application features"

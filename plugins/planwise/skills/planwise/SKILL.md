@@ -48,7 +48,8 @@ Available subcommands:
   plan [name]                  Create a new plan
   plan --scaffold [abbrev]     Scaffold from Discovery phase
   review [plan-path]           Review plan before execution
-  run [@orchestration-file]    Execute a planned session
+  run [@orchestration-file] [--resume]  Execute a planned session
+                               --resume skips the start approval on a proven mid-session resume
   upgrade                      Refresh installed rules/agents after a plugin update
   doctor                       Audit install health — version gate, rule scope,
                                stale/diverged rules, orphaned agent mirrors, index drift,

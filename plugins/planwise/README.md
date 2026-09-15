@@ -191,6 +191,7 @@ flowchart LR
 
 ```
 /planwise run
+/planwise run @path/to/Orchestration.md --resume
 ```
 
 This starts working through your planned tasks in order. You get two modes:
@@ -198,7 +199,7 @@ This starts working through your planned tasks in order. You get two modes:
 - **GUIDED mode** — Claude proposes each task and waits for your OK before doing it (recommended for your first time)
 - **DELEGATED mode** — Claude works through tasks automatically using a task-runner agent
 
-If you need to stop mid-session, don't worry — planwise saves a recovery file so you can pick up exactly where you left off.
+If you need to stop mid-session, don't worry — planwise saves a recovery file so you can pick up exactly where you left off. If the session was cleared mid-run, `--resume` re-enters it from the recovery file without asking you to confirm the start again.
 
 #### How `run` works
 
