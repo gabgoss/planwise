@@ -129,7 +129,7 @@ Runs on **both** paths, after Scale Detection and **before any reviewer is spawn
 2. Spawn the discovery pass and WAIT for it to return before continuing:
 
 ```
-Task(
+Agent(
   subagent_type: "planwise:review-discovery",
   description: "Review discovery for {Abbrev}",
   prompt: |
@@ -253,10 +253,10 @@ For plans with 0-1 EIs and 1-2 sprints, use sequential subagent spawns with no t
 
 ### Step 1: Structural Review
 
-Spawn `structural-reviewer` agent via Task tool:
+Spawn `structural-reviewer` agent via Agent tool:
 
 ```
-Task(
+Agent(
   subagent_type: "planwise:structural-reviewer",
   description: "Structural review for {Abbrev}",
   prompt: |
@@ -283,10 +283,10 @@ Read the subagent output. If BLOCKERs found, write report with blockers only and
 
 ### Step 2: Content Review
 
-If no blockers, spawn `plan-reviewer` agent via Task tool:
+If no blockers, spawn `plan-reviewer` agent via Agent tool:
 
 ```
-Task(
+Agent(
   subagent_type: "planwise:plan-reviewer",
   description: "Content review for {Abbrev}",
   prompt: |
@@ -350,7 +350,7 @@ For plans with 2+ EIs, use full team with phase gating.
 2. Spawn `structural-reviewer` as teammate:
 
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "structural-reviewer",
   subagent_type: "planwise:structural-reviewer",
@@ -398,13 +398,13 @@ Task(
 > | LARGE (4-5 EIs) | 3 (+2 optional) | ei-reviewer, task-reviewer, dependency-reviewer (+ scaffolding-hygiene-reviewer, design-extension-reviewer) |
 > | VERY LARGE (6+ EIs) | 4 (+2 optional) | ei-reviewer (batched), task-reviewer, dependency-reviewer, coverage-reviewer (+ both sub-role reviewers) |
 
-6. Spawn ALL Phase 2 reviewers in parallel -- issue all Task calls together in a single batch (do not wait between spawns):
+6. Spawn ALL Phase 2 reviewers in parallel -- issue all Agent calls together in a single batch (do not wait between spawns):
 
 **Role assignments for each reviewer:**
 
 **EI Reviewer(s):**
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "ei-reviewer-{N}",
   subagent_type: "planwise:plan-reviewer",
@@ -442,7 +442,7 @@ For VERY LARGE plans, batch 2 EIs per ei-reviewer (max 3 ei-reviewers). If a rev
 
 **Task Reviewer:**
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "task-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -473,7 +473,7 @@ Task(
 
 **Dependency Reviewer** (LARGE / VERY LARGE only):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "dependency-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -502,7 +502,7 @@ Task(
 
 **Coverage Reviewer** (VERY LARGE only):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "coverage-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -531,7 +531,7 @@ Task(
 
 **Scaffolding Hygiene Reviewer** (MEDIUM/LARGE/VERY LARGE — Meta-Plan only):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "scaffolding-hygiene-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -546,7 +546,7 @@ Task(
 
 **Design-Extension Reviewer** (LARGE/VERY LARGE — when audit/design-extension findings expected):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "design-extension-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -562,7 +562,7 @@ Task(
 
 **Destructive-Path Reviewer** (LARGE/VERY LARGE — when destructive-path or config-gated-change findings expected):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "destructive-path-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -577,7 +577,7 @@ Task(
 
 **Verification-Gate Reviewer** (LARGE/VERY LARGE — when verification-gate findings expected):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "verification-gate-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -597,7 +597,7 @@ Task(
 
 **Change-Surface Reviewer** (LARGE/VERY LARGE — when change-surface findings expected):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "change-surface-reviewer",
   subagent_type: "planwise:plan-reviewer",

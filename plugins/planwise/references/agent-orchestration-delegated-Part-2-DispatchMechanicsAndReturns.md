@@ -32,14 +32,14 @@ Read Part 1 first when declaring a DELEGATED session — it holds the mandatory 
 
 ## 1.14 Orchestrator-Only Review Commands
 
-Slash-commands that themselves spawn review agents (`/simplify`, `/code-review`, and similar multi-agent review skills) CANNOT run inside a task-runner subagent. Per Constraint 1 (`agent-orchestration.md` §10), the Task tool is stripped from all non-main contexts at spawn time, so a subagent has no way to spawn the review agents the command depends on; the call resolves to "Unknown subcommand" or fails silently.
+Slash-commands that themselves spawn review agents (`/simplify`, `/code-review`, and similar multi-agent review skills) CANNOT run inside a task-runner subagent. Per Constraint 1 (`agent-orchestration.md` §10), the Agent tool is stripped from all non-main contexts at spawn time, so a subagent has no way to spawn the review agents the command depends on; the call resolves to "Unknown subcommand" or fails silently.
 
 A DELEGATED task-runner does an INLINE self-review — it applies the review lenses itself, with no agent spawn. The orchestrator (running in the main session) invokes the real review command on the diff after the task-runner returns, before commit.
 
 > [!constraint] Do Not Instruct a Task-Runner to Invoke Orchestrator-Only Commands
 > WRONG — spawn prompt instructs the task-runner to run a slash-command that itself spawns review agents:
 > ```
-> Task(
+> Agent(
 >   subagent_type: "planwise:task-runner",
 >   prompt: "...implement X; build; then run /simplify"
 > )
@@ -47,7 +47,7 @@ A DELEGATED task-runner does an INLINE self-review — it applies the review len
 > ```
 > CORRECT — task-runner applies the review lenses inline; orchestrator runs the real review command on the diff after:
 > ```
-> Task(
+> Agent(
 >   subagent_type: "planwise:task-runner",
 >   prompt: "...implement X; apply the review lenses INLINE yourself — do NOT invoke /simplify or /code-review, you cannot spawn the review agents"
 > )
@@ -162,7 +162,7 @@ The three failure modes are genuinely distinct: self-delegation is a **clean** t
 
 A task-runner whose spawn prompt merely says "Execute the following task:" can pattern-match itself into the ORCHESTRATOR role (the task file and handler prose it reads are full of dispatch language) and delegate the work onward instead of executing. On the self-delegation signature, do NOT re-dispatch a fresh runner — the first may have left a live nested duplicate that will race it. Resume the same agent with this directive (identical to the spawn-prompt role pin the dispatch loop opens with):
 
-> Execute the following task YOURSELF, directly, with your own tool calls. Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task tool calls) — you ARE the task-runner.
+> Execute the following task YOURSELF, directly, with your own tool calls. Do NOT spawn, dispatch, or delegate to any other agent (no Agent tool calls) — you ARE the task-runner.
 
 Then verify single-application afterward (`git status` / diff on the edit target; Recovery advanced).
 
@@ -294,7 +294,7 @@ Governs whether a DELEGATED task-runner launches in foreground or background.
 >
 > WRONG: Launch task-runner in background when it writes output files:
 > ```
-> Task(
+> Agent(
 >   subagent_type: "planwise:task-runner",
 >   run_in_background: true,
 >   prompt: "Execute task 01..."
@@ -302,7 +302,7 @@ Governs whether a DELEGATED task-runner launches in foreground or background.
 > ```
 > CORRECT: Launch task-runner in foreground (default) — background is only safe for read-only agents:
 > ```
-> Task(
+> Agent(
 >   subagent_type: "planwise:task-runner",
 >   prompt: "Execute task 01..."
 > )

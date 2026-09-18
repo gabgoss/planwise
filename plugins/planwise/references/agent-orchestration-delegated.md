@@ -228,14 +228,14 @@ Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatica
 > [!constraint] Path Rule Injection
 > WRONG — orchestrator assumes subagent will load path rules automatically:
 > ```
-> Task(
+> Agent(
 >   subagent_type: "general-purpose",
 >   prompt: "Execute {Abbrev}-S01-02-01-Haiku-ScanModels.md — the relevant rules will load automatically."
 > )
 > ```
 > CORRECT — orchestrator injects path-rule content or file reference explicitly:
 > ```
-> Task(
+> Agent(
 >   subagent_type: "general-purpose",
 >   prompt: "Execute {Abbrev}-S01-02-01-Haiku-ScanModels.md.
 >   IMPORTANT: The following path-scoped rule applies to {src/module/file.ext} files:

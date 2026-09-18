@@ -179,7 +179,7 @@ You are dispatched to execute ONE task: {task-id}. The session has other tasks;
 you DO NOT execute them.
 
 Execute the following task YOURSELF, directly, with your own tool calls. Do NOT
-spawn, dispatch, or delegate to any other agent (no Agent/Task tool calls) —
+spawn, dispatch, or delegate to any other agent (no Agent tool calls) —
 you ARE the task-runner.
 
 Task file:        {task-file-absolute-path}

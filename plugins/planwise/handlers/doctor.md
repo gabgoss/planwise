@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, report whether this session has the Task checklist tools (`TaskCreate` and siblings) and name the opt-in when it does not, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
@@ -666,6 +666,44 @@ never renames, never deletes, and never runs when Stage 17 already reported
 the directory present. Report the path created. On decline, or when no
 interactive answer is available, leave the directory absent and repeat the
 Stage 17 remedy line.
+
+---
+
+### Stage 18: Task-tools availability advisory (post-boundary)
+
+> [!constraint] Read-Only — bare doctor only reports
+> Stage 18 reads nothing on disk. It inspects this session's own tool list
+> and prints one of two blocks. It never edits `.claude/settings.json`.
+
+Always-on, independent of Token Saver, and prose-only: the doctor script
+cannot see the session's tool list, so you perform the check. Two tool
+families share a word. The Agent tool spawns a subagent. The Task tools
+(`TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`) are the checklist shown
+by `Ctrl+T`, and `/planwise run` uses them under Track B
+(`references/session-execution-protocol.md` §5). Since Claude Code 2.1.233
+they are absent on Opus 4.8, Sonnet 5, Fable 5, Mythos 5 and newer models
+unless the project opts in.
+
+Check whether `TaskCreate` is in your tool list, then print verbatim.
+
+When present:
+
+```
+planwise doctor — task tools
+
+Task tools: present — /planwise run tracks progress in the task list (Ctrl+T) and in Recovery (Track B).
+```
+
+When absent:
+
+```
+planwise doctor — task tools
+
+Task tools: absent — Claude Code omits them on this model family.
+  to enable:  add "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" to the env block of .claude/settings.json, then start a new session
+  in force:   Recovery-only tracking (Track A)
+  doctor is read-only and never edits settings
+```
 
 ---
 

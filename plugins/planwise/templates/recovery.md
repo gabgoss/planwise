@@ -109,6 +109,16 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 | Date | Step | Status | Notes |
 |------|------|--------|-------|
 | {today} | - | CREATED | Recovery file initialized |
+
+---
+
+## Task List Map
+
+*Track B only. Harness task ids minted by `TaskCreate` for this session's steps. Rewritten in full when the run handler re-hydrates the list after a `/clear`. Under Track A this section stays as shipped.*
+
+| Step | Task ID |
+|------|---------|
+| - | - |
 ```
 
 ---

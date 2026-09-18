@@ -221,29 +221,34 @@ Those two defaults are chosen operating points derived from measured accumulatio
 
 ## 5. Task Tracking
 
-> [!hazard] Environment Constraint
-> TaskList tools (`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`) are **CLI-only** — they do NOT work in VS Code Extension.
+Two tool families share a word. The **Agent tool** spawns a subagent. The **Task tools** (`TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`) are the session checklist shown by `Ctrl+T`, and they replaced the legacy `TodoWrite`. This section governs the Task tools only.
+
+> [!gate] Presence Gate
+> The Task tools are present only when `TaskCreate` appears in the session's tool list. Since Claude Code 2.1.233 they are absent on Opus 4.8, Sonnet 5, Fable 5, Mythos 5 and newer models unless the project opts in. The opt-in is `"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"` in the `env` block of `.claude/settings.json`. Check the tool list. Never infer presence from the model name or the client.
 
 > [!decide] Track Selection
 > | If... | Then... |
 > |-------|---------|
-> | Using VS Code Extension (or TaskList unavailable) | **Track A:** Use task table in Orchestration.md; update Recovery file AFTER EACH task; mark tasks PENDING → IN_PROGRESS → COMPLETE in Recovery; do NOT attempt TaskList tools |
-> | Using Claude Code CLI | **Track B:** Use TaskList tools for visual tracking (`Ctrl+T`); update BOTH TaskList AND Recovery file after each task; Recovery file remains authoritative source |
+> | `TaskCreate` is absent from the tool list | **Track A:** Use the task table in Orchestration.md; update the Recovery file AFTER EACH task; mark tasks PENDING → IN_PROGRESS → COMPLETE in Recovery; do NOT call any of the Task tools |
+> | `TaskCreate` is present | **Track B:** Use the Task tools for visual tracking (`Ctrl+T`); update BOTH the task list AND the Recovery file after each task; the Recovery file remains the authoritative source |
 
-**When to Create Task List (CLI only):**
+**When to create task entries (Track B):**
 
-| Condition | Create TaskList? |
-|-----------|------------------|
+| Condition | Create entries? |
+|-----------|-----------------|
 | 3+ distinct steps | Yes |
 | Multi-file changes | Yes |
 | Session/sprint execution | Always |
 | Single trivial fix | No |
 
 > [!binding] Recovery Primacy
-> Recovery file is ALWAYS mandatory — TaskList is a visual convenience layer (CLI only).
+> The Recovery file is ALWAYS mandatory. The task list is a visual convenience layer under Track B.
 
-> [!constraint] Task List Isolation (Concurrent Sessions)
-> The task list is **shared** across all CLI sessions. Multiple sessions may have active tasks simultaneously.
+> [!hazard] Persistence — what survives which boundary
+> The list lives in a per-session directory under `~/.claude/tasks/`. It survives a context compaction, and it survives `--resume`. A `/clear` starts a new session id, so the list starts empty unless `CLAUDE_CODE_TASK_LIST_ID` named a shared directory when Claude Code launched. The Recovery file is the on-disk record. `handlers/run.md` Phase 2 re-hydrates the list from Recovery after a `/clear` and records the new ids in Recovery's `## Task List Map`.
+
+> [!constraint] Task List Isolation
+> The list is per Claude session by default. Tasks from other work appear only when a shared list id was set at launch, or when an earlier planwise run happened in the same Claude session. Treat every such task as foreign.
 >
 > **WRONG:** Delete or overwrite existing tasks to make room for yours
 > ```

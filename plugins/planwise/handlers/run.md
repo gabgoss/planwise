@@ -15,7 +15,7 @@
 - [Config Gate](#config-gate-auto-init-fallback)
 - [Phase 0: Pre-Execution Setup](#phase-0-pre-execution-setup)
 - [Phase 1: Execution Gate (READ-CONFIRM-ACT)](#phase-1-execution-gate-read-confirm-act)
-- [Phase 2: Always-TaskList Setup](#phase-2-always-tasklist-setup)
+- [Phase 2: Task List Setup (Track B)](#phase-2-task-list-setup-track-b)
 - [Phase 3: Task Execution Loop](#phase-3-task-execution-loop)
 - [Phase 4: Post-Session Integration](#phase-4-post-session-integration)
 - [Recovery Protocol](#recovery-protocol)
@@ -206,14 +206,14 @@ Only proceed after user approval. If Step 1.2a surfaced a structural finding, th
 
 ---
 
-## Phase 2: Always-TaskList Setup
+## Phase 2: Task List Setup (Track B)
 
-> [!binding] TaskList Creation is MANDATORY
-> Create TaskList entries for ALL tasks at session start, BEFORE executing any task. This provides visual progress tracking via `Ctrl+T`.
+> [!gate] Run this phase only when the Task tools are present
+> Check your tool list. If `TaskCreate` is present, run Phase 2 and every later step marked **(Track B)**. If it is absent, skip Phase 2 and every **(Track B)** step, and never call a tool you do not have. The Recovery file is the tracker on both tracks. `references/session-execution-protocol.md` §5 carries the gate, the two tracks, and what survives a compaction or a `/clear`.
 
 ### Step 2.1: Check Existing Tasks
 
-Run `TaskList` to check for existing tasks from other sessions.
+Run `TaskList` to see what the list already holds. The list is per Claude session by default. Foreign entries appear only when a shared list id was set at launch, or when an earlier planwise run happened in this same Claude session.
 
 > [!constraint] Task List Isolation
 > WRONG: Delete or overwrite existing tasks from other sessions.
@@ -227,14 +227,20 @@ For EACH task in the orchestration's Session Task List:
 TaskCreate(
   subject: "[{ABBREV}-{task-num}] {task-name}",
   description: "{task objective from task file}",
-  activeForm: "Executing {task-name}"
+  activeForm: "Executing {task-name}",
+  metadata: { taskFile: "{task-file-absolute-path}", recovery: "{recovery-file-absolute-path}" }
 )
 ```
 
-If resuming a session (some tasks already COMPLETE in recovery):
+After each call, write the returned task id into the Recovery file's `## Task List Map` table, one row per step (`templates/recovery.md`).
+
+**Resume or re-hydrate.** Run this branch when some tasks are already COMPLETE in Recovery, or when `TaskList` shows no `[{ABBREV}-` entry because a `/clear` started a new list:
 - Create entries for ALL tasks
 - Immediately mark completed tasks via `TaskUpdate(status: "completed")`
 - Mark the current in-progress task via `TaskUpdate(status: "in_progress")`
+- Rewrite the `## Task List Map` in full, because every id is new
+
+After a context compaction the list is intact. Do not re-create entries. Refresh statuses to match Recovery.
 
 ### Step 2.3: Set Dependencies
 
@@ -243,7 +249,7 @@ For tasks with declared dependencies in the orchestration:
 ```
 TaskUpdate(
   taskId: "{task-id}",
-  blockedBy: ["{dependency-task-id}"]
+  addBlockedBy: ["{dependency-task-id}"]
 )
 ```
 
@@ -257,7 +263,7 @@ For each task in the orchestration's Session Task List (respecting dependency or
 
 1. Read the task file completely
 2. Mark task IN_PROGRESS in recovery file
-3. Update TaskList: `TaskUpdate(taskId: "{id}", status: "in_progress")`
+3. **(Track B)** Update the task list: `TaskUpdate(taskId: "{id}", status: "in_progress")`
 
 ### Step 3.2: Dispatch by Execution Mode
 
@@ -295,7 +301,7 @@ Before dispatching, read the DELEGATED dispatch discipline for the sections each
 The spawn prompt states the single-task scope in three positions — the opener, a hard-constraint line, and the return instruction — so the scope is stated even against a session-scoped identity that would otherwise outrank a single mention. When the project declares an isolated environment (Config Gate), it also adds an environment-discipline block naming interpreter/linter/runner paths in the platform-matched form (POSIX `./.venv/bin/{tool}` or Windows `.\.venv\Scripts\{tool}.exe` — emit the one matching the project's platform, never both), and on the session's FIRST dispatch only, a one-line interpreter diagnostic:
 
 ```
-Task(
+Agent(
   subagent_type: "planwise:task-runner",
   description: "Execute task {task-num}: {task-name}",
   model: "{model-override-from-task-file-Agent-field}",
@@ -304,7 +310,7 @@ Task(
     tasks; you DO NOT execute them.
 
     Execute the following task YOURSELF, directly, with your own tool calls.
-    Do NOT spawn, dispatch, or delegate to any other agent (no Agent/Task
+    Do NOT spawn, dispatch, or delegate to any other agent (no Agent
     tool calls) — you ARE the task-runner.
 
     Task file: {task-file-absolute-path}
@@ -339,9 +345,9 @@ Task(
 )
 ```
 
-**Model override:** The `model:` parameter in the Task tool call MUST match the Agent field declared in the task file (e.g., if task file says `Agent: Haiku`, use `model: "haiku"`) — except when `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.19 (Model-Floor Bridge) or §1.20 (1M-Exception Dispatch) raises it for this dispatch only; log the raise per those sections, never silent.
+**Model override:** The `model:` parameter in the Agent tool call MUST match the Agent field declared in the task file (e.g., if task file says `Agent: Haiku`, use `model: "haiku"`) — except when `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.19 (Model-Floor Bridge) or §1.20 (1M-Exception Dispatch) raises it for this dispatch only; log the raise per those sections, never silent.
 
-**Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Task tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. After all runners return, classify each per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
+**Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Agent tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. After all runners return, classify each per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
 
 Every parallel spawn prompt names the **delivery channel** as well as the block's format. A named or teammate-style runner's plain-text final message does not route to you — only an idle notification arrives — so a prompt giving the shape alone produces a block nobody receives (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1). Add these two lines above the Status Block format in each parallel spawn prompt:
 
@@ -379,7 +385,7 @@ After each task completes (DIRECT or DELEGATED, sequential):
    - Add files modified to "Files Modified" section
    - Add Change Log entry: date, step number, status, notes
    - Update "Current Step" to next task number
-2. **TaskList** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
+2. **(Track B) Task list** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
 3. **Verify output** -- confirm expected output files were written (if applicable), then measure them: `python "{plugin_root}/scripts/measure_files.py" {output files...}` -- compare against the task's declared output token budget (>20% deviation is a review signal per `references/agent-orchestration-delegated.md` §1.4), and any runner-read generated artifact reporting WARN/OVER is split per the Multi-Part convention before the task is accepted
 4. **Verify structure** -- if the task's Expected Output declared required headings or table-column headers, grep the produced file for every one of them; on a miss, re-dispatch the same runner with a single corrective instruction rather than accepting and reconciling downstream
 5. **Resolve gated conditional branches** -- when a gating task completes, resolve every conditional branch it was gating. Runs at post-task reconciliation, not at scaffold time -- the measurement does not exist at scaffold time, which is why the branch was written conditionally. Procedure: (1) re-read the completed task's output against every downstream task file that declared it as a dependency; (2) grep those task files for conditional language:
@@ -407,7 +413,7 @@ After a **parallel batch** of 3+ task-runners returns:
    - Append every runner's OUTPUT_FILES to the "Files Modified" section
    - One Change Log row per task (or one batch row noting the parallel group)
    - Update "Current Step" to the next dependency layer
-5. **TaskList** -- mark every batch task `completed`
+5. **(Track B) Task list** -- mark every batch task `completed`
 6. **Session-length checkpoint** -- evaluate ONCE for the whole batch, after the central Recovery reconciliation above. See [Step 3.5](#step-35-session-length-checkpoint). A batch boundary is the safest place in a delegated session to take a split, because no runner is in flight.
 7. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch) — after the layer-edge stop gate below, when it applies.
 
@@ -429,7 +435,7 @@ After a **parallel batch** of 3+ task-runners returns:
 **Reported failure** — the task fails or returns BLOCKED. Both arrive in a status block:
 
 1. Update recovery: mark task BLOCKED with description
-2. Update TaskList: leave as in_progress (do not mark completed)
+2. **(Track B)** Task list: leave as in_progress (do not mark completed)
 3. Decide: if remaining tasks depend on the blocked task, halt execution. If independent tasks remain, continue with those.
 4. Report to user: "Task {N} is BLOCKED: {reason}. Continue with remaining tasks?"
 
@@ -669,6 +675,8 @@ Lessons: {N} captured (or "None")
 Next: {next session from summary, or "Sprint complete"}
 ```
 
+**(Track B)** Leave the session's task entries `completed`. Do not delete them. The list is per Claude session and ends with it.
+
 ---
 
 ## Recovery Protocol
@@ -729,9 +737,10 @@ If you lose context mid-session:
 
 1. **READ** recovery file FIRST -- find "Current Step" and last COMPLETE task
 2. **READ** Outputs/ folder contents -- load completed task results and Key Findings
-3. **RESUME** from next incomplete task -- mark it IN_PROGRESS immediately
-4. **UPDATE** recovery after completing resumed task
-5. **RE-ENTER** with `/planwise run <orchestration> --resume` when the session was cleared and the Recovery note reads `Resume State: complete`; the flag skips only the Step 1.3 approval.
+3. **(Track B) RE-HYDRATE** the task list -- run `TaskList`. If no `[{ABBREV}-` entry exists, a `/clear` started a new list: run Phase 2 Step 2.2's resume-or-re-hydrate branch. If entries exist, the boundary was a compaction: mark each status to match Recovery.
+4. **RESUME** from next incomplete task -- mark it IN_PROGRESS immediately
+5. **UPDATE** recovery after completing resumed task
+6. **RE-ENTER** with `/planwise run <orchestration> --resume` when the session was cleared and the Recovery note reads `Resume State: complete`; the flag skips only the Step 1.3 approval.
 
 ### Agent Escalation
 

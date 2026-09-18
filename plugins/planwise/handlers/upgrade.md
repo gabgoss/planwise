@@ -129,10 +129,10 @@ Parse the JSON array printed to stdout. Each row is `{"filename", "kind": "rule"
 
 Gate: a live interactive session **AND** Step 2.1 returned a non-empty list. Otherwise skip — the Step 2.4 writer's inline primitive covers every diverged file on its own.
 
-Spawn `planwise:rule-comparator` **once per diverged file in a single parallel batch** — issue every `Task` call together in one message (no waiting between spawns), mirroring `review.md` Phase 2 (the fan-out batch pattern). Spawns MUST be `planwise:`-namespaced. Each comparator is one-shot: it returns its verdict and goes idle (idle is normal — do not treat it as an error).
+Spawn `planwise:rule-comparator` **once per diverged file in a single parallel batch** — issue every `Agent` call together in one message (no waiting between spawns), mirroring `review.md` Phase 2 (the fan-out batch pattern). Spawns MUST be `planwise:`-namespaced. Each comparator is one-shot: it returns its verdict and goes idle (idle is normal — do not treat it as an error).
 
 ```
-Task(
+Agent(
   subagent_type: "planwise:rule-comparator",
   description: "Compare {filename} (installed vs shipped)",
   prompt: |

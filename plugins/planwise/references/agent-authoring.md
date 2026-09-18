@@ -28,7 +28,7 @@ An agent definition is a Markdown file in `.claude/agents/` with YAML frontmatte
 |-------|------|----------|---------|-------------|
 | `name` | string | **Yes** | N/A | Lowercase, hyphens, max 64 chars. Must match filename. |
 | `description` | string | **Yes** | N/A | Max 1024 chars. Drives delegation decisions. |
-| `tools` | string | No | All tools | Comma-separated allowlist. `Task(agent_type)` restricts spawning. |
+| `tools` | string | No | All tools | Comma-separated allowlist. `Agent(agent_type)` restricts spawning. |
 | `disallowedTools` | string | No | None | Comma-separated denylist. Removed from `tools` set (or all tools). |
 | `model` | string | No | `inherit` | `haiku`, `sonnet`, `opus`, or `inherit` |
 | `effort` | string | No | Inherits the session's level (Claude Code's default is `high` on every current model; Opus 4.7 alone defaults to `xhigh`) | `low`, `medium`, `high`, `xhigh`, `max` — availability depends on the dispatched model |
@@ -318,7 +318,7 @@ visual-fix-agent    # Workflow-based
 An agent definition file maps to runtime behavior in two modes:
 
 1. **`claude --agent <name>`** — Agent definition configures a **Main Session**: full context, all tools, can spawn subagents.
-2. **`subagent_type: "<name>"` in Task tool** — Agent definition configures a **Subagent**: fresh context, 18 tools, Task tool absent (no further spawning).
+2. **`subagent_type: "<name>"` in Agent tool** — Agent definition configures a **Subagent**: fresh context, 18 tools, Agent tool absent (no further spawning).
 
 > [!practice] Empirically Verified
 > **Custom agents created mid-session are NOT dynamically registered.** If you write a new agent definition to `.claude/agents/` during an active session, it will NOT be discoverable as a `subagent_type` value in that session. Agent discovery happens at session startup only.

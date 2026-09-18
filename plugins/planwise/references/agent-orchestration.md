@@ -32,11 +32,11 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 | Context | Created Via | System Prompt Identity | Tool Set |
 |---------|-------------|----------------------|----------|
 | **Main Session** | `claude` CLI / VS Code extension | "You are Claude Code, Anthropic's official CLI" | All tools (~24+) |
-| **Subagent** | `Task` tool (`subagent_type` parameter) | **"You are Claude Code, Anthropic's official CLI"** | 18 tools (no Task, AskUserQuestion, PlanMode) |
-| **Teammate** | `Task` tool with `team_name` + `name` | **"You are a Claude agent, built on Anthropic's Claude Agent SDK"** | 16 tools (no Task, TeamCreate/Delete, AskUserQuestion, PlanMode) |
+| **Subagent** | `Agent` tool (`subagent_type` parameter) | **"You are Claude Code, Anthropic's official CLI"** | 18 tools (no Agent, AskUserQuestion, PlanMode) |
+| **Teammate** | `Agent` tool with `team_name` + `name` | **"You are a Claude agent, built on Anthropic's Claude Agent SDK"** | 16 tools (no Agent, TeamCreate/Delete, AskUserQuestion, PlanMode) |
 | **Skill-Forked** | `Skill` tool with `context: fork` | **"You are Claude Code, Anthropic's official CLI"** | 18 tools (identical to Subagent) |
 
-> **Surprise 1:** Subagents receive the **full** Claude Code system prompt. Official docs claim "not the full CC system prompt — custom prompt only." This is wrong. The `prompt` parameter in the Task tool is ADDITIONAL to the system prompt, not a replacement. Skill-Forked contexts receive the same full CC system prompt.
+> **Surprise 1:** Subagents receive the **full** Claude Code system prompt. Official docs claim "not the full CC system prompt — custom prompt only." This is wrong. The `prompt` parameter in the Agent tool is ADDITIONAL to the system prompt, not a replacement. Skill-Forked contexts receive the same full CC system prompt.
 
 > **Surprise 2:** Teammates have a **different** identity ("Claude Agent SDK"), not the Claude Code system prompt. Documentation calling them "full, independent Claude Code sessions" is misleading — they use the Agent SDK identity and are pure workers.
 
@@ -70,7 +70,7 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 
 | Tool | Main Session | Subagent | Teammate | Skill-Forked |
 |------|-------------|----------|----------|-------------|
-| Task (spawner) | YES | **NO** | **NO** | **NO** |
+| Agent (spawner) | YES | **NO** | **NO** | **NO** |
 | TeamCreate | YES | YES | **NO** | YES |
 | TeamDelete | YES | YES | **NO** | YES |
 | SendMessage | YES | YES | YES | YES |
@@ -86,12 +86,14 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 | WebFetch/WebSearch | YES | YES | YES | YES |
 | EnterWorktree | YES | YES | YES | YES |
 
+Two tool families share a word. The **Agent tool** spawns a subagent; Claude Code renamed it from `Task` in version 2.1.63, and the old name still works as an alias. The **Task tools** (`TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`) are the session checklist and replaced the legacy `TodoWrite`. This plugin uses the Task tools for progress tracking and never `TodoWrite`.
+
 | Context | Total Tools | Key Restrictions |
 |---------|------------|-----------------|
 | Main Session | ~24+ | None |
-| Subagent | 18 | No Task, AskUserQuestion, PlanMode |
+| Subagent | 18 | No Agent, AskUserQuestion, PlanMode |
 | Skill-Forked | 18 | Identical to Subagent |
-| Teammate | 16 | No Task, TeamCreate, TeamDelete, AskUserQuestion, PlanMode |
+| Teammate | 16 | No Agent, TeamCreate, TeamDelete, AskUserQuestion, PlanMode |
 
 > **Surprise 3:** Teammates have FEWER tools than standalone subagents. TeamCreate/Delete are restricted FROM teammates (to prevent workers from managing teams) but are available to subagents and skill-forked contexts. The restriction is inverted from the expected — team management tools are NOT reserved for team members, they are removed from team members.
 
@@ -129,20 +131,20 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 |---|-----------|--------|----------------------|
 | 1 | Main → Subagent | **YES** | N/A (allowed) |
 | 2 | Main → Teammate | **YES** | N/A (allowed; requires experimental env var) |
-| 3 | Sub → Sub | **NO** | Task tool stripped from subagent at spawn time |
-| 4 | Sub → Teammate | **Blocked** (net) | Task tool stripped; TeamCreate works but teammates cannot be added |
-| 5 | Teammate → Subagent | **NO** | Task tool stripped from teammate (same restriction as subagent) |
-| 6 | Teammate → Teammate | **NO** | Task tool stripped; explicit "No such tool: Task" runtime error |
+| 3 | Sub → Sub | **NO** | Agent tool stripped from subagent at spawn time |
+| 4 | Sub → Teammate | **Blocked** (net) | Agent tool stripped; TeamCreate works but teammates cannot be added |
+| 5 | Teammate → Subagent | **NO** | Agent tool stripped from teammate (same restriction as subagent) |
+| 6 | Teammate → Teammate | **NO** | Agent tool stripped; explicit "No such tool: Task" runtime error |
 | 7 | Teammate → Team | **NO** | TeamCreate stripped from teammate at spawn time |
-| 8 | Skill-Forked → anything | **NO** | Task tool stripped (identical mechanism to subagent) |
+| 8 | Skill-Forked → anything | **NO** | Agent tool stripped (identical mechanism to subagent) |
 
 > [!constraint] Universal Spawning Gate
-> The Task tool is the SINGLE universal spawning gate. It is stripped from ALL non-main contexts (subagent, teammate, skill-forked) at spawn time. This single mechanism enforces all nesting restrictions — there are no runtime depth checks, no per-context logic. Cannot be bypassed by prompting.
+> The Agent tool is the SINGLE universal spawning gate. It is stripped from ALL non-main contexts (subagent, teammate, skill-forked) at spawn time. This single mechanism enforces all nesting restrictions — there are no runtime depth checks, no per-context logic. Cannot be bypassed by prompting.
 >
 > WRONG: Subagent A tries to spawn Subagent B
 > CORRECT: Orchestrate all subagents from the main conversation; chain them sequentially if needed
 
-> **Surprise 4:** Subagents CAN create team shells (TeamCreate works), but cannot add teammates (Task tool absent). The enforcement is at the Task tool level, not at TeamCreate. Main session could theoretically add teammates to a subagent-created team. Design around this — do not rely on it.
+> **Surprise 4:** Subagents CAN create team shells (TeamCreate works), but cannot add teammates (Agent tool absent). The enforcement is at the Agent tool level, not at TeamCreate. Main session could theoretically add teammates to a subagent-created team. Design around this — do not rely on it.
 
 All spawning MUST go through the Main Session:
 
@@ -180,8 +182,10 @@ Neither subagents nor teammates can delegate further. The team lead is the ONLY 
 **Disabling agents:**
 | Method | Scope |
 |--------|-------|
-| Add `"Task(agent-name)"` to `permissions.deny` in `.claude/settings.json` | Project-wide |
-| `--disallowedTools "Task(agent-name)"` CLI flag | Session-only |
+| Add `"Agent(agent-name)"` to `permissions.deny` in `.claude/settings.json` | Project-wide |
+| `--disallowedTools "Agent(agent-name)"` CLI flag | Session-only |
+
+The older `"Task(agent-name)"` form still works as an alias, so settings written before the rename need no change.
 
 ### Orchestration Patterns
 
@@ -218,7 +222,7 @@ When multiple agents share the same name, the highest-priority location wins.
 
 ### Subagent vs Persistent Agent
 
-A **subagent** (spawned via `Task` tool) is ephemeral — one task, returns a result, exits.
+A **subagent** (spawned via `Agent` tool) is ephemeral — one task, returns a result, exits.
 
 A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use when the same role is needed repeatedly, tool restrictions must be enforced consistently, or automatic delegation by description is desired.
 
@@ -233,14 +237,14 @@ A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use
 >
 > WRONG (bare name — fails if consumer has no plan-reviewer agent):
 > ```
-> Task(
+> Agent(
 >   subagent_type: "plan-reviewer",
 >   ...
 > )
 > ```
 > CORRECT (plugin-namespaced — always resolves against plugin agents/):
 > ```
-> Task(
+> Agent(
 >   subagent_type: "{plugin-name}:plan-reviewer",
 >   ...
 > )
@@ -258,7 +262,7 @@ A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use
 | `TeamCreate` | Create team + shared task list | `team_name` (required), `description`, `agent_type` |
 | `TeamDelete` | Remove team infrastructure | (none — auto-detects from session context) |
 | `SendMessage` | Inter-agent communication | `type`, `recipient`, `content`, `summary` |
-| `Task` (team mode) | Spawn teammate into team | `team_name`, `name`, `subagent_type`, `prompt` |
+| `Agent` (team mode) | Spawn teammate into team | `team_name`, `name`, `subagent_type`, `prompt` |
 
 **What TeamCreate produces:**
 ```
@@ -270,7 +274,7 @@ A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use
 
 ```
 [1] TeamCreate(team_name: "{project}-{context}")
-[2] Spawn first reviewer → Task(team_name, name, subagent_type, prompt)
+[2] Spawn first reviewer → Agent(team_name, name, subagent_type, prompt)
 [3] Gate on first reviewer results (if phased)
 [4] Spawn remaining teammates in parallel
 [5] Assign work via TaskCreate + TaskUpdate + SendMessage
@@ -438,8 +442,8 @@ These constraints are empirically verified. The enforcement mechanism column exp
 
 | # | Constraint | Enforcement Mechanism | Impact | Workaround |
 |---|-----------|----------------------|--------|------------|
-| 1 | No sub-subagent spawning | Task tool stripped from ALL non-main contexts at spawn time | Single-level delegation only | Orchestrate all agents from main conversation; chain sequentially |
-| 2 | Teammates lack Task, TeamCreate, TeamDelete | Tool restriction at spawn time | Cannot spawn, cannot create/delete teams | All delegation through team lead (hub-and-spoke mandatory) |
+| 1 | No sub-subagent spawning | Agent tool stripped from ALL non-main contexts at spawn time | Single-level delegation only | Orchestrate all agents from main conversation; chain sequentially |
+| 2 | Teammates lack Agent, TeamCreate, TeamDelete | Tool restriction at spawn time | Cannot spawn, cannot create/delete teams | All delegation through team lead (hub-and-spoke mandatory) |
 | 3 | Context NOT inherited by subagents/teammates | Fresh context per spawn | Teammates start with empty context (see row 11 for shell state) | Self-contained prompts; share via explicit messages or file references |
 | 4 | No AskUserQuestion in spawned contexts | Tool restriction | Cannot interactively prompt user | Pre-gather requirements before spawning |
 | 5 | No EnterPlanMode/ExitPlanMode in spawned contexts | Tool restriction | Cannot enter plan mode | Plan in main session before delegating |

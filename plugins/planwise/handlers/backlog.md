@@ -235,7 +235,7 @@ For bugs and targeted fixes with clear scope:
 
 **Pre-spawn: extract cross-cutting audit candidates (§3i):** Before building the spawn prompt, read the BLI file and look for sections named `Cross-cutting check`, `Cross-cutting consideration`, or `Notes`. Extract any cross-cutting items listed there to include in the spawn prompt. If none are found, use `"none identified"`.
 
-Delegate to the `fix-agent` via the Task tool:
+Delegate to the `fix-agent` via the Agent tool:
 
 ```
 Task {
@@ -262,9 +262,9 @@ Task {
 For medium-scope items with 3-5 discrete steps:
 
 1. Analyze the backlog item file to extract discrete steps
-2. Create tasks using `TaskCreate` for each step
-3. Work through each task sequentially
-4. After all tasks complete, proceed to Phase 5
+2. **(Track B)** When `TaskCreate` is in your tool list: run `TaskList` first, then `TaskCreate` one task per step with subject `[{item-id}-{n}] {step}`. Mark each `in_progress` when you start it and `completed` when it is done. When `TaskCreate` is absent, track the steps as a checklist in the item file and call none of the Task tools. The gate is `references/session-execution-protocol.md` §5.
+3. Work through each step sequentially
+4. After all steps complete, proceed to Phase 5
 
 ### Route C: Session Planning
 
@@ -303,7 +303,7 @@ directly with item scope only."
      (existing table rows — no new row needed for this branch).
 
    **`LARGE_SCOPE: true`** — hand off to the full session-planning agent:
-   - Dispatch `planwise:backlog-planner` via the Task tool, using the same
+   - Dispatch `planwise:backlog-planner` via the Agent tool, using the same
      invocation shape Route A uses for `fix-agent` (above), passing: item ID,
      summary, description, affected files — and, ONLY when reached via this
      interactive flow (steps 1-4 ran and produced a plan-mode design), an
@@ -318,7 +318,7 @@ directly with item scope only."
        with no plan file), Notes `AUTO-PLAN FAILED {date}: {reason} — needs manual
        triage`. Do NOT proceed to the review step below.
      - If `TASK_STATUS: COMPLETE` and `REVIEW_REQUESTED: true` -> immediately run
-       `/planwise review {PLAN_PATH}` via the Task tool (mirroring
+       `/planwise review {PLAN_PATH}` via the Agent tool (mirroring
        `handlers/plan.md` Step 10's auto-review dispatch) — this MUST run exactly
        once here; do NOT also offer `/planwise plan`'s own Step 10 review gate for
        this plan, since `backlog-planner` already skips its side of that gate for
@@ -524,7 +524,7 @@ For the accepted candidate set — the gate below applies per candidate, the rou
 >
 > The accept/skip decision in Step 7.2 has already happened and stays in this session: the interactive question tool does not exist in a spawned context. Dispatch carries only accepted candidates.
 
-**Delegated path (N ≥ 2)** — dispatch [`agents/backlog-author.md`](../agents/backlog-author.md) via the Task tool:
+**Delegated path (N ≥ 2)** — dispatch [`agents/backlog-author.md`](../agents/backlog-author.md) via the Agent tool:
 
 ```
 Task {

@@ -650,10 +650,10 @@ Use `AskUserQuestion` with:
 
 **If auto-review + this session:**
 
-Spawn the review as a Task subagent:
+Spawn the review as an Agent subagent:
 
 ```
-Task(
+Agent(
   subagent_type: "general-purpose",
   description: "Plan review for {Abbrev}",
   prompt: "Run /planwise review {plan-folder-path}. Return: verdict, finding counts

@@ -225,7 +225,7 @@ Research $ARGUMENTS:
 | Approach | System Prompt | Task Content | Forking Tool |
 |----------|---------------|--------------|--------------|
 | Skill with `context: fork` | Full CC CLI prompt | SKILL.md content | Skill tool |
-| Subagent with `skills:` field | Full CC CLI prompt | Claude's delegation message | Task tool |
+| Subagent with `skills:` field | Full CC CLI prompt | Claude's delegation message | Agent tool |
 
 Both receive the full CC system prompt and identical 18-tool sets. The distinction is invocation mechanism and task content source.
 
