@@ -700,7 +700,9 @@ When absent:
 planwise doctor — task tools
 
 Task tools: absent — Claude Code omits them on this model family.
-  to enable:  add "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" to the env block of .claude/settings.json, then start a new session
+  to enable:  run /planwise upgrade — its Step 4.6 offers to add
+              "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" to .claude/settings.json's
+              env block, then start a new session
   in force:   Recovery-only tracking (Track A)
   doctor is read-only and never edits settings
 ```

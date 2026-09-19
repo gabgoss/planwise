@@ -175,6 +175,19 @@ class TestAdditionalDirsDedup(unittest.TestCase):
             "1",
         )
 
+    def test_env_todo_tools_var_set(self):
+        """Task-tools env var is always written, alongside Agent Teams, regardless
+        of additionalDirectories state."""
+        _settings_path, _plugin_dir = self._run({})
+
+        after = self._read_settings()
+        self.assertEqual(
+            after["env"]["CLAUDE_CODE_ENABLE_TODO_TOOLS"],
+            "1",
+        )
+        # Both recommended env vars land together, neither displaces the other.
+        self.assertEqual(after["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"], "1")
+
     # ------------------------------------------------------------------
     # Stale pin + unrelated entry: stale removed, unrelated kept
     # ------------------------------------------------------------------

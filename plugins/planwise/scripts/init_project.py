@@ -392,7 +392,8 @@ def get_settings_path(cfg: InitConfig) -> Path:
 def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None]:
     """Apply all settings.json mutations in a single read-write cycle.
 
-    Configures Agent Teams env var and plugin read permissions.
+    Configures the Agent Teams env var, the Task checklist tools env var,
+    and plugin read permissions.
     Returns (settings_path, plugin_dir) — either may be None if skipped.
     """
     settings_path = get_settings_path(cfg)
@@ -410,6 +411,11 @@ def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None]:
     # Agent Teams
     env = settings.setdefault("env", {})
     env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
+
+    # Task checklist tools (Ctrl+T) — absent by default on Opus 4.8/Sonnet 5/
+    # Fable 5/Mythos 5 and newer since Claude Code 2.1.233 unless a project
+    # opts in.
+    env["CLAUDE_CODE_ENABLE_TODO_TOOLS"] = "1"
 
     # Plugin permissions
     # Grant the version-agnostic plugin-family root (cfg.plugin_root.parent) rather

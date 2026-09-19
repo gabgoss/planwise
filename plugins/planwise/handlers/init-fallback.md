@@ -91,9 +91,9 @@ Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with 
 
 ---
 
-### Step 7 — Configure Agent Teams (fallback)
+### Step 7 — Configure recommended environment variables (fallback)
 
-Enable Agent Teams by adding the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environment variable to the settings file determined by `{install_scope}`:
+Enable Agent Teams and the Task checklist tools (`TaskCreate`/`TaskUpdate`/`TaskGet`/`TaskList`, the `Ctrl+T` list — absent by default on Opus 4.8/Sonnet 5/Fable 5/Mythos 5 and newer since Claude Code 2.1.233 unless a project opts in) by adding both environment variables to the settings file determined by `{install_scope}`:
 
 | Scope | Settings file |
 |-------|---------------|
@@ -107,13 +107,14 @@ Enable Agent Teams by adding the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environm
    ```json
    {
      "env": {
-       "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+       "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+       "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
      }
    }
    ```
 4. **Write** the updated JSON back to the same file
 
-**Important:** Preserve all existing settings in the file. Only add/update the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` key within the `env` object.
+**Important:** Preserve all existing settings in the file. Only add/update the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and `CLAUDE_CODE_ENABLE_TODO_TOOLS` keys within the `env` object.
 
 ---
 

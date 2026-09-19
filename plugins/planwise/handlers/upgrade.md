@@ -24,6 +24,7 @@
   - [Step 4.3 — Interactive per-class cleanup offer](#step-43--interactive-per-class-cleanup-offer)
   - [Step 4.4 — Settings-grant normalization offer](#step-44--settings-grant-normalization-offer)
   - [Step 4.5 — GitHub CLI availability offer](#step-45--github-cli-availability-offer)
+  - [Step 4.6 — Task-tools env var offer](#step-46--task-tools-env-var-offer)
 - [Part 2 — Conflict Resolution Reference and Recovery](#part-2--conflict-resolution-reference-and-recovery) — pointer to the separate file [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Conflict Resolution Reference, Auto-Init Fallback, Mid-Upgrade Failure, Config Recovery)
 
 ---
@@ -576,6 +577,28 @@ If it does not resolve, offer the install exactly as [init.md](init.md) Step 9.5
 > The two steps reach disjoint populations. Every install that predates this offer has already run its `init` and will never run it again, so an init-only placement leaves those consumers permanently unaware that `/planwise feedback` has been drafting locally rather than posting — the engine's fallback is silent by design ([`references/feedback-submission.md`](../references/feedback-submission.md)), so nothing else would ever tell them.
 
 A declined offer is not remembered — `gh` may be declined once and wanted later — but the question is asked only when `gh` is genuinely absent, so an install already in place is never re-prompted. A failed or declined install NEVER blocks the upgrade.
+
+---
+
+### Step 4.6 — Task-tools env var offer
+
+After a successful upgrade, read the project's `.claude/settings.json` (and `.claude/settings.local.json`, if present) `env` block for `CLAUDE_CODE_ENABLE_TODO_TOOLS`. Consumer settings files are DATA, never a ship-boundary artifact — this step READS and OFFERS, exactly like Step 4.4, and it never silently rewrites.
+
+If the key is already present (any value), report "Task tools: opted in — CLAUDE_CODE_ENABLE_TODO_TOOLS already set." and skip the offer — there is nothing to act on.
+
+If the key is absent, report:
+
+```
+Task tools: not opted in — CLAUDE_CODE_ENABLE_TODO_TOOLS is absent from {settings_path}.
+Without it, Claude Code omits TaskCreate/TaskUpdate/TaskGet/TaskList (Ctrl+T) on
+Opus 4.8, Sonnet 5, Fable 5, Mythos 5 and newer models, and /planwise run falls
+back to Recovery-only tracking (Track A).
+```
+
+The **report always renders**, regardless of consent. The **write happens only on explicit interactive approval**: `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`) — "Add `CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"` to {settings_path}'s env block?" — inferred default **report-only, change nothing** (an unattended/non-interactive run never rewrites `env`). On confirm, merge the key into the existing `env` object — preserve every other key, never overwrite an unrelated env var — write, then read the file back to confirm the write landed, and note that a **new session** is required for the tools to appear (the current session's tool list is fixed at startup). On decline, or when no interactive answer is available, print the report and leave every settings file untouched.
+
+> [!practice] Why this offer runs at upgrade time and not only at init
+> `scripts/init_project.py::configure_settings()` writes `CLAUDE_CODE_ENABLE_TODO_TOOLS` unconditionally for every new project, same as Agent Teams. But every install that predates that write has already run its `init` and will never run it again, so an init-only placement leaves those consumers permanently dependent on noticing `handlers/doctor.md` Stage 18's advisory and hand-editing their settings file. This step reaches that population — the same reasoning Step 4.5 already states for the GitHub CLI offer.
 
 ---
 
