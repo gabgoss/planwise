@@ -32,9 +32,9 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import parse_backlog  # noqa: E402
-from constants import ARCHIVE_STATUSES, CLOSED_STATUSES  # noqa: E402
-from parse_backlog import (  # noqa: E402
+import parse_backlog
+from constants import ARCHIVE_STATUSES, CLOSED_STATUSES
+from parse_backlog import (
     FilterCriteria,
     build_blocked_by_map,
     filter_items,
@@ -42,7 +42,6 @@ from parse_backlog import (  # noqa: E402
     parse_backlog_table,
     parse_dependencies_table,
 )
-
 
 HEADER = (
     "# Backlog Index\n\n"

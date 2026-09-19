@@ -30,7 +30,7 @@ except ImportError:
     # Partial-install tolerance, mirroring the structural_compare guard in rule_divergence.py:
     # a half-synced scripts tree must not kill the whole CLI at import time.
     # Mirrors config_loader.get_upgrade_config()'s conservative defaults.
-    def get_upgrade_config(config: dict) -> dict:   # noqa: D103
+    def get_upgrade_config(config: dict) -> dict:
         return {
             "customization_handoff": "report",
             "github_issue": False,
@@ -38,20 +38,20 @@ except ImportError:
         }
 
     # Mirrors config_loader.get_feedback_config()'s conservative defaults.
-    def get_feedback_config(config: dict) -> dict:   # noqa: D103
+    def get_feedback_config(config: dict) -> dict:
         return {
             "enabled": False,
             "repo": "gabgoss/planwise",
             "include_environment": True,
         }
 
-    def write_config_checked(config_path, text: str) -> None:   # noqa: D103
+    def write_config_checked(config_path, text: str) -> None:
         # Degraded fallback: the post-write parse check lives in config_loader,
         # so a half-synced scripts tree writes unverified rather than failing
         # to start. Same spirit as the no-PyYAML no-op in the real helper.
         Path(config_path).write_text(text, encoding="utf-8")
 
-    def find_context_block(lines: list) -> "tuple[int, int, str] | None":   # noqa: D103
+    def find_context_block(lines: list) -> "tuple[int, int, str] | None":
         # Unlike the two degraded-but-safe fallbacks above, this helper's own
         # job IS config.yaml write correctness. Duplicating (and risking drift
         # from) the block-extent logic here would let a half-synced scripts
@@ -86,11 +86,12 @@ MIGRATABLE_TOP_LEVEL_KEYS = [
 
 # Sub-keys under `context:` that `--migrate` adds to an EXISTING context block.
 # The top-level merge above skips `context` whenever the user's config already
-# has it (every installed config does), so the eleven Token Saver sub-keys
-# below would never reach an existing install without this nested merge. Each
-# tuple is (sub_key, default_value_literal) where the literal is rendered
-# verbatim into the YAML line. Existing sub-keys are NEVER overwritten —
-# purely additive.
+# has it (every installed config does), so the sub-keys below would never
+# reach an existing install without this nested merge. Each tuple is
+# (sub_key, default_value_literal) where the literal is rendered verbatim
+# into the YAML line. Existing sub-keys are NEVER overwritten — purely
+# additive. Most entries are Token Saver keys; run_layer_stop is not, but it
+# rides the same nested merge since it also lives under context:.
 MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
     ("token_saver", "false"),
     ("token_saver_session_target", "150000"),
@@ -106,6 +107,7 @@ MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
     ("token_saver_injected_rules_estimate", "0"),
     ("token_saver_orchestrator_advisory", "measured"),
     ("token_saver_session_checkpoint", "{window: 400000, turns: 194}"),
+    ("run_layer_stop", "off"),
 ]
 
 
@@ -389,7 +391,9 @@ def migrate_config(cfg: InitConfig) -> tuple[str, list[str], list[str]]:
     user_data = yaml.safe_load(user_text) or {}
 
     if not isinstance(user_data, dict) or not isinstance(template_data, dict):
-        raise RuntimeError(f"{config_path} is not a YAML mapping — cannot merge.")
+        # RuntimeError, not TypeError: the artifact_upgrade CLI's migrate-phase
+        # handler catches this call's failures as (FileNotFoundError, RuntimeError).
+        raise RuntimeError(f"{config_path} is not a YAML mapping — cannot merge.")  # noqa: TRY004
 
     added: list[str] = []
     present: list[str] = []
@@ -466,7 +470,9 @@ def _bump_plugin_version(config_path: Path, new_version: str) -> None:
     # Fallback — append the key as text after the existing top-level set.
     data = yaml.safe_load(text) or {}
     if not isinstance(data, dict):
-        raise RuntimeError(f"{config_path} is not a YAML mapping — cannot pin version.")
+        # RuntimeError, not TypeError: consistent with this module's sibling
+        # YAML-mapping guards above.
+        raise RuntimeError(f"{config_path} is not a YAML mapping — cannot pin version.")  # noqa: TRY004
     write_config_checked(
         config_path,
         text.rstrip("\n") + f'\n\nplugin_version: "{new_version}"\n',

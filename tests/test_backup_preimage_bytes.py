@@ -38,11 +38,11 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import doctor_cli  # noqa: E402 -- patch-target home for the prune sweeps
-from upgrade_io import _copy_bytes_exact, _write_backup_preimage  # noqa: E402
+import doctor_cli
+import init_project as ip
+from upgrade_io import _copy_bytes_exact, _write_backup_preimage
 
-from conftest import _MigrationFixtureBase  # noqa: E402
+from conftest import _MigrationFixtureBase
 
 BOM = b"\xef\xbb\xbf"
 
@@ -224,7 +224,7 @@ class TestPruneStalePreimageIsByteCopy(_MigrationFixtureBase):
                     result = ip._run_prune_stale(self.cfg)
                 self.assertEqual(result, 0)
                 self.assertFalse(installed.exists(), f"{name}: REMOVABLE must be unlinked")
-                today = datetime.date.today().isoformat()
+                today = datetime.datetime.now().astimezone().date().isoformat()
                 backups_root = self.project_root / self.cfg.planwise_root / "upgrade-backups"
                 # Each subtest run creates its own prune-{today}[-N]/ folder;
                 # the copy lands in whichever folder this run created.
@@ -257,7 +257,7 @@ class TestPruneStalePreimageIsByteCopy(_MigrationFixtureBase):
             result = ip._run_prune_stale(self.cfg)
         self.assertEqual(result, 0)
         self.assertFalse(installed.exists())
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         backups_root = self.project_root / self.cfg.planwise_root / "upgrade-backups"
         copies = list(backups_root.glob(f"prune-{today}*/guarded.md"))
         self.assertEqual(len(copies), 1)

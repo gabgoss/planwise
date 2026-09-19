@@ -15,7 +15,6 @@ import shutil
 import subprocess
 
 import pytest
-
 from harness import tiers
 
 # --- Responsibility 2: the CLI gate -----------------------------------------
@@ -36,6 +35,7 @@ def _resolve_cli() -> str | None:
                 capture_output=True,
                 text=True,
                 timeout=10,
+                check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return None

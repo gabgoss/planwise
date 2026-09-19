@@ -7,7 +7,7 @@ init and the upgrade-side backfill path call through.
 """
 
 import dataclasses
-from datetime import date
+from datetime import datetime
 
 try:
     import yaml
@@ -16,7 +16,10 @@ except ImportError:
     HAS_YAML = False
 
 try:
-    from config_gen import ConfigResult, InitConfig  # noqa: F401 -- InitConfig is a quoted forward-ref type hint
+    from config_gen import (
+        ConfigResult,
+        InitConfig,
+    )
 except ImportError:
     raise ImportError(
         "config_gen is required for lessons_bootstrap's ConfigResult/InitConfig "
@@ -168,7 +171,7 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
     for b in ordered_buckets:
         bucket_blocks.append("\n".join(_render_bucket_section(b)))
 
-    today = date.today().isoformat()
+    today = datetime.now().astimezone().date().isoformat()
     scope_paragraph = f"Lessons captured during {cfg.project_name} sessions."
 
     rendered = (

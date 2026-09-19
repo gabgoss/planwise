@@ -22,7 +22,7 @@ from pathlib import Path
 # tests/ — mirrors the sibling test modules' self-locating sys.path line.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from conftest import _engine  # noqa: E402
+from conftest import _engine
 
 
 # ---------------------------------------------------------------------------

@@ -34,9 +34,8 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import update_backlog  # noqa: E402
-from parse_backlog import parse_backlog_table  # noqa: E402
-
+import update_backlog
+from parse_backlog import parse_backlog_table
 
 CONFIG_YAML_FIXTURE = """project:
   name: "UpdateBacklogFixtureProject"

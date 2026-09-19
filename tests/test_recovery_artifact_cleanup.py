@@ -29,12 +29,12 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import artifact_upgrade  # noqa: E402 -- patch-target home for the scan/banner/split functions under test
-import doctor_cli  # noqa: E402 -- patch-target home for the prune writer's shutil
-import doctor_sweeps  # noqa: E402 -- home of the read-only leftover sweep
+import artifact_upgrade
+import doctor_cli
+import doctor_sweeps
+import init_project as ip
 
-from conftest import _MigrationFixtureBase  # noqa: E402
+from conftest import _MigrationFixtureBase
 
 
 class _RecoveryArtifactFixtureMixin:
@@ -331,7 +331,7 @@ class TestPruneUpgradeLeftoversScope(_RecoveryArtifactFixtureMixin, _MigrationFi
         self.assertIn("## Preserved (3)", log_text)
 
     def _leftovers_log_dir(self, suffix=""):
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         return self._planwise_root() / "upgrade-prune-logs" / f"upgrade-leftovers-{today}{suffix}"
 
     def test_prune_upgrade_leftovers_log_does_not_collide_with_prune_stale_log(self):
@@ -345,7 +345,7 @@ class TestPruneUpgradeLeftoversScope(_RecoveryArtifactFixtureMixin, _MigrationFi
 
         self.assertEqual((stale_exit, leftovers_exit), (0, 0))
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         stale_log = self._planwise_root() / "upgrade-backups" / f"prune-{today}" / "PRUNED.md"
         leftovers_log = self._leftovers_log_dir() / "PRUNED-LEFTOVERS.md"
 
@@ -457,9 +457,9 @@ class TestPruneUpgradeLeftoversScope(_RecoveryArtifactFixtureMixin, _MigrationFi
             return real_rmtree(path, *a, **kw)
 
         buf = io.StringIO()
-        with mock.patch.object(doctor_cli.shutil, "rmtree", rmtree_failing_partway):
-            with contextlib.redirect_stdout(buf):
-                self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        with mock.patch.object(doctor_cli.shutil, "rmtree", rmtree_failing_partway), \
+                contextlib.redirect_stdout(buf):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
 
         log_dir = self._leftovers_log_dir()
         preserved = list(log_dir.rglob("*.md"))

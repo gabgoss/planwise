@@ -31,7 +31,7 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from reconcile_common import (  # noqa: E402
+from reconcile_common import (
     format_drift_report,
     read_text_preserving_newlines,
     run_reconcile_cli,
@@ -145,16 +145,16 @@ class _CliFixtureBase(unittest.TestCase):
 
     def run_cli(self, argv, **overrides):
         sys.argv = ["test_reconcile_common"] + argv
-        kwargs = dict(
-            description="Test CLI",
-            load_config=lambda: {},
-            resolve_index_path=lambda config: self.index_path,
-            missing_index_message=lambda p: f"Error: index not found at {p}",
-            detect_drift=lambda config: {"drifts": [], "anomalies": []},
-            reconcile=lambda config: 0,
-            format_report=lambda result: "report",
-            json_prefix="reconcile-common-cli-test-",
-        )
+        kwargs = {
+            "description": "Test CLI",
+            "load_config": dict,
+            "resolve_index_path": lambda config: self.index_path,
+            "missing_index_message": lambda p: f"Error: index not found at {p}",
+            "detect_drift": lambda config: {"drifts": [], "anomalies": []},
+            "reconcile": lambda config: 0,
+            "format_report": lambda result: "report",
+            "json_prefix": "reconcile-common-cli-test-",
+        }
         kwargs.update(overrides)
         run_reconcile_cli(**kwargs)
 

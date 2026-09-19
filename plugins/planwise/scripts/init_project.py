@@ -56,14 +56,14 @@ from constants import InstallScope
 
 try:
     from upgrade_io import (
-        _load_verdicts_cache,  # noqa: F401 -- re-exported for callers of init_project
-        _load_verdict_override,  # noqa: F401 -- re-exported for callers of init_project
-        _installed_hash,
-        _write_backup_preimage,  # noqa: F401 -- re-exported for callers of init_project
         _append_disposition_log,  # noqa: F401 -- re-exported for callers of init_project
-        _record_disposition,  # noqa: F401 -- re-exported for callers of init_project
+        _installed_hash,
         _load_raw_config,  # noqa: F401 -- re-exported for callers of init_project
+        _load_verdict_override,  # noqa: F401 -- re-exported for callers of init_project
+        _load_verdicts_cache,  # noqa: F401 -- re-exported for callers of init_project
+        _record_disposition,  # noqa: F401 -- re-exported for callers of init_project
         _transfer_customization,  # noqa: F401 -- re-exported for callers of init_project
+        _write_backup_preimage,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
@@ -73,24 +73,24 @@ except ImportError:
 
 try:
     from config_gen import (
-        PLAN_TIER_WINDOWS,
-        MIGRATABLE_TOP_LEVEL_KEYS,  # noqa: F401 -- re-exported for callers of init_project
         MIGRATABLE_CONTEXT_SUBKEYS,  # noqa: F401 -- re-exported for callers of init_project
-        _existing_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
-        _context_subkeys_delta,  # noqa: F401 -- re-exported for callers of init_project
-        merge_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
-        extract_top_level_block,  # noqa: F401 -- re-exported for callers of init_project
+        MIGRATABLE_TOP_LEVEL_KEYS,  # noqa: F401 -- re-exported for callers of init_project
+        PLAN_TIER_WINDOWS,
         ConfigResult,
         InitConfig,
-        get_plugin_root,
-        read_plugin_version,
-        generate_config,
-        migrate_config,
         _bump_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
+        _context_subkeys_delta,  # noqa: F401 -- re-exported for callers of init_project
+        _existing_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
         _flip_token_saver_on,  # noqa: F401 -- re-exported for callers of init_project
-        get_upgrade_config,  # noqa: F401 -- re-exported for callers of init_project
-        write_config_checked,  # noqa: F401 -- re-exported for callers of init_project
+        extract_top_level_block,  # noqa: F401 -- re-exported for callers of init_project
         find_context_block,  # noqa: F401 -- re-exported for callers of init_project
+        generate_config,
+        get_plugin_root,
+        get_upgrade_config,  # noqa: F401 -- re-exported for callers of init_project
+        merge_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
+        migrate_config,
+        read_plugin_version,
+        write_config_checked,
     )
 except ImportError:
     raise ImportError(
@@ -100,24 +100,24 @@ except ImportError:
 
 try:
     from rule_divergence import (
-        is_subset,  # noqa: F401 -- re-exported for callers of init_project
-        is_safe_to_remove,  # noqa: F401 -- re-exported for callers of init_project
-        HAS_STRUCTURAL_COMPARE,  # noqa: F401 -- re-exported for callers of init_project
-        classify_blocks,  # noqa: F401 -- re-exported for callers of init_project
-        StructuralVerdict,  # noqa: F401 -- re-exported for callers of init_project
-        structural_compare,  # noqa: F401 -- re-exported for callers of init_project
-        _destructively_removable,  # noqa: F401 -- re-exported for callers of init_project
-        normalize_rule_for_diff,  # noqa: F401 -- re-exported for callers of init_project
-        _FALLBACK_PATHS_LINE_RE,  # noqa: F401 -- re-exported for callers of init_project
-        _split_frontmatter_fallback,  # noqa: F401 -- re-exported for callers of init_project
-        _extract_paths_value,  # noqa: F401 -- re-exported for callers of init_project
-        _DEGRADED_VERDICT_SOURCE,  # noqa: F401 -- re-exported for callers of init_project
-        _classify_diverged,  # noqa: F401 -- re-exported for callers of init_project
-        _FM_KEY_LINE_RE,  # noqa: F401 -- re-exported for callers of init_project
         _BOM_CHAR,  # noqa: F401 -- re-exported for callers of init_project
-        _split_frontmatter_block,  # noqa: F401 -- re-exported for callers of init_project
+        _DEGRADED_VERDICT_SOURCE,  # noqa: F401 -- re-exported for callers of init_project
+        _FALLBACK_PATHS_LINE_RE,  # noqa: F401 -- re-exported for callers of init_project
+        _FM_KEY_LINE_RE,  # noqa: F401 -- re-exported for callers of init_project
+        HAS_STRUCTURAL_COMPARE,  # noqa: F401 -- re-exported for callers of init_project
+        StructuralVerdict,  # noqa: F401 -- re-exported for callers of init_project
+        _classify_diverged,  # noqa: F401 -- re-exported for callers of init_project
+        _destructively_removable,  # noqa: F401 -- re-exported for callers of init_project
+        _extract_paths_value,  # noqa: F401 -- re-exported for callers of init_project
         _parse_frontmatter_map,  # noqa: F401 -- re-exported for callers of init_project
+        _split_frontmatter_block,  # noqa: F401 -- re-exported for callers of init_project
+        _split_frontmatter_fallback,  # noqa: F401 -- re-exported for callers of init_project
         _verdict_not_analyzed,  # noqa: F401 -- re-exported for callers of init_project
+        classify_blocks,  # noqa: F401 -- re-exported for callers of init_project
+        is_safe_to_remove,  # noqa: F401 -- re-exported for callers of init_project
+        is_subset,  # noqa: F401 -- re-exported for callers of init_project
+        normalize_rule_for_diff,  # noqa: F401 -- re-exported for callers of init_project
+        structural_compare,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
@@ -128,12 +128,12 @@ except ImportError:
 try:
     from lessons_bootstrap import (
         DEFAULT_CATEGORIZATION,  # noqa: F401 -- re-exported for callers of init_project
-        _render_bucket_section,  # noqa: F401 -- re-exported for callers of init_project
-        render_categorization_file,  # noqa: F401 -- re-exported for callers of init_project
-        _seed_lessons_index,  # noqa: F401 -- re-exported for callers of init_project
         LessonsBootstrap,  # noqa: F401 -- re-exported for callers of init_project
-        bootstrap_lessons_artifacts,
         _emit_lessons_bootstrap_banner,  # noqa: F401 -- re-exported for callers of init_project
+        _render_bucket_section,  # noqa: F401 -- re-exported for callers of init_project
+        _seed_lessons_index,  # noqa: F401 -- re-exported for callers of init_project
+        bootstrap_lessons_artifacts,
+        render_categorization_file,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
@@ -302,12 +302,12 @@ except ImportError:
 
 try:
     from artifact_upgrade import (
-        upgrade_artifacts,  # noqa: F401 -- re-exported for callers of init_project
-        load_artifact_manifest,
-        _repoint_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
         _commit_upgrade_pin,  # noqa: F401 -- re-exported for callers of init_project
-        _same_path,  # noqa: F401 -- re-exported for callers of init_project
+        _repoint_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
         _run_upgrade,
+        _same_path,  # noqa: F401 -- re-exported for callers of init_project
+        load_artifact_manifest,
+        upgrade_artifacts,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
@@ -318,11 +318,11 @@ except ImportError:
 
 try:
     from doctor_sweeps import (
-        lint_rule_overscope,  # noqa: F401 -- re-exported for callers of init_project
-        sweep_stale_descoped_rules,  # noqa: F401 -- re-exported for callers of init_project
-        sweep_orphaned_agent_mirrors,  # noqa: F401 -- re-exported for callers of init_project
-        lint_installed_divergence,  # noqa: F401 -- re-exported for callers of init_project
         FORMERLY_MIRRORED_AGENTS,  # noqa: F401 -- re-exported for callers of init_project
+        lint_installed_divergence,  # noqa: F401 -- re-exported for callers of init_project
+        lint_rule_overscope,  # noqa: F401 -- re-exported for callers of init_project
+        sweep_orphaned_agent_mirrors,  # noqa: F401 -- re-exported for callers of init_project
+        sweep_stale_descoped_rules,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
@@ -332,17 +332,17 @@ except ImportError:
 
 try:
     from doctor_cli import (
+        _detect_orphaned_block_signature,  # noqa: F401 -- re-exported for callers of init_project
+        _doctor_config_parse_check,  # noqa: F401 -- re-exported for callers of init_project
+        _doctor_version_gate,  # noqa: F401 -- re-exported for callers of init_project
+        _list_diverged_rows,  # noqa: F401 -- re-exported for callers of init_project
+        _read_configured_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
+        _read_pinned_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
+        _resolve_doctor_config_path,  # noqa: F401 -- re-exported for callers of init_project
         _run_doctor,
+        _run_list_diverged,
         _run_prune_stale,
         _run_prune_upgrade_leftovers,
-        _run_list_diverged,
-        _list_diverged_rows,  # noqa: F401 -- re-exported for callers of init_project
-        _doctor_version_gate,  # noqa: F401 -- re-exported for callers of init_project
-        _resolve_doctor_config_path,  # noqa: F401 -- re-exported for callers of init_project
-        _read_pinned_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
-        _read_configured_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
-        _doctor_config_parse_check,  # noqa: F401 -- re-exported for callers of init_project
-        _detect_orphaned_block_signature,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(

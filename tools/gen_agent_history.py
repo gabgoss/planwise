@@ -39,8 +39,8 @@ sys.path.insert(0, str(SCRIPTS))
 # and it imports doctor_sweeps back through artifact_upgrade, so importing
 # doctor_sweeps first trips that cycle. Import the root first, as every test
 # and handler entry point does, then pull the sweep's public names.
-import init_project  # noqa: E402,F401 -- sys.path must be set first; resolves the import cycle
-from doctor_sweeps import (  # noqa: E402
+import init_project  # noqa: F401 -- sys.path must be set first; resolves the import cycle
+from doctor_sweeps import (
     AGENT_HISTORY_MANIFEST,
     FORMERLY_MIRRORED_AGENTS,
     history_digest,
@@ -65,7 +65,7 @@ def historical_digests(filename: str) -> set[str]:
     shas = _git("log", "--all", "--format=%H", "--", rel).decode().split()
     for sha in shas:
         probe = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--verify", "-q",
-                                f"{sha}:{rel}"], capture_output=True)
+                                f"{sha}:{rel}"], capture_output=True, check=False)
         if probe.returncode != 0:
             continue  # the file did not exist at this commit (deleted/renamed)
         blob = probe.stdout.decode().strip()
@@ -83,7 +83,7 @@ def build_manifest() -> dict:
     agents = {name: sorted(historical_digests(name)) for name in FORMERLY_MIRRORED_AGENTS}
     return {
         "schema_version": 1,
-        "generated_on": datetime.date.today().isoformat(),
+        "generated_on": datetime.datetime.now().astimezone().date().isoformat(),
         "normalization": "read as utf-8-sig (BOM stripped), CRLF -> LF, sha256 hex "
                          "(doctor_sweeps.history_digest)",
         "purpose": "Every body each formerly-mirrored agent has ever shipped with. "

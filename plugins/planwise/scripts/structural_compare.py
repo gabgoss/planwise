@@ -182,8 +182,7 @@ def segment_blocks(content: str) -> list:
     callouts/headings inside them never split the enclosing real callout.
     """
     content = content.replace("\r\n", "\n").replace("\r", "\n")
-    if content.startswith("﻿"):
-        content = content[1:]
+    content = content.removeprefix("﻿")
 
     frontmatter, body = split_frontmatter(content)
 

@@ -30,8 +30,8 @@ from pathlib import Path
 # from the repo root or the test is executed directly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import doctor_cli  # noqa: E402 -- the module under test (_sweep_settings_grants is not re-exported by init_project)
-import init_project as ip  # noqa: E402 -- for InitConfig and the wired-in _run_doctor() check
+import doctor_cli
+import init_project as ip
 
 
 def _make_cfg(project_root: Path, plugin_root: Path, scope: str = "project") -> ip.InitConfig:

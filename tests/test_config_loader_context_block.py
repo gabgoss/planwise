@@ -28,8 +28,8 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import config_loader  # noqa: E402
-import init_project as ip  # noqa: E402
+import config_loader
+import init_project as ip
 
 
 # ---------------------------------------------------------------------------
@@ -38,17 +38,7 @@ import init_project as ip  # noqa: E402
 class TestFindContextBlock(unittest.TestCase):
 
     def test_locates_block_with_commented_subkeys(self):
-        lines = (
-            "project:\n"
-            "  name: X\n"
-            "# Context window tier.\n"
-            "context:\n"
-            "  plan_tier: pro\n"
-            "  # measured overhead\n"
-            "  token_saver: false\n"
-            "scoring:\n"
-            "  priority_high: 30\n"
-        ).split("\n")
+        lines = ["project:", "  name: X", "# Context window tier.", "context:", "  plan_tier: pro", "  # measured overhead", "  token_saver: false", "scoring:", "  priority_high: 30", ""]
         result = config_loader.find_context_block(lines)
         self.assertIsNotNone(result)
         header_idx, end, indent = result
@@ -58,24 +48,12 @@ class TestFindContextBlock(unittest.TestCase):
         self.assertEqual(lines[end], "scoring:")
 
     def test_indent_taken_from_first_indented_member_not_a_comment(self):
-        lines = (
-            "context:\n"
-            "    # over-indented comment first\n"
-            "  plan_tier: pro\n"
-            "next_key:\n"
-        ).split("\n")
+        lines = ["context:", "    # over-indented comment first", "  plan_tier: pro", "next_key:", ""]
         _header_idx, _end, indent = config_loader.find_context_block(lines)
         self.assertEqual(indent, "  ", "a comment line must not set the subkey indent")
 
     def test_trailing_blank_and_comment_lines_trimmed_from_block_end(self):
-        lines = (
-            "context:\n"
-            "  plan_tier: pro\n"
-            "\n"
-            "# a comment introducing the NEXT key\n"
-            "scoring:\n"
-            "  priority_high: 30\n"
-        ).split("\n")
+        lines = ["context:", "  plan_tier: pro", "", "# a comment introducing the NEXT key", "scoring:", "  priority_high: 30", ""]
         _header_idx, end, _indent = config_loader.find_context_block(lines)
         # block ends right after plan_tier, not swallowing the blank/comment run.
         self.assertEqual(lines[end - 1], "  plan_tier: pro")
@@ -83,12 +61,12 @@ class TestFindContextBlock(unittest.TestCase):
     def test_block_at_end_of_file_has_no_following_top_level_key(self):
         # No trailing newline, so the split produces no trailing blank element
         # to trim — end lands exactly at len(lines).
-        lines = "project:\n  name: X\ncontext:\n  plan_tier: pro".split("\n")
+        lines = ["project:", "  name: X", "context:", "  plan_tier: pro"]
         _header_idx, end, _indent = config_loader.find_context_block(lines)
         self.assertEqual(end, len(lines))
 
     def test_absent_context_block_returns_none(self):
-        lines = "project:\n  name: X\nscoring:\n  priority_high: 30\n".split("\n")
+        lines = ["project:", "  name: X", "scoring:", "  priority_high: 30", ""]
         self.assertIsNone(config_loader.find_context_block(lines))
 
 

@@ -36,11 +36,10 @@ from unittest.mock import patch
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import config_loader  # noqa: E402
-import reconcile_backlog  # noqa: E402
-from reconcile_backlog import detect_drift, reconcile  # noqa: E402
-from parse_backlog import parse_backlog_table  # noqa: E402
-
+import config_loader
+import reconcile_backlog
+from parse_backlog import parse_backlog_table
+from reconcile_backlog import detect_drift, reconcile
 
 CONFIG_YAML_FIXTURE = """project:
   name: "BacklogReconcileFixtureProject"

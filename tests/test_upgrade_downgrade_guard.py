@@ -55,8 +55,8 @@ from unittest import mock
 _SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
-import init_project as ip  # noqa: E402
-import artifact_upgrade  # noqa: E402 -- patch-target home for _run_upgrade()
+import artifact_upgrade
+import init_project as ip
 
 INIT_PROJECT = _SCRIPTS / "init_project.py"
 UPGRADE_HANDLER = (
@@ -65,7 +65,7 @@ UPGRADE_HANDLER = (
 )
 
 try:
-    import yaml  # noqa: E402
+    import yaml
 
     HAS_YAML = True
 except ImportError:  # pragma: no cover - the suite needs PyYAML
@@ -162,7 +162,7 @@ class _DowngradeFixtureBase(unittest.TestCase):
     def config_path(self) -> Path:
         return self.planwise_dir / "config.yaml"
 
-    def write_config(self, pinned_version: str, plugin_root: Path = None) -> str:
+    def write_config(self, pinned_version: str, plugin_root: Path | None = None) -> str:
         """Write a config pinning `pinned_version`, and return its exact text
         so a caller can assert nothing was written."""
         root = self.plugin_root if plugin_root is None else plugin_root
@@ -324,7 +324,7 @@ class TestAllowDowngradeFlagIsUpgradeScoped(unittest.TestCase):
     def test_flag_without_upgrade_is_a_parser_error(self):
         result = subprocess.run(
             [sys.executable, str(INIT_PROJECT), "--name", "X", "--allow-downgrade"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, check=False,
         )
         self.assertEqual(result.returncode, 2)
         self.assertIn("--allow-downgrade only applies together with --upgrade",

@@ -55,12 +55,12 @@ from unittest import mock
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import config_loader  # noqa: E402
-import init_project as ip  # noqa: E402
-import artifact_upgrade  # noqa: E402 -- patch-target home for _run_upgrade()
+import artifact_upgrade
+import config_loader
+import init_project as ip
 
 try:
-    import yaml  # noqa: E402
+    import yaml
 
     HAS_YAML = True
 except ImportError:  # pragma: no cover - the suite needs PyYAML

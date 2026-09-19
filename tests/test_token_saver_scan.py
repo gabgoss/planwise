@@ -23,8 +23,8 @@ from pathlib import Path
 # tests/ — mirrors the sibling test modules' self-locating sys.path line.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import token_saver  # noqa: E402
-import token_saver_scan as tss  # noqa: E402
+import token_saver
+import token_saver_scan as tss
 
 # The current template's column set and the one earlier plans emit. A parser
 # that reads by POSITION passes on one and silently reads the wrong cell on the

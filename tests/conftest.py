@@ -35,18 +35,20 @@ def _engine():
 # `_flatten_report` on the anchor while `_report_section` lives here would
 # raise NameError the first time any non-anchor seam called `_report_section`.
 # ---------------------------------------------------------------------------
-import shutil  # noqa: E402
-import tempfile  # noqa: E402
-import types  # noqa: E402
-import unittest  # noqa: E402
-from pathlib import Path  # noqa: E402
-from unittest import mock  # noqa: E402
+import shutil
+import tempfile
+import types
+import unittest
+from pathlib import Path
+from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import artifact_upgrade  # noqa: E402 -- patch-target home for _UpgradeArtifactsFixtureBase's INSTALLED_RULES override (upgrade_artifacts())
-import doctor_sweeps  # noqa: E402 -- patch-target home for _UpgradeArtifactsFixtureBase's second, independent INSTALLED_RULES override (lint_installed_divergence())
+# Import order below is load-bearing, NOT alphabetical -- see ruff.toml's
+# per-file-ignore for why `ruff --fix` must never re-sort this block.
+import init_project as ip
+import artifact_upgrade  # patch-target home for _UpgradeArtifactsFixtureBase's INSTALLED_RULES override (upgrade_artifacts())
+import doctor_sweeps  # patch-target home for _UpgradeArtifactsFixtureBase's second, independent INSTALLED_RULES override (lint_installed_divergence())
 
 
 def _flatten_report(report):

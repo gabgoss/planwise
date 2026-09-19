@@ -17,19 +17,34 @@ import types
 # their absence signal.
 from frontmatter_parser import (
     BOM_CHAR as _BOM_CHAR,  # noqa: F401 -- re-exported for callers of rule_divergence
-    FM_KEY_LINE_RE as _FM_KEY_LINE_RE,  # noqa: F401 -- re-exported for callers of rule_divergence
-    PATHS_LINE_RE as _FALLBACK_PATHS_LINE_RE,  # noqa: F401 -- re-exported for callers of rule_divergence
-    parse_frontmatter_map as _parse_frontmatter_map,  # noqa: F401 -- re-exported for callers of rule_divergence
-    split_frontmatter_block as _split_frontmatter_block,  # noqa: F401 -- re-exported for callers of rule_divergence
-    split_frontmatter_without_paths as _split_frontmatter_fallback,  # noqa: F401 -- re-exported for callers of rule_divergence
 )
-
+from frontmatter_parser import (
+    FM_KEY_LINE_RE as _FM_KEY_LINE_RE,  # noqa: F401 -- re-exported for callers of rule_divergence
+)
+from frontmatter_parser import (
+    PATHS_LINE_RE as _FALLBACK_PATHS_LINE_RE,  # noqa: F401 -- re-exported for callers of rule_divergence
+)
+from frontmatter_parser import (
+    parse_frontmatter_map as _parse_frontmatter_map,  # noqa: F401 -- re-exported for callers of rule_divergence
+)
+from frontmatter_parser import (
+    split_frontmatter_block as _split_frontmatter_block,  # noqa: F401 -- re-exported for callers of rule_divergence
+)
+from frontmatter_parser import (
+    split_frontmatter_without_paths as _split_frontmatter_fallback,
+)
 
 try:
     import structural_compare
+
     # is_safe_to_remove/is_subset gate the disposition sites below;
     # classify_blocks/StructuralVerdict are re-exported for downstream verdict consumers.
-    from structural_compare import classify_blocks, is_safe_to_remove, is_subset, StructuralVerdict  # noqa: F401
+    from structural_compare import (  # noqa: F401
+        StructuralVerdict,
+        classify_blocks,
+        is_safe_to_remove,
+        is_subset,
+    )
     HAS_STRUCTURAL_COMPARE = True
 except ImportError:
     # A missing/broken structural_compare must degrade (preserve-on-doubt via
@@ -40,10 +55,10 @@ except ImportError:
     # Degraded predicates so the disposition call sites stay callable when the
     # primitive module is unavailable. Both read attributes off the verdict
     # object (duck-typed against the degraded HAS_UNIQUE stand-in).
-    def is_subset(v):           # noqa: E306
+    def is_subset(v):
         return getattr(v, "classification", "HAS_UNIQUE") == "SUBSET"
 
-    def is_safe_to_remove(v):   # noqa: E306
+    def is_safe_to_remove(v):
         return is_subset(v) and getattr(v, "confidence", "unique") in {"exact", "contained"}
 
 

@@ -13,7 +13,7 @@ row's padding. Only ``"|".join(split_row_raw(row)) == row`` holds.
 
 import re
 import sys
-from typing import Callable
+from collections.abc import Callable
 
 # Matches a pipe that is NOT preceded by a backslash. A cell may legitimately
 # contain an escaped pipe — `` `git diff --name-only \| grep dir` `` is the

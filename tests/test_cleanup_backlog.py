@@ -23,9 +23,8 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from cleanup_backlog import cleanup_index  # noqa: E402
-from markdown_parser import split_row_cells  # noqa: E402
-
+from cleanup_backlog import cleanup_index
+from markdown_parser import split_row_cells
 
 INDEX_HEADER = (
     "# Backlog Index\n\n"

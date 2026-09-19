@@ -23,7 +23,7 @@ Two operations:
 
 import re
 import sys
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 
 # Fix Windows cp1252 stdout encoding
@@ -316,7 +316,7 @@ def reconcile(config: dict) -> int:
             continue
 
         new_status = evaluation["mp_status"]
-        new_last_updated = evaluation["mp_last_updated"] or date.today().isoformat()
+        new_last_updated = evaluation["mp_last_updated"] or datetime.now().astimezone().date().isoformat()
 
         line = lines[row["line_number"]]
         parts = split_row_raw(line)

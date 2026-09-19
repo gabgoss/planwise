@@ -21,25 +21,26 @@ also pin the guard that makes a short read loud rather than silent.
 Run with:  python -m pytest tests/test_markdown_parser.py -q
 """
 
-import io
 import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from markdown_parser import (  # noqa: E402
+from markdown_parser import (
     count_cells,
+    find_row_by_id,
     is_section_boundary,
+    pad_cell,
     parse_markdown_table,
     split_row_cells,
     split_row_raw,
     warn_on_unparsed_rows,
 )
-from markdown_parser import find_row_by_id, pad_cell  # noqa: E402
-
 
 CLEAN_ROW = (
     "| 062 | Diff-scoped gates must name a reason "
@@ -362,14 +363,7 @@ class TestFindRowById(unittest.TestCase):
     leading zeros stripped, and hand back the first match's index and cell
     view."""
 
-    LINES = (
-        "## Backlog Items\n"
-        "\n"
-        "| ID  | Feature | Priority | Status | Abbrev | Files |\n"
-        "|-----|---------|----------|--------|--------|-------|\n"
-        "| 001 | first | High | NOT_STARTED | DOC | [01](BB-001.md) |\n"
-        "| 002 | second | Low | COMPLETE | DOC | [01](BB-002.md) |\n"
-    ).split("\n")
+    LINES: ClassVar[list[str]] = ["## Backlog Items", "", "| ID  | Feature | Priority | Status | Abbrev | Files |", "|-----|---------|----------|--------|--------|-------|", "| 001 | first | High | NOT_STARTED | DOC | [01](BB-001.md) |", "| 002 | second | Low | COMPLETE | DOC | [01](BB-002.md) |", ""]
 
     def test_found_row_returns_index_and_cells(self):
         result = find_row_by_id(self.LINES, "002")
@@ -385,7 +379,7 @@ class TestFindRowById(unittest.TestCase):
     def test_leading_zeros_normalize_on_both_sides(self):
         # A caller passing "02" must still match a row whose own ID cell reads
         # "002" — both sides are compared with leading zeros stripped.
-        index, cells = find_row_by_id(self.LINES, "02")
+        _index, cells = find_row_by_id(self.LINES, "02")
         self.assertEqual(cells[0], "002")
 
     def test_not_found_returns_none(self):
@@ -413,7 +407,7 @@ class TestFindRowById(unittest.TestCase):
             "",
             "| 001 | fine | High | NOT_STARTED | DOC | [01](x.md) |",
         ]
-        index, cells = find_row_by_id(lines, "001")
+        index, _cells = find_row_by_id(lines, "001")
         self.assertEqual(index, 2)
 
     def test_escaped_pipe_row_is_found_with_cells_correctly_aligned(self):

@@ -43,22 +43,22 @@ INSTALLED_RULES). That is the intended TDD red state, not a fixture bug.
 import sys
 import unittest
 from pathlib import Path
+from typing import ClassVar
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import rule_descope_migration  # noqa: E402 -- patch-target home for migrate_installed_rules()
+import init_project as ip
+import rule_descope_migration
 
-from conftest import (  # noqa: E402
+from conftest import (
     EXPECTED_DESCOPED_ALL,
-    _MigrationFixtureBase,
     _flatten_report,
+    _MigrationFixtureBase,
     _report_section,
     _snapshot_tree,
     _verdict,
 )
-
 
 KEPT_RULES = {
     "agent-authoring.md",
@@ -510,7 +510,7 @@ class TestLinter(_MigrationFixtureBase):
                 return True
             if isinstance(obj, dict):
                 return any(has_numeric(v) for v in obj.values()) or any(
-                    has_numeric(k) for k in obj.keys()
+                    has_numeric(k) for k in obj
                 )
             if isinstance(obj, (list, tuple, set, frozenset)):
                 return any(has_numeric(i) for i in obj)
@@ -532,7 +532,7 @@ class TestUpgradeConfigFoundation(unittest.TestCase):
     that need none of the migration fixture's temp project tree.
     """
 
-    _DEFAULTS = {
+    _DEFAULTS: ClassVar[dict[str, object]] = {
         "customization_handoff": "report",
         "github_issue": False,
         # True preserves today's behavior (a paths-only-edited de-scoped
@@ -626,7 +626,7 @@ class TestNormalizeRuleForDiffFallback(unittest.TestCase):
     """normalize_rule_for_diff must be byte-identical with and without the
     structural_compare module (the degraded-install fallback path)."""
 
-    SAMPLES = [
+    SAMPLES: ClassVar[list[str]] = [
         "---\npaths: a/**\ndescription: x\n---\n# H\nbody\n",
         "---\ndescription: x\npaths: '{plans_path}/**'\n---\n# H\nbody\n",
         "---\npaths: a/**\n---\nbody only\n",

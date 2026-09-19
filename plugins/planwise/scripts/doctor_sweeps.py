@@ -13,10 +13,12 @@ import datetime
 import hashlib
 import json
 import re
-from pathlib import Path  # noqa: F401 -- used by the nested _check() helper below
+from pathlib import Path
 
 try:
-    from config_gen import InitConfig  # noqa: F401 -- type-hint only (quoted forward refs)
+    from config_gen import (
+        InitConfig,
+    )
 except ImportError:
     raise ImportError(
         "config_gen is required for doctor_sweeps's InitConfig type "
@@ -25,13 +27,13 @@ except ImportError:
 
 try:
     from rule_divergence import (
-        normalize_rule_for_diff,
         _classify_diverged,
         _destructively_removable,
-        is_subset,
-        is_safe_to_remove,
-        _verdict_not_analyzed,
         _extract_paths_value,
+        _verdict_not_analyzed,
+        is_safe_to_remove,
+        is_subset,
+        normalize_rule_for_diff,
     )
 except ImportError:
     raise ImportError(
@@ -705,7 +707,7 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
     sidecars only on an unresolved divergence).
     """
     root = cfg.project_root / cfg.planwise_root
-    today = datetime.date.today()
+    today = datetime.datetime.now().astimezone().date()
     findings: list[dict] = []
 
     def _age_days(target: Path) -> int:
@@ -713,7 +715,7 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
             mtime = target.stat().st_mtime
         except OSError:
             return 0
-        return (today - datetime.date.fromtimestamp(mtime)).days
+        return (today - datetime.datetime.fromtimestamp(mtime).astimezone().date()).days
 
     def _bytes_of(files: "list[Path]") -> int:
         """Total on-disk size of `files`, skipping any that vanish or refuse

@@ -21,14 +21,13 @@ import io
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from flip_lesson_status import main  # noqa: E402
-
+from flip_lesson_status import main
 
 INDEX_HEADER = (
     "# Lessons Learned Index\n\n"
@@ -176,7 +175,7 @@ class TestFinalCellOnlyRewrite(FlipLessonStatusTestCase):
         )
         map_file = self._write("map.txt", "LL-005: rule\n")
 
-        code, out = self._run_main([str(index), str(map_file)])
+        code, _out = self._run_main([str(index), str(map_file)])
 
         self.assertEqual(code, 0)
         rewritten = index.read_text(encoding="utf-8")
@@ -449,7 +448,7 @@ class TestLastUpdatedHeaderBump(FlipLessonStatusTestCase):
 
         self.assertEqual(code, 0)
         rewritten = index.read_text(encoding="utf-8")
-        today = date.today().isoformat()
+        today = datetime.now().astimezone().date().isoformat()
         self.assertIn(f"**Last Updated:** {today}", rewritten, "header must bump to today")
         self.assertNotIn("2020-01-01", rewritten, "the stale date must not survive the bump")
         self.assertIn("| promoted |", rewritten, "the Status cell must still flip")
@@ -511,7 +510,7 @@ class TestLastUpdatedHeaderBump(FlipLessonStatusTestCase):
         )
         map_file = self._write("map.txt", "LL-104: promoted\n")
 
-        code, out, err = self._run_main_full([str(index), str(map_file)])
+        code, _out, err = self._run_main_full([str(index), str(map_file)])
 
         self.assertEqual(code, 0)
         self.assertIn("| promoted |", index.read_text(encoding="utf-8"))

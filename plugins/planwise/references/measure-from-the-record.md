@@ -1,5 +1,5 @@
 ---
-description: Grade a delegated result or a probe from the record, never from the narration — and know which field of the record discriminates. Covers why a transcript-recovered synthesis is provisional and systematically softer than the delivered report, why a correct verdict is not evidence the attribution was correct, why `is_error` alone cannot separate a denial from a downstream failure, and where the field that can separate them actually lives. Consult when a reviewer's reply did not route, when grading a probe's outcome or its cause, and when scoring a permission dry-run.
+description: Grade a delegated result or a probe from the record, never from the narration — and know which field of the record discriminates. Covers why a transcript-recovered synthesis is provisional and systematically softer than the delivered report, why a correct verdict is not evidence the attribution was correct, why `is_error` alone cannot separate a denial from a downstream failure, where the field that can separate them actually lives, and why a downstream proxy (token count, wall time) cannot substitute for a harness setting's own recorded value. Consult when a reviewer's reply did not route, when grading a probe's outcome or its cause, when scoring a permission dry-run, and when gating a sweep over a model or CLI setting.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Grade From the Record — The Narration Got the Outcome Right and the Record Said Something Else
@@ -99,6 +99,34 @@ The parked script in the measured incident has since been deleted. The *class* �
 > **The failure lands exclusively on the known-good half of a two-direction test — the half that proves the control is not over-broad.** Known-bad probes are robust, since a DENY is decided *before* execution and nothing downstream can confuse it. A gate run only against known-bad input never encounters this and reports clean.
 
 The fixture-side half of the same incident — why a known-good probe aimed at a placeholder path is unpassable by construction, and how to name a real target — is [`verification-gate-evidence.md`](verification-gate-evidence.md) §6. §4 of that file states the general principle this section instantiates: prefer a fingerprint over a flag, because `is_error:false` says only that the call did not fail.
+
+### 3.1 A Downstream Proxy Passes on Noise When the Record Holds the Real Answer
+
+> [!constraint] Gate an independent variable on its own recorded value, never on an effect of it
+> A sweep varied a per-agent effort setting across four levels, twelve tasks, and two models — 524 runs — and found 100% pass at every level. Its Phase-0 gate, meant to prove the setting reached the CLI, ran one low-effort run and one high-effort run of a three-turn lookup task and passed if the high-effort run produced more output tokens or took longer than the low-effort one. It passed on 342 vs 323 tokens, with wall time going the other way.
+>
+> Every run's session transcript carries the level the CLI actually applied, one field per assistant record. Read after the fact, all 524 runs said the same level: the setting was never reaching the CLI on that invocation path. The sweep had compared that level against itself 524 times, and every verdict was a statement about run-to-run variance, not about the setting under test. Passed through the equivalent CLI flag instead, the same task moved one model's internal reasoning volume five-fold and another's sixteen-to-fifty-fold between the two extremes, and the transcript recorded the requested level each time.
+>
+> Output tokens and wall time are downstream of the setting and of everything else in the run. On a task that exercises no reasoning they are noise, and a single `>` comparison on `n=1` passes by construction about half the time. The transcript field is the applied setting, and it is exact: gate on `recorded == requested`, read per run, so a wrong value fails on the first run instead of the five-hundred-and-twenty-fourth.
+>
+> Three consequences:
+> 1. **Find the tool's own record of the setting before designing a proxy.** Here it is one field per assistant record in a file the CLI already writes for every session — a few lines of code answer the question for every row in seconds. The proxy gate this sweep used took a design section and a run budget and still could not fail.
+> 2. **If a proxy really is all that exists, size it to detect a real effect.** Choose a task whose effect on the proxy is large (a reasoning-heavy task, not a lookup), run several reps per arm, and gate on a ratio of medians against a stated minimum effect size — then dry-run it once with the setting deliberately absent and confirm the gate fails.
+> 3. **A monotone gradient across levels is not proof the variable moved.** One arm in the incident above showed the proxy rising smoothly across all four nominal levels, and that gradient was cited as evidence the setting had reached the tool. The real span, measured through the record, was fifty-fold — the gradient was an order of magnitude smaller than the mechanism's known effect, and the recorded value had not varied at all. A gradient far below the mechanism's known scale is a warning, not a confirmation.
+>
+> ```
+> WRONG — one run per arm, a proxy, a bare comparison:
+> discriminates = (high_tokens > low_tokens) or (high_ms > low_ms)
+> # 342 > 323 → PASS; every run had actually executed at the SAME level
+>
+> CORRECT — the applied value, read from the record, asserted per run; the proxy
+> only as a secondary signal on a task that exercises the mechanism:
+> for run in readings:
+>     if run.applied_value != run.requested_value: FAIL(run)
+> if median(proxy[high_arm]) < 1.5 * median(proxy[low_arm]): FAIL("no separation")
+> ```
+>
+> Generalises to any harness that varies a model or CLI setting (a thinking budget, a temperature, a model choice) and grades an outcome: assert the setting from the tool's own record on every row, and treat a small monotone proxy gradient as a reason to re-check the record rather than as confirmation the setting moved. The same instrument question as the rest of this section — which field discriminates — applied to a different record and a different proxy.
 
 ---
 

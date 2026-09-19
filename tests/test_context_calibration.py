@@ -31,7 +31,7 @@ from pathlib import Path
 # tests/ — mirrors the sibling test modules' self-locating sys.path line.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from conftest import _engine  # noqa: E402
+from conftest import _engine
 
 # A real captured `/context` report, pasted verbatim. Parser rules:
 #   * "System tools (deferred)" is EXCLUDED from total_active.
@@ -316,9 +316,10 @@ class TestCalibrateNewKeysOnSuccessfulCapture(unittest.TestCase):
         MUST still route through write_config_checked(), even after the R2
         derivation change added two new written keys.
         """
-        import context_calibration
         import tempfile
         from unittest.mock import patch
+
+        import context_calibration
 
         with tempfile.TemporaryDirectory(prefix="tc_calibrate_") as tmp_dir:
             config_path = Path(tmp_dir) / "config.yaml"
@@ -344,8 +345,9 @@ class TestCaptureContextWindowsInvocation(unittest.TestCase):
     """
 
     def test_windows_routes_through_powershell(self):
-        import context_calibration
         from unittest.mock import MagicMock, patch
+
+        import context_calibration
 
         fake_proc = MagicMock()
         fake_proc.returncode = 0
@@ -371,8 +373,9 @@ class TestCaptureContextWindowsInvocation(unittest.TestCase):
         self.assertIsNotNone(result)
 
     def test_posix_uses_shell_false(self):
-        import context_calibration
         from unittest.mock import MagicMock, patch
+
+        import context_calibration
 
         fake_bin = "/usr/local/bin/claude"
         fake_proc = MagicMock()
@@ -402,8 +405,9 @@ class TestCaptureContextWindowsInvocation(unittest.TestCase):
         console-attachment defect it exists to close -- a future
         "simplification" of either must fail here.
         """
-        import context_calibration
         from unittest.mock import MagicMock, patch
+
+        import context_calibration
 
         fake_proc = MagicMock()
         fake_proc.returncode = 0
@@ -432,8 +436,9 @@ class TestCaptureContextWindowsInvocation(unittest.TestCase):
         exact and sole content of that argv slot -- not concatenated with
         other text.
         """
-        import context_calibration
         from unittest.mock import MagicMock, patch
+
+        import context_calibration
 
         fake_bin = "/usr/local/bin/claude"
         fake_proc = MagicMock()
@@ -610,7 +615,7 @@ class TestStructuralFloor(unittest.TestCase):
         self.assertEqual(demo["always_load"], ["alpha.md"])
         self.assertEqual(
             demo["tokens"],
-            int(round(demo["bytes"] / ts.STRUCTURAL_FLOOR_BYTES_PER_TOKEN)),
+            round(demo["bytes"] / ts.STRUCTURAL_FLOOR_BYTES_PER_TOKEN),
             "Tokens must come from bytes, never from a per-line rate",
         )
 

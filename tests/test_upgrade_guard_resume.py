@@ -36,8 +36,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import artifact_upgrade  # noqa: E402 -- patch-target home for the guarded call site
+import artifact_upgrade
+import init_project as ip
 
 
 class TestUpgradeGuardResume(unittest.TestCase):
@@ -139,7 +139,9 @@ class TestUpgradeGuardResume(unittest.TestCase):
                 ip.main()
             except SystemExit as se:
                 exc = se
-            except Exception as e:  # the guard's bare `raise` surfaces here
+            except Exception as e:  # noqa: BLE001 -- the guard's bare `raise`
+                # surfaces here, and this harness deliberately captures
+                # whatever type it raises rather than asserting one in advance.
                 exc = e
         return stdout.getvalue(), stderr.getvalue(), exc
 

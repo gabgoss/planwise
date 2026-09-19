@@ -31,16 +31,15 @@ import shutil
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 
 # Allow imports whether pytest is launched from the repo root
 # (python -m pytest scripts/test_...) or from inside scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import config_loader  # noqa: E402
-from reconcile_plans import detect_drift, parse_plans_index, reconcile  # noqa: E402
-
+import config_loader
+from reconcile_plans import detect_drift, parse_plans_index, reconcile
 
 # A minimal config.yaml the fixture tree can resolve via
 # config_loader.load_config's explicit --config path.
@@ -268,7 +267,7 @@ class TestReconcilePlans(_ReconcileFixtureBase):
         rows = parse_plans_index(self.read_index_text())
         qux = next(r for r in rows if r["abbrev"] == "QUX")
         self.assertEqual(qux["status"], "COMPLETE")
-        self.assertEqual(qux["last_updated"], date.today().isoformat())
+        self.assertEqual(qux["last_updated"], datetime.now().astimezone().date().isoformat())
 
     def test_reconcile_writes_bare_token_not_annotated_status(self):
         # Real Master Plans annotate the Status line heavily

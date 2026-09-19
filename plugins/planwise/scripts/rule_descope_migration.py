@@ -10,7 +10,10 @@ import re
 from pathlib import Path
 
 try:
-    from config_gen import InitConfig, get_upgrade_config  # noqa: F401 -- InitConfig type-hint only (quoted forward refs)
+    from config_gen import (
+        InitConfig,
+        get_upgrade_config,
+    )
 except ImportError:
     raise ImportError(
         "config_gen is required for rule_descope_migration's InitConfig type "
@@ -20,13 +23,13 @@ except ImportError:
 
 try:
     from upgrade_io import (
-        _load_verdicts_cache,
-        _load_verdict_override,
-        _write_backup_preimage,
         _append_disposition_log,
-        _record_disposition,
         _load_raw_config,
+        _load_verdict_override,
+        _load_verdicts_cache,
+        _record_disposition,
         _transfer_customization,
+        _write_backup_preimage,
     )
 except ImportError:
     raise ImportError(
@@ -37,12 +40,12 @@ except ImportError:
 
 try:
     from rule_divergence import (
-        is_subset,
-        _destructively_removable,
         _classify_diverged,
-        normalize_rule_for_diff,
-        _verdict_not_analyzed,
+        _destructively_removable,
         _extract_paths_value,
+        _verdict_not_analyzed,
+        is_subset,
+        normalize_rule_for_diff,
     )
 except ImportError:
     raise ImportError(

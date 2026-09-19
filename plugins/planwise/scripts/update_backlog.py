@@ -12,7 +12,7 @@ import argparse
 import re
 import shutil
 import sys
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -25,7 +25,7 @@ if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
-from constants import VALID_STATUSES, ARCHIVE_STATUSES
+from constants import ARCHIVE_STATUSES, VALID_STATUSES
 from markdown_parser import (
     find_row_by_id,
     infer_predominant_id_form,
@@ -123,7 +123,7 @@ def archive_item_files(
         try:
             shutil.move(str(src), str(dst))
             results.append((filename, True, "moved to Archive"))
-        except Exception as e:
+        except OSError as e:
             results.append((filename, False, str(e)))
 
     return results
@@ -369,8 +369,8 @@ def _render_bli_file(
     files_list: list[str],
 ) -> str:
     """Render a new BLI file body from the backlog-item template structure."""
-    stem = files_list[0][:-3] if files_list[0].endswith(".md") else files_list[0]
-    today = date.today().isoformat()
+    stem = files_list[0].removesuffix(".md")
+    today = datetime.now().astimezone().date().isoformat()
     title = feature.replace("\\", "\\\\").replace('"', '\\"')
     related = "\n".join(f"- `{f}`" for f in files_list)
     return (

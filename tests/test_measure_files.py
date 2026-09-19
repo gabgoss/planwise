@@ -24,7 +24,7 @@ from pathlib import Path
 # tests/ — mirrors the sibling test modules' self-locating sys.path line.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import measure_files as mf  # noqa: E402
+import measure_files as mf
 
 
 class TestMeasureFiles(unittest.TestCase):

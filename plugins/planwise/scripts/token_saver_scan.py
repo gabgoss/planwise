@@ -48,13 +48,13 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config_loader import (  # noqa: E402
+from config_loader import (
     get_effective_token_saver_config,
     load_config,
 )
-from context_calibration import derive_thresholds  # noqa: E402
-from markdown_parser import split_row_cells  # noqa: E402
-from read_limits import (  # noqa: E402
+from context_calibration import derive_thresholds
+from markdown_parser import split_row_cells
+from read_limits import (
     READ_FILE_BYTE_CAP,
     READ_PAGE_CAP_TOKENS,
     classify_file,
@@ -507,9 +507,9 @@ def format_report(result: dict) -> str:
     out = [
         f"Token Saver large-file scan — {result['plan']}",
         "",
-        f"Thresholds (derived, never hardcoded): available_per_task="
+        (f"Thresholds (derived, never hardcoded): available_per_task="
         f"{t['available_per_task']:,}  warn={t['warn']:,}  "
-        f"critical={t['critical']:,}",
+        f"critical={t['critical']:,}"),
         f"Scanned {s['tasks']} task(s), {s['files']} Required Context file(s).",
         "",
     ]

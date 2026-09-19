@@ -19,8 +19,7 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts")
 )
 
-import resolve_anchor  # noqa: E402
-
+import resolve_anchor
 
 TOPLEVEL_DOC = """# A Reference
 

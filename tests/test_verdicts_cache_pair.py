@@ -37,10 +37,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-from upgrade_io import _load_verdicts_cache, verdicts_cache_path  # noqa: E402
+import init_project as ip
+from upgrade_io import _load_verdicts_cache, verdicts_cache_path
 
-from conftest import _UpgradeArtifactsFixtureBase  # noqa: E402
+from conftest import _UpgradeArtifactsFixtureBase
 
 INIT_PROJECT = (
     Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts" / "init_project.py"
@@ -242,7 +242,7 @@ class TestUpgradePairCli(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(INIT_PROJECT), "--name", "Fixture",
              "--project-root", str(self.tmp), *extra],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=60, check=False,
         )
 
     def test_malformed_pair_is_a_parser_error(self):

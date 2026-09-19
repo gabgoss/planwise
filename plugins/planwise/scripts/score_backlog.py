@@ -28,7 +28,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config_loader import load_config, get_scoring_weights
+from config_loader import get_scoring_weights, load_config
 from constants import OPEN_STATUSES
 from frontmatter_parser import split_frontmatter_block
 from markdown_parser import (
@@ -120,7 +120,7 @@ def read_item_frontmatter(filepath: Path) -> dict:
     if HAS_YAML:
         try:
             return yaml.safe_load(raw) or {}
-        except Exception:
+        except yaml.YAMLError:
             return {}
     else:
         fm = {}
@@ -218,8 +218,8 @@ def compute_score(
             elif isinstance(created, datetime):
                 created_date = created.date()
             else:
-                created_date = datetime.strptime(str(created), "%Y-%m-%d").date()
-            weeks = (date.today() - created_date).days // 7
+                created_date = date.fromisoformat(str(created))
+            weeks = (datetime.now().astimezone().date() - created_date).days // 7
             score += min(weeks * weights["age_bonus_per_week"], weights["age_cap"])
         except (ValueError, TypeError):
             pass
@@ -340,8 +340,8 @@ def review_items(
                 elif isinstance(created, datetime):
                     created_date = created.date()
                 else:
-                    created_date = datetime.strptime(str(created), "%Y-%m-%d").date()
-                weeks = (date.today() - created_date).days // 7
+                    created_date = date.fromisoformat(str(created))
+                weeks = (datetime.now().astimezone().date() - created_date).days // 7
                 if weeks > 8:
                     score = scores.get(item["id"], 0)
                     lines.append(f"  ID {item['id']} — {item['feature'][:50]} (age: {weeks} weeks, score: {score})")

@@ -52,7 +52,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from read_limits import (  # noqa: E402
+from read_limits import (
     READ_BYTE_WARN,
     READ_FILE_BYTE_CAP,
     READ_LINE_CAP,

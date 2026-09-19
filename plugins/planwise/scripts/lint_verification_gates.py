@@ -485,6 +485,7 @@ def run_command(argv, *, cwd=None, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> di
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         return _refused(f"the command did not finish within {timeout} seconds")
@@ -721,9 +722,10 @@ def _has_recursive_flag(argv) -> bool:
     for token in argv[1:]:
         if token == "--recursive":
             return True
-        if token.startswith("-") and not token.startswith("--"):
-            if any(ch in _RECURSIVE_FLAG_CHARS for ch in token[1:]):
-                return True
+        if token.startswith("-") and not token.startswith("--") and any(
+            ch in _RECURSIVE_FLAG_CHARS for ch in token[1:]
+        ):
+            return True
     return False
 
 

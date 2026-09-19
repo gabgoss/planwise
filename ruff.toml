@@ -21,3 +21,9 @@
 # cost of that ordering, not a defect. tests/*.py carry `# noqa: E402` inline
 # for the same shape, so they need no entry here.
 "evals/conftest.py" = ["E402"]
+# tests/conftest.py imports init_project before artifact_upgrade/doctor_sweeps
+# on purpose: artifact_upgrade -> rule_descope_migration -> init_project is a
+# circular import that only resolves when init_project is the FIRST of the
+# three cold-imported here. `ruff --fix` alphabetizing this block (I001) once
+# silently broke that ordering and failed the whole test collection.
+"tests/conftest.py" = ["I001"]

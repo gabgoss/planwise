@@ -32,18 +32,18 @@ import os
 import re
 import shutil
 import subprocess
-from datetime import date
+from datetime import datetime
 
 try:
     from config_loader import splice_context_block, write_config_checked
 except ImportError:  # pragma: no cover - partial-install tolerance
-    def write_config_checked(config_path, text: str) -> None:   # noqa: D103
+    def write_config_checked(config_path, text: str) -> None:
         # Degraded fallback: the post-write parse check lives in config_loader,
         # so a half-synced scripts tree writes unverified rather than failing to
         # import. Same spirit as the no-PyYAML no-op in the real helper.
         config_path.write_text(text, encoding="utf-8")
 
-    def splice_context_block(text: str, values: dict) -> str:   # noqa: D103
+    def splice_context_block(text: str, values: dict) -> str:
         # Unlike write_config_checked's degraded-but-safe no-op above, this
         # helper's own job IS config.yaml write correctness. Duplicating (and
         # risking drift from) the locate/splice/block-extent logic here would
@@ -60,7 +60,7 @@ try:
 except ImportError:  # pragma: no cover - partial-install tolerance
     _UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
 
-    def split_row_cells(line: str) -> list:   # noqa: D103
+    def split_row_cells(line: str) -> list:
         # Degraded fallback mirroring markdown_parser.split_row_cells. It must
         # stay escape-aware: a naive split on `\|` shifts every column right by
         # one, which is the whole defect this helper exists to prevent.
@@ -105,7 +105,7 @@ def _normalize_tokens(raw: str) -> int:
         number *= 1_000
     elif suffix == "m":
         number *= 1_000_000
-    return int(round(number))
+    return round(number)
 
 
 def parse_context_report(text: str) -> dict:
@@ -346,6 +346,7 @@ def capture_context(plugin_root, cwd) -> str | None:
             timeout=120,
             shell=False,
             stdin=subprocess.DEVNULL,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -398,7 +399,7 @@ def capture_context(plugin_root, cwd) -> str | None:
 STRUCTURAL_FLOOR_BYTES_PER_TOKEN = 2.6
 
 _ALWAYS_LOAD_RE = re.compile(
-    r"\*\*[^*]*references \(always load\):\*\*(.*?)(?:\n\*\*|\n---)", re.S
+    r"\*\*[^*]*references \(always load\):\*\*(.*?)(?:\n\*\*|\n---)", re.DOTALL
 )
 _REF_TOKEN_RE = re.compile(r"`?references/([A-Za-z0-9._-]+\.md)`?")
 
@@ -458,7 +459,7 @@ def derive_structural_floor(plugin_root) -> dict:
     """
     empty = {
         "tree": str(plugin_root) if plugin_root else "",
-        "derived_on": date.today().isoformat(),
+        "derived_on": datetime.now().astimezone().date().isoformat(),
         "bytes_per_token": STRUCTURAL_FLOOR_BYTES_PER_TOKEN,
         "excludes_base_context": True,
         "skill": {"lines": 0, "bytes": 0},
@@ -504,7 +505,7 @@ def derive_structural_floor(plugin_root) -> dict:
         subcommands[name[:-3]] = {
             "lines": total_lines,
             "bytes": total_bytes,
-            "tokens": int(round(total_bytes / STRUCTURAL_FLOOR_BYTES_PER_TOKEN)),
+            "tokens": round(total_bytes / STRUCTURAL_FLOOR_BYTES_PER_TOKEN),
             "always_load": refs,
         }
 
@@ -651,10 +652,13 @@ def calibrate(
     report_text = None
     try:
         report_text = capture_fn(plugin_root, cwd)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- capture_fn is an injectable callable
+        # (a test double or the real CLI-invoking capture_context); any
+        # failure it raises must fall back to the structural-floor-only
+        # path, per this function's own docstring above.
         report_text = None
 
-    measured_on = date.today().isoformat()
+    measured_on = datetime.now().astimezone().date().isoformat()
 
     # Derived from the tree, not from the capture, so it stays correct on the
     # fallback path too — a failed /context capture says nothing about how much

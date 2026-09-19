@@ -19,8 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import config_gen  # noqa: E402
-import flip_lesson_status  # noqa: E402
+import config_gen
+import flip_lesson_status
 
 PLUGIN = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 TEMPLATE = PLUGIN / "config.yaml.template"

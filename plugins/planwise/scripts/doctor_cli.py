@@ -20,7 +20,7 @@ except ImportError:
 
 try:
     from config_gen import (
-        InitConfig,  # noqa: F401 -- type-hint only (quoted forward refs)
+        InitConfig,
         read_plugin_version,
     )
 except ImportError:
@@ -48,13 +48,13 @@ except ImportError:
 
 try:
     from doctor_sweeps import (
-        lint_rule_overscope,
         compute_injection_families,
-        sweep_stale_descoped_rules,
-        sweep_orphaned_agent_mirrors,
-        lint_installed_divergence,
-        sweep_upgrade_leftovers,
         format_bytes,
+        lint_installed_divergence,
+        lint_rule_overscope,
+        sweep_orphaned_agent_mirrors,
+        sweep_stale_descoped_rules,
+        sweep_upgrade_leftovers,
     )
 except ImportError:
     raise ImportError(
@@ -72,7 +72,7 @@ except ImportError:
     )
 
 try:
-    from init_project import INSTALLED_RULES, DESCOPED_RULES
+    from init_project import DESCOPED_RULES, INSTALLED_RULES
 except ImportError:
     raise ImportError(
         "init_project is required for doctor_cli's INSTALLED_RULES/"
@@ -114,7 +114,7 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
     removable = [f for f in findings if f["verdict"] == "REMOVABLE"]
     kept = [f for f in findings if f["verdict"] != "REMOVABLE"]
 
-    today = datetime.date.today().isoformat()  # YYYY-MM-DD
+    today = datetime.datetime.now().astimezone().date().isoformat()  # YYYY-MM-DD
     backups_root = cfg.project_root / cfg.planwise_root / "upgrade-backups"
     out_dir = backups_root / f"prune-{today}"
     suffix = 2
@@ -246,7 +246,7 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
     prunable = [f for f in findings if f["klass"] in prunable_classes]
     kept = [f for f in findings if f["klass"] not in prunable_classes]
 
-    today = datetime.date.today().isoformat()  # YYYY-MM-DD
+    today = datetime.datetime.now().astimezone().date().isoformat()  # YYYY-MM-DD
     planwise_root = cfg.project_root / cfg.planwise_root
 
     if not prunable:

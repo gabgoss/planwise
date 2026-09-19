@@ -116,7 +116,7 @@ def parse_frontmatter_map(frontmatter_text: str) -> "dict[str, str] | None":
     cannot-guard).
     """
     result: dict[str, str] = {}
-    current_key: "str | None" = None
+    current_key: str | None = None
     for line in frontmatter_text.split("\n"):
         if not line.strip():
             continue

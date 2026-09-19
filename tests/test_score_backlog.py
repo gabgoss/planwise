@@ -32,10 +32,9 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import score_backlog  # noqa: E402
-from markdown_parser import split_row_cells  # noqa: E402
-from score_backlog import parse_index_table, write_scores_to_index  # noqa: E402
-
+import score_backlog
+from markdown_parser import split_row_cells
+from score_backlog import parse_index_table, write_scores_to_index
 
 HEADER_WITH_SCORE = (
     "# Backlog Index\n\n"

@@ -37,8 +37,8 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 
 def read_text_preserving_newlines(path: Path) -> str:

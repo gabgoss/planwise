@@ -60,7 +60,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 # This import is expected to fail until the module lands (Sprint-02 Tasks
 # 03-04). A ModuleNotFoundError here is the tests-first proof this task
 # exists to produce -- do not add a stub to silence it.
-from lint_verification_gates import (  # noqa: E402
+from lint_verification_gates import (
     ALLOWED_EXECUTABLES,
     _count_line_and_occurrence_totals,
     extract_commands,

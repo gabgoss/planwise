@@ -23,14 +23,14 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import rule_descope_migration  # noqa: E402 -- patch-target home for migrate_installed_rules()
-import artifact_upgrade  # noqa: E402 -- patch-target home for upgrade_artifacts()/_run_upgrade()
+import artifact_upgrade
+import init_project as ip
+import rule_descope_migration
 
-from conftest import (  # noqa: E402
+from conftest import (
     _MigrationFixtureBase,
-    _UpgradeArtifactsFixtureBase,
     _report_section,
+    _UpgradeArtifactsFixtureBase,
     _verdict,
 )
 
@@ -57,7 +57,7 @@ class TestCustomizationHandoffGating(_UpgradeArtifactsFixtureBase):
 
     def test_absent_config_defaults_to_conservative_report(self):
         installed, before, result = self._run_has_unique_rule()
-        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = result
+        refreshed, _unchanged, conflicts, _untracked, _refreshed_subsets, transferred = result
 
         self.assertEqual(installed.read_bytes(), before,
                          "report mode must preserve the installed file byte-for-byte")
@@ -125,7 +125,7 @@ class TestDestructiveWriteOrderingAndBackupGates(_UpgradeArtifactsFixtureBase):
             artifact_upgrade, "_classify_diverged",
             return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
         ), mock.patch.object(artifact_upgrade, "_write_backup_preimage", return_value=False):
-            refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
+            _refreshed, _, conflicts, _, _, transferred = self.run_upgrade()
 
         self.assertEqual(installed.read_bytes(), before,
                          "even with a verified transfer, a failed backup blocks adoption")

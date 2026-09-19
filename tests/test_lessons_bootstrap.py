@@ -22,8 +22,7 @@ from pathlib import Path
 # (python -m unittest scripts/test_...) or from inside scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-
+import init_project as ip
 
 # A minimal lessons-index seed file _seed_lessons_index copies from the plugin.
 SEED_LESSONS_INDEX = "# Lessons Learned — Master Index\n\n| ID | Title |\n|----|-------|\n"

@@ -29,10 +29,10 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import doctor_sweeps  # noqa: E402
+import doctor_sweeps
+import init_project as ip
 
-from conftest import _verdict  # noqa: E402
+from conftest import _verdict
 
 PLUGIN = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 

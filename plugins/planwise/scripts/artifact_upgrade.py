@@ -19,11 +19,11 @@ except ImportError:
 
 try:
     from config_gen import (
-        InitConfig,  # noqa: F401 -- type-hint only (quoted forward refs)
-        get_upgrade_config,
-        write_config_checked,
-        migrate_config,
+        InitConfig,
         _flip_token_saver_on,
+        get_upgrade_config,
+        migrate_config,
+        write_config_checked,
     )
 except ImportError:
     raise ImportError(
@@ -33,12 +33,12 @@ except ImportError:
 
 try:
     from upgrade_io import (
-        _load_verdicts_cache,
-        _load_verdict_override,
-        _write_backup_preimage,
         _append_disposition_log,
         _load_raw_config,
+        _load_verdict_override,
+        _load_verdicts_cache,
         _transfer_customization,
+        _write_backup_preimage,
         verdicts_cache_path,
     )
 except ImportError:
@@ -50,11 +50,11 @@ except ImportError:
 
 try:
     from rule_divergence import (
-        is_subset,
         _classify_diverged,
-        normalize_rule_for_diff,
-        _verdict_not_analyzed,
         _extract_paths_value,
+        _verdict_not_analyzed,
+        is_subset,
+        normalize_rule_for_diff,
     )
 except ImportError:
     raise ImportError(
@@ -94,7 +94,10 @@ except ImportError:
     )
 
 try:
-    from lessons_bootstrap import bootstrap_lessons_artifacts, _emit_lessons_bootstrap_banner
+    from lessons_bootstrap import (
+        _emit_lessons_bootstrap_banner,
+        bootstrap_lessons_artifacts,
+    )
 except ImportError:
     raise ImportError(
         "lessons_bootstrap is required for artifact_upgrade's post-refresh "
@@ -398,7 +401,11 @@ def _repoint_plugin_root(config_path: Path, new_root: Path) -> None:
     # Fallback — append the key as text after the existing top-level set.
     data = yaml.safe_load(text) or {}
     if not isinstance(data, dict):
-        raise RuntimeError(f"{config_path} is not a YAML mapping — cannot repoint plugin_root.")
+        # RuntimeError, not TypeError: kept consistent with config_gen's sibling
+        # guards, which callers up the stack catch as RuntimeError specifically.
+        raise RuntimeError(  # noqa: TRY004
+            f"{config_path} is not a YAML mapping — cannot repoint plugin_root."
+        )
     write_config_checked(
         config_path,
         text.rstrip("\n") + f'\n\nplugin_root: "{posix_root}"\n',

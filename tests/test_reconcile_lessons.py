@@ -39,13 +39,12 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or tests/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import config_loader  # noqa: E402
-from reconcile_lessons import (  # noqa: E402
+import config_loader
+from reconcile_lessons import (
     compute_next_id,
     detect_drift,
     reconcile,
 )
-
 
 CONFIG_YAML_FIXTURE = """project:
   name: "LessonsReconcileFixtureProject"

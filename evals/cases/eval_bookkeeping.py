@@ -21,13 +21,12 @@ import uuid
 from pathlib import Path
 
 import pytest
-
-from conftest import require_cli
-from harness import containment
+from harness import containment, fixtures, graders, invoke, tiers
 from harness import envelope as envelope_mod
-from harness import fixtures, graders, invoke, tiers
 from harness.scratch import ScratchRoot
 from harness.scratch import teardown as _teardown_scratch_root
+
+from conftest import require_cli
 
 CLI_PATH = require_cli()
 

@@ -9,7 +9,7 @@ those two callers has to import the other.
 import hashlib
 import json
 import sys
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -19,7 +19,9 @@ except ImportError:
     HAS_YAML = False
 
 try:
-    from config_gen import InitConfig  # noqa: F401 -- type-hint only (quoted forward refs)
+    from config_gen import (
+        InitConfig,
+    )
 except ImportError:
     raise ImportError(
         "config_gen is required for upgrade_io's InitConfig type references; "
@@ -325,7 +327,7 @@ def _append_disposition_log(
         )
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as fh:
-            fh.write(f"{header}- {date.today().isoformat()} `{rel}` — {action}: {reason}\n")
+            fh.write(f"{header}- {datetime.now().astimezone().date().isoformat()} `{rel}` — {action}: {reason}\n")
     except OSError as exc:
         print(
             f"  Warning: could not log disposition for {dst}: {exc}",
@@ -446,7 +448,7 @@ def _transfer_customization(
         f"source_filename: {filename}",
         f"source_kind: {kind}",
         f"upgrade: {from_version} -> {to_version}",
-        f"transferred: {date.today().isoformat()}",
+        f"transferred: {datetime.now().astimezone().date().isoformat()}",
         f"classification: {getattr(verdict, 'classification', 'HAS_UNIQUE')}",
     ]
     if unique_blocks:

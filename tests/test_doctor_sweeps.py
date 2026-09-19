@@ -19,13 +19,13 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import doctor_sweeps  # noqa: E402 -- patch-target home for the doctor sweeps
+import doctor_sweeps
+import init_project as ip
 
-from conftest import (  # noqa: E402
+from conftest import (
     _MigrationFixtureBase,
-    _UpgradeArtifactsFixtureBase,
     _snapshot_tree,
+    _UpgradeArtifactsFixtureBase,
     _verdict,
 )
 
@@ -325,7 +325,7 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         self.assertFalse(removable.exists(), "A REMOVABLE finding must be unlinked")
         self.assertTrue(preserve.exists(), "A PRESERVE finding must never be unlinked")
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         pruned = (
             self.project_root / self.cfg.planwise_root
             / "upgrade-backups" / f"prune-{today}" / "PRUNED.md"
@@ -379,9 +379,8 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         buf = io.StringIO()
         with mock.patch.object(
             doctor_sweeps, "_classify_diverged", side_effect=_classify_side_effect
-        ):
-            with contextlib.redirect_stdout(buf):
-                exit_code = ip._run_doctor(self.cfg)
+        ), contextlib.redirect_stdout(buf):
+            exit_code = ip._run_doctor(self.cfg)
 
         stdout = buf.getvalue()
         self.assertEqual(exit_code, 0)
@@ -452,7 +451,7 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         self.assertTrue(
             installed.exists(), "A notes-flagged subset must survive --prune-stale"
         )
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         pruned = (
             self.project_root / self.cfg.planwise_root
             / "upgrade-backups" / f"prune-{today}" / "PRUNED.md"
@@ -489,7 +488,7 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         self.assertEqual(result, 0)
         self.assertFalse(installed.exists(), "A REMOVABLE finding must be unlinked")
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         backup = (
             self.project_root / self.cfg.planwise_root
             / "upgrade-backups" / f"prune-{today}" / filename
@@ -559,7 +558,7 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         self.assertEqual(result, 0)
         self.assertTrue(installed.exists(), "A failed unlink must leave the file in place")
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         out_dir = (
             self.project_root / self.cfg.planwise_root
             / "upgrade-backups" / f"prune-{today}"
@@ -604,7 +603,7 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         result2 = ip._run_prune_stale(self.cfg)
         self.assertEqual(result2, 0)
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         backups_root = self.project_root / self.cfg.planwise_root / "upgrade-backups"
         first_dir = backups_root / f"prune-{today}"
         second_dir = backups_root / f"prune-{today}-2"
@@ -837,9 +836,8 @@ class TestInstalledDivergenceLint(_UpgradeArtifactsFixtureBase):
         buf = io.StringIO()
         with mock.patch.object(
             doctor_sweeps, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
-        ):
-            with contextlib.redirect_stdout(buf):
-                exit_code = ip._run_doctor(self.cfg)
+        ), contextlib.redirect_stdout(buf):
+            exit_code = ip._run_doctor(self.cfg)
 
         stdout = buf.getvalue()
         self.assertEqual(exit_code, 0)

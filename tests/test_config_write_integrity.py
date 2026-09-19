@@ -44,12 +44,12 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import config_loader  # noqa: E402
-import init_project as ip  # noqa: E402
-import token_saver as ts  # noqa: E402
+import config_loader
+import init_project as ip
+import token_saver as ts
 
 try:
-    import yaml  # noqa: E402
+    import yaml
 
     HAS_YAML = True
 except ImportError:  # pragma: no cover - the suite needs PyYAML
@@ -129,6 +129,7 @@ context:
   token_saver_injected_rules_estimate: 4300
   token_saver_orchestrator_advisory: measured
   token_saver_session_checkpoint: {window: 400000, turns: 194}
+  run_layer_stop: off
 
 # Routing buckets for lessons curate. Order matters.
 categorization:

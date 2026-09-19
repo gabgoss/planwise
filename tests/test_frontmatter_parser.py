@@ -23,13 +23,12 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from frontmatter_parser import (  # noqa: E402
+from frontmatter_parser import (
     BOM_CHAR,
     parse_frontmatter_map,
     split_frontmatter_block,
     split_frontmatter_without_paths,
 )
-
 
 WELLFORMED = "---\nid: 081\npaths: .claude/rules/*.md\n---\n\n# Body\n"
 

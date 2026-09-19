@@ -15,12 +15,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import ClassVar
 from unittest import mock
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
+import init_project as ip
 
 
 class TestFeedbackConfigFoundation(unittest.TestCase):
@@ -30,7 +31,7 @@ class TestFeedbackConfigFoundation(unittest.TestCase):
     that need none of a temp project tree.
     """
 
-    _DEFAULTS = {
+    _DEFAULTS: ClassVar[dict[str, object]] = {
         "enabled": False,
         "repo": "gabgoss/planwise",
         "include_environment": True,
@@ -223,20 +224,20 @@ class TestFeedbackDirCreationAndBackfill(unittest.TestCase):
 
     def _make_cfg(self, project_root: Path, **overrides):
         plugin_root = Path(ip.__file__).resolve().parent.parent
-        kwargs = dict(
-            project_name="TestProject",
-            project_root=project_root,
-            plugin_root=plugin_root,
-            planwise_root="planwise",
-            plans_dir="Plans",
-            backlog_dir="Backlog",
-            lessons_dir="LessonsLearned",
-            feedback_dir="Feedback",
-            install_scope=ip.InstallScope.PROJECT,
-            plan_tier="pro",
-            plugin_version="0.0.0",
-            token_saver=False,
-        )
+        kwargs = {
+            "project_name": "TestProject",
+            "project_root": project_root,
+            "plugin_root": plugin_root,
+            "planwise_root": "planwise",
+            "plans_dir": "Plans",
+            "backlog_dir": "Backlog",
+            "lessons_dir": "LessonsLearned",
+            "feedback_dir": "Feedback",
+            "install_scope": ip.InstallScope.PROJECT,
+            "plan_tier": "pro",
+            "plugin_version": "0.0.0",
+            "token_saver": False,
+        }
         kwargs.update(overrides)
         return ip.InitConfig(**kwargs)
 

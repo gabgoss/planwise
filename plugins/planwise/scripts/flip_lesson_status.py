@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import re
 import sys
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 
 # Sibling-module import. The newline-preserving read/write pair is the shared
@@ -61,7 +61,7 @@ from pathlib import Path
 # defined once there and reused by every script that rewrites a user's index in
 # place, rather than re-derived per script.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from reconcile_common import (  # noqa: E402
+from reconcile_common import (
     read_text_preserving_newlines,
     write_text_preserving_newlines,
 )
@@ -104,7 +104,7 @@ def _bump_last_updated_header(lines: list[str], changed_count: int) -> None:
     `--dry-run` — a no-op run (idempotent skip, or every change REFUSED) is
     not a write, and must never call this at all.
     """
-    today = date.today().isoformat()
+    today = datetime.now().astimezone().date().isoformat()
     stamp = f"{today} (`flip_lesson_status.py`: {changed_count} status change(s))"
     for i, line in enumerate(lines):
         m = HEADER_RE.match(line)
@@ -178,8 +178,8 @@ def main() -> int:
             skipped.append(
                 (
                     lid,
-                    f"REFUSED: {row_counts[lid]} rows share this id — "
-                    "resolve the duplicate by hand",
+                    (f"REFUSED: {row_counts[lid]} rows share this id — "
+                    "resolve the duplicate by hand"),
                 )
             )
             continue
