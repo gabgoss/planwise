@@ -719,5 +719,83 @@ class TestLineEndingsPreserved(_UpdateBacklogFixtureBase):
         self.assert_all_crlf()
 
 
+class TestSyncYamlStatusReporting(_UpdateBacklogFixtureBase):
+    """sync_yaml_status must report which of its four outcomes fired,
+    not collapse "nothing needed changing" and "could not act" into one
+    bare bool. Each outcome names the path it examined.
+    """
+
+    def test_frontmatter_with_status_key_reports_changed(self):
+        path = self.tmp / "with-status.md"
+        path.write_text(
+            "---\nid: 099\nstatus: NOT_STARTED\ncreated: 2026-07-06\n---\n\n# item\n",
+            encoding="utf-8",
+        )
+
+        result = update_backlog.sync_yaml_status(path, "COMPLETE")
+
+        self.assertEqual(result.outcome, "changed")
+        self.assertEqual(result.path, path)
+        self.assertIn("status: COMPLETE", path.read_text(encoding="utf-8"))
+
+    def test_missing_frontmatter_is_reported_and_names_the_path(self):
+        path = self.tmp / "no-fence.md"
+        path.write_text("# item\n\nNo frontmatter fence at all.\n", encoding="utf-8")
+
+        result = update_backlog.sync_yaml_status(path, "COMPLETE")
+
+        self.assertEqual(result.outcome, "no_frontmatter")
+        self.assertEqual(result.path, path)
+        # Left byte-unchanged -- an unreported failure must not also mutate.
+        self.assertEqual(
+            path.read_text(encoding="utf-8"),
+            "# item\n\nNo frontmatter fence at all.\n",
+        )
+
+    def test_frontmatter_without_status_key_is_reported(self):
+        path = self.tmp / "no-status-key.md"
+        original = "---\nid: 099\ncreated: 2026-07-06\n---\n\n# item\n"
+        path.write_text(original, encoding="utf-8")
+
+        result = update_backlog.sync_yaml_status(path, "COMPLETE")
+
+        self.assertEqual(result.outcome, "no_status_key")
+        self.assertEqual(result.path, path)
+        self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_missing_file_is_reported_as_absent(self):
+        path = self.tmp / "does-not-exist.md"
+
+        result = update_backlog.sync_yaml_status(path, "COMPLETE")
+
+        self.assertEqual(result.outcome, "absent_file")
+        self.assertEqual(result.path, path)
+
+    def test_crlf_fixture_changes_only_the_status_lines_bytes(self):
+        """Built from explicit bytes, not Path.write_text -- write_text
+        normalizes to os.linesep and would make this pass on Windows for
+        the wrong reason (testing the platform, not the code)."""
+        crlf_fixture = (
+            b"---\r\n"
+            b"id: 099\r\n"
+            b"status: NOT_STARTED\r\n"
+            b"created: 2026-07-06\r\n"
+            b"---\r\n"
+            b"\r\n"
+            b"# item\r\n"
+        )
+        path = self.tmp / "crlf-item.md"
+        path.write_bytes(crlf_fixture)
+
+        result = update_backlog.sync_yaml_status(path, "COMPLETE")
+
+        self.assertEqual(result.outcome, "changed")
+        updated = path.read_bytes()
+        expected = crlf_fixture.replace(b"status: NOT_STARTED", b"status: COMPLETE")
+        self.assertEqual(updated, expected)
+        # Every line ending stayed CRLF -- no line was silently translated to LF.
+        self.assertEqual(updated.count(b"\n"), updated.count(b"\r\n"))
+
+
 if __name__ == "__main__":
     unittest.main()

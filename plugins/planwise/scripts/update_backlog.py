@@ -14,6 +14,7 @@ import shutil
 import sys
 from datetime import date
 from pathlib import Path
+from typing import NamedTuple
 
 # Fix Windows cp1252 stdout/stderr encoding
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -191,33 +192,61 @@ def update_index_links_to_archive(
     return "\n".join(lines), rewritten, skipped
 
 
-def sync_yaml_status(item_file_path: Path, new_status: str) -> bool:
-    """Update the status field in the item file's YAML frontmatter."""
-    if not item_file_path.exists():
-        return False
+class SyncStatusResult(NamedTuple):
+    """Outcome of one sync_yaml_status attempt.
 
-    content = item_file_path.read_text(encoding="utf-8")
+    `outcome` is one of:
+      - "changed": the frontmatter status line was found and rewritten.
+      - "absent_file": item_file_path does not exist.
+      - "no_frontmatter": the file does not open with a "---" fence, or
+        the fence is never closed.
+      - "no_status_key": the frontmatter has no "^status:\\s" line to
+        rewrite.
+    Every outcome other than "changed" means the file was left
+    byte-unchanged. The caller MUST surface it -- collapsing all four
+    outcomes into a bare True/False is what let a silent no-op read as
+    success.
+    """
+
+    outcome: str
+    path: Path
+
+
+def sync_yaml_status(item_file_path: Path, new_status: str) -> SyncStatusResult:
+    """Update the status field in the item file's YAML frontmatter.
+
+    Returns a SyncStatusResult naming what happened rather than a bare
+    bool, so a caller can tell "nothing needed changing" apart from
+    "the file was not touched because something is wrong with it".
+    """
+    if not item_file_path.exists():
+        return SyncStatusResult("absent_file", item_file_path)
+
+    content = read_text_preserving_newlines(item_file_path)
     if not content.startswith("---"):
-        return False
+        return SyncStatusResult("no_frontmatter", item_file_path)
 
     end_idx = content.find("---", 3)
     if end_idx == -1:
-        return False
+        return SyncStatusResult("no_frontmatter", item_file_path)
 
     frontmatter = content[3:end_idx]
     if not re.search(r"^status:\s", frontmatter, re.MULTILINE):
-        return False
+        return SyncStatusResult("no_status_key", item_file_path)
 
+    # [^\r\n]*, not .*$ -- `.` matches \r, so a `.*$` replacement on a CRLF
+    # frontmatter silently ate the line's trailing \r along with the old
+    # value, downgrading that one line from CRLF to LF.
     updated_fm = re.sub(
-        r"^status:\s*.*$",
+        r"^status:\s*[^\r\n]*",
         f"status: {new_status}",
         frontmatter,
         flags=re.MULTILINE,
     )
-    item_file_path.write_text(
-        "---" + updated_fm + "---" + content[end_idx + 3 :], encoding="utf-8"
+    write_text_preserving_newlines(
+        item_file_path, "---" + updated_fm + "---" + content[end_idx + 3 :]
     )
-    return True
+    return SyncStatusResult("changed", item_file_path)
 
 
 def reconcile_archival(
@@ -598,8 +627,15 @@ def main():
         item_path = backlog_dir / filename
         if not item_path.exists():
             item_path = archive_dir / filename
-        if sync_yaml_status(item_path, new_status):
+        result = sync_yaml_status(item_path, new_status)
+        if result.outcome == "changed":
             print(f"  YAML status synced: {filename}")
+        else:
+            print(
+                f"  WARNING: YAML status NOT synced for {filename} "
+                f"({result.outcome}): {result.path}",
+                file=sys.stderr,
+            )
 
     # Archive item files when status is COMPLETE or CLOSED — same idempotent
     # state-coupled reconcile used on the no-op path above.

@@ -51,7 +51,6 @@ blocks: []
 # BB-{ID}-{Domain}: {Title}
 
 **Priority:** {High|Medium|Low}
-**Status:** NOT_STARTED
 **Domain:** {ABBREV}
 
 ---
@@ -101,8 +100,8 @@ Pivot/triage blocking uses the backlog **index's** existing `## Dependencies` ta
 ## Notes
 
 - **YAML frontmatter is the machine-readable source** used by `score_backlog.py` for scoring
-- **Bold-colon metadata in body is preserved** for human readability
-- Both coexist — YAML drives automation, body drives readability
+- **Bold-colon metadata in body is preserved** for human readability, except status
+- The `status` field lives in YAML frontmatter only. The body carries no separate status line, so there is nothing to fall out of sync
 - `blocks` in YAML lists numeric IDs: `blocks: [004, 007]`
 - For bug items, include "Bug" or "Fix" in the title (activates scoring bonus)
 - Optional sections: `## Dependencies` (free-form prose only — this section does not drive blocked-ness; the machine-parsed blocking relationship lives in the backlog index's `## Dependencies` table, see Gating Mechanism above), `## Implementation Notes`, `## Constraints`
