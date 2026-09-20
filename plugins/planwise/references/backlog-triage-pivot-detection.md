@@ -1,5 +1,5 @@
 ---
-description: Detect an unnoticed project pivot before triaging an aged or high-priority backlog item, sweep the affected cohort to one shared BLOCKED disposition via the backlog index's Dependencies table instead of closing items individually, and gate the check to the triage passes where it pays for itself
+description: Detect an unnoticed project pivot before triaging an aged or high-priority backlog item, sweep the affected cohort to one shared BLOCKED disposition via the umbrella item's `blocks:` frontmatter instead of closing items individually, and gate the check to the triage passes where it pays for itself
 ---
 
 # Backlog Triage: Pivot Detection
@@ -56,14 +56,14 @@ description: Detect an unnoticed project pivot before triaging an aged or high-p
 
 ### 2.1 Gating Mechanism
 
-No `blocked_by:` frontmatter field exists on a backlog item. Blocked-ness is derived from **the backlog index's** `## Dependencies` table (columns `| ID | Blocks |`, blocker → blocked IDs), consumed by the backlog parser's blocked-map builder — live machinery that already ships and works today. Individual item files carry no such table.
+No `blocked_by:` frontmatter field exists on a backlog item — an item does not declare what blocks *it*. Instead, blocking is declared in the umbrella item's `blocks:` frontmatter, which is the **single source of truth**: the index row's `Blocks` column is its generated projection, never a place to declare blocking. The backlog parser's blocked-map builder reads that relationship from `blocks:` frontmatter, via the generated `Blocks` column — live machinery that already ships and works today.
 
-The sweep files one **umbrella item** representing the pivot itself, and adds a row to **the backlog index's** `## Dependencies` table listing the cohort as blocked by it. The existing blocked-item exclusion then hides the cohort from selectable-item output automatically — no schema change, no new frontmatter field. The umbrella item is the natural place to record the pivot's scope and its re-triage trigger.
+The sweep files one **umbrella item** representing the pivot itself, and sets the umbrella item's `blocks:` frontmatter to the cohort's IDs. The existing blocked-item exclusion then hides the cohort from selectable-item output automatically — no schema change, no new frontmatter field. The umbrella item is the natural place to record the pivot's scope and its re-triage trigger.
 
 > [!practice] Caveat — Give the Umbrella Item Its Own Disposition
 > The umbrella item is itself open and will appear in triage. Route it to Session Planning as the pivot's own work, or give it a status that keeps it out of the selectable set — otherwise the sweep's own bookkeeping item re-surfaces as a normal triage candidate.
 
-A free-text rationale field on each item was considered and rejected: it requires template, parser, and scoring changes, and it creates a second blocked-ness mechanism running alongside the Dependencies table — two ways to express the same fact, and they drift.
+A free-text rationale field on each item was considered and rejected: it requires template, parser, and scoring changes, and it creates a second blocked-ness mechanism running alongside `blocks:` frontmatter — two ways to express the same fact, and they drift.
 
 ### 2.2 Use BLOCKED, Not CLOSED
 
@@ -98,4 +98,4 @@ When a pivot will demolish artifacts holding empirical findings — a measured d
 
 ---
 
-*Related: [backlog-schema.md](backlog-schema.md) for the backlog index's table format and the Dependencies-table columns this mechanism reads.*
+*Related: [backlog-schema.md](backlog-schema.md) for the backlog index's table format, including the generated `Blocks` column this mechanism's `blocks:` frontmatter projects into.*

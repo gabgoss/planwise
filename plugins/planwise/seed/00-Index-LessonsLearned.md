@@ -2,6 +2,7 @@
 
 **Purpose:** Central index and taxonomy reference for all lessons learned.
 **Last Updated:** YYYY-MM-DD
+*Bump to today's date with a short parenthetical (≤120 characters) naming what changed. **Replace the previous value — do not preserve it.** History belongs in a changelog file, not in this line.*
 **Companion:** [00-Categorization-By-Domain.md](00-Categorization-By-Domain.md) — domain bucketing view, sync'd by `/planwise lessons curate`.
 
 ---

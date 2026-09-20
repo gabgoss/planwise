@@ -1,21 +1,9 @@
-# Backlog Index
+Generated: 2026-09-20
 
-## Backlog Items
+| ID | Title | Priority | Status | Domain | Created | Blocks | Score | File |
+|---|---|---|---|---|---|---|---|---|
 
-| ID  | Feature | Priority | Status | Abbrev | Score | Files |
-|-----|---------|----------|--------|--------|-------|-------|
+## Shards
 
----
-
-## Dependencies
-
-| ID  | Blocks |
-|-----|--------|
-
-**Soft dependencies** (informational, not enforced by scoring):
-
-- None yet
-
----
-
-*Last Updated: {TODAY}*
+| Range | File |
+|---|---|

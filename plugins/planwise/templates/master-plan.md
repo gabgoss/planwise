@@ -150,4 +150,7 @@ recomputed: {today's date}.
 ---
 
 *Last Updated: {today's date}*
+<!-- Bump to today's date with a short parenthetical (≤120 characters) naming what changed.
+     **Replace the previous value — do not preserve it.** History belongs in a changelog
+     file, not in this line. -->
 ```

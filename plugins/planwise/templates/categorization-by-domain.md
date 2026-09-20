@@ -9,6 +9,9 @@
 
 **Purpose:** Group lessons in `{lessons_dir}/` by domain for scope-specific review and rule-promotion decisions.
 **Last Updated:** {TODAY}
+<!-- Bump to today's date with a short parenthetical (≤120 characters) naming what changed.
+     **Replace the previous value — do not preserve it.** History belongs in a changelog
+     file, not in this line. -->
 **Companion to:** [{lessons_index}]({lessons_index}) (chronological master table)
 
 ---

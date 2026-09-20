@@ -139,6 +139,9 @@ Assigns a global number to each spec output for cross-EI traceability. Execution
 
 *Scaffolded from: Meta-{ABBREV} Discovery Phase ({N} Consolidated Context parts)*
 *Last Updated: {today's date}*
+<!-- Bump to today's date with a short parenthetical (≤120 characters) naming what changed.
+     **Replace the previous value — do not preserve it.** History belongs in a changelog
+     file, not in this line. -->
 ```
 
 ---

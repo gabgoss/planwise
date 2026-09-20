@@ -8,6 +8,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 # Recovery State - {ABBREV}-S{XX}-{YY}
 
 **Last Updated:** {timestamp}
+*Bump to today's date with a short parenthetical (≤120 characters) naming what changed. **Replace the previous value — do not preserve it.** History belongs in a changelog file, not in this line.*
 **Current Step:** NOT STARTED
 **Session Status:** NOT_STARTED
 
