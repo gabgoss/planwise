@@ -28,11 +28,14 @@ from markdown_parser import (
 # The heading a hand-authored legacy index carries above its table.
 # generate_backlog_index.py's hub/overflow-leaf/Archive-shard output never
 # emits this heading -- its table starts at the file's own first
-# `| ID | ... |` row. `with_section_heading` splices it onto content that
-# lacks it, so `parse_markdown_table`'s existing header/separator/stop-
-# condition walk handles both shapes without a second table-walking path.
-# Public (no leading underscore): score_backlog.py imports it to apply the
-# same splice to its own reader/writer, rather than re-deriving the pattern.
+# `| ID | ... |` row. `with_section_heading` (defined below -- public, no
+# leading underscore) splices it onto content that lacks it, so
+# `parse_markdown_table`'s existing header/separator/stop-condition walk
+# handles both shapes without a second table-walking path.
+# `score_backlog.py` imports `with_section_heading` directly to apply the
+# same splice to its own reader/writer, rather than re-deriving the
+# pattern. This constant itself keeps its leading underscore -- it is
+# imported nowhere else.
 _BACKLOG_SECTION_HEADER = "## Backlog Items"
 
 
@@ -45,6 +48,24 @@ def with_section_heading(content: str) -> str:
     if _BACKLOG_SECTION_HEADER in content:
         return content
     return f"{_BACKLOG_SECTION_HEADER}\n\n{content}"
+
+
+def _parse_row_blocks_cell(raw: str) -> list[str]:
+    """Parse a 9-column generated row's Blocks cell into a list of id
+    strings, exactly as rendered.
+
+    Mirrors ``generate_backlog_index._render_blocks_cell``'s own format --
+    the only shape this cell is ever written in: ``""`` for no blocks, or
+    ``"[007, 009]"`` for one or more. Ids are returned exactly as rendered
+    (zero-padded, un-normalized); ``build_blocked_by_map`` normalizes at
+    consumption, matching ``_dependency_row_processor``'s own zfill'd-on-
+    write / normalized-on-read convention.
+    """
+    text = raw.strip()
+    if not text or text == "[]":
+        return []
+    inner = text.strip("[]")
+    return [part.strip() for part in inner.split(",") if part.strip()]
 
 
 def _backlog_row_processor(cells: list[str], line_number: int, header_info: dict) -> dict | None:
@@ -64,6 +85,11 @@ def _backlog_row_processor(cells: list[str], line_number: int, header_info: dict
     at all; ``cells[-2]`` on a 6-cell row would misread the Abbrev cell as
     Score, so that width keeps its own branch: Score is absent (0) and
     Files is still the last cell.
+
+    A 9-column generated row also carries a Blocks cell at ``cells[-3]``
+    (``generate_backlog_index.COL_BLOCKS == COLUMN_COUNT - 3``), parsed into
+    ``item["blocks"]`` via ``_parse_row_blocks_cell``. Neither legacy width
+    (6 or 7 columns) has a Blocks cell at all, so both keep ``blocks: []``.
     """
     if len(cells) < 6:
         return None
@@ -76,6 +102,7 @@ def _backlog_row_processor(cells: list[str], line_number: int, header_info: dict
     else:
         score = 0
     files_raw = cells[-1]
+    blocks = _parse_row_blocks_cell(cells[-3]) if len(cells) >= 9 else []
 
     file_links = re.findall(r"\[(\d+)\]\(([^)]+)\)", files_raw)
     files = [{"label": label, "path": path} for label, path in file_links]
@@ -88,6 +115,7 @@ def _backlog_row_processor(cells: list[str], line_number: int, header_info: dict
         "abbrev": cells[4],
         "score": score,
         "files": files,
+        "blocks": blocks,
     }
 
 
@@ -278,7 +306,18 @@ def resolve_closed_item_shard(item_id: str, config: dict) -> tuple[Path | None, 
 def build_blocked_by_map(
     dependencies: list[dict], items: list[dict]
 ) -> dict[str, list[str]]:
-    """Build reverse dependency map: blocked_item_id -> [open blocker IDs]."""
+    """Build reverse dependency map: blocked_item_id -> [open blocker IDs].
+
+    Unions two edge sources: the hand-authored ``## Dependencies`` table
+    (``dependencies``), and each item's own 9-column row-level Blocks cell
+    (``item["blocks"]``, from ``_backlog_row_processor``). A generated hub
+    carries no ``## Dependencies`` table at all, so without the row-level
+    union this map is always empty on a generated corpus --
+    ``--show-blocked``, the ``blocked by:`` summary, and held-item routing
+    would silently report nothing blocked. Both sources share the same
+    open-blocker-only guard: a CLOSED/COMPLETE blocker's edge is already
+    resolved and must not still hold a blocked item back.
+    """
     status_map = {normalize_id(item["id"]): item["status"] for item in items}
     blocked_by: dict[str, list[str]] = {}
 
@@ -287,6 +326,16 @@ def build_blocked_by_map(
         if status_map.get(blocker, "") not in CLOSED_STATUSES:
             for blocked_id in dep["blocked_ids"]:
                 blocked_by.setdefault(normalize_id(blocked_id), []).append(blocker)
+
+    for item in items:
+        blocker = normalize_id(item["id"])
+        if status_map.get(blocker, "") in CLOSED_STATUSES:
+            continue
+        for blocked_id in item.get("blocks", []):
+            normalized_blocked = normalize_id(blocked_id)
+            existing = blocked_by.setdefault(normalized_blocked, [])
+            if blocker not in existing:
+                existing.append(blocker)
 
     return blocked_by
 
@@ -465,7 +514,6 @@ def main():
         sys.exit(1)
 
     content = index_path.read_text(encoding="utf-8")
-    all_items = parse_backlog_table(content)
 
     if args.next_id:
         # Union across the hub, every hub overflow leaf, and every Archive
@@ -482,6 +530,26 @@ def main():
             )
         print(f"{max_id + 1:03d}")
         return
+
+    # Union across the hub and every hub overflow leaf -- an open item
+    # living in a leaf must be visible to every filter, not just a direct
+    # hub read. `_enumerate_generated_files` matches a hand-authored legacy
+    # index by its own filename too, so a single-file corpus's union is
+    # exactly that one file and behaves exactly as before.
+    naming = _index_naming(index_path)
+    hub_family_files = _enumerate_generated_files(config["_backlog_dir"], naming)
+    all_items = []
+    for path in hub_family_files:
+        all_items.extend(_read_backlog_items(path))
+
+    if args.id and normalize_id(args.id) not in {normalize_id(i["id"]) for i in all_items}:
+        # Not in the hub family -- the id may be a closed item living in an
+        # Archive shard, invisible to every hub-family file. A miss here
+        # (shard_path is None) just means the id genuinely doesn't exist
+        # anywhere, and the existing "no items match" path below handles it.
+        shard_path, _used_fallback = resolve_closed_item_shard(args.id, config)
+        if shard_path is not None:
+            all_items.extend(_read_backlog_items(shard_path))
 
     dependencies = parse_dependencies_table(content)
     blocked_by_map = build_blocked_by_map(dependencies, all_items)

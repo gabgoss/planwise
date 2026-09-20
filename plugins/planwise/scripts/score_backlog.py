@@ -126,6 +126,49 @@ def parse_index_table(content: str) -> list[dict]:
     return items
 
 
+def _enumerate_hub_family_files(index_path: Path, backlog_dir: Path) -> list[Path]:
+    """Every on-disk hub-family file: the hub itself plus any overflow leaf
+    `generate_backlog_index.py` split it into when the open-item set alone
+    exceeded the per-file token budget.
+
+    Deliberately scoped to `backlog_dir` only, never `archive_dir` -- an
+    Archive shard holds only CLOSED items, which this scorer never computes
+    a score for, so unioning it in would add cost with no reporting benefit.
+    Imported locally (not at module top) to avoid a real `score_backlog`
+    <-> `generate_backlog_index` import cycle -- see `parse_index_table`'s
+    docstring. A legacy single-file corpus's only match is the hub itself,
+    so this is a no-op there.
+    """
+    from generate_backlog_index import _index_naming, is_generated_index_file
+
+    if not backlog_dir.is_dir():
+        return [index_path] if index_path.exists() else []
+    naming = _index_naming(index_path)
+    return sorted(
+        path for path in backlog_dir.iterdir()
+        if path.is_file() and is_generated_index_file(path.name, naming)
+    )
+
+
+def _read_hub_family_items(index_path: Path, backlog_dir: Path) -> list[dict]:
+    """Parse every hub-family file's Backlog Items table and union the
+    result.
+
+    An open item living in an overflow leaf must be scored and reported
+    exactly like one in the hub, not silently skipped -- the defect this
+    closes: a hub item's `blocks:` bonus naming a leaf item lost its bonus
+    because the leaf's item never reached `open_item_ids` at all.
+    """
+    items: list[dict] = []
+    for path in _enumerate_hub_family_files(index_path, backlog_dir):
+        try:
+            file_content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        items.extend(parse_index_table(file_content))
+    return items
+
+
 def _strip_quotes(text: str) -> str:
     """Strip one layer of matching quote characters, if present."""
     if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
@@ -134,6 +177,29 @@ def _strip_quotes(text: str) -> str:
 
 
 _LIST_ITEM_RE = re.compile(r"^-\s*(.+)$")
+
+# A trailing ` #...`/`\t#...` YAML inline comment, matched per line. Applied
+# only to `id`, `created`, and `blocks` (`_strip_inline_comment`'s callers) --
+# these three never legitimately contain a `#`, so stripping it unconditionally
+# before any further parsing is safe and needs no quoting-aware lookahead.
+_TRAILING_COMMENT_RE = re.compile(r"[ \t]+#.*$")
+
+
+def _strip_inline_comment(raw: str) -> str:
+    """Strip a trailing YAML inline comment from each line of `raw`.
+
+    `parse_frontmatter_map` hands back the key's raw value text verbatim,
+    comment included -- unlike `yaml.safe_load`, which strips a YAML comment
+    at the tokenizer level regardless of position. Without this, a value
+    like ``blocks: [007, 009]  # two`` overlays the octal-safe text-level
+    read with ``['007', '009]  # two']`` (the comment swallowed into the
+    last list entry), and ``created: 2026-01-15  # filed`` overlays a
+    correctly-YAML-parsed date with a string `date.fromisoformat` cannot
+    parse, silently zeroing the age factor. Applied line-by-line so a
+    block-form multi-line value (each ``- id`` on its own line) strips a
+    per-line comment without disturbing sibling lines.
+    """
+    return "\n".join(_TRAILING_COMMENT_RE.sub("", line) for line in raw.split("\n"))
 
 
 def _parse_blocks_field(raw: str) -> list:
@@ -181,15 +247,15 @@ def _text_level_scoring_fields(raw: str) -> dict:
         return {}
     fields: dict = {}
     if "id" in fm_map:
-        candidate = _strip_quotes(fm_map["id"].strip())
+        candidate = _strip_quotes(_strip_inline_comment(fm_map["id"]).strip())
         if candidate:
             fields["id"] = candidate
     if "created" in fm_map:
-        candidate = _strip_quotes(fm_map["created"].strip())
+        candidate = _strip_quotes(_strip_inline_comment(fm_map["created"]).strip())
         if candidate:
             fields["created"] = candidate
     if "blocks" in fm_map:
-        fields["blocks"] = _parse_blocks_field(fm_map["blocks"])
+        fields["blocks"] = _parse_blocks_field(_strip_inline_comment(fm_map["blocks"]))
     return fields
 
 
@@ -225,6 +291,14 @@ def read_item_frontmatter(filepath: Path) -> dict:
         try:
             fm = yaml.safe_load(raw) or {}
         except yaml.YAMLError:
+            return {}
+        if not isinstance(fm, dict):
+            # A frontmatter block that is a bare scalar or a list (e.g. a
+            # stray "- one\n- two") parses without error but isn't a
+            # mapping -- `.update()` on it would raise AttributeError and
+            # abort the whole scoring run for one malformed file, against
+            # this function's own "reported the same way, as an empty
+            # dict" contract.
             return {}
         fm.update(_text_level_scoring_fields(raw))
     else:
@@ -657,7 +731,13 @@ def main():
     # to the platform's os.linesep, destroying the diff this index exists to
     # support.
     content = read_text_preserving_newlines(index_path)
-    items = parse_index_table(content)
+    # Report modes (--dry-run, --review, --id/--explain) read the UNION of
+    # the hub and every hub overflow leaf -- an open item living in a leaf
+    # must be scored and reported like any hub item. The in-place write
+    # path below still writes only the hub's own `content` (Finding 2's
+    # kept, soon-retired write path); a leaf item's score is computed but
+    # not written back, reported on stderr instead of silently dropped.
+    items = _read_hub_family_items(index_path, backlog_dir)
 
     if not items:
         print("No items found in backlog index.", file=sys.stderr)
@@ -723,9 +803,25 @@ def main():
         print(f"\nScore range: {min(totals)} — {max(totals)}")
 
     if not args.dry_run:
+        # write_scores_to_index only rewrites rows present in `content` --
+        # the hub's own on-disk table -- so a leaf item's score is computed
+        # above but never reaches this write. Diffing the hub-only id set
+        # against `scores` (the union) names exactly those unwritten leaf
+        # items, reported rather than silently dropped (Finding 2's kept,
+        # hub-only write path; retired with the writer rework).
+        hub_only_ids = {item["id"] for item in parse_index_table(content)}
         updated_content = write_scores_to_index(content, scores)
         write_text_preserving_newlines(index_path, updated_content)
         print(f"\nScores written to {index_path.name}")
+        unwritten = sorted(item_id for item_id in scores if item_id not in hub_only_ids)
+        if unwritten:
+            print(
+                f"WARNING: the in-place Score write only updates the hub file "
+                f"({index_path.name}); {len(unwritten)} open item(s) living in "
+                f"a hub overflow leaf were scored but not written back: "
+                f"{', '.join(unwritten)}. Retired with the writer rework.",
+                file=sys.stderr,
+            )
     else:
         print("\n(dry-run mode — no changes written)")
 

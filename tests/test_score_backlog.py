@@ -460,6 +460,34 @@ class TestReadItemFrontmatter(unittest.TestCase):
 
         self.assertEqual(fm["blocks"], ["143", "185"])
 
+    def test_inline_comment_after_blocks_flow_form_is_stripped(self):
+        """Code-review corrective, Finding 3: the text-level overlay used to
+        swallow the comment into the last list entry (`['007', '009]  # two']`),
+        silently dropping a blocker."""
+        path = self._item("---\nid: 081\nblocks: [007, 009]  # two\n---\n\n# Body\n")
+
+        fm = score_backlog.read_item_frontmatter(path)
+
+        self.assertEqual(fm["blocks"], ["007", "009"])
+
+    def test_inline_comment_after_created_is_stripped(self):
+        """Code-review corrective, Finding 3: the comment used to survive
+        into the overlaid value, making `date.fromisoformat` fail and the
+        age factor silently read as 0."""
+        path = self._item("---\nid: 081\ncreated: 2026-01-15  # filed\n---\n\n# Body\n")
+
+        fm = score_backlog.read_item_frontmatter(path)
+
+        self.assertEqual(str(fm["created"]), "2026-01-15")
+
+    def test_list_shaped_frontmatter_returns_empty_dict_rather_than_raising(self):
+        """Code-review corrective, Finding 4: a frontmatter block that
+        parses to a list (not a mapping) used to raise AttributeError from
+        `fm.update(...)`, aborting the whole scoring run for one file."""
+        path = self._item("---\n- one\n- two\n---\n\n# Body\n")
+
+        self.assertEqual(score_backlog.read_item_frontmatter(path), {})
+
 
 CONFIG_YAML_FIXTURE = """project:
   name: "ScoreBacklogFixtureProject"
@@ -811,6 +839,87 @@ class TestScoreExplanation(unittest.TestCase):
         self.assertIn("bug/fix", text)
         self.assertIn("in_progress", text)
         self.assertIn("momentum", text)
+
+
+_GEN_9COL_HEADER = (
+    "|" + "|".join(
+        f" {c} " for c in
+        ("ID", "Title", "Priority", "Status", "Domain", "Created", "Blocks", "Score", "File")
+    ) + "|\n"
+    + "|" + "|".join(["---"] * 9) + "|\n"
+)
+
+
+class TestHubFamilyUnionScoring(unittest.TestCase):
+    """Code-review corrective, Finding 2: report modes must score and list
+    an open item living in a hub overflow leaf, and a hub item's `blocks:`
+    naming that leaf item must receive its blocks bonus -- both require
+    `open_item_ids` (and every report mode's item set) to be the UNION of
+    the hub and its overflow leaves, not the hub alone. The kept, hub-only
+    in-place write path must name the leaf item it could not write back to,
+    on stderr, rather than silently dropping it."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="score_backlog_hubfamily_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.planwise_dir = self.tmp / "planwise"
+        self.backlog_dir = self.planwise_dir / "Backlog"
+        self.backlog_dir.mkdir(parents=True, exist_ok=True)
+        self.config_path = self.planwise_dir / "config.yaml"
+        self.config_path.write_text(CONFIG_YAML_FIXTURE, encoding="utf-8")
+
+        (self.backlog_dir / "BB-001-01-DOC-HubItem.md").write_text(
+            "---\nid: 001\ntitle: \"Hub item\"\npriority: Low\n"
+            "status: NOT_STARTED\nabbrev: DOC\ncreated: 2020-01-01\n"
+            "blocks: [002]\n---\n\n# Body\n",
+            encoding="utf-8",
+        )
+        (self.backlog_dir / "BB-002-01-DOC-LeafItem.md").write_text(
+            "---\nid: 002\ntitle: \"Leaf item\"\npriority: Low\n"
+            "status: NOT_STARTED\nabbrev: DOC\ncreated: 2020-01-01\n"
+            "blocks: []\n---\n\n# Body\n",
+            encoding="utf-8",
+        )
+
+        (self.backlog_dir / "00-Index-Backlog.md").write_text(
+            _GEN_9COL_HEADER
+            + "| 001 | Hub item | Low | NOT_STARTED | DOC | 2020-01-01 |  | 0 | "
+              "[001](BB-001-01-DOC-HubItem.md) |\n",
+            encoding="utf-8",
+        )
+        (self.backlog_dir / "00-Index-Backlog-002-002.md").write_text(
+            "[Back to Backlog Index](00-Index-Backlog.md)\n\n"
+            + _GEN_9COL_HEADER
+            + "| 002 | Leaf item | Low | NOT_STARTED | DOC | 2020-01-01 |  | 0 | "
+              "[002](BB-002-01-DOC-LeafItem.md) |\n",
+            encoding="utf-8",
+        )
+
+    def run_score(self, extra_args: list[str]) -> tuple[str, str]:
+        saved_argv = sys.argv
+        sys.argv = ["score_backlog", "--config", str(self.config_path), *extra_args]
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                score_backlog.main()
+        finally:
+            sys.argv = saved_argv
+        return out.getvalue(), err.getvalue()
+
+    def test_dry_run_lists_both_hub_and_leaf_open_items(self):
+        out, _err = self.run_score(["--dry-run"])
+        self.assertIn("ID 001", out)
+        self.assertIn("ID 002", out)
+
+    def test_hub_items_blocks_bonus_reaches_the_leaf_item(self):
+        out, _err = self.run_score(["--id", "001", "--explain"])
+        self.assertIn("blocks(1 open)", out)
+        self.assertIn("+20", out)
+
+    def test_write_reports_the_unwritten_leaf_item_on_stderr(self):
+        _out, err = self.run_score([])
+        self.assertIn("002", err)
+        self.assertIn("hub overflow leaf", err)
 
 
 if __name__ == "__main__":

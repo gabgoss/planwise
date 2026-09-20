@@ -1252,5 +1252,36 @@ class TestFailedWriteExitsRefusedNotDrift(_GeneratorFixtureBase):
         self.assertEqual(before_hash, after_hash)
 
 
+class TestFactor2RekeyReachesGenerator(unittest.TestCase):
+    """`compute_scores_for_items`'s frontmatter-shaped adapter carries no
+    `abbrev` key of its own -- confirming the factor-2 re-key (`abbrev ==
+    "BUG"`, not a Bug/Fix keyword regex over the title; BIR-S02-02-04)
+    reaches this module's UNMODIFIED `compute_scores_for_items`
+    automatically, with no edit to this file's production code."""
+
+    def test_bug_item_without_keyword_beats_non_bug_item_by_the_bonus(self):
+        tmp = Path(tempfile.mkdtemp(prefix="generate_backlog_index_rekey_test_"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        archive_dir = tmp / "Archive"  # never created -- count_archived_by_abbrev
+        # treats an absent dir as zero counts, so momentum contributes
+        # nothing to either item and cannot mask the bug/fix difference.
+
+        config = {}
+        weights = gbi.get_scoring_weights(config)
+
+        bug_item = _make_item(901, title="Plain title, no keyword", abbrev="BUG")
+        other_item = _make_item(902, title="Plain title, no keyword", abbrev="INFRA")
+        items = [bug_item, other_item]
+
+        gbi.compute_scores_for_items(items, archive_dir, config)
+
+        # Otherwise identical inputs -- the only difference is `abbrev`, so
+        # the score gap must equal exactly the configured bug/fix bonus,
+        # read from config rather than assumed as a literal 15.
+        self.assertEqual(
+            int(bug_item["score"]) - int(other_item["score"]), weights["bug_fix_bonus"]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 import parse_backlog
 from constants import ARCHIVE_STATUSES, CLOSED_STATUSES
+from markdown_parser import normalize_id
 from parse_backlog import (
     FilterCriteria,
     build_blocked_by_map,
@@ -481,9 +482,8 @@ class TestMalformedRowFailsLoudly(unittest.TestCase):
     def test_malformed_row_cell_count_mismatch_raises_system_exit(self):
         # Header wants 6 cells; this data row carries only 5 (Files is missing).
         content = HEADER + "| 001 | Feature | Low | NOT_STARTED | DOC |\n"
-        with contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                parse_backlog_table(content)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parse_backlog_table(content)
 
 
 class TestHubShardResolution(unittest.TestCase):
@@ -600,6 +600,140 @@ class TestDisplayTruncationUnchanged(unittest.TestCase):
         line = next(line for line in table.splitlines() if line.startswith("001"))
         self.assertIn("x" * 52 + "...", line)
         self.assertNotIn("x" * 53, line)
+
+
+def _row9(
+    item_id: str,
+    status: str = "NOT_STARTED",
+    feature: str | None = None,
+    abbrev: str = "DOC",
+    blocks: str = "",
+    score: str = "0",
+) -> str:
+    """One 9-column generated-shape row, matching
+    `generate_backlog_index.render_row`'s cell order (ID, Title, Priority,
+    Status, Domain, Created, Blocks, Score, File)."""
+    feature = feature or f"Feature {item_id}"
+    return (
+        f"| {item_id} | {feature} | Low | {status} | {abbrev} | 2024-01-01 | "
+        f"{blocks} | {score} | [{item_id}](BB-{item_id}-x.md) |\n"
+    )
+
+
+class TestHubFamilyUnionAndShardIdLookup(unittest.TestCase):
+    """Code-review corrective, Finding 1: `main()`'s item set is the union
+    of every hub-family file, and a `--id` miss against that union resolves
+    against an Archive shard rather than reporting the id as nonexistent."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="parse_backlog_hubfamily_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.planwise_dir = self.tmp / "planwise"
+        self.backlog_dir = self.planwise_dir / "Backlog"
+        self.archive_dir = self.backlog_dir / "Archive"
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        self.config_path = self.planwise_dir / "config.yaml"
+        self.config_path.write_text(CONFIG_YAML_FIXTURE, encoding="utf-8")
+
+        # Hub: one open item.
+        (self.backlog_dir / "00-Index-Backlog.md").write_text(
+            GENERATED_9COL_HEADER + _row9("001"), encoding="utf-8",
+        )
+        # Overflow leaf: a second open item, invisible to a hub-only read.
+        (self.backlog_dir / "00-Index-Backlog-002-002.md").write_text(
+            "[Back to Backlog Index](00-Index-Backlog.md)\n\n"
+            + GENERATED_9COL_HEADER + _row9("002"),
+            encoding="utf-8",
+        )
+        # Archive shard: a closed item, at a range that misses the pure
+        # century guess -- forces the fallback scan, still a live path.
+        (self.archive_dir / "Index-Backlog-100-100.md").write_text(
+            GENERATED_9COL_HEADER + _row9("100", status="CLOSED", score="-"),
+            encoding="utf-8",
+        )
+
+    def run_parse(self, extra_args: list[str]) -> tuple[str, str]:
+        saved_argv = sys.argv
+        sys.argv = ["parse_backlog", "--config", str(self.config_path), *extra_args]
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                parse_backlog.main()
+        finally:
+            sys.argv = saved_argv
+        return out.getvalue(), err.getvalue()
+
+    def _json_from(self, stdout: str) -> list[dict]:
+        json_line = next(line for line in stdout.splitlines() if line.startswith("JSON: "))
+        json_path = json_line[len("JSON: "):].strip()
+        return json.loads(Path(json_path).read_text(encoding="utf-8"))
+
+    def test_leaf_item_is_visible_to_a_direct_id_lookup(self):
+        out, _err = self.run_parse(["--id", "002"])
+        records = self._json_from(out)
+        self.assertEqual([r["id"] for r in records], ["002"])
+
+    def test_leaf_item_is_visible_to_an_ordinary_filter(self):
+        out, _err = self.run_parse(["--abbrev", "DOC"])
+        records = self._json_from(out)
+        self.assertEqual(sorted(r["id"] for r in records), ["001", "002"])
+
+    def test_shard_item_resolves_the_same_record_shape_as_a_hub_item(self):
+        hub_out, _ = self.run_parse(["--id", "001"])
+        shard_out, shard_err = self.run_parse(["--id", "100", "--include-closed"])
+
+        hub_records = self._json_from(hub_out)
+        shard_records = self._json_from(shard_out)
+
+        self.assertEqual([r["id"] for r in shard_records], ["100"])
+        self.assertEqual(sorted(hub_records[0].keys()), sorted(shard_records[0].keys()))
+        self.assertIn("falling back", shard_err)
+
+
+class TestRowLevelBlocksCellUnionedIntoBlockedByMap(unittest.TestCase):
+    """Code-review corrective, Finding 5: a 9-column row's own Blocks cell
+    must feed `build_blocked_by_map` -- a generated hub carries no
+    "## Dependencies" table at all, so without this the map is always
+    empty on a generated corpus."""
+
+    def test_generated_row_blocks_cell_blocks_the_named_item(self):
+        content = (
+            GENERATED_9COL_HEADER
+            + _row9("001", feature="Item A", blocks="[002]")
+            + _row9("002", feature="Item B")
+        )
+
+        items = parse_backlog_table(content)
+        dependencies = parse_dependencies_table(content)
+        self.assertEqual(dependencies, [])  # no "## Dependencies" table exists
+
+        blocked_by_map = build_blocked_by_map(dependencies, items)
+        self.assertEqual(blocked_by_map.get(normalize_id("002")), [normalize_id("001")])
+
+        filtered, blocked = filter_items(items, FilterCriteria(), blocked_by_map)
+        self.assertNotIn("002", [i["id"] for i in filtered])
+        self.assertIn("002", [i["id"] for i in blocked])
+
+        id_to_title = {normalize_id(i["id"]): i["feature"] for i in items}
+        summary = format_blocked_summary(blocked, blocked_by_map, id_to_title)
+        # blocked_by_map/id_to_title are normalize_id-keyed, so the rendered
+        # blocker id is the non-zero-padded form ("1"), not the row's own
+        # zero-padded id ("001").
+        self.assertIn(f"{normalize_id('001')} (Item A)", summary)
+
+    def test_closed_blocker_row_cell_does_not_block(self):
+        content = (
+            GENERATED_9COL_HEADER
+            + _row9("001", status="COMPLETE", feature="Item A", blocks="[002]", score="-")
+            + _row9("002", feature="Item B")
+        )
+
+        items = parse_backlog_table(content)
+        blocked_by_map = build_blocked_by_map(parse_dependencies_table(content), items)
+
+        filtered, blocked = filter_items(items, FilterCriteria(), blocked_by_map)
+        self.assertIn("002", [i["id"] for i in filtered])
+        self.assertEqual(blocked, [])
 
 
 if __name__ == "__main__":

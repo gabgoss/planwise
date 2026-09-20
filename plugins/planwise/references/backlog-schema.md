@@ -88,7 +88,7 @@ Items are ranked by a computed priority score using 8 weighted factors. All weig
 | # | Factor | Default Points | Source |
 |---|--------|---------------|--------|
 | 1 | Priority | High=30, Med=20, Low=10 | `config.yaml: scoring.priority_*` |
-| 2 | Bug/Fix keyword | +15 | Index: Feature contains "Bug" or "Fix" |
+| 2 | Bug/Fix classification | +15 | Item frontmatter `abbrev:` equals "BUG" (falls back to the index Domain cell when frontmatter carries no `abbrev`) |
 | 3 | IN_PROGRESS boost | +10 | Index: Status column |
 | 4 | File count | +5 per extra file (beyond 1) | Index: Files column |
 | 5 | PLANNING penalty | -5 | Index: Status = PLANNING |
@@ -180,6 +180,8 @@ python {plugin_root}/scripts/score_backlog.py [OPTIONS]
 |----------|----------|-------------|
 | `--dry-run` | No | Compute and print scores without writing to the index |
 | `--review` | No | Output a priority review report (no index writes) |
+| `--id ID` | No | Look up one item's score by ID (bare or prefixed, matched on the numeric component) |
+| `--explain` | No | With `--id`, print the per-factor score derivation instead of just the total |
 
 ### cleanup_backlog.py
 
