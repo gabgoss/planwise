@@ -25,6 +25,15 @@ description: Backlog Schema Reference for /planwise backlog -- the backlog index
 | Score | Integer or `-` | Computed priority score (open items only; `-` for COMPLETE/CLOSED) |
 | Files | Markdown links | Reference files: `[01](path.md) [02](path2.md)` |
 
+> [!note] A generated index's File cell always resolves against `backlog_dir`
+> A `generate_backlog_index.py`-produced hub, hub overflow leaf, or Archive
+> shard renders its single File cell as a link relative to `backlog_dir` --
+> never relative to the row's own containing file. A reader resolves every
+> File cell as `backlog_dir / <cell>`, even inside an Archive shard, whose
+> own file lives one directory deeper (`backlog_dir/Archive/...`). The
+> accepted cost: a human clicking that link from inside a shard lands one
+> directory too deep. This is recorded, not fixed.
+
 ### Status Values
 
 | Status | Description |

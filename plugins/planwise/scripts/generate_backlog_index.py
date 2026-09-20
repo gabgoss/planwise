@@ -598,7 +598,7 @@ def compute_scores_for_items(items: list, archive_dir: Path, config: dict) -> No
             "created": item["created"],
         }
         item["score"] = str(
-            compute_score(row_shaped, frontmatter_shaped, archive_counts, weights, open_item_ids)
+            compute_score(row_shaped, frontmatter_shaped, archive_counts, weights, open_item_ids).total
         )
 
 

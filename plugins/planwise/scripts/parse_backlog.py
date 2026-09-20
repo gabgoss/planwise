@@ -18,28 +18,64 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import CLOSED_STATUSES, HOLD_STATUSES
+from generate_backlog_index import _index_naming, is_generated_index_file, shard_for
 from markdown_parser import (
     id_number,
     normalize_id,
     parse_markdown_table,
-    warn_on_unparsed_rows,
 )
+
+# The heading a hand-authored legacy index carries above its table.
+# generate_backlog_index.py's hub/overflow-leaf/Archive-shard output never
+# emits this heading -- its table starts at the file's own first
+# `| ID | ... |` row. `with_section_heading` splices it onto content that
+# lacks it, so `parse_markdown_table`'s existing header/separator/stop-
+# condition walk handles both shapes without a second table-walking path.
+# Public (no leading underscore): score_backlog.py imports it to apply the
+# same splice to its own reader/writer, rather than re-deriving the pattern.
+_BACKLOG_SECTION_HEADER = "## Backlog Items"
+
+
+def with_section_heading(content: str) -> str:
+    """Prepend `_BACKLOG_SECTION_HEADER` when `content` doesn't carry it.
+
+    A hand-authored index already has it; a generated hub, overflow leaf,
+    or Archive shard never does.
+    """
+    if _BACKLOG_SECTION_HEADER in content:
+        return content
+    return f"{_BACKLOG_SECTION_HEADER}\n\n{content}"
 
 
 def _backlog_row_processor(cells: list[str], line_number: int, header_info: dict) -> dict | None:
-    """Process a backlog table row into an item dict."""
+    """Process a backlog table row into an item dict.
+
+    Score and Files are read position-RELATIVE to the row's own width
+    (``cells[-2]`` / ``cells[-1]``), matching score_backlog.py's existing
+    convention and generate_backlog_index.py's own asserted contract
+    (``COL_SCORE == COLUMN_COUNT - 2``, ``COL_FILE == COLUMN_COUNT - 1``) --
+    a 7- or 9-column row resolves correctly with no per-width branch. The
+    leading four columns (ID, Title, Priority, Status) stay at their
+    absolute positions 0-3: update_backlog.py:41 pins Status at index 3
+    across every shape, so a relative read there would disagree with the
+    one writer that already exists.
+
+    A 6-column row -- the oldest legacy shape -- carries no Score column
+    at all; ``cells[-2]`` on a 6-cell row would misread the Abbrev cell as
+    Score, so that width keeps its own branch: Score is absent (0) and
+    Files is still the last cell.
+    """
     if len(cells) < 6:
         return None
 
     if len(cells) >= 7:
         try:
-            score = int(cells[5]) if cells[5] else 0
+            score = int(cells[-2]) if cells[-2] else 0
         except ValueError:
             score = 0
-        files_raw = cells[6]
     else:
         score = 0
-        files_raw = cells[5]
+    files_raw = cells[-1]
 
     file_links = re.findall(r"\[(\d+)\]\(([^)]+)\)", files_raw)
     files = [{"label": label, "path": path} for label, path in file_links]
@@ -58,16 +94,43 @@ def _backlog_row_processor(cells: list[str], line_number: int, header_info: dict
 def parse_backlog_table(content: str) -> list[dict]:
     """Parse the Backlog Items markdown table into a list of dicts.
 
-    Warns loudly if any row present in the table failed to parse. A count that
-    silently omits an unreadable row is indistinguishable from a complete one,
-    which is exactly how a misparsed row stayed invisible to every prioritisation
-    pass — so the shortfall is reported rather than swallowed.
+    Accepts both on-disk shapes without special-casing either: a
+    hand-authored legacy index (6- or 7-column rows under an explicit
+    "## Backlog Items" heading), and a generate_backlog_index.py-produced
+    hub, hub overflow leaf, or Archive shard (9-column rows with no
+    section heading at all). ``with_section_heading`` normalizes the
+    second shape onto the first before the shared table walker runs.
+    ``with_section_heading`` is public because ``score_backlog.py`` imports
+    it directly rather than re-deriving the splice.
+
+    A row whose cell count differs from the header's now aborts the parse
+    outright (``strict=True``) instead of being warned about and silently
+    dropped -- two rows in this repo stayed wrong for months under the old
+    warn-and-skip behavior, invisible to every prioritisation pass. The
+    parsed-row count is then asserted against the table's own row count as
+    a second, independent check: this should be unreachable once
+    ``strict``'s cell-count gate is doing its job, and exists only to
+    catch a bug in the row processor itself (e.g. a header so malformed
+    its own cell count reads as too low), not a malformed data row.
     """
     stats: dict = {}
     items = parse_markdown_table(
-        content, "## Backlog Items", _backlog_row_processor, stats=stats
+        with_section_heading(content),
+        _BACKLOG_SECTION_HEADER,
+        _backlog_row_processor,
+        stats=stats,
+        strict=True,
     )
-    warn_on_unparsed_rows(stats, "Backlog Items")
+    if len(items) != stats["rows_present"]:
+        print(
+            f"Error: parsed {len(items)} row(s) but {stats['rows_present']} "
+            f"were present in the '{_BACKLOG_SECTION_HEADER}' table -- a row "
+            f"was silently dropped despite strict parsing. This indicates a "
+            f"bug in the row processor, not a malformed row (those now abort "
+            f"directly).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     return items
 
 
@@ -94,6 +157,122 @@ def parse_dependencies_table(content: str) -> list[dict]:
         content, "## Dependencies", _dependency_row_processor,
         stop_before="**Soft dependencies", require_section=False,
     )
+
+
+# --------------------------------------------------------------------------
+# Hub + overflow-leaf + Archive-shard resolution.
+#
+# A generate_backlog_index.py corpus is never one file: open items live in
+# the hub `00-Index-Backlog.md` and, once the hub exceeds its token budget,
+# in hub overflow leaves beside it; closed items live in Archive shards
+# grouped by `shard_for(id) = (id-1)//100`. `is_generated_index_file` and
+# `shard_for` are imported directly from generate_backlog_index.py, never
+# re-derived, so the reader and the generator cannot drift on what counts
+# as a generated filename or which century an id belongs to.
+#
+# PINNED: a row's File cell (`item["files"][*]["path"]`) is ALWAYS relative
+# to `backlog_dir`, regardless of which of these files the row was read
+# from -- including a row read out of an Archive shard, whose own file
+# lives one directory deeper (`backlog_dir/Archive/...`). Resolve every
+# File cell as `backlog_dir / path`, never relative to the shard/leaf file
+# that yielded the row. See `references/backlog-schema.md`'s File-column
+# note for the accepted cost this pins (a human clicking the link from
+# inside a shard lands one directory too deep).
+# --------------------------------------------------------------------------
+
+
+def _enumerate_generated_files(directory: Path, naming) -> list[Path]:
+    """Every on-disk file under `directory` that `is_generated_index_file`
+    recognizes under `naming` -- the hub plus its overflow leaves when
+    `directory` is `backlog_dir`, or every Archive shard when `directory`
+    is `archive_dir`. A hand-authored legacy index also matches (its name
+    equals `naming.hub_name` by construction), so this enumerates a
+    single-file legacy corpus unchanged. Sorted for a deterministic read
+    order.
+    """
+    if not directory.is_dir():
+        return []
+    return sorted(
+        path for path in directory.iterdir()
+        if path.is_file() and is_generated_index_file(path.name, naming)
+    )
+
+
+def _read_backlog_items(path: Path) -> list[dict]:
+    """Parse one file's Backlog Items table -- hub, leaf, shard, or a
+    hand-authored legacy index. Returns [] for a file that no longer
+    exists rather than raising, since callers enumerate a directory
+    listing that can race a concurrent write.
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return parse_backlog_table(content)
+
+
+def collect_all_known_ids(config: dict) -> list[str]:
+    """Every id visible anywhere: the hub, every hub overflow leaf, and
+    every Archive shard. `--next-id` unions across all three (Execution
+    Step 5) -- a hub-only max would reissue an id that already exists in a
+    shard, the collision this whole resolution exists to prevent.
+    """
+    naming = _index_naming(config["_index_path"])
+    ids: list[str] = []
+    for path in _enumerate_generated_files(config["_backlog_dir"], naming):
+        ids.extend(item["id"] for item in _read_backlog_items(path))
+    for path in _enumerate_generated_files(config["_archive_dir"], naming):
+        ids.extend(item["id"] for item in _read_backlog_items(path))
+    return ids
+
+
+def resolve_closed_item_shard(item_id: str, config: dict) -> tuple[Path | None, bool]:
+    """Locate the Archive shard file holding a closed item's row.
+
+    `shard_for` computes the id's century, and this checks it against a
+    full-century-shaped filename guess (`century*100+1` to
+    `century*100+100`) -- no directory listing, no id-to-shard table. The
+    guess is exact whenever a century is fully closed (its shard covers
+    the century's whole width); it is not exact for a century that still
+    interleaves open ids with closed ones, since the generator names a
+    shard by its own items' real min/max, not the century's boundary.
+
+    When the guess misses, this falls back to reading every on-disk
+    shard's OWN filename-embedded range (a directory listing, never a
+    row-by-row content scan) and returns whichever one covers the id --
+    reported on stderr rather than silently absorbed, because a missing
+    expected shard is the anomaly Execution Step 4 calls out.
+
+    Returns (path_or_None, used_fallback).
+    """
+    numeric_id = id_number(item_id)
+    if numeric_id is None:
+        return None, False
+
+    naming = _index_naming(config["_index_path"])
+    archive_dir = config["_archive_dir"]
+    century = shard_for(numeric_id)
+    lo, hi = century * 100 + 1, century * 100 + 100
+    guess_name = f"{naming.archive_stem}-{lo:03d}-{hi:03d}{naming.suffix}"
+    guess_path = archive_dir / guess_name
+    if guess_path.is_file():
+        return guess_path, False
+
+    print(
+        f"Warning: the computed Archive shard {guess_name} for id {item_id} "
+        f"(century {century}) is absent -- falling back to a directory scan.",
+        file=sys.stderr,
+    )
+    range_re = re.compile(
+        r"^" + re.escape(naming.archive_stem) + r"-(\d{3,})-(\d{3,})"
+        + re.escape(naming.suffix) + r"$"
+    )
+    for path in _enumerate_generated_files(archive_dir, naming):
+        m = range_re.match(path.name)
+        if m and int(m.group(1)) <= numeric_id <= int(m.group(2)):
+            return path, True
+
+    return None, True
 
 
 def build_blocked_by_map(
@@ -207,9 +386,20 @@ def format_table(items: list[dict], sort_by: str = "score") -> str:
 
 
 def format_blocked_summary(
-    blocked_items: list[dict], blocked_by_map: dict[str, list[str]]
+    blocked_items: list[dict],
+    blocked_by_map: dict[str, list[str]],
+    id_to_title: dict[str, str] | None = None,
 ) -> str:
-    """Format a summary of blocked items with their blockers or hold status."""
+    """Format a summary of blocked items with their blockers or hold status.
+
+    `id_to_title` is an optional normalize_id-keyed lookup of blocker id ->
+    feature title, built by the caller from data it already has in memory
+    (the already-parsed item list) -- no second read or parse of the index.
+    When absent, or when a given blocker id has no entry, that blocker
+    renders as a bare id (`blocked by: 100`) rather than failing; ids alone
+    are strictly better than an empty summary, so a missing title is never
+    fatal.
+    """
     if not blocked_items:
         return ""
 
@@ -218,7 +408,16 @@ def format_blocked_summary(
     for item in sorted(blocked_items, key=lambda x: (-x.get("score", 0), x["id"])):
         blockers = blocked_by_map.get(normalize_id(item["id"]), [])
         if blockers:
-            reason = f"blocked by: {', '.join(blockers)}"
+            named = []
+            for blocker_id in blockers:
+                title = (id_to_title or {}).get(blocker_id)
+                if title:
+                    if len(title) > 30:
+                        title = title[:27] + "..."
+                    named.append(f"{blocker_id} ({title})")
+                else:
+                    named.append(blocker_id)
+            reason = f"blocked by: {', '.join(named)}"
         else:
             reason = f"held (status: {item['status']})"
         feature = item["feature"]
@@ -269,11 +468,15 @@ def main():
     all_items = parse_backlog_table(content)
 
     if args.next_id:
-        numbers = [n for n in (id_number(item["id"]) for item in all_items) if n is not None]
+        # Union across the hub, every hub overflow leaf, and every Archive
+        # shard -- a hub-only max would reissue an id a shard already
+        # holds (Execution Step 5).
+        all_ids = collect_all_known_ids(config)
+        numbers = [n for n in (id_number(i) for i in all_ids) if n is not None]
         max_id = max(numbers, default=0)
-        if not numbers and all_items:
+        if not numbers and all_ids:
             print(
-                f"WARNING: {len(all_items)} row(s) parsed but none carried a numeric ID; "
+                f"WARNING: {len(all_ids)} row(s) parsed but none carried a numeric ID; "
                 f"allocating 001. Check the index's ID column format.",
                 file=sys.stderr,
             )
@@ -296,7 +499,11 @@ def main():
     print(format_table(filtered, sort_by=args.sort))
 
     if blocked:
-        print(format_blocked_summary(blocked, blocked_by_map))
+        # Built from all_items, already parsed above -- no second read of
+        # the index. Missing/duplicate titles degrade to a bare id inside
+        # format_blocked_summary rather than raising.
+        id_to_title = {normalize_id(i["id"]): i["feature"] for i in all_items}
+        print(format_blocked_summary(blocked, blocked_by_map, id_to_title))
 
     # Combine both buckets: a direct `--id` lookup on a held or dependency-blocked
     # item must still resolve the item's data (status included) so the caller can

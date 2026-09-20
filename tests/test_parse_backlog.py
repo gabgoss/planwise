@@ -37,10 +37,13 @@ from constants import ARCHIVE_STATUSES, CLOSED_STATUSES
 from parse_backlog import (
     FilterCriteria,
     build_blocked_by_map,
+    collect_all_known_ids,
     filter_items,
     format_blocked_summary,
+    format_table,
     parse_backlog_table,
     parse_dependencies_table,
+    resolve_closed_item_shard,
 )
 
 HEADER = (
@@ -358,6 +361,36 @@ class TestHoldStatusSelectabilityFilter(_ParseBacklogFixtureBase):
         self.assertIn("held (status: BLOCKED)", held_line)
         self.assertIn("blocked by: 69", dep_line)
 
+    def test_blocked_summary_names_blocker_with_its_title_when_available(self):
+        # `id_to_title` is the optional, caller-supplied lookup (built from
+        # already-parsed items -- no second read) that lets the summary name
+        # the blocker's feature, not just its bare id. Assert the exact
+        # rendered text, not merely that the line is non-empty -- a test
+        # that only checked non-emptiness would pass against the wrong id.
+        dep_blocked = {"id": "070", "feature": "Dependency-blocked item", "priority": "Medium",
+                       "status": "NOT_STARTED", "abbrev": "DOC", "score": 20, "files": []}
+        summary = format_blocked_summary(
+            [dep_blocked],
+            blocked_by_map={"70": ["69"]},
+            id_to_title={"69": "Upstream blocker feature"},
+        )
+        dep_line = next(line for line in summary.splitlines() if "070" in line)
+        self.assertIn("blocked by: 69 (Upstream blocker feature)", dep_line)
+
+    def test_blocked_summary_falls_back_to_bare_id_when_title_unknown(self):
+        # A blocker id absent from id_to_title (or a caller passing no map
+        # at all) degrades to the bare id rather than raising or dropping
+        # the blocker from the line -- ids alone are still strictly better
+        # than an empty summary.
+        dep_blocked = {"id": "070", "feature": "Dependency-blocked item", "priority": "Medium",
+                       "status": "NOT_STARTED", "abbrev": "DOC", "score": 20, "files": []}
+        summary = format_blocked_summary(
+            [dep_blocked], blocked_by_map={"70": ["69"]}, id_to_title={},
+        )
+        dep_line = next(line for line in summary.splitlines() if "070" in line)
+        self.assertIn("blocked by: 69", dep_line)
+        self.assertNotIn("(", dep_line)
+
     def test_direct_id_lookup_on_a_held_item_still_resolves_via_json(self):
         # The direct-ID path (`/planwise backlog <id>`) skips the selectable
         # table entirely and reads the JSON temp file for item data. A held
@@ -377,6 +410,196 @@ class TestHoldStatusSelectabilityFilter(_ParseBacklogFixtureBase):
 
         self.assertEqual([i["id"] for i in items], ["067"])
         self.assertEqual(items[0]["status"], "BLOCKED")
+
+
+GENERATED_9COL_HEADER = (
+    "|" + "|".join(
+        f" {c} " for c in
+        ("ID", "Title", "Priority", "Status", "Domain", "Created", "Blocks", "Score", "File")
+    ) + "|\n"
+    + "|" + "|".join(["---"] * 9) + "|\n"
+)
+
+LEGACY_7COL_HEADER = (
+    "# Backlog Index\n\n"
+    "## Backlog Items\n\n"
+    "| ID  | Feature | Priority | Status | Abbrev | Score | Files |\n"
+    "|-----|---------|----------|--------|--------|-------|-------|\n"
+)
+
+
+class TestWidthAgnosticRowReading(unittest.TestCase):
+    """The `[!practice]` fixture proof: a 7-column legacy row and a
+    9-column generated row (no "## Backlog Items" heading at all, matching
+    generate_backlog_index.py's actual output) both yield the same record
+    shape with Score and Files correctly populated -- Score at `cells[-2]`,
+    Files at `cells[-1]`, no per-width special case beyond the 6-column
+    (no-Score) legacy floor."""
+
+    def test_seven_column_legacy_row_score_and_files_correct(self):
+        # Recorded result: 1 item, score=42 (int), one file link ("01" -> "x.md").
+        content = LEGACY_7COL_HEADER + "| 001 | Legacy feature | High | NOT_STARTED | DOC | 42 | [01](x.md) |\n"
+        items = parse_backlog_table(content)
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual(item["score"], 42)
+        self.assertEqual(item["files"], [{"label": "01", "path": "x.md"}])
+        self.assertEqual(item["status"], "NOT_STARTED")
+        self.assertEqual(item["feature"], "Legacy feature")
+
+    def test_nine_column_generated_row_score_and_files_correct(self):
+        # Recorded result: 1 item, score=77 (int), one file link ("042" -> "x.md") --
+        # no "## Backlog Items" heading present anywhere in this content, matching
+        # what generate_backlog_index.py actually emits for a hub/leaf/shard.
+        content = (
+            GENERATED_9COL_HEADER
+            + "| 042 | Generated feature | Medium | IN_PROGRESS | DOC | 2024-01-01 |  | 77 | [042](x.md) |\n"
+        )
+        self.assertNotIn("## Backlog Items", content)
+        items = parse_backlog_table(content)
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual(item["score"], 77)
+        self.assertEqual(item["files"], [{"label": "042", "path": "x.md"}])
+        self.assertEqual(item["feature"], "Generated feature")
+        self.assertEqual(item["status"], "IN_PROGRESS")
+
+    def test_escaped_pipe_cell_count_matches_header_not_dropped(self):
+        # Recorded result: 1 item parses (not malformed); the escaped pipe
+        # inside the Feature cell survives unescaped, and the row's cell
+        # count still matches the 6-column header exactly.
+        content = HEADER + "| 001 | Run `cmd \\| grep x` | Low | NOT_STARTED | DOC | [01](x.md) |\n"
+        items = parse_backlog_table(content)
+        self.assertEqual(len(items), 1)
+        self.assertIn("cmd | grep x", items[0]["feature"])
+
+
+class TestMalformedRowFailsLoudly(unittest.TestCase):
+    """A row whose cell count differs from the header's now aborts the
+    parse outright instead of being warned about and silently dropped."""
+
+    def test_malformed_row_cell_count_mismatch_raises_system_exit(self):
+        # Header wants 6 cells; this data row carries only 5 (Files is missing).
+        content = HEADER + "| 001 | Feature | Low | NOT_STARTED | DOC |\n"
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parse_backlog_table(content)
+
+
+class TestHubShardResolution(unittest.TestCase):
+    """`resolve_closed_item_shard` -- the pure `shard_for`-based guess, and
+    the reported (never silent) fallback scan when that guess misses."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="parse_backlog_shard_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.backlog_dir = self.tmp / "Backlog"
+        self.archive_dir = self.backlog_dir / "Archive"
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        self.config = {
+            "_index_path": self.backlog_dir / "00-Index-Backlog.md",
+            "_backlog_dir": self.backlog_dir,
+            "_archive_dir": self.archive_dir,
+        }
+
+    def _write_shard(self, filename: str, item_id: str) -> Path:
+        path = self.archive_dir / filename
+        row = (
+            f"| {item_id} | Closed item | Low | CLOSED | DOC | 2024-01-01 |  | - | "
+            f"[{item_id}](Archive/BB-{item_id}-x.md) |\n"
+        )
+        path.write_text(GENERATED_9COL_HEADER + row, encoding="utf-8")
+        return path
+
+    def test_computed_guess_hits_a_fully_dense_century_with_no_fallback(self):
+        shard_path = self._write_shard("Index-Backlog-001-100.md", "042")
+        out = io.StringIO()
+        with contextlib.redirect_stderr(out):
+            resolved, used_fallback = resolve_closed_item_shard("042", self.config)
+        self.assertEqual(resolved, shard_path)
+        self.assertFalse(used_fallback)
+        self.assertEqual(out.getvalue(), "")
+
+    def test_sparse_century_misses_the_guess_and_falls_back_reported(self):
+        # The shard's real range (data-driven, per generate_backlog_index.py)
+        # doesn't equal the guessed full-century "001-100" filename.
+        shard_path = self._write_shard("Index-Backlog-003-097.md", "042")
+        out = io.StringIO()
+        with contextlib.redirect_stderr(out):
+            resolved, used_fallback = resolve_closed_item_shard("042", self.config)
+        self.assertEqual(resolved, shard_path)
+        self.assertTrue(used_fallback)
+        self.assertIn("falling back", out.getvalue())
+
+    def test_missing_shard_entirely_reports_fallback_and_returns_none(self):
+        out = io.StringIO()
+        with contextlib.redirect_stderr(out):
+            resolved, used_fallback = resolve_closed_item_shard("999", self.config)
+        self.assertIsNone(resolved)
+        self.assertTrue(used_fallback)
+        self.assertIn("falling back", out.getvalue())
+
+
+class TestNextIdUnionsAcrossHubAndShards(_ParseBacklogFixtureBase):
+    """The highest-severity regression this task guards: a hub-only max
+    must never reissue an id a closed item already holds in a shard."""
+
+    def test_next_id_considers_a_higher_id_already_closed_in_a_shard(self):
+        # Hub: open items 001-050 (legacy 6-column, no Score).
+        rows = "".join(_row(f"{i:03d}") for i in range(1, 51))
+        self.write_index(rows)
+
+        # Archive shard: closed items 051 and 145 -- a hub-only max would
+        # allocate 051 next, colliding with the closed item that already
+        # owns it, and would never even see 145.
+        archive_dir = self.backlog_dir / "Archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        shard_rows = "".join(
+            f"| {i:03d} | Closed item {i} | Low | CLOSED | DOC | 2024-01-01 |  | - | "
+            f"[{i:03d}](Archive/BB-{i:03d}-x.md) |\n"
+            for i in (51, 145)
+        )
+        (archive_dir / "Index-Backlog-051-145.md").write_text(
+            GENERATED_9COL_HEADER + shard_rows, encoding="utf-8"
+        )
+
+        out, err = self.run_next_id()
+        self.assertEqual(out, "146")
+        self.assertEqual(err, "")
+
+    def test_collect_all_known_ids_unions_hub_and_shard(self):
+        rows = "".join(_row(f"{i:03d}") for i in range(1, 4))
+        self.write_index(rows)
+        archive_dir = self.backlog_dir / "Archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        (archive_dir / "Index-Backlog-001-100.md").write_text(
+            GENERATED_9COL_HEADER
+            + "| 099 | Closed item | Low | CLOSED | DOC | 2024-01-01 |  | - | [099](x.md) |\n",
+            encoding="utf-8",
+        )
+        config = {
+            "_index_path": self.backlog_dir / "00-Index-Backlog.md",
+            "_backlog_dir": self.backlog_dir,
+            "_archive_dir": archive_dir,
+        }
+        ids = collect_all_known_ids(config)
+        self.assertEqual(sorted(ids), ["001", "002", "003", "099"])
+
+
+class TestDisplayTruncationUnchanged(unittest.TestCase):
+    """The 55-character display truncation is unrelated to the 120-char
+    storage cap and must stay unchanged by this task's other reads."""
+
+    def test_feature_truncated_at_fifty_five_characters_for_display(self):
+        long_feature = "x" * 100
+        items = [{
+            "id": "001", "feature": long_feature, "priority": "Low",
+            "status": "NOT_STARTED", "abbrev": "DOC", "score": 0, "files": [],
+        }]
+        table = format_table(items)
+        line = next(line for line in table.splitlines() if line.startswith("001"))
+        self.assertIn("x" * 52 + "...", line)
+        self.assertNotIn("x" * 53, line)
 
 
 if __name__ == "__main__":
