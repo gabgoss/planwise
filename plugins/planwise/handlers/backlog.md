@@ -50,7 +50,7 @@ Where `{inferred_project_name}` = current git repo name or `cwd` basename (strip
 
 All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Backlog`). All script invocations should pass `--config {planwise_root}/config.yaml`.
 
-The optional top-level `id_format` key (`prefixed` or `bare`) controls how a newly created item's ID is rendered in the index's canonical stored form. When the key is absent, the index's predominant form is inferred. Any other value falls back to `bare` and `update_backlog.py --create` prints a stderr `WARNING: unrecognized id_format …` naming the offending value and the accepted set. That warning is deliberately non-fatal — the item is still created — and, like the `score_backlog.py` warning in Phase 1, it MUST be surfaced to the user verbatim rather than swallowed.
+The optional top-level `id_format` key (`prefixed` or `bare`) controls how a newly created item's ID is rendered in the index's canonical stored form. When the key is absent, the index's predominant form is inferred. Any other value falls back to `bare` and `update_backlog.py --create` prints a stderr `WARNING: unrecognized id_format …` naming the offending value and the accepted set. That warning is deliberately non-fatal — the item is still created — and, like the generator's own stderr warnings in Phase 1, it MUST be surfaced to the user verbatim rather than swallowed.
 
 ---
 
@@ -75,16 +75,15 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 ## Phase 1: FETCH
 
-**Score and parse the backlog index:**
+**Check the generated index against item frontmatter, then parse it:**
 
 ```bash
-python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml
+python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --check
 python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml
 ```
 
-- `score_backlog.py` computes priority scores (8 configurable factors, weights from `config.yaml`) and writes the Score column to the index
-  - Items that block other open items get a blocker bonus per blocked item
-  - If it prints a stderr `WARNING: computed … score(s) but wrote …` (a computed-vs-written shortfall), the warning MUST be surfaced to the user verbatim rather than swallowed — it means rows below a malformed row kept stale Score cells; recommend inspecting the index body before trusting the displayed ranking
+- `--check` computes each Score cell the same way `--write` would (8 configurable factors, weights from `config.yaml`, a blocker bonus per blocked item) — there is no separate scoring call. Exit `0` is clean. Exit `1` names drift or an anomaly on stderr; a `stale-score` report alone never causes exit `1` and needs no action. Exit `2` means the generator refused an item file it cannot render — a missing required key, an unresolvable `blocks:` id, or a row whose token budget cannot be met. Show the `Error:` line on stderr to the user verbatim, and stop before ranking: the index cannot be trusted until the named item file is fixed.
+  - If it prints a stderr `Warning: title truncated …` or `Anomaly: …` line, surface it to the user verbatim rather than swallowing it — the same discipline this handler applied to the retired `score_backlog.py` shortfall warning transfers to the generator's own warnings; it means the displayed ranking may not match what the item files actually say.
 - `parse_backlog.py` reads the backlog index at `{backlog_dir}/{backlog_index}`
 - Outputs a formatted table of **selectable** items (excludes COMPLETE, CLOSED, and items blocked by open dependencies)
 - Blocked items appear in a separate summary below the main table
@@ -101,13 +100,15 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 
 **Detect archival drift (always-on unless `--no-check`):**
 
-The backlog index is a denormalized cache: a COMPLETE/CLOSED item's file is moved to `Archive/` and its index link repointed as a **state-coupled** step in `update_backlog.py`. But an item that reaches a closed status by another path — a session closeout that hand-edits the index row + frontmatter — leaves the file stranded in the top-level backlog dir with an index link that never repointed, and nothing on the read side heals it.
+This is a second, narrower audit than `--check` above, and the two do not overlap. `--check` renders each row from wherever an item's file actually sits, so it never flags an unmoved file as wrong. What it cannot catch is a COMPLETE/CLOSED item whose file never got physically moved into `Archive/` — that move is `update_backlog.py`'s job when the status transition happens (Phase 6), but an item that reaches a closed status by another path (a session closeout that hand-edits the frontmatter directly) leaves the file stranded in the top-level backlog dir, and nothing on the read side heals it. This audit reads each item file's frontmatter status and location, never the index, so it sees a stranded file on a generated index too.
+
+**`--no-check` skips only this archival audit, unchanged from before.** The `--check` call above is unconditional, the same as the `score_backlog.py` call it replaces.
 
 **If `--no-check` is present:** skip this step (a fast triage) and go straight to displaying the table.
 
 Otherwise, run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) against the **backlog** index (`reconcile_backlog.py`, banner `planwise backlog — backlog index drift audit`) — the JSON shape, banner format, and write-on-consent reconcile flow (including the consent prompt) all live there. This is the read-side counterpart of `/planwise list` Step 2's plans-index drift check, and the same detect pass `/planwise doctor` Stage 12 reuses; none re-implements another's comparison.
 
-If a write ran, re-run this Phase's parse so the reconciled links are reflected in this same invocation.
+The consented `--write` moves item files into `Archive/` and never writes the index. If it moved a file, run `generate_backlog_index.py --config {planwise_root}/config.yaml --write` so the index links follow the moved files. Then re-run Phase 1's parse so this same invocation shows the regenerated index.
 
 Display the table to the user.
 
@@ -128,11 +129,14 @@ Display the table to the user.
   - User can select one or more, or type a custom ID
   - Do NOT offer blocked items — they cannot be worked until their blockers are resolved
 
-**For each selected item**, update status to IN_PROGRESS:
+**For each selected item**, update status to IN_PROGRESS. After the last one, regenerate the index once:
 
 ```bash
-python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status IN_PROGRESS
+python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status IN_PROGRESS   # loop, once per item
+python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write                        # once, after the loop
 ```
+
+`--status` writes frontmatter only; a non-zero `--write` exit does not undo it — fix what it names and re-run `--write`.
 
 ---
 
@@ -409,15 +413,15 @@ directly with item scope only."
 python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status "{new_status}"
 ```
 
-**Re-score after status changes** (skip if outcome was "Skipped" — nothing changed):
+**Regenerate the index once after status changes** (skip if outcome was "Skipped" — nothing changed):
 
 ```bash
-python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml
+python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
 ```
 
-**Automatic archival:** When status is set to COMPLETE or CLOSED, `update_backlog.py` automatically:
-- Moves item file(s) to the Archive/ directory within `{backlog_dir}`
-- Updates index links to point to `Archive/` subfolder
+`--write` rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. Exit `0` is clean. Exit `1` is unexpected — record it and keep going. Exit `2` means it refused and wrote nothing; the item's frontmatter is still correct, so fix what it names and re-run `--write` rather than repeating `--status`.
+
+**Automatic archival:** When status is set to COMPLETE or CLOSED, `update_backlog.py` automatically moves the item file(s) to the Archive/ directory within `{backlog_dir}`. It no longer repoints the index link itself — the `--write` run above does that, because it renders each row from wherever the file actually lives.
 
 **Twin-plan reconciliation (run when the outcome is COMPLETE/CLOSED):** If this item shipped deliverables that a live plan was authored to produce, retire that twin plan in the **same** closeout. A plan's status fields and its plans-index row are written only by session closeout (`/planwise run`); a plan whose deliverables were instead satisfied through this backlog route is written nowhere, so it is left live and independently runnable — and a later `/planwise run` will accept it and re-execute idempotency-unsafe steps ("append N rows", "insert at max+1", "add the next check number") against already-satisfied state, corrupting it.
 
@@ -546,33 +550,29 @@ Task {
 ```
 
 > [!constraint] One dispatch, never a fan-out
-> `backlog-author` owns the backlog index write. Two concurrent dispatches race on the index file and on `parse_backlog.py --next-id`, which computes next-free from live state. Batch every accepted candidate into **one** dispatch. Dispatch **foreground only** — a background subagent silently auto-denies its own Write/Edit/Bash calls, and permission-bypass modes do not override that gate.
+> **Never dispatch two of these agents concurrently.** The id-allocation race is the only remaining reason. `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch. Two concurrent dispatches can therefore read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Batch candidates into **one** dispatch rather than fanning out per candidate. One dispatch also costs less than several. Dispatch **foreground only** — a background subagent silently auto-denies its own Write/Edit/Bash calls, and permission-bypass modes do not override that gate.
 
 **Result handling:** render Step 7.4 from the returned status block. `ITEMS_FILED < CANDIDATES_IN` is a valid COMPLETE — name each retirement and its evidence in the summary. Reconcile each source document listed under `SOURCE_RECONCILE` per `references/verify-backlog-citation-freshness.md` §10.4; the agent does not touch those files. If `SOURCE_PINS` shows a source file whose line count differs from this session's own read, re-read it before trusting the item drafted from it.
 
-**Inline path (N = 1)** — steps 1-4:
+**Inline path (N = 1)** — steps 1-3:
 
 1. **Get next BLI ID:**
    ```bash
    python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --next-id
    ```
 
-2. **Create BLI file** at `{backlog_dir}/BLI-{NNN}-{Domain}-{Topic}.md` using the [backlog-item.md](../templates/backlog-item.md) template; pre-fill:
-   - Title from recommendation
-   - `created:` today's date
-   - `status: NOT_STARTED`
-   - Body from candidate description + target file + severity
+2. **File the item through the guarded writer, then fill its body:**
+   ```bash
+   python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{recommendation, 120 characters or fewer}" --priority "{inferred from severity}" --abbrev "{Domain}" --files "BLI-{NNN}-{Domain}-{Topic}.md"
+   ```
+   `--create` writes the item file at `{backlog_dir}/BLI-{NNN}-{Domain}-{Topic}.md` from the [backlog-item.md](../templates/backlog-item.md) template. It writes nothing else — no index row, no regeneration. **Cap the title at 120 characters** — `--create` rejects a longer `--feature`, writes nothing, and names the actual length and the cap; it never truncates. Shorten the title and move the overflow into the item body's `## Summary`. Then use `Edit` to add the candidate description, target file, and severity.
    - **Self-containment check:** the body inlines every block, spec, or piece of evidence the item depends on — a reference may add context, but the substantive content required to act is pasted in, not only linked. (Apply the durability test above.)
 
-3. **Append row to backlog index:**
+3. **Regenerate the index once, after the item is filed:**
    ```bash
-   python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{recommendation}" --priority "{inferred from severity}" --abbrev "{Domain}" --files "BLI-{NNN}-{Domain}-{Topic}.md"
+   python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
    ```
-
-4. **Re-score backlog** after all candidates processed:
-   ```bash
-   python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml
-   ```
+   The generator rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step.
 
 ### Step 7.4: Output Summary
 
@@ -624,7 +624,7 @@ Use this logic to determine the recommended route in Phase 3.
 | Signal | How to Detect | Weight |
 |--------|---------------|--------|
 | Item predates active work in its own domain, or is cohort-shaped (siblings by period/abbrev/`blocks:`) | Pivot check per `references/backlog-triage-pivot-detection.md` | Gate → run before any routing weight is assigned |
-| "Bug" in feature name | Case-insensitive check on Feature column | Strong → Direct Fix |
+| `abbrev: BUG` in frontmatter | Read the item's `abbrev` field | Strong → Direct Fix |
 | Item file < 50 lines | Line count on read | Moderate → Direct Fix (a *proxy* for a small fix — a file that is long only because it is thoroughly documented is NOT large scope) |
 | Exact fix evidence: named files + line anchors + before/after content + scope-confinement bound | BB body supplies concrete, bounded edit targets | Strong → Direct Fix — sets `HAS_CLEAR_FIX` regardless of file length |
 | Specific file paths mentioned | Regex for code file extensions | Moderate → Direct Fix |

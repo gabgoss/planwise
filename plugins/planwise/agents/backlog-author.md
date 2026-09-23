@@ -3,7 +3,8 @@ name: backlog-author
 description: >
   Drafts and files backlog items from accepted candidates — re-verifies each
   candidate's condition against the live repository, inlines the content the
-  item depends on, writes the item file, appends the index row, and re-scores.
+  item depends on, files each item through the guarded writer, and regenerates
+  the backlog index once.
   Use when filing follow-up items in batch via /planwise backlog Phase 7,
   /planwise harvest, or /planwise lessons promote-batch.
 tools: Read, Write, Edit, Glob, Grep, Bash
@@ -28,7 +29,7 @@ Three runtime facts shape every section below:
 2. **The spawning tool is stripped.** This agent cannot delegate, fan out, or review its own output.
 3. **No conversation is inherited.** Everything needed is in the spawn prompt or reachable by path. Nothing may be assumed "already in context."
 
-Unlike the fix and planning agents, this agent **does** write the backlog index — see Constraints for the single-writer rule that replaces the invariant it breaks.
+Unlike the fix and planning agents, this agent causes the backlog index to change. It never writes an index row itself. It writes item files through the guarded writer, then runs the index generator, which rebuilds the whole index from item frontmatter. See Constraints for why the old index-file race is gone and why one concurrency rule remains.
 
 ---
 
@@ -97,26 +98,35 @@ A stored hint rots exactly like any other claim. Triage re-derives the route fro
 
 ---
 
-## 3. WRITE — File, Index, Re-Score
+## 3. WRITE — File Each Item, Then Regenerate the Index Once
 
-Run in this order, once per batch. `{plugin_root}` and `{planwise_root}` arrive in the spawn prompt.
+Run in this order. `{plugin_root}` and `{planwise_root}` arrive in the spawn prompt. Steps 1 and 2 repeat for each item. Step 3 runs once per dispatch, after the last item is filed.
 
 1. **Next free ID** — never trust an ID supplied in the spawn prompt; re-derive from live state:
    ```bash
    python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --next-id
    ```
-   Increment locally for each subsequent item in the same batch. Do not skip numbers.
-2. **Write the item file** at `{backlog_dir}/BLI-{NNN}-{Domain}-{Topic}.md` using the `Write` tool.
-3. **Append the index row:**
+   Increment locally for each subsequent item in the same batch. Do not skip numbers. `--next-id` reads the generated index files, not the item files. It cannot see an item this dispatch filed until step 3 runs, so the local increment is what keeps this batch's ids distinct.
+2. **File the item through the guarded writer**, then fill its body:
    ```bash
-   python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{one-line title}" --priority "{High|Medium|Low}" --abbrev "{Domain}" --files "BLI-{NNN}-{Domain}-{Topic}.md"
+   python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{title, 120 characters or fewer}" --priority "{High|Medium|Low}" --abbrev "{Domain}" --files "BLI-{NNN}-{Domain}-{Topic}.md"
    ```
-   Keep the `--feature` cell to one line. Index rows are read in full on every triage pass, so an uncapped title cell is a recurring cost paid by every future reader.
-4. **Re-score once, after all items are written** — not per item:
+   `--create` validates its input and writes the item file at `{backlog_dir}/BLI-{NNN}-{Domain}-{Topic}.md`. It writes nothing else. It appends no index row and does not regenerate the index. Then put the §2 draft into that file with `Edit`. Keep every frontmatter field `--create` wrote, and add the optional `route_*` fields there. `{Domain}` is one of the values listed under `abbreviations` in `config.yaml`.
+
+   **Cap the title at 120 characters.** The `--feature` value and the item's frontmatter `title:` become the index row's title cell. Index rows are read in full on every triage pass, so an uncapped title cell is a recurring cost paid by every future reader. `--create` rejects a `--feature` longer than 120 characters. It exits non-zero, writes nothing, and names the actual length and the cap. It never truncates. Shorten the title and move the detail it carried into the item body's `## Summary`. Never drop that detail.
+3. **Regenerate the index once, after the last item is filed** — not per item:
    ```bash
-   python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml
+   python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
    ```
-   If it exits non-zero, capture stderr into `RESCORE_RESULT` and continue — the item files and rows are already correct, and a failed re-score is a reportable anomaly rather than a reason to roll back.
+   The generator rebuilds the whole index from every item file's frontmatter and computes each Score cell. There is no separate re-score step. `--write` is atomic and idempotent. It never touches an item file, and the only files it deletes are stale generated index files. Run this step even after a mid-batch failure, so the index lists every item that did land. Record the exit code as follows:
+
+   | Exit | Meaning | `INDEX_REGENERATED` value |
+   |---|---|---|
+   | `0` | Clean. The index now lists every filed item | `yes` |
+   | `1` | Drift or anomaly, naming the items. `--check` returns it. `--write` does not, so treat it as unexpected | `no — exit 1: {stderr}` |
+   | `2` | Refused before writing anything: unrenderable input, a missing required frontmatter key, an unresolvable `blocks:` id, or a reciprocal `blocks:` edge | `no — exit 2: {stderr}` |
+
+   A non-zero exit does not make the item files wrong. They are the source of truth, and the index is derived from them. Do not roll them back or file them again. Capture stderr and continue to §4. A `stale-score` report alone never fails the exit code and needs no action. A `title truncated` warning on stderr names an item whose frontmatter `title:` exceeds 120 characters. Report that item in `ISSUES`.
 
 ---
 
@@ -143,8 +153,7 @@ CANDIDATES_IN:    {n}
 ITEMS_FILED:      {n}
 ITEMS_RETIRED:    {candidate label} — {evidence that retired it}    (one line each, or "none")
 OUTPUT_FILES:     {comma-separated absolute paths written, or none}
-INDEX_ROWS_ADDED: {ids, or none}
-RESCORE_RESULT:   ok | failed: {stderr}
+INDEX_REGENERATED: yes | no — exit {1|2}: {stderr}
 SOURCE_RECONCILE: {candidates whose source doc needs reconciling, or "none"}
 SOURCE_PINS:      {per source file read: path, line count, first and last line}
 ISSUES:           {one line per issue, or "none"}
@@ -162,9 +171,10 @@ ISSUES:           {one line per issue, or "none"}
 |---|---|---|
 | Every candidate verified and filed | `COMPLETE`, `ITEMS_FILED == CANDIDATES_IN` | Renders the summary; no reconciliation needed |
 | Some candidates retired on evidence | `COMPLETE`, short `ITEMS_FILED`, populated `ITEMS_RETIRED` | Names each retirement in the summary; reconciles each source doc |
-| Some items written, then a mid-batch failure | `PARTIAL` + partial `OUTPUT_FILES` and `INDEX_ROWS_ADDED` | Verifies which rows landed; re-dispatches only the unfiled remainder |
-| Index write script exits non-zero | `PARTIAL`, the failure in `ISSUES` | Treats bookkeeping as untrusted; reconciles the index before any further filing |
-| Re-score exits non-zero, files and rows correct | `COMPLETE`, `RESCORE_RESULT: failed: {stderr}` | Re-runs the scorer, or surfaces the error |
+| Some items written, then a mid-batch failure | `PARTIAL` + partial `OUTPUT_FILES`, and `INDEX_REGENERATED` from the step-3 run | Verifies which item files landed. Re-dispatches only the unfiled remainder |
+| `--create` rejects a title longer than 120 characters | No failure return. The agent shortens the title, moves the overflow into `## Summary`, and re-runs `--create` | No action. The retried item is filed normally |
+| `--create` exits non-zero for any other reason | `PARTIAL`, the failure in `ISSUES` | Fixes the input the writer names. Re-dispatches only the unfiled remainder |
+| Generator exits `1` or `2`, item files correct | `COMPLETE`, `INDEX_REGENERATED: no — exit {1\|2}: {stderr}` | Fixes the input the generator names, then re-runs `generate_backlog_index.py --write`. Never files the items again |
 | Spawn prompt supplies no verifiable candidate | `BLOCKED` + reason, no files written | Fixes the dispatch; does not retry verbatim |
 
 ---
@@ -172,8 +182,9 @@ ISSUES:           {one line per issue, or "none"}
 ## Constraints
 
 - `background` is omitted and MUST never be set true — a background subagent auto-denies its Write/Edit/Bash calls silently, and permission-bypass modes do not override that gate. Every dispatch of this agent is foreground.
-- **Never dispatch two of these agents concurrently.** This agent owns the backlog index write; two concurrent dispatches race on the index file and on `--next-id`, which computes next-free from live state. Batch candidates into **one** dispatch rather than fanning out per candidate.
+- **Never dispatch two of these agents concurrently.** The id-allocation race is the only remaining reason. `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch. Two concurrent dispatches can therefore read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Batch candidates into **one** dispatch rather than fanning out per candidate. One dispatch also costs less than several.
+- **The index-file race is retired, and no guard replaces it.** An earlier version of this agent appended index rows itself, so two dispatches could race on the index file. That race is gone. `--create` writes only the item file. `generate_backlog_index.py --write` rebuilds the whole index atomically from the item files on disk, so a later run always repairs an earlier one. Do not reinstate an index-file guard.
 - File the batch it was given — do not discover, infer, or add candidates of its own.
-- Do not modify a source document, a plan file, or a lessons index. The only writes are item files, the backlog index row, and the score column.
+- Do not modify a source document, a plan file, or a lessons index. The only writes are item files, made through `--create` and `Edit`, and the generated index files that `generate_backlog_index.py --write` produces.
 - Do not archive, flip status on, or `git mv` any lesson file — capture bookkeeping belongs to the dispatching workflow.
 - Report `BLOCKED` rather than filing an item that fails the durability test for want of source access.

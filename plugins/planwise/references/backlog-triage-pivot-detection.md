@@ -51,6 +51,7 @@ description: Detect an unnoticed project pivot before triaging an aged or high-p
 > ```
 > update_backlog.py --id {selected_item} --status BLOCKED
 > update_backlog.py --id {sibling_id} --status BLOCKED
+> generate_backlog_index.py --write
 > # one shared rationale, recorded once, on the umbrella item (see §2.1)
 > ```
 

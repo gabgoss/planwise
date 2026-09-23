@@ -201,6 +201,19 @@ class TestRunReconcileCliWriteMode(_CliFixtureBase):
 
         self.assertIn("Reconciled 3 row(s).", out.getvalue())
 
+    def test_write_message_override_replaces_the_row_noun(self):
+        self.index_path.write_text("x", encoding="utf-8")
+
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.run_cli(
+                ["--write"],
+                reconcile=lambda config: 2,
+                write_message=lambda n: f"Moved {n} file(s) to Archive/.",
+            )
+
+        self.assertIn("Moved 2 file(s) to Archive/.", out.getvalue())
+        self.assertNotIn("row(s)", out.getvalue())
+
     def test_write_plus_json_dumps_a_fresh_detect_after_reconcile(self):
         self.index_path.write_text("x", encoding="utf-8")
 

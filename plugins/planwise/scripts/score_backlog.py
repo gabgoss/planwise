@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Compute priority scores for backlog items and write to the index.
+"""Compute priority scores for backlog items and report them.
 
-Reads the backlog index table, computes a numeric score per open item using
-8 weighted factors (configurable via config.yaml), and writes the Score column
-back to the index file. `--id N --explain` prints one item's per-factor
-derivation instead (read-only -- it never writes, dry-run or not).
+Reads the backlog index table and computes a numeric score per open item
+using 8 weighted factors (configurable via config.yaml). Every mode is
+read-only: the index is a generated artifact produced by
+generate_backlog_index.py --write, so this script never writes a score back
+into it. `--id N --explain` prints one item's per-factor derivation instead.
 
 Factors:
   1. Priority        — High/Medium/Low (configurable points)
@@ -36,16 +37,9 @@ from config_loader import get_scoring_weights, load_config
 from constants import OPEN_STATUSES
 from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
 from markdown_parser import (
-    is_section_boundary,
     normalize_id,
     parse_markdown_table,
-    split_row_cells,
-    split_row_raw,
     warn_on_unparsed_rows,
-)
-from reconcile_common import (
-    read_text_preserving_newlines,
-    write_text_preserving_newlines,
 )
 
 # Try yaml import; fall back to regex extraction if unavailable
@@ -506,118 +500,6 @@ def _score_total(breakdown: ScoreBreakdown | None) -> int:
     return breakdown.total if breakdown is not None else 0
 
 
-def write_scores_to_index(content: str, scores: dict[str, ScoreBreakdown]) -> str:
-    """Insert or update Score column in the index table.
-
-    A `generate_backlog_index.py`-produced hub, overflow leaf, or Archive
-    shard carries no "## Backlog Items" heading — only the table itself.
-    Splice on the same synthetic heading `parse_backlog.with_section_heading`
-    uses (imported locally — see `parse_index_table`'s docstring for why a
-    module-top import here would close an import cycle) so the header
-    search below locates the table either way, then strip the two synthetic
-    lines back off before returning: the heading exists only to make this
-    function's own search succeed and must never leak into content that
-    never had one. This is a no-op — and every early return below hands back
-    the ORIGINAL content unchanged — for content that already carries the
-    heading, i.e. every legacy index this function has ever run against.
-    """
-    from parse_backlog import with_section_heading
-
-    original_content = content
-    heading_added = "## Backlog Items" not in content
-    if heading_added:
-        content = with_section_heading(content)
-    lines = content.split("\n")
-    section_match = re.search(r"## Backlog Items\s*\n", content)
-    if not section_match:
-        return original_content
-
-    section_start = content[:section_match.end()].count("\n")
-    has_score_column = False
-    header_idx = None
-    separator_idx = None
-
-    for i in range(section_start, len(lines)):
-        stripped = lines[i].strip()
-        if stripped.startswith("## ") and i > section_start:
-            break
-        if header_idx is None and re.match(r"\|\s*ID\s*\|", stripped):
-            header_idx = i
-            has_score_column = "Score" in stripped
-        elif header_idx is not None and separator_idx is None and re.match(r"\|[-\s|]+\|", stripped):
-            separator_idx = i
-
-    if header_idx is None or separator_idx is None:
-        return original_content
-
-    if not has_score_column:
-        hparts = split_row_raw(lines[header_idx])
-        hparts.insert(-2, " Score ")
-        lines[header_idx] = "|".join(hparts)
-
-        sparts = split_row_raw(lines[separator_idx])
-        sparts.insert(-2, "------")
-        lines[separator_idx] = "|".join(sparts)
-
-    scored = len(scores)
-    written = 0  # incremented once per row actually rewritten below
-
-    for i in range(separator_idx + 1, len(lines)):
-        stripped = lines[i].strip()
-
-        if is_section_boundary(stripped, separator_seen=True):
-            break
-        if not stripped:
-            continue
-        if not stripped.startswith("|"):
-            continue
-
-        parts = split_row_raw(lines[i])
-        cells = split_row_cells(lines[i])
-        if len(parts) < 3:
-            continue
-
-        row_id = cells[0] if cells else ""
-        if row_id in ("ID", "") or re.match(r"^[-]+$", row_id):
-            continue
-
-        # Cell 3 is Status in both the 6- and 7-column index formats. Reading it
-        # by name-derived index rather than a raw offset is what stops an
-        # escaped pipe from presenting the Priority cell here.
-        status_cell = cells[3] if len(cells) > 3 else ""
-        if status_cell in ("COMPLETE", "CLOSED"):
-            score_val = "-"
-        else:
-            score_val = str(_score_total(scores.get(row_id)))
-
-        if has_score_column:
-            # Score is the second-to-last cell; Files trails it.
-            score_idx = len(cells) - 2
-            if score_idx >= 0 and len(parts) > score_idx + 1:
-                parts[score_idx + 1] = f" {score_val} "
-                lines[i] = "|".join(parts)
-                written += 1
-        else:
-            if len(cells) >= 6:
-                parts.insert(-2, f" {score_val} ")
-                lines[i] = "|".join(parts)
-                written += 1
-
-    if written < scored:
-        print(
-            f"WARNING: computed {scored} score(s) but wrote {written}. "
-            f"{scored - written} row(s) did not receive a Score cell -- the table walk "
-            f"terminated early. Check for a malformed row or a stray section boundary "
-            f"inside the table body.",
-            file=sys.stderr,
-        )
-
-    result = "\n".join(lines)
-    if heading_added:
-        result = result.removeprefix("## Backlog Items\n\n")
-    return result
-
-
 def review_items(
     items: list[dict],
     scores: dict[str, ScoreBreakdown],
@@ -703,8 +585,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Compute priority scores for backlog items."
     )
-    parser.add_argument("--dry-run", action="store_true", help="Compute and print scores without writing to the index.")
-    parser.add_argument("--review", action="store_true", help="Output a priority review report (no index writes).")
+    parser.add_argument("--dry-run", action="store_true", help="Compute and print scores; every mode is report-only and never writes to the index.")
+    parser.add_argument("--review", action="store_true", help="Output a priority review report; every mode is report-only and never writes to the index.")
     parser.add_argument("--id", type=str, default=None,
                         help="Look up one item's score by ID (bare or prefixed, matched on the numeric component).")
     parser.add_argument("--explain", action="store_true",
@@ -725,18 +607,10 @@ def main():
         print(f"Error: Backlog index not found at {index_path}", file=sys.stderr)
         sys.exit(1)
 
-    # newline="" both ways: the write-back rebuilds the whole file to update one
-    # Score cell per row, so a universal-newline round-trip would retranslate
-    # every line — including the prose below the table the walker stops before —
-    # to the platform's os.linesep, destroying the diff this index exists to
-    # support.
-    content = read_text_preserving_newlines(index_path)
-    # Report modes (--dry-run, --review, --id/--explain) read the UNION of
-    # the hub and every hub overflow leaf -- an open item living in a leaf
-    # must be scored and reported like any hub item. The in-place write
-    # path below still writes only the hub's own `content` (Finding 2's
-    # kept, soon-retired write path); a leaf item's score is computed but
-    # not written back, reported on stderr instead of silently dropped.
+    # Report modes (--dry-run, --review, --id/--explain, and the no-flag
+    # report) all read the UNION of the hub and every hub overflow leaf -- an
+    # open item living in a leaf must be scored and reported like any hub
+    # item.
     items = _read_hub_family_items(index_path, backlog_dir)
 
     if not items:
@@ -802,28 +676,18 @@ def main():
         totals = [b.total for b in scores.values()]
         print(f"\nScore range: {min(totals)} — {max(totals)}")
 
-    if not args.dry_run:
-        # write_scores_to_index only rewrites rows present in `content` --
-        # the hub's own on-disk table -- so a leaf item's score is computed
-        # above but never reaches this write. Diffing the hub-only id set
-        # against `scores` (the union) names exactly those unwritten leaf
-        # items, reported rather than silently dropped (Finding 2's kept,
-        # hub-only write path; retired with the writer rework).
-        hub_only_ids = {item["id"] for item in parse_index_table(content)}
-        updated_content = write_scores_to_index(content, scores)
-        write_text_preserving_newlines(index_path, updated_content)
-        print(f"\nScores written to {index_path.name}")
-        unwritten = sorted(item_id for item_id in scores if item_id not in hub_only_ids)
-        if unwritten:
-            print(
-                f"WARNING: the in-place Score write only updates the hub file "
-                f"({index_path.name}); {len(unwritten)} open item(s) living in "
-                f"a hub overflow leaf were scored but not written back: "
-                f"{', '.join(unwritten)}. Retired with the writer rework.",
-                file=sys.stderr,
-            )
-    else:
+    if args.dry_run:
         print("\n(dry-run mode — no changes written)")
+    else:
+        # The index is a generated artifact -- generate_backlog_index.py
+        # --write produces it, and nothing here writes a score back into it.
+        # Every mode is report-only; this branch is the same report the
+        # --dry-run branch prints, worded for the flag that names no writes
+        # ever happened in the first place.
+        print(
+            "\n(report only — scores are not written to the index; "
+            "regenerate it with generate_backlog_index.py --write)"
+        )
 
 
 if __name__ == "__main__":

@@ -190,7 +190,7 @@ The `--dry-run` flag is orthogonal to scope. When present, the workflow short-ci
 
 ### Output
 
-New backlog-item files, appended and re-scored backlog-index rows, and — at capture — modified lesson files. The authoritative write scope is the Write column of [Part-1 §1](../references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md#1-inputs-and-outputs), with the capture-time lesson writes specified in [Part-2 §6.6](../references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#66-capture-the-in-scope-lessons-archive-on-capture). As with Curate Mode above, it is deliberately not restated here. Under `--dry-run` the workflow short-circuits after Phase 2 and writes nothing.
+New backlog-item files, the regenerated backlog index, and — at capture — modified lesson files. The authoritative write scope is the Write column of [Part-1 §1](../references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md#1-inputs-and-outputs), with the capture-time lesson writes specified in [Part-2 §6.5](../references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture). As with Curate Mode above, it is deliberately not restated here. Under `--dry-run` the workflow short-circuits after Phase 2 and writes nothing.
 
 Writes that touch the lessons index also bump its `Last Updated:` header in the same edit — see [Lessons-Index Write Convention](#lessons-index-write-convention).
 

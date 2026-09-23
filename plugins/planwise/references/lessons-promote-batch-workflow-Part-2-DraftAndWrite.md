@@ -46,9 +46,9 @@ The prohibition above governs **this session** re-reading bodies it already hold
 
 Part-1 §3.4's full-body read is **unchanged and still BINDING** — grouping genuinely needs it, and it precedes any dispatch. What changes is only that Phase 3's drafting may happen in a spawned context instead of this one.
 
-Dispatch [`../agents/backlog-author.md`](../agents/backlog-author.md), one instance at a time: it owns the backlog index write, so two concurrent instances race on the index and on the next-free-id computation. Dispatch foreground-only — a background subagent silently auto-denies its own Write/Edit/Bash calls. Under `--dry-run`, skip the dispatch entirely; do not dispatch with a no-write flag.
+Dispatch [`../agents/backlog-author.md`](../agents/backlog-author.md), one instance at a time. **Never dispatch two of these agents concurrently.** The id-allocation race is the only remaining reason: `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch, so two concurrent dispatches can read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Dispatch foreground-only — a background subagent silently auto-denies its own Write/Edit/Bash calls. Under `--dry-run`, skip the dispatch entirely; do not dispatch with a no-write flag.
 
-Lesson capture (§6.6) is **not** delegated: the status flip, the archive move, and the lessons-index update stay with this session, and the agent never touches a lesson file.
+Lesson capture (§6.5) is **not** delegated: the status flip, the archive move, and the lessons-index update stay with this session, and the agent never touches a lesson file.
 
 ### 5.2 The self-containment principle (BINDING)
 
@@ -111,7 +111,7 @@ Each BB has between 2 and 5 deliverables, in this order:
 1. **Rule deliverable(s)** — one per target rule. Outline the §-sections, name each promoted lesson whose content is being inlined, state explicitly *"the rule does NOT cite LL-X"*.
 2. **Code/settings application deliverable(s)** — one per file that gets a docstring/comment/settings edit.
 3. **CLAUDE.md update deliverable** — list each `> [!binding]` callout to add or replace, with the exact text of the callout (rule-pointer language, no lesson references). Include the new row(s) for the "Skills, Rules, and LSPs" Rules table.
-4. **Lesson status flip deliverable** — the immediate capture-time flip is `documented → promoted` (done in Phase 4, §6.6, not deferred). The deliverable's table maps each in-scope lesson to its **eventual** landing status (`rule` | `applied`) and `applied-as` path — what curate flips it to once the owning item ships. Note the Rule Promotion Log row count for that eventual landing (curate writes the rows then, not at capture).
+4. **Lesson status flip deliverable** — the immediate capture-time flip is `documented → promoted` (done in Phase 4, §6.5, not deferred). The deliverable's table maps each in-scope lesson to its **eventual** landing status (`rule` | `applied`) and `applied-as` path — what curate flips it to once the owning item ships. Note the Rule Promotion Log row count for that eventual landing (curate writes the rows then, not at capture).
 5. **Acceptance Criteria** — must include a self-containment grep check (see §8).
 
 ### 5.5 Write the Notes section last
@@ -136,11 +136,15 @@ The Notes section is the only place where lessons NOT promoted **by THIS specifi
 
 ---
 
-## 6. Phase 4 — Write BB Files and Update the Backlog Index
+## 6. Phase 4 — Write BB Files, Then Regenerate the Index Once
 
 ### 6.1 Determine the next BB number
 
-Read `{backlog_dir}/{backlog_index}`, find the highest `BB-{NNN}` row across both the active table and `{backlog_dir}/Archive/`, and assign sequential numbers starting from `{highest + 1}`. If the user is producing multiple BBs in one run, assign sequentially — do not skip numbers.
+```bash
+python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --next-id
+```
+
+`--next-id` reads the generated index files. It cannot see a BB this run files until §6.3 runs, so increment the returned id locally for each subsequent BB in the same batch. Do not skip numbers.
 
 ### 6.2 Write each BB file
 
@@ -153,33 +157,25 @@ Path: `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md`
 | `DOC` | Fixed domain abbreviation for promotion BBs (matches `config.yaml: abbreviations.DOC`) | `DOC` |
 | `{BucketSlug}` | PascalCase of the bucket's `slug` field from `config.yaml: categorization.buckets[].slug` (e.g., `database` → `Database`, `task-files` → `TaskFiles`) | `Database` |
 
-Use the structure specification in §7. Keep each file under 22,000 measured tokens (per the project file-size rule; verify with `measure_files.py`).
-
-### 6.3 Update the backlog index
-
-Append rows to the master table in `{backlog_index}`:
-
-```markdown
-| BB-{NNN} | {one-line title} | {High|Medium|Low} | NOT_STARTED | DOC | {score} | [01](BB-{NNN}-{SB}-DOC-PromoteLessons{BucketSlug}.md) |
-```
-
-Leave the Score column placeholder (e.g., `-`) when first writing the row — the score is computed by `score_backlog.py` in §6.4. Set `Abbrev` = `DOC` (these BBs are documentation/rule-authoring work).
-
-Bump the `Last Updated` line at the bottom of the index.
-
-### 6.4 Re-score the backlog
-
-After writing all BB files and appending all rows, run the scoring script to compute Score column values:
+File each BB through the guarded writer:
 
 ```bash
-python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml
+python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{one-line title, 120 characters or fewer}" --priority "{High|Medium|Low}" --abbrev DOC --files "BB-{NNN}-{SB}-DOC-PromoteLessons{BucketSlug}.md"
 ```
 
-This overwrites the Score column with the computed score (8-factor weighting from `config.yaml: scoring`). Promotion BBs typically receive `priority_medium` (default 20) with no bug-fix bonus.
+`--create` writes only the item file. It appends no index row and does not regenerate the index. It rejects a `--feature` longer than 120 characters, writes nothing, and names the actual length and the cap — it never truncates. Shorten the title and move the overflow into the item body's `## Problem` section (§7). Never drop that detail. Then use `Edit` to fill the body with the §7 structure specification.
 
-If the script errors, fall back to a manual Medium-priority placeholder and surface the error to the user.
+Use the structure specification in §7. Keep each file under 22,000 measured tokens (per the project file-size rule; verify with `measure_files.py`).
 
-### 6.5 Report summary to chat
+### 6.3 Regenerate the index once, after the last BB is filed
+
+```bash
+python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
+```
+
+The generator rebuilds the whole index from every item file's frontmatter and computes each Score cell itself. There is no separate re-score step, and nothing hand-writes a row. Run this once after the last BB in the batch, not per item.
+
+### 6.4 Report summary to chat
 
 Emit a markdown summary with three sections:
 
@@ -193,7 +189,7 @@ Emit a markdown summary with three sections:
 ## Files written
 
 - `{backlog_dir}/BB-{NNN}-{SB}-DOC-PromoteLessons{BucketSlug}.md` ({L} lines)
-- `{backlog_dir}/{backlog_index}` (appended {N} rows; re-scored)
+- `{backlog_dir}/{backlog_index}` (regenerated by `generate_backlog_index.py --write`)
 - `{lessons_dir}/Archive/` ({N} lessons flipped to `promoted` and `git mv`d from `{lessons_dir}/`)
 - `{lessons_dir}/{lessons_index}` (Master Table Status + File-link updated for the {N} archived lessons; Status cells via `flip_lesson_status.py`; `Last Updated` bumped)
 
@@ -203,7 +199,7 @@ Emit a markdown summary with three sections:
 - {Lessons missing from categorisation file (if any)}
 ```
 
-### 6.6 Capture the in-scope lessons (archive-on-capture)
+### 6.5 Capture the in-scope lessons (archive-on-capture)
 
 Every in-scope lesson is now fully captured into a drafted backlog item, so it is captured immediately: it flips to `promoted` and moves to the archive. This is the **archive-on-capture** step — completeness of capture IS the gate; there is no per-file prompt.
 
@@ -212,7 +208,7 @@ For each in-scope lesson that landed in a BB deliverable:
 1. **Flip the frontmatter.** Set `status: promoted` and populate `promoted-to:` with the owning backlog item id(s) — e.g. `promoted-to: BB-{NNN}`, listing every owner when the lesson decomposed across several BBs.
 2. **Move the file to the archive.** `git mv {lessons_dir}/LL-{NNN}-*.md {lessons_dir}/Archive/`. A fully-captured lesson belongs in `Archive/` (archived ≠ landed).
 3. **Update the Master Table** in `{lessons_dir}/{lessons_index}` — update the Status column with the flip script, never by hand at batch scale: `python {plugin_root}/scripts/flip_lesson_status.py {lessons_dir}/{lessons_index} {map_file} [--dry-run]`, where `{map_file}` lists one `LL-{NNN}: promoted` line per captured lesson. The script refuses downgrades from landed statuses, skips rows already at target, and reports unmatched ids and unparseable rows with a non-zero exit — investigate before trusting the run. Repoint the File link to the new `Archive/` path as an explicit `Edit` — the script owns the Status cell only.
-4. **The lessons-index `Last Updated` header.** `flip_lesson_status.py` (step 3) bumps this header itself, in the same write, whenever it flips at least one Status cell — no separate bump is needed for that write. If the script made no write this run (every mapped lesson already `promoted`) but the File-link repoint in step 3 still changed the index, bump the header for that edit instead — mirrors §6.3's backlog-index bump (bottom-of-file there; this index's header sits at the top, so word it by header name, not position).
+4. **The lessons-index `Last Updated` header.** `flip_lesson_status.py` (step 3) bumps this header itself, in the same write, whenever it flips at least one Status cell — no separate bump is needed for that write. If the script made no write this run (every mapped lesson already `promoted`) but the File-link repoint in step 3 still changed the index, bump the header for that edit instead.
 
 **Do NOT write the Rule Promotion Log.** The Promotion Log records a *landing* event — the owning item shipped and its artifact now exists — but at capture the item has only been drafted. Those rows are written later by `/planwise lessons curate --phase=promote`, when the owning item lands and the status flips `promoted → rule|applied`.
 
@@ -228,7 +224,7 @@ Under `--dry-run`, skip this entire step: report the planned flips and archive m
 > ```markdown
 > ---
 > id: {NNN}
-> title: "{One-line summary including which LL IDs are promoted}"
+> title: "{One-line summary including which LL IDs are promoted, 120 characters or fewer}"
 > priority: {High|Medium|Low}
 > status: NOT_STARTED
 > abbrev: DOC
@@ -286,7 +282,7 @@ Under `--dry-run`, skip this entire step: report the planned flips and archive m
 > | LL-X | rule | `.claude/rules/{path}.md` §1 |
 > | LL-Y | rule | `.claude/rules/{path}.md` §2 |
 >
-> Capture (this workflow, §6.6) flips each lesson `documented → promoted`, writes `promoted-to:`, and `git mv`s it to `Archive/` — but writes **no** Rule Promotion Log rows yet (the log records landing events). After the owning item lands, `/planwise lessons curate --phase=promote` verifies each `applied-as` path, flips `promoted → rule|applied`, updates the Master Table Status column, and appends the {N} Rule Promotion Log rows in `{lessons_dir}/{lessons_index}`.
+> Capture (this workflow, §6.5) flips each lesson `documented → promoted`, writes `promoted-to:`, and `git mv`s it to `Archive/` — but writes **no** Rule Promotion Log rows yet (the log records landing events). After the owning item lands, `/planwise lessons curate --phase=promote` verifies each `applied-as` path, flips `promoted → rule|applied`, updates the Master Table Status column, and appends the {N} Rule Promotion Log rows in `{lessons_dir}/{lessons_index}`.
 >
 > ## Acceptance Criteria
 >
@@ -302,6 +298,8 @@ Under `--dry-run`, skip this entire step: report the planned flips and archive m
 > - {execution order hints}
 > - **Out of scope (intentionally NOT promoted in this BB):** {LL IDs with one-line reason each}. They remain as standalone documented lessons. They are NOT cited from any rule produced by this BB.
 > ```
+
+**Title cap:** `title` MUST be **120 characters or fewer**. `update_backlog.py --create` rejects a longer value, writes nothing, and names the actual length and the cap. Shorten the one-line summary to fit, and move any detail it carried into the `## Problem` section instead. Never drop that detail.
 
 **Why this body replaces the default template:** Promotion BBs are descriptions of rule-authoring work, not generic feature work. The default `Summary / Problem / Proposed Solution / Acceptance Criteria / Related` body in `templates/backlog-item.md` is generic and lacks the Deliverables structure needed to encode the self-containment principle. The deliverable-based body above is the binding shape for promotion BBs and overrides the default template body. Frontmatter remains identical to other BBs so `score_backlog.py`, `parse_backlog.py`, and `update_backlog.py` continue to work unchanged.
 
@@ -346,7 +344,7 @@ A single lesson MAY span multiple BBs when its body covers content for distinct 
 | Mechanic | Rule |
 |----------|------|
 | **Each BB cites LL-X in its Evidence row** | Add a *Fragment scope* column noting "covers (a) only", "covers (b)+(c)", etc. |
-| **Lesson archives as `promoted` once every fragment is OWNED** | When each fragment is owned by a drafted backlog item, the lesson flips `documented → promoted` and archives at capture (archive-on-capture, §6.6) — regardless of how many BBs its fragments span. It does not linger in `documented`; a fully-owned lesson rests at `promoted` until its fragments land. |
+| **Lesson archives as `promoted` once every fragment is OWNED** | When each fragment is owned by a drafted backlog item, the lesson flips `documented → promoted` and archives at capture (archive-on-capture, §6.5) — regardless of how many BBs its fragments span. It does not linger in `documented`; a fully-owned lesson rests at `promoted` until its fragments land. |
 | **`applied-as` accumulates as fragments land (a post-`promoted`, curate-driven mechanism)** | After the lesson rests at `promoted`, each fragment that ships adds its artifact path to `applied-as` (curate writes this at landing). Example: `applied-as: '.claude/rules/X.md §1, .claude/rules/Y.md §2, PENDING:BB-{NNN}'` while the third fragment is still owned-but-unshipped. Drop each `PENDING:` marker once its fragment lands. |
 | **Promotion Log tracks each fragment** | One Rule Promotion Log row per fragment per BB, written by curate when that fragment lands (never at capture). The same LL-X appears in N rows when it decomposes across N BBs. |
 | **Status flips `promoted → rule` (or `applied`) only when the last fragment lands (a post-`promoted`, curate-driven mechanism)** | The curate workflow's Phase-2 promotion check is the gate: it verifies every path in `applied-as` exists, then flips the Status column off `promoted`. A partially-landed lesson stays `promoted` (never back to `documented`) until the last fragment ships. |
@@ -375,7 +373,7 @@ So a decomposed lesson can legitimately read `status: promoted` **and** `applied
 
 > [!constraint] Modify Lesson Frontmatter at Capture
 > WRONG — this workflow flips `status: documented → rule` (or `applied`) in the lesson file, claiming the artifact has landed when only a BB has been drafted.
-> CORRECT — this workflow flips `status: documented → promoted` and writes `promoted-to:` at capture time (§6.6), because a fully-captured lesson is now owned by a live backlog item. It does NOT flip to `rule`/`applied` — that landing flip happens later, when the owning item ships, via `/planwise lessons curate --phase=promote` (or the single-lesson `/planwise lessons promote`). Archived ≠ landed.
+> CORRECT — this workflow flips `status: documented → promoted` and writes `promoted-to:` at capture time (§6.5), because a fully-captured lesson is now owned by a live backlog item. It does NOT flip to `rule`/`applied` — that landing flip happens later, when the owning item ships, via `/planwise lessons curate --phase=promote` (or the single-lesson `/planwise lessons promote`). Archived ≠ landed.
 
 > [!constraint] Do Not Run /planwise lessons promote
 > WRONG — invoke `/planwise lessons promote LL-X` from inside this workflow.
@@ -391,15 +389,15 @@ So a decomposed lesson can legitimately read `status: promoted` **and** `applied
 
 > [!constraint] No `documented` Limbo for In-Scope Lessons
 > WRONG — a lesson survives Part-1 §3.2's gate (passed all 5 checks) but ends up in a BB's *Out of scope* notes because it "lacks a clean WRONG/CORRECT pair" or "is just a platform constraint." It re-surfaces on every future `--all-documented` run.
-> CORRECT — every lesson that passes Part-1 §3.2 lands in at least one BB deliverable and, once captured, rests at `promoted` (archived), not `documented`. Use the Part-1 §4.2 destination table to route advisory patterns to `> [!practice]` callouts and platform constraints to `> [!hazard]` callouts. The capture-time flip to `promoted` (§6.6) is what removes the lesson from `documented`.
+> CORRECT — every lesson that passes Part-1 §3.2 lands in at least one BB deliverable and, once captured, rests at `promoted` (archived), not `documented`. Use the Part-1 §4.2 destination table to route advisory patterns to `> [!practice]` callouts and platform constraints to `> [!hazard]` callouts. The capture-time flip to `promoted` (§6.5) is what removes the lesson from `documented`.
 
 > [!constraint] Archive Fully-Captured Lessons
 > WRONG — this workflow leaves a fully-captured lesson in `{lessons_dir}/` and defers its archive to a later, per-file, user-approved step, even though the lesson is already owned by a drafted backlog item and has flipped to `promoted`.
-> CORRECT — a lesson fully captured into backlog item(s) is `git mv`d to `{lessons_dir}/Archive/` automatically at capture (§6.6). Completeness of capture IS the gate — there is no per-file prompt. Archived ≠ landed: the move records that the lesson is owned and awaiting landing, not that its artifact has shipped; the later `promoted → rule|applied` landing flip is [lessons-curate-workflow.md](lessons-curate-workflow.md)'s Phase-2 responsibility. Skipped only under `--dry-run`.
+> CORRECT — a lesson fully captured into backlog item(s) is `git mv`d to `{lessons_dir}/Archive/` automatically at capture (§6.5). Completeness of capture IS the gate — there is no per-file prompt. Archived ≠ landed: the move records that the lesson is owned and awaiting landing, not that its artifact has shipped; the later `promoted → rule|applied` landing flip is [lessons-curate-workflow.md](lessons-curate-workflow.md)'s Phase-2 responsibility. Skipped only under `--dry-run`.
 
-> [!constraint] Use score_backlog.py for Scoring
-> WRONG — this workflow computes the Score column manually using its own priority-to-points logic.
-> CORRECT — write the row with a placeholder Score (e.g., `-`), then invoke `python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml` to compute and write the Score column. The script is the single source of truth for scoring; manual scores drift from `config.yaml: scoring` weights.
+> [!constraint] The Generator Computes Every Score Cell
+> WRONG — this workflow computes the Score column manually using its own priority-to-points logic, or hand-writes a placeholder row for `score_backlog.py` to fill in later.
+> CORRECT — `generate_backlog_index.py --write` (§6.3) rebuilds the whole index from item frontmatter and computes each Score cell itself. Nothing hand-writes a row or a score; `score_backlog.py` is report-only and never writes to the index.
 
 ---
 

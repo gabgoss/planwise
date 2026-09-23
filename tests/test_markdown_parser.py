@@ -444,8 +444,8 @@ class TestFindRowById(unittest.TestCase):
 
 
 class TestIsSectionBoundary(unittest.TestCase):
-    """The shared boundary predicate `parse_markdown_table` and
-    `write_scores_to_index`'s walker both terminate a table section on."""
+    """The shared boundary predicate a table-walking parser terminates a
+    table section on, exercised here directly against `parse_markdown_table`."""
 
     def test_blank_line_is_not_a_boundary(self):
         self.assertFalse(is_section_boundary(""))

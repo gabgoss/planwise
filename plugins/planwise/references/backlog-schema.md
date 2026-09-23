@@ -91,7 +91,7 @@ budget on its own.
 |-----------|-------------|---------|
 | `BB` | Fixed prefix | `BB` |
 | `ID` | Backlog index number (3-digit, zero-padded) | `003` |
-| `SB` | Sub-backlog number; split when the file approaches the one-read token budget (~22K measured tokens) | `01`, `02` |
+| `SB` | Sub-backlog number; split when the file approaches the ~22K-token one-read budget. Advisory only — no checker enforces this threshold | `01`, `02` |
 | `Domain` | Category domain (defined in `config.yaml`) | `APP` |
 | `Topic` | Descriptive name (PascalCase) | `UserProfilePage` |
 
@@ -207,7 +207,8 @@ Two modes: **status update** (default) and **create** (`--create`).
 # Update an existing item's status
 python {plugin_root}/scripts/update_backlog.py --id ID --status STATUS
 
-# Create a new backlog item (writes the BLI file from the template + appends an index row)
+# Create a new backlog item (writes the BLI file from the template only; the
+# caller regenerates the index with generate_backlog_index.py --write)
 python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATURE \
   --priority PRIORITY --abbrev ABBREV --files FILES [--status STATUS]
 ```
@@ -217,12 +218,12 @@ python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATUR
 | `--id ID` | Yes | Item ID (e.g., 002); in create mode, the new item's ID |
 | `--status STATUS` | Update: Yes — Create: No | New status (NOT_STARTED, PLANNING, IN_PROGRESS, BLOCKED, COMPLETE, CLOSED). In `--create` mode it is optional and defaults to NOT_STARTED |
 | `--create` | No | Create a new backlog item instead of updating an existing item's status |
-| `--feature FEATURE` | Create only | Feature / recommendation summary (required with `--create`) |
+| `--feature FEATURE` | Create only | Feature / recommendation summary, 120 characters or fewer once escaped for frontmatter storage — `--create` rejects a value that overflows the cap after escaping and writes nothing (required with `--create`) |
 | `--priority PRIORITY` | Create only | Priority — High, Medium, or Low (required with `--create`) |
 | `--abbrev ABBREV` | Create only | Domain abbreviation (required with `--create`) |
 | `--files FILES` | Create only | Affected files, semicolon-separated; the first is written as the new BLI file from `templates/backlog-item.md` (required with `--create`) |
 
-**Automatic archival (COMPLETE/CLOSED):** Moves item files to `{backlog_dir}/Archive/` and updates index links.
+**Automatic archival (COMPLETE/CLOSED):** Moves the item file to `{backlog_dir}/Archive/`. It never edits the index. The next `generate_backlog_index.py --write` renders the new link from the file's new location.
 
 ### score_backlog.py
 
@@ -232,7 +233,7 @@ python {plugin_root}/scripts/score_backlog.py [OPTIONS]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `--dry-run` | No | Compute and print scores without writing to the index |
+| `--dry-run` | No | Compute and print scores; every mode is report-only and never writes to the index |
 | `--review` | No | Output a priority review report (no index writes) |
 | `--id ID` | No | Look up one item's score by ID (bare or prefixed, matched on the numeric component) |
 | `--explain` | No | With `--id`, print the per-factor score derivation instead of just the total |

@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, report whether this session has the Task checklist tools (`TaskCreate` and siblings) and name the opt-in when it does not, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, report whether this session has the Task checklist tools (`TaskCreate` and siblings) and name the opt-in when it does not, always scan the plans/backlog/lessons bookkeeping indexes against the same Read-tool caps regardless of Token Saver, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
@@ -329,9 +329,13 @@ re-implements the comparison.
 ### Stage 12: Backlog Index Archival Drift Audit
 
 > [!constraint] Read-Only — audit only recommends
-> Stage 12 runs `reconcile_backlog.py --json` standalone, reading the backlog
-> index (`{backlog_dir}/{backlog_index}`). It writes nothing unless the user
-> explicitly consents to reconcile — the audit itself never mutates.
+> Stage 12 runs `reconcile_backlog.py --json` standalone. It reads each item
+> file's frontmatter status and location under `{backlog_dir}/` and its
+> `Archive/`, never the backlog index. The audit itself never mutates. It moves
+> files only if the user explicitly consents to reconcile. The consented
+> `--write` moves each closed item file into `Archive/` and never writes the
+> index. After a move, run `generate_backlog_index.py --write` so the index
+> links follow the moved files.
 
 Always-on (independent of Token Saver) — auditing backlog-index consistency is
 doctor's purpose, so this check has **no `--no-check` escape hatch** (contrast
@@ -847,6 +851,51 @@ A backlog item or lesson whose substantive content is only a pointer to an exter
    If nothing fires, report: `Capture self-containment: all scanned captures inline their substance.`
 
 This is advisory only — a pointer that merely *supplements* inlined content is fine; the flag is a prompt to verify, not a failure. It complements the capture-time discipline in the handlers rather than gating anything.
+
+---
+
+## Bookkeeping Index Read-Gate Scan
+
+> [!constraint] Read-Only — Always Runs
+> This scan is independent of Token Saver; it runs on every `/planwise doctor`. It only READS the three bookkeeping indexes and the fixed Read-tool limits, then prints a report. It writes nothing.
+
+### Step 8: Bookkeeping index read-gate scan
+
+Step 5 scans one plan's own files. A bookkeeping index is different: it grows across every plan and every session, and nothing else in the toolchain re-checks its size once the generator (or a hand-edited index) writes it. `READ_FILE_BYTE_CAP` and `READ_PAGE_CAP_TOKENS` are properties of the Read tool itself, not of Token Saver, so this step runs whether or not `context.token_saver` is on — a 396 KB index is unreadable regardless of anyone's budgeting settings.
+
+1. **Resolve the three index files from config, never by literal filename:**
+
+   | Index | Resolution |
+   |-------|------------|
+   | Backlog | The hub at `{backlog_dir}/{backlog_index}`, plus every generated shard beside it — see step 2 |
+   | Lessons | `{lessons_dir}/{lessons_index}` — skip when `project.lessons_dir` is absent, same as Stage 13 |
+   | Plans | `{plans_dir}/{plans_index}` |
+
+2. **The backlog index is a hub plus overflow leaves plus Archive shards, not one file.** Derive the naming shape from the resolved hub path with `generate_backlog_index._index_naming({backlog_dir}/{backlog_index})` — the same derivation the generator itself uses (see [`references/backlog-schema.md`](../references/backlog-schema.md) § Hub, Overflow Leaves, and Archive Shards). Then scan `{backlog_dir}` and its Archive subdirectory (`project.archive_dir`, default `{backlog_dir}/Archive`) and keep every entry where `generate_backlog_index.is_generated_index_file(name, naming)` is true. Include each matched file in the scan below. Never match by a hardcoded filename — a custom `index_files.backlog` renames the hub, its overflow leaves, and its shard stem together, and only the generator's own recognition function stays consistent with that rename.
+
+3. **Classify each resolved file** with `token_saver.classify_file(path, model=None, thresholds=None)`. Pass no model and no thresholds: a bookkeeping index has no assigned agent the way a task file does, and `model=None` resolves to `DEFAULT_BYTES_PER_TOKEN` — the smallest, most conservative ratio measured across every model family, so the report never under-counts a file some model would trip. With no `thresholds`, the cost gate stays Green by construction, so any Warn or Critical here reports `reason=read` — the mechanical Read-tool cap, never a cost budget.
+
+4. **Report at the same four levels Step 5 uses** (Green / Notice / Warn / Critical), with the same `reason=cost|read` distinction — reuse that vocabulary rather than inventing a second one:
+
+   ```
+   planwise doctor — bookkeeping index read-gate scan
+
+     backlog:  {N} file(s) scanned (hub + overflow + shards)
+     lessons:  {path} — {level} ({bytes} B / ~{tokens} tok, reason={reason})
+     plans:    {path} — {level} ({bytes} B / ~{tokens} tok, reason={reason})
+
+     {one block per Warn-or-worse file, in the Step 5 finding shape:}
+     [{level} / reason={reason}] {path}
+         size: {bytes} B / ~{tokens} tok / {lines} lines
+         remedy: paged read (offset/limit/Grep); refactor + backlog item if this
+                 index is a core/edited dependency of the current work
+   ```
+
+   If every resolved file is Green: `Bookkeeping indexes: all Green — {N} file(s) scanned.`
+
+5. **Give a Critical or Warn finding a visible acknowledgement path. Do not suppress it, and do not raise a threshold to hide it.** Read the first 20 lines of the flagged file for a comment line shaped `<!-- known-condition: {text} -->`. When present, print `Known condition: {text}` directly under the finding, so an operator sees the condition is tracked rather than new. When absent, print `No known-condition note recorded — add a "<!-- known-condition: ... -->" comment naming the plan or item that addresses this, or file a backlog item.` Either way, the finding's level stays exactly what step 3 computed. The note changes what the operator sees beside the finding. It never changes the severity.
+
+6. **This scope stays at exactly these three indexes, plus the backlog's generated shards. It does not extend to item files (`BB-*.md`) or lesson files (`LL-*.md`).** Those are unbounded populations, and scanning them here would trade one blind spot for constant noise. A hand-authored item file that grows past its own advisory sub-backlog budget (see [`references/backlog-schema.md`](../references/backlog-schema.md) `SB` row) has no checker; this step records that gap rather than closing it.
 
 ---
 

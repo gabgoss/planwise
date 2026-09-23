@@ -1,35 +1,42 @@
 #!/usr/bin/env python3
-"""Detect and reconcile backlog-index archival drift.
+"""Detect and reconcile backlog archival drift, read from the item files.
 
-Archival of a COMPLETE/CLOSED backlog item — moving its file into `Archive/`
-and repointing the index link — is a state-coupled step in `update_backlog.py`:
-a closed item's file must live under `Archive/` and its index link must point
-there. But an item can reach COMPLETE/CLOSED *outside* that script (a session
-closeout that hand-edits the index row + frontmatter, or a direct write),
-leaving the file stranded in the top-level backlog dir with an index link that
-never repointed. Nothing on the read side detects it, so the stranding is
-invisible until someone eyeballs the directory.
+The backlog index is a build artifact. `generate_backlog_index.py --write`
+renders every row, and every row's File link, from the item files on disk.
+The one fact the generator cannot fix is where an item file sits: it renders
+the link from the file's current location. So the invariant this module
+audits is a property of the item files alone:
 
-This module is the single, testable source of that drift logic so multiple
-callers (`doctor`, `backlog`) can detect and, on request, reconcile the same
-way instead of each re-implementing the comparison — the backlog-index analogue
-of `reconcile_plans.py`'s plans-index drift reconcile.
+    a COMPLETE/CLOSED item file must live in `Archive/`.
+
+An item can reach COMPLETE/CLOSED outside `update_backlog.py --status` (a
+session closeout that hand-edits the frontmatter, or a direct write). Its file
+then stays in the top-level backlog dir, and the next regeneration renders a
+correct row that points at the wrong place. This module detects that case and,
+on request, moves the file.
+
+The audit reads item files and never an index. It therefore works the same on
+a generated index (where closed items render only into Archive shards, never
+the hub) and on a legacy hand-maintained index. A legacy index's stale links
+are the migrator's concern, not this tool's.
 
 Two operations:
-  - detect_drift(config): read-only. For each CLOSED-status row, checks that
-    every linked file exists under `Archive/` and that its index link is
-    prefixed `Archive/`. Reports rows violating that invariant (file present but
-    unarchived, or link not repointed) as drift, and rows whose linked file
-    exists in neither location as anomalies (deleted/renamed — reported, never
-    fabricated).
-  - reconcile(config): re-reads the index fresh (race-safe against a concurrent
-    writer that may have healed a row since a prior detect call), moves any
-    still-stranded file into `Archive/` and repoints its index link, and never
-    touches an anomaly row.
+  - detect_drift(config): read-only. Scans `{backlog_dir}/*.md` and
+    `{archive_dir}/*.md` for item files, with the same iterator the generator
+    uses, and reads each file's frontmatter `status:` with the generator's
+    own frontmatter reader. A COMPLETE/CLOSED item in the backlog dir is
+    drift (`needs_move`). Anomalies are reported and never acted on: an open
+    item inside `Archive/`, a file with no parseable frontmatter status, two
+    files carrying one id, or a closed item whose filename already exists in
+    `Archive/`.
+  - reconcile(config): re-scans the item files fresh (race-safe against a
+    concurrent writer that may have moved a file since a prior detect call)
+    and moves each still-drifted file into `Archive/` with
+    `update_backlog.archive_item_files`. It never edits or writes any index
+    file. It prints the regenerate command so the caller can rebuild the
+    index from the new file locations.
 
-The actual move + link-repoint primitives are reused from `update_backlog.py`
-(`archive_item_files`, `update_index_links_to_archive`) so there is one source
-of that behavior shared with the `--status`-call idempotent archival path.
+A file whose status could not be read is never moved. Detection never writes.
 """
 
 import sys
@@ -43,210 +50,167 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import CLOSED_STATUSES
-from parse_backlog import parse_backlog_table
-from reconcile_common import (
-    format_drift_report,
-    read_text_preserving_newlines,
-    run_reconcile_cli,
-    write_text_preserving_newlines,
+from generate_backlog_index import (
+    GeneratorError,
+    _iter_item_files,
+    _normalize_id_text,
+    _read_frontmatter_map,
+    _strip_quotes,
 )
-from update_backlog import archive_item_files, update_index_links_to_archive
+from reconcile_common import format_drift_report, run_reconcile_cli
+from update_backlog import archive_item_files
 
 
-def _classify_file(link: str, backlog_dir: Path, archive_dir: Path) -> dict:
-    """Classify one linked file of a CLOSED row against the archival invariant.
+def _read_item(path: Path) -> tuple[str | None, str | None]:
+    """Return (id, status) from one item file's frontmatter.
 
-    Returns a dict with keys: kind ("ok" | "drift" | "anomaly"), file
-    (basename), needs_move, needs_relink. `link` is the path exactly as written
-    in the index Files column (e.g. "BB-{NNN}-...md" or "Archive/BB-{NNN}-...md").
+    Uses the generator's own reader, so the audit sees the status exactly as
+    the generator renders it. Either value is None when it cannot be read.
+    A non-numeric id is kept as its raw text so a duplicate check still sees it.
     """
-    basename = link.rsplit("/", 1)[-1]
-    in_archive = (archive_dir / basename).exists()
-    in_toplevel = (backlog_dir / basename).exists()
-    link_archived = link.startswith("Archive/")
+    try:
+        fm_map = _read_frontmatter_map(path)
+    except (GeneratorError, OSError, UnicodeDecodeError):
+        return None, None
 
-    if in_archive and link_archived:
-        kind = "ok"
-    elif not in_archive and not in_toplevel:
-        kind = "anomaly"
-    else:
-        kind = "drift"
+    status = _strip_quotes(fm_map.get("status", "").strip()) or None
 
-    return {
-        "kind": kind,
-        "file": basename,
-        # Move only when the file is still in the top level and not yet archived.
-        "needs_move": in_toplevel and not in_archive,
-        "needs_relink": not link_archived,
-    }
+    raw_id = fm_map.get("id", "")
+    try:
+        item_id = _normalize_id_text(raw_id)
+    except GeneratorError:
+        item_id = _strip_quotes(raw_id.strip()) or None
+    return item_id, status
+
+
+def _same_dir(a: Path, b: Path) -> bool:
+    return a.resolve() == b.resolve()
 
 
 def detect_drift(config: dict) -> dict:
-    """Compare each CLOSED backlog row's file location/link against the invariant.
+    """Compare each item file's frontmatter status against its location.
 
-    Read-only. Never writes. Returns:
-        {"drifts": [{"id", "status", "file", "reason", "needs_move",
-                     "needs_relink"}, ...],
+    Read-only. Never writes, and never reads an index. Returns:
+        {"drifts": [{"id", "status", "file", "reason", "needs_move"}, ...],
          "anomalies": [{"id", "status", "file", "reason"}, ...]}
-    Only COMPLETE/CLOSED rows are checked — an open item legitimately lives in
-    the top-level backlog dir.
+    `file` is the item file's basename.
     """
-    index_path = config["_index_path"]
     backlog_dir = config["_backlog_dir"]
     archive_dir = config["_archive_dir"]
+    index_path = config["_index_path"]
 
-    content = index_path.read_text(encoding="utf-8")
-    items = parse_backlog_table(content)
+    scanned = []
+    anomalies = []
+    for path in _iter_item_files(backlog_dir, archive_dir, index_path):
+        in_archive = archive_dir.exists() and _same_dir(path.parent, archive_dir)
+        item_id, status = _read_item(path)
+        if status is None:
+            anomalies.append(
+                {
+                    "id": item_id or "?",
+                    "status": "?",
+                    "file": path.name,
+                    "reason": "no parseable frontmatter status — never moved",
+                }
+            )
+            continue
+        scanned.append(
+            {"id": item_id, "status": status, "path": path, "in_archive": in_archive}
+        )
+
+    # Two files carrying one id: which one is the item is a human decision.
+    # Neither file is moved.
+    paths_by_id: dict = {}
+    for item in scanned:
+        if item["id"] is not None:
+            paths_by_id.setdefault(item["id"], []).append(item)
+    ambiguous = {item_id for item_id, group in paths_by_id.items() if len(group) > 1}
 
     drifts = []
-    anomalies = []
-    for item in items:
-        if item["status"].upper() not in CLOSED_STATUSES:
+    for item in scanned:
+        path = item["path"]
+        base = {"id": item["id"] or "?", "status": item["status"], "file": path.name}
+
+        if item["id"] in ambiguous:
+            others = [
+                p["path"].name for p in paths_by_id[item["id"]] if p["path"] != path
+            ]
+            anomalies.append(
+                {**base, "reason": f"id also carried by {', '.join(others)} — never moved"}
+            )
             continue
-        for f in item["files"]:
-            c = _classify_file(f["path"], backlog_dir, archive_dir)
-            if c["kind"] == "ok":
-                continue
-            if c["kind"] == "anomaly":
+
+        closed = item["status"].upper() in CLOSED_STATUSES
+        if closed and not item["in_archive"]:
+            if (archive_dir / path.name).exists():
                 anomalies.append(
                     {
-                        "id": item["id"],
-                        "status": item["status"],
-                        "file": c["file"],
-                        "reason": "linked file not found in backlog dir or Archive/",
+                        **base,
+                        "reason": "a file of the same name already exists in "
+                        "Archive/ — never moved",
                     }
                 )
                 continue
-
-            reason_parts = []
-            if c["needs_move"]:
-                reason_parts.append("file not in Archive/")
-            if c["needs_relink"]:
-                reason_parts.append("index link not repointed to Archive/")
             drifts.append(
-                {
-                    "id": item["id"],
-                    "status": item["status"],
-                    "file": c["file"],
-                    "reason": "; ".join(reason_parts),
-                    "needs_move": c["needs_move"],
-                    "needs_relink": c["needs_relink"],
-                }
+                {**base, "reason": "closed item file not in Archive/", "needs_move": True}
+            )
+        elif not closed and item["in_archive"]:
+            anomalies.append(
+                {**base, "reason": "open item file inside Archive/ — never moved"}
             )
 
     return {"drifts": drifts, "anomalies": anomalies}
 
 
 def reconcile(config: dict) -> int:
-    """Re-read the index and heal only rows still drifted against the invariant.
+    """Re-scan the item files and move only those still drifted.
 
-    Race-safe: reads the index fresh from disk and recomputes drift against that
-    just-read copy rather than trusting a previously computed result, so a row
-    healed by a concurrent writer between detect and write is read as
-    non-drifted and left untouched. Anomaly rows (linked file missing entirely)
-    are never touched — a deleted/renamed file is not fabricated.
+    Race-safe: recomputes drift from the files on disk rather than trusting an
+    earlier detect result, so a file a concurrent writer already moved is left
+    alone. Anomalies are never acted on. Each move goes through
+    `archive_item_files`, whose per-file result is reported as-is, so a failed
+    move is printed as a failure and not counted.
 
-    For each still-drifted row, moves any file still outside `Archive/` into it
-    and repoints only the index links whose file was actually confirmed in
-    `Archive/` — never an "anomaly" link, whose file exists in neither
-    location. The row-wide link rewrite is fed a per-file classification
-    rather than re-deriving one: an "ok"/"drift" file starts out recorded
-    with the classifier's prediction, then any file handed to
-    `archive_item_files` has that prediction OVERLAID with the mover's actual
-    per-file result, so a move that raises (permission error, locked file,
-    disk full) is reflected as a failure rather than as the optimistic
-    prediction that never came true. An anomaly link excluded from
-    `move_basenames` stays excluded from the relink too; blanket-prefixing
-    either kind onto a link whose file was never actually archived would
-    produce a path that can never exist. Every other column, the row's
-    surrounding whitespace padding, and the file's original line endings are
-    preserved (read/write via reconcile_common's newline="" helpers so a CRLF
-    index round-trips untranslated, matching reconcile_plans'
-    destructive-write discipline).
+    Never edits or writes any index file. When a file moved, prints the
+    regenerate command, since the index still links to the old location
+    until the generator runs.
 
-    Returns the number of rows (items) reconciled.
+    Returns the number of item files moved.
     """
-    index_path = config["_index_path"]
     backlog_dir = config["_backlog_dir"]
     archive_dir = config["_archive_dir"]
 
-    content = read_text_preserving_newlines(index_path)
-    items = parse_backlog_table(content)
+    result = detect_drift(config)
+    to_move = [d["file"] for d in result["drifts"] if d.get("needs_move")]
+    if not to_move:
+        return 0
 
-    reconciled = 0
-    for item in items:
-        if item["status"].upper() not in CLOSED_STATUSES:
-            continue
+    moved = 0
+    for filename, success, message in archive_item_files(
+        backlog_dir, archive_dir, to_move
+    ):
+        if success and message == "moved to Archive":
+            moved += 1
+        prefix = "  +" if success else "  !"
+        print(f"{prefix} {filename}: {message}")
 
-        move_basenames = []
-        needs_relink = False
-        # Per-file (basename -> (success, message)) results shaped like
-        # archive_item_files' own return, fed straight into
-        # update_index_links_to_archive so its per-link gate sees the same
-        # anomaly/drift verdict this loop just computed instead of
-        # re-deriving (or losing) it. Values recorded here for a file about
-        # to be moved are the classifier's PREDICTION — overlaid below with
-        # the mover's ACTUAL result once archive_item_files has run, so a
-        # raised exception (permission error, locked file, disk full) is
-        # never masked by an optimistic "moved to Archive" that never
-        # actually happened.
-        link_results: dict[str, tuple[bool, str]] = {}
-        for f in item["files"]:
-            c = _classify_file(f["path"], backlog_dir, archive_dir)
-            if c["kind"] == "anomaly":
-                link_results[c["file"]] = (
-                    False,
-                    "linked file not found in backlog dir or Archive/",
-                )
-                continue  # never reconciled or relinked
-            # "ok" and "drift" both end this pass with the file in Archive/ —
-            # "ok" is already there; "drift" either sits there already
-            # (relink-only) or is about to be moved there below, pending the
-            # mover's actual confirmation.
-            link_results[c["file"]] = (
-                True,
-                "moved to Archive" if c["needs_move"] else "already in Archive",
-            )
-            if c["kind"] != "drift":
-                continue  # "ok" needs nothing further
-            if c["needs_move"]:
-                move_basenames.append(c["file"])
-            if c["needs_relink"]:
-                needs_relink = True
-
-        if not move_basenames and not needs_relink:
-            continue
-
-        if move_basenames:
-            # Overlay the mover's ACTUAL per-file result onto the
-            # classifier's prediction — a raised exception must win over the
-            # optimistic guess above, or a failed move still gets its link
-            # prefixed onto a path that was never actually archived.
-            for basename, success, message in archive_item_files(
-                backlog_dir, archive_dir, move_basenames
-            ):
-                link_results[basename] = (success, message)
-        if needs_relink:
-            content, _, _ = update_index_links_to_archive(
-                content,
-                item["id"],
-                [(name, ok, msg) for name, (ok, msg) in link_results.items()],
-            )
-        reconciled += 1
-
-    if reconciled:
-        write_text_preserving_newlines(index_path, content)
-
-    return reconciled
+    if moved:
+        generator = Path(__file__).resolve().parent / "generate_backlog_index.py"
+        config_path = config["_planwise_root"] / "config.yaml"
+        print(
+            "Regenerate the index so its links follow the moved file(s):\n"
+            f'  python "{generator}" --config "{config_path}" --write'
+        )
+    return moved
 
 
 def _format_report(result: dict) -> str:
     """Render a human-readable drift + anomaly report."""
     return format_drift_report(
         result,
-        no_drift_message="No archival drift detected. All closed backlog rows are archived.",
+        no_drift_message="No archival drift detected. Every closed backlog item file is in Archive/.",
         no_drift_only_message="No archival drift detected.",
-        drift_header=f"Archival drift detected ({len(result['drifts'])} closed row(s) whose file is not archived):",
+        drift_header=f"Archival drift detected ({len(result['drifts'])} closed item file(s) not in Archive/):",
         drift_line=lambda d: f"  - {d['id']} ({d['status']}): {d['file']} — {d['reason']}",
         anomaly_line=lambda a: f"  - {a['id']} ({a['status']}): {a['file']} — {a['reason']}",
     )
@@ -254,7 +218,11 @@ def _format_report(result: dict) -> str:
 
 def main():
     run_reconcile_cli(
-        description="Detect and reconcile backlog-index archival drift (closed rows not archived).",
+        description=(
+            "Detect and reconcile backlog archival drift: a COMPLETE/CLOSED item "
+            "file outside Archive/. Reads item files, never an index. --write "
+            "moves files only and never writes an index."
+        ),
         load_config=lambda: load_config(Path(__file__)),
         resolve_index_path=lambda config: config["_index_path"],
         missing_index_message=lambda index_path: f"Error: Backlog index not found at {index_path}",
@@ -262,6 +230,7 @@ def main():
         reconcile=reconcile,
         format_report=_format_report,
         json_prefix="reconcile-backlog-",
+        write_message=lambda n: f"Moved {n} file(s) to Archive/.",
     )
 
 

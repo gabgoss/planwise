@@ -1,31 +1,29 @@
 #!/usr/bin/env python3
-"""Unit tests for backlog-index archival drift detection and reconciliation.
+"""Unit tests for backlog archival drift detection and reconciliation.
 
-`reconcile_backlog.detect_drift(config)` checks every COMPLETE/CLOSED backlog
-row against the archival invariant — a closed item's file must live under
-`Archive/` and its index link must point there — reporting rows that violate it
-(file present but unarchived, or link not repointed) as drift and rows whose
-linked file exists in neither location as anomalies (deleted/renamed).
-`reconcile_backlog.reconcile(config)` re-reads the index fresh and heals only
-rows still drifted, moving stranded files into `Archive/` + repointing links,
-and never touches an anomaly row.
+`reconcile_backlog.detect_drift(config)` reads item files, never an index.
+It checks each item file's frontmatter `status:` against the file's location.
+A COMPLETE/CLOSED item file outside `Archive/` is drift. An open item inside
+`Archive/`, a file with no readable status, two files carrying one id, and a
+closed item whose filename already exists in `Archive/` are anomalies, which
+are reported and never acted on.
 
-These tests pin: the stranding reproduction (a COMPLETE row whose file is still
-in the top-level backlog dir with a non-Archive link — the exact shape found
-live), the move+relink heal, an already-archived row registering as non-drift
-and being left untouched, an open row never flagged, a missing linked file
-registering as an anomaly (never fabricated by reconcile), race-safety
-(reconcile re-reads and will not re-move a row a concurrent writer already
-healed), a relink-only case (file moved but link stale), a CLOSED (not just
-COMPLETE) status also archiving, and CRLF line-ending preservation on the
-destructive write.
+`reconcile_backlog.reconcile(config)` re-scans the item files and moves each
+still-drifted file into `Archive/`. It never edits or writes any index file.
 
-Each test builds an isolated temp planwise tree (config.yaml + backlog index +
-item files); none read or mutate the live project's backlog.
+These tests pin detection on a generated hub that carries no closed rows (the
+case the old index-reading audit could not see), the move on `--write`, a
+byte-identical index after `--write`, every anomaly kind left unmoved, a clean
+tree exiting 0, race safety, and a failed move reported and not counted.
 
-Run with:  python -m pytest scripts/test_reconcile_backlog.py -q
+Each test builds an isolated temp planwise tree (config.yaml + item files +
+an optional index); none read or mutate the live project's backlog.
+
+Run with:  python -m pytest tests/test_reconcile_backlog.py -q
 """
 
+import contextlib
+import io
 import shutil
 import sys
 import tempfile
@@ -37,8 +35,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import config_loader
+import generate_backlog_index
 import reconcile_backlog
-from parse_backlog import parse_backlog_table
 from reconcile_backlog import detect_drift, reconcile
 
 CONFIG_YAML_FIXTURE = """project:
@@ -48,18 +46,18 @@ CONFIG_YAML_FIXTURE = """project:
     backlog: "00-Index-Backlog.md"
 """
 
-INDEX_HEADER = (
-    "# Backlog Index\n\n"
-    "## Backlog Items\n\n"
-    "| ID  | Feature | Priority | Status | Abbrev | Score | Files |\n"
-    "|-----|---------|----------|--------|--------|-------|-------|\n"
+# A generated hub: no H1 heading, and only open items render here. Closed
+# items render into Archive shards, never the hub.
+GENERATED_HUB = (
+    "| ID | Title | Priority | Status | Abbrev | Score | File |\n"
+    "|----|-------|----------|--------|--------|-------|------|\n"
+    "| 048 | In flight | Medium | IN_PROGRESS | INFRA | 25 | [open-INFRA-item.md](open-INFRA-item.md) |\n"
 )
 
 
 class _BacklogFixtureBase(unittest.TestCase):
-    """Builds an isolated temp planwise tree: config.yaml + backlog index +
-    item files, so detect_drift/reconcile run against a hermetic copy instead
-    of the live project's backlog index.
+    """Builds an isolated temp planwise tree so detect_drift/reconcile run
+    against a hermetic copy instead of the live project's backlog.
     """
 
     def setUp(self):
@@ -70,6 +68,7 @@ class _BacklogFixtureBase(unittest.TestCase):
         self.backlog_dir = self.planwise_dir / "Backlog"
         self.archive_dir = self.backlog_dir / "Archive"
         self.backlog_dir.mkdir(parents=True, exist_ok=True)
+        self.index_path = self.backlog_dir / "00-Index-Backlog.md"
 
         (self.planwise_dir / "config.yaml").write_text(
             CONFIG_YAML_FIXTURE, encoding="utf-8"
@@ -84,257 +83,205 @@ class _BacklogFixtureBase(unittest.TestCase):
             str(self.planwise_dir / "config.yaml"),
         ]
         self.config = config_loader.load_config()
+        self.write_index(GENERATED_HUB)
 
-    def write_index(self, rows_markdown: str) -> Path:
-        path = self.backlog_dir / "00-Index-Backlog.md"
-        path.write_text(INDEX_HEADER + rows_markdown, encoding="utf-8")
-        return path
+    def write_index(self, text: str) -> Path:
+        self.index_path.write_text(text, encoding="utf-8")
+        return self.index_path
 
-    def write_item_file(self, filename: str, archived: bool = False) -> Path:
-        """Create a backlog item file in the top-level dir or under Archive/."""
+    def write_item(
+        self, filename: str, item_id: str, status: str, archived: bool = False
+    ) -> Path:
+        """Create an item file in the backlog dir or under Archive/."""
         target_dir = self.archive_dir if archived else self.backlog_dir
         target_dir.mkdir(parents=True, exist_ok=True)
         path = target_dir / filename
         path.write_text(
-            f"---\nid: X\nstatus: COMPLETE\n---\n\n# {filename}\n", encoding="utf-8"
+            f"---\nid: {item_id}\nstatus: {status}\n---\n\n# {filename}\n",
+            encoding="utf-8",
         )
         return path
 
-    def read_index_text(self) -> str:
-        return (self.backlog_dir / "00-Index-Backlog.md").read_text(encoding="utf-8")
-
-    def file_link_for(self, item_id: str) -> str:
-        rows = parse_backlog_table(self.read_index_text())
-        row = next(r for r in rows if r["id"] == item_id)
-        return row["files"][0]["path"]
+    def run_reconcile_quietly(self) -> tuple[int, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            moved = reconcile(self.config)
+        return moved, out.getvalue()
 
 
-class TestReconcileBacklog(_BacklogFixtureBase):
-    """Full detect_drift / reconcile test matrix."""
+class TestDetectFromItemFiles(_BacklogFixtureBase):
+    """detect_drift reads item-file status and location, never the hub."""
 
-    def test_detect_finds_stranded_complete_row(self):
-        # Reproduction: a COMPLETE row whose file is still in the top-level
-        # backlog dir, with a non-Archive index link (the exact stranding found
-        # live for a closeout-hand-edited item).
-        self.write_index(
-            "| 046 | Drift reconcile | Medium | COMPLETE | INFRA | - | [01](stranded-INFRA-item.md) |\n"
-        )
-        self.write_item_file("stranded-INFRA-item.md", archived=False)
+    def test_detect_on_generated_hub_without_closed_rows(self):
+        # The exact case the old audit could not see: the hub is generated,
+        # heading-less, and carries no closed row at all.
+        self.write_item("open-INFRA-item.md", "048", "IN_PROGRESS")
+        self.write_item("stranded-INFRA-item.md", "046", "COMPLETE")
+        self.assertNotIn("COMPLETE", self.index_path.read_text(encoding="utf-8"))
 
         result = detect_drift(self.config)
 
-        self.assertEqual(len(result["drifts"]), 1)
+        self.assertEqual([d["id"] for d in result["drifts"]], ["046"])
+        self.assertEqual(result["drifts"][0]["file"], "stranded-INFRA-item.md")
+        self.assertTrue(result["drifts"][0]["needs_move"])
         self.assertEqual(result["anomalies"], [])
-        drift = result["drifts"][0]
-        self.assertEqual(drift["id"], "046")
-        self.assertEqual(drift["file"], "stranded-INFRA-item.md")
-        self.assertTrue(drift["needs_move"])
-        self.assertTrue(drift["needs_relink"])
 
-    def test_reconcile_moves_and_relinks(self):
-        self.write_index(
-            "| 046 | Drift reconcile | Medium | COMPLETE | INFRA | - | [01](stranded-INFRA-item.md) |\n"
+    def test_detect_ignores_hub_content_entirely(self):
+        # An empty hub changes nothing: detection comes from the item files.
+        self.write_index("")
+        self.write_item("stranded-INFRA-item.md", "046", "COMPLETE")
+
+        self.assertEqual(len(detect_drift(self.config)["drifts"]), 1)
+
+    def test_closed_status_is_also_drift(self):
+        self.write_item("closed-PROC-item.md", "060", "CLOSED")
+
+        drifts = detect_drift(self.config)["drifts"]
+
+        self.assertEqual([d["status"] for d in drifts], ["CLOSED"])
+
+    def test_open_item_in_backlog_dir_is_clean(self):
+        self.write_item("open-INFRA-item.md", "048", "IN_PROGRESS")
+
+        self.assertEqual(detect_drift(self.config), {"drifts": [], "anomalies": []})
+
+    def test_closed_item_already_archived_is_clean(self):
+        self.write_item("archived-DOC-item.md", "045", "COMPLETE", archived=True)
+
+        self.assertEqual(detect_drift(self.config), {"drifts": [], "anomalies": []})
+
+    def test_generated_index_files_are_not_items(self):
+        # The hub, a 00- file, and a generated Archive shard carry no item
+        # frontmatter. None of them may surface as an unreadable item.
+        naming = generate_backlog_index._index_naming(self.index_path)
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        shard = generate_backlog_index._shard_filename(naming, 1, 10)
+        (self.archive_dir / shard).write_text("| ID |\n|----|\n", encoding="utf-8")
+        (self.backlog_dir / "00-Changelog.md").write_text("# Log\n", encoding="utf-8")
+
+        self.assertEqual(detect_drift(self.config), {"drifts": [], "anomalies": []})
+
+
+class TestAnomaliesNeverActedOn(_BacklogFixtureBase):
+    """Every anomaly is reported, never drift, and never moved by --write."""
+
+    def test_open_item_in_archive_is_anomaly_and_not_moved(self):
+        path = self.write_item("reopened-BUG-item.md", "070", "IN_PROGRESS", archived=True)
+
+        result = detect_drift(self.config)
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual([a["id"] for a in result["anomalies"]], ["070"])
+        self.assertIn("open item", result["anomalies"][0]["reason"])
+
+        moved, _ = self.run_reconcile_quietly()
+        self.assertEqual(moved, 0)
+        self.assertTrue(path.exists())
+        self.assertFalse((self.backlog_dir / "reopened-BUG-item.md").exists())
+
+    def test_unreadable_status_is_anomaly_and_not_moved(self):
+        no_fm = self.backlog_dir / "no-frontmatter-item.md"
+        no_fm.write_text("# No frontmatter\n", encoding="utf-8")
+        no_status = self.backlog_dir / "no-status-item.md"
+        no_status.write_text("---\nid: 081\n---\n\n# x\n", encoding="utf-8")
+
+        result = detect_drift(self.config)
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(
+            sorted(a["file"] for a in result["anomalies"]),
+            ["no-frontmatter-item.md", "no-status-item.md"],
         )
-        self.write_item_file("stranded-INFRA-item.md", archived=False)
 
-        written = reconcile(self.config)
+        moved, _ = self.run_reconcile_quietly()
+        self.assertEqual(moved, 0)
+        self.assertTrue(no_fm.exists())
+        self.assertTrue(no_status.exists())
 
-        self.assertEqual(written, 1)
-        # File physically moved into Archive/.
+    def test_duplicate_id_is_anomaly_and_neither_moved(self):
+        a = self.write_item("first-copy-item.md", "090", "COMPLETE")
+        b = self.write_item("second-copy-item.md", "090", "COMPLETE")
+
+        result = detect_drift(self.config)
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(len(result["anomalies"]), 2)
+
+        moved, _ = self.run_reconcile_quietly()
+        self.assertEqual(moved, 0)
+        self.assertTrue(a.exists())
+        self.assertTrue(b.exists())
+
+    def test_name_collision_in_archive_is_anomaly_and_not_overwritten(self):
+        top = self.write_item("same-name-item.md", "091", "COMPLETE")
+        archived = self.write_item("same-name-item.md", "092", "COMPLETE", archived=True)
+        archived_before = archived.read_bytes()
+
+        result = detect_drift(self.config)
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual([a["id"] for a in result["anomalies"]], ["091"])
+
+        moved, _ = self.run_reconcile_quietly()
+        self.assertEqual(moved, 0)
+        self.assertTrue(top.exists())
+        self.assertEqual(archived.read_bytes(), archived_before)
+
+
+class TestReconcileMovesFilesOnly(_BacklogFixtureBase):
+    """--write moves item files into Archive/ and writes no index."""
+
+    def test_write_moves_closed_item_into_archive(self):
+        self.write_item("stranded-INFRA-item.md", "046", "COMPLETE")
+
+        moved, out = self.run_reconcile_quietly()
+
+        self.assertEqual(moved, 1)
         self.assertFalse((self.backlog_dir / "stranded-INFRA-item.md").exists())
         self.assertTrue((self.archive_dir / "stranded-INFRA-item.md").exists())
-        # Index link repointed under Archive/.
-        self.assertEqual(self.file_link_for("046"), "Archive/stranded-INFRA-item.md")
-        # No drift remains.
         self.assertEqual(detect_drift(self.config)["drifts"], [])
+        self.assertIn("generate_backlog_index.py", out)
+        self.assertIn("--write", out)
 
-    def test_already_archived_untouched(self):
-        # A correctly-archived COMPLETE row: no drift, and reconcile is a no-op.
-        self.write_index(
-            "| 045 | Done | High | COMPLETE | DOC | - | [01](Archive/archived-DOC-item.md) |\n"
+    def test_index_is_byte_identical_after_write(self):
+        # A legacy CRLF index whose row still links the stranded file at its
+        # old location. The old audit rewrote this link. The new one must
+        # leave every byte of the index alone.
+        legacy = (
+            b"# Backlog Index\r\n\r\n"
+            b"| ID  | Feature | Priority | Status | Abbrev | Score | Files |\r\n"
+            b"|-----|---------|----------|--------|--------|-------|-------|\r\n"
+            b"| 046 | Drift | Medium | COMPLETE | INFRA | - | [01](stranded-INFRA-item.md) |\r\n"
         )
-        self.write_item_file("archived-DOC-item.md", archived=True)
+        self.index_path.write_bytes(legacy)
+        self.write_item("stranded-INFRA-item.md", "046", "COMPLETE")
 
-        self.assertEqual(detect_drift(self.config)["drifts"], [])
-        before = self.read_index_text()
-        written = reconcile(self.config)
-        self.assertEqual(written, 0)
-        self.assertEqual(self.read_index_text(), before)
+        moved, _ = self.run_reconcile_quietly()
 
-    def test_open_row_never_flagged(self):
-        # An open item legitimately lives in the top-level dir — never drift.
-        self.write_index(
-            "| 048 | In flight | Medium | IN_PROGRESS | INFRA | 25 | [01](open-INFRA-item.md) |\n"
-        )
-        self.write_item_file("open-INFRA-item.md", archived=False)
+        self.assertEqual(moved, 1)
+        self.assertTrue((self.archive_dir / "stranded-INFRA-item.md").exists())
+        self.assertEqual(self.index_path.read_bytes(), legacy)
 
-        result = detect_drift(self.config)
-        self.assertEqual(result["drifts"], [])
-        self.assertEqual(result["anomalies"], [])
-        self.assertEqual(reconcile(self.config), 0)
-
-    def test_missing_file_is_anomaly(self):
-        # A CLOSED row whose linked file exists in neither location is an
-        # anomaly (deleted/renamed) — reported, not drift, and reconcile must
-        # not fabricate it or write anything.
-        self.write_index(
-            "| 099 | Ghost | Low | COMPLETE | BUG | - | [01](Archive/ghost-BUG-item.md) |\n"
-        )
-        # Intentionally write no item file under either location.
-
-        result = detect_drift(self.config)
-        self.assertEqual(result["drifts"], [])
-        self.assertEqual(len(result["anomalies"]), 1)
-        self.assertEqual(result["anomalies"][0]["id"], "099")
-        self.assertIn("not found", result["anomalies"][0]["reason"].lower())
-
-        before = self.read_index_text()
-        self.assertEqual(reconcile(self.config), 0)
-        self.assertEqual(self.read_index_text(), before)
+    def test_module_carries_no_index_writer(self):
+        self.assertFalse(hasattr(reconcile_backlog, "update_index_links_to_archive"))
+        self.assertFalse(hasattr(reconcile_backlog, "write_text_preserving_newlines"))
 
     def test_reconcile_only_still_drifted(self):
-        # Race safety: a row detect found drifted may already have been healed
-        # on disk by a concurrent writer. reconcile must re-read and leave it
-        # untouched rather than error re-moving a file that is already archived.
-        self.write_index(
-            "| 046 | Drift reconcile | Medium | COMPLETE | INFRA | - | [01](stranded-INFRA-item.md) |\n"
-        )
-        self.write_item_file("stranded-INFRA-item.md", archived=False)
+        # Race safety: a concurrent writer moves the file between detect and
+        # reconcile. reconcile re-scans and does nothing.
+        self.write_item("stranded-INFRA-item.md", "046", "COMPLETE")
+        self.assertEqual(len(detect_drift(self.config)["drifts"]), 1)
 
-        pre = detect_drift(self.config)
-        self.assertEqual(len(pre["drifts"]), 1)
-
-        # Simulate a concurrent writer healing the row before reconcile runs:
-        # move the file and repoint the link.
         self.archive_dir.mkdir(parents=True, exist_ok=True)
         shutil.move(
             str(self.backlog_dir / "stranded-INFRA-item.md"),
             str(self.archive_dir / "stranded-INFRA-item.md"),
         )
-        self.write_index(
-            "| 046 | Drift reconcile | Medium | COMPLETE | INFRA | - | [01](Archive/stranded-INFRA-item.md) |\n"
-        )
 
-        self.assertEqual(reconcile(self.config), 0)
+        moved, out = self.run_reconcile_quietly()
+        self.assertEqual(moved, 0)
+        self.assertEqual(out, "")
         self.assertTrue((self.archive_dir / "stranded-INFRA-item.md").exists())
 
-    def test_relink_only_when_file_already_moved(self):
-        # File already in Archive/ but the index link is still non-Archive
-        # (a half-done manual fix). Drift = relink only; reconcile repoints the
-        # link without erroring on a move.
-        self.write_index(
-            "| 044 | Half fixed | High | COMPLETE | DOC | - | [01](relinked-DOC-item.md) |\n"
-        )
-        self.write_item_file("relinked-DOC-item.md", archived=True)
-
-        drift = detect_drift(self.config)["drifts"][0]
-        self.assertFalse(drift["needs_move"])
-        self.assertTrue(drift["needs_relink"])
-
-        self.assertEqual(reconcile(self.config), 1)
-        self.assertEqual(self.file_link_for("044"), "Archive/relinked-DOC-item.md")
-
-    def test_closed_status_also_archives(self):
-        # CLOSED (resolved-without-implementation), not just COMPLETE, is an
-        # archive status — a stranded CLOSED row must also be healed.
-        self.write_index(
-            "| 060 | Wont fix | Low | CLOSED | PROC | - | [01](closed-PROC-item.md) |\n"
-        )
-        self.write_item_file("closed-PROC-item.md", archived=False)
-
-        self.assertEqual(len(detect_drift(self.config)["drifts"]), 1)
-        self.assertEqual(reconcile(self.config), 1)
-        self.assertTrue((self.archive_dir / "closed-PROC-item.md").exists())
-
-    def test_reconcile_preserves_crlf_line_endings(self):
-        # The destructive write must preserve the file's original line endings.
-        index_path = self.backlog_dir / "00-Index-Backlog.md"
-        crlf_content = (
-            "# Backlog Index\r\n\r\n"
-            "## Backlog Items\r\n\r\n"
-            "| ID  | Feature | Priority | Status | Abbrev | Score | Files |\r\n"
-            "|-----|---------|----------|--------|--------|-------|-------|\r\n"
-            "| 046 | Drift reconcile | Medium | COMPLETE | INFRA | - | [01](stranded-INFRA-item.md) |\r\n"
-        )
-        with open(index_path, "w", encoding="utf-8", newline="") as fh:
-            fh.write(crlf_content)
-        self.write_item_file("stranded-INFRA-item.md", archived=False)
-
-        written = reconcile(self.config)
-        self.assertEqual(written, 1)
-
-        raw = index_path.read_bytes()
-        self.assertIn(b"\r\n", raw)
-        # No bare LF introduced: every LF must be part of a CRLF pair.
-        self.assertEqual(raw.count(b"\n"), raw.count(b"\r\n"))
-        self.assertEqual(self.file_link_for("046"), "Archive/stranded-INFRA-item.md")
-
-
-class TestEscapedPipeRows(_BacklogFixtureBase):
-    """Drift detection reads the Status and Files cells positionally, so an
-    escaped pipe in the Feature cell used to hide a stranded row from the very
-    pass that exists to find it."""
-
-    ESCAPED_FEATURE = r"Run `git diff --name-only \| grep dir` first"
-
-    def test_stranded_escaped_row_is_detected(self):
-        self.write_index(
-            f"| 046 | {self.ESCAPED_FEATURE} | Medium | COMPLETE | INFRA | - "
-            "| [01](stranded-INFRA-item.md) |\n"
-        )
-        self.write_item_file("stranded-INFRA-item.md", archived=False)
-
-        result = detect_drift(self.config)
-
-        self.assertEqual([d["id"] for d in result["drifts"]], ["046"])
-        self.assertEqual(result["anomalies"], [])
-
-    def test_reconcile_archives_the_escaped_row(self):
-        self.write_index(
-            f"| 046 | {self.ESCAPED_FEATURE} | Medium | COMPLETE | INFRA | - "
-            "| [01](stranded-INFRA-item.md) |\n"
-        )
-        self.write_item_file("stranded-INFRA-item.md", archived=False)
-
-        self.assertEqual(reconcile(self.config), 1)
-
-        self.assertTrue((self.archive_dir / "stranded-INFRA-item.md").exists())
-        self.assertEqual(self.file_link_for("046"), "Archive/stranded-INFRA-item.md")
-        # The author's escaping survives the link repoint verbatim.
-        self.assertIn(r"\|", self.read_index_text())
-
-    def test_open_escaped_row_is_not_flagged(self):
-        self.write_index(
-            f"| 046 | {self.ESCAPED_FEATURE} | Medium | NOT_STARTED | INFRA | 30 "
-            "| [01](open-INFRA-item.md) |\n"
-        )
-        self.write_item_file("open-INFRA-item.md", archived=False)
-
-        result = detect_drift(self.config)
-
-        self.assertEqual(result["drifts"], [])
-        self.assertEqual(result["anomalies"], [])
-
-
-class TestMoveFailureOverlay(_BacklogFixtureBase):
-    """The classifier's per-file prediction (drift + needs_move -> "moved to
-    Archive") must be OVERLAID with the mover's actual per-file result once
-    archive_item_files has run, never trusted on its own. A row with two
-    drifted, needs-move files pins the overlay: one link's file is patched to
-    fail the move (simulating a raised exception -- permission error, locked
-    file, disk full), the other moves for real. The failing link must stay
-    unprefixed even though the classifier predicted success for it before the
-    mover ran; the succeeding sibling link in the same row must still gain
-    its Archive/ prefix.
-    """
-
-    def test_move_failure_overlay_keeps_that_link_unprefixed(self):
-        self.write_index(
-            "| 070 | Mixed move outcome | Medium | COMPLETE | INFRA | - | "
-            "[01](moves-fine-INFRA-item.md) [02](fails-to-move-INFRA-item.md) |\n"
-        )
-        self.write_item_file("moves-fine-INFRA-item.md", archived=False)
-        self.write_item_file("fails-to-move-INFRA-item.md", archived=False)
+    def test_failed_move_is_reported_and_not_counted(self):
+        self.write_item("moves-fine-INFRA-item.md", "071", "COMPLETE")
+        self.write_item("fails-to-move-INFRA-item.md", "072", "COMPLETE")
 
         real_archive_item_files = reconcile_backlog.archive_item_files
 
@@ -342,7 +289,6 @@ class TestMoveFailureOverlay(_BacklogFixtureBase):
             results = []
             for filename in filenames:
                 if filename == "fails-to-move-INFRA-item.md":
-                    # Simulate shutil.move raising -- the file never moves.
                     results.append((filename, False, "simulated move failure"))
                 else:
                     results.extend(
@@ -353,23 +299,59 @@ class TestMoveFailureOverlay(_BacklogFixtureBase):
         with patch(
             "reconcile_backlog.archive_item_files", side_effect=fake_archive_item_files
         ):
-            written = reconcile(self.config)
+            moved, out = self.run_reconcile_quietly()
 
-        self.assertEqual(written, 1)
-
-        # The genuinely-moved file is archived; the failed one never moved.
+        self.assertEqual(moved, 1)
         self.assertTrue((self.archive_dir / "moves-fine-INFRA-item.md").exists())
         self.assertTrue((self.backlog_dir / "fails-to-move-INFRA-item.md").exists())
-        self.assertFalse((self.archive_dir / "fails-to-move-INFRA-item.md").exists())
+        self.assertIn("! fails-to-move-INFRA-item.md: simulated move failure", out)
 
-        rows = parse_backlog_table(self.read_index_text())
-        row = next(r for r in rows if r["id"] == "070")
-        paths = [f["path"] for f in row["files"]]
-        self.assertEqual(paths[0], "Archive/moves-fine-INFRA-item.md")
-        # Left byte-unchanged -- prefixing it would claim an archive that
-        # never happened.
-        self.assertEqual(paths[1], "fails-to-move-INFRA-item.md")
-        self.assertEqual(sum(1 for p in paths if p.startswith("Archive/")), 1)
+
+class TestCli(_BacklogFixtureBase):
+    """The shared reconcile_common CLI shape and exit codes are unchanged."""
+
+    def run_main(self, *extra: str) -> str:
+        sys.argv = [
+            "reconcile_backlog.py",
+            "--config",
+            str(self.planwise_dir / "config.yaml"),
+            *extra,
+        ]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            reconcile_backlog.main()  # returning normally is exit 0
+        return out.getvalue()
+
+    def test_clean_tree_exits_zero(self):
+        self.write_item("open-INFRA-item.md", "048", "IN_PROGRESS")
+        self.write_item("archived-DOC-item.md", "045", "COMPLETE", archived=True)
+
+        out = self.run_main()
+
+        self.assertIn("No archival drift detected", out)
+
+    def test_detect_run_never_moves(self):
+        self.write_item("stranded-INFRA-item.md", "046", "COMPLETE")
+
+        out = self.run_main()
+
+        self.assertIn("stranded-INFRA-item.md", out)
+        self.assertTrue((self.backlog_dir / "stranded-INFRA-item.md").exists())
+
+    def test_write_prints_moved_file_count(self):
+        self.write_item("stranded-INFRA-item.md", "046", "COMPLETE")
+
+        out = self.run_main("--write")
+
+        self.assertIn("Moved 1 file(s) to Archive/.", out)
+        self.assertNotIn("row(s)", out)
+
+    def test_missing_index_still_exits_one(self):
+        self.index_path.unlink()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ctx:
+            self.run_main()
+        self.assertEqual(ctx.exception.code, 1)
 
 
 if __name__ == "__main__":

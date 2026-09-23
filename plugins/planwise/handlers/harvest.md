@@ -5,7 +5,7 @@
 The chain is four ordered stages. The order is forced, not conventional: the final stage cannot land a lesson until the per-item stage has flipped its owning item to COMPLETE.
 
 1. **Categorise** — sync the categorisation file and refine each lesson's promotion target. Halts, without modifying any file, if any lesson's bucket assignment is ambiguous. The halt is deliberately conservative: an unresolved lesson either blocks the promote stage outright or drops silently out of a narrowed scope, and this command does not assume which, so it stops rather than promote a set the user did not see.
-2. **Promote** — resolve the scope, group by bucket, draft the item files and index rows, then capture each lesson (archive-on-capture). Never self-heals a lesson whose bucket is unknown.
+2. **Promote** — resolve the scope, group by bucket, draft the item files and regenerate the backlog index, then capture each lesson (archive-on-capture). Never self-heals a lesson whose bucket is unknown.
 3. **Process** — for each item this run created, pre-flight its frontmatter, triage it, route it, dispatch a foreground agent, verify, and write status centrally. A per-item failure is logged and the loop advances.
 4. **Land** — set the final status and artifact pointer on every lesson whose owning item reached COMPLETE, and append the promotion-log row. Heal candidates are reported, never actioned.
 
@@ -159,10 +159,10 @@ The canonical policy's Inline Tagging Convention applies: critical sites emit a 
 #### Stage 2: Promote
 
 - **Precondition:** the categorisation gate is clear — stage 1 clearing it is what makes this stage legal.
-- **Action:** resolve the scope argument (forwarded verbatim to batch-promote) → group by bucket → draft item files and index rows → capture each lesson (archive-on-capture).
+- **Action:** resolve the scope argument (forwarded verbatim to batch-promote) → group by bucket → draft item files and regenerate the backlog index → capture each lesson (archive-on-capture).
 - **Failure:** HALT if the categorisation gate still fires after stage 1 (HC3 — self-heal is explicitly forbidden; no legal action remains) or on call-site H3 (an id-list scope spanning buckets).
-- **Writes:** item files, backlog index rows, archived lesson files.
-- **Delegated drafting:** batch-promote dispatches [`agents/backlog-author.md`](../agents/backlog-author.md) per bucket to draft and file the item files and index rows. That agent is the **one** agent in this pipeline that writes the backlog index itself, so it is dispatched **once per bucket, never concurrently with another instance** — two dispatches race on the index file and on the next-free-id computation. Lesson capture (status flip, archive move, lessons-index update) stays with this stage; the agent never touches a lesson file. `--dry-run` skips the dispatch entirely rather than dispatching with a no-write flag.
+- **Writes:** item files, the regenerated backlog index files, archived lesson files.
+- **Delegated drafting:** batch-promote dispatches [`agents/backlog-author.md`](../agents/backlog-author.md) per bucket to draft and file the item files. That agent causes the backlog index to change, but it never writes an index row itself — it files each item through the guarded writer, then runs `generate_backlog_index.py --write` once per dispatch, which rebuilds the whole index from item frontmatter. It is still dispatched **once per bucket, never concurrently with another instance**. The id-allocation race is the only remaining reason: `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch, so two concurrent dispatches can read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Lesson capture (status flip, archive move, lessons-index update) stays with this stage; the agent never touches a lesson file. `--dry-run` skips the dispatch entirely rather than dispatching with a no-write flag.
 
 #### Stage 3: Process
 
@@ -181,7 +181,7 @@ The canonical policy's Inline Tagging Convention applies: critical sites emit a 
 
 **Acceptance gate on every return:** verify each declared output file exists on disk BEFORE accepting a success-claiming return. Narrowed to returns that both claim success AND declare files — an honest BLOCKED with no files is not the signature; a COMPLETE declaring absent files IS, and is HC4.
 
-**Central index write:** neither dispatched agent writes the backlog index itself; each returns a status-block delta (below), and this stage applies the single shared write after each item. This holds for stage 3's two agents (the fix agent and `backlog-planner`) and is unchanged. It does **not** describe stage 2's `backlog-author`, which owns its own index write by design — the reason that agent is dispatched one instance at a time.
+**Central index write:** neither the fix agent nor `backlog-planner` writes the backlog index itself; each returns a status-block delta (below), and this stage applies the single shared write after each item. This holds for stage 3's two agents and is unchanged. It does **not** describe stage 2's `backlog-author`: that agent also never writes an index row itself, but it causes the index to change directly, by running `generate_backlog_index.py --write` once per dispatch instead of returning a delta for this stage to apply. That is why it is still dispatched one instance at a time — not because it owns the index write, but because the id-allocation race survives: `--next-id` reads the generated index files, which change only when `--write` runs.
 
 **Status-block field set** (every per-item dispatch returns; verbatim):
 

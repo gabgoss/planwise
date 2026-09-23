@@ -81,7 +81,7 @@ After reporting, the caller MAY offer to reconcile via `AskUserQuestion` (prompt
 python "{plugin_root}/scripts/{reconcile_script}" --config "{planwise_root}/config.yaml" --write
 ```
 
-The script re-reads the index immediately before writing (race-safe against a concurrent update to the index elsewhere), reconciles only rows still drifted, and never touches an anomaly row. Report `Reconciled {N} row(s).` Declining leaves the index untouched — the report above already recorded what was found.
+The script re-reads the index immediately before writing (race-safe against a concurrent update to the index elsewhere), reconciles only rows still drifted, and never touches an anomaly row. Report `Reconciled {N} row(s).` Declining leaves the index untouched — the report above already recorded what was found. The backlog binding is the exception. Its `--write` re-scans item files, moves closed item files into `Archive/`, never edits the index, and reports `Moved {N} file(s) to Archive/.` The caller then regenerates the index — see [Backlog — `reconcile_backlog.py`](#backlog--reconcile_backlogpy).
 
 ## Per-Index Bindings
 
@@ -95,11 +95,12 @@ The script re-reads the index immediately before writing (race-safe against a co
 
 ### Backlog — `reconcile_backlog.py`
 
-- Source of truth: the on-disk location of each closed item's file. Archival is **state-coupled, not transition-coupled**: a COMPLETE/CLOSED item's file must live under `Archive/` with its index link repointed there.
-- Drift: a closed row whose file is not archived, or whose index link is not repointed. Row identifier: `{ID}`.
-- Anomaly: the linked file exists in neither the top-level index dir nor `Archive/`.
+- Source of truth: each item file's frontmatter `status:` compared with the file's location. The audit reads item files, never an index, so it works the same on a generated index and a legacy one. Archival is **state-coupled, not transition-coupled**: a COMPLETE/CLOSED item's file must live under `Archive/`. The generator renders each File link from wherever the file sits, so the file's location is the one fact to audit.
+- Drift: a COMPLETE/CLOSED item file in the top-level backlog dir. Row identifier: `{ID}`.
+- Anomaly: an open item file inside `Archive/`, a file with no readable frontmatter status, two files carrying one id, or a closed file whose name already exists in `Archive/`. None of these files is ever moved.
 - Banner drift line: `{ID} ({STATUS}): {file} — {reason}`.
-- Consent prompt: "Archive {K} stranded closed row(s) — move the file(s) into `Archive/` and repoint the index link(s)?"
+- Consent prompt: "Archive {K} closed item file(s) — move them into `Archive/`?"
+- The `--write` run re-scans the item files and moves only files still drifted. It never edits or writes an index file. After a move, run `generate_backlog_index.py --write` so the index links follow the moved files. A legacy index's stale links are the migrator's concern, not this audit's.
 
 ### Lessons — `reconcile_lessons.py`
 

@@ -234,7 +234,7 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 /planwise backlog BUG-042
 ```
 
-**Archival stays in sync.** Closing an item moves its file to `Archive/` and repoints the index link in the same step, and re-runs are safe. If an item was closed by hand and its file left stranded, `backlog` detects the drift on open and offers to reconcile it — nothing is moved without your consent (`--no-check` skips the detect pass for fast triage).
+**Archival stays in sync.** Closing an item moves its file to `Archive/`, and re-runs are safe. The next `generate_backlog_index.py --write` renders the new link from the file's new location. If an item was closed by hand and its file left stranded, `backlog` detects the drift on open and offers to reconcile it — nothing is moved without your consent (`--no-check` skips the detect pass for fast triage).
 
 #### How `backlog` works
 
