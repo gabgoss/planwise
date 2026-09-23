@@ -243,6 +243,7 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
     copied = []
     seeds = [
         ("00-Index-Backlog.md", f"{cfg.planwise_root}/{cfg.backlog_dir}/00-Index-Backlog.md"),
+        ("00-Changelog-Backlog.md", f"{cfg.planwise_root}/{cfg.backlog_dir}/00-Changelog-Backlog.md"),
         ("00-Index-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/00-Index-LessonsLearned.md"),
         ("00-Index-Plans.md", f"{cfg.planwise_root}/{cfg.plans_dir}/00-Index-Plans.md"),
     ]

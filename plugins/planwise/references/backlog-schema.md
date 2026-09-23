@@ -238,25 +238,6 @@ python {plugin_root}/scripts/score_backlog.py [OPTIONS]
 | `--id ID` | No | Look up one item's score by ID (bare or prefixed, matched on the numeric component) |
 | `--explain` | No | With `--id`, print the per-factor score derivation instead of just the total |
 
-### cleanup_backlog.py
-
-```bash
-python {plugin_root}/scripts/cleanup_backlog.py --target {index|archive|both}
-```
-
-**`--target index`'s row-stripping is obsolete under generation, and nothing
-in the plugin invokes this script automatically.** It was written for a
-hand-maintained index that only ever grew. `generate_backlog_index.py` makes
-that redundant by construction: a closed item's row lands in its Archive
-shard the moment `--write` runs, never in the hub, so there is nothing left
-to strip.
-
-> [!antipattern] Never wire `--target archive` to anything automatic
-> `--target archive` (and `--target both`) `unlink()`s every `*.md` file
-> under `Archive/`, with no confirmation and no undo. This is a standing
-> hazard independent of the index-cleanup question above — keep it a
-> manual, human-invoked operation.
-
 ---
 
 ## Status Flow

@@ -39,8 +39,8 @@ sys.path.insert(0, str(SCRIPTS))
 # and it imports doctor_sweeps back through artifact_upgrade, so importing
 # doctor_sweeps first trips that cycle. Import the root first, as every test
 # and handler entry point does, then pull the sweep's public names.
-import init_project  # noqa: F401 -- sys.path must be set first; resolves the import cycle
-from doctor_sweeps import (
+import init_project  # noqa: F401, E402 -- sys.path must be set first; resolves the import cycle
+from doctor_sweeps import (  # noqa: E402
     AGENT_HISTORY_MANIFEST,
     FORMERLY_MIRRORED_AGENTS,
     history_digest,

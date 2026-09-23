@@ -55,8 +55,8 @@ from unittest import mock
 _SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
-import artifact_upgrade
-import init_project as ip
+import artifact_upgrade  # noqa: E402
+import init_project as ip  # noqa: E402
 
 INIT_PROJECT = _SCRIPTS / "init_project.py"
 UPGRADE_HANDLER = (

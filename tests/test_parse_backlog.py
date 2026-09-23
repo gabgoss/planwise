@@ -208,6 +208,13 @@ class TestBlockedByMapFailOpenGuard(unittest.TestCase):
     exclusion assertion below pass vacuously -- on an empty dependency set
     nothing is ever blocked, so "blocked item excluded" is trivially true for
     the wrong reason.
+
+    This class covers the legacy, un-migrated shape: a hand-authored index
+    whose only edges live in `## Dependencies` (no Blocks cell at all). The
+    9-column generated-row Blocks-cell path is covered separately by
+    `TestRowLevelBlocksCellUnionedIntoBlockedByMap` below, and the read-if-
+    present union of the two sources is `build_blocked_by_map`'s own
+    contract (Finding 2 of the closeout review).
     """
 
     def _content(self, blocker_cell: str, blocked_cell: str, index_rows: str) -> str:
@@ -694,7 +701,10 @@ class TestRowLevelBlocksCellUnionedIntoBlockedByMap(unittest.TestCase):
     """Code-review corrective, Finding 5: a 9-column row's own Blocks cell
     must feed `build_blocked_by_map` -- a generated hub carries no
     "## Dependencies" table at all, so without this the map is always
-    empty on a generated corpus."""
+    empty on a generated corpus. `dependencies == []` below proves a
+    generated index has no dependency on that section at all: blocking
+    comes entirely from the Blocks column, and the read-if-present union
+    (Finding 2 of the closeout review) contributes nothing here."""
 
     def test_generated_row_blocks_cell_blocks_the_named_item(self):
         content = (

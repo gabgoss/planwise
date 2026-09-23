@@ -49,7 +49,7 @@ from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
 from markdown_parser import is_section_boundary, split_row_cells
 from read_limits import READ_TOKEN_WARN, estimate_tokens
 from reconcile_common import format_drift_report, read_text_preserving_newlines
-from score_backlog import compute_score, count_archived_by_abbrev
+from score_backlog import _strip_inline_comment, compute_score, count_archived_by_abbrev
 
 # --------------------------------------------------------------------------
 # Column layout
@@ -123,6 +123,16 @@ _LIST_ITEM_RE = re.compile(r"^-\s*(.+)$")
 # rest of the toolchain (`config["_index_path"]`, `config["_archive_dir"]`)
 # actually agrees with, instead of one no other script would recognize.
 INDEX_FILE_STEM = "Index-Backlog"
+
+# The hub's pointer to the changelog (Execution Step 4, user decision (a)):
+# a single byte-identical line on every run, carrying no date, so `--check`
+# compares it like any other generated line instead of it vanishing
+# silently the first time `--write` regenerates the hub. Its filename is
+# derived from `naming` by `_changelog_filename`, defined next to
+# `_hub_filename`/`_shard_filename` below (closeout review Finding 1) --
+# never a hardcoded constant, so a custom `index_files.backlog` gets a
+# changelog name `migrate_backlog_index.artifact_paths` agrees with,
+# instead of always "00-Changelog-Backlog.md" regardless of project naming.
 
 IndexNaming = namedtuple("IndexNaming", ["hub_name", "hub_stem", "suffix", "archive_stem"])
 
@@ -271,13 +281,24 @@ def _extract_fields(path: Path, raw_map: dict) -> dict:
 
     fields: dict = {}
     for key in ("title", "priority", "status", "abbrev", "created"):
-        value = _strip_quotes(raw_map[key].strip())
+        raw_value = raw_map[key]
+        if key == "created":
+            # A trailing YAML inline comment on `created:` survives past
+            # `parse_frontmatter_map`'s text-level read (score_backlog.py's
+            # `_strip_inline_comment` docstring) and would otherwise ship as
+            # part of the rendered Created cell.
+            raw_value = _strip_inline_comment(raw_value)
+        value = _strip_quotes(raw_value.strip())
         if not value:
             raise GeneratorError(f"{path}: frontmatter key '{key}' is empty")
         fields[key] = value
 
-    fields["id"] = _normalize_id_text(raw_map["id"])
-    fields["blocks"] = _parse_list_field(raw_map["blocks"])
+    # `id` and `blocks` get the same inline-comment strip as `created`,
+    # ported from score_backlog._strip_inline_comment: `blocks: [007, 009]
+    # # two` would otherwise drop the trailing edge, and the generator's
+    # edge set must equal the scorer's on every item.
+    fields["id"] = _normalize_id_text(_strip_inline_comment(raw_map["id"]))
+    fields["blocks"] = _parse_list_field(_strip_inline_comment(raw_map["blocks"]))
     fields["_path"] = path
     return fields
 
@@ -699,6 +720,32 @@ def _shard_filename(naming: IndexNaming, min_id: int, max_id: int) -> str:
     return f"{naming.archive_stem}-{min_id:03d}-{max_id:03d}{naming.suffix}"
 
 
+_CHANGELOG_HUB_RE = re.compile(r"^00-Index-(.+)$")
+
+
+def _changelog_filename(naming: IndexNaming) -> str:
+    """The one namer for the changelog file: what the hub's footer points
+    at, and what `migrate_backlog_index.artifact_paths` creates -- both
+    scripts import this function rather than deriving the name twice, so
+    they cannot disagree on it (closeout review Finding 1).
+
+    When the hub follows the `00-Index-{X}{suffix}` shape, the changelog is
+    `00-Changelog-{X}{suffix}`. For the default/live project's own
+    `00-Index-Backlog.md`, X = "Backlog", giving the existing
+    `00-Changelog-Backlog.md` this function must never rename. A hub that
+    does not follow that shape (a custom `project.index_files.backlog`,
+    e.g. `Backlog-Index.md`) falls back to `00-{hub_stem}-Changelog{suffix}`.
+    """
+    match = _CHANGELOG_HUB_RE.match(naming.hub_stem)
+    if match:
+        return f"00-Changelog-{match.group(1)}{naming.suffix}"
+    return f"00-{naming.hub_stem}-Changelog{naming.suffix}"
+
+
+def _footer_line(naming: IndexNaming) -> str:
+    return f"[Changelog]({_changelog_filename(naming)})\n"
+
+
 def _relative_link(from_dir: Path, to_path: Path) -> str:
     rel = os.path.relpath(to_path, start=from_dir)
     return str(rel).replace("\\", "/")
@@ -850,9 +897,10 @@ def build_hub_files(open_items: list, backlog_dir: Path, shard_files: list, nami
     today = datetime.now().astimezone().date()
     generated_line = f"Generated: {today.isoformat()}\n\n"
     continuation_wrapper = f"[Back to Backlog Index]({naming.hub_name})\n\n"
+    footer_line = _footer_line(naming)
 
     def _wrapper_tokens(shards_section: str) -> int:
-        leaf0_wrapper = generated_line + "\n" + shards_section
+        leaf0_wrapper = generated_line + "\n" + shards_section + "\n" + footer_line
         wrapper_bytes = max(
             len(leaf0_wrapper.encode("utf-8")),
             len(continuation_wrapper.encode("utf-8")),
@@ -880,7 +928,11 @@ def build_hub_files(open_items: list, backlog_dir: Path, shard_files: list, nami
             # docstring's carve-outs): it changes every day by construction,
             # never because an item changed, so comparing it would report
             # drift on every single run regardless of the corpus.
-            content = generated_line + body + "\n" + shards_section
+            # Footer after `## Shards` (Execution Step 4): never between a
+            # table heading and its rows, and only on leaf 0 -- the canonical
+            # hub, the changelog's one intended pointer. An overflow leaf
+            # carries no `## Shards` directory of its own and needs none.
+            content = generated_line + body + "\n" + shards_section + "\n" + footer_line
         else:
             content = continuation_wrapper + body
         num_bytes_final = len(content.encode("utf-8"))
@@ -1207,6 +1259,22 @@ def _check_drift(
             continue
         rel = _relative_file_path(path, backlog_dir)
         content = read_text_preserving_newlines(path)
+        if rel == naming.hub_name:
+            if _footer_line(naming).strip() not in content:
+                drift.append({
+                    "id": rel,
+                    "reason": "changelog footer is missing from the hub",
+                })
+            else:
+                changelog_path = backlog_dir / _changelog_filename(naming)
+                if not changelog_path.exists():
+                    drift.append({
+                        "id": rel,
+                        "reason": (
+                            f"changelog footer points to {changelog_path.name}, "
+                            "but that file does not exist"
+                        ),
+                    })
         rows, errs, dup_ids = _read_disk_table(content)
         for err in errs:
             anomaly.append({"id": rel, "reason": err})
@@ -1491,6 +1559,14 @@ def _cmd_write(
         if p.resolve() not in fresh_paths
     ]
     files_to_write = {backlog_dir / entry["path"]: entry["content"] for entry in report["files"]}
+
+    # The changelog is not a generated index artifact (it's never in
+    # report["files"]), so it's never touched here except this one
+    # header-only bootstrap when the footer's own target is missing --
+    # never overwrites an existing changelog (closeout review Finding 1c).
+    changelog_path = backlog_dir / _changelog_filename(naming)
+    if not changelog_path.exists():
+        files_to_write[changelog_path] = f"[← {naming.hub_name}]({naming.hub_name})\n"
 
     # Preserve the EXISTING on-disk convention rather than always shipping
     # the `\n` `build_index_files` renders internally -- detected once per

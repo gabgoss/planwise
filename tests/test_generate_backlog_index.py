@@ -1223,6 +1223,18 @@ class TestOutputPathsFollowConfig(unittest.TestCase):
         self.assertFalse(gbi.is_generated_index_file("Backlog-Index-150-150.md"))  # default naming
         self.assertFalse(gbi.is_generated_index_file("00-Index-Backlog.md", fixture_naming))
 
+    def test_changelog_uses_the_configured_hub_name_via_fallback(self):
+        # closeout review Finding 1: a hub that doesn't follow the
+        # "00-Index-{X}" shape falls back to "00-{hub_stem}-Changelog{suffix}"
+        # -- the SAME name migrate_backlog_index.artifact_paths computes.
+        fixture_naming = gbi._index_naming(self.backlog_dir / "Backlog-Index.md")
+        self.assertEqual(gbi._changelog_filename(fixture_naming), "00-Backlog-Index-Changelog.md")
+
+        self.write_item("001", title="Open item")
+        code, _out, _err = self.run_main("--write")
+        self.assertEqual(code, 0)
+        self.assertTrue((self.backlog_dir / "00-Backlog-Index-Changelog.md").exists())
+
 
 class TestFailedWriteExitsRefusedNotDrift(_GeneratorFixtureBase):
     """CR7 (Finding 6): an uncaught `OSError` mid-`--write` must be
@@ -1281,6 +1293,120 @@ class TestFactor2RekeyReachesGenerator(unittest.TestCase):
         self.assertEqual(
             int(bug_item["score"]) - int(other_item["score"]), weights["bug_fix_bonus"]
         )
+
+
+class TestInlineCommentStrippedAtReadSites(_GeneratorFixtureBase):
+    """Pre-write repair, Execution Step 3: a YAML inline comment on
+    `blocks:`/`created:`/`id:` must not survive into the generator's own
+    frontmatter read, ported from `score_backlog._strip_inline_comment`.
+    Mirrors that module's own two tests -- the generator's edge set and age
+    inputs must equal the scorer's on every item."""
+
+    def test_inline_comment_after_blocks_flow_form_keeps_every_edge(self):
+        path = self.backlog_dir / "BB-081-01-BUG-Fixture.md"
+        path.write_text(
+            "---\nid: 081\ntitle: Fixture item\npriority: Medium\n"
+            "status: NOT_STARTED\nabbrev: BUG\ncreated: 2026-01-01\n"
+            "blocks: [007, 009]  # two\n---\n\n# Body\n",
+            encoding="utf-8",
+        )
+        fields = gbi._scan_one_file(path)
+        self.assertEqual(fields["blocks"], ["007", "009"])
+
+    def test_inline_comment_after_created_keeps_the_age_input(self):
+        path = self.backlog_dir / "BB-082-01-BUG-Fixture.md"
+        path.write_text(
+            "---\nid: 082\ntitle: Fixture item\npriority: Medium\n"
+            "status: NOT_STARTED\nabbrev: BUG\ncreated: 2026-01-15  # filed\n"
+            "blocks: []\n---\n\n# Body\n",
+            encoding="utf-8",
+        )
+        fields = gbi._scan_one_file(path)
+        self.assertEqual(fields["created"], "2026-01-15")
+
+
+class TestChangelogFooter(_GeneratorFixtureBase):
+    """Pre-write repair, Execution Step 4 (user decision (a)): the hub
+    carries a fixed, byte-identical pointer to the changelog after
+    `## Shards`, and `--check` treats a hand-deleted footer as drift.
+
+    Closeout review Finding 1 extends this: `_changelog_filename` is the
+    ONE namer the footer, `--write`'s missing-changelog bootstrap, `--check`'s
+    missing-target drift, and `migrate_backlog_index.artifact_paths` all
+    share -- covered here for the default naming; custom-hub-name coverage
+    lives in `TestOutputPathsFollowConfig` below."""
+
+    def _footer_line(self):
+        naming = gbi._index_naming(self.backlog_dir / "00-Index-Backlog.md")
+        return gbi._footer_line(naming)
+
+    def test_changelog_filename_default(self):
+        naming = gbi._index_naming(self.backlog_dir / "00-Index-Backlog.md")
+        self.assertEqual(gbi._changelog_filename(naming), "00-Changelog-Backlog.md")
+
+    def test_footer_present_and_stable_across_two_writes(self):
+        self.write_item(1)
+        code1, _out1, _err1 = self.run_main("--write")
+        self.assertEqual(code1, 0)
+        hub_path = self.backlog_dir / "00-Index-Backlog.md"
+        content1 = hub_path.read_text(encoding="utf-8")
+        footer_line = self._footer_line()
+        self.assertIn(footer_line.strip(), content1)
+        self.assertTrue(content1.endswith(footer_line))
+
+        code2, _out2, _err2 = self.run_main("--write")
+        self.assertEqual(code2, 0)
+        content2 = hub_path.read_text(encoding="utf-8")
+        self.assertEqual(content1, content2)
+
+    def test_check_flags_a_hand_deleted_footer_as_drift(self):
+        self.write_item(1)
+        self.run_main("--write")
+        hub_path = self.backlog_dir / "00-Index-Backlog.md"
+        content = hub_path.read_text(encoding="utf-8")
+        footer_line = self._footer_line()
+        self.assertTrue(content.endswith(footer_line))
+        hub_path.write_text(content[: -len(footer_line)], encoding="utf-8")
+
+        code, out, _err = self.run_main("--check")
+
+        self.assertEqual(code, 1)
+        self.assertIn("footer is missing from the hub", out)
+
+    def test_write_creates_a_missing_changelog_header_only(self):
+        self.write_item(1)
+        code, _out, _err = self.run_main("--write")
+        self.assertEqual(code, 0)
+
+        changelog_path = self.backlog_dir / "00-Changelog-Backlog.md"
+        self.assertTrue(changelog_path.exists())
+        self.assertEqual(
+            changelog_path.read_text(encoding="utf-8"),
+            "[← 00-Index-Backlog.md](00-Index-Backlog.md)\n",
+        )
+
+    def test_write_never_overwrites_an_existing_changelog(self):
+        self.write_item(1)
+        changelog_path = self.backlog_dir / "00-Changelog-Backlog.md"
+        changelog_path.write_text("[← 00-Index-Backlog.md](00-Index-Backlog.md)\n\n"
+                                   "## Entry 1\n\nSomething happened.\n", encoding="utf-8")
+        before = changelog_path.read_bytes()
+
+        code, _out, _err = self.run_main("--write")
+        self.assertEqual(code, 0)
+        self.assertEqual(changelog_path.read_bytes(), before)
+
+    def test_check_fails_on_a_missing_changelog_target(self):
+        self.write_item(1)
+        self.run_main("--write")
+        changelog_path = self.backlog_dir / "00-Changelog-Backlog.md"
+        changelog_path.unlink()
+
+        code, out, _err = self.run_main("--check")
+
+        self.assertEqual(code, 1)
+        self.assertIn("00-Changelog-Backlog.md", out)
+        self.assertIn("does not exist", out)
 
 
 if __name__ == "__main__":

@@ -146,7 +146,7 @@ REFUSALS = [
      ["'## Shards' row"]),
     ("files-prose", legacy_index(files="[001](001-Sample.md) plus notes"), None, {}, (), ["Files cell carries text"]),
     ("empty-id", legacy_index(row_id=""), None, {}, (), ["empty ID cell"]),
-    ("foreign-changelog", LEGACY_INDEX, None, {"00-Index-Backlog-Changelog.md": "other\n"}, (), ["already exists"]),
+    ("foreign-changelog", LEGACY_INDEX, None, {"00-Changelog-Backlog.md": "other\n"}, (), ["already exists"]),
     ("ambiguous-under-force", legacy_index(AMBIG), item_text(body=AMBIG_BODY), {}, (), ["--append-ambiguous"]),
     ("reviewer-not", legacy_index(NOT_UNIT), item_text(body=NOT_BODY), {}, (), ["ambiguous", "should NOT"]),
     ("reviewer-quarter", legacy_index(Q_UNIT), item_text(body=Q_BODY), {}, (), ["ambiguous", "Q4"]),
@@ -348,6 +348,14 @@ def test_interrupted_migration_resumes_on_real_git_repo_without_force(tmp_path, 
     assert resumed.returncode == 0, resumed.stderr + resumed.stdout
     assert _item(index_path).read_text(encoding="utf-8").count(NEW_SENTENCE) == 1
     assert "moved to" in index_path.read_text(encoding="utf-8")
+
+def test_generator_and_migrator_agree_on_changelog_name():
+    # closeout review Finding 1b: both scripts import gen._changelog_filename,
+    # so they can never compute two different names for the same project.
+    for index_name in ("00-Index-Backlog.md", "Backlog-Index.md"):
+        index_path = Path("/tmp/unused") / index_name
+        naming = gen._index_naming(index_path)
+        assert gen._changelog_filename(naming) == mig.artifact_paths(index_path)[0].name
 
 def test_custom_index_name_changelog_is_skipped_by_generator(tmp_path):
     config_path, index_path = _make_project(tmp_path, LEGACY_INDEX, index_name="Backlog-Index.md")

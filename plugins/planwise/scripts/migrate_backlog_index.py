@@ -73,10 +73,16 @@ def say(code: int, msg: str, json_mode: bool, err: bool = False) -> int:
 
 
 def artifact_paths(index_path: Path):
-    """Return (changelog, ledger, older changelog name used by earlier versions)."""
-    stem = gen._index_naming(index_path).archive_stem
-    changelog = index_path.with_name(f"00-{stem}-Changelog{index_path.suffix}")
-    ledger = index_path.with_name(f"00-{stem}-Migration-Ledger.json")
+    """Return (changelog, ledger, older changelog name used by earlier versions).
+
+    The changelog name comes from `gen._changelog_filename` -- the SAME
+    namer `generate_backlog_index.py`'s own hub footer uses, so the two
+    scripts can never disagree on the changelog's name (closeout review
+    Finding 1b).
+    """
+    naming = gen._index_naming(index_path)
+    changelog = index_path.with_name(gen._changelog_filename(naming))
+    ledger = index_path.with_name(f"00-{naming.archive_stem}-Migration-Ledger.json")
     older = index_path.with_name(f"{index_path.stem}-Changelog{index_path.suffix}")
     return changelog, ledger, older
 

@@ -179,7 +179,11 @@ def parse_dependencies_table(content: str) -> list[dict]:
     """Parse the Dependencies table from the index.
 
     Returns list of dicts with keys: blocker_id, blocked_ids (list of str).
-    Only parses hard blockers — stops at "Soft dependencies" or next section.
+    Only parses hard blockers -- stops at "Soft dependencies" or next section.
+    Read-if-present: a generated hub never carries a ``## Dependencies``
+    section, so ``require_section=False`` returns an empty list rather than
+    erroring, and ``build_blocked_by_map`` unions whatever this returns with
+    the row-level Blocks column instead of depending on it existing.
     """
     return parse_markdown_table(
         content, "## Dependencies", _dependency_row_processor,
@@ -309,12 +313,17 @@ def build_blocked_by_map(
     """Build reverse dependency map: blocked_item_id -> [open blocker IDs].
 
     Unions two edge sources: the hand-authored ``## Dependencies`` table
-    (``dependencies``), and each item's own 9-column row-level Blocks cell
-    (``item["blocks"]``, from ``_backlog_row_processor``). A generated hub
-    carries no ``## Dependencies`` table at all, so without the row-level
-    union this map is always empty on a generated corpus --
-    ``--show-blocked``, the ``blocked by:`` summary, and held-item routing
-    would silently report nothing blocked. Both sources share the same
+    (``dependencies``), read-if-present via ``parse_dependencies_table``,
+    and each item's own 9-column row-level Blocks cell (``item["blocks"]``,
+    from ``_backlog_row_processor``). The generator never writes a
+    ``## Dependencies`` section (Execution Step 5 of the pre-write
+    repairs), so a generated corpus (no such section; ``dependencies`` is
+    empty) blocks from the Blocks column alone, exactly as before this
+    union was restored. A consumer upgraded from an older release but not
+    yet migrated carries a 6/7-column legacy index with no Blocks column at
+    all -- its only edges live in ``## Dependencies``, and without this
+    union ``--show-blocked`` would report nothing and every blocked item
+    would silently become routable. Both sources share the same
     open-blocker-only guard: a CLOSED/COMPLETE blocker's edge is already
     resolved and must not still hold a blocked item back.
     """
