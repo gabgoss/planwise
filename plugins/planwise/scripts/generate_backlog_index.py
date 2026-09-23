@@ -501,7 +501,7 @@ def render_separator() -> str:
 # --------------------------------------------------------------------------
 # Hub/shard partition and budget enforcement
 #
-# Sharding is Master Plan D2's whole guarantee, not a readability setting:
+# Sharding is the generator's whole size guarantee, not a readability setting:
 # every file this module produces MUST measure under READ_TOKEN_WARN before
 # it is ever handed to a writer. The measurement basis is `read_limits`'s own
 # byte-ratio instrument -- the same one the Read-tool gate itself uses --
@@ -1457,7 +1457,8 @@ def _cmd_write(
     Step 7 requires), refuses before touching disk on any unresolved
     condition, then atomically regenerates the hub and every shard and
     removes any stale generated file the fresh set no longer produces.
-    Never touches an item file (Master Plan D12) -- every path this
+    Never touches an item file (the generator reads frontmatter and
+    writes only the index) -- every path this
     function writes or deletes comes from `report["files"]` or
     `_list_disk_generated_files`, both scoped to `is_generated_index_file`.
     """

@@ -2,9 +2,9 @@
 """Migrate a hand-authored backlog index into the shape the generator reads.
 
 A hand-authored index carries content with no home in item frontmatter: a
-changelog footer appended entry by entry, and Feature-cell prose that
-differs from the item's `title:`. Regeneration drops both. This tool moves
-them first, so retiring the old index loses nothing.
+changelog footer, Feature-cell prose that differs from the item's `title:`,
+and extra links in a Files cell. Regeneration drops all three. This tool
+moves them first, so retiring the old index loses nothing.
 
 Sequence: (1) `--dry-run`, the default, reports the plan and writes nothing.
 (2) Review the plan. (3) `--write` stages every output, replaces the
@@ -13,22 +13,25 @@ targets, re-reads them from disk to verify, then writes the ledger.
 
 Recognise-or-refuse, never best-effort. Before any write, the run refuses
 (exit 2) and names the cause when: the shape, a column or a `##` section is
-not recognised; prose sits in the preamble, between the items heading and
-its table, or after the table; a `## Dependencies` block carries soft
-prose; the generator's own scan would refuse the tree; a row cell (ID,
-Status, Priority, Abbrev/Domain, Created, Blocks) disagrees with its item
-frontmatter; a dedup unit is AMBIGUOUS without `--append-ambiguous`; git
-cannot report the tree state without `--allow-untracked-tree`; or the tree
-is dirty without `--force`. When the run recognises an interrupted
-migration of this index, the dirty check exempts exactly the paths that
-migration owns (the index, changelog, ledger and destination item files),
-so a plain `--write` resumes. Any other dirty path still refuses.
+not recognised; any line anywhere in the file is prose the regeneration
+drops (preamble, items section, Shards, Dependencies); a `## Dependencies`
+edge is missing from its item's frontmatter `blocks:`; the generator's own
+scan would refuse the tree; a row has an empty ID cell or prose in its
+Files or Blocks cell; a row cell disagrees with its item frontmatter; a
+dedup unit is AMBIGUOUS without `--append-ambiguous`; `--thresholds` is not
+0 <= low < high <= 1; git cannot report the tree state, or ignores the
+index or an item file, without `--allow-untracked-tree`; or the tree is
+dirty without `--force`. When the run recognises an interrupted migration
+of this index, the dirty check exempts exactly the paths that migration
+owns, so a plain `--write` resumes. Any other dirty path still refuses.
 
-Dedup: each unit of row prose is classified against its item file plus the
-appends already planned for that file, so two rows that resolve to one file
-append once. A unit already inside a `## Migration Notes` section this tool
-wrote counts as appended by a prior run. Each file keeps its newline style
-and permission mode.
+Dedup: a unit is ALREADY-PRESENT only when its whole strict form (case
+folded, whitespace collapsed, emphasis stripped) occurs in one paragraph
+of the item file or of the appends already planned for it. Similarity
+alone yields AMBIGUOUS. A Files-cell link after the first is carried into
+the item's `## Migration Notes` block unless the item already links to its
+target. A unit already inside that block counts as appended by a prior run.
+Each file keeps its newline style and permission mode.
 
 Atomic and resumable: every output is staged beside its target, so a
 failure before the replace phase changes nothing. The index is replaced
@@ -38,21 +41,20 @@ the changelog exists, and no row prose is missing. That state exits 0.
 The changelog is `00-{stem}-Changelog{suffix}` beside the index, and the
 ledger is `00-{stem}-Migration-Ledger.json`, where `{stem}` is the index
 stem without a leading `00-`. The generator's item scan skips `00-` files.
-
-With `--json`, stdout carries only the JSON document. Status goes to stderr.
+With `--json`, stdout carries only the JSON document.
 
 Exit codes: 0 clean, or nothing to do. 1 migration needed (dry-run), or a
 write or verification failure. 2 refused.
 """
 import argparse
 import json
-import subprocess
 import sys
 from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import generate_backlog_index as gen  # noqa: E402
+import migrate_backlog_checks as chk  # noqa: E402
 import migrate_backlog_support as sup  # noqa: E402
 from config_loader import load_config  # noqa: E402
 from reconcile_common import read_text_preserving_newlines as read_text  # noqa: E402
@@ -68,46 +70,6 @@ class Refusal(Exception):
 def say(code: int, msg: str, json_mode: bool, err: bool = False) -> int:
     print(msg, file=sys.stderr if (err or json_mode) else sys.stdout)
     return code
-
-
-def git_dirty(project_root: Path):
-    """Return (set of resolved dirty paths, reason). The set is None when git cannot tell."""
-    def git(*argv):
-        return subprocess.run(["git", "-C", str(project_root), *argv], capture_output=True,
-                              text=True, encoding="utf-8", errors="replace", timeout=30)
-    try:
-        top = git("rev-parse", "--show-toplevel")
-        proc = git("status", "--porcelain", "-z", "--untracked-files=all") if top.returncode == 0 else top
-    except FileNotFoundError:
-        return None, "git is not installed or not on PATH"
-    except (OSError, subprocess.SubprocessError) as exc:
-        return None, f"git could not run ({exc})"
-    if proc.returncode != 0:
-        first = (proc.stderr.strip().splitlines() or ["no error text"])[0]
-        return None, f"git exited {proc.returncode}: {first}"
-    root, dirty, entries, i = Path(top.stdout.strip()), set(), proc.stdout.split("\0"), 0
-    while i < len(entries):
-        entry, i = entries[i], i + 1
-        if len(entry) > 3:
-            dirty.add((root / entry[3:]).resolve())
-            if entry[0] in "RC" and i < len(entries):
-                dirty.add((root / entries[i]).resolve())
-                i += 1
-    return dirty, ""
-
-
-def tree_gate(dirty: set, plan: dict, paths: tuple, index_path: Path, force: bool):
-    """Return a refusal message, or None when the run may proceed."""
-    if not dirty or force:
-        return None
-    owned = set()
-    if plan["interrupted"]:
-        owned = {p.resolve() for p in (index_path, *paths[:2])} | {d["path"] for d in plan["dests"]}
-    others = sorted(str(p) for p in dirty - owned)
-    if not others:
-        return None
-    return (f"working tree has uncommitted changes outside this migration ({len(others)} path(s), "
-            f"e.g. {', '.join(others[:3])}); commit/stash first or pass --force.")
 
 
 def artifact_paths(index_path: Path):
@@ -139,15 +101,22 @@ def collect_rows(text: str, header_idx: int, roles: dict, config: dict, index_pa
         where = f"row at line {line_no + 1}"
         if len(cells) != len(roles):
             raise Refusal(f"{where}: {len(cells)} cell(s) but the header has {len(roles)}")
-        path = sup.resolve_item_file(cells[roles["file"]], config["_backlog_dir"],
-                                     config["_archive_dir"], index_path.parent)
+        if not cells[roles["id"]].strip():
+            raise Refusal(f"{where}: empty ID cell")
+        links, leftover = sup.files_links(cells[roles["file"]])
+        if leftover:
+            raise Refusal(f"{where}: Files cell carries text other than links, {cells[roles['file']]!r}")
+        path = sup.resolve_item_file(links[0][1], config["_backlog_dir"], config["_archive_dir"],
+                                     index_path.parent) if links else None
         if path is None:
             raise Refusal(f"{where} (id {cells[roles['id']]}): Files cell resolves no item file")
         fields = items.get(path)
         if fields is None:
             raise Refusal(f"{where}: {path.name} is not an item file the generator scans")
         mismatches += sup.compare_row(cells, roles, fields)
-        rows.append({"id": fields["id"], "path": path,
+        extra = [sup.link_unit(t, h, index_path.parent, path.parent) for t, h in links[1:]
+                 if h.strip() != links[0][1].strip()]
+        rows.append({"id": fields["id"], "path": path, "links": extra,
                      "units": sup.row_units(cells[roles["feature"]], fields["title"])})
     if mismatches:
         raise Refusal(f"{len(mismatches)} row cell(s) disagree with item frontmatter: {'; '.join(mismatches[:10])}. "
@@ -158,8 +127,9 @@ def collect_rows(text: str, header_idx: int, roles: dict, config: dict, index_pa
 def plan_dedup(rows: list, high: float, low: float, append_ambiguous: bool) -> list:
     dests = {}
     for row in rows:
-        dest = dests.setdefault(row["path"], {"path": row["path"], "units": []})
+        dest = dests.setdefault(row["path"], {"path": row["path"], "units": [], "links": []})
         dest["units"] += [(row["id"], unit) for unit in row["units"]]
+        dest["links"] += [(row["id"], link) for link in row["links"]]
     ambiguous = []
     for dest in dests.values():
         dest["body"] = read_text(dest["path"])
@@ -167,17 +137,25 @@ def plan_dedup(rows: list, high: float, low: float, append_ambiguous: bool) -> l
         dest["append"], dest["dedup"], dest["ambiguous"], dest["prior"] = [], [], [], []
         notes, index = sup.prior_notes(dest["body"]), sup.body_index(dest["body"])
         for row_id, unit in dest["units"]:
-            verdict = sup.classify_unit(*sup.score_unit(unit, index), high, low)
+            exact, score, window = sup.score_unit(unit, index)
+            verdict = sup.classify_unit(exact, score, window, high, low)
             if verdict == "ALREADY-PRESENT":
                 dest["prior" if notes and unit in notes else "dedup"].append((row_id, unit))
                 continue
             if verdict == "AMBIGUOUS":
                 if not append_ambiguous:
-                    ambiguous.append(f"row {row_id}: {unit[:80]!r}")
+                    label = "near-duplicate" if max(score, window) >= high else "partial overlap"
+                    ambiguous.append(f"row {row_id} ({label}, similarity {max(score, window):.2f}): {unit[:80]!r}")
                     continue
                 dest["ambiguous"].append(unit)
             dest["append"].append((row_id, unit))
             sup.extend_index(index, unit)
+        for row_id, (unit, name) in dest["links"]:
+            planned = dest["body"] + "\n" + "\n".join(u for _r, u in dest["append"])
+            if sup.link_listed(name, planned):
+                dest["prior" if notes and unit in notes else "dedup"].append((row_id, unit))
+            else:
+                dest["append"].append((row_id, unit))
     if ambiguous:
         raise Refusal(f"{len(ambiguous)} ambiguous dedup unit(s), e.g. {'; '.join(ambiguous[:5])} -- "
                       "review them, then rerun with --append-ambiguous to append them (--force does not)")
@@ -213,16 +191,19 @@ def plan_changelog(text: str, index_path: Path, changelog_path: Path, pending: i
 
 def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: tuple, args):
     header_idx, roles = detail
-    problems = sup.unrecognised_content(text, header_idx)
+    problems, edges = chk.scan_index(text, header_idx)
     if problems:
         raise Refusal("content regeneration would drop and this tool does not move: " + "; ".join(problems))
-    if sup.has_soft_dependencies(text):
-        raise Refusal("'## Dependencies' block carries free-text soft-dependency prose -- resolve or remove it by hand first")
     changelog_path, _ledger, older = paths
     if older != changelog_path and older.exists():
         raise Refusal(f"{older.name} exists from an earlier version of this tool, and the generator "
                       f"would scan it as an item file -- rename it to {changelog_path.name}")
     items = preflight_generator(config, index_path)
+    missing = chk.missing_edges(edges, items)
+    if missing:
+        raise Refusal(f"{len(missing)} '## Dependencies' edge(s) are missing from frontmatter blocks: "
+                      f"{'; '.join(missing[:10])}. The generator renders no Dependencies section, so add "
+                      "each edge to its item's blocks: first")
     rows = collect_rows(text, header_idx, roles, config, index_path, items)
     dests = plan_dedup(rows, args.high, args.low, args.append_ambiguous)
     changelog = plan_changelog(text, index_path, changelog_path, sum(len(d["append"]) for d in dests))
@@ -239,14 +220,17 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
             "index_text": text[:footer.start()] + pointer + text[footer.end():]}
 
 
-def build_ledger(plan: dict, paths: tuple, measured: dict | None = None, misses: list | None = None) -> dict:
+def build_ledger(plan: dict, paths: tuple, measured: dict | None = None, misses: list | None = None,
+                 disk_log: str | None = None) -> dict:
     c, dests = plan["changelog"], plan["dests"]
     units = {k: [u for d in dests for _r, u in d[k]] for k in ("append", "dedup", "prior")}
     size = lambda us: sum(len(u.encode("utf-8")) for u in us)  # noqa: E731
     ledger = {
         "run_date": date.today().isoformat(), "mode": "dry-run" if measured is None else "write",
         "changelog": {**{k: v for k, v in c.items() if k not in ("segments", "text")},
-                      "entries": len(c["segments"]), "path": str(paths[0]), "bytes_on_disk": None},
+                      "entries": len(c["segments"]), "path": str(paths[0]), "bytes_on_disk": None,
+                      "unaccounted": sup.unaccounted(c["segments"], c["text"] if disk_log is None else disk_log),
+                      "unaccounted_basis": "staged changelog text" if disk_log is None else "changelog on disk"},
         "dedup": {"rows": plan["row_count"], "units": sum(len(v) for v in units.values()),
                   "appended_units": len(units["append"]), "appended_bytes": size(units["append"]),
                   "appended_by_prior_run_units": len(units["prior"]),
@@ -273,7 +257,8 @@ def format_report(plan: dict) -> str:
     c, dests = plan["changelog"], plan["dests"]
     count = {k: sum(len(d[k]) for d in dests) for k in ("append", "dedup", "prior")}
     lines = [f"changelog: {len(c['segments'])} entr(y/ies), {c['entry_content_bytes']} content bytes, "
-             f"unaccounted={c['unaccounted']}{', resuming an interrupted run' if c['resumed'] else ''}",
+             f"unaccounted={sup.unaccounted(c['segments'], c['text'])}"
+             f"{', resuming an interrupted run' if c['resumed'] else ''}",
              f"dedup: {sum(count.values())} unit(s) across {plan['row_count']} row(s) -- {count['append']} to "
              f"append, {count['prior']} appended by a prior run, {count['dedup']} already present (deduplicated)"]
     for d in dests:
@@ -312,7 +297,7 @@ def execute(plan: dict, paths: tuple, index_path: Path, json_mode: bool) -> int:
                       "Rerun --write to resume; appended units dedup as already present.", json_mode, err=True)
     misses = verify_written(plan, paths, index_path)
     written = [d["path"] for d in plan["dests"]] + [paths[0], index_path]
-    ledger = build_ledger(plan, paths, {str(p): p.stat().st_size for p in written}, misses)
+    ledger = build_ledger(plan, paths, {str(p): p.stat().st_size for p in written}, misses, read_text(paths[0]))
     try:
         sup.replace_all(sup.stage_all([(paths[1], json.dumps(ledger, indent=2) + "\n")]))
     except (OSError, sup.ReplaceError) as exc:
@@ -334,11 +319,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="Emit the plan or ledger as JSON on stdout only.")
     p.add_argument("--force", action="store_true", help="Proceed on a dirty working tree.")
     p.add_argument("--allow-untracked-tree", action="store_true",
-                   help="Proceed when git cannot report the tree state (no repo, git error, or no git).")
+                   help="Proceed when git cannot vouch for the tree (no repo, git error, no git, or ignored inputs).")
     p.add_argument("--append-ambiguous", action="store_true",
                    help="Append AMBIGUOUS dedup units instead of refusing.")
     p.add_argument("--thresholds", default=f"{sup.DEFAULT_HIGH},{sup.DEFAULT_LOW}",
-                   help="'high,low' dedup containment thresholds.")
+                   help="'high,low' similarity thresholds, 0 <= low < high <= 1.")
     return p
 
 
@@ -357,13 +342,17 @@ def main() -> int:
         args.high, args.low = float(high_s), float(low_s)
     except ValueError:
         return say(2, f"REFUSED: --thresholds must be 'high,low' floats, got {args.thresholds!r}.", js, err=True)
+    if not 0 <= args.low < args.high <= 1:
+        return say(2, f"REFUSED: --thresholds needs 0 <= low < high <= 1, got high={args.high}, low={args.low}.",
+                   js, err=True)
 
     config = load_config(Path(__file__))
     index_path = config["_index_path"]
     if not index_path.exists():
         return say(2, f"REFUSED: index not found at {index_path}", js, err=True)
 
-    dirty, reason = git_dirty(config["_project_root"])
+    inputs = [index_path, *sorted(config["_backlog_dir"].glob("*.md")), *sorted(config["_archive_dir"].glob("*.md"))]
+    dirty, reason = chk.git_state(config["_project_root"], inputs)
     if dirty is None and not args.allow_untracked_tree:
         return say(2, f"REFUSED: cannot determine the working-tree state -- {reason}. Commit the index "
                       "and item files to git first, or pass --allow-untracked-tree.", js, err=True)
@@ -385,7 +374,7 @@ def main() -> int:
     if plan is None:
         return say(0, f"CLEAN: already migrated -- the footer points to {paths[0].name} and every row's "
                       "prose is in its item file. Next: run generate_backlog_index.py --write.", js)
-    refusal = tree_gate(dirty, plan, paths, index_path, args.force)
+    refusal = chk.tree_gate(dirty, plan, paths, index_path, args.force)
     if refusal:
         return say(2, f"REFUSED: {refusal}", js, err=True)
     if not args.write:

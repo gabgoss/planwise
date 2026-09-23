@@ -121,6 +121,9 @@ class TestDetectFromItemFiles(_BacklogFixtureBase):
 
         result = detect_drift(self.config)
 
+        # The displayed id is the frontmatter's own stored text, un-normalized
+        # -- the same zero-padded convention the generator/--next-id use
+        # everywhere else. normalize_id governs duplicate-comparison only.
         self.assertEqual([d["id"] for d in result["drifts"]], ["046"])
         self.assertEqual(result["drifts"][0]["file"], "stranded-INFRA-item.md")
         self.assertTrue(result["drifts"][0]["needs_move"])
@@ -170,6 +173,7 @@ class TestAnomaliesNeverActedOn(_BacklogFixtureBase):
 
         result = detect_drift(self.config)
         self.assertEqual(result["drifts"], [])
+        # Displayed id is the raw stored text, un-normalized -- see above.
         self.assertEqual([a["id"] for a in result["anomalies"]], ["070"])
         self.assertIn("open item", result["anomalies"][0]["reason"])
 
@@ -209,6 +213,29 @@ class TestAnomaliesNeverActedOn(_BacklogFixtureBase):
         self.assertTrue(a.exists())
         self.assertTrue(b.exists())
 
+    def test_prefixed_and_bare_forms_of_one_id_are_treated_as_a_duplicate(self):
+        # _read_item's COMPARISON key now normalizes through the SAME
+        # normalize_id-based rule update_backlog.py's own disk lookups use --
+        # "PFX-005" and "005" must collide as one id for duplicate detection,
+        # even though each file's DISPLAYED id stays its own raw frontmatter
+        # text (never normalized for display).
+        a = self.write_item("bare-form-item.md", "005", "COMPLETE")
+        b = self.write_item("prefixed-form-item.md", "PFX-005", "COMPLETE")
+
+        result = detect_drift(self.config)
+        self.assertEqual(result["drifts"], [])
+        self.assertEqual(len(result["anomalies"]), 2)
+        self.assertEqual(
+            sorted(a["id"] for a in result["anomalies"]), ["005", "PFX-005"]
+        )
+        for anomaly in result["anomalies"]:
+            self.assertIn("id also carried by", anomaly["reason"])
+
+        moved, _ = self.run_reconcile_quietly()
+        self.assertEqual(moved, 0)
+        self.assertTrue(a.exists())
+        self.assertTrue(b.exists())
+
     def test_name_collision_in_archive_is_anomaly_and_not_overwritten(self):
         top = self.write_item("same-name-item.md", "091", "COMPLETE")
         archived = self.write_item("same-name-item.md", "092", "COMPLETE", archived=True)
@@ -216,6 +243,7 @@ class TestAnomaliesNeverActedOn(_BacklogFixtureBase):
 
         result = detect_drift(self.config)
         self.assertEqual(result["drifts"], [])
+        # Displayed id is the raw stored text, un-normalized -- see above.
         self.assertEqual([a["id"] for a in result["anomalies"]], ["091"])
 
         moved, _ = self.run_reconcile_quietly()
@@ -352,6 +380,47 @@ class TestCli(_BacklogFixtureBase):
         with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ctx:
             self.run_main()
         self.assertEqual(ctx.exception.code, 1)
+
+    def test_write_exits_nonzero_when_a_move_fails(self):
+        # run_reconcile_cli itself returns normally (implicit exit 0)
+        # whether or not reconcile()'s consented moves all succeeded --
+        # main() must fail the command for a failed move on its own.
+        self.write_item("fails-to-move-INFRA-item.md", "073", "COMPLETE")
+
+        def fake_archive_item_files(backlog_dir, archive_dir, filenames):
+            return [(f, False, "simulated move failure") for f in filenames]
+
+        err = io.StringIO()
+        with patch(
+            "reconcile_backlog.archive_item_files", side_effect=fake_archive_item_files
+        ):
+            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ctx:
+                self.run_main("--write")
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("fails-to-move-INFRA-item.md", err.getvalue())
+        self.assertIn("simulated move failure", err.getvalue())
+        # A failed consented move must leave the file exactly where it was.
+        self.assertTrue((self.backlog_dir / "fails-to-move-INFRA-item.md").exists())
+
+    def test_detect_mode_after_a_failed_write_does_not_inherit_stale_failures(self):
+        # _last_reconcile_failures is module-level state; a later detect-mode
+        # call (which never calls reconcile() at all) must not fail because
+        # an EARLIER --write call in the same process recorded a failure.
+        self.write_item("fails-to-move-INFRA-item.md", "074", "COMPLETE")
+
+        def fake_archive_item_files(backlog_dir, archive_dir, filenames):
+            return [(f, False, "simulated move failure") for f in filenames]
+
+        with patch(
+            "reconcile_backlog.archive_item_files", side_effect=fake_archive_item_files
+        ):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                self.run_main("--write")
+
+        out = self.run_main()  # detect mode, no --write -- must not raise
+
+        self.assertIn("Archival drift detected", out)
 
 
 if __name__ == "__main__":

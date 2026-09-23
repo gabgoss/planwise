@@ -923,6 +923,41 @@ class TestSyncYamlStatusReporting(_UpdateBacklogFixtureBase):
         self.assertIn("created: 2026-07-06", updated)
         self.assertIn("# item", updated)
 
+    def test_empty_status_value_does_not_delete_the_next_key(self):
+        # `\s*` matches a newline too, so on an EMPTY status value the old
+        # regex kept consuming through the line break and swallowed the
+        # WHOLE next key line into the replaced span, deleting it.
+        path = self.tmp / "empty-status.md"
+        path.write_text(
+            "---\nid: 099\nstatus: \npriority: High\ncreated: 2026-07-06\n---\n\n# item\n",
+            encoding="utf-8",
+        )
+
+        result = update_backlog.sync_yaml_status(path, "COMPLETE")
+
+        self.assertEqual(result.outcome, "changed")
+        updated = path.read_text(encoding="utf-8")
+        self.assertIn("status: COMPLETE", updated)
+        self.assertIn("priority: High", updated)
+        self.assertIn("created: 2026-07-06", updated)
+
+    def test_status_with_no_space_before_the_newline_does_not_delete_the_next_key(self):
+        # Same bug, no-space variant: "status:\n" with nothing at all after
+        # the colon.
+        path = self.tmp / "no-space-status.md"
+        path.write_text(
+            "---\nid: 099\nstatus:\npriority: High\ncreated: 2026-07-06\n---\n\n# item\n",
+            encoding="utf-8",
+        )
+
+        result = update_backlog.sync_yaml_status(path, "COMPLETE")
+
+        self.assertEqual(result.outcome, "changed")
+        updated = path.read_text(encoding="utf-8")
+        self.assertIn("status: COMPLETE", updated)
+        self.assertIn("priority: High", updated)
+
+
 
 class TestDiskBasedStatusLookup(_UpdateBacklogFixtureBase):
     """`--status` locates an item's file by its own frontmatter id, never by
@@ -1390,6 +1425,37 @@ class TestPrefixedIdModeEndToEnd(_UpdateBacklogFixtureBase):
         self.assertIn("NOT_STARTED → IN_PROGRESS", out)
         rendered = (self.backlog_dir / "prefixed-lookup-item.md").read_text(encoding="utf-8")
         self.assertIn("status: IN_PROGRESS", rendered)
+
+
+class TestSharedFrontmatterIdNormalizer(unittest.TestCase):
+    """update_backlog.py and reconcile_backlog.py must agree on what counts
+    as a duplicate id -- both now normalize through `_frontmatter_id`
+    (`normalize_id`-based), not through two different rules."""
+
+    def test_prefixed_and_bare_forms_of_one_id_normalize_the_same(self):
+        self.assertEqual(
+            update_backlog._frontmatter_id({"id": "PFX-005"}),
+            update_backlog._frontmatter_id({"id": "005"}),
+        )
+
+    def test_known_ids_from_disk_treats_prefixed_and_bare_as_one_id(self):
+        tmp = Path(tempfile.mkdtemp(prefix="shared_normalizer_test_"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        backlog_dir = tmp / "Backlog"
+        backlog_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir = backlog_dir / "Archive"
+        index_path = backlog_dir / "00-Index-Backlog.md"
+
+        (backlog_dir / "prefixed-item.md").write_text(
+            "---\nid: PFX-005\nstatus: NOT_STARTED\ncreated: 2026-07-06\n---\n\n# x\n",
+            encoding="utf-8",
+        )
+
+        known = update_backlog._known_ids_from_disk(backlog_dir, archive_dir, index_path)
+
+        # Looked up by the bare form -- proves the stored "PFX-005" and a
+        # bare "005" query resolve to the SAME normalized key.
+        self.assertIn(update_backlog.normalize_id("005"), known)
 
 
 if __name__ == "__main__":

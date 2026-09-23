@@ -251,8 +251,15 @@ def sync_yaml_status(item_file_path: Path, new_status: str) -> SyncStatusResult:
     # [^\r\n]*, not .*$ -- `.` matches \r, so a `.*$` replacement on a CRLF
     # frontmatter silently ate the line's trailing \r along with the old
     # value, downgrading that one line from CRLF to LF.
+    #
+    # [ \t]*, not \s* -- `\s` matches a newline too, so on an EMPTY status
+    # value (`status: \n` or `status:\n`) `\s*` kept consuming through the
+    # line break and into the next key's own leading whitespace, and
+    # `[^\r\n]*` then swallowed that whole next line into the match --
+    # deleting it. `[ \t]*` cannot cross the line break, so it stops at the
+    # value (empty or not) and never touches the next key.
     updated_fm = re.sub(
-        r"^status:\s*[^\r\n]*",
+        r"^status:[ \t]*[^\r\n]*",
         f"status: {new_status}",
         frontmatter,
         count=1,
@@ -284,6 +291,22 @@ def _frontmatter_id(fm_map: dict) -> str | None:
     return normalized or None
 
 
+def _scan_item_frontmatter(backlog_dir: Path, archive_dir: Path, index_path: Path):
+    """Yield (path, fm_map) for every on-disk item file whose frontmatter
+    can be read.
+
+    The one scan loop `_find_items_by_id` and `_known_ids_from_disk` both
+    build on, so the two can never drift on which files are skipped or how
+    frontmatter is parsed -- they repeated this loop verbatim before.
+    """
+    for path in _iter_item_files(backlog_dir, archive_dir, index_path):
+        try:
+            fm_map = _read_frontmatter_map(path)
+        except (GeneratorError, OSError, UnicodeDecodeError):
+            continue
+        yield path, fm_map
+
+
 def _find_items_by_id(
     backlog_dir: Path, archive_dir: Path, index_path: Path, item_id: str
 ) -> list[tuple[Path, str]]:
@@ -297,11 +320,7 @@ def _find_items_by_id(
     """
     target = normalize_id(item_id)
     matches: list[tuple[Path, str]] = []
-    for path in _iter_item_files(backlog_dir, archive_dir, index_path):
-        try:
-            fm_map = _read_frontmatter_map(path)
-        except (GeneratorError, OSError, UnicodeDecodeError):
-            continue
+    for path, fm_map in _scan_item_frontmatter(backlog_dir, archive_dir, index_path):
         file_id = _frontmatter_id(fm_map)
         if file_id is None or file_id != target:
             continue
@@ -325,11 +344,7 @@ def _known_ids_from_disk(
     detection is not the place to validate an unrelated file's frontmatter.
     """
     locations: dict[str, str] = {}
-    for path in _iter_item_files(backlog_dir, archive_dir, index_path):
-        try:
-            fm_map = _read_frontmatter_map(path)
-        except (GeneratorError, OSError, UnicodeDecodeError):
-            continue
+    for path, fm_map in _scan_item_frontmatter(backlog_dir, archive_dir, index_path):
         file_id = _frontmatter_id(fm_map)
         if file_id is None:
             continue

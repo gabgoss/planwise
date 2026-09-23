@@ -53,34 +53,50 @@ from constants import CLOSED_STATUSES
 from generate_backlog_index import (
     GeneratorError,
     _iter_item_files,
-    _normalize_id_text,
     _read_frontmatter_map,
     _strip_quotes,
 )
 from reconcile_common import format_drift_report, run_reconcile_cli
-from update_backlog import archive_item_files
+from update_backlog import _frontmatter_id, archive_item_files
+
+# Failed-move accounting for the last `reconcile()` call, so `main()` can
+# fail the command when a consented move didn't succeed -- without adding a
+# failure-signaling hook to `reconcile_common.run_reconcile_cli`, which the
+# plans/lessons reconcilers also share and whose `reconcile(config) -> int`
+# contract (a plain "rows changed" count, per `write_message`) stays
+# unchanged. Reset at the start of every `reconcile()` call.
+_last_reconcile_failures: list[tuple[str, str]] = []
 
 
-def _read_item(path: Path) -> tuple[str | None, str | None]:
-    """Return (id, status) from one item file's frontmatter.
+def _read_item(path: Path) -> tuple[str | None, str | None, str | None]:
+    """Return (display_id, compare_key, status) from one item file's frontmatter.
 
     Uses the generator's own reader, so the audit sees the status exactly as
-    the generator renders it. Either value is None when it cannot be read.
-    A non-numeric id is kept as its raw text so a duplicate check still sees it.
+    the generator renders it. Any value is None when it cannot be read.
+
+    `display_id` is the frontmatter id's own stored text, quote-stripped and
+    trimmed but otherwise UN-normalized -- it is what a human reading the
+    report, or a handler/doctor stage parsing `--json`, expects: the same
+    zero-padded convention the generator and `--next-id` use everywhere else
+    (frontmatter, filenames, the generated index). It is never fed through
+    `normalize_id`, which deliberately strips leading zeros for COMPARISON
+    and would print "46" where every other surface prints "046".
+
+    `compare_key` is `_frontmatter_id` -- the SAME `normalize_id`-based rule
+    `update_backlog.py`'s own disk lookups use -- for EQUALITY ONLY, so a
+    file storing "PFX-005" and one storing "005" are still recognized as one
+    id for duplicate detection, even though their displayed ids differ.
     """
     try:
         fm_map = _read_frontmatter_map(path)
     except (GeneratorError, OSError, UnicodeDecodeError):
-        return None, None
+        return None, None, None
 
     status = _strip_quotes(fm_map.get("status", "").strip()) or None
-
-    raw_id = fm_map.get("id", "")
-    try:
-        item_id = _normalize_id_text(raw_id)
-    except GeneratorError:
-        item_id = _strip_quotes(raw_id.strip()) or None
-    return item_id, status
+    raw_id = fm_map.get("id")
+    display_id = _strip_quotes(str(raw_id).strip()) or None if raw_id is not None else None
+    compare_key = _frontmatter_id(fm_map)
+    return display_id, compare_key, status
 
 
 def _same_dir(a: Path, b: Path) -> bool:
@@ -103,11 +119,11 @@ def detect_drift(config: dict) -> dict:
     anomalies = []
     for path in _iter_item_files(backlog_dir, archive_dir, index_path):
         in_archive = archive_dir.exists() and _same_dir(path.parent, archive_dir)
-        item_id, status = _read_item(path)
+        display_id, compare_key, status = _read_item(path)
         if status is None:
             anomalies.append(
                 {
-                    "id": item_id or "?",
+                    "id": display_id or "?",
                     "status": "?",
                     "file": path.name,
                     "reason": "no parseable frontmatter status — never moved",
@@ -115,25 +131,33 @@ def detect_drift(config: dict) -> dict:
             )
             continue
         scanned.append(
-            {"id": item_id, "status": status, "path": path, "in_archive": in_archive}
+            {
+                "id": display_id,
+                "key": compare_key,
+                "status": status,
+                "path": path,
+                "in_archive": in_archive,
+            }
         )
 
     # Two files carrying one id: which one is the item is a human decision.
-    # Neither file is moved.
-    paths_by_id: dict = {}
+    # Neither file is moved. Grouped by the NORMALIZED comparison key, not
+    # the displayed id, so a "PFX-005" file and a "005" file still collide
+    # even though each keeps its own displayed id below.
+    paths_by_key: dict = {}
     for item in scanned:
-        if item["id"] is not None:
-            paths_by_id.setdefault(item["id"], []).append(item)
-    ambiguous = {item_id for item_id, group in paths_by_id.items() if len(group) > 1}
+        if item["key"] is not None:
+            paths_by_key.setdefault(item["key"], []).append(item)
+    ambiguous = {key for key, group in paths_by_key.items() if len(group) > 1}
 
     drifts = []
     for item in scanned:
         path = item["path"]
         base = {"id": item["id"] or "?", "status": item["status"], "file": path.name}
 
-        if item["id"] in ambiguous:
+        if item["key"] in ambiguous:
             others = [
-                p["path"].name for p in paths_by_id[item["id"]] if p["path"] != path
+                p["path"].name for p in paths_by_key[item["key"]] if p["path"] != path
             ]
             anomalies.append(
                 {**base, "reason": f"id also carried by {', '.join(others)} — never moved"}
@@ -168,8 +192,12 @@ def reconcile(config: dict) -> int:
     Race-safe: recomputes drift from the files on disk rather than trusting an
     earlier detect result, so a file a concurrent writer already moved is left
     alone. Anomalies are never acted on. Each move goes through
-    `archive_item_files`, whose per-file result is reported as-is, so a failed
-    move is printed as a failure and not counted.
+    `archive_item_files`, whose per-file result is reported as-is; a failed
+    move is printed as a failure, not counted, and recorded into
+    `_last_reconcile_failures` so `main()` can fail the command for it (the
+    return value itself stays a plain "moved" count -- the shared
+    `run_reconcile_cli` scaffold's `write_message(n)` contract, which the
+    plans/lessons reconcilers also rely on, is unchanged).
 
     Never edits or writes any index file. When a file moved, prints the
     regenerate command, since the index still links to the old location
@@ -177,6 +205,9 @@ def reconcile(config: dict) -> int:
 
     Returns the number of item files moved.
     """
+    global _last_reconcile_failures
+    _last_reconcile_failures = []
+
     backlog_dir = config["_backlog_dir"]
     archive_dir = config["_archive_dir"]
 
@@ -191,6 +222,8 @@ def reconcile(config: dict) -> int:
     ):
         if success and message == "moved to Archive":
             moved += 1
+        elif not success:
+            _last_reconcile_failures.append((filename, message))
         prefix = "  +" if success else "  !"
         print(f"{prefix} {filename}: {message}")
 
@@ -217,6 +250,14 @@ def _format_report(result: dict) -> str:
 
 
 def main():
+    # Cleared here too, not only in reconcile(): a detect-mode call (no
+    # --write) never calls reconcile() at all, so without this reset a
+    # PRIOR invocation's recorded failures (same process, e.g. two --write
+    # calls in one test run) would otherwise leak into an unrelated,
+    # later, non-writing call and fail it for a move it never attempted.
+    global _last_reconcile_failures
+    _last_reconcile_failures = []
+
     run_reconcile_cli(
         description=(
             "Detect and reconcile backlog archival drift: a COMPLETE/CLOSED item "
@@ -232,6 +273,21 @@ def main():
         json_prefix="reconcile-backlog-",
         write_message=lambda n: f"Moved {n} file(s) to Archive/.",
     )
+
+    # `run_reconcile_cli` returns normally (implicit exit 0) whether or not
+    # `reconcile()`'s consented moves all succeeded -- it only ever exits
+    # non-zero for a missing index. A failed move (OSError, or a refused
+    # destination) must fail the command too, so check what `reconcile()`
+    # recorded on its way out rather than adding a failure-signaling
+    # parameter to the shared scaffold.
+    if _last_reconcile_failures:
+        print(
+            f"Error: {len(_last_reconcile_failures)} move(s) failed:",
+            file=sys.stderr,
+        )
+        for filename, message in _last_reconcile_failures:
+            print(f"  {filename}: {message}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
