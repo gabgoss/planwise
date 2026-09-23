@@ -28,8 +28,13 @@ Usage:
   --model    haiku | sonnet | opus | fable — use that family's
              gate-conservative bytes-per-token ratio (omit for the overall
              most-restrictive default).
-  --content  dense-md | prose | code — refine the ratio within the model
-             family (requires --model to have an effect).
+  --content  dense-md | prose | code | notebook | json — refine the ratio
+             within the model family (without --model, the class's most
+             restrictive family cell, i.e. the Claude 5 tokenizer, is used).
+             Omitted: each file's class is auto-detected from its extension
+             (`.ipynb` → notebook, `.json`/`.jsonl`/`.ndjson` → json, both
+             denser than the text fallback); anything else uses the family's
+             dense-md fallback. An explicit --content overrides detection.
   --json     additionally write the result to a JSON temp file and print
              `JSON: {path}` as the last line.
   --md       emit a ready-to-paste markdown table instead of the plain report.
@@ -60,22 +65,27 @@ from read_limits import (
     READ_TOKEN_WARN,
     _count_lines,
     bytes_per_token,
+    content_class_for_path,
     estimate_tokens,
 )
 
 _MODELS = ("haiku", "sonnet", "opus", "fable")
-_CONTENT_CLASSES = ("dense-md", "prose", "code")
+_CONTENT_CLASSES = ("dense-md", "prose", "code", "notebook", "json")
 
 
 def measure_file(path: str, model: str | None = None, content: str | None = None) -> dict:
     """Measure one existing file: bytes, KiB, lines, estimated tokens, level.
 
-    Returns {path, bytes, kib, lines, tokens, ratio, level, gates} where
-    level is OK|WARN|OVER and gates lists every fired gate in priority order
-    (tokens, then bytes, then lines).
+    Returns {path, bytes, kib, lines, tokens, ratio, content, level, gates}
+    where level is OK|WARN|OVER and gates lists every fired gate in priority
+    order (tokens, then bytes, then lines). `content` is the class the
+    estimate used: the explicit argument, else the class the extension
+    identifies (`content_class_for_path`), else None for the text fallback.
     """
     num_bytes = os.path.getsize(path)
     lines = _count_lines(path)
+    if content is None:
+        content = content_class_for_path(path)
     ratio = bytes_per_token(model, content)
     tokens = estimate_tokens(num_bytes, model, content)
 
@@ -109,6 +119,7 @@ def measure_file(path: str, model: str | None = None, content: str | None = None
         "lines": lines,
         "tokens": tokens,
         "ratio": ratio,
+        "content": content,
         "level": level,
         "gates": gates,
     }
@@ -151,7 +162,15 @@ def format_report(result: dict) -> str:
         lines.append(f["path"])
         lines.append(f"  bytes:  {f['bytes']:,} ({f['kib']:,} KiB)")
         lines.append(f"  lines:  {f['lines']:,}")
-        lines.append(f"  tokens: ~{f['tokens']:,}")
+        # Name the ratio per file when auto-detection picked a class the
+        # run-level header does not show, so a mixed run stays readable.
+        if f["ratio"] != result["ratio"]:
+            lines.append(
+                f"  tokens: ~{f['tokens']:,} (ratio {f['ratio']} B/tok, "
+                f"content={f['content']} auto-detected)"
+            )
+        else:
+            lines.append(f"  tokens: ~{f['tokens']:,}")
         detail = f" — {'; '.join(f['gates'])}" if f["gates"] else ""
         lines.append(f"  level:  {f['level']}{detail}")
     s = result["summary"]

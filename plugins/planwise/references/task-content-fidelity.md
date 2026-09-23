@@ -113,10 +113,10 @@ Fix: Measure with measure_files.py and write the numeric value per references/ta
 >
 > CORRECT — one measured figure, produced by the script, cited consistently:
 > ```markdown
-> | 1 | {notebook-dir}/{notebook-file} | {K} (JSON) | ~{T}K | Source for Analysis — measured via measure_files.py (conservative 2.6 B/tok; dense single-line JSON tokenizes heavy) |
+> | 1 | {notebook-dir}/{notebook-file} | {K} (cleared .ipynb) | ~{T}K | Source for Analysis — measured via measure_files.py (notebook class auto-detected, 2.3 B/tok on the Claude 5 family) |
 >
 > ## Notes for Agent
-> - Notebook measured at {K} KiB → ~{T}K tokens (conservative ratio).
+> - Notebook measured at {K} KiB → ~{T}K tokens (notebook ratio, cleared file).
 >   Subagent budget: ~{task_T}K + 54K overhead = ~{total_T}K, well within 200K.
 > ```
 >
@@ -130,14 +130,16 @@ Fix: Measure with measure_files.py and write the numeric value per references/ta
 > | Prose / typical markdown | ~2.9 | |
 > | Docs with code blocks / source code | ~2.7 | Code tokenizes DENSER than prose, not lighter |
 > | Wide-line reference docs | ~4.1+ | Light — measure, never assume |
-> | Compressed JSON / minified JS / notebook JSON | ~1.9–2.6 | Dense structures tokenize heavy; keep the conservative default |
+> | Jupyter notebook (`.ipynb`, outputs cleared) | ~2.3 | Auto-detected by extension. The Read tool renders a notebook as cells and counts tokens on the rendering; an uncleared notebook's large outputs are elided, so measure the cleared file |
+> | Raw JSON (`.json`, `.jsonl`, `.ndjson`) | ~2.0 | Auto-detected by extension; the densest measured class |
+> | Minified JS / CSV | dense-md default | No measured class of their own; the conservative text default applies |
 >
 > The `KiB`/`~Tokens` values MUST come from `measure_files.py` (or `wc -c` ÷ ratio) on the actual file — NOT from eyeballing a `Read` tool output. A single `Read` page is capped (~25K tokens hard, ~21K delivered, 2,000-line window); a partial read produces a lower number that underestimates the cost and silently misroutes the file in the §9.A.8 Large-File Ladder.
 
 #### Reviewer Check 017 — Task Byte-Ratio Band Conformance
 
 - **Severity / Role / Type:** WARNING | Task Reviewer | NEW
-- **What:** Per-file ratio (measured bytes ÷ `~Tokens`) MUST fall within the measured band for the assigned model family — `[2.4, 3.5]` for the Claude 5 family (Opus, **Sonnet**, Fable), `[3.5, 5.0]` for Haiku 4.5 (conservative-default estimates land in the Claude 5 band). Sonnet moved into the Claude 5 band on 2026-09-07; a correctly-measured Sonnet task rated against the Haiku band false-fires.
+- **What:** Per-file ratio (measured bytes ÷ `~Tokens`) MUST fall within the measured band for the assigned model family — `[2.0, 3.5]` for the Claude 5 family (Opus, **Sonnet**, Fable), `[2.7, 5.0]` for Haiku 4.5 (conservative-default estimates land in the Claude 5 band). The lower bounds are the json cells (2.0 / 2.7); a `.json` or `.ipynb` row sits at the low end of its band by construction, not by error. Sonnet moved into the Claude 5 band on 2026-09-07; a correctly-measured Sonnet task rated against the Haiku band false-fires.
 - **Detection:** For each Required Context row, compute `bytes ÷ tokens`. Outside the assigned family's band → WARNING.
 - **Finding template:**
 ```
@@ -384,7 +386,7 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan.m
   6. **Oversized generated artifact not split** (ERROR) — a plan-generated artifact a runner MUST read (task file, Orchestration, Recovery, Consolidated Context part, Execution Input, task Output file) exceeds the HARD read ceiling (≥ 25K tokens at the reading model's ratio, OR ≥ 256 KiB, OR ≥ 2,000 lines) without a Multi-Part split. External source files the runner reads but does not generate stay advisory (sub-checks 2 and 4).
 - **Detection:**
   1. Read `context.token_saver` from `config.yaml`. If false → emit no findings (no-op).
-  2. Derive ceilings (never hardcode): `available_per_task = token_saver_session_target − token_saver_runner_overhead − 6000`; `critical = available_per_task − 10000`; `warn = min(40000, round(0.5 × available_per_task))`. Read gates are FIXED: token page-cap ≥ 25,000 model-tok (warn 22,000), `tokens = bytes ÷ {model-family B/tok — opus/fable 2.6, sonnet/haiku 3.7 gate-conservative}`; byte ≥ 262,144 (warn 245,760); line ≥ 2,000 — measure with `measure_files.py --model {assigned} --json`.
+  2. Derive ceilings (never hardcode): `available_per_task = token_saver_session_target − token_saver_runner_overhead − 6000`; `critical = available_per_task − 10000`; `warn = min(40000, round(0.5 × available_per_task))`. Read gates are FIXED: token page-cap ≥ 25,000 model-tok (warn 22,000), `tokens = bytes ÷ {model-family B/tok — Claude 5 family (opus/sonnet/fable) 2.6, haiku 3.5 gate-conservative text fallback; a .ipynb or .json row uses its auto-detected notebook/json cell}`; byte ≥ 262,144 (warn 245,760); line ≥ 2,000 — measure with `measure_files.py --model {assigned} --json`.
   3. For each task: recompute the bottom-up estimate and apply sub-check 1.
   4. For each Required Context file: classify against the task's assigned-Agent tokenizer (`level = max(cost_level, read_level)`, with `reason`); apply sub-checks 2, 4, 5.
   5. Apply sub-check 3 to any task flagged `1M-exception`.

@@ -420,7 +420,7 @@ The contract the tool implements, for reference when reading its output:
 4. **Differentiate the remedy by file type** in the recommendation:
    - **Code** → refactor into smaller modules.
    - **Doc / spec / Execution Input** → Multi-Part split (existing [Multi-Part Output Convention](../references/session-context-budget.md#file-size-limits)).
-   - **Dense (notebook / minified / compressed JSON)** → measure precisely (`measure_files.py`, conservative ratio) and extract only the needed sections.
+   - **Dense (notebook / minified / compressed JSON)** → measure precisely (`measure_files.py` auto-detects the notebook and json classes from the extension; minified files take the conservative text ratio) and extract only the needed sections.
 
 5. **Generated artifacts the plan itself authors** that a runner MUST read — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files — carry a **HARD** read-gate ceiling (MUST Multi-Part split to stay readable), NOT advisory, per `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](../references/session-context-budget.md#file-size-limits--generated-artifacts-binding). External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics).
 

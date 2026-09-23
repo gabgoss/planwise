@@ -239,7 +239,7 @@ Run `/context` to measure your project's domain rule costs. Add rows with your p
 
 Task token estimates MUST be computed bottom-up from measured file sizes, not just matched to qualitative categories (Small/Medium/Large). The `/planwise plan` handler's Step 8c enforces this.
 
-**Measurement:** run `measure_files.py` over every Required Context file — tokens = bytes ÷ the assigned model's bytes-per-token ratio (see [Read-Tool Hard Limits](#read-tool-hard-limits)). For a file that does not exist yet, estimate its byte size and divide: on the Claude 5 family ≈ bytes ÷ 2.9 for prose, ÷ 2.7 for code, ÷ 2.6 for dense markdown (tables, link-heavy rows). Never derive a token figure from a line count.
+**Measurement:** run `measure_files.py` over every Required Context file — tokens = bytes ÷ the assigned model's bytes-per-token ratio (see [Read-Tool Hard Limits](#read-tool-hard-limits)). For a file that does not exist yet, estimate its byte size and divide: on the Claude 5 family ≈ bytes ÷ 2.9 for prose, ÷ 2.7 for code, ÷ 2.6 for dense markdown (tables, link-heavy rows), ÷ 2.3 for a cleared notebook, ÷ 2.0 for raw JSON. Never derive a token figure from a line count.
 
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
 **DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Sonnet/Haiku 200K, Opus 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
@@ -265,7 +265,7 @@ Use these tables to compute bottom-up token estimates for each task.
 
 | Operation | Approx. Tokens | Heuristic |
 |-----------|----------------|-----------|
-| Read file | bytes ÷ 2.6–3.3 | Measure with `measure_files.py`; ratio set by reading model + content class |
+| Read file | bytes ÷ 2.0–4.0 | Measure with `measure_files.py`; ratio set by reading model + content class (json 2.0 … Haiku prose 4.0) |
 | Read 5 KiB file | ~2K | Small config, helper |
 | Read 15 KiB file | ~5-6K | Medium file |
 | Read 30 KiB file | ~10-12K | Large reference doc or entity |
@@ -449,12 +449,14 @@ The Read tool has three mechanical limits, SEPARATE from the carrying-cost budge
 
 Gate priority: **tokens first, then bytes, then lines — whichever comes first.** The caps and warn thresholds are identical on every model; only the tokenizer weight (bytes-per-token) differs.
 
-| Model family | Token cap (hard) | Token warn | Byte cap (hard) | Byte warn | Line gate | Bytes-per-token (measured 2026-09-07) |
+| Model family | Token cap (hard) | Token warn | Byte cap (hard) | Byte warn | Line gate | Bytes-per-token (text measured 2026-09-07; notebook and json 2026-09-23) |
 |---|---|---|---|---|---|---|
-| Opus 5 | 25,000 | 22,000 | 262,144 (256 KiB) | 245,760 (240 KiB) | 2,000 (defensive) | dense markdown 2.6 · prose 2.9 · code 2.7 |
-| Sonnet 5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | same tokenizer as Opus: 2.6 · 2.9 · 2.7 |
-| Fable 5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | same tokenizer as Opus: 2.6 · 2.9 · 2.7 |
-| Haiku 4.5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | dense markdown 3.5 · prose 4.0 · code 3.6 |
+| Opus 5 | 25,000 | 22,000 | 262,144 (256 KiB) | 245,760 (240 KiB) | 2,000 (defensive) | dense markdown 2.6 · prose 2.9 · code 2.7 · notebook 2.3 · json 2.0 |
+| Sonnet 5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | same tokenizer as Opus: 2.6 · 2.9 · 2.7 · 2.3 · 2.0 |
+| Fable 5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | same tokenizer as Opus: 2.6 · 2.9 · 2.7 · 2.3 · 2.0 |
+| Haiku 4.5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | dense markdown 3.5 · prose 4.0 · code 3.6 · notebook 3.3 · json 2.7 |
+
+The two structured classes are selected by file extension, never by guessing: `measure_files.py` and `classify_file()` price a `.ipynb` at the **notebook** ratio and a `.json` / `.jsonl` / `.ndjson` at the **json** ratio unless an explicit content class overrides them. Every other extension takes the dense-markdown fallback. The notebook ratio is on-disk bytes per token of the Read tool's *rendered cell view* of an outputs-cleared notebook — the tool renders a notebook rather than returning its raw JSON, and counts tokens on the rendering (the same bytes measured 31,395 tokens as `.ipynb` and 37,176 as `.json`). For a notebook that still carries outputs the renderer elides large ones, so the estimate is an upper bound; measure the cleared file.
 
 > [!constraint] The tokenizer splits by model GENERATION, not by model size
 > Opus 5, Sonnet 5 and Fable 5 return the **same** token count for the same file — measured to within 1–2 tokens over ~54K. Haiku 4.5 alone is lighter, by ~1.31–1.38×. Do not group models by size or by cost tier when estimating.

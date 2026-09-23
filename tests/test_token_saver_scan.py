@@ -106,13 +106,19 @@ class TestClassificationHelpers(unittest.TestCase):
     def test_doc_gets_no_content_class_so_the_ratio_stays_conservative(self):
         label, content = tss.content_class_for(Path("x/index.md"))
         self.assertEqual(label, "doc")
-        # None -> bytes_per_token falls back to the family's smallest ratio.
-        # Guessing "prose" on a dense table index under-estimates its tokens.
+        # None -> bytes_per_token falls back to the family's densest text
+        # ratio. Guessing "prose" on a dense table index under-estimates.
         self.assertIsNone(content)
         self.assertEqual(tss.content_class_for(Path("x/a.py")), ("code", "code"))
-        self.assertEqual(
-            tss.content_class_for(Path("x/a.json")), ("dense", "dense-md")
-        )
+        # JSON and notebook files carry their own measured classes, both
+        # denser than dense-md; other dense structures stay on dense-md.
+        self.assertEqual(tss.content_class_for(Path("x/a.json")), ("dense", "json"))
+        self.assertEqual(tss.content_class_for(Path("x/a.ipynb")), ("dense", "notebook"))
+        self.assertEqual(tss.content_class_for(Path("x/a.csv")), ("dense", "dense-md"))
+        # `.min.js` is a double extension — Path.suffix is `.js`, so it must
+        # be matched on the name, not the suffix.
+        self.assertEqual(tss.content_class_for(Path("x/lib.min.js")), ("dense", "dense-md"))
+        self.assertEqual(tss.content_class_for(Path("x/lib.js")), ("code", "code"))
 
     def test_annotations_are_computed_not_written(self):
         over_tokens = {"tokens": 30_000, "bytes": 1_000}

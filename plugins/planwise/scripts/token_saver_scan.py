@@ -58,6 +58,7 @@ from read_limits import (
     READ_FILE_BYTE_CAP,
     READ_PAGE_CAP_TOKENS,
     classify_file,
+    content_class_for_path,
 )
 
 # A Required Context row whose File cell is a command corpus, not a path: the
@@ -68,7 +69,13 @@ _CODE_SUFFIXES = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".cs", ".go", ".rb", ".rs",
     ".c", ".cc", ".cpp", ".h", ".hpp", ".sh", ".ps1", ".sql", ".css", ".html",
 }
-_DENSE_SUFFIXES = {".json", ".ipynb", ".ndjson", ".jsonl", ".min.js", ".csv"}
+# Dense NON-JSON structures with no measured class of their own: they take the
+# dense-md ratio. JSON and notebook files have measured classes and are
+# resolved by `read_limits.content_class_for_path` instead.
+_DENSE_SUFFIXES = {".csv"}
+# `.min.js` is a double extension: `Path.suffix` yields `.js`, so it is
+# matched on the file name, not the suffix.
+_DENSE_NAME_SUFFIXES = (".min.js",)
 
 _CONTENT_CLASS = {"code": "code", "dense": "dense-md", "doc": "prose"}
 
@@ -262,12 +269,19 @@ def content_class_for(path: Path) -> tuple[str, str | None]:
     The label drives the REMEDY wording; the content class drives the RATIO.
     A doc gets `None`, not "prose": an extension cannot tell narrative prose
     from a dense table index, and `bytes_per_token(model, None)` falls back to
-    that model family's smallest (most token-heavy) ratio. Guessing "prose" on
-    a dense `.md` under-estimates its tokens, which is the unsafe direction —
-    it is exactly the index-shaped file this scan exists to catch.
+    that model family's densest text ratio. Guessing "prose" on a dense `.md`
+    under-estimates its tokens, which is the unsafe direction — it is exactly
+    the index-shaped file this scan exists to catch.
+
+    A notebook or JSON file is "dense" for the remedy and takes its own
+    measured class ("notebook" / "json") for the ratio — both sit below
+    dense-md, so pricing them as dense-md under-estimates.
     """
+    structured = content_class_for_path(str(path))
+    if structured is not None:
+        return "dense", structured
     suffix = path.suffix.lower()
-    if suffix in _DENSE_SUFFIXES:
+    if suffix in _DENSE_SUFFIXES or path.name.lower().endswith(_DENSE_NAME_SUFFIXES):
         return "dense", _CONTENT_CLASS["dense"]
     if suffix in _CODE_SUFFIXES:
         return "code", _CONTENT_CLASS["code"]

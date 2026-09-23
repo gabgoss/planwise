@@ -809,7 +809,7 @@ The read-constant tripwire is paired with a cross-model ratio-band assertion in 
 
 | Property | Assertion |
 |---|---|
-| Cross-generation band | Opus token count is 1.25–1.45× Haiku (measured 1.31–1.38× across the three content classes) |
+| Cross-generation band | Opus token count is 1.25–1.45× Haiku (measured 1.31–1.38× across the three text classes and 1.28–1.40× across the notebook and json classes) |
 | Intra-family equality | Opus, Sonnet and Fable estimate **identically** — the Claude 5 models share one tokenizer |
 
 The split is by model **generation, not model size**. A drift in the equality pin means a family regrouped, which is the more consequential of the two: it silently re-rates every file measured for that model.
