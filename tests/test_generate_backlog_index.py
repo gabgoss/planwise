@@ -21,7 +21,11 @@ hand-edited on-disk row whose cell count no longer matches the header
 modes still measure, `--write` refuses); the scanner's own-generated-artifact
 filter; and stale-generated-file drift + removal, including the load-bearing
 "deletes nothing else" guarantee. A final class pins the one exit-code
-mapping (`Disposition`/`exit_code_for`) every mode routes through.
+mapping (`Disposition`/`exit_code_for`) every mode routes through. The
+last five classes pin the hub-family budget (half the Read-tool page cap,
+P1), the CRLF worst-case byte basis (P2), leaf 0's directory listing
+exactly the overflow leaves shipped (P3), and the `budget` /
+`page_cap_ratio` fields in both the JSON and the printed report.
 
 Each test builds an isolated temp planwise tree (config.yaml + Backlog/ +
 Backlog/Archive/) or exercises a pure function directly; none read the live
@@ -33,6 +37,7 @@ Run with:  python -m pytest -q -c pytest.ini tests/test_generate_backlog_index.p
 import difflib
 import hashlib
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -47,6 +52,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import generate_backlog_index as gbi
+import read_limits
 import score_backlog
 from markdown_parser import split_row_cells, split_row_raw
 
@@ -91,17 +97,12 @@ def _one_shard_shards_section():
 
 
 def _hub_wrapper_tokens(shards_section):
-    """Replicate build_hub_files' own wrapper-reserve computation exactly,
-    so the boundary window this module's tests target is the SAME window
-    the production function computes -- never a re-derived approximation."""
-    today = datetime.now().astimezone().date()
-    generated_line = f"Generated: {today.isoformat()}\n\n"
-    leaf0_wrapper = generated_line + "\n" + shards_section
-    continuation_wrapper = f"[Back to Backlog Index](00-{gbi.INDEX_FILE_STEM}.md)\n\n"
-    wrapper_bytes = max(
-        len(leaf0_wrapper.encode("utf-8")), len(continuation_wrapper.encode("utf-8"))
-    )
-    return gbi.estimate_tokens(wrapper_bytes)
+    """Call build_hub_files' own wrapper-reserve computation, so the
+    boundary window this module's tests target is the SAME window the
+    production function computes. An earlier local replica omitted the
+    changelog footer line that production includes; calling production
+    removes that drift instead of re-deriving an approximation."""
+    return gbi.hub_wrapper_tokens(shards_section, gbi._DEFAULT_INDEX_NAMING)
 
 
 def _boundary_open_items(variable_blocks_len):
@@ -808,13 +809,15 @@ class TestSplitMeasuresShippedFileNotBody(_GeneratorFixtureBase):
     """Finding F1: the split decision now measures body + wrapper, not the
     bare body. A body that used to be accepted as one leaf -- and then
     made the ASSEMBLED file overflow, refusing in every mode with a
-    message that blamed an unshardable row -- must now split instead."""
+    message that blamed an unshardable row -- must now split instead.
+    The window is the hub's own budget (`HUB_TOKEN_BUDGET`), the budget
+    the hub split is actually decided against."""
 
     def test_body_in_boundary_window_splits_instead_of_refusing(self):
         shards_section = _one_shard_shards_section()
         wrapper_tokens = _hub_wrapper_tokens(shards_section)
-        target_low = gbi.READ_TOKEN_WARN - wrapper_tokens
-        target_high = gbi.READ_TOKEN_WARN
+        target_low = gbi.HUB_TOKEN_BUDGET - wrapper_tokens
+        target_high = gbi.HUB_TOKEN_BUDGET
 
         blocks_len = _find_boundary_blocks_len(target_low, target_high)
         body_tokens = _body_tokens_for(blocks_len)
@@ -824,8 +827,8 @@ class TestSplitMeasuresShippedFileNotBody(_GeneratorFixtureBase):
         # would have accepted it as one leaf), yet body + wrapper is not
         # (the OLD code's post-assembly check would then have raised).
         self.assertTrue(target_low <= body_tokens < target_high)
-        self.assertLess(body_tokens, gbi.READ_TOKEN_WARN)
-        self.assertGreaterEqual(body_tokens + wrapper_tokens, gbi.READ_TOKEN_WARN)
+        self.assertLess(body_tokens, gbi.HUB_TOKEN_BUDGET)
+        self.assertGreaterEqual(body_tokens + wrapper_tokens, gbi.HUB_TOKEN_BUDGET)
 
         items = _boundary_open_items(blocks_len) + [_make_item(990, status="COMPLETE", priority="Low")]
         result = gbi.build_index_files(items, _PURE_BACKLOG_DIR, _PURE_BACKLOG_DIR / "Archive")
@@ -836,14 +839,14 @@ class TestSplitMeasuresShippedFileNotBody(_GeneratorFixtureBase):
         self.assertEqual(len(hub_leaves), 2)
         self.assertEqual(len(shard_leaves), 1)
         for entry in hub_leaves:
-            self.assertLess(entry["tokens"], gbi.READ_TOKEN_WARN)
+            self.assertLess(entry["tokens"], gbi.HUB_TOKEN_BUDGET)
             self.assertEqual(entry["tokens"], gbi.estimate_tokens(entry["bytes"]))
 
     def test_write_on_boundary_fixture_exits_zero(self):
         shards_section = _one_shard_shards_section()
         wrapper_tokens = _hub_wrapper_tokens(shards_section)
-        target_low = gbi.READ_TOKEN_WARN - wrapper_tokens
-        target_high = gbi.READ_TOKEN_WARN
+        target_low = gbi.HUB_TOKEN_BUDGET - wrapper_tokens
+        target_high = gbi.HUB_TOKEN_BUDGET
         blocks_len = _find_boundary_blocks_len(target_low, target_high)
 
         # Same guard as the pure-function test above, over the identical
@@ -1127,7 +1130,7 @@ class TestHubDirectoryListsOverflowLeaves(unittest.TestCase):
         self.assertGreater(len(overflow_leaves), 0)
 
         for entry in hub_leaves:
-            self.assertLess(entry["tokens"], gbi.READ_TOKEN_WARN)
+            self.assertLess(entry["tokens"], gbi.HUB_TOKEN_BUDGET)
         for entry in overflow_leaves:
             self.assertIn(f"]({entry['path']})", leaf0["content"])
             self.assertIn("[Back to Backlog Index](00-Index-Backlog.md)", entry["content"])
@@ -1407,6 +1410,218 @@ class TestChangelogFooter(_GeneratorFixtureBase):
         self.assertEqual(code, 1)
         self.assertIn("00-Changelog-Backlog.md", out)
         self.assertIn("does not exist", out)
+
+
+# Every class below uses only API that predates the hub budget
+# (`build_index_files`, `render_table_body`, `main()`, and `read_limits`'
+# own constants), so each one fails BY ASSERTION -- never by an
+# AttributeError on a new symbol -- when run against an older generator.
+_HUB_LIMIT = read_limits.READ_PAGE_CAP_TOKENS // 2
+
+
+def _mid_size_fixture():
+    """17 open rows and 17 closed rows (one century), each row ~1,000
+    tokens: both tables land between the hub limit (12,500) and the
+    shard budget (22,000)."""
+    open_items = _hub_splitting_items(row_count=17)
+    closed_items = [
+        _make_item(i, status="COMPLETE", score="-", blocks=["990"] * 500)
+        for i in range(101, 118)
+    ]
+    return open_items, closed_items
+
+
+def _lf_body_tokens(items):
+    body, _truncated = gbi.render_table_body(items, _PURE_BACKLOG_DIR)
+    return read_limits.estimate_tokens(len(body.encode("utf-8")))
+
+
+class TestHubBudgetIsHalfThePageCap(unittest.TestCase):
+    """P1: the hub family splits against half the Read-tool page cap, not
+    the 22,000-token warn level, while an Archive shard of similar size
+    stays one file under its own, larger budget."""
+
+    def test_mid_size_hub_splits_and_same_size_shard_does_not(self):
+        open_items, closed_items = _mid_size_fixture()
+
+        # Guard against a vacuous pass: both tables lie between the hub
+        # limit and the shard budget, with room left for any wrapper, so
+        # an older generator ships the open set as ONE hub file.
+        for items in (open_items, closed_items):
+            tokens = _lf_body_tokens(items)
+            self.assertGreaterEqual(tokens, _HUB_LIMIT)
+            self.assertLess(tokens + 1000, read_limits.READ_TOKEN_WARN)
+
+        result = gbi.build_index_files(
+            open_items + closed_items, _PURE_BACKLOG_DIR, _PURE_BACKLOG_DIR / "Archive"
+        )
+        hub_leaves = [entry for entry in result["files"] if entry["path"].startswith("00-")]
+        shard_files = [entry for entry in result["files"] if entry["path"].startswith("Archive/")]
+
+        self.assertGreater(len(hub_leaves), 1)
+        for entry in hub_leaves:
+            self.assertLess(entry["tokens"], _HUB_LIMIT)
+        self.assertEqual(sum(entry["rows"] for entry in hub_leaves), len(open_items))
+
+        # Distinct budgets: the closed century is just as large, and stays whole.
+        self.assertEqual(len(shard_files), 1)
+        self.assertGreaterEqual(shard_files[0]["tokens"], _HUB_LIMIT)
+        self.assertLess(shard_files[0]["tokens"], read_limits.READ_TOKEN_WARN)
+
+    def test_every_entry_reports_its_budget_and_page_cap_ratio(self):
+        open_items, closed_items = _mid_size_fixture()
+        result = gbi.build_index_files(
+            open_items + closed_items, _PURE_BACKLOG_DIR, _PURE_BACKLOG_DIR / "Archive"
+        )
+
+        for entry in result["files"]:
+            is_hub = entry["path"].startswith("00-")
+            expected_budget = _HUB_LIMIT if is_hub else read_limits.READ_TOKEN_WARN
+            self.assertEqual(entry.get("budget"), expected_budget, entry["path"])
+            self.assertEqual(entry.get("headroom"), expected_budget - entry["tokens"])
+            self.assertEqual(
+                entry.get("page_cap_ratio"),
+                round(read_limits.READ_PAGE_CAP_TOKENS / entry["tokens"], 2),
+            )
+            if is_hub:
+                self.assertGreaterEqual(entry["page_cap_ratio"], 2.0)
+
+
+class TestCrlfCheckoutBytesAreBudgeted(_GeneratorFixtureBase):
+    """P2 (end to end): the reported `bytes` is what a CRLF checkout holds
+    on disk, not the LF render. The on-disk files are rewritten as CRLF
+    from explicit bytes -- never `Path.write_text`, which normalizes to
+    `os.linesep` and would make the fixture depend on the platform."""
+
+    def test_dry_run_bytes_equal_the_crlf_files_on_disk(self):
+        self.write_item("001", title="Open item one", priority="High",
+                         status="IN_PROGRESS", abbrev="BUG", created="2026-01-01")
+        self.write_item("002", title="Open item two", priority="Medium",
+                         status="NOT_STARTED", abbrev="INFRA", created="2026-01-01")
+        self.write_item("150", title="Closed item", priority="Low",
+                         status="COMPLETE", abbrev="PROC", created="2025-01-01",
+                         archived=True, filename="BB-150-01-PROC-Fixture.md")
+        code, _out, err = self.run_main("--write")
+        self.assertEqual(code, 0, err)
+
+        hub_path = self.backlog_dir / "00-Index-Backlog.md"
+        shard_path = self.archive_dir / "Index-Backlog-150-150.md"
+        for path in (hub_path, shard_path):
+            crlf_bytes = path.read_bytes().replace(b"\n", b"\r\n")
+            path.write_bytes(crlf_bytes)
+            self.assertGreater(crlf_bytes.count(b"\r\n"), 0)
+            self.assertEqual(crlf_bytes.count(b"\r\n"), crlf_bytes.count(b"\n"))
+
+        code, out, err = self.run_main("--dry-run", "--json")
+        self.assertEqual(code, 0, err)
+        entries = {entry["path"]: entry for entry in json.loads(out)}
+
+        self.assertEqual(entries["00-Index-Backlog.md"]["bytes"], len(hub_path.read_bytes()))
+        self.assertEqual(
+            entries["Archive/Index-Backlog-150-150.md"]["bytes"], len(shard_path.read_bytes())
+        )
+        for entry in entries.values():
+            self.assertEqual(entry["tokens"], read_limits.estimate_tokens(entry["bytes"]))
+
+
+class TestShardSplitCountsCrlfBytes(unittest.TestCase):
+    """P2 (pure function): a closed century that fits the shard budget on
+    LF bytes but not on CRLF bytes must split into two shard files. The
+    window is one byte per line, so the fixture binary-searches into it."""
+
+    BACKLINK = "[Back to Backlog Index](../00-Index-Backlog.md)\n\n"
+
+    def _century(self, blocks_len):
+        items = [_make_item(i, status="COMPLETE", score="-") for i in range(101, 150)]
+        items.append(_make_item(150, status="COMPLETE", score="-", blocks=["990"] * blocks_len))
+        return items
+
+    def _measure_both(self, blocks_len):
+        """Return (the LF split sum an older generator decides on, the
+        token count of the assembled shard as a CRLF checkout holds it)."""
+        body, _truncated = gbi.render_table_body(self._century(blocks_len), _PURE_BACKLOG_DIR)
+        lf_split_sum = read_limits.estimate_tokens(
+            len(body.encode("utf-8"))
+        ) + read_limits.estimate_tokens(len(self.BACKLINK.encode("utf-8")))
+        crlf_file = (self.BACKLINK + body).replace("\n", "\r\n").encode("utf-8")
+        return lf_split_sum, read_limits.estimate_tokens(len(crlf_file))
+
+    def test_century_inside_the_crlf_window_splits_into_two_shards(self):
+        budget = read_limits.READ_TOKEN_WARN
+        lo, hi = 0, 20000
+        self.assertLess(self._measure_both(lo)[1], budget)
+        self.assertGreaterEqual(self._measure_both(hi)[1], budget)
+        while lo < hi:  # smallest blocks_len whose CRLF file reaches the budget
+            mid = (lo + hi) // 2
+            if self._measure_both(mid)[1] < budget:
+                lo = mid + 1
+            else:
+                hi = mid
+
+        # Guard against a vacuous pass: LF bytes fit, CRLF bytes do not.
+        lf_split_sum, crlf_tokens = self._measure_both(lo)
+        self.assertLess(lf_split_sum, budget)
+        self.assertGreaterEqual(crlf_tokens, budget)
+
+        result = gbi.build_index_files(
+            self._century(lo), _PURE_BACKLOG_DIR, _PURE_BACKLOG_DIR / "Archive"
+        )
+        shards = [entry for entry in result["files"] if entry["path"].startswith("Archive/")]
+
+        self.assertEqual(len(shards), 2)
+        self.assertEqual(sum(entry["rows"] for entry in shards), 50)
+        for entry in shards:
+            self.assertTrue(entry["content"].startswith(self.BACKLINK))
+            self.assertLess(entry["tokens"], budget)
+
+
+class TestHubDirectoryIsComplete(unittest.TestCase):
+    """P3: leaf 0's `## Shards` directory links exactly the hub overflow
+    leaves that ship -- no stale id range pointing at a file that does not
+    exist, and no shipped leaf left unlisted. Many Archive shards make the
+    directory itself a large part of the reserve, so its own growth feeds
+    back into the split."""
+
+    def test_leaf0_links_exactly_the_overflow_files_produced(self):
+        closed = [
+            _make_item(century * 100 + 1, status="COMPLETE", score="-")
+            for century in range(3, 43)
+        ]
+        items = _hub_splitting_items() + closed
+
+        result = gbi.build_index_files(items, _PURE_BACKLOG_DIR, _PURE_BACKLOG_DIR / "Archive")
+        hub_leaves = [entry for entry in result["files"] if entry["path"].startswith("00-")]
+        leaf0 = next(entry for entry in hub_leaves if entry["path"] == "00-Index-Backlog.md")
+        produced = {entry["path"] for entry in hub_leaves if entry is not leaf0}
+        linked = set(re.findall(r"\]\((00-Index-Backlog-[^)]+)\)", leaf0["content"]))
+
+        self.assertGreater(len(produced), 1)
+        self.assertEqual(linked, produced)
+        self.assertEqual(sum(entry["rows"] for entry in hub_leaves), 200)
+
+
+class TestPrintedReportShowsBudgetAndRatio(_GeneratorFixtureBase):
+    """The printed (non-JSON) report names each file's budget and its
+    page-cap ratio, so a later headroom miss shows up in every run."""
+
+    def test_each_file_line_names_budget_and_page_cap_ratio(self):
+        self.write_item("001", title="Open item", priority="High",
+                         status="IN_PROGRESS", abbrev="BUG", created="2026-01-01")
+        self.write_item("150", title="Closed item", priority="Low",
+                         status="COMPLETE", abbrev="PROC", created="2025-01-01",
+                         archived=True, filename="BB-150-01-PROC-Fixture.md")
+
+        code, out, err = self.run_main("--dry-run")
+
+        self.assertEqual(code, 0, err)
+        file_lines = [line for line in out.splitlines() if " rows, " in line]
+        self.assertEqual(len(file_lines), 2)
+        for line in file_lines:
+            self.assertIn("page_cap_ratio ", line)
+        hub_line = next(line for line in file_lines if line.startswith("00-Index-Backlog.md:"))
+        shard_line = next(line for line in file_lines if line.startswith("Archive/"))
+        self.assertIn(f"budget {_HUB_LIMIT}", hub_line)
+        self.assertIn(f"budget {read_limits.READ_TOKEN_WARN}", shard_line)
 
 
 if __name__ == "__main__":

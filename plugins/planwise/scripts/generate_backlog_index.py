@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import get_scoring_weights, load_config
 from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
 from markdown_parser import is_section_boundary, split_row_cells
-from read_limits import READ_TOKEN_WARN, estimate_tokens
+from read_limits import READ_PAGE_CAP_TOKENS, READ_TOKEN_WARN, estimate_tokens
 from reconcile_common import format_drift_report, read_text_preserving_newlines
 from score_backlog import _strip_inline_comment, compute_score, count_archived_by_abbrev
 
@@ -523,12 +523,17 @@ def render_separator() -> str:
 # Hub/shard partition and budget enforcement
 #
 # Sharding is the generator's whole size guarantee, not a readability setting:
-# every file this module produces MUST measure under READ_TOKEN_WARN before
-# it is ever handed to a writer. The measurement basis is `read_limits`'s own
-# byte-ratio instrument -- the same one the Read-tool gate itself uses --
-# never TOKENS_PER_LINE, which under-estimates this dense-table corpus by
-# roughly 28x -- a per-line band derived from prose, not from pipe-and-code
-# -heavy single-line table rows.
+# every file this module produces MUST measure under its own per-file budget
+# before it is ever handed to a writer -- `HUB_TOKEN_BUDGET` for the hub and
+# its overflow leaves, `READ_TOKEN_WARN` for an Archive shard. The
+# measurement basis is `read_limits`'s own byte-ratio instrument -- the same
+# one the Read-tool gate itself uses -- never TOKENS_PER_LINE, which
+# under-estimates this dense-table corpus by roughly 28x -- a per-line band
+# derived from prose, not from pipe-and-code-heavy single-line table rows.
+# The bytes it is fed are the CRLF worst case (`_shipped_bytes`): a Windows
+# checkout with `core.autocrlf=true` adds one byte per line to what the Read
+# tool loads, so a budget that must hold on every checkout counts that byte
+# whatever the line endings of the checkout running the generator.
 # --------------------------------------------------------------------------
 
 # Statuses this corpus's config.yaml declares CLOSED (`statuses:` list also
@@ -537,14 +542,25 @@ def render_separator() -> str:
 # a file happens to sit in and never by a hardcoded open-item count.
 CLOSED_STATUSES = frozenset({"COMPLETE", "CLOSED"})
 
+# The hub is the file most readers open first, and its target is a margin
+# under the Read-tool page cap, not merely "under the warn threshold": every
+# hub-family file (the hub and each overflow leaf) keeps at least
+# HUB_HEADROOM_FACTOR x headroom under READ_PAGE_CAP_TOKENS. The budget is
+# derived from that target rather than chosen beside it, so the two cannot
+# drift apart. Archive shards keep `READ_TOKEN_WARN`, which is shared with
+# other consumers and is deliberately not lowered here.
+HUB_HEADROOM_FACTOR = 2
+HUB_TOKEN_BUDGET = READ_PAGE_CAP_TOKENS // HUB_HEADROOM_FACTOR
+
 # The instrument this measures against, by name, for every report this
 # module emits: `read_limits.estimate_tokens` with no model/content override
 # resolves to `DEFAULT_BYTES_PER_TOKEN` (2.6 bytes/token) -- the same
 # gate-conservative default the Read-tool page-cap gate itself computes
-# against, not a per-line band.
+# against, not a per-line band -- applied to the CRLF worst-case byte count.
 MEASUREMENT_BASIS = (
     "read_limits.estimate_tokens(bytes) at its default ratio "
-    "(model=None -> DEFAULT_BYTES_PER_TOKEN=2.6 bytes/token)"
+    "(model=None -> DEFAULT_BYTES_PER_TOKEN=2.6 bytes/token), where bytes is "
+    "the CRLF worst case: UTF-8 bytes plus one per line"
 )
 
 
@@ -640,9 +656,25 @@ def render_table_body(items: list, backlog_dir: Path) -> tuple:
     return "\n".join(lines) + "\n", truncated_ids
 
 
+def _shipped_bytes(text: str) -> int:
+    """The byte count `text` occupies on a CRLF checkout: its UTF-8 bytes
+    plus one per `\\n`, because a Windows checkout with `core.autocrlf=true`
+    adds one byte per line to what the Read tool actually loads.
+
+    Every render in this module is `\\n`-only internally, so this is exact
+    for a CRLF checkout and over-counts an LF checkout by one byte per line
+    -- the safe direction. It is deliberately independent of the line
+    endings of the checkout running the generator: a `--check` on the other
+    convention must compute the same split boundaries, or it would report
+    drift that no item caused. Additive over concatenation, like the plain
+    UTF-8 length it extends.
+    """
+    return len(text.encode("utf-8")) + text.count("\n")
+
+
 def _measure(body: str) -> tuple:
     """Return (num_bytes, tokens) for `body` via MEASUREMENT_BASIS."""
-    num_bytes = len(body.encode("utf-8"))
+    num_bytes = _shipped_bytes(body)
     tokens = estimate_tokens(num_bytes)
     return num_bytes, tokens
 
@@ -652,11 +684,15 @@ def _id_range(items: list) -> tuple:
     return min(ids), max(ids)
 
 
-def split_items_to_budget(items: list, backlog_dir: Path, wrapper_tokens: int = 0) -> list:
+def split_items_to_budget(
+    items: list, backlog_dir: Path, wrapper_tokens: int = 0, budget: int = READ_TOKEN_WARN
+) -> list:
     """Recursively split `items` until every rendered table, PLUS the
-    wrapper text its caller will assemble around it, is under
-    READ_TOKEN_WARN tokens -- the enforced budget (deliberately the warn
-    level, not the 25,000 hard cap, so a produced file never even warns).
+    wrapper text its caller will assemble around it, is under `budget`
+    tokens -- the enforced per-file budget. It defaults to READ_TOKEN_WARN
+    (deliberately the warn level, not the 25,000 hard cap, so a produced
+    file never even warns); `build_hub_files` passes the tighter
+    HUB_TOKEN_BUDGET for the hub family.
 
     `wrapper_tokens` is a conservative reserve for the bytes/tokens the
     caller adds around this table body before shipping it: leaf 0's
@@ -666,8 +702,10 @@ def split_items_to_budget(items: list, backlog_dir: Path, wrapper_tokens: int = 
     wrapper_tokens` against budget, not the bare body -- matching what will
     actually be assembled and shipped. Defaults to 0 for a caller with no
     wrapper (this module's own tests call this directly as a pure function
-    over a bare table). Because `estimate_tokens` rounds up and byte counts
-    add exactly across concatenation, `estimate_tokens(body_bytes) +
+    over a bare table). Because `estimate_tokens` rounds up and
+    `_shipped_bytes` adds exactly across concatenation (both the UTF-8
+    length and the per-line CRLF byte are additive, so the CRLF worst-case
+    basis leaves this proof unchanged), `estimate_tokens(body_bytes) +
     estimate_tokens(wrapper_bytes) >= estimate_tokens(body_bytes +
     wrapper_bytes)` always -- so accepting a leaf here on the token SUM is
     never less conservative than measuring the assembled bytes directly,
@@ -677,9 +715,9 @@ def split_items_to_budget(items: list, backlog_dir: Path, wrapper_tokens: int = 
     Returns a list of leaves, each `(subset, body, num_bytes, tokens,
     truncated_ids)`, all under budget -- `tokens` is the BARE body's count,
     not body+wrapper, matching every existing caller (including this
-    module's own tests, which assert `tokens < READ_TOKEN_WARN` on the bare
-    body). This is the enforcement mechanism: a file that would exceed
-    budget is split and re-measured, not shipped with a violation reported.
+    module's own tests, which assert `tokens < budget` on the bare body).
+    This is the enforcement mechanism: a file that would exceed budget is
+    split and re-measured, not shipped with a violation reported.
     Splitting a leaf that is already a single row raises GeneratorError
     naming that row -- the pathological case no split can fix (body alone,
     plus the wrapper reserve, still at or over budget), refused rather than
@@ -687,7 +725,7 @@ def split_items_to_budget(items: list, backlog_dir: Path, wrapper_tokens: int = 
     """
     body, truncated = render_table_body(items, backlog_dir)
     num_bytes, tokens = _measure(body)
-    if tokens + wrapper_tokens < READ_TOKEN_WARN:
+    if tokens + wrapper_tokens < budget:
         return [(items, body, num_bytes, tokens, truncated)]
     if len(items) == 1:
         item = items[0]
@@ -695,13 +733,13 @@ def split_items_to_budget(items: list, backlog_dir: Path, wrapper_tokens: int = 
             f"{item['_path']}: item {item['id']} alone renders to {tokens} "
             f"tokens ({num_bytes} bytes; basis: {MEASUREMENT_BASIS}) plus a "
             f"{wrapper_tokens}-token wrapper reserve -- exceeds the "
-            f"{READ_TOKEN_WARN}-token budget and cannot be reduced by "
+            f"{budget}-token budget and cannot be reduced by "
             f"sharding further"
         )
     mid = len(items) // 2
     return (
-        split_items_to_budget(items[:mid], backlog_dir, wrapper_tokens)
-        + split_items_to_budget(items[mid:], backlog_dir, wrapper_tokens)
+        split_items_to_budget(items[:mid], backlog_dir, wrapper_tokens, budget)
+        + split_items_to_budget(items[mid:], backlog_dir, wrapper_tokens, budget)
     )
 
 
@@ -767,10 +805,34 @@ def render_shards_section(shard_files: list) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_shard_files(by_century: dict, backlog_dir: Path, archive_dir: Path, naming: IndexNaming) -> list:
+def _budget_fields(num_bytes: int, tokens: int, budget: int) -> dict:
+    """The per-file measurement fields every generated-file entry carries:
+    the CRLF worst-case byte count, its token estimate, the basis, the
+    budget this file was split against, the headroom under that budget,
+    and the headline ratio -- how many times over the Read-tool page cap
+    covers this file (two decimals). `tokens` is never 0 here: every
+    generated file carries at least a wrapper line.
+    """
+    return {
+        "bytes": num_bytes,
+        "tokens": tokens,
+        "basis": MEASUREMENT_BASIS,
+        "budget": budget,
+        "headroom": budget - tokens,
+        "page_cap_ratio": round(READ_PAGE_CAP_TOKENS / tokens, 2),
+    }
+
+
+def build_shard_files(
+    by_century: dict,
+    backlog_dir: Path,
+    archive_dir: Path,
+    naming: IndexNaming,
+    budget: int = READ_TOKEN_WARN,
+) -> list:
     """Render every closed-item century group as one or more shard files
     under `Archive/`, splitting further only if a single century's table
-    itself exceeds budget (bounded at 100 rows by construction, so this is
+    itself exceeds `budget` (bounded at 100 rows by construction, so this is
     rare, but not assumed impossible).
 
     Each shard file backlinks to the hub (bidirectional links, Execution
@@ -782,17 +844,17 @@ def build_shard_files(by_century: dict, backlog_dir: Path, archive_dir: Path, na
     (Finding F5) names the hub itself and every shard's own filename stem
     from the project's actual configured index path, never a hardcoded
     constant. Returns one dict per file: path (relative to backlog_dir,
-    "Archive/..."), content, rows, bytes, tokens, basis, headroom, split,
-    min_id, max_id, truncated_ids.
+    "Archive/..."), content, rows, bytes, tokens, basis, budget, headroom,
+    page_cap_ratio, split, min_id, max_id, truncated_ids.
     """
     files = []
     hub_path = backlog_dir / naming.hub_name
     backlink_target = _relative_link(archive_dir, hub_path)
     backlink_line = f"[Back to Backlog Index]({backlink_target})\n\n"
-    wrapper_tokens = estimate_tokens(len(backlink_line.encode("utf-8")))
+    wrapper_tokens = estimate_tokens(_shipped_bytes(backlink_line))
     for century in sorted(by_century):
         items = by_century[century]
-        leaves = split_items_to_budget(items, backlog_dir, wrapper_tokens)
+        leaves = split_items_to_budget(items, backlog_dir, wrapper_tokens, budget)
         split = len(leaves) > 1
         for subset, body, _num_bytes, _tokens, truncated in leaves:
             min_id, max_id = _id_range(subset)
@@ -805,21 +867,21 @@ def build_shard_files(by_century: dict, backlog_dir: Path, archive_dir: Path, na
             # every OTHER path in this module was already config-derived.
             shard_path = _relative_link(backlog_dir, archive_dir / filename)
             content = backlink_line + body
-            num_bytes_final = len(content.encode("utf-8"))
+            num_bytes_final = _shipped_bytes(content)
             tokens_final = estimate_tokens(num_bytes_final)
-            if tokens_final >= READ_TOKEN_WARN:
+            if tokens_final >= budget:
                 # Unreachable on any input the splitter above accepted: the
                 # reserve above IS this exact backlink line's token cost, so
                 # `split_items_to_budget` already refused (or split further)
-                # any body for which body_tokens + wrapper_tokens >=
-                # READ_TOKEN_WARN -- see its docstring for the ceiling-
-                # superadditivity proof. Kept as a defensive assertion, not a
-                # live branch: it would only fire if this line's own
-                # computation diverged from the reserve computed above.
+                # any body for which body_tokens + wrapper_tokens >= budget
+                # -- see its docstring for the ceiling-superadditivity
+                # proof. Kept as a defensive assertion, not a live branch:
+                # it would only fire if this line's own computation diverged
+                # from the reserve computed above.
                 raise GeneratorError(
                     f"{shard_path}: adding the backlink line pushed "
                     f"the file to {tokens_final} tokens (basis: "
-                    f"{MEASUREMENT_BASIS}), >= the {READ_TOKEN_WARN}-token "
+                    f"{MEASUREMENT_BASIS}), >= the {budget}-token "
                     f"budget despite a {wrapper_tokens}-token reserve at "
                     f"split time -- this should be unreachable; report it "
                     f"as a bug in the reserve calculation, not as an "
@@ -829,10 +891,7 @@ def build_shard_files(by_century: dict, backlog_dir: Path, archive_dir: Path, na
                 "path": shard_path,
                 "content": content,
                 "rows": len(subset),
-                "bytes": num_bytes_final,
-                "tokens": tokens_final,
-                "basis": MEASUREMENT_BASIS,
-                "headroom": READ_TOKEN_WARN - tokens_final,
+                **_budget_fields(num_bytes_final, tokens_final, budget),
                 "split": split,
                 "min_id": min_id,
                 "max_id": max_id,
@@ -861,10 +920,48 @@ def _hub_leaf_entries(leaves: list, naming: IndexNaming) -> list:
     return entries
 
 
-def build_hub_files(open_items: list, backlog_dir: Path, shard_files: list, naming: IndexNaming) -> list:
-    """Render the hub as one or more files, splitting by budget if the open
-    set alone exceeds it -- the anticipated breach Notes for Agent calls
-    out: 119 open items is a measurement, not a permanent bound.
+def _generated_line() -> str:
+    """Leaf 0's first line. The ISO date is fixed-width, so its byte count
+    never depends on which day it renders."""
+    today = datetime.now().astimezone().date()
+    return f"Generated: {today.isoformat()}\n\n"
+
+
+def _continuation_wrapper(naming: IndexNaming) -> str:
+    """The backlink line every hub overflow leaf opens with."""
+    return f"[Back to Backlog Index]({naming.hub_name})\n\n"
+
+
+def hub_wrapper_tokens(
+    shards_section: str, naming: IndexNaming, generated_line: str | None = None
+) -> int:
+    """The wrapper-token reserve `build_hub_files` gives the splitter: the
+    LARGER of leaf 0's wrapper (`Generated:` line + the `## Shards`
+    directory + the changelog footer, exactly as leaf 0 is assembled) and
+    a continuation leaf's backlink line, measured on the CRLF worst-case
+    basis. One definition, so the reserve the splitter is given and the
+    wrapper leaf 0 actually ships cannot drift apart.
+    """
+    if generated_line is None:
+        generated_line = _generated_line()
+    leaf0_wrapper = generated_line + "\n" + shards_section + "\n" + _footer_line(naming)
+    wrapper_bytes = max(
+        _shipped_bytes(leaf0_wrapper),
+        _shipped_bytes(_continuation_wrapper(naming)),
+    )
+    return estimate_tokens(wrapper_bytes)
+
+
+def build_hub_files(
+    open_items: list,
+    backlog_dir: Path,
+    shard_files: list,
+    naming: IndexNaming,
+    budget: int = HUB_TOKEN_BUDGET,
+) -> list:
+    """Render the hub as one or more files, splitting by `budget` (the
+    hub-family budget, HUB_TOKEN_BUDGET, by default) if the open set alone
+    exceeds it -- the open-item count is not bounded by construction.
 
     Leaf 0 carries the '## Shards' directory (after its table), listing
     BOTH the Archive shards (`shard_files`) AND any hub overflow leaf this
@@ -879,44 +976,69 @@ def build_hub_files(open_items: list, backlog_dir: Path, shard_files: list, nami
     to, from the project's actual configured index path.
 
     The split decision (`split_items_to_budget`) is given a wrapper-token
-    reserve (Finding F1) sized from the LARGER of leaf 0's wrapper
-    (`Generated:` line + the full `## Shards` directory) and a continuation
-    leaf's short backlink line. Because the directory now also depends on
-    the split's OWN leaf boundaries (Finding F4), this runs in two passes:
-    pass 1 splits against the Archive-only directory (a leaf cannot list
-    its own overflow siblings before the split that creates them exists);
-    pass 2 rebuilds the directory now that those siblings are known and
-    re-splits against the fuller (necessarily >=) reserve, since adding
-    directory rows can only grow leaf 0, never shrink it. If the leaf count
-    itself shifts between the two passes (the directory's own growth
-    crossed a split threshold), one more rebuild-and-resplit reconciles the
-    directory to the boundaries that actually shipped -- bounded at one
-    extra attempt, because the post-assembly measurement below remains the
-    real safety net regardless of how many passes it takes to converge.
+    reserve (Finding F1, `hub_wrapper_tokens`) sized from the LARGER of
+    leaf 0's wrapper (`Generated:` line + the full `## Shards` directory +
+    the changelog footer) and a continuation leaf's short backlink line.
+    Because the directory also depends on the split's OWN leaf boundaries
+    (Finding F4), the directory and the split are iterated to a fixed
+    point: the first split runs against the Archive-only directory (a leaf
+    cannot list its own overflow siblings before the split that creates
+    them exists); each later round rebuilds the directory from the current
+    leaves and re-splits against that directory's reserve, until the leaf
+    count stops changing.
+
+    Why this converges, and why a stable count is enough: the splitter
+    halves at a fixed midpoint, so every possible split lies on one halving
+    tree over `open_items`, and a run is fully described by the set of tree
+    nodes it splits (leaf count = split nodes + 1). A larger reserve splits
+    a superset of the nodes a smaller one split. Each round's leaves refine
+    the previous round's. Splitting leaf 0 adds new directory rows.
+    Splitting an overflow leaf replaces its one directory row with two or
+    more rows over narrower id ranges. The first replacement row keeps the
+    old minimum id and the last keeps the old maximum id, and every row
+    carries its own framing, so the replacement rows are longer in total
+    than the row they replace. The directory therefore never shrinks, and
+    neither does the reserve, from round to round. The leaf count is
+    therefore non-decreasing and bounded by `len(open_items)`, and two
+    rounds with equal counts split the same node set -- identical
+    boundaries, so the directory built from the earlier round lists
+    exactly the leaves the later round ships. The loop is still bounded
+    at `len(open_items) + 1` rounds and raises GeneratorError past that
+    bound, and leaf 0's directory is asserted equal to the shipped
+    overflow leaves before assembly, so a violated argument refuses
+    instead of shipping links to files that do not exist.
     """
-    today = datetime.now().astimezone().date()
-    generated_line = f"Generated: {today.isoformat()}\n\n"
-    continuation_wrapper = f"[Back to Backlog Index]({naming.hub_name})\n\n"
+    generated_line = _generated_line()
+    continuation_wrapper = _continuation_wrapper(naming)
     footer_line = _footer_line(naming)
 
-    def _wrapper_tokens(shards_section: str) -> int:
-        leaf0_wrapper = generated_line + "\n" + shards_section + "\n" + footer_line
-        wrapper_bytes = max(
-            len(leaf0_wrapper.encode("utf-8")),
-            len(continuation_wrapper.encode("utf-8")),
+    def _split(section: str) -> list:
+        reserve = hub_wrapper_tokens(section, naming, generated_line)
+        return split_items_to_budget(open_items, backlog_dir, reserve, budget)
+
+    leaves = _split(render_shards_section(shard_files))
+    max_rounds = len(open_items) + 1
+    for _round in range(max_rounds):
+        hub_entries = _hub_leaf_entries(leaves, naming)
+        shards_section = render_shards_section(shard_files + hub_entries)
+        next_leaves = _split(shards_section)
+        converged = len(next_leaves) == len(leaves)
+        leaves = next_leaves
+        if converged:
+            break
+    else:
+        raise GeneratorError(
+            f"{naming.hub_name}: the hub directory and its overflow split did "
+            f"not reach a stable leaf count within {max_rounds} rounds -- "
+            f"report it as a bug in the directory fixed point"
         )
-        return estimate_tokens(wrapper_bytes)
-
-    provisional_section = render_shards_section(shard_files)
-    leaves = split_items_to_budget(open_items, backlog_dir, _wrapper_tokens(provisional_section))
-
-    shards_section = render_shards_section(shard_files + _hub_leaf_entries(leaves, naming))
-    leaves_2 = split_items_to_budget(open_items, backlog_dir, _wrapper_tokens(shards_section))
-    if len(leaves_2) != len(leaves):
-        shards_section = render_shards_section(shard_files + _hub_leaf_entries(leaves_2, naming))
-        leaves_2 = split_items_to_budget(open_items, backlog_dir, _wrapper_tokens(shards_section))
-    leaves = leaves_2
-    wrapper_tokens = _wrapper_tokens(shards_section)
+    if hub_entries != _hub_leaf_entries(leaves, naming):
+        raise GeneratorError(
+            f"{naming.hub_name}: the '## Shards' directory lists overflow "
+            f"leaves that differ from the leaves being shipped -- this should "
+            f"be unreachable; report it as a bug in the directory fixed point"
+        )
+    wrapper_tokens = hub_wrapper_tokens(shards_section, naming, generated_line)
 
     split = len(leaves) > 1
     files = []
@@ -935,9 +1057,9 @@ def build_hub_files(open_items: list, backlog_dir: Path, shard_files: list, nami
             content = generated_line + body + "\n" + shards_section + "\n" + footer_line
         else:
             content = continuation_wrapper + body
-        num_bytes_final = len(content.encode("utf-8"))
+        num_bytes_final = _shipped_bytes(content)
         tokens_final = estimate_tokens(num_bytes_final)
-        if tokens_final >= READ_TOKEN_WARN:
+        if tokens_final >= budget:
             # Unreachable on any input the splitter above accepted, for the
             # same ceiling-superadditivity reason `build_shard_files` states
             # at its own mirror of this raise -- kept as a defensive
@@ -945,7 +1067,7 @@ def build_hub_files(open_items: list, backlog_dir: Path, shard_files: list, nami
             raise GeneratorError(
                 f"{filename}: adding the directory/backlink section pushed "
                 f"the file to {tokens_final} tokens (basis: "
-                f"{MEASUREMENT_BASIS}), >= the {READ_TOKEN_WARN}-token "
+                f"{MEASUREMENT_BASIS}), >= the {budget}-token "
                 f"budget despite a {wrapper_tokens}-token reserve at split "
                 f"time -- this should be unreachable; report it as a bug "
                 f"in the reserve calculation, not as an unshardable row"
@@ -954,10 +1076,7 @@ def build_hub_files(open_items: list, backlog_dir: Path, shard_files: list, nami
             "path": filename,
             "content": content,
             "rows": len(subset),
-            "bytes": num_bytes_final,
-            "tokens": tokens_final,
-            "basis": MEASUREMENT_BASIS,
-            "headroom": READ_TOKEN_WARN - tokens_final,
+            **_budget_fields(num_bytes_final, tokens_final, budget),
             "split": split,
             "truncated_ids": truncated,
         })
@@ -978,12 +1097,19 @@ def build_index_files(
     Returns {"files": [...], "truncated_ids": [...]}. Every file entry
     carries the (relative_path, content) pair a later atomic-write stage
     (this task does not write anything to disk) needs, plus the per-file
-    measurement report: rows, bytes, tokens, basis, headroom, split.
+    measurement report: rows, bytes, tokens, basis, budget, headroom,
+    page_cap_ratio, split. Each family is split against its own budget,
+    passed explicitly here: READ_TOKEN_WARN for Archive shards and
+    HUB_TOKEN_BUDGET for the hub and its overflow leaves.
     """
     naming = naming or _DEFAULT_INDEX_NAMING
     open_items, by_century = partition_items(items)
-    shard_files = build_shard_files(by_century, backlog_dir, archive_dir, naming)
-    hub_files = build_hub_files(open_items, backlog_dir, shard_files, naming)
+    shard_files = build_shard_files(
+        by_century, backlog_dir, archive_dir, naming, budget=READ_TOKEN_WARN
+    )
+    hub_files = build_hub_files(
+        open_items, backlog_dir, shard_files, naming, budget=HUB_TOKEN_BUDGET
+    )
 
     all_files = hub_files + shard_files
     truncated_ids = []
@@ -1485,8 +1611,9 @@ def _print_file_report(report: dict) -> None:
     for entry in report["files"]:
         print(
             f"{entry['path']}: {entry['rows']} rows, {entry['bytes']} bytes, "
-            f"{entry['tokens']} tokens, headroom {entry['headroom']} "
-            f"(basis: {entry['basis']})"
+            f"{entry['tokens']} tokens, budget {entry['budget']}, "
+            f"headroom {entry['headroom']}, page_cap_ratio "
+            f"{entry['page_cap_ratio']} (basis: {entry['basis']})"
         )
 
 
@@ -1646,7 +1773,8 @@ def main() -> int:
         action="store_true",
         help=(
             "Print the per-file sharding/budget report (path, rows, bytes, "
-            "tokens, measurement basis, headroom, split) as JSON instead of "
+            "tokens, measurement basis, budget, headroom, page_cap_ratio, "
+            "split) as JSON instead of "
             "the flat table; for --check, adds the drift/anomaly/stale-score "
             "result."
         ),

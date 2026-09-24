@@ -48,15 +48,25 @@ item's shard is `shard = (id - 1) // 100` -- a pure function of the id alone,
 so there is no lookup table to maintain and no way for an id's shard to be
 ambiguous.
 
-Every generated file -- the hub, any hub overflow leaf, and every Archive
-shard -- is kept under a **22,000-token budget**. The generator *enforces*
-this rather than merely reporting it: at `--write` time, a table that would
-exceed the budget is split further before anything is written (the hub into
-numbered overflow leaves, a shard century into more than one shard file), so
-a file that would breach the budget is never produced in the first place.
-`--check` reports a budget breach found on disk as drift. Links are
-bidirectional: the hub's `## Shards` directory lists every Archive shard and
-every hub overflow leaf, and each of those backlinks to the hub.
+Every generated file -- the hub, and any hub overflow leaf -- is kept under
+a **12,500-token budget**. That is half the 25,000-token page cap, so a
+growing hub keeps headroom before a table can outrun a single Read call.
+Every Archive shard is kept under a separate, wider **22,000-token
+budget**: a shard is written once and closed, so it does not need the same
+headroom a growing hub does. The generator *enforces* both budgets rather
+than merely reporting them: at `--write` time, a table that would exceed
+its budget is split further before anything is written (the hub into
+numbered overflow leaves, a shard century into more than one shard file),
+so a file that would breach either budget is never produced in the first
+place. `--check` reports a budget breach found on disk as drift. Every
+file is measured on its shipped-bytes basis: UTF-8 bytes plus one byte per
+line ending, the CRLF worst case. A byte count taken from a Windows
+checkout, which writes CRLF and so adds one extra byte per line, therefore
+never reads as larger than the count the generator enforced against.
+Links are bidirectional: the hub's `## Shards` directory lists every
+Archive shard and every hub overflow leaf, and each of those backlinks to
+the hub. The open set a reader pages through can therefore span the hub
+plus its own overflow leaves.
 
 This replaces a retired idea: a manual rotation trigger keyed on line count.
 A line count was never the real constraint -- a live hub can sit at a few
