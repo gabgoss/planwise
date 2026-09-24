@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Unit tests for score_backlog.py's report-only scoring.
 
-Every mode -- the no-flag report, `--dry-run`, `--review`, and
-`--id N [--explain]` -- reads the backlog index and computes scores; none of
-them write a score back into it. The index is a build artifact
-`generate_backlog_index.py --write` produces from every item file's
-frontmatter.
+Every mode -- the no-flag report, `--dry-run`, `--review`,
+`--id N [--explain]`, and `--route [--id N] [--json]` -- reads the backlog
+index and computes scores; none of them write a score back into it. The
+index is a build artifact `generate_backlog_index.py --write` produces from
+every item file's frontmatter.
 
 Run with:  python -m pytest tests/test_score_backlog.py -q
 """
@@ -168,6 +168,10 @@ class TestReadItemFrontmatter(unittest.TestCase):
 
         self.assertEqual(mocked.call_count, 1)
         self.assertEqual(fm["_body"], "\n# Body text\n\nMore body.\n")
+        # The whole-file line count rides along from the same read, with
+        # `wc -l` semantics (newline count) -- the routing signal "item file
+        # < 50 lines" consumes it without a second read.
+        self.assertEqual(fm["_line_count"], 8)
 
     def test_regex_fallback_reads_created_and_blocks_without_yaml(self):
         """The no-yaml branch is a real shipped contract: it extracts only
@@ -620,6 +624,338 @@ class TestHubFamilyUnionScoring(unittest.TestCase):
         self.assertIn("ID 002", out)
         self.assertEqual(hub_path.read_bytes(), before_hub)
         self.assertEqual(leaf_path.read_bytes(), before_leaf)
+
+
+def _route_item(abbrev: str = "DOC", file_count: int = 1) -> dict:
+    return {"id": "001", "feature": "Plain", "priority": "Low", "status": "NOT_STARTED",
+            "file_count": file_count, "abbrev": abbrev}
+
+
+def _route_fm(body: str, line_count: int | None = None, **extra) -> dict:
+    fm = {"_body": body, "_line_count": body.count("\n") if line_count is None else line_count}
+    fm.update(extra)
+    return fm
+
+
+CLEAR_FIX_BODY = (
+    "\n## Problem\n\nThe file `scripts/thing.py:42` reads the wrong key.\n\n"
+    "## Fix\n\nBefore/after: change `foo` to `bar`. Edit only `scripts/thing.py`; "
+    "touch no other file.\n"
+)
+
+
+class TestRouteSignals(unittest.TestCase):
+    """`compute_route_signals` -- one test per mechanical signal, each
+    exercised in both directions so the pattern is shown to discriminate,
+    not merely to pass on the fixture it was written against."""
+
+    def test_is_bug_keys_on_the_resolved_abbrev_not_the_title(self):
+        # Same re-key as scoring factor 2: frontmatter `abbrev:` first, the
+        # index Domain cell second, the title never.
+        item = _route_item(abbrev="INFRA")
+        item["feature"] = "Bug: something is broken"
+        self.assertFalse(score_backlog.compute_route_signals(item, _route_fm("\n# x\n"))["is_bug"])
+        self.assertTrue(
+            score_backlog.compute_route_signals(item, _route_fm("\n# x\n", abbrev="BUG"))["is_bug"]
+        )
+
+    def test_short_file_reads_the_whole_file_line_count(self):
+        short = score_backlog.compute_route_signals(_route_item(), _route_fm("\n# x\n", line_count=49))
+        long_ = score_backlog.compute_route_signals(_route_item(), _route_fm("\n# x\n", line_count=50))
+        self.assertTrue(short["is_short"])
+        self.assertFalse(long_["is_short"])
+        self.assertEqual(short["line_count"], 49)
+
+    def test_multi_sprint_and_architectural_keywords_report_hit_lines(self):
+        body = "\n## Plan\n\nThis is a phased rollout.\n\nIt needs a refactoring pass.\n"
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body))
+        self.assertTrue(signals["has_multi_sprint"])
+        self.assertEqual(signals["multi_sprint_hits"][0]["term"], "phased")
+        self.assertEqual(signals["multi_sprint_hits"][0]["line"], 4)
+        self.assertTrue(signals["is_architectural"])
+        self.assertEqual(signals["architectural_hits"][0]["term"], "refactor")
+        self.assertIn("refactoring", signals["architectural_hits"][0]["text"])
+
+    def test_keywords_inside_fenced_blocks_do_not_count(self):
+        # An item that quotes the Decision Logic in a fence names
+        # IS_ARCHITECTURAL without being architectural.
+        body = "\n## Logic\n\n```\nIF IS_ARCHITECTURAL OR HAS_MULTI_SPRINT -> C\n```\n"
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body))
+        self.assertFalse(signals["is_architectural"])
+        self.assertFalse(signals["has_multi_sprint"])
+
+    def test_h2_headings_and_numbered_items_ignore_fenced_blocks(self):
+        body = (
+            "\n## One\n\n## Two\n\n1. a\n2. b\n3. c\n\n"
+            "```markdown\n## Not a heading\n1. not a step\n2. not a step\n3. not a step\n4. x\n```\n"
+        )
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body))
+        self.assertEqual(signals["h2_count"], 2)
+        self.assertEqual(signals["numbered_items"], 3)
+        self.assertEqual(signals["step_count"], 3)
+        self.assertEqual(signals["sub_items"], 3)
+
+    def test_step_count_is_the_longest_consecutive_run_not_the_total(self):
+        body = "\n## A\n\n1. a\n2. b\n\n## B\n\n1. c\n2. d\n3. e\n4. f\n\nprose\n\n5. g\n"
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body))
+        self.assertEqual(signals["numbered_items"], 7)
+        # 1..5 in section B survives the intervening prose line; A's 1..2 is
+        # the shorter run.
+        self.assertEqual(signals["step_count"], 5)
+
+    def test_multiple_files_reads_the_index_row_file_count(self):
+        one = score_backlog.compute_route_signals(_route_item(file_count=1), _route_fm("\n# x\n"))
+        two = score_backlog.compute_route_signals(_route_item(file_count=2), _route_fm("\n# x\n"))
+        self.assertFalse(one["has_multiple_files"])
+        self.assertTrue(two["has_multiple_files"])
+
+    def test_clear_fix_needs_location_plus_before_after_plus_scope_bound(self):
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(CLEAR_FIX_BODY, line_count=80))
+        self.assertEqual(
+            signals["clear_fix"],
+            {"line_anchor": True, "edit_target": False, "before_after": True,
+             "scope_bound": True, "evidence_present": True},
+        )
+        self.assertTrue(signals["has_clear_fix"])
+        # Drop the scope bound and the mechanical half no longer holds.
+        no_bound = CLEAR_FIX_BODY.replace("Edit only `scripts/thing.py`; touch no other file.", "")
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(no_bound, line_count=80))
+        self.assertFalse(signals["clear_fix"]["scope_bound"])
+        self.assertFalse(signals["has_clear_fix"])
+
+    def test_an_exact_edit_string_or_whole_file_copy_locates_the_edit_without_a_line_number(self):
+        string_body = (
+            "\n## Fix\n\nReplace `2.1.208` with `2.1.278`. Edit only `docs/a.md`; touch no other file.\n\n"
+            "```\nEdit old_string: 2.1.208\nEdit new_string: 2.1.278\n```\n"
+        )
+        copy_body = (
+            "\n## Fix\n\nOld → new: `2.1.277` → `2.1.278`. Edit only `types/a.d.ts`; touch no other file.\n\n"
+            "Copy `snapshots/2.1.278/a.d.ts` over `types/a.d.ts` with a byte copy; do not hand-edit.\n"
+        )
+        for body in (string_body, copy_body):
+            signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body, line_count=60))
+            self.assertFalse(signals["clear_fix"]["line_anchor"], body)
+            self.assertTrue(signals["clear_fix"]["edit_target"], body)
+            self.assertTrue(signals["has_clear_fix"], body)
+
+    def test_clear_fix_is_labelled_as_the_mechanical_half_only(self):
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(CLEAR_FIX_BODY))
+        self.assertIn("mechanical half only", signals["has_clear_fix_note"])
+        self.assertIn("judgment", signals["has_clear_fix_note"])
+        self.assertIn("mechanical half only", score_backlog.format_route_detail(signals, 0))
+
+    def test_short_file_alone_sets_has_clear_fix(self):
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm("\n# x\n\nprose only\n"))
+        self.assertFalse(signals["clear_fix"]["evidence_present"])
+        self.assertTrue(signals["has_clear_fix"])
+
+    def test_missing_body_reports_empty_signals_rather_than_raising(self):
+        signals = score_backlog.compute_route_signals(_route_item(), {})
+        self.assertFalse(signals["body_available"])
+        self.assertIsNone(signals["line_count"])
+        self.assertEqual(signals["route"], "C")
+        self.assertIn("body unavailable", score_backlog.format_route_detail(signals, 0))
+
+
+class TestDecideRoute(unittest.TestCase):
+    """`decide_route` is the handler's Decision Logic pseudocode; one test
+    per branch, in the order the pseudocode evaluates them."""
+
+    def test_branch_1_clear_fix_without_strong_signals_is_route_a(self):
+        route, large, branch = score_backlog.decide_route(True, False, False, 5, 0)
+        self.assertEqual((route, large), ("A", False))
+        self.assertTrue(branch.startswith("HAS_CLEAR_FIX AND NOT"))
+
+    def test_branch_2_strong_signal_overrides_clear_fix_and_sets_large_scope(self):
+        for kwargs in (
+            {"is_architectural": True, "has_multi_sprint": False, "sub_items": 0},
+            {"is_architectural": False, "has_multi_sprint": True, "sub_items": 0},
+            {"is_architectural": False, "has_multi_sprint": False, "sub_items": 6},
+        ):
+            route, large, branch = score_backlog.decide_route(
+                has_clear_fix=True, step_count=3, **kwargs
+            )
+            self.assertEqual((route, large), ("C", True), kwargs)
+            self.assertTrue(branch.startswith("HAS_MULTI_SPRINT OR"), kwargs)
+
+    def test_sub_items_threshold_is_six(self):
+        self.assertEqual(score_backlog.decide_route(True, False, False, 5, 0)[0], "A")
+        self.assertEqual(score_backlog.decide_route(True, False, False, 6, 0)[0], "C")
+
+    def test_branch_3_two_to_five_steps_is_route_b(self):
+        for steps in (2, 3, 4, 5):
+            route, large, _ = score_backlog.decide_route(False, False, False, 0, steps)
+            self.assertEqual((route, large), ("B", False), steps)
+
+    def test_branch_4_conservative_default_is_route_c_not_large(self):
+        for steps in (0, 1, 6):
+            route, large, branch = score_backlog.decide_route(False, False, False, 0, steps)
+            self.assertEqual((route, large), ("C", False), steps)
+            self.assertIn("default", branch)
+
+
+class TestRouteHintReconciliation(unittest.TestCase):
+    """A stored `route_hint:` is compared, never adopted: the computed route
+    is the same with or without it, and the report names the divergence."""
+
+    ROUTE_B_BODY = "\n## Steps\n\n1. one\n2. two\n3. three\n"
+
+    def test_round_trip_an_item_without_route_fields_routes_identically_with_them(self):
+        bare = score_backlog.compute_route_signals(_route_item(), _route_fm(self.ROUTE_B_BODY, line_count=70))
+        hinted = score_backlog.compute_route_signals(
+            _route_item(),
+            _route_fm(self.ROUTE_B_BODY, line_count=70, route_hint="C",
+                      route_evidence="filed as a plan", route_dated="2026-01-01"),
+        )
+        self.assertEqual(bare["route"], "B")
+        self.assertEqual(hinted["route"], bare["route"])
+        self.assertEqual(hinted["large_scope"], bare["large_scope"])
+        self.assertEqual(hinted["branch"], bare["branch"])
+        self.assertIsNone(bare["hint"])
+        self.assertFalse(hinted["hint"]["agrees"])
+        self.assertIn("script wins", hinted["hint"]["verdict"])
+
+    def test_agreeing_hint_is_reported_as_agree(self):
+        signals = score_backlog.compute_route_signals(
+            _route_item(), _route_fm(self.ROUTE_B_BODY, line_count=70, route_hint="B")
+        )
+        self.assertTrue(signals["hint"]["agrees"])
+        self.assertEqual(signals["hint"]["verdict"], "agree")
+        self.assertIsNone(signals["hint"]["stale"])  # no dated evidence to judge against
+
+    def test_hint_dated_before_the_newest_evidence_line_is_stale(self):
+        body = self.ROUTE_B_BODY + "\n**Evidence:** still so — verified 2026-03-01 by `Grep`\n"
+        stale = score_backlog.compute_route_signals(
+            _route_item(), _route_fm(body, line_count=70, route_hint="B", route_dated="2026-02-01")
+        )
+        fresh = score_backlog.compute_route_signals(
+            _route_item(), _route_fm(body, line_count=70, route_hint="B", route_dated="2026-03-01")
+        )
+        self.assertTrue(stale["hint"]["stale"])
+        self.assertIn("predates", stale["hint"]["verdict"])
+        self.assertEqual(stale["hint"]["latest_evidence_date"], "2026-03-01")
+        self.assertFalse(fresh["hint"]["stale"])
+        self.assertEqual(fresh["hint"]["verdict"], "agree")
+
+    def test_yaml_typed_route_dated_is_accepted(self):
+        from datetime import date
+        body = self.ROUTE_B_BODY + "\n**Evidence:** x — recorded 2026-03-01\n"
+        signals = score_backlog.compute_route_signals(
+            _route_item(), _route_fm(body, line_count=70, route_hint="b", route_dated=date(2026, 1, 1))
+        )
+        self.assertEqual(signals["hint"]["route"], "B")
+        self.assertTrue(signals["hint"]["stale"])
+
+    def test_malformed_hint_is_reported_not_adopted(self):
+        signals = score_backlog.compute_route_signals(
+            _route_item(), _route_fm(self.ROUTE_B_BODY, line_count=70, route_hint="direct-fix")
+        )
+        self.assertFalse(signals["hint"]["valid"])
+        self.assertFalse(signals["hint"]["agrees"])
+        self.assertIn("not one of A/B/C", signals["hint"]["verdict"])
+        self.assertEqual(signals["route"], "B")
+
+
+class TestRouteReportMode(unittest.TestCase):
+    """`--route` end to end over a two-item fixture corpus: it lists every
+    open item, `--id` prints one in full, `--json` writes a temp file, and
+    nothing on disk changes."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="score_backlog_route_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.planwise_dir = self.tmp / "planwise"
+        self.backlog_dir = self.planwise_dir / "Backlog"
+        self.backlog_dir.mkdir(parents=True, exist_ok=True)
+        self.config_path = self.planwise_dir / "config.yaml"
+        self.config_path.write_text(CONFIG_YAML_FIXTURE, encoding="utf-8")
+
+        (self.backlog_dir / "BB-001-01-DOC-ClearFix.md").write_text(
+            "---\nid: 001\ntitle: \"Clear fix\"\npriority: Low\nstatus: NOT_STARTED\n"
+            "abbrev: DOC\ncreated: 2020-01-01\nblocks: []\nroute_hint: A\n"
+            "route_evidence: \"one-line edit\"\nroute_dated: 2020-01-01\n---\n"
+            + CLEAR_FIX_BODY,
+            encoding="utf-8",
+        )
+        (self.backlog_dir / "BB-002-01-DOC-Phased.md").write_text(
+            "---\nid: 002\ntitle: \"Phased\"\npriority: Low\nstatus: NOT_STARTED\n"
+            "abbrev: DOC\ncreated: 2020-01-01\nblocks: []\n---\n"
+            "\n## Plan\n\nA phased rollout.\n" + ("\nfiller\n" * 60),
+            encoding="utf-8",
+        )
+        (self.backlog_dir / "BB-003-01-DOC-Closed.md").write_text(
+            "---\nid: 003\ntitle: \"Closed\"\npriority: Low\nstatus: COMPLETE\n"
+            "abbrev: DOC\ncreated: 2020-01-01\nblocks: []\n---\n\n# Body\n",
+            encoding="utf-8",
+        )
+        self.index_path = self.backlog_dir / "00-Index-Backlog.md"
+        self.index_path.write_text(
+            _GEN_9COL_HEADER
+            + "| 001 | Clear fix | Low | NOT_STARTED | DOC | 2020-01-01 |  | 0 | [001](BB-001-01-DOC-ClearFix.md) |\n"
+            + "| 002 | Phased | Low | NOT_STARTED | DOC | 2020-01-01 |  | 0 | [002](BB-002-01-DOC-Phased.md) |\n"
+            + "| 003 | Closed | Low | COMPLETE | DOC | 2020-01-01 |  | - | [003](BB-003-01-DOC-Closed.md) |\n",
+            encoding="utf-8",
+        )
+
+    def run_score(self, extra_args: list[str]) -> tuple[str, str, int | None]:
+        saved_argv = sys.argv
+        sys.argv = ["score_backlog", "--config", str(self.config_path), *extra_args]
+        out, err = io.StringIO(), io.StringIO()
+        code: int | None = None
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    score_backlog.main()
+                except SystemExit as exc:
+                    code = int(exc.code or 0)
+        finally:
+            sys.argv = saved_argv
+        return out.getvalue(), err.getvalue(), code
+
+    def test_route_lists_every_open_item_with_its_route_and_hint_verdict(self):
+        out, _err, code = self.run_score(["--route"])
+        self.assertIsNone(code)
+        self.assertIn("Backlog Route Signals (2 open items)", out)
+        self.assertRegex(out, r"ID 001 \| A \|.*hint A agree")
+        self.assertRegex(out, r"ID 002 \| C \| large.*hint -")
+        self.assertNotIn("ID 003", out)
+        self.assertIn("nothing is written", out)
+        self.assertIn("pivot check", out)  # the legend names what the report does not run
+
+    def test_route_with_id_prints_the_full_vector(self):
+        out, _err, code = self.run_score(["--route", "--id", "2"])
+        self.assertIsNone(code)
+        self.assertIn("002  route C  LARGE_SCOPE yes", out)
+        self.assertIn("[phased]", out)
+        self.assertIn("route_hint:        (none)", out)
+
+    def test_route_json_writes_a_temp_file_and_prints_its_path(self):
+        out, _err, _code = self.run_score(["--route", "--json"])
+        json_line = [line for line in out.splitlines() if line.startswith("JSON: ")]
+        self.assertEqual(len(json_line), 1)
+        path = Path(json_line[0][len("JSON: "):])
+        self.addCleanup(shutil.rmtree, path.parent, ignore_errors=True)
+        import json
+        rows = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual([r["id"] for r in rows], ["001", "002"])
+        self.assertEqual(rows[0]["route"], "A")
+        self.assertEqual(rows[0]["hint"]["verdict"], "agree")
+        self.assertEqual(rows[1]["route"], "C")
+        self.assertIn("score", rows[1])
+
+    def test_json_without_route_is_refused(self):
+        _out, err, code = self.run_score(["--json"])
+        self.assertEqual(code, 1)
+        self.assertIn("--json is only meaningful with --route", err)
+
+    def test_route_writes_nothing(self):
+        before = {p.name: p.read_bytes() for p in self.backlog_dir.iterdir()}
+
+        self.run_score(["--route", "--json"])
+        self.run_score(["--route", "--id", "001"])
+
+        after = {p.name: p.read_bytes() for p in self.backlog_dir.iterdir()}
+        self.assertEqual(after, before)
 
 
 if __name__ == "__main__":

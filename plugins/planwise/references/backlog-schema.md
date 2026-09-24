@@ -237,6 +237,10 @@ python {plugin_root}/scripts/score_backlog.py [OPTIONS]
 | `--review` | No | Output a priority review report (no index writes) |
 | `--id ID` | No | Look up one item's score by ID (bare or prefixed, matched on the numeric component) |
 | `--explain` | No | With `--id`, print the per-factor score derivation instead of just the total |
+| `--route` | No | Report the mechanical half of the triage routing signals and the provisional route for every open item; with `--id`, one item's full vector, keyword hit lines, and `route_hint` verdict. Report-only |
+| `--json` | No | With `--route`, also write the report to a JSON temp file and print `JSON: {path}` on the last line |
+
+`--route` applies the Decision Logic in `handlers/backlog.md` § Routing Decision Tree without modification; the handler's pseudocode is the source and the script follows it. It computes the eight mechanical signals from the index row and the item body it already loaded for scoring. It never runs the pivot check or any pre-routing gate, reports `HAS_CLEAR_FIX` as its mechanical half only, and never adopts a `route_hint:` -- it reports whether the hint agrees and whether `route_dated` predates the item's newest dated evidence line.
 
 ---
 

@@ -6,6 +6,9 @@ using 8 weighted factors (configurable via config.yaml). Every mode is
 read-only: the index is a generated artifact produced by
 generate_backlog_index.py --write, so this script never writes a score back
 into it. `--id N --explain` prints one item's per-factor derivation instead.
+`--route` reports the mechanical half of the triage routing signals and the
+provisional route the handler's Decision Logic derives from them (see
+`compute_route_signals`); it is a report over the same single read.
 
 Factors:
   1. Priority        — High/Medium/Low (configurable points)
@@ -21,8 +24,11 @@ Factors:
 """
 
 import argparse
+import json
+import os
 import re
 import sys
+import tempfile
 from datetime import date, datetime
 from pathlib import Path
 from typing import NamedTuple
@@ -271,7 +277,9 @@ def read_item_frontmatter(filepath: Path) -> dict:
 
     The item body is retained from this same read and returned under `_body`
     — the whole file is already loaded here and the body was previously
-    thrown away; nothing downstream consumes it yet.
+    thrown away. `_line_count` (the whole file's newline count, `wc -l`
+    semantics) rides along for the same reason. `--route` consumes both;
+    nothing else does.
     """
     if not filepath.exists():
         return {}
@@ -305,6 +313,7 @@ def read_item_frontmatter(filepath: Path) -> dict:
         }
 
     fm["_body"] = body
+    fm["_line_count"] = content.count("\n")
     return fm
 
 
@@ -581,6 +590,392 @@ def review_items(
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# --route: the mechanical half of the triage routing signals
+# ---------------------------------------------------------------------------
+#
+# The triage handler's Routing Decision Tree names nine scope signals. Eight
+# are computable from the index row and the item body this script already
+# holds; the ninth (the pivot check) and every pre-routing gate (existence
+# premise, citation freshness, staleness, scoped-rule) are judgment and stay
+# with the handler. What follows computes the eight and applies the handler's
+# Decision Logic pseudocode without modification. The result is a report,
+# recomputed from the live files on every call, so it cannot go stale
+# silently -- unlike the optional `route_hint:` frontmatter, which is a dated
+# claim the report compares itself against but never adopts.
+
+# "multi-sprint" / "phased" -> HAS_MULTI_SPRINT (strong -> Session Planning)
+MULTI_SPRINT_TERMS: tuple[str, ...] = ("multi-sprint", "phased")
+# "refactor" / "redesign" / "architecture" / "migration" -> IS_ARCHITECTURAL.
+# Matched as word stems so "refactoring", "architectural" and "migrations"
+# count; a stem is the handler's keyword with its inflection removed.
+ARCHITECTURAL_TERMS: tuple[str, ...] = ("refactor", "redesign", "architectur", "migration")
+# "Item file < 50 lines" -> IS_SHORT (a proxy for a small fix)
+SHORT_ITEM_LINES = 50
+# "6+ sub-items or ## headings" -> SUB_ITEMS >= 6
+SUB_ITEMS_THRESHOLD = 6
+
+_H2_RE = re.compile(r"^## ")
+_NUMBERED_RE = re.compile(r"^(\d+)\.\s")
+_FILE_PATH_RE = re.compile(
+    r"[\w./\\-]+\.(?:py|js|ts|tsx|jsx|cs|java|go|rs|rb|sh|ps1|sql|ya?ml|json|toml|ini|html|css|c|cpp|h|md)\b"
+)
+# The three evidence shapes behind HAS_CLEAR_FIX's mechanical half. Each
+# pattern names the phrasings seen in this corpus; a miss here reports
+# `clear_fix.*=no` with the sub-flag visible, so a reader sees which shape
+# was not recognised rather than a bare verdict.
+# -- a `file:line` anchor (`backlog.md:137-211`) or `line 80` / `lines 97-101`
+_LINE_ANCHOR_RE = re.compile(r"\.[A-Za-z0-9]+:\d+(?:-\d+)?\b|\blines? \d+", re.IGNORECASE)
+# -- an exact edit target: an old_string/new_string pair, a diff fence, or a
+#    whole-file copy ("copy X over Y", "byte copy"). A verbatim string or a
+#    whole file locates an edit as precisely as a line number, and survives
+#    the line drift a number does not.
+_EDIT_TARGET_RE = re.compile(
+    r"old_string|```diff|\bcopy\b[^\n]{0,160}\bover\b|byte copy", re.IGNORECASE
+)
+# -- before/after content: the phrase, a WRONG/CORRECT pair, an old -> new
+#    arrow, or "replace X with Y"
+_BEFORE_AFTER_RE = re.compile(
+    r"before/after|before-and-after|\bbefore\b[^\n]{0,80}\bafter\b|\bold\b\s*(?:→|->|to)\s*\bnew\b"
+    r"|\breplace\b[^\n]{0,120}\bwith\b",
+    re.IGNORECASE,
+)
+# -- a scope-confinement bound
+_SCOPE_BOUND_RE = re.compile(
+    r"out of scope|do not touch|must not touch|touch no other|edit only|scope[- ]confinement"
+    r"|not solved by|intentionally not",
+    re.IGNORECASE,
+)
+# `**Evidence:** ... verified 2026-08-26 by ...` and the coordination-flag
+# form `recorded 2026-09-23`: the dates a stored route hint is judged against.
+_EVIDENCE_DATE_RE = re.compile(r"\b(?:verified|recorded|measured)\s+(\d{4}-\d{2}-\d{2})\b", re.IGNORECASE)
+
+
+def _blank_fenced_blocks(body: str) -> str:
+    """Return `body` with every fenced code block's lines blanked out.
+
+    Line positions are preserved (each stripped line becomes an empty
+    string) so a line number reported from the result still points into the
+    original body. A heading, numbered step, or keyword quoted inside a
+    template block, a pseudocode fence, or a WRONG/CORRECT exemplar is text
+    the item *shows*, not a property the item *has*; counting it would
+    classify an item by the examples it carries. The clear-fix evidence
+    patterns deliberately read the un-blanked body instead: an
+    `old_string`/`new_string` pair or a diff lives inside a fence by
+    convention.
+    """
+    out: list[str] = []
+    in_fence = False
+    for line in body.split("\n"):
+        if line.lstrip().startswith(("```", "~~~")):
+            in_fence = not in_fence
+            out.append("")
+            continue
+        out.append("" if in_fence else line)
+    return "\n".join(out)
+
+
+def _keyword_hits(text: str, terms: tuple[str, ...]) -> list[dict]:
+    """Every case-insensitive occurrence of any term, with the line it sits
+    on. The line is reported because a hit is a candidate, not a verdict: an
+    item that *quotes* the handler's signal table matches every keyword in
+    it without being multi-sprint or architectural itself, and only the
+    surrounding text lets a reader tell the two apart."""
+    hits: list[dict] = []
+    for line_no, line in enumerate(text.split("\n"), start=1):
+        lowered = line.lower()
+        for term in terms:
+            if term in lowered:
+                hits.append({"term": term, "line": line_no, "text": line.strip()[:120]})
+    return hits
+
+
+def _longest_numbered_run(text: str) -> tuple[int, int]:
+    """(total top-level numbered items, longest consecutively-numbered run).
+
+    A run continues while each numbered line's number is exactly one more
+    than the previous numbered line's, whatever sits between them (nested
+    bullets, prose, blank lines). The longest run is the closest mechanical
+    reading of "discrete steps"; the total feeds SUB_ITEMS.
+    """
+    total = 0
+    longest = 0
+    run = 0
+    previous: int | None = None
+    for line in text.split("\n"):
+        match = _NUMBERED_RE.match(line)
+        if not match:
+            continue
+        number = int(match.group(1))
+        total += 1
+        run = run + 1 if previous is not None and number == previous + 1 else 1
+        previous = number
+        longest = max(longest, run)
+    return total, longest
+
+
+def _coerce_date(value) -> date | None:
+    """A frontmatter date as `date`, whether YAML typed it or left it a
+    string; None when absent or unparseable."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError:
+        return None
+
+
+def _latest_evidence_date(body: str) -> date | None:
+    """The newest dated evidence line in the body, or None when it carries
+    none. This is the date a `route_dated:` hint is judged stale against."""
+    dates = [_coerce_date(m) for m in _EVIDENCE_DATE_RE.findall(body)]
+    dates = [d for d in dates if d is not None]
+    return max(dates) if dates else None
+
+
+def decide_route(
+    has_clear_fix: bool,
+    is_architectural: bool,
+    has_multi_sprint: bool,
+    sub_items: int,
+    step_count: int,
+) -> tuple[str, bool, str]:
+    """The handler's Decision Logic, reproduced without modification.
+
+    Returns (route, large_scope, branch). `large_scope` is only meaningful
+    when the route is C: True means the strong-signal ELIF branch fired,
+    False means C was reached only as the conservative default. Any
+    divergence between this function and the handler's pseudocode is a
+    defect here, never a design choice.
+    """
+    if has_clear_fix and not (is_architectural or has_multi_sprint or sub_items >= SUB_ITEMS_THRESHOLD):
+        return "A", False, "HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6)"
+    if has_multi_sprint or is_architectural or sub_items >= SUB_ITEMS_THRESHOLD:
+        return "C", True, "HAS_MULTI_SPRINT OR IS_ARCHITECTURAL OR (SUB_ITEMS >= 6)"
+    if 2 <= step_count <= 5:
+        return "B", False, "2 <= STEP_COUNT <= 5"
+    return "C", False, "ELSE (conservative default)"
+
+
+def reconcile_route_hint(frontmatter: dict, route: str, latest_evidence: date | None) -> dict | None:
+    """Compare the item's optional `route_hint:` frontmatter with the
+    computed route. None when the item carries no hint.
+
+    The hint is never adopted here or anywhere: this reports agreement and
+    staleness so the handler can state the divergence in its Reason line.
+    `stale` is None when the item carries no dated evidence line to judge
+    against, or the hint carries no `route_dated:`.
+    """
+    raw_hint = frontmatter.get("route_hint")
+    if raw_hint is None or str(raw_hint).strip() == "":
+        return None
+    hint = str(raw_hint).strip().upper()
+    valid = hint in ("A", "B", "C")
+    dated = _coerce_date(frontmatter.get("route_dated"))
+    stale: bool | None = None
+    if dated is not None and latest_evidence is not None:
+        stale = dated < latest_evidence
+    agrees = valid and hint == route
+    if not valid:
+        verdict = "script wins — hint is not one of A/B/C"
+    elif not agrees:
+        verdict = "script wins — hint disagrees with the live signals"
+    elif stale:
+        verdict = "agree — but the hint predates the item's newest evidence"
+    else:
+        verdict = "agree"
+    return {
+        "route": hint,
+        "valid": valid,
+        "evidence": frontmatter.get("route_evidence"),
+        "dated": dated.isoformat() if dated else None,
+        "latest_evidence_date": latest_evidence.isoformat() if latest_evidence else None,
+        "agrees": agrees,
+        "stale": stale,
+        "verdict": verdict,
+    }
+
+
+def compute_route_signals(item: dict, frontmatter: dict) -> dict:
+    """The mechanical signal vector for one open item, plus the provisional
+    route `decide_route` derives from it.
+
+    Reads only the index row (`item`) and what `read_item_frontmatter`
+    already returned (`frontmatter`, including `_body` and `_line_count`);
+    it opens no file. HAS_CLEAR_FIX is reported as its mechanical half only
+    -- whether the evidence shapes are *present* (an edit location: a line
+    anchor, an exact edit string, or a whole-file copy; a before/after; a
+    scope-confinement bound). Whether they are *sufficient* is a judgment
+    this function does not make and the report says so.
+
+    Keyword and structure signals read the body with fenced blocks blanked
+    (see `_blank_fenced_blocks`); the clear-fix patterns read it whole.
+    """
+    body = frontmatter.get("_body") or ""
+    body_available = "_body" in frontmatter
+    structural = _blank_fenced_blocks(body)
+    line_count = frontmatter.get("_line_count")
+
+    abbrev = _resolve_abbrev(item, frontmatter)
+    is_bug = abbrev == "BUG"
+    is_short = line_count is not None and line_count < SHORT_ITEM_LINES
+    file_paths = sorted(set(_FILE_PATH_RE.findall(body)))
+
+    multi_sprint_hits = _keyword_hits(structural, MULTI_SPRINT_TERMS)
+    architectural_hits = _keyword_hits(structural, ARCHITECTURAL_TERMS)
+    has_multi_sprint = bool(multi_sprint_hits)
+    is_architectural = bool(architectural_hits)
+
+    h2_count = sum(1 for line in structural.split("\n") if _H2_RE.match(line))
+    numbered_items, step_count = _longest_numbered_run(structural)
+    sub_items = max(h2_count, numbered_items)
+
+    file_count = int(item.get("file_count", 0) or 0)
+
+    clear_fix = {
+        "line_anchor": bool(_LINE_ANCHOR_RE.search(body)),
+        "edit_target": bool(_EDIT_TARGET_RE.search(body)),
+        "before_after": bool(_BEFORE_AFTER_RE.search(body)) or ("WRONG" in body and "CORRECT" in body),
+        "scope_bound": bool(_SCOPE_BOUND_RE.search(body)),
+    }
+    clear_fix["evidence_present"] = (
+        (clear_fix["line_anchor"] or clear_fix["edit_target"])
+        and clear_fix["before_after"]
+        and clear_fix["scope_bound"]
+    )
+    has_clear_fix = is_short or clear_fix["evidence_present"]
+
+    route, large_scope, branch = decide_route(
+        has_clear_fix, is_architectural, has_multi_sprint, sub_items, step_count
+    )
+    hint = reconcile_route_hint(frontmatter, route, _latest_evidence_date(body))
+
+    return {
+        "id": item["id"],
+        "body_available": body_available,
+        "abbrev": abbrev,
+        "is_bug": is_bug,
+        "line_count": line_count,
+        "is_short": is_short,
+        "file_paths": file_paths,
+        "multi_sprint_hits": multi_sprint_hits,
+        "has_multi_sprint": has_multi_sprint,
+        "architectural_hits": architectural_hits,
+        "is_architectural": is_architectural,
+        "h2_count": h2_count,
+        "numbered_items": numbered_items,
+        "sub_items": sub_items,
+        "step_count": step_count,
+        "file_count": file_count,
+        "has_multiple_files": file_count >= 2,
+        "clear_fix": clear_fix,
+        "has_clear_fix": has_clear_fix,
+        "has_clear_fix_note": (
+            "mechanical half only: a short file, or an edit location (line anchor, "
+            "exact edit string, or whole-file copy) + a before/after + a scope bound "
+            "all present. "
+            "Sufficiency is a judgment the reader makes."
+        ),
+        "route": route,
+        "large_scope": large_scope,
+        "branch": branch,
+        "hint": hint,
+    }
+
+
+ROUTE_LEGEND = (
+    "Legend: route A = Direct Fix, B = Task List, C = Session Planning; "
+    "large = LARGE_SCOPE (meaningful for C only).\n"
+    "  clear = HAS_CLEAR_FIX, mechanical half only (short file, or edit location + "
+    "before/after + scope bound present); sufficiency is a judgment.\n"
+    "  ms/arch = keyword hit counts for HAS_MULTI_SPRINT / IS_ARCHITECTURAL -- "
+    "candidates, not verdicts; an item quoting the signal table matches them all. "
+    "Use --id N for the hit lines.\n"
+    "  h2/steps = ## headings outside code fences / longest consecutive numbered list.\n"
+    "  hint = the item's route_hint frontmatter, compared but never adopted.\n"
+    "The pivot check and every pre-routing gate are judgment; this report does not run them."
+)
+
+
+def format_route_line(signals: dict, score: int) -> str:
+    """One report row per item for the all-items `--route` listing."""
+    hint = signals["hint"]
+    if hint is None:
+        hint_text = "-"
+    elif hint["agrees"] and not hint["stale"]:
+        hint_text = f"{hint['route']} agree"
+    elif hint["agrees"]:
+        hint_text = f"{hint['route']} agree/stale"
+    else:
+        hint_text = f"{hint['route']} DISAGREE"
+    large = "large" if signals["route"] == "C" and signals["large_scope"] else "-"
+    return (
+        f"  ID {signals['id']:>3} | {signals['route']} | {large:<5} | {score:>3} pts | "
+        f"clear={'y' if signals['has_clear_fix'] else 'n'} "
+        f"ms={len(signals['multi_sprint_hits'])} arch={len(signals['architectural_hits'])} "
+        f"h2={signals['h2_count']} steps={signals['step_count']} files={signals['file_count']} "
+        f"| hint {hint_text}"
+    )
+
+
+def format_route_detail(signals: dict, score: int) -> str:
+    """The full signal vector for one item (`--route --id N`)."""
+    yes_no = lambda flag: "yes" if flag else "no"  # noqa: E731 -- local rendering helper
+    lines = [
+        f"{signals['id']}  route {signals['route']}  LARGE_SCOPE {yes_no(signals['large_scope'])}"
+        f"  (score {score})",
+        f"  branch:            {signals['branch']}",
+        f"  abbrev/is_bug:     {signals['abbrev']} / {yes_no(signals['is_bug'])}",
+        f"  line_count/short:  {signals['line_count']} / {yes_no(signals['is_short'])}"
+        f"  (< {SHORT_ITEM_LINES})",
+        f"  file_paths:        {len(signals['file_paths'])}",
+        f"  h2 / numbered:     {signals['h2_count']} / {signals['numbered_items']}"
+        f"  -> SUB_ITEMS {signals['sub_items']} (>= {SUB_ITEMS_THRESHOLD}: "
+        f"{yes_no(signals['sub_items'] >= SUB_ITEMS_THRESHOLD)})",
+        f"  step_count:        {signals['step_count']}  (longest consecutive numbered list)",
+        f"  file_count:        {signals['file_count']}  (multiple: {yes_no(signals['has_multiple_files'])})",
+        f"  HAS_CLEAR_FIX:     {yes_no(signals['has_clear_fix'])}  -- {signals['has_clear_fix_note']}",
+        f"    line_anchor={yes_no(signals['clear_fix']['line_anchor'])} "
+        f"edit_target={yes_no(signals['clear_fix']['edit_target'])} "
+        f"before_after={yes_no(signals['clear_fix']['before_after'])} "
+        f"scope_bound={yes_no(signals['clear_fix']['scope_bound'])}",
+        f"  HAS_MULTI_SPRINT:  {yes_no(signals['has_multi_sprint'])}  ({len(signals['multi_sprint_hits'])} hit(s))",
+    ]
+    lines.extend(f"    L{h['line']} [{h['term']}] {h['text']}" for h in signals["multi_sprint_hits"])
+    lines.append(
+        f"  IS_ARCHITECTURAL:  {yes_no(signals['is_architectural'])}  ({len(signals['architectural_hits'])} hit(s))"
+    )
+    lines.extend(f"    L{h['line']} [{h['term']}] {h['text']}" for h in signals["architectural_hits"])
+    hint = signals["hint"]
+    if hint is None:
+        lines.append("  route_hint:        (none) -- derive from the live signals alone")
+    else:
+        lines.append(f"  route_hint:        {hint['route']}  dated {hint['dated'] or '?'}  -> {hint['verdict']}")
+        if hint["evidence"]:
+            lines.append(f"    evidence: {hint['evidence']}")
+        lines.append(
+            f"    newest dated evidence in body: {hint['latest_evidence_date'] or 'none'}; "
+            f"stale: {'unknown' if hint['stale'] is None else yes_no(hint['stale'])}"
+        )
+    if not signals["body_available"]:
+        lines.append("  (item body unavailable -- frontmatter did not parse; body signals are empty)")
+    return "\n".join(lines)
+
+
+def write_route_json(payload) -> str:
+    """Write the `--route --json` payload to a temp file and return its path,
+    matching `parse_backlog.write_json`'s convention."""
+    tmp_dir = tempfile.mkdtemp(prefix="backlog-route-")
+    json_path = os.path.join(tmp_dir, "route.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    return json_path
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compute priority scores for backlog items."
@@ -591,10 +986,19 @@ def main():
                         help="Look up one item's score by ID (bare or prefixed, matched on the numeric component).")
     parser.add_argument("--explain", action="store_true",
                         help="With --id, print the per-factor score derivation instead of just the total.")
+    parser.add_argument("--route", action="store_true",
+                        help="Report the mechanical triage-routing signal vector and provisional route "
+                             "per open item (with --id, one item in full). Report-only; writes nothing.")
+    parser.add_argument("--json", action="store_true",
+                        help="With --route, also write the report as a JSON temp file and print its path.")
     parser.add_argument("--config", type=str, default=None,
                         help="Path to config.yaml; overrides default config search and scoring thresholds.")
 
     args, _ = parser.parse_known_args()
+
+    if args.json and not args.route:
+        print("Error: --json is only meaningful with --route.", file=sys.stderr)
+        sys.exit(1)
 
     # Load config
     config = load_config(Path(__file__))
@@ -648,6 +1052,13 @@ def main():
         if breakdown is None:
             print(f"Item {matched_item['id']} is not open; no score computed.", file=sys.stderr)
             sys.exit(1)
+        if args.route:
+            fm = frontmatters.get(matched_item["id"], {})
+            signals = compute_route_signals(matched_item, fm)
+            print(format_route_detail(signals, breakdown.total))
+            if args.json:
+                print(f"JSON: {write_route_json({**signals, 'score': breakdown.total})}")
+            return
         if args.explain:
             fm = frontmatters.get(matched_item["id"], {})
             print(format_score_explanation(matched_item["id"], matched_item, breakdown, fm, open_item_ids))
@@ -657,6 +1068,26 @@ def main():
 
     if args.review:
         print(review_items(items, scores, frontmatters))
+        return
+
+    if args.route:
+        open_items = sorted(
+            [i for i in items if i["status"] in OPEN_STATUSES],
+            key=lambda x: (-_score_total(scores.get(x["id"])), x["id"]),
+        )
+        rows = []
+        print(f"Backlog Route Signals ({len(open_items)} open items)")
+        print("=" * 60)
+        for item in open_items:
+            signals = compute_route_signals(item, frontmatters.get(item["id"], {}))
+            score = _score_total(scores.get(item["id"]))
+            rows.append({**signals, "score": score})
+            print(format_route_line(signals, score))
+        print()
+        print(ROUTE_LEGEND)
+        print("\n(report only — nothing is written)")
+        if args.json:
+            print(f"JSON: {write_route_json(rows)}")
         return
 
     print(f"Backlog Priority Scores ({len(scores)} open items)")

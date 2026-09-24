@@ -161,7 +161,21 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 5. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
    - If the BLI's motivating driver is a runtime symptom (keywords: collision, race, hang, missing endpoint, intermittent), run a `grep -rn` for the symptom in `src/` and cross-check against recent session summaries in `Plans/**/Sessions/**/Outputs/`. If the driver is no longer active (no recent matches, fix landed), mark the BLI as STALE per `verify-backlog-citation-freshness.md §3h` and skip routing. Include §3h.untested-axes and §3h.cluster signal checks per the same reference.
 
-6. Assess the item's scope using the routing decision tree in the [Routing Decision Tree](#routing-decision-tree) section below.
+6. **Assess the item's scope: run the mechanical signals, then reconcile the stored hint.** The [Routing Decision Tree](#routing-decision-tree) below is the source of the logic; the script applies it without modification.
+
+   a. Run the mechanical half of the routing signals. The script reads the index row and the item body it already loaded for scoring, applies the Decision Logic, and writes nothing:
+      ```bash
+      python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml --route --id {item_id}
+      ```
+      It prints the signal vector (`abbrev`/`is_bug`, whole-file line count, keyword hits with the line each sits on, `##` and numbered-step counts, file count, the `HAS_CLEAR_FIX` evidence shapes), the provisional route, `LARGE_SCOPE`, and the Decision Logic branch that fired. Read the keyword hit lines before accepting `HAS_MULTI_SPRINT` or `IS_ARCHITECTURAL`: an item that quotes the signal table, or names a plan whose title contains "redesign", matches every keyword without being either. `HAS_CLEAR_FIX` is reported as its mechanical half only — the evidence shapes are *present*; whether they are *sufficient* is your judgment. The script never runs the pivot check or gates 3b, 4, 5 and 7.
+   b. Read the item's `route_hint` / `route_evidence` / `route_dated` frontmatter when present. The report prints them beside the computed route with a verdict: `agree`, `agree — but the hint predates the item's newest evidence`, or `script wins — …`.
+   c. Reconcile the two into one recommendation, and state the reconciliation in the Scope Assessment Block's `Reason:` line rather than in a new template:
+      - Script and hint agree → recommend that route and note that both agreed.
+      - They disagree, or `route_dated` is older than the item's newest `**Evidence:**` / `recorded` date → **the script wins**, and `Reason:` names the divergence. A stale hint is data about drift, not an override.
+      - No hint → the script vector alone.
+
+      Never adopt a stored hint bare, and never skip a gate because a route is already stored: a stored route is a dated claim about the repository and rots like every other claim.
+   d. Override the script's route only on a signal it cannot see — a keyword hit you read and classified as self-quotation, edit evidence you judged insufficient, a `##` count inflated by appended coordination flags — and name that signal in `Reason:`. Carry the script's `LARGE_SCOPE` forward unchanged when the route stays C.
 
 <!-- AUTO-MODE: critical — discharged by auto-escalation, not by a prompt. See step 7's Auto Mode paragraph. -->
 7. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
@@ -211,7 +225,7 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 > ## Scope Assessment
 >
 > Route: {DIRECT_FIX | TASK_LIST | SESSION_PLANNING}
-> Reason: {why this route was chosen}
+> Reason: {the Decision Logic branch --route fired; the route_hint verdict (agree / script wins / none); any signal overridden per step 6d}
 > LARGE_SCOPE: {true | false}
 > ─────────────────────────────────────────────
 > ```
@@ -566,6 +580,7 @@ Task {
    python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{recommendation, 120 characters or fewer}" --priority "{inferred from severity}" --abbrev "{Domain}" --files "BLI-{NNN}-{Domain}-{Topic}.md"
    ```
    `--create` writes the item file at `{backlog_dir}/BLI-{NNN}-{Domain}-{Topic}.md` from the [backlog-item.md](../templates/backlog-item.md) template. It writes nothing else — no index row, no regeneration. **Cap the title at 120 characters** — `--create` rejects a longer `--feature`, writes nothing, and names the actual length and the cap; it never truncates. Shorten the title and move the overflow into the item body's `## Summary`. Then use `Edit` to add the candidate description, target file, and severity.
+   - **Route hint (optional, when the evidence supports it):** in the same `Edit`, add `route_hint:` (`A`, `B`, or `C`), `route_evidence:` (one line — why, from what was verified live), and `route_dated:` (today) to the frontmatter. Filing time is when the routing evidence is richest; Phase 3 step 6 reads the three fields back as a dated recommendation, never a decision. Omit all three rather than guess.
    - **Self-containment check:** the body inlines every block, spec, or piece of evidence the item depends on — a reference may add context, but the substantive content required to act is pasted in, not only linked. (Apply the durability test above.)
 
 3. **Regenerate the index once, after the item is filed:**
@@ -671,3 +686,5 @@ ELSE:
    by construction, not a signal-driven large-scope match) unless the strong-signal
    conditions above independently hold.
 ```
+
+`score_backlog.py --route` implements step 2 and the `IF` / `ELIF` / `ELSE` chain above mechanically (`compute_route_signals` and `decide_route` in that script); Phase 3 step 6 runs it. This pseudocode is the source: a script that diverges from it is defective, and the fix is to the script. Steps 0 and 0.5, the sufficiency half of `HAS_CLEAR_FIX`, and steps 3-4 stay with the handler.
