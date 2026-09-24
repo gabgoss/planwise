@@ -713,6 +713,32 @@ Task tools: absent — Claude Code omits them on this model family.
 
 ---
 
+### Stage 19: Backlog Item Body-Status Audit
+
+> [!constraint] Read-Only — audit only recommends
+> Stage 19 runs `reconcile_backlog.py --body-status --json` standalone. It
+> reads each item file under `{backlog_dir}/` and its `Archive/`, never the
+> backlog index. The audit itself never mutates. It strips lines only if the
+> user explicitly consents. The consented `--body-status --write` removes each
+> drifted `**Status:**` line from the item's header block and changes no
+> frontmatter, so no index regeneration follows.
+
+Always-on (independent of Token Saver) — keeping each item's frontmatter the
+only status field is doctor's purpose, so this check has **no `--no-check`
+escape hatch** (contrast `/planwise backlog`, where the same detect pass IS
+skippable for a fast triage).
+
+Run the index-drift audit procedure in
+[`references/index-drift-audit.md`](../references/index-drift-audit.md)
+with its body-status binding (banner `planwise doctor — backlog item
+body-status drift audit`) — the header-block rule, the anomaly classes and
+the consent prompt live there. Doctor runs this as a standing check, not a
+one-shot migration: an older item writer can re-introduce the line after a
+corpus was cleaned. This is the within-file analogue of the Stage 12
+archival audit; neither re-implements the other's comparison.
+
+---
+
 ## Token Saver Audit
 
 > [!gate] Run only when `context.token_saver` is `true`

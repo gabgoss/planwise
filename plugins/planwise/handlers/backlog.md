@@ -8,7 +8,7 @@
 - `--priority High` — filter by priority
 - `--abbrev APP` — filter by domain abbreviation
 - `--status IN_PROGRESS` — filter by status
-- `--no-check` — skip the Phase 1 archival-drift detect pass (fast triage)
+- `--no-check` — skip both Phase 1 item-file audits, archival drift and body status lines (fast triage)
 
 ---
 
@@ -102,13 +102,23 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 
 This is a second, narrower audit than `--check` above, and the two do not overlap. `--check` renders each row from wherever an item's file actually sits, so it never flags an unmoved file as wrong. What it cannot catch is a COMPLETE/CLOSED item whose file never got physically moved into `Archive/` — that move is `update_backlog.py`'s job when the status transition happens (Phase 6), but an item that reaches a closed status by another path (a session closeout that hand-edits the frontmatter directly) leaves the file stranded in the top-level backlog dir, and nothing on the read side heals it. This audit reads each item file's frontmatter status and location, never the index, so it sees a stranded file on a generated index too.
 
-**`--no-check` skips only this archival audit, unchanged from before.** The `--check` call above is unconditional, the same as the `score_backlog.py` call it replaces.
+**`--no-check` skips this archival audit and the body-status audit below.** The `--check` call above is unconditional, the same as the `score_backlog.py` call it replaces.
 
-**If `--no-check` is present:** skip this step (a fast triage) and go straight to displaying the table.
+**If `--no-check` is present:** skip this step and the body-status step below (a fast triage), and go straight to displaying the table.
 
-Otherwise, run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) against the **backlog** index (`reconcile_backlog.py`, banner `planwise backlog — backlog index drift audit`) — the JSON shape, banner format, and write-on-consent reconcile flow (including the consent prompt) all live there. This is the read-side counterpart of `/planwise list` Step 2's plans-index drift check, and the same detect pass `/planwise doctor` Stage 12 reuses; none re-implements another's comparison.
+Otherwise, run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) against the **backlog** index (`reconcile_backlog.py`, banner `planwise backlog — backlog index archival drift audit`) — the JSON shape, banner format, and write-on-consent reconcile flow (including the consent prompt) all live there. This is the read-side counterpart of `/planwise list` Step 2's plans-index drift check, and the same detect pass `/planwise doctor` Stage 12 reuses; none re-implements another's comparison.
 
 The consented `--write` moves item files into `Archive/` and never writes the index. If it moved a file, run `generate_backlog_index.py --config {planwise_root}/config.yaml --write` so the index links follow the moved files. Then re-run Phase 1's parse so this same invocation shows the regenerated index.
+
+**Detect body status lines (always-on unless `--no-check`):**
+
+This pass is separate from the archival one because it audits what an item file says, not where the file sits. An older item writer can leave a `**Status:**` line under an item's title, a second copy of the frontmatter `status:` that nothing keeps in sync. A file in the right place can still carry that stale line, so neither `--check` nor the archival audit sees it.
+
+```bash
+python {plugin_root}/scripts/reconcile_backlog.py --config {planwise_root}/config.yaml --body-status --json
+```
+
+Run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) with the body-status binding (banner `planwise backlog — backlog item body-status drift audit`). The [Backlog item body status](../references/index-drift-audit.md#backlog-item-body-status--reconcile_backlogpy---body-status) binding carries the detect flow, the anomaly classes, the consent prompt and the `--body-status --write` run. This is the same detect pass `/planwise doctor` Stage 19 runs. A consented strip changes no frontmatter, so no index regeneration follows it.
 
 Display the table to the user.
 
