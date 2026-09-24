@@ -235,7 +235,6 @@ Under `--dry-run`, skip this entire step: report the planned flips and archive m
 > # BB-{NNN}-DOC: {Title}
 >
 > **Priority:** {High|Medium|Low}
-> **Status:** NOT_STARTED
 > **Domain:** DOC
 > **Source:** /planwise lessons promote-batch — Bucket {X} ({BucketName})
 >

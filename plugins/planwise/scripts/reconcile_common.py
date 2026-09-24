@@ -35,6 +35,7 @@ Stdlib-only.
 import argparse
 import json
 import os
+import stat
 import sys
 import tempfile
 from collections.abc import Callable
@@ -55,9 +56,27 @@ def read_text_preserving_newlines(path: Path) -> str:
 def write_text_preserving_newlines(path: Path, content: str) -> None:
     """Write text verbatim with newline="" so no os.linesep translation
     occurs, preserving the file's original CRLF/LF exactly.
+
+    Atomic: the content goes to a temp file in the same directory, named
+    `.{name}.tmp-*` so no `*.md` glob matches it, and `os.replace` then
+    swaps it onto the target. A failure at any step removes the temp file
+    and re-raises, leaving the target's original bytes untouched.
     """
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(content)
+    path = Path(path)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
+    try:
+        with open(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(content)
+        if path.exists():
+            # mkstemp creates the temp file owner-only; keep the target's mode.
+            os.chmod(tmp_name, stat.S_IMODE(path.stat().st_mode))
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def write_json_result(result: dict, prefix: str) -> str:
