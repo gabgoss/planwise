@@ -1,120 +1,141 @@
 #!/usr/bin/env python3
-"""Flip the Status cell of lessons-index Master Table rows — safely and idempotently.
+"""Flip a lesson file's frontmatter `status:` — safely and idempotently.
 
-The planwise lessons workflows (`curate --phase=promote`, `promote-batch` capture)
-both prescribe "update the Status column in the Master Table" as a hand edit. At
-batch scale that is dozens of long table rows, each needing a unique anchor — the
-exact shape where a hand edit silently rewrites the wrong row, or downgrades a row
-that was already correct.
+This script no longer opens the lessons index at all. The lessons directory
+and its `Archive/` come from `config.yaml`, and each mapped id is resolved
+straight to its own lesson FILE through `parse_lessons.lesson_files`. The
+status word is rewritten inside that file's own frontmatter, not in an
+index row.
 
-The load-bearing property is NOT the rewrite. It is the REFUSALS:
+The load-bearing property is still NOT the rewrite. It is the REFUSALS:
 
-  * a row already at the target status is skipped, not rewritten;
-  * a row at a landed status (`rule` / `applied`) is NEVER downgraded to `promoted`
-    or `documented`, even when the caller's map says so — a landed lesson that a
-    stale map wants to un-land is a caller bug, and silently obeying it destroys the
-    audit trail the Rule Promotion Log depends on;
-  * a mapped id with no row, or a row with no parseable Status cell, is reported
-    rather than skipped in silence;
-  * an id carried by MORE THAN ONE row is refused outright — a duplicate lesson id
-    means the index is already corrupt, and flipping every copy would bury the
-    corruption under a clean-looking exit 0.
+  * an id claimed by zero lesson files, or by more than one, is refused
+    outright — a missing or ambiguous target must never be guessed at;
+  * a file already at the target status is skipped, not rewritten;
+  * a file at a landed status (`rule` / `applied`) is NEVER downgraded to
+    an earlier status, even when the caller's map says so — a landed lesson
+    that a stale map wants to un-land is a caller bug, and silently obeying
+    it destroys the audit trail the Rule Promotion Log depends on;
+  * a file with no parseable `status:` line inside its frontmatter bounds
+    is reported rather than skipped in silence.
 
-Every decision is printed. A run that changes nothing prints why for each id, so the
-operator can tell "already correct" apart from "never matched".
+Every decision is printed. A run that changes nothing prints why for each
+id, so the operator can tell "already correct" apart from "never matched".
 
-Two write-discipline guarantees make the diff auditable, because the audit trail is
-the whole point of the refusals above:
+Two write-discipline guarantees make the diff auditable, because the audit
+trail is the whole point of the refusals above:
 
-  * **Only the status WORD is rewritten.** The surrounding cell is spliced back
-    byte-for-byte, so padding, bold markers and any trailing carriage return on that
-    line survive untouched.
+  * **Only the status WORD is rewritten.** The rest of the `status:` line
+    is spliced back byte-for-byte, so any trailing carriage return on that
+    line survives untouched.
   * **Line endings are never translated.** Reading and writing through
-    ``reconcile_common``'s newline-preserving pair keeps a CRLF file CRLF and an LF
-    file LF. A plain ``read_text``/``write_text`` pair round-trips through Python's
-    universal-newline translation and rewrites EVERY line to the running platform's
-    ``os.linesep`` — turning a one-cell flip into a whole-file diff on the very rows
-    the refusals just declined to touch.
+    ``reconcile_common``'s newline-preserving pair keeps a CRLF file CRLF
+    and an LF file LF. A plain ``read_text``/``write_text`` pair round-trips
+    through Python's universal-newline translation and rewrites EVERY line
+    to the running platform's ``os.linesep`` — turning a one-word flip into
+    a whole-file diff on the very lines the refusals just declined to touch.
+
+## Finding the frontmatter bounds on a CRLF file
+
+`frontmatter_parser.split_frontmatter_block` locates the `---` fences with
+an LF-only pattern, so it cannot find the fence at all in a raw CRLF file.
+This module never calls it: it walks the file's own lines (each may carry a
+trailing `\r`, split on `\n` alone, exactly like the newline-preserving read
+this script already uses) and compares each fence line with its own
+trailing `\r` stripped for the comparison only. The returned splice always
+targets the ORIGINAL line, `\r` included, so a CRLF file's line endings
+survive the rewrite untouched.
 
 Usage:
-    flip_lesson_status.py INDEX_FILE MAP_FILE [--dry-run]
+    flip_lesson_status.py --config CONFIG MAP_FILE [--dry-run]
 
-MAP_FILE is one `LL-{NNN}: status` per line; `#` comments and blank lines ignored:
+MAP_FILE is one `LL-{NNN}: status` per line; `#` comments and blank lines
+ignored:
 
     # landed upstream, verified by content grep
     LL-{NNN}: rule
     LL-{NNN+1}: promoted
 
-Exit codes: 0 = clean; 1 = at least one id not found or unparseable (investigate
-before trusting the run).
+Exit codes: 0 = clean; 1 = at least one id not found, ambiguous, unparseable
+or refused (investigate before trusting the run).
 """
 
 from __future__ import annotations
 
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
-# Sibling-module import. The newline-preserving read/write pair is the shared
-# destructive-write discipline (see reconcile_common's module docstring); it is
-# defined once there and reused by every script that rewrites a user's index in
-# place, rather than re-derived per script.
+# Sibling-module import. The newline-preserving read/write pair is the
+# shared destructive-write discipline (see reconcile_common's module
+# docstring); it is defined once there and reused by every script that
+# rewrites a user's file in place, rather than re-derived per script.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config_loader import load_config
+from generate_lessons_index import _strip_quotes
+from parse_lessons import format_id, lesson_files
 from reconcile_common import (
     read_text_preserving_newlines,
     write_text_preserving_newlines,
 )
 
-VALID = ("documented", "promoted", "rule", "applied")
+VALID = ("documented", "promoted", "rule", "applied", "orphaned")
 LANDED = ("rule", "applied")
 
-ROW_RE = re.compile(r"^\|\s*\*{0,2}(LL-\d{3})\*{0,2}\s*\|")
-TAIL_RE = re.compile(r"\|\s*\*{0,2}(documented|promoted|rule|applied)\*{0,2}\s*\|\s*$")
-
-# The lessons index's `**Last Updated:**` header sits at the TOP of the file
-# (unlike the backlog index's bottom-of-file placement). Bumping it after a
-# Status-cell flip used to be a prose instruction to the agent running this
-# script rather than behaviour of the script itself, so a run that changed
-# a cell could leave the header stale — the same drift class the index's
-# "Next available ID" counter had before it grew a reconciler. Folding the
-# bump into this write makes the two updates atomic.
-#
-# The middle segment is intentionally unconstrained ([^\r]*, not a date
-# pattern): it swallows whatever currently follows the label — a real date,
-# an already-appended parenthetical, or the seed template's literal
-# "YYYY-MM-DD" placeholder — so any of those shapes is replaced cleanly.
-# The trailing `(\r?)` group is captured (not consumed by the middle
-# segment) and spliced back verbatim, so a CRLF file's line ending survives
-# the rewrite untouched.
-HEADER_RE = re.compile(r"^(\*\*Last Updated:\*\*[ \t]*)[^\r]*(\r?)$")
+# Matches a frontmatter `status:` line and captures only the value WORD
+# (group 2) so the splice below can replace exactly that span. `\s` in
+# Python's `re` module matches `\r`, so `\S+` never swallows a line's
+# trailing carriage return — the CRLF fixture test in
+# tests/test_flip_lesson_status.py pins this directly.
+_STATUS_VALUE_RE = re.compile(r"^(\s*status:\s*)(\S+)")
 
 
-def _bump_last_updated_header(lines: list[str], changed_count: int) -> None:
-    """Rewrite the index's `Last Updated` header line in place, if present.
-
-    Mutates `lines`. Only the label prefix and the line's own trailing "\\r"
-    (if any) survive from the old line; the label's date/parenthetical is
-    replaced with today's date and a short parenthetical naming what
-    changed, matching the convention the categorisation file already uses.
-
-    If no line matches, the header is never fabricated: one stderr note is
-    printed and `lines` is left untouched. Callers must invoke this only
-    when at least one Status cell was actually rewritten and the run is not
-    `--dry-run` — a no-op run (idempotent skip, or every change REFUSED) is
-    not a write, and must never call this at all.
+def _frontmatter_bounds_by_line(lines: list[str]) -> tuple[int, int] | None:
+    """Return `(start, end)` line indices bounding the frontmatter block —
+    `lines[start]` and `lines[end]` are the two `---` fence lines, each
+    compared with its own trailing `\\r` stripped. `None` when `lines[0]`
+    is not a fence line, or no closing fence is found.
     """
-    today = datetime.now().astimezone().date().isoformat()
-    stamp = f"{today} (`flip_lesson_status.py`: {changed_count} status change(s))"
-    for i, line in enumerate(lines):
-        m = HEADER_RE.match(line)
+    if not lines or lines[0].rstrip("\r") != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].rstrip("\r") == "---":
+            return 0, i
+    return None
+
+
+def _flip_status_in_frontmatter(raw: str, new_status: str) -> tuple[str, str] | None:
+    """Return `(current_status, spliced_text)`, or `None` when no parseable
+    `status:` line exists inside the frontmatter bounds. `spliced_text` has
+    ONLY the status word replaced — everything else in `raw`, every line
+    ending included, is copied back verbatim. Never writes anything; the
+    caller decides whether the flip is allowed before committing it.
+
+    The captured value is unquoted with `generate_lessons_index._strip_quotes`
+    (the same quote rules the generator applies when reading frontmatter,
+    imported rather than duplicated) before it is compared against `VALID`/
+    `LANDED`/`want` — a quoted `status: "rule"` reads unquoted as `rule` and
+    the LANDED refusal below sees it correctly, instead of comparing the
+    literal `'"rule"'` against an unquoted tuple and silently missing every
+    quoted value. The rewrite always WRITES THE NEW VALUE UNQUOTED: the
+    replaced span is the raw captured token (quotes included, when
+    present), so a quoted old value's quotes are dropped along with it
+    rather than round-tripped — simpler than re-deriving a quote style to
+    preserve, and it matches how the generator itself renders every other
+    frontmatter value it writes.
+    """
+    lines = raw.split("\n")
+    bounds = _frontmatter_bounds_by_line(lines)
+    if bounds is None:
+        return None
+    start, end = bounds
+    for i in range(start + 1, end):
+        m = _STATUS_VALUE_RE.match(lines[i])
         if m:
-            lines[i] = m.group(1) + stamp + m.group(2)
-            return
-    print(
-        "note: index has no 'Last Updated:' header line — header not bumped",
-        file=sys.stderr,
-    )
+            current = _strip_quotes(m.group(2))
+            lines[i] = lines[i][: m.start(2)] + new_status + lines[i][m.end(2) :]
+            return current, "\n".join(lines)
+    return None
 
 
 def parse_map(path: Path) -> dict[str, str]:
@@ -126,8 +147,10 @@ def parse_map(path: Path) -> dict[str, str]:
         if ":" not in line:
             raise SystemExit(f"{path}:{n}: expected 'LL-NNN: status', got {raw!r}")
         lid, status = (p.strip() for p in line.split(":", 1))
-        if not re.fullmatch(r"LL-\d{3}", lid):
+        m = re.fullmatch(r"LL-(\d+)", lid)
+        if not m:
             raise SystemExit(f"{path}:{n}: bad lesson id {lid!r}")
+        lid = format_id(int(m.group(1)))
         if status not in VALID:
             raise SystemExit(f"{path}:{n}: status {status!r} not in {VALID}")
         mapping[lid] = status
@@ -136,73 +159,86 @@ def parse_map(path: Path) -> dict[str, str]:
 
 def main() -> int:
     argv = sys.argv[1:]
-    flags = [a for a in argv if a.startswith("--")]
-    # An unrecognized flag must never be swallowed: this script's only safety
-    # rail is --dry-run, and silently ignoring a misspelled one ("--dryrun")
-    # turns a requested preview into an unrequested write.
-    unknown = [f for f in flags if f != "--dry-run"]
+    dry_run = False
+    positionals: list[str] = []
+    unknown: list[str] = []
+    config_arg: str | None = None
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--config":
+            if i + 1 < len(argv):
+                config_arg = argv[i + 1]
+            i += 2
+            continue
+        if arg == "--dry-run":
+            dry_run = True
+            i += 1
+            continue
+        if arg.startswith("--"):
+            unknown.append(arg)
+            i += 1
+            continue
+        positionals.append(arg)
+        i += 1
+    # An unrecognized flag must never be swallowed: this script's only
+    # safety rail is --dry-run, and silently ignoring a misspelled one
+    # ("--dryrun") turns a requested preview into an unrequested write.
     if unknown:
         raise SystemExit(
-            f"unknown option(s): {', '.join(unknown)} — the only supported flag "
-            f"is --dry-run\n{__doc__}"
+            f"unknown option(s): {', '.join(unknown)} — the only supported "
+            f"flags are --config and --dry-run\n{__doc__}"
         )
-    args = [a for a in argv if not a.startswith("--")]
-    dry_run = "--dry-run" in flags
-    if len(args) != 2:
+    if config_arg is None or len(positionals) != 1:
         raise SystemExit(__doc__)
 
-    index, target = Path(args[0]), parse_map(Path(args[1]))
-    lines = read_text_preserving_newlines(index).split("\n")
+    config = load_config(Path(__file__))
+    lessons_dir = config.get("_lessons_dir")
+    if lessons_dir is None:
+        raise SystemExit("config.yaml declares no project.lessons_dir")
+    archive_dir = lessons_dir / "Archive"
 
-    # Pre-pass: an id carried by more than one row makes every later decision
-    # about that id ambiguous, so count the rows before deciding anything.
-    row_counts: dict[str, int] = {}
-    for line in lines:
-        m = ROW_RE.match(line)
-        if m:
-            row_counts[m.group(1)] = row_counts.get(m.group(1), 0) + 1
+    target = parse_map(Path(positionals[0]))
+
+    id_to_paths: dict[int, list[Path]] = {}
+    for lesson_id, path in lesson_files(lessons_dir, archive_dir):
+        id_to_paths.setdefault(lesson_id, []).append(path)
 
     changed: list[tuple[str, str, str]] = []
     skipped: list[tuple[str, str]] = []
-    unseen = set(target)
+    writes: dict[Path, str] = {}
 
-    for i, line in enumerate(lines):
-        m = ROW_RE.match(line)
-        if not m or m.group(1) not in target:
-            continue
-        lid = m.group(1)
-        if lid not in unseen:
-            continue  # already decided on this id's first row
-        unseen.discard(lid)
-        if row_counts[lid] > 1:
-            skipped.append(
-                (
-                    lid,
-                    (f"REFUSED: {row_counts[lid]} rows share this id — "
-                    "resolve the duplicate by hand"),
-                )
+    for lid, want in target.items():
+        numeric_id = int(lid.split("-", 1)[1])
+        paths = id_to_paths.get(numeric_id, [])
+        if len(paths) != 1:
+            reason = (
+                f"REFUSED: {len(paths)} lesson files claim this id — "
+                "resolve the duplicate by hand"
+                if paths
+                else "REFUSED: no lesson file found for this id"
             )
+            skipped.append((lid, reason))
             continue
-        tail = TAIL_RE.search(line)
-        if not tail:
-            skipped.append((lid, "row has no parseable Status cell — check by hand"))
+        path = paths[0]
+        raw = read_text_preserving_newlines(path)
+        result = _flip_status_in_frontmatter(raw, want)
+        if result is None:
+            skipped.append((lid, "no parseable status: line in frontmatter — check by hand"))
             continue
-        current, want = tail.group(1), target[lid]
+        current, spliced = result
         if current == want:
             skipped.append((lid, f"already {want}"))
             continue
         if current in LANDED and want not in LANDED:
             skipped.append((lid, f"REFUSED: will not downgrade landed {current!r} -> {want!r}"))
             continue
-        # Splice ONLY the status word; everything around it — cell padding,
-        # bold markers, and any trailing "\r" this line carries — is copied
-        # back verbatim, so an untouched byte stays an untouched byte.
-        lines[i] = line[: tail.start(1)] + want + line[tail.end(1) :]
         changed.append((lid, current, want))
+        writes[path] = spliced
 
-    if not dry_run and changed:
-        _bump_last_updated_header(lines, len(changed))
-        write_text_preserving_newlines(index, "\n".join(lines))
+    if not dry_run:
+        for path, spliced in writes.items():
+            write_text_preserving_newlines(path, spliced)
 
     print(f"{'would change' if dry_run else 'changed'}: {len(changed)}")
     for lid, a, b in changed:
@@ -211,12 +247,15 @@ def main() -> int:
         print(f"skipped: {len(skipped)}")
         for lid, why in skipped:
             print(f"  {lid}: {why}")
-    if unseen:
-        print(f"NOT FOUND IN MASTER TABLE: {sorted(unseen)}")
 
-    problems = len(unseen) + sum(
-        1 for _, why in skipped if why.startswith(("REFUSED", "row has no"))
-    )
+    if changed and not dry_run:
+        script_dir = Path(__file__).resolve().parent
+        print(
+            f"Regenerate the index: python {script_dir}/generate_lessons_index.py "
+            f"--config {config_arg} --write"
+        )
+
+    problems = sum(1 for _, why in skipped if why.startswith(("REFUSED", "no parseable")))
     return 1 if problems else 0
 
 

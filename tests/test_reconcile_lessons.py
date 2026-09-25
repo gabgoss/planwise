@@ -212,6 +212,44 @@ class TestComputeNextId(_LessonsFixtureBase):
 
         self.assertEqual(compute_next_id(self.config)["next_id"], "LL-004")
 
+    def test_linked_id_row_counts(self):
+        # A row whose ID cell is a markdown link — [LL-NNN](path) — must
+        # count toward the next-id computation exactly like a bare or bold
+        # row (upstream issue: neither the old flip nor reconcile regex
+        # tolerated a link-wrapped id cell).
+        self.write_index("LL-002", [1])
+        self.write_lesson(1)
+        content = self.read_index()
+        linked_row = (
+            "| [LL-005](Archive/LL-005-x.md) | Fixture lesson 5 | process | "
+            "medium | - | - | PROC | fixture | documented |\n"
+        )
+        updated = content.replace(MASTER_TABLE_HEADER, MASTER_TABLE_HEADER + linked_row, 1)
+        self.index_path.write_text(updated, encoding="utf-8")
+
+        result = compute_next_id(self.config)
+
+        self.assertEqual(result["next_id"], "LL-006")
+        self.assertIn("master table", result["found_in"])
+
+    def test_malformed_row_cell_count_mismatch_still_counts(self):
+        # Code-review fix 5: LESSON_ROW_RE matched this row (id parses as
+        # 9), but an unescaped `|` inside the Title cell makes the cell
+        # count not match the header -- `_walk_rows` flags it malformed,
+        # but its id must still claim LL-009 for `--next-id` purposes.
+        self.write_index("LL-002", [1])
+        self.write_lesson(1)
+        content = self.read_index()
+        malformed_row = (
+            "| LL-009 | Fixture | lesson 9 | process | medium | - | - | PROC | fixture | documented |\n"
+        )
+        updated = content.replace(MASTER_TABLE_HEADER, MASTER_TABLE_HEADER + malformed_row, 1)
+        self.index_path.write_text(updated, encoding="utf-8")
+
+        result = compute_next_id(self.config)
+
+        self.assertEqual(result["next_id"], "LL-010")
+
 
 class TestDetectDrift(_LessonsFixtureBase):
     """Read-only drift + anomaly classification."""
@@ -316,6 +354,51 @@ class TestDetectDrift(_LessonsFixtureBase):
         self.assertEqual(len(result["anomalies"]), 1)
         self.assertEqual(result["anomalies"][0]["kind"], "missing_counter_line")
         self.assertEqual(result["next_id"], "LL-002")
+
+    def test_duplicate_id_on_disk_is_anomaly(self):
+        # Two files on disk claim the same id — reported by id, with every
+        # path, never collapsed into a single dict entry (count rows before
+        # keying).
+        self.write_index("LL-002", [1])
+        self.write_lesson(1)
+        dup_path = self.lessons_dir / "LL-001-PROC-Fixture1Duplicate.md"
+        dup_path.write_text(
+            "---\nid: LL-001\nstatus: documented\n---\n\n# LL-001-PROC: Duplicate\n",
+            encoding="utf-8",
+        )
+
+        result = detect_drift(self.config)
+
+        dup_anomalies = [a for a in result["anomalies"] if a["kind"] == "duplicate_id"]
+        self.assertEqual(len(dup_anomalies), 1)
+        self.assertEqual(dup_anomalies[0]["id"], "LL-001")
+        self.assertIn("LL-001-PROC-Fixture1.md", dup_anomalies[0]["file"])
+        self.assertIn("LL-001-PROC-Fixture1Duplicate.md", dup_anomalies[0]["file"])
+        # The read-only computation still succeeds despite the duplicate.
+        self.assertEqual(result["next_id"], "LL-002")
+
+    def test_generated_shape_index_reports_no_file_without_row(self):
+        # Code-review fix 1: on a `generated` index, the "master" id set must
+        # be read through `parse_lessons.parse_index` (which walks the
+        # generated family's own table), not through the legacy `##
+        # Master Table` reader -- which finds zero rows on a generated file
+        # and would report every on-disk lesson as `file_without_row`.
+        self.write_lesson(1)
+        self.write_lesson(2)
+        generated = (
+            "Generated: 2026-09-25T00:00:00Z\n"
+            "**Next available ID:** LL-003\n\n"
+            "| ID | Title | Category | Severity | Language | Technology | Domain | Source | Status | File |\n"
+            "|----|-------|----------|----------|----------|------------|--------|--------|--------|------|\n"
+            "| LL-001 | Fixture lesson 1 | process | medium | - | - | PROC | fixture | documented | [001](LL-001-PROC-Fixture1.md) |\n"
+            "| LL-002 | Fixture lesson 2 | process | medium | - | - | PROC | fixture | documented | [002](LL-002-PROC-Fixture2.md) |\n"
+        )
+        self.index_path.write_text(generated, encoding="utf-8")
+
+        result = detect_drift(self.config)
+
+        file_without_row = [a for a in result["anomalies"] if a["kind"] == "file_without_row"]
+        self.assertEqual(file_without_row, [])
 
 
 class TestReconcile(_LessonsFixtureBase):

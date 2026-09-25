@@ -24,15 +24,20 @@ a deleted file, so no single source is authoritative alone.
 
 Three operations:
   - compute_next_id(config): read-only. Returns the true next ID plus the
-    per-source breakdown behind it.
+    per-source breakdown behind it. Delegates to `parse_lessons.compute_next_id`.
   - detect_drift(config): read-only. Reports a counter that is BEHIND the true
-    next ID as drift, and reports four separate conditions as anomalies — a
+    next ID as drift, and reports five separate conditions as anomalies — a
     missing counter line, a counter AHEAD of the true next ID, a Master-Table
-    row whose file exists in neither directory, and a lesson file on disk with
-    no Master-Table row.
+    row whose file exists in neither directory, a lesson file on disk with
+    no Master-Table row, and a lesson id claimed by more than one file on disk.
   - reconcile(config): re-reads the index fresh (race-safe against a concurrent
     writer that may have bumped the counter since a prior detect call) and
-    rewrites the counter line's value only when it is still behind.
+    rewrites the counter line's value only when it is still behind and the
+    index is a legacy Master Table; a generated index is never edited here.
+
+The ID-cell regex (`MASTER_ROW_RE`) and the lesson-filename regex
+(`LESSON_FILE_RE`) are defined once, in `parse_lessons.py`, and imported here
+rather than carried as a near-duplicate.
 
 > The counter only ever moves FORWARD. A counter *ahead* of the true max is
   reported as an anomaly and never lowered: an ID can be retired deliberately
@@ -57,15 +62,32 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
+from parse_lessons import (
+    LESSON_FILE_RE,
+    LESSON_ROW_RE,
+    detect_index_shape,
+    duplicate_ids,
+    format_id,
+    lesson_files,
+    parse_index,
+    parse_legacy_master_table,
+)
+from parse_lessons import compute_next_id as _parse_lessons_compute_next_id
 
-# `LL-{NNN}-{Domain}-{Topic}.md` → NNN. Anchored so a file merely *mentioning*
-# an ID elsewhere in its name is not counted.
-LESSON_FILE_RE = re.compile(r"^LL-(\d+)\b")
+# Re-exported for backward-compatible external access (a caller or test that
+# still reads reconcile_lessons.LESSON_FILE_RE) even though this module no
+# longer uses it directly — the definition lives once, in parse_lessons.py.
+__all__ = [
+    "LESSON_FILE_RE",
+    "MASTER_ROW_RE",
+    "compute_next_id",
+    "detect_drift",
+    "reconcile",
+]
 
-# A Master-Table row whose first cell is the lesson ID. The optional `**`
-# tolerates a bolded ID (some indexes bold applied/rule lessons) — a wrapping
-# emphasis must not make a real row invisible to the scan.
-MASTER_ROW_RE = re.compile(r"^\|\s*(?:\*\*)?LL-(\d+)(?:\*\*)?\s*\|", re.MULTILINE)
+# Import-bound alias — the single ID-cell regex is defined once, in
+# parse_lessons.py; this module never carries its own near-duplicate.
+MASTER_ROW_RE = LESSON_ROW_RE
 
 # The counter line. Group 1 is everything up to the digits and is preserved
 # verbatim on write; only the digits are replaced, so the line's original
@@ -74,105 +96,93 @@ COUNTER_RE = re.compile(
     r"^([ \t]*(?:\*\*)?Next available ID:(?:\*\*)?[ \t]*)LL-(\d+)", re.MULTILINE
 )
 
-MASTER_TABLE_HEADING_RE = re.compile(r"^##\s+Master Table\s*$", re.MULTILINE)
-NEXT_HEADING_RE = re.compile(r"^##\s+", re.MULTILINE)
-
-
-def format_id(number: int) -> str:
-    """Render an integer lesson number in canonical zero-padded `LL-NNN` form."""
-    return f"LL-{number:03d}"
-
 
 def _dir_lesson_ids(directory: Path | None) -> dict:
     """Map {int id: filename} for `LL-NNN*.md` files directly in `directory`.
 
-    Non-recursive by design: the working directory and `Archive/` are scanned as
-    two separate sources so the report can say which one a lesson came from.
-    A missing directory (no `Archive/` yet on a young project) yields {}.
+    Thin wrapper over `parse_lessons.lesson_files`, kept dict-shaped
+    (first-seen-wins) because every existing caller reads this as a lookup
+    table. A duplicate id within `directory` is NOT reported here: the
+    whole on-disk corpus (working directory plus `Archive/` together) is
+    checked independently in `_sources`/`detect_drift`, which report it as
+    the `duplicate_id` anomaly (count rows before keying, never collapse
+    into one entry). A missing directory (no `Archive/` yet on a young
+    project) yields {}.
     """
     found: dict[int, str] = {}
-    if directory is None or not directory.is_dir():
+    if directory is None:
         return found
-    for entry in sorted(directory.iterdir()):
-        if not entry.is_file() or entry.suffix.lower() != ".md":
-            continue
-        match = LESSON_FILE_RE.match(entry.name)
-        if match:
-            found.setdefault(int(match.group(1)), entry.name)
+    for lesson_id, path in lesson_files(directory, None):
+        found.setdefault(lesson_id, path.name)
     return found
 
 
-def _master_table_ids(content: str) -> set:
-    """Extract every lesson ID appearing as a Master-Table row's first cell.
+def _master_table_ids(config: dict, content: str) -> set:
+    """Extract every lesson ID the on-disk index carries as a row, shape-aware.
 
-    Scoped to the `## Master Table` section so a row in another table that
-    happens to lead with a lesson ID is not read as a Master-Table entry. If the
-    index carries no such heading (an index predating the convention), the whole
-    document is scanned instead — a wider net is safer than reporting an empty
-    master table and, from it, a falsely low next ID.
+    On a `legacy` index, delegates to `parse_lessons.parse_legacy_master_table`,
+    scoped to the `## Master Table` heading region so a row in another table
+    that happens to lead with a lesson ID (the Rule Promotion Log) is never
+    read as a Master-Table entry.
+
+    On a `generated` index, the rows live across the whole generated family
+    (hub, overflow leaves, Archive shards), not in a `## Master Table`
+    heading the generator never writes — reading only `content` (the hub
+    file alone) would therefore see zero rows and every lesson would read as
+    `file_without_row`. Delegates instead to `parse_lessons.parse_index`,
+    which already walks the whole family.
+
+    On an `empty` index (no lessons yet, or an unrecognized file), no shape
+    has a row set to read, so this returns the empty set.
     """
-    heading = MASTER_TABLE_HEADING_RE.search(content)
-    if heading:
-        rest = content[heading.end():]
-        following = NEXT_HEADING_RE.search(rest)
-        section = rest[: following.start()] if following else rest
-    else:
-        section = content
-
-    return {int(m.group(1)) for m in MASTER_ROW_RE.finditer(section)}
+    # `row.id != -1` alone in both branches, matching `compute_next_id`:
+    # a malformed row whose id cell WAS parseable (a cell-count mismatch,
+    # not a missing id) still claims that id for allocation purposes.
+    shape = detect_index_shape(content)
+    if shape == "generated":
+        parsed = parse_index(config)
+        return {row.id for row in parsed.rows if row.id != -1}
+    if shape == "legacy":
+        rows = parse_legacy_master_table(content)
+        return {row.id for row in rows if row.id != -1}
+    return set()
 
 
 def _sources(config: dict) -> dict:
-    """Read the three ID sources. Returns working/archive/master + the index text."""
+    """Read the three ID sources. Returns working/archive/master + the index
+    text, plus the on-disk duplicate-id map (a lesson id claimed by more
+    than one file, working directory and `Archive/` combined)."""
     lessons_dir = config.get("_lessons_dir")
     index_path = config.get("_lessons_index")
     archive_dir = (lessons_dir / "Archive") if lessons_dir else None
 
     content = index_path.read_text(encoding="utf-8") if index_path and index_path.exists() else ""
 
+    working_pairs = lesson_files(lessons_dir, None)
+    archive_pairs = lesson_files(None, archive_dir)
+    dup_on_disk = duplicate_ids(working_pairs + archive_pairs)
+
     return {
         "working": _dir_lesson_ids(lessons_dir),
         "archive": _dir_lesson_ids(archive_dir),
-        "master": _master_table_ids(content),
+        "master": _master_table_ids(config, content),
         "content": content,
+        "duplicates_on_disk": dup_on_disk,
     }
 
 
 def compute_next_id(config: dict) -> dict:
-    """Compute the true next lesson ID from the union of all three sources.
+    """Compute the true next lesson ID from the union of every known source.
 
-    Read-only. Returns:
+    Delegates to `parse_lessons.compute_next_id` — the union-of-sources
+    derivation is defined once there. Read-only. Returns:
         {"next": int, "next_id": "LL-NNN", "max_found": int | None,
          "found_in": [source names carrying that max],
-         "counts": {"working": N, "archive": N, "master": N}}
+         "counts": {"working": N, "archive": N, "master": N, "generated": N}}
     `max_found` is None and `next` is 1 on a fresh project with no lessons
     anywhere — the seed index's starting `LL-001` is then correct, not drifted.
     """
-    src = _sources(config)
-    working, archive, master = set(src["working"]), set(src["archive"]), src["master"]
-    all_ids = working | archive | master
-
-    max_found = max(all_ids) if all_ids else None
-    found_in = []
-    if max_found is not None:
-        if max_found in working:
-            found_in.append("working directory")
-        if max_found in archive:
-            found_in.append("Archive/")
-        if max_found in master:
-            found_in.append("master table")
-
-    return {
-        "next": (max_found + 1) if max_found is not None else 1,
-        "next_id": format_id((max_found + 1) if max_found is not None else 1),
-        "max_found": max_found,
-        "found_in": found_in,
-        "counts": {
-            "working": len(working),
-            "archive": len(archive),
-            "master": len(master),
-        },
-    }
+    return _parse_lessons_compute_next_id(config)
 
 
 def detect_drift(config: dict) -> dict:
@@ -186,7 +196,10 @@ def detect_drift(config: dict) -> dict:
     `drifts` holds at most one entry — the counter is a single field — but stays
     a list so the JSON shape matches the plans/backlog reconcilers every caller
     already reads. Only a counter that is BEHIND the true next ID is drift; a
-    counter ahead of it is an anomaly (see the module docstring).
+    counter ahead of it is an anomaly (see the module docstring). `anomalies`
+    also reports a missing counter line, a Master-Table row whose file exists
+    in neither directory, a lesson file on disk with no Master-Table row, and
+    a lesson id claimed by more than one file on disk (`duplicate_id`).
     """
     src = _sources(config)
     working, archive, master = set(src["working"]), set(src["archive"]), src["master"]
@@ -266,6 +279,21 @@ def detect_drift(config: dict) -> dict:
             }
         )
 
+    # --- Duplicate ids on disk -----------------------------------------------
+    # Count rows before keying: a lesson id claimed by more than one file is
+    # reported by id, with every path — never last-wins, never collapsed into
+    # one entry.
+    for lesson_id in sorted(src["duplicates_on_disk"]):
+        paths = src["duplicates_on_disk"][lesson_id]
+        anomalies.append(
+            {
+                "kind": "duplicate_id",
+                "id": format_id(lesson_id),
+                "file": ", ".join(p.name for p in paths),
+                "reason": f"{len(paths)} lesson files claim {format_id(lesson_id)} — reported by id, never last-wins",
+            }
+        )
+
     return {"drifts": drifts, "anomalies": anomalies, "next_id": computed["next_id"]}
 
 
@@ -287,6 +315,12 @@ def reconcile(config: dict) -> dict:
     Returns {"written": bool, "from": "LL-NNN" | None, "to": "LL-NNN" | None}.
     (The sibling reconcilers return a row count; a single-field counter has no
     meaningful count, so the before/after values are returned instead.)
+
+    Shape-aware: when the on-disk index is a legacy Master Table, the
+    forward-only counter heal above is unchanged. When the index is a
+    generated file, the counter line is written by the generator on its next
+    run, so this function edits nothing and instead returns the regenerate
+    command as the generic condition — never a plan schedule.
     """
     index_path = config.get("_lessons_index")
     if index_path is None or not index_path.exists():
@@ -294,6 +328,17 @@ def reconcile(config: dict) -> dict:
 
     with open(index_path, "r", encoding="utf-8", newline="") as fh:
         content = fh.read()
+
+    if detect_index_shape(content) == "generated":
+        return {
+            "written": False,
+            "from": None,
+            "to": None,
+            "regenerate_command": (
+                "the index is generated; nothing to edit here — run "
+                "generate_lessons_index.py --config <config> --write to refresh it"
+            ),
+        }
 
     expected = compute_next_id(config)["next"]
     match = COUNTER_RE.search(content)
@@ -387,6 +432,8 @@ def main():
         outcome = reconcile(config)
         if outcome["written"]:
             print(f"Reconciled the counter: {outcome['from']} → {outcome['to']}.")
+        elif outcome.get("regenerate_command"):
+            print(outcome["regenerate_command"])
         else:
             print("Nothing to reconcile — the counter is not behind.")
         if args.json:

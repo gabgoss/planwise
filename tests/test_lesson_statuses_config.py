@@ -60,10 +60,12 @@ class TestLessonStatusVocabulary(unittest.TestCase):
         self.assertEqual(set(seed_status_table(self.seed_text)), set(DECLARED))
 
     def test_flip_script_accepts_only_declared_values(self):
-        self.assertTrue(
-            set(flip_lesson_status.VALID) <= set(DECLARED),
-            f"flip_lesson_status.VALID carries a value config does not declare: "
-            f"{set(flip_lesson_status.VALID) - set(DECLARED)}",
+        self.assertEqual(
+            set(flip_lesson_status.VALID),
+            set(DECLARED),
+            f"flip_lesson_status.VALID must equal config's declared set exactly "
+            f"(extra: {set(flip_lesson_status.VALID) - set(DECLARED)}; "
+            f"missing: {set(DECLARED) - set(flip_lesson_status.VALID)})",
         )
 
     def test_key_is_migrated_into_existing_configs(self):
