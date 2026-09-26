@@ -1864,6 +1864,7 @@ class TestGeneratorRefusesLegacyOrUnrecognizedIndex(_GeneratorFixtureBase):
         self.assertEqual(code, 2)
         self.assertIn("hand-authored", err)
         self.assertIn("--replace-legacy", err)
+        self.assertIn("WITHOUT a backup", err)
         self.assertEqual(self._snapshot(), before)
 
     def test_write_replace_legacy_overwrites_and_becomes_migrated(self):
@@ -1892,8 +1893,12 @@ class TestGeneratorRefusesLegacyOrUnrecognizedIndex(_GeneratorFixtureBase):
         code, _out, err = self.run_main("--write")
 
         self.assertEqual(code, 2)
-        self.assertIn("hand-authored", err)
+        self.assertNotIn("hand-authored", err)
+        self.assertIn("unrecognized index shape", err)
+        self.assertIn("migrate_backlog_index.py", err)
+        self.assertIn("--report", err)
         self.assertIn("--replace-legacy", err)
+        self.assertIn("WITHOUT a backup", err)
         self.assertEqual(self._snapshot(), before)
 
     def test_check_refuses_unrecognized_hub(self):
@@ -1902,8 +1907,9 @@ class TestGeneratorRefusesLegacyOrUnrecognizedIndex(_GeneratorFixtureBase):
         code, _out, err = self.run_main("--check")
 
         self.assertEqual(code, 2)
-        self.assertIn("hand-authored", err)
-        self.assertIn("/planwise upgrade", err)
+        self.assertNotIn("hand-authored", err)
+        self.assertIn("unrecognized index shape", err)
+        self.assertIn("--report", err)
 
     def test_generated_fixture_write_and_check_unchanged(self):
         self.write_item("001", title="Open item", priority="High",
@@ -1970,6 +1976,9 @@ class TestGeneratorGuardSkipsAlreadyMigratedPointerFooter(unittest.TestCase):
             "*Last Updated: 2026-01-01 — moved to "
             "[00-Backlog-Index-Changelog.md](00-Backlog-Index-Changelog.md)*\n",
             encoding="utf-8",
+        )
+        (self.backlog_dir / "00-Backlog-Index-Changelog.md").write_bytes(
+            b"[\xe2\x86\x90 Backlog-Index.md](Backlog-Index.md)\n\n## Entry 1\n\n 2026-01-01 \xe2\x80\x94 created\n\n"
         )
 
         code, _out, err = self.run_main("--write")

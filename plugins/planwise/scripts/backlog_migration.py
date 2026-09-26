@@ -5,21 +5,25 @@ The trigger is the index's shape, not a version, so a refused run re-fires on
 the next upgrade and a finished one never repeats:
 
 - `legacy` (hand-authored): plan every repair in memory, back up each file the
-  plan rewrites byte-exact, run the migrator's staged write, then regenerate
-  and check the index.
+  plan rewrites byte-exact, run the migrator's staged write, then back up every
+  generated file and regenerate and check the index.
 - `migrated` (generated): re-split a changelog that has grown over the per-file
   read budget, with backups; otherwise do nothing and print nothing.
 - `unrecognized`: report the classifier's reason and touch nothing.
 
 Recognise-or-refuse, never best-effort. Every step before the backup is
-read-only, and a failed backup means no write is attempted. The routine never
-raises: any unexpected exception becomes state `error`, so it never fails the
-caller. The git working-tree state is reported for information only, because
-the backup under `{planwise_root}/upgrade-backups/{from}-to-{to}/backlog/` is
-the restore point.
+read-only, and a failed backup means no write is attempted. A failed write
+restores every file it touched to this run's pre-image, then reports
+`write_failed`. The first pre-image wins: a backup an earlier run left in the
+same version pair is kept, never overwritten. The routine never raises: any
+unexpected exception becomes state `error`, so it never fails the caller. The
+git working-tree state is reported for information only, because the backup
+under `{planwise_root}/upgrade-backups/{from}-to-{to}/backlog/` is the restore
+point.
 """
 import contextlib
 import dataclasses
+import hashlib
 import io
 import json
 import sys
@@ -58,6 +62,7 @@ class BacklogMigrationReport:
     fix: str = ""
     backup_dir: Path | None = None
     backed_up: list[str] = dataclasses.field(default_factory=list)
+    kept: list[str] = dataclasses.field(default_factory=list)  # backups an earlier run made; left as they were
     written: list[str] = dataclasses.field(default_factory=list)
     ledger_path: Path | None = None
     counts: dict = dataclasses.field(default_factory=dict)
@@ -110,24 +115,33 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
                                   f"--extract-dependency-notes --reconcile {mode} --append-ambiguous")
         return
     paths = mig.artifact_paths(index_path)
+    backlog_dir = config["_backlog_dir"]
     if plan is not None:
         targets = mig.plan_targets(plan)
-        if not _backup(targets, config["_backlog_dir"], report):
+        pre = _backup(targets, backlog_dir, report, [*(p for p, _t in plan["outputs"]), paths[1]])
+        if pre is None:
             return
-        rc, output = _captured(mig.execute, plan, paths, index_path, False)
+        try:
+            rc, output = _captured(mig.execute, plan, paths, index_path, False)
+        except (OSError, sup.ReplaceError) as exc:
+            rc, output = 1, f"migration write failed: {exc}"
         report.detail = output
         if rc != 0:
-            report.state = "write_failed"
-            report.fix = "re-run /planwise upgrade to resume; the migrator's staged write resumes where it stopped"
+            _write_failed(report, pre, "re-run /planwise upgrade; the migration restarts from the restored files")
             return
         backed = {Path(p).resolve() for p in targets}
         for path, _text in plan["outputs"]:
-            reason = ("pre-image in backlog/" + _rel(path, config["_backlog_dir"]).as_posix()
-                      if path.resolve() in backed else "new file")
+            reason = _kept_at(path, backlog_dir, report) if path.resolve() in backed else "new file"
             _log(cfg, from_version, to_version, path, "backlog-migrated", reason, report)
-    _regenerate(config, index_path, report)
+    else:
+        report.detail = "an earlier run migrated the index; this run regenerated it only (its counts are in that ledger)"
+    if not _regenerate(cfg, from_version, to_version, config, index_path, report):
+        if report.state != "backup_failed":
+            report.state, report.fix = "write_failed", f"fix what the generator names, {RERUN}"
+        return
     report.state = "migrated"
-    _fill_counts(paths[1], mode, report)
+    if plan is not None:  # counts describe this run's migrator write, never an earlier run's ledger
+        _fill_counts(paths[1], mode, report)
     _count_shards(config, index_path, report)
 
 
@@ -143,7 +157,9 @@ def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, in
         return
     remove = list(plan["remove"])
     targets = list(dict.fromkeys([*plan["targets"], *remove]))
-    if not _backup(targets, config["_backlog_dir"], report):
+    backlog_dir = config["_backlog_dir"]
+    pre = _backup(targets, backlog_dir, report, [p for p, _t in plan["outputs"]])
+    if pre is None:
         return
     expected = len(plan["outputs"])
     try:
@@ -151,16 +167,16 @@ def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, in
     except (OSError, sup.ReplaceError) as exc:
         written, output = None, f"changelog re-split failed: {exc}"
     if written != expected:
-        report.state = "write_failed"
         report.detail = output if written is None else f"changelog re-split wrote {written} of {expected} part(s)"
-        report.fix = "re-run /planwise upgrade; the re-split restarts from the files on disk"
+        _write_failed(report, pre, "re-run /planwise upgrade; the re-split restarts from the restored files")
         return
     backed = {Path(p).resolve() for p in targets}
     for path, _text in plan["outputs"]:
-        reason = "rewritten; pre-image kept" if path.resolve() in backed else "new part"
+        reason = "rewritten; " + _kept_at(path, backlog_dir, report) if path.resolve() in backed else "new part"
         _log(cfg, from_version, to_version, path, "backlog-changelog-split", reason, report)
     for path in remove:
-        _log(cfg, from_version, to_version, path, "backlog-changelog-split", "removed; pre-image kept", report)
+        _log(cfg, from_version, to_version, path, "backlog-changelog-split",
+             "removed; " + _kept_at(path, backlog_dir, report), report)
     report.state = "changelog_split"
     report.counts["changelog_parts"] = expected
 
@@ -174,27 +190,68 @@ def _refuse(report, message: str, command: str) -> None:
 
 
 def _rel(path: Path, backlog_dir: Path) -> Path:
-    """`path` relative to the backlog directory, keeping `Archive/`; its bare name otherwise."""
+    """`path` relative to the backlog directory, keeping `Archive/`. A path outside it goes under
+    `_outside/{digest of its directory}/`, so two same-named files never share one backup."""
+    resolved = Path(path).resolve()
     try:
-        return Path(path).resolve().relative_to(Path(backlog_dir).resolve())
+        return resolved.relative_to(Path(backlog_dir).resolve())
     except ValueError:
-        return Path(Path(path).name)
+        digest = hashlib.sha256(str(resolved.parent).encode("utf-8")).hexdigest()[:12]
+        return Path("_outside") / digest / resolved.name
 
 
-def _backup(targets: list, backlog_dir: Path, report) -> bool:
-    """Copy every existing target byte-exact before any write. False means stop."""
+def _kept_at(path: Path, backlog_dir: Path, report) -> str:
+    """The DISPOSITIONS reason naming where `path`'s pre-image sits, and whether an earlier run made it."""
+    rel = _rel(path, backlog_dir)
+    earlier = " (made by an earlier run in this version pair; kept, not overwritten)"
+    return (f"pre-image at upgrade-backups/{report.backup_dir.parent.name}/backlog/{rel.as_posix()}"
+            + (earlier if str(report.backup_dir / rel) in report.kept else ""))
+
+
+def _backup(targets: list, backlog_dir: Path, report, also: list = ()) -> dict | None:
+    """Copy every existing target byte-exact before any write, and return this run's pre-image of
+    each target and each path in `also` (None for a file that does not exist yet). The first
+    pre-image wins: a backup already present is kept. None means stop: nothing was written."""
     for src in targets:
         dst = report.backup_dir / _rel(src, backlog_dir)
+        if str(dst) in report.backed_up:
+            continue
         try:
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            upgrade_io._copy_bytes_exact(Path(src), dst)
+            if dst.exists():
+                report.kept.append(str(dst))
+            else:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                upgrade_io._copy_bytes_exact(Path(src), dst)
         except OSError as exc:
-            report.state = "backup_failed"
-            report.detail = f"could not back up {src}: {exc}"
-            report.fix = "free the backup location or fix its permissions, then " + RERUN
-            return False
+            return _backup_failed(report, src, exc)
         report.backed_up.append(str(dst))
-    return True
+    try:
+        return {Path(p): Path(p).read_bytes() if Path(p).exists() else None for p in [*targets, *also]}
+    except OSError as exc:
+        return _backup_failed(report, "a pre-image", exc)
+
+
+def _backup_failed(report, src, exc) -> None:
+    report.state = "backup_failed"
+    report.detail = f"could not back up {src}: {exc}"
+    report.fix = "free the backup location or fix its permissions, then " + RERUN
+
+
+def _write_failed(report, pre: dict, fix: str) -> None:
+    """State `write_failed`, after putting every path back to its pre-image: rewrite a changed
+    file and delete one this run created. If that restore fails, `detail` names the backups."""
+    report.state, report.fix = "write_failed", fix
+    try:
+        for path, data in pre.items():
+            if data is None:
+                path.unlink(missing_ok=True)
+            elif not path.is_file() or path.read_bytes() != data:
+                path.write_bytes(data)
+    except OSError as exc:
+        report.detail += f"\nrestore failed ({exc}); the tree is partly written -- restore it from {report.backup_dir}"
+        report.fix = f"copy the backed-up files back from {report.backup_dir} by hand, {RERUN}"
+        return
+    report.detail += "\nthe tree was restored: every file this step touched is back to its pre-run bytes"
 
 
 def _log(cfg, from_version: str, to_version: str, path: Path, action: str, reason: str, report) -> None:
@@ -210,24 +267,36 @@ def _captured(func, *args):
     return result, buf.getvalue().strip()
 
 
-def _regenerate(config: dict, index_path: Path, report) -> None:
-    """Write the generated hub and shards, then check them. A non-zero exit is reported, not raised."""
+def _regenerate(cfg, from_version: str, to_version: str, config: dict, index_path: Path, report) -> bool:
+    """Back up every existing file the generator's write overwrites or removes (the hub, its overflow
+    leaves and the Archive shards), write the hub and shards, then check them. True only when both
+    exit 0. A non-zero exit is reported, not raised; the generator rolls back its own failed write."""
     naming = gen._index_naming(index_path)
     backlog_dir, archive_dir = config["_backlog_dir"], config["_archive_dir"]
-    # The migrated index keeps its hand-authored table until this write, so the
-    # generator's legacy-shape guard must be told to replace it.
+    targets = list({Path(p).resolve(): None for p in
+                    [index_path, *gen._list_disk_generated_files(backlog_dir, archive_dir, naming)]})
+    if _backup(targets, backlog_dir, report) is None:
+        return False
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
         report.generator_write_exit = int(gen._cmd_write(backlog_dir, archive_dir, index_path, naming, config,
-                                                         json_out=False, replace_legacy=True))
+                                                         json_out=False))
         report.generator_check_exit = int(gen._cmd_check(backlog_dir, archive_dir, index_path, naming, config,
                                                          json_out=False))
+    if report.generator_write_exit == 0:
+        logged = {Path(p).resolve() for p in report.written}
+        for path in (p for p in targets if p not in logged):
+            _log(cfg, from_version, to_version, path, "backlog-migrated",
+                 "regenerated or removed by the index generator; " + _kept_at(path, backlog_dir, report), report)
     if report.generator_write_exit or report.generator_check_exit:
         report.detail = (report.detail + "\n" + buf.getvalue().strip()).strip()
+        return False
+    return True
 
 
 def _fill_counts(ledger_path: Path, mode: str, report) -> None:
-    """Counts come from the ledger, and only from a finished write (mode "write")."""
+    """Counts come from the ledger, and only from a finished write (mode "write"). A ledger in an
+    unexpected shape leaves the counts unset and never changes the state."""
     if not ledger_path.is_file():
         return
     report.ledger_path = ledger_path
@@ -240,8 +309,17 @@ def _fill_counts(ledger_path: Path, mode: str, report) -> None:
     if observed != "write":
         report.detail = (report.detail + f"\nledger mode is {observed!r}, not 'write'; counts left unset").strip()
         return
+    try:
+        counts = _ledger_counts(ledger, mode)
+    except (KeyError, TypeError, AttributeError) as exc:
+        report.detail = (report.detail + f"\nledger shape not recognised ({exc!r}); counts left unset").strip()
+        return
+    report.counts.update(counts)
+
+
+def _ledger_counts(ledger: dict, mode: str) -> dict:
     log, notes, cells = ledger["changelog"], ledger["dependency_notes"], ledger["reconcile"]["cells"]
-    report.counts.update({
+    return {
         "backfilled": len(ledger["backfill"]),
         "partial": sum(1 for b in ledger["backfill"] if len(b["keys_added"]) < len(mig.KEYS)),
         "edges": len(ledger["edges"]),
@@ -256,7 +334,7 @@ def _fill_counts(ledger_path: Path, mode: str, report) -> None:
         "reconciled_cells": len(cells),
         "reconcile_mode": ledger["reconcile"]["mode"] or mode,
         "reconciled": [f"{c['id']}.{c['key']}: {c['frontmatter']} -> {c['index']}" for c in cells],
-    })
+    }
 
 
 def _count_shards(config: dict, index_path: Path, report) -> None:

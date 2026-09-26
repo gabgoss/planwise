@@ -366,14 +366,7 @@ def _cmd_write(
     """
     verdict = sup.refuse_unless_generated(index_path, read_text_preserving_newlines)
     if verdict and not replace_legacy:
-        shape, _detail = verdict
-        print(
-            f"Error: {index_path} is a hand-authored index ({shape}); --write would "
-            "overwrite it. Run /planwise upgrade to migrate it (changelog footer, "
-            "feature-cell prose and dependency notes are moved into their homes "
-            "first, with backups), or pass --replace-legacy to overwrite anyway.",
-            file=sys.stderr,
-        )
+        print(sup.refusal_message(index_path, *verdict, config, "write"), file=sys.stderr)
         return Disposition.REFUSED
 
     try:
@@ -463,12 +456,7 @@ def _cmd_check(
     changes the report text."""
     verdict = sup.refuse_unless_generated(index_path, read_text_preserving_newlines)
     if verdict:
-        shape, _detail = verdict
-        print(
-            f"Error: {index_path} is a hand-authored index ({shape}) — run "
-            "/planwise upgrade to migrate it before triage",
-            file=sys.stderr,
-        )
+        print(sup.refusal_message(index_path, *verdict, config, "check"), file=sys.stderr)
         return Disposition.REFUSED
 
     try:
@@ -559,8 +547,8 @@ def main() -> int:
         action="store_true",
         help=(
             "Allow --write to overwrite a hand-authored or unrecognized "
-            "index instead of refusing. Has no effect on --check or the "
-            "default report mode."
+            "index instead of refusing, WITHOUT a backup. Has no effect on "
+            "--check or the default report mode."
         ),
     )
     args, _ = parser.parse_known_args()

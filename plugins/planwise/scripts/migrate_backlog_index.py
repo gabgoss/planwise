@@ -130,9 +130,7 @@ def _text(texts: dict, path: Path) -> str:
     return texts[path] if path in texts else read_text(path)
 
 
-def _header_only(changelog_text: str, index_path: Path) -> bool:
-    """True when a changelog holds nothing but its backlink line (the seed and the generator's bootstrap)."""
-    return changelog_text.lstrip("﻿").replace("\r\n", "\n").strip() == f"[← {index_path.name}]({index_path.name})"
+_header_only = sup.header_only_changelog
 
 
 def _census(config: dict, index_path: Path):
@@ -681,20 +679,7 @@ def plan_changelog_resplit(config: dict, index_path: Path):
     return sup.plan_changelog_resplit(config, index_path)
 
 
-def _changelog_state(text: str, shape: str, index_path: Path, changelog: Path) -> str:
-    if not changelog.exists():
-        return "missing"
-    existing = read_text(changelog)
-    if _header_only(existing, index_path):
-        return "header-only"
-    if shape != "legacy" or sup.POINTER_RE.match(sup.FOOTER_TEXT_RE.search(text).group(0)):
-        return "populated"
-    segments = sup.extract_changelog(index_path.read_bytes())["segments"]
-    try:
-        planned = sup.split_changelog(segments, gen._index_naming(index_path), index_path.name, "\n")[0][1]
-    except Refusal:
-        return "foreign"
-    return "populated" if existing.replace("\r\n", "\n") == planned else "foreign"
+_changelog_state = sup.changelog_state
 
 
 def build_report(config: dict, index_path: Path) -> dict:

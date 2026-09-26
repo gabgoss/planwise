@@ -53,6 +53,12 @@ class TestBacklogHandlerHandAuthoredIndexBranch(unittest.TestCase):
     def test_phase1_points_at_upgrade_command(self):
         self.assertIn("/planwise upgrade", self.phase1_span)
 
+    def test_phase1_stops_on_an_unrecognized_index_with_the_report_command(self):
+        branch = _span_between(self.phase1_span, "`unrecognized index shape`", "\n")
+        self.assertIn("--report", branch)
+        self.assertIn("STOP", branch)
+        self.assertNotIn("hand-authored", branch)
+
 
 class TestDoctorHandlerStage20(unittest.TestCase):
 

@@ -133,17 +133,43 @@ def classify_shape(text: str):
     return "legacy", (header_idx, roles)
 
 
+def header_only_changelog(changelog_text: str, index_path: Path) -> bool:
+    """True when a changelog holds nothing but its backlink line (the seed and the generator's bootstrap)."""
+    return (changelog_text.lstrip(chr(0xFEFF)).replace("\r\n", "\n").strip()
+            == f"[← {index_path.name}]({index_path.name})")
+
+
+def changelog_state(text: str, shape: str, index_path: Path, changelog: Path) -> str:
+    """missing | header-only | populated | foreign: what the changelog at `changelog` holds for the
+    index text `text` of shape `shape`. A legacy footer that is not yet a pointer is `populated`
+    only when the changelog equals the part 1 this footer would produce."""
+    if not changelog.exists():
+        return "missing"
+    existing = read_text(changelog)
+    if header_only_changelog(existing, index_path):
+        return "header-only"
+    if shape != "legacy" or POINTER_RE.match(FOOTER_TEXT_RE.search(text).group(0)):
+        return "populated"
+    segments = extract_changelog(index_path.read_bytes())["segments"]
+    try:
+        planned = split_changelog(segments, _index_naming(index_path), index_path.name, "\n")[0][1]
+    except Refusal:
+        return "foreign"
+    return "populated" if existing.replace("\r\n", "\n") == planned else "foreign"
+
+
 def refuse_unless_generated(index_path: Path, read_text) -> tuple[str, str] | None:
     """Classify the on-disk index at `index_path` via `classify_shape`.
     Returns `None` when the file is absent, classifies `migrated`, or is a
     `legacy`-shaped table whose single footer is already a migration
-    pointer (`migrate_backlog_index.py` has already extracted it, so only
-    the table itself is left in the old shape -- the same signal
-    `_changelog_state` already keys on). Otherwise `(shape, detail)`,
-    naming the shape a caller should refuse writing over or reading drift
-    from. `read_text` is the caller's own text-reading function, kept
-    injectable rather than imported here, so this stays pure and prints
-    nothing."""
+    pointer to THIS index's own changelog, and that changelog is
+    `populated` per `changelog_state` (`migrate_backlog_index.py` has
+    already extracted it, so only the table itself is left in the old
+    shape). A pointer naming any other file, or a missing or header-only
+    changelog, is refused. Otherwise `(shape, detail)`, naming the shape a caller
+    should refuse writing over or reading drift from. `read_text` is the
+    caller's own text-reading function, kept injectable rather than
+    imported here, so this stays pure and prints nothing."""
     if not index_path.exists():
         return None
     text = read_text(index_path)
@@ -152,9 +178,33 @@ def refuse_unless_generated(index_path: Path, read_text) -> tuple[str, str] | No
         return None
     if shape == "legacy":
         footer = FOOTER_TEXT_RE.search(text)
-        if footer and POINTER_RE.match(footer.group(0)):
+        pointer = POINTER_RE.match(footer.group(0)) if footer else None
+        own = index_path.with_name(_changelog_filename(_index_naming(index_path)))
+        if (pointer and own.name in (pointer.group(1), pointer.group(2))
+                and changelog_state(text, shape, index_path, own) == "populated"):
             return None
     return shape, detail
+
+
+def refusal_message(index_path: Path, shape: str, detail, config: dict, mode: str) -> str:
+    """The generator's refusal text for an index `refuse_unless_generated`
+    rejected; `mode` is "write" or "check". A hand-authored index points at
+    `/planwise upgrade`. An unrecognized one names the classifier's reason
+    and the migrator's read-only report instead, because the upgrade leaves
+    that shape untouched too. `--replace-legacy` overwrites with no backup."""
+    replace = " or pass --replace-legacy to overwrite it WITHOUT a backup."
+    if shape == "unrecognized":
+        cfg = Path((config or {}).get("_planwise_root") or "{planwise_root}") / "config.yaml"
+        tail = f"; to discard it instead,{replace}" if mode == "write" else ""
+        return (f"Error: {index_path} has an unrecognized index shape ({detail}); /planwise upgrade will not "
+                f"migrate it. Inspect it with: python {Path(__file__).with_name('migrate_backlog_index.py')} "
+                f"--config {cfg} --report{tail}")
+    if mode == "check":
+        return f"Error: {index_path} is a hand-authored index ({shape}) — run /planwise upgrade to migrate it " \
+               "before triage"
+    return (f"Error: {index_path} is a hand-authored index ({shape}); --write would overwrite it. Run /planwise "
+            "upgrade to migrate it (changelog footer, feature-cell prose and dependency notes are moved into their "
+            f"homes first, with backups),{replace}")
 
 
 # --- row versus frontmatter ---
@@ -595,13 +645,14 @@ def joined_entries(texts: list) -> str:
 
 def parse_changelog(texts: list) -> list:
     """Inverse of `split_changelog`. `texts` are the changelog part files in
-    part order, part 1 first. Strips the backlink and `Parts:` lines and
-    re-joins continuation sections. Any other text outside an `## Entry`
-    section raises `Refusal`, naming the part and the line. Returns the
+    part order, part 1 first. Strips a leading byte-order mark, the backlink
+    and `Parts:` lines, and re-joins continuation sections. Any other text
+    outside an `## Entry` section raises `Refusal`, naming the part and the
+    line. Returns the
     segment bytes in entry order."""
     assembled = []
     for pi, text in enumerate(texts):
-        lines = text.replace("\r\n", "\n").split("\n")
+        lines = text.removeprefix("\ufeff").replace("\r\n", "\n").split("\n")
         i, n = 0, len(lines)
         if i >= n or not BACKLINK_RE.match(lines[i].strip()):
             found = lines[i] if i < n else ""
@@ -690,7 +741,8 @@ def plan_changelog_resplit(config: dict, index_path: Path):
     segments = parse_changelog(texts_on_disk)
     nl = newline_of(texts_on_disk[0])
     split = check_parts_budget(split_changelog(segments, naming, index_path.name, nl))
-    outputs = [(index_path.with_name(name), text) for name, text in split]
+    bom = "\ufeff" if texts_on_disk[0].startswith("\ufeff") else ""  # part 1 keeps its byte-order mark
+    outputs = [(index_path.with_name(name), (bom if k == 0 else "") + text) for k, (name, text) in enumerate(split)]
     parts_meta = [{"path": str(path), "tokens": changelog_tokens(text),
                    "entries": len(ENTRY_HEADING_RE.findall(text.replace("\r\n", "\n")))}
                   for path, text in outputs]

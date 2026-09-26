@@ -86,6 +86,7 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
   - If it prints a stderr `Warning: title truncated …` or `Anomaly: …` line, surface it to the user verbatim rather than swallowing it — the same discipline this handler applied to the retired `score_backlog.py` shortfall warning transfers to the generator's own warnings; it means the displayed ranking may not match what the item files actually say.
 
 - If the exit-2 `Error:` line contains `hand-authored index`, the index has not been migrated to the generated format. Print that line to the user verbatim, tell them to run `/planwise upgrade` (it migrates the index automatically, with backups), and STOP — do not proceed to Phase 2 while the index is hand-authored.
+- If the exit-2 `Error:` line says the index has an `unrecognized index shape`, `/planwise upgrade` will not migrate it either. Print that line to the user verbatim, point them at the `migrate_backlog_index.py --config {planwise_root}/config.yaml --report` command it names to see why, and STOP.
 - `parse_backlog.py` reads the backlog index at `{backlog_dir}/{backlog_index}`
 - Outputs a formatted table of **selectable** items (excludes COMPLETE, CLOSED, and items blocked by open dependencies)
 - Blocked items appear in a separate summary below the main table
