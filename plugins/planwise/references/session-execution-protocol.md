@@ -159,10 +159,10 @@ Those two defaults are chosen operating points derived from measured accumulatio
 > At the end of each session, ask: **"Were any lessons learned during this session?"**
 >
 > If yes:
-> 1. Read template from `LessonsLearned/00-Index-LessonsLearned.md` (Lesson File Template section)
+> 1. Get the next id from `parse_lessons.py --next-id`, and the template from `templates/lesson.md`
 > 2. Create lesson file: `LessonsLearned/LL-{NNN}-{Domain}-{Name}.md`
-> 3. Add row to master table in `00-Index-LessonsLearned.md`
-> 4. Commit lesson file and updated index
+> 3. Run the generator: `generate_lessons_index.py --write`
+> 4. Commit lesson file and the regenerated index
 
 ### Post-Session Artifact Completeness
 

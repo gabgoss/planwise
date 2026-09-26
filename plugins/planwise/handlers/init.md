@@ -297,6 +297,8 @@ Seed files installed:
   ✓ {planwise_root}/{plans_dir}/00-Index-Plans.md
   ✓ {planwise_root}/{backlog_dir}/00-Index-Backlog.md
   ✓ {planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md
+  ✓ {planwise_root}/{lessons_dir}/00-Changelog-LessonsLearned.md
+  ✓ {planwise_root}/{lessons_dir}/00-PromotionLog-LessonsLearned.md
   ✓ {planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md  (rendered from config.yaml: categorization)
 
 Configuration:

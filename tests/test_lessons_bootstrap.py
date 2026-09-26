@@ -244,6 +244,52 @@ class TestBootstrapRoutine(_BootstrapFixture):
         )
 
 
+class TestSeedLessonsIndexCustomHubName(_BootstrapFixture):
+    """_seed_lessons_index derives its two companion filenames from the
+    project's configured `index_files.lessons`, through the generator's own
+    naming helpers — never the fixed `00-Changelog-LessonsLearned.md` /
+    `00-PromotionLog-LessonsLearned.md` pair. Regression for a project that
+    sets a custom hub name: before the fix, the companions were always
+    seeded under the fixed default names regardless of what config.yaml
+    named the hub."""
+
+    def setUp(self):
+        super().setUp()
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML required for _resolve_lessons_index_name")
+        self.planwise_dir.mkdir(parents=True, exist_ok=True)
+        self.config_path().write_text(
+            "project:\n"
+            "  planwise_root: planwise\n"
+            "  lessons_dir: LessonsLearned\n"
+            "  index_files:\n"
+            "    lessons: 00-Index-MyLessons.md\n",
+            encoding="utf-8",
+        )
+
+    def test_companions_named_from_custom_hub(self):
+        results = ip._seed_lessons_index(self.cfg)
+
+        names = {Path(rel).name for _, rel in results}
+        self.assertEqual(
+            names,
+            {
+                "00-Index-MyLessons.md",
+                "00-Changelog-MyLessons.md",
+                "00-PromotionLog-MyLessons.md",
+            },
+        )
+        self.assertTrue((self.lessons_dir / "00-Index-MyLessons.md").exists())
+        self.assertTrue((self.lessons_dir / "00-Changelog-MyLessons.md").exists())
+        self.assertTrue((self.lessons_dir / "00-PromotionLog-MyLessons.md").exists())
+        # The fixed default names must NOT be created.
+        self.assertFalse(self.index_path().exists())
+        self.assertFalse(self.changelog_path().exists())
+        self.assertFalse(self.promotion_log_path().exists())
+
+
 class TestRunUpgradeBackfill(_BootstrapFixture):
     """_run_upgrade() backfills the categorization file on an upgrade-adopted
     project (the legacy fresh-init-only render never created it) and preserves

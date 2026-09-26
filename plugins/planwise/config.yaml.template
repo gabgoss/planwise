@@ -13,6 +13,9 @@ project:
   index_files:
     plans: "00-Index-Plans.md"
     backlog: "00-Index-Backlog.md"
+    # lessons: the generated hub's filename. The lessons index is a
+    # regenerated build artifact (hub + overflow leaves + Archive shards,
+    # never hand-edited) — see references/lessons-schema.md.
     lessons: "00-Index-LessonsLearned.md"
 
 # Context window tier — used by all handlers to scale token budgets.
@@ -180,13 +183,13 @@ statuses:
 # against it); `lesson_statuses:` below is the lesson lifecycle.
 #
 # `lesson_statuses` is DECLARATIVE. This list is the single place the lesson
-# vocabulary is stated as data; the seed's 00-Index-LessonsLearned.md Status
+# vocabulary is stated as data; references/lessons-schema.md's Status
 # Definitions table defines what each value MEANS and defers to this list for
 # the values. The lessons workflows (capture, curate, promote-batch) and
 # scripts/flip_lesson_status.py match these literals as written — they do not
 # read this key at run time — so editing it documents an intent rather than
 # renaming a status. The plugin's test suite pins the three surfaces (this
-# list, the seed table, flip_lesson_status.VALID) to each other.
+# list, the reference table, flip_lesson_status.VALID) to each other.
 lesson_statuses:
   - documented
   - promoted

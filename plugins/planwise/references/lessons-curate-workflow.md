@@ -29,7 +29,9 @@ All paths resolve from `config.yaml: project.planwise_root + project.lessons_dir
 
 | File | Role | Read | Write |
 |------|------|------|-------|
-| `{lessons_dir}/{lessons_index}` | Master table; ID range; Rule Promotion Log | Yes | Phase 1 — bump a stale "Next available ID" counter, on explicit consent only (§3.1). Phase 2 — append rows to Rule Promotion Log (deduplicated, §4.3); update Status column in Master Table via `flip_lesson_status.py`, which bumps `Last Updated:` itself in that same write (§4.3); repoint a healed lesson's File link when §4.4 moves it to `Archive/`; bump the file's `Last Updated:` header in the same edit as the Rule Promotion Log row or File-link repoint, whichever ran (§4.3) |
+| `{lessons_dir}/{lessons_index}` | Generated index: hub, overflow leaves, Archive shards | Yes — via `parse_lessons.py` output only (§3.1); never a whole-file `Read` | No — the index is a build artifact. Phase 1 never writes it. Phase 2 flips the lesson's own frontmatter with `flip_lesson_status.py`, then runs `generate_lessons_index.py --write` to regenerate (§4.3) |
+| `{lessons_dir}/00-PromotionLog-LessonsLearned.md` and its `Archive/PromotionLog-LessonsLearned-*.md` parts | Rule Promotion Log, five files split by lesson id per [`references/lessons-schema.md` § Promotion-Log Contract](lessons-schema.md#promotion-log-contract) | Yes | Phase 2 — append one row per (lesson, artifact) pair to whichever file the lesson's id resolves to (§4.3). No shipped script performs this append; the reference states the target as its contract, and the row is a manual `Edit` |
+| `{lessons_dir}/00-Changelog-LessonsLearned.md` | Changelog | No | No — this workflow does not write it |
 | `{lessons_dir}/00-Categorization-By-Domain.md` | Domain buckets (one section per `categorization.buckets[]` from `config.yaml`) | Yes | Phase 1 — append rows to relevant bucket tables; bump the file's `Last Updated:` header in the same edit as those writes (§3.4) |
 | `{lessons_dir}/LL-{NNN}-*.md` | Individual lesson frontmatter + body | Yes (in full for new lessons; frontmatter only for promotion check) | Phase 1 — set/refine `promotion-target:`. Phase 2 — flip `promoted`→`rule`/`applied` and set `applied-as`; heal `documented`→`promoted` and set `promoted-to:` (user-gated, §4.1b). After any archive move, rewrite stale sibling-lesson cross-reference links to their `Archive/` path (§4.5) |
 | `{lessons_dir}/Archive/` | Destination for `promoted`, `applied`, and `rule` lessons (may not exist yet) | List | Optional — move files here only for the heal step (§4.4); `promoted` lessons reaching Phase 2 via `promote-batch` are already archived at capture |
@@ -54,13 +56,13 @@ Report a summary at the end with the new ID ranges processed and any anomalies (
 ### 3.1 Identify uncategorised lessons
 
 > [!gate] Reconcile the "Next available ID" counter before reading the index
-> That counter is a denormalized cache of one fact — the highest lesson ID that exists anywhere — and it has exactly one writer: capture mode. A lesson authored any other way (a hand-written closeout capture, a task-runner producing one as a sprint deliverable) leaves it stale, and curate is the read path best positioned to notice. Never consume the stated value as a boundary; derive the true one.
+> That counter is a denormalized cache of one fact — the highest lesson ID that exists anywhere — and it has exactly one writer: the generator (`generate_lessons_index.py --write`). A lesson authored any other way (a hand-written closeout capture, a task-runner producing one as a sprint deliverable) leaves it stale, and curate is the read path best positioned to notice. Never consume the stated value as a boundary; derive the true one.
 >
-> Run the index-drift audit procedure in [`index-drift-audit.md`](index-drift-audit.md) against the **lessons** index (`reconcile_lessons.py`, banner `planwise lessons curate — lessons index counter drift audit`) — the lessons-index binding there carries the counter-drift specifics (the `next_id` JSON key, the four anomaly kinds, forward-only reconcile). This is the lessons-index analogue of `/planwise doctor` Stage 13; neither re-implements the other's comparison.
+> Run the index-drift audit procedure in [`index-drift-audit.md`](index-drift-audit.md) against the **lessons** index (`generate_lessons_index.py --check`, banner `planwise lessons curate — lessons index counter drift audit`) — the lessons-index binding there carries the counter-drift specifics (the `stale-counter`/`counter_ahead` classes, forward-only reconcile). This is the lessons-index analogue of `/planwise doctor` Stage 13; neither re-implements the other's comparison.
 >
-> Report every drift and anomaly under **Anomalies** in the §6 summary — a stale counter is not a fix-in-passing but a signal in its own right: some lesson was authored off the capture path, so its Master-Table row and its categorisation entry were hand-made too and may carry their own gaps.
+> Report every drift and anomaly under **Anomalies** in the §6 summary — a stale counter is not a fix-in-passing but a signal in its own right: some lesson was authored off the capture path, so its generated-index row and its categorisation entry were hand-made too and may carry their own gaps.
 
-1. Read `{lessons_dir}/{lessons_index}` and extract every `LL-NNN` row from the Master Table. The **Master Table section is the boundary**: a row inside it is a real lesson, and the `LL-{NNN}` forms in the Naming Convention and Lesson File Template sections are placeholders, not lessons. Do not use the "Next available ID" line's position or its value to bound the set — it is a counter, not a row.
+1. Get the id set from `parse_lessons.py` output — never a whole-file `Read` of the generated index. Every id it returns is a real lesson. Do not use the counter line's position or value to bound the set — it is a generated line with one writer, not a row.
 2. Read `{lessons_dir}/00-Categorization-By-Domain.md` and extract every `LL-NNN` ID currently listed in any bucket table (every section declared in `config.yaml: categorization.buckets` plus the Classification edge cases table at the bottom).
 3. Compute `uncategorized = master_ids − categorized_ids`. List the result in the chat before reading any lesson body.
 4. If the result is empty, skip to Phase 2 with the message *"All lessons are already categorised."*
@@ -181,25 +183,34 @@ For each lesson found in §4.1 (`status: promoted`), resolve every id in its `pr
 
 ### 4.3 Update the Rule Promotion Log, then flip the lesson
 
-Append one row per promoted lesson to the table at the bottom of `{lessons_dir}/{lessons_index}`:
+Append one row per promoted lesson to whichever log file the lesson's id resolves to, per the append-target function in [`references/lessons-schema.md` § Promotion-Log Contract](lessons-schema.md#promotion-log-contract) — `00-PromotionLog-LessonsLearned.md` for ids 201 and above, or the matching `Archive/PromotionLog-LessonsLearned-{NNN}-{NNN}.md` part below it. No shipped script performs this append; the reference states the target as its contract.
+
+**If the target file does not exist yet** (only the hub-side file is seeded at init; the four Archive-part files for ids 1-200 are never created for you), create it first with the promotion-log opener, adjusted to the target file's own name and backlink per the Promotion-Log Contract:
 
 ```markdown
+[← {lessons_index}]({lessons_index for the hub-side file, or ../{lessons_index} for an Archive-part file})
+
 | Date | Lesson ID | Artifact Created | File |
 |------|-----------|-----------------|------|
+```
+
+Then append the row with a manual `Edit`:
+
+```markdown
 | 2026-05-16 | LL-NNN | Rule promotion (parameterised query) | `.claude/rules/db/parameterised-queries.md` |
 ```
 
 Use the lesson's frontmatter `date` if it represents the promotion date; otherwise use the date the `applied-as` artifact was created (read from `git log -1 --format=%ci -- <path>`).
 
-Update the Master Table row's Status column with the flip script — never by hand at batch scale:
+Flip the lesson's own frontmatter `status:` with the flip script — never by hand at batch scale:
 
 ```
-python {plugin_root}/scripts/flip_lesson_status.py {lessons_dir}/{lessons_index} {map_file} [--dry-run]
+python {plugin_root}/scripts/flip_lesson_status.py --config {config_path} {map_file} [--dry-run]
 ```
 
-`{map_file}` lists one `LL-{NNN}: status` line per lesson to flip, matching the lesson frontmatter (`applied` or `rule`). The script refuses downgrades from landed statuses, skips rows already at target, and reports unmatched ids and unparseable rows with a non-zero exit — investigate before trusting the run. Do NOT change the Status Definitions table.
+`{map_file}` lists one `LL-{NNN}: status` line per lesson to flip, matching the lesson frontmatter (`applied` or `rule`). The script resolves each id straight to its own lesson file — it no longer opens the index at all — and refuses downgrades from landed statuses, skips rows already at target, and reports unmatched or ambiguous ids and unparseable rows with a non-zero exit — investigate before trusting the run. Do NOT change the Status Definitions table.
 
-Bump the `Last Updated:` line at the top of `{lessons_dir}/{lessons_index}` to today's date in the same edit that adds the Rule Promotion Log row. `flip_lesson_status.py` bumps the header itself, in its own write, whenever it flips a Status cell — do not bump it again for that write; bump it only for the Rule Promotion Log addition. Append a parenthetical summary in the shape §3.4 uses for the categorisation file, e.g.: `2026-04-27 (landed LL-N, LL-M)`.
+Run `generate_lessons_index.py --config {config_path} --write` once after the flip so the generated index reflects it — there is no `Last Updated:` header to bump by hand. Append a parenthetical summary in the shape §3.4 uses for the categorisation file, e.g.: `2026-04-27 (landed LL-N, LL-M)`, recorded in the Phase 2 chat summary.
 
 > [!gate] Deduplicate Before Appending
 > Single-lesson `/planwise lessons promote` (handler Stage 7) also appends a row to the Rule Promotion Log at promotion time. Before appending, parse the existing log and skip any `(lesson_id, artifact_path)` tuple that is already present. Dedup key is the pair — a lesson with multiple `applied-as` paths (§4.5) gets one row per *new* path, even if a sibling path is already logged. Count skipped tuples in the Phase 2 summary as `Already logged: N` so the anomaly section stays honest.
@@ -221,7 +232,7 @@ The archive move in this section applies ONLY to the heal step (§4.1b). When a 
 > [!gate] Confirm Before Moving
 > Moving a lesson file changes its path. Do NOT execute the heal-step move without explicit user approval — even in auto mode, this is a structural change to the lessons directory. Bundle this approval with the heal approval from §4.1b; do not ask twice.
 
-If the user approves the heal, create `{lessons_dir}/Archive/` (or whatever archive folder is configured) if it does not exist and move the file with `git mv` (preserves history). After moving, update the master-table File-link column if any links break.
+If the user approves the heal, create `{lessons_dir}/Archive/` (or whatever archive folder is configured) if it does not exist and move the file with `git mv` (preserves history). After moving, run `generate_lessons_index.py --write` — the generated File cell is derived from wherever the file sits, so no manual link repoint is needed.
 
 ### 4.5 Cross-check Companion / Cross-references blocks
 
@@ -334,13 +345,14 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 
 ## Anomalies
 
-- "Next available ID" counter stale: stated LL-NNN, true next LL-NNN — a lesson was authored outside capture mode; corrected / left as-is per §3.1
-- "Next available ID" counter ahead of the true next ID (an ID may have been retired) — reported, never lowered
+- `stale-counter`: the generated hub's counter line is behind the true next id — a lesson was authored outside capture mode; corrected by the next `--write` or left as-is per §3.1
+- `counter_ahead`: the counter is ahead of the true next id (an id may have been retired) — reported, never lowered
 - LL-NNN `status: applied`/`rule` with no pointer under `applied-as:` or the deprecated `rule-as:` (claims landed, no artifact pointer anywhere)
 - LL-NNN flipped to `orphaned` — every owning item closed but the lesson's content was not found in the destination artifact; `owner-anomaly:` records which item closed, what the grep proved absent, and the date (no Rule Promotion Log row appended)
-- LL-NNN referenced in master table but file not on disk
-- LL-NNN on disk (or in `Archive/`) with no master-table row
-- LL-NNN in categorisation file but missing from master table
+- `extra-row`: a generated row names an LL-NNN with no lesson file on disk (neither `{lessons_dir}/` nor `Archive/`)
+- `missing-row`: an LL-NNN lesson file exists with no generated row yet — resolved by the next `generate_lessons_index.py --write`
+- `duplicate-id` / `id-mismatch`: two lesson files claim one id, or a file's own filename number disagrees with its frontmatter `id:` — `--write` refuses until resolved
+- LL-NNN in categorisation file but missing from the generated index
 - LL-NNN missing both `technology:` and `domain:` in frontmatter
 ```
 

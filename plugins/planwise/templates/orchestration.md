@@ -296,7 +296,7 @@ See `agents/task-runner.md` §5.B for the runnable schema.
 - [ ] **Verify outputs** — confirm all expected output files were written to `Outputs/`
 - [ ] **Finalize recovery** — mark Session Status: COMPLETE, update all task statuses, add final Key Findings
 - [ ] **Generate session summary** — write `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` using [summary-template.md](summary-template.md)
-- [ ] **Capture lessons** — ask "Were any lessons learned?" If yes, create lesson file and update lessons index
+- [ ] **Capture lessons** — ask "Were any lessons learned?" If yes, create lesson file and run the generator
 - [ ] **Update plan status** — mark this orchestration COMPLETE; update sprint plan and master plan status fields
 - [ ] **Git commit and push** — stage specific files (`git add` by name, never `git add .`), commit, push
 

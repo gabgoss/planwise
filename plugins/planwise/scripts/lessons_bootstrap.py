@@ -8,6 +8,7 @@ init and the upgrade-side backfill path call through.
 
 import dataclasses
 from datetime import datetime
+from pathlib import Path
 
 try:
     import yaml
@@ -24,6 +25,16 @@ except ImportError:
     raise ImportError(
         "config_gen is required for lessons_bootstrap's ConfigResult/InitConfig "
         "types; the scripts/ directory appears to be partially installed"
+    )
+
+try:
+    from generate_backlog_index import _changelog_filename, _index_naming
+    from generate_lessons_index import _promotion_log_filename
+except ImportError:
+    raise ImportError(
+        "generate_backlog_index/generate_lessons_index are required for "
+        "lessons_bootstrap's companion-filename derivation; the scripts/ "
+        "directory appears to be partially installed"
     )
 
 
@@ -220,14 +231,56 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
     )
 
 
-# The lessons index and its two generated-shape companions, in the same
-# adjacency order copy_seed_files() uses for the backlog index + changelog
-# pair: the hub first, then the files its own footer pointers name.
-_LESSONS_SEED_NAMES = (
+# The lessons index and its two generated-shape companions' SOURCE names in
+# the plugin's own seed/ dir — these never change, regardless of what a
+# project names its hub. In the same adjacency order copy_seed_files() uses
+# for the backlog index + changelog pair: the hub first, then the files its
+# own footer pointers name.
+_LESSONS_SEED_SRC_NAMES = (
     "00-Index-LessonsLearned.md",
     "00-Changelog-LessonsLearned.md",
     "00-PromotionLog-LessonsLearned.md",
 )
+
+
+def _resolve_lessons_index_name(cfg: "InitConfig") -> str:
+    """Read `project.index_files.lessons` from the project's config.yaml --
+    the same lookup render_categorization_file performs above -- falling
+    back to the generated default when config.yaml does not exist yet (the
+    normal fresh-init ordering: copy_seed_files() runs before
+    generate_config()), is unparsable, or the key is unset.
+    """
+    default = "00-Index-LessonsLearned.md"
+    if not HAS_YAML:
+        return default
+    config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
+    if not config_path.exists():
+        return default
+    try:
+        full = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return default
+    if not isinstance(full, dict):
+        return default
+    return full.get("project", {}).get("index_files", {}).get("lessons") or default
+
+
+def _lessons_seed_dst_names(hub_name: str) -> tuple[str, str, str]:
+    """Derive the on-disk destination filenames for the lessons hub and its
+    two companions from `hub_name` (the project's configured
+    `index_files.lessons`), through the SAME naming helpers
+    `generate_lessons_index.py`'s own footer links use --
+    `_index_naming`/`_changelog_filename` (from `generate_backlog_index`)
+    and `_promotion_log_filename` (from `generate_lessons_index`) -- never
+    re-implemented. A project seeding a custom hub name (e.g.
+    `Lessons-Index.md`) then gets companions the generator's footer
+    actually points at, instead of the fixed
+    `00-Changelog-LessonsLearned.md` / `00-PromotionLog-LessonsLearned.md`
+    pair. The seed SOURCE filenames in `_LESSONS_SEED_SRC_NAMES` are the
+    plugin's own template names and never change.
+    """
+    naming = _index_naming(Path(hub_name))
+    return hub_name, _changelog_filename(naming), _promotion_log_filename(naming)
 
 
 def _seed_lessons_index(cfg: "InitConfig") -> list[tuple[ConfigResult, str]]:
@@ -237,16 +290,22 @@ def _seed_lessons_index(cfg: "InitConfig") -> list[tuple[ConfigResult, str]]:
     the upgrade-side backfill can recreate whichever of the three is
     missing without re-seeding backlog/plans.
 
+    Destination filenames are derived from the project's configured
+    `index_files.lessons` via `_lessons_seed_dst_names` -- never the fixed
+    default triple -- so a project with a custom hub name backfills
+    companions under the names its own generator footer links to.
+
     Returns one (ConfigResult, dst_rel) pair per file in
-    `_LESSONS_SEED_NAMES`, in that order. Each file independently reports
-    SKIPPED_EXISTS when already present (never overwrites a populated
-    file) or SKIPPED_NO_TEMPLATE when the plugin seed file is absent — a
-    project already carrying the index but not yet the two companions
-    backfills only the companions.
+    `_LESSONS_SEED_SRC_NAMES`, in that order. Each file independently
+    reports SKIPPED_EXISTS when already present (never overwrites a
+    populated file) or SKIPPED_NO_TEMPLATE when the plugin seed file is
+    absent — a project already carrying the index but not yet the two
+    companions backfills only the companions.
     """
+    dst_names = _lessons_seed_dst_names(_resolve_lessons_index_name(cfg))
     results = []
-    for src_name in _LESSONS_SEED_NAMES:
-        dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/{src_name}"
+    for src_name, dst_name in zip(_LESSONS_SEED_SRC_NAMES, dst_names):
+        dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/{dst_name}"
         dst = cfg.project_root / dst_rel
         if dst.exists():
             results.append((ConfigResult.SKIPPED_EXISTS, dst_rel))

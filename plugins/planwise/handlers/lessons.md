@@ -57,15 +57,26 @@ Parse `$1` to determine the mode. If `$1` is `curate`, enter curate mode and par
 
 ## Lessons-Index Write Convention
 
-Any write to the lessons index — a Master Table row, a Status-cell flip, a Rule Promotion Log row, or the next-available-ID counter — updates the file's `Last Updated:` header to today's date in the same edit, with a short parenthetical naming what changed (matching the convention the categorization file already uses). The one exception is a Status-cell flip made via `flip_lesson_status.py`: the script bumps the header itself in that same write, so the agent does not bump again for it — a hand-edited Status-cell flip (single-lesson Promote Mode, Stage 7) still needs the agent's own bump. A stale `Last Updated` is worse than an absent one: an absent field prompts a reader to check; a stale one answers them incorrectly.
+The lessons index is generated from lesson frontmatter — never hand-edited. Every mode below that touches a lesson file runs the generator afterward:
 
-This binds every mode below that writes `{lessons_dir}/{lessons_index}` — Curate, Batch-Promote, Promote, and Capture — and is stated here once rather than restated per mode.
+```bash
+python {plugin_root}/scripts/generate_lessons_index.py --config {planwise_root}/config.yaml --write
+```
+
+> [!gate] Exit 2, class `legacy-shape` → the index has not been migrated
+> If the command refuses with exit 2 and names class `legacy-shape`, this project's lessons index is still the legacy hand-written shape. Print the generator's error line to the user verbatim. Say the index has not been migrated to the generated format. Never hand-edit the index. Never run `--replace-legacy` without the user — it drops the hand-written sections, including the Rule Promotion Log. STOP.
+
+The changelog file (`{lessons_dir}/00-Changelog-LessonsLearned.md`) receives a dated entry naming what changed, in the same edit as the lesson-file write. Its current-value line follows **"Replace the previous value — do not preserve it. History belongs in a changelog file, not in this line."** History belongs in the changelog file, never in the index. The Rule Promotion Log lives in its own files (see [Stage 7: Log](#stage-7-log)), not in the index.
+
+Pointer-field semantics (`applied-as:`, `promoted-to:`, and the deprecated `rule-as:`) are defined once, in [`references/lessons-schema.md`](../references/lessons-schema.md) § Pointer Fields — Authoritative Definition, and are not restated here.
+
+This binds every mode below that writes a lesson file — Curate, Batch-Promote, Promote, and Capture — and is stated here once rather than restated per mode.
 
 ---
 
 ## List Mode (no arguments)
 
-Read `{lessons_dir}/{lessons_index}` and display the Master Table.
+Read `{lessons_dir}/{lessons_index}` (the hub) and display its table. The hub stays under the Read-tool page cap by construction; the rest of the population lives in its overflow leaves and the Archive shards named in its `## Shards` directory line — see [`references/lessons-schema.md`](../references/lessons-schema.md) § Hub, Overflow Leaves and Archive Shards.
 
 If the file does not exist:
 
@@ -147,7 +158,7 @@ If `$2` is absent or not a recognised `--phase=` value, default to `both`.
 
 Chat report only (markdown summary with Phase 1 / Phase 2 / Anomalies sections per the reference doc's §6). The authoritative write scope — which files each phase writes, and what it writes to them — is the Write column of [`references/lessons-curate-workflow.md`](../references/lessons-curate-workflow.md) §1. It is deliberately not restated here: a restated list is a cache with no invalidation, and it drifts the moment either phase gains a write. Note that Phase 1 writes lesson frontmatter (`promotion-target:`, per §3.6) and Phase 2 writes lesson status/`applied-as`/`promoted-to:` — read the table rather than assuming lesson files are read-only. No new `LL-*` files are created (§7, Do Not Author Lessons).
 
-Any phase that writes the lessons index also bumps its `Last Updated:` header in the same edit — see [Lessons-Index Write Convention](#lessons-index-write-convention).
+Any phase that writes lesson frontmatter runs the generator afterward — see [Lessons-Index Write Convention](#lessons-index-write-convention).
 
 ---
 
@@ -165,11 +176,23 @@ Both gates are binding. Halt without modifying any files if either fails.
 Categorisation file not found at {path}. Run /planwise init to create it, or copy {plugin_root}/templates/categorization-by-domain.md and populate it from config.yaml.
 ```
 
-**Gate 2 — Categorisation must be up to date.** Diff `{lessons_dir}/{lessons_index}` against `{lessons_dir}/00-Categorization-By-Domain.md`. If any `LL-NNN` appears in the master table but NOT in any bucket table of the categorisation file, error with:
+**Gate 2 — the generated index must be current, and categorisation must be up to date.** Run:
+
+```bash
+python {plugin_root}/scripts/generate_lessons_index.py --config {planwise_root}/config.yaml --check --json
+```
+
+Read the JSON result's `drift` and `anomalies` lists. The gate passes on exit 0, or on exit 1 where every listed finding is a class `--write` never heals — `counter_ahead` (the on-disk counter sits above the true next id) or `location-anomaly` (a lesson's directory disagrees with its status; the generator never moves a file) — per [`references/index-drift-audit.md`](../references/index-drift-audit.md) § Lessons. Any other finding is healable drift: tell the user to run `--write` (see [Lessons-Index Write Convention](#lessons-index-write-convention)), then re-run Gate 2.
+
+A listed finding of class `legacy-shape` is never healable drift — plain `--write` refuses on it too (exit 2). Follow the [Lessons-Index Write Convention](#lessons-index-write-convention)'s refusal branch instead: print the line verbatim, say the index has not been migrated, and STOP.
+
+See [`references/lessons-schema.md`](../references/lessons-schema.md) § The One-Writer Rule for what each exit code means generically. This check does not yet cover the categorisation-file companion: whether every `LL-NNN` the index carries also appears in a bucket table of `{lessons_dir}/00-Categorization-By-Domain.md`. Until it does, diff the two by hand and error with:
 
 ```
 Lessons missing from categorisation file: {list of LL IDs}. Run /planwise lessons curate --phase=categorize first.
 ```
+
+The companion becomes part of the mechanical check in a later release.
 
 ### Workflow
 
@@ -192,7 +215,7 @@ The `--dry-run` flag is orthogonal to scope. When present, the workflow short-ci
 
 New backlog-item files, the regenerated backlog index, and — at capture — modified lesson files. The authoritative write scope is the Write column of [Part-1 §1](../references/lessons-promote-batch-workflow-Part-1-ResolveAndGroup.md#1-inputs-and-outputs), with the capture-time lesson writes specified in [Part-2 §6.5](../references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture). As with Curate Mode above, it is deliberately not restated here. Under `--dry-run` the workflow short-circuits after Phase 2 and writes nothing.
 
-Writes that touch the lessons index also bump its `Last Updated:` header in the same edit — see [Lessons-Index Write Convention](#lessons-index-write-convention).
+Writes that touch a lesson file are followed by the generator — see [Lessons-Index Write Convention](#lessons-index-write-convention).
 
 The single-lesson `promote <id>` mode below is preserved verbatim. Batch promotion is a parallel path, not a replacement.
 
@@ -310,25 +333,30 @@ Move the promoted lesson to the Archive folder to keep the working directory cle
    mv "{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md" "{lessons_dir}/Archive/"
    ```
 
-3. Update the index link in the Master Table using Edit:
-   - Old: `](LL-{NNN}-{Domain}-{Name}.md)`
-   - New: `](Archive/LL-{NNN}-{Domain}-{Name}.md)`
+3. Run the generator; the File column follows the file — no hand-edited link.
 
 Skip if the file is already in `Archive/`.
 
 ### Stage 7: Log
 
-Add a row to the Rule Promotion Log in `{lessons_dir}/{lessons_index}`:
+Append a row to the promotion-log file for the lesson's id. The append target — which of the five files — is a pure function of the lesson id; see [`references/lessons-schema.md`](../references/lessons-schema.md) § Promotion-Log Contract for the id ranges and file list. No shipped script computes this target or performs the append yet.
+
+**If the target file does not exist yet** (only the hub-side file is seeded at init; the four Archive-part files for ids 1-200 are never created for you), create it first with the promotion-log opener, adjusted to the target file's own name and backlink per the Promotion-Log Contract:
 
 ```markdown
+[← {lessons_index}]({lessons_index for the hub-side file, or ../{lessons_index} for an Archive-part file})
+
 | Date | Lesson ID | Artifact Created | File |
 |------|-----------|-----------------|------|
+```
+
+Then add the row by hand:
+
+```markdown
 | YYYY-MM-DD | LL-{NNN} | {artifact-name} | `.claude/{type}/{name}` |
 ```
 
-Also update the lesson's `Status` column in the Master Table from `documented` to `rule` (or `applied`).
-
-Then bump the index's `Last Updated:` header to today's date in the same edit, with a short parenthetical naming what changed (see [Lessons-Index Write Convention](#lessons-index-write-convention)).
+The lesson's `Status` cell in the generated index follows from Stage 5's frontmatter flip the next time the generator runs — run it. No separate header bump: the generator writes its own `Generated:` line.
 
 ### Promotion Error Handling
 
@@ -338,7 +366,7 @@ Then bump the index's `Last Updated:` header to today's date in the same edit, w
 | Ambiguous artifact type | Present options to user and let them choose |
 | Artifact file path conflict | Check if file exists; ask user to rename or merge |
 | Lesson frontmatter edit fails | Use Edit tool manually on the YAML frontmatter block |
-| Index update fails | Manually add row to Rule Promotion Log |
+| Index update fails | Manually add the row to the lesson's promotion-log file (see [`references/lessons-schema.md`](../references/lessons-schema.md) § Promotion-Log Contract); re-run the generator once the lesson file itself is correct |
 
 ---
 
@@ -401,16 +429,16 @@ Present the draft to the user:
 
 If approved:
 
-> [!gate] Derive the next ID — never read it from the stored counter
-> The index's `**Next available ID:**` line is a denormalized cache whose only writer is step 6 below. A lesson authored any other way — a hand-written closeout capture, a task-runner producing one as a sprint deliverable — leaves it stale, and reading it here hands back an ID that already exists. Derive the true value:
+> [!gate] Derive the next ID — never read it from the generated counter
+> The hub's `**Next available ID:**` line is `max(derived + 1, the counter already on disk)` — a forward-only floor, never a source of which ids are known — and its only writer is the generator, run in step 5 below. Derive the true value directly instead:
 >
 > ```bash
-> python "{plugin_root}/scripts/reconcile_lessons.py" --config "{planwise_root}/config.yaml" --next-id
+> python "{plugin_root}/scripts/parse_lessons.py" --config "{planwise_root}/config.yaml" --next-id
 > ```
 >
-> It prints `LL-{NNN}` computed from the union of the working lessons directory, `Archive/`, and the index Master Table; the stated counter is not an input. If that value differs from the counter line, report the gap rather than silently correcting it — some lesson was authored off this path, so its master-table row and its categorisation entry were hand-made too and may carry their own gaps. `/planwise doctor` and `/planwise lessons curate` offer the counter correction on consent.
+> It prints `LL-{NNN}` computed from the union of the working lessons directory, `Archive/`, and the index; the stated counter is not an input. If that value differs from the counter line, report the gap rather than silently correcting it — some lesson was authored off this path, and its categorisation entry may carry its own gap. `/planwise doctor` Stage 13 surfaces this drift on its next run.
 
-1. Take `{NNN}` from the `--next-id` command above; read `{lessons_dir}/{lessons_index}` for the lesson file template
+1. Take `{NNN}` from the `--next-id` command above; take the lesson file template from `templates/lesson.md`
 2. Determine `{Domain}` from the first value in the `domain:` field
 3. **Assert `{NNN}` is unused, in BOTH directories, immediately before writing.** Glob `{lessons_dir}/LL-{NNN}-*.md` and `{lessons_dir}/Archive/LL-{NNN}-*.md`. A hit means a concurrent session claimed the ID between derivation and write. FAIL LOUD and STOP — never overwrite, and never silently pick the next free number, because the draft's frontmatter `id:` and any cross-reference already written into the body still name `{NNN}`:
    ```
@@ -418,9 +446,7 @@ If approved:
    The draft was not written. Re-run `/planwise lessons capture` to re-derive the ID.
    ```
 4. Write file: `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`
-5. Add a row to the Master Table in `{lessons_dir}/{lessons_index}`
-6. Update the "Next available ID" counter in the index to the ID after `{NNN}`
-7. Bump the index's `Last Updated:` header to today's date in the same edit, with a short parenthetical naming what changed (see [Lessons-Index Write Convention](#lessons-index-write-convention))
+5. Run the generator; append the changelog entry (see [Lessons-Index Write Convention](#lessons-index-write-convention), which also covers the exit 2 `legacy-shape` refusal branch). Two files that still end up claiming one id despite step 3's check make `--write` refuse (exit 2, `duplicate-id`) rather than pick one — it names both.
 
 ### Step 5: Skip
 

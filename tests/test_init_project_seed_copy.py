@@ -117,5 +117,51 @@ class TestCopySeedFilesIncludesLessonsCompanions(unittest.TestCase):
         )
 
 
+class TestCopySeedFilesCustomLessonsHubName(unittest.TestCase):
+    """copy_seed_files derives the lessons companion filenames from the
+    project's configured `index_files.lessons` (when config.yaml already
+    exists at call time) via the same naming helpers `_seed_lessons_index`
+    uses — never a fixed pair of companion names."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="init_project_seed_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "planwise" / "Backlog").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "planwise" / "LessonsLearned").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "planwise" / "Plans").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "planwise" / "config.yaml").write_text(
+            "project:\n"
+            "  planwise_root: planwise\n"
+            "  lessons_dir: LessonsLearned\n"
+            "  index_files:\n"
+            "    lessons: 00-Index-MyLessons.md\n",
+            encoding="utf-8",
+        )
+
+        self.cfg = InitConfig(
+            project_name="seed-copy-fixture",
+            project_root=self.tmp,
+            plugin_root=init_project.get_plugin_root(),
+        )
+
+    def test_companions_named_from_custom_hub(self):
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML required for _resolve_lessons_index_name")
+
+        copied = init_project.copy_seed_files(self.cfg)
+
+        self.assertIn("planwise/LessonsLearned/00-Changelog-MyLessons.md", copied)
+        self.assertIn("planwise/LessonsLearned/00-PromotionLog-MyLessons.md", copied)
+        lessons_dir = self.tmp / "planwise" / "LessonsLearned"
+        self.assertTrue((lessons_dir / "00-Index-MyLessons.md").exists())
+        self.assertTrue((lessons_dir / "00-Changelog-MyLessons.md").exists())
+        self.assertTrue((lessons_dir / "00-PromotionLog-MyLessons.md").exists())
+        # The fixed default names must NOT be created.
+        self.assertFalse((lessons_dir / "00-Changelog-LessonsLearned.md").exists())
+        self.assertFalse((lessons_dir / "00-PromotionLog-LessonsLearned.md").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

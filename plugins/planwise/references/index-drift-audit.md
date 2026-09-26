@@ -16,7 +16,7 @@ python "{plugin_root}/scripts/{reconcile_script}" --config "{planwise_root}/conf
 
 A binding may add a mode flag to this command line and to its `--write` counterpart, as the body-status binding adds `--body-status`.
 
-Read the JSON file at the path it prints (`JSON: {path}`), shaped `{"drifts": [...], "anomalies": [...]}` (the lessons binding adds a `next_id` key — see Per-Index Bindings). `drifts` are rows out of sync with the source of truth; `anomalies` are rows whose source cannot be resolved at all (deleted/renamed — reported, never fabricated).
+Read the JSON file at the path it prints (`JSON: {path}`), shaped `{"drifts": [...], "anomalies": [...]}` (the lessons binding uses a different shape entirely — see Per-Index Bindings). `drifts` are rows out of sync with the source of truth; `anomalies` are rows whose source cannot be resolved at all (deleted/renamed — reported, never fabricated).
 
 ## Result Classes
 
@@ -59,7 +59,7 @@ Two corollaries:
 > [!practice] Review prompt for a reconciler spec
 > When a spec says "compute the correct value and correct the field to it", ask what the computed value being **lower** than the stated one would mean, and whether anything downstream still names what would be reissued. A spec that reads symmetrically in both directions usually has not been asked the question.
 
-The Lessons binding below is the worked instance: its `drift` class is defined as the counter being *behind* the true next ID, `counter_ahead` is an anomaly kind that is never healed, and `row_without_file` keeps a missing record's ID inside the max.
+The Lessons binding below is the worked instance: its `drift` class is defined as the counter being *behind* the true next ID, `counter_ahead` is an anomaly kind that is never healed, and `extra-row` keeps a missing record's ID inside the max.
 
 ## Banner
 
@@ -134,24 +134,26 @@ The script re-reads the index immediately before writing (race-safe against a co
 - The run prints `  + {file}: stripped line {n}` for each stripped file, or `  ! {file}: {error}` for a failed one, then `Stripped {N} body status line(s).` Any failed write makes the script exit 1 and name each failed file on stderr.
 - No index regeneration follows a strip. The index generator reads frontmatter only, and a strip never changes frontmatter.
 
-### Lessons — `reconcile_lessons.py`
+### Lessons — `generate_lessons_index.py --check`
 
-- Source of truth: the highest lesson ID that exists anywhere across the lessons dir and its `Archive/`.
-- Drift: the index's `**Next available ID:** LL-{NNN}` counter is BEHIND the true next ID — at most one entry, since the counter is a single field. Reconcile moves the counter FORWARD only; it never lowers it.
-- The JSON additionally carries a `next_id` key (`"LL-NNN"`) — the value the plans/backlog shape omits.
-- Anomalies cover four separate conditions, none ever healed automatically:
+- Source of truth: lesson-file frontmatter is authoritative; the index (hub, overflow leaves, Archive shards) is a regenerated build artifact with exactly one writer, `generate_lessons_index.py --write` — there is no separate reconciler script for this index.
+- This binding's mode flags differ from the generic form above: `--check` (this procedure's read-only detect pass — every report mode runs the full scan/render/compare pipeline, so `--check` is an explicit synonym for the default) and `--write` (write-on-consent, which regenerates the whole index rather than patching one row or one line).
+- The JSON shape also differs from the generic `{"drifts": [...], "anomalies": [...]}`: `--check --json` prints `{"files": [...], "truncated": [...], "drift": [...], "anomalies": [...], "shape": ..., "basis": ...}` (note `drift`, singular, and the extra keys). Each finding is `{"class", "id", "detail"}`.
+- The counter is a generated line with one writer, computed as `max(derived_next_id, on-disk counter)`: the generator reads the existing counter line only as a floor, so a retired id is never reissued. `stale-counter` fires when the on-disk counter is BELOW the computed value — ordinary drift, healed on `--write`. `counter_ahead` fires when it is ABOVE the computed value — an anomaly, never healed; an id may have been retired deliberately, and lowering it would let a later capture reuse an id that cross-references still name.
+- File-level findings stay reportable:
 
-  | Anomaly `kind` | Meaning |
-  |----------------|---------|
-  | `missing_counter_line` | The index carries no "Next available ID:" line — nothing to reconcile against; never fabricated at a guessed position |
-  | `counter_ahead` | The counter is above the true next ID — an ID may have been retired deliberately, and lowering it would let a later capture reuse an ID that cross-references still name |
-  | `row_without_file` | A master-table row whose lesson file exists in neither the lessons dir nor `Archive/` (deleted/renamed — reported, never fabricated). Its ID still bounds the counter: a retired ID is not free for reuse |
-  | `file_without_row` | A lesson file on disk with no master-table row — the same off-capture authoring signal from the other direction |
+  | `class` | Meaning | Ever healed? |
+  |---------|---------|---------------|
+  | `extra-row` | A generated row names an id with no lesson file on disk (neither the lessons dir nor `Archive/`) | Yes — the next full `--write` rebuilds the index from lesson files, so the stray row does not survive |
+  | `missing-row` | A lesson file exists with no generated row yet — the same off-capture authoring signal from the other direction | Yes — added on the next `--write` |
+  | `duplicate-id` | Two lesson files claim one id, or one id has two rows | No — `--write` refuses (exit 2) until resolved; deciding which file is correct needs a human |
+  | `id-mismatch` | A lesson file's filename number disagrees with its own frontmatter `id:` | No — `--write` refuses (exit 2) until resolved |
+  | `row-shape` | A row's cell count disagrees with the header | No — reported only |
+  | `location-anomaly` | A lesson's directory disagrees with its status | No — location is never a routing input; the generator never moves a file |
 
-- Banner drift line: `stated {STATED} — expected {EXPECTED}: {reason}`.
-- Consent prompt: "Bump the lessons-index counter from {STATED} to {EXPECTED}?"
-- A stale counter is worth surfacing beyond the number itself: it means some lesson was authored off the capture path, so that lesson's master-table row and its categorisation entry were hand-made too and may carry their own gaps. Say so in the report rather than presenting the bump as a bookkeeping nit.
-- The `--write` run rewrites only the counter line's digits — every other line and the file's original line endings are preserved.
+- Banner drift line: `{class}: {id} — {detail}`, per the finding shape above.
+- Consent prompt: "Regenerate the lessons index to resolve {K} drifted finding(s)?" — `--write` on the reconciler prints the regenerate command rather than editing any single row or line; there is no per-row heal.
+- A stale counter is worth surfacing beyond the number itself: it means some lesson was authored off the capture path, so that lesson's generated-index row and its categorisation entry were hand-made too and may carry their own gaps. Say so in the report rather than presenting the regenerate as a bookkeeping nit.
 
 ---
 

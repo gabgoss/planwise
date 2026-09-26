@@ -130,7 +130,9 @@ try:
         DEFAULT_CATEGORIZATION,  # noqa: F401 -- re-exported for callers of init_project
         LessonsBootstrap,  # noqa: F401 -- re-exported for callers of init_project
         _emit_lessons_bootstrap_banner,  # noqa: F401 -- re-exported for callers of init_project
+        _lessons_seed_dst_names,
         _render_bucket_section,  # noqa: F401 -- re-exported for callers of init_project
+        _resolve_lessons_index_name,
         _seed_lessons_index,  # noqa: F401 -- re-exported for callers of init_project
         bootstrap_lessons_artifacts,
         render_categorization_file,  # noqa: F401 -- re-exported for callers of init_project
@@ -239,14 +241,26 @@ def create_directories(cfg: InitConfig) -> list[str]:
 
 
 def copy_seed_files(cfg: InitConfig) -> list[str]:
-    """Copy seed index files. Skips if destination exists. Returns list of copied files."""
+    """Copy seed index files. Skips if destination exists. Returns list of copied files.
+
+    The lessons hub and its two companions are named from the project's
+    configured `index_files.lessons` (defaulting to
+    `00-Index-LessonsLearned.md` when config.yaml does not exist yet -- the
+    normal fresh-init ordering, since this runs before generate_config())
+    via `_lessons_seed_dst_names` -- the same naming helpers
+    `generate_lessons_index.py`'s own footer links use -- never a second,
+    hardcoded pair of companion names.
+    """
     copied = []
+    lessons_hub_name, lessons_changelog_name, lessons_promotion_name = (
+        _lessons_seed_dst_names(_resolve_lessons_index_name(cfg))
+    )
     seeds = [
         ("00-Index-Backlog.md", f"{cfg.planwise_root}/{cfg.backlog_dir}/00-Index-Backlog.md"),
         ("00-Changelog-Backlog.md", f"{cfg.planwise_root}/{cfg.backlog_dir}/00-Changelog-Backlog.md"),
-        ("00-Index-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/00-Index-LessonsLearned.md"),
-        ("00-Changelog-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/00-Changelog-LessonsLearned.md"),
-        ("00-PromotionLog-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/00-PromotionLog-LessonsLearned.md"),
+        ("00-Index-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/{lessons_hub_name}"),
+        ("00-Changelog-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/{lessons_changelog_name}"),
+        ("00-PromotionLog-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/{lessons_promotion_name}"),
         ("00-Index-Plans.md", f"{cfg.planwise_root}/{cfg.plans_dir}/00-Index-Plans.md"),
     ]
     seed_dir = cfg.plugin_root / "seed"

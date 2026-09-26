@@ -333,8 +333,8 @@ A related code-generation discipline applies when the LSP reports a diagnostic t
 1. Update Session status to COMPLETE in Orchestration
 2. Update Sprint Plan's Sessions table to mark session COMPLETE
 3. Create Summary file in Outputs/
-4. Document lessons learned in `LessonsLearned/LL-{NNN}-{Domain}-{Name}.md` (use template from 00-Index-LessonsLearned.md, update master table)
-5. Update `LessonsLearned/00-Index-LessonsLearned.md` master table with new entries
+4. Document lessons learned in `LessonsLearned/LL-{NNN}-{Domain}-{Name}.md` (use `templates/lesson.md`; get the next id from `parse_lessons.py --next-id`)
+5. Regenerate `LessonsLearned/00-Index-LessonsLearned.md` with `generate_lessons_index.py --write`
 6. If lesson severity is HIGH or lesson recurs 2+ times, consider promoting to `.claude/rules/` (update lesson status to `rule` and set `applied-as` path)
 
 **After each Sprint completes:**

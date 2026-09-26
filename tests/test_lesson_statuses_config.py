@@ -3,11 +3,11 @@
 that restate it cannot drift from it.
 
 `config.yaml.template` carries `lesson_statuses:` (declarative — see its own
-comment block); the seed lessons index defines what each value means; and
-flip_lesson_status.py validates a flip against its own VALID tuple. These
-tests are the cross-surface equality that keeps the three in agreement —
-the state-detecting gate the config key promises, since no script reads the
-key at run time.
+comment block); `references/lessons-schema.md`'s Status Definitions table
+defines what each value means; and flip_lesson_status.py validates a flip
+against its own VALID tuple. These tests are the cross-surface equality that
+keeps the three in agreement — the state-detecting gate the config key
+promises, since no script reads the key at run time.
 
 Run with:  python -m unittest tests/test_lesson_statuses_config.py
 """
@@ -24,7 +24,7 @@ import flip_lesson_status
 
 PLUGIN = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 TEMPLATE = PLUGIN / "config.yaml.template"
-SEED_INDEX = PLUGIN / "seed" / "00-Index-LessonsLearned.md"
+SCHEMA_REF = PLUGIN / "references" / "lessons-schema.md"
 
 DECLARED = ["documented", "promoted", "applied", "rule", "orphaned"]
 
@@ -36,15 +36,18 @@ def template_lesson_statuses(text: str) -> list[str]:
     return re.findall(r"^\s*-\s*([A-Za-z_]+)\s*$", block, re.MULTILINE)
 
 
-def seed_status_table(text: str) -> list[str]:
-    section = text.split("## Status Definitions", 1)[1].split("\n---", 1)[0]
+def schema_status_table(text: str) -> list[str]:
+    # The reference has no `---` dividers between sections, unlike the
+    # retired seed's `## Status Definitions` block — bound the section at
+    # the next `## ` heading instead.
+    section = text.split("## Status Definitions", 1)[1].split("\n## ", 1)[0]
     return re.findall(r"^\|\s*`([A-Za-z_]+)`\s*\|", section, re.MULTILINE)
 
 
 class TestLessonStatusVocabulary(unittest.TestCase):
     def setUp(self):
         self.template_text = TEMPLATE.read_text(encoding="utf-8")
-        self.seed_text = SEED_INDEX.read_text(encoding="utf-8")
+        self.schema_text = SCHEMA_REF.read_text(encoding="utf-8")
 
     def test_template_declares_the_vocabulary(self):
         self.assertEqual(template_lesson_statuses(self.template_text), DECLARED)
@@ -54,10 +57,11 @@ class TestLessonStatusVocabulary(unittest.TestCase):
         self.assertLess(text.index("\nstatuses:"), text.index("\nlesson_statuses:"))
         self.assertLess(text.index("\nlesson_statuses:"), text.index("\nbuild_commands:"))
 
-    def test_seed_table_and_template_agree(self):
-        """The seed's Status Definitions table defines each value's meaning
-        and defers to config for the list; the two sets must be equal."""
-        self.assertEqual(set(seed_status_table(self.seed_text)), set(DECLARED))
+    def test_schema_table_and_template_agree(self):
+        """references/lessons-schema.md's Status Definitions table defines
+        each value's meaning and defers to config for the list; the two
+        sets must be equal."""
+        self.assertEqual(set(schema_status_table(self.schema_text)), set(DECLARED))
 
     def test_flip_script_accepts_only_declared_values(self):
         self.assertEqual(

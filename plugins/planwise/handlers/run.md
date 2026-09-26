@@ -563,7 +563,7 @@ Ask the user: "Were any lessons learned during this session?"
 
 **If yes, for each lesson:**
 
-1. Read the lessons index at `{lessons_dir}/{lessons_index_file}` for next available ID and template
+1. Derive the next ID with `python {plugin_root}/scripts/parse_lessons.py --config {planwise_root}/config.yaml --next-id`; take the lesson file template from `templates/lesson.md`
 2. Determine from session context:
    - What was learned
    - Domain (infer from files worked on, or ask user)
@@ -588,7 +588,7 @@ Ask the user: "Were any lessons learned during this session?"
 4. Present draft to user: "Capture this lesson? (approve / edit / skip)"
 5. If approved:
    - Write file: `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`
-   - Add row to master table in the lessons index
+   - Run the generator; append the changelog entry
    - Update the summary's Lessons Learned section with the lesson reference
 
 **If no lessons:** Write "No lessons captured this session." in the summary's Lessons Learned section.

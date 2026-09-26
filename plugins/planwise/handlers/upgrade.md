@@ -253,7 +253,7 @@ If `python` is not found, try `python3`.
 
 The script:
 1. Runs `migrate_config()` to merge any new top-level keys into `config.yaml`
-2. Calls `bootstrap_lessons_artifacts()` to backfill the lessons scaffolding — seeds `{lessons_dir}/00-Index-LessonsLearned.md` and renders `{lessons_dir}/00-Categorization-By-Domain.md` — whenever either is missing. Idempotent and non-destructive: a no-op when both already exist, and an existing (possibly user-customised) file is preserved verbatim. This recovers the categorization file that gates `/planwise lessons curate` and `promote-batch` on projects adopted via `/planwise upgrade` rather than a fresh `/planwise init` (the render used to be fresh-init-only). Runs after `migrate_config()` so a freshly-migrated `categorization:` block is picked up; falls back to the built-in default buckets (and flags it in the banner) when the block is absent
+2. Calls `bootstrap_lessons_artifacts()` to backfill the lessons scaffolding — seeds the lessons index hub (`{lessons_dir}/00-Index-LessonsLearned.md`) plus its two companions (`00-Changelog-LessonsLearned.md`, `00-PromotionLog-LessonsLearned.md`), and renders `{lessons_dir}/00-Categorization-By-Domain.md` — whenever any is missing. Idempotent and non-destructive: a no-op when every artifact already exists, and an existing (possibly user-customised) file is preserved verbatim. This recovers the categorization file that gates `/planwise lessons curate` and `promote-batch` on projects adopted via `/planwise upgrade` rather than a fresh `/planwise init` (the render used to be fresh-init-only). Runs after `migrate_config()` so a freshly-migrated `categorization:` block is picked up; falls back to the built-in default buckets (and flags it in the banner) when the block is absent
 3. Iterates `manifests/artifacts.yaml` rows where `upgrade_behavior == "refresh_or_sidecar"`
 4. Refreshes installed copies whose normalised body matches the shipped body
 5. Classifies each **diverged** installed copy with the structural verdict — consuming `verdicts.json` when present (a comparator verdict for a filename **supersedes** the inline primitive; a missing entry, a malformed entry, or an entry whose `installed_sha256` is missing/stale falls back to the primitive). A clean **stale subset** is auto-adopted in place directly: rules refresh via `update_frontmatter()` (the project's `paths:` line is preserved). Any OTHER divergence — HAS_UNIQUE or a subset whose `notes` flag installed-only tolerated content — is **customization-bearing**, gated by `upgrade.customization_handoff`: under `report+relocate` (the shipped template default) the writer first **transfers** the full installed body (plus a generic provenance header — source filename, kind, upgrade pair, date, verdict summary) to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` — a **dormant preservation document** outside `.claude/rules/`, never loaded as a rule (a collision is uniquified with a numeric suffix loop, never clobbered) — **verifies** the write by reading it back, mirrors the pre-image under `upgrade-backups/`, and only then adopts the shipped body in place (the `DISPOSITIONS.md` row is appended only after the adoption write succeeds). Under `report` / `report+issue` (or the key absent) the writer is conservative: the customization-bearing file is preserved in place + a `.new` sidecar is written — no transfer, no adoption. A failed transfer write, a failed pre-image backup, a failed adoption write, or a degraded not-analyzed stand-in verdict (`structural_compare` unavailable at call time — no evidence to act on) likewise falls back to that conservative branch: installed file untouched, `.new` sidecar under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Every auto-adoption — stale-subset or transfer-then-adopt — first mirrors the pre-change file under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (failed backup = no destructive write) and deletes any sidecar it obsoletes from an earlier interrupted run
@@ -307,7 +307,7 @@ The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update
 3. Populate it from the user's `config.yaml: categorization:` block, one section per bucket in `decision_tree_order`.
    > [!practice] Missing `categorization:` Block — Render From Defaults
    > When the block is absent or empty, use the 4-bucket default from [../config.yaml.template](../config.yaml.template) (database / code / process / tooling) and add a banner line noting defaults were used. Suggest `python init_project.py --migrate` to seed the block into `config.yaml` for full customisation.
-4. If `{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md` is missing, also copy it from [../seed/00-Index-LessonsLearned.md](../seed/00-Index-LessonsLearned.md).
+4. For each of the lessons index hub and its two companions — `00-Index-LessonsLearned.md`, `00-Changelog-LessonsLearned.md`, `00-PromotionLog-LessonsLearned.md` — if `{planwise_root}/{lessons_dir}/{name}` is missing, also copy it from `../seed/{name}`.
 5. Use **Write** to create the categorization file with the rendered result, and surface it under the banner's `Lessons scaffolding backfilled:` heading.
 
 ---
@@ -351,8 +351,10 @@ Upgrade pair: {from}-to-{to} (resolved once for this run — matches --upgrade-p
 
 Config keys added:    {N}  ({list, or "(none)"})
 
-Lessons scaffolding backfilled:           ({omitted entirely when both already exist})
+Lessons scaffolding backfilled:           ({omitted entirely when every artifact already exists})
   + {planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md
+  + {planwise_root}/{lessons_dir}/00-Changelog-LessonsLearned.md
+  + {planwise_root}/{lessons_dir}/00-PromotionLog-LessonsLearned.md
   + {planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md
   …
 

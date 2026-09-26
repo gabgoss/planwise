@@ -362,7 +362,7 @@ After completing a session:
 > - [ ] Sprint Plan tracking table updated
 > - [ ] Master Plan tracking table updated
 > - [ ] Lessons learned documented in LessonsLearned/LL-{NNN}-{Domain}-{Name}.md (YAML frontmatter + 3 sections)
-> - [ ] 00-Index-LessonsLearned.md master table updated with new entries
+> - [ ] 00-Index-LessonsLearned.md regenerated with new entries (`generate_lessons_index.py --write`)
 > - [ ] If any session lesson is HIGH-severity or recurs (2+ instances across sessions), evaluate promotion to `.claude/rules/` per `task-file-and-tracking-requirements.md §9` step 6. Record the promotion decision in the lesson frontmatter (`applied-as:` path) and the Rule Promotion Log.
 > - [ ] Git commit with changes (lessons included before final commit)
 

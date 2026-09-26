@@ -631,7 +631,7 @@ After closing all triaged items, prompt for lessons learned.
 
 **If no:** Skip this phase and finish.
 
-**If yes:** Read `{lessons_dir}/{lessons_index}` for the lesson file template and the next available lesson number. Create a lesson file at `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md` and add a row to the master table in the lessons index.
+**If yes:** Derive the next ID with `python {plugin_root}/scripts/parse_lessons.py --config {planwise_root}/config.yaml --next-id`; take the lesson file template from `templates/lesson.md`. Create a lesson file at `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`; run the generator; append the changelog entry.
 
 ### Backlog Lesson Categories
 

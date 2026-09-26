@@ -36,6 +36,8 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 |---------------------------|-------------|
 | [../seed/00-Index-Backlog.md](../seed/00-Index-Backlog.md) | `{planwise_root}/{backlog_dir}/00-Index-Backlog.md` |
 | [../seed/00-Index-LessonsLearned.md](../seed/00-Index-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md` |
+| [../seed/00-Changelog-LessonsLearned.md](../seed/00-Changelog-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-Changelog-LessonsLearned.md` |
+| [../seed/00-PromotionLog-LessonsLearned.md](../seed/00-PromotionLog-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-PromotionLog-LessonsLearned.md` |
 | [../seed/00-Index-Plans.md](../seed/00-Index-Plans.md) | `{planwise_root}/{plans_dir}/00-Index-Plans.md` |
 
 ---

@@ -351,14 +351,14 @@ Each Orchestration file created MUST include this item in its post-session check
 
 ```
 [ ] Document lessons learned in {lessons_dir}/LL-{NNN}-{Domain}-{Name}.md
-    - Get next NNN from master table in {lessons_dir}/{lessons_index}
-    - Use Lesson File Template from {lessons_dir}/{lessons_index}
+    - Get next NNN from `parse_lessons.py --config {config} --next-id`
+    - Use the lesson file template from templates/lesson.md
     - Required frontmatter: id, title, date, source (session ID), category, severity,
       language, technology, domain, status, applied-as
-    - Add row to master table in {lessons_dir}/{lessons_index}
+    - Run the generator; append the changelog entry
 ```
 
-Where `{lessons_dir}` and `{lessons_index}` come from `config.yaml`.
+Where `{lessons_dir}` comes from `config.yaml`.
 
 ### Step 8c: Validate Token Estimates (Bottom-Up)
 

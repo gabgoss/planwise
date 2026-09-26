@@ -353,10 +353,10 @@ plans-index drift audit; neither re-implements the other's comparison.
 ### Stage 13: Lessons Index Counter Drift Audit
 
 > [!constraint] Read-Only — audit only recommends
-> Stage 13 runs `reconcile_lessons.py --json` standalone, reading the lessons
-> index (`{lessons_dir}/{lessons_index}`), the lesson files in that directory
-> and its `Archive/`. It writes nothing unless the user explicitly consents
-> to reconcile — the audit itself never mutates.
+> Stage 13 runs `generate_lessons_index.py --check --json`, standalone,
+> reading the lessons index (`{lessons_dir}/{lessons_index}`), the lesson
+> files in that directory and its `Archive/`. It writes nothing unless the
+> user explicitly consents to reconcile — the audit itself never mutates.
 
 Always-on (independent of Token Saver) — auditing index consistency is doctor's
 purpose, so this check has **no `--no-check` escape hatch**. Skip the stage
@@ -365,12 +365,15 @@ with no lessons scaffolding has no counter to audit); report
 `Lessons index: not configured — audit skipped`.
 
 Run the index-drift audit procedure in
-[`references/index-drift-audit.md`](../references/index-drift-audit.md)
-against the **lessons** index (`reconcile_lessons.py`, banner `planwise
-doctor — lessons index counter drift audit`) — the lessons-index binding
-there carries the counter-drift specifics (the `next_id` JSON key, the four
-anomaly kinds, forward-only reconcile). This is the lessons-index analogue of
-Stages 11 and 12; none re-implements another's comparison.
+[`references/index-drift-audit.md`](../references/index-drift-audit.md) §
+Lessons against the **lessons** index (`generate_lessons_index.py --check
+--json`, banner `planwise doctor — lessons index drift audit`) — the
+lessons-index binding there carries the drift-class specifics: the
+generator's own classes as it names them, including `stale-counter` (off
+the forward-only counter floor) and the file-level anomalies `extra-row`,
+`missing-row`, and `duplicate-id` that this same `--check --json` run
+reports. This is the lessons-index analogue of Stages 11 and 12; none
+re-implements another's comparison.
 
 ---
 
@@ -928,10 +931,12 @@ Step 5 scans one plan's own files. A bookkeeping index is different: it grows ac
    | Index | Resolution |
    |-------|------------|
    | Backlog | The hub at `{backlog_dir}/{backlog_index}`, plus every generated shard beside it — see step 2 |
-   | Lessons | `{lessons_dir}/{lessons_index}` — skip when `project.lessons_dir` is absent, same as Stage 13 |
+   | Lessons | The hub at `{lessons_dir}/{lessons_index}`, plus every generated shard beside it — see step 2's mirror below; skip when `project.lessons_dir` is absent, same as Stage 13 |
    | Plans | `{plans_dir}/{plans_index}` |
 
 2. **The backlog index is a hub plus overflow leaves plus Archive shards, not one file.** Derive the naming shape from the resolved hub path with `generate_backlog_index._index_naming({backlog_dir}/{backlog_index})` — the same derivation the generator itself uses (see [`references/backlog-schema.md`](../references/backlog-schema.md) § Hub, Overflow Leaves, and Archive Shards). Then scan `{backlog_dir}` and its Archive subdirectory (`project.archive_dir`, default `{backlog_dir}/Archive`) and keep every entry where `generate_backlog_index.is_generated_index_file(name, naming)` is true. Include each matched file in the scan below. Never match by a hardcoded filename — a custom `index_files.backlog` renames the hub, its overflow leaves, and its shard stem together, and only the generator's own recognition function stays consistent with that rename.
+
+   The lessons index is the same shape, mirrored through the lessons generator's own naming resolution: derive it with `generate_lessons_index._index_naming({lessons_dir}/{lessons_index})`, then scan `{lessons_dir}` and its Archive subdirectory and keep every entry where `generate_lessons_index.is_generated_index_file(name, naming)` is true (see [`references/lessons-schema.md`](../references/lessons-schema.md) § Hub, Overflow Leaves and Archive Shards). Skip this scan entirely when `project.lessons_dir` is absent. The companion row (categorisation-file staleness) is a later release, not added here.
 
 3. **Classify each resolved file** with `token_saver.classify_file(path, model=None, thresholds=None)`. Pass no model and no thresholds: a bookkeeping index has no assigned agent the way a task file does, and `model=None` resolves to `DEFAULT_BYTES_PER_TOKEN` — the smallest, most conservative ratio measured across every model family, so the report never under-counts a file some model would trip. With no `thresholds`, the cost gate stays Green by construction, so any Warn or Critical here reports `reason=read` — the mechanical Read-tool cap, never a cost budget.
 
@@ -959,4 +964,4 @@ Step 5 scans one plan's own files. A bookkeeping index is different: it grows ac
 
 ---
 
-*Cross-reference: [run.md](run.md) (Step 4.3 Update Plan Status), [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.19`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (Model-Floor Bridge), [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.20`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (1M-Exception Dispatch), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py), [reconcile_plans.py](../scripts/reconcile_plans.py) (plans index drift detect/reconcile, shared with [list.md](list.md)), [reconcile_backlog.py](../scripts/reconcile_backlog.py) (backlog index archival-drift detect/reconcile, shared with [backlog.md](backlog.md)), [reconcile_lessons.py](../scripts/reconcile_lessons.py) (lessons index counter-drift detect/reconcile).*
+*Cross-reference: [run.md](run.md) (Step 4.3 Update Plan Status), [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.19`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (Model-Floor Bridge), [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.20`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (1M-Exception Dispatch), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py), [reconcile_plans.py](../scripts/reconcile_plans.py) (plans index drift detect/reconcile, shared with [list.md](list.md)), [reconcile_backlog.py](../scripts/reconcile_backlog.py) (backlog index archival-drift detect/reconcile, shared with [backlog.md](backlog.md)), [generate_lessons_index.py](../scripts/generate_lessons_index.py) (lessons index generation and `--check` drift detect, sharing file-level anomaly detect/reconcile with [reconcile_lessons.py](../scripts/reconcile_lessons.py)).*
