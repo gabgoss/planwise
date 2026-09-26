@@ -82,8 +82,10 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml
 ```
 
-- `--check` computes each Score cell the same way `--write` would (8 configurable factors, weights from `config.yaml`, a blocker bonus per blocked item) — there is no separate scoring call. Exit `0` is clean. Exit `1` names drift or an anomaly on stderr; a `stale-score` report alone never causes exit `1` and needs no action. Exit `2` means the generator refused an item file it cannot render — a missing required key, an unresolvable `blocks:` id, or a row whose token budget cannot be met. Show the `Error:` line on stderr to the user verbatim, and stop before ranking: the index cannot be trusted until the named item file is fixed.
+- `--check` computes each Score cell the same way `--write` would (8 configurable factors, weights from `config.yaml`, a blocker bonus per blocked item) — there is no separate scoring call. Exit `0` is clean. Exit `1` names drift or an anomaly on stderr; a `stale-score` report alone never causes exit `1` and needs no action. Exit `2` means the generator refused an item file it cannot render — a missing required key, an unresolvable `blocks:` id, a row whose token budget cannot be met — **or a hand-authored (legacy) index**. Show the `Error:` line on stderr to the user verbatim, and stop before ranking: the index cannot be trusted until the named item file is fixed.
   - If it prints a stderr `Warning: title truncated …` or `Anomaly: …` line, surface it to the user verbatim rather than swallowing it — the same discipline this handler applied to the retired `score_backlog.py` shortfall warning transfers to the generator's own warnings; it means the displayed ranking may not match what the item files actually say.
+
+- If the exit-2 `Error:` line contains `hand-authored index`, the index has not been migrated to the generated format. Print that line to the user verbatim, tell them to run `/planwise upgrade` (it migrates the index automatically, with backups), and STOP — do not proceed to Phase 2 while the index is hand-authored.
 - `parse_backlog.py` reads the backlog index at `{backlog_dir}/{backlog_index}`
 - Outputs a formatted table of **selectable** items (excludes COMPLETE, CLOSED, and items blocked by open dependencies)
 - Blocked items appear in a separate summary below the main table
@@ -108,7 +110,7 @@ This is a second, narrower audit than `--check` above, and the two do not overla
 
 Otherwise, run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) against the **backlog** index (`reconcile_backlog.py`, banner `planwise backlog — backlog index archival drift audit`) — the JSON shape, banner format, and write-on-consent reconcile flow (including the consent prompt) all live there. This is the read-side counterpart of `/planwise list` Step 2's plans-index drift check, and the same detect pass `/planwise doctor` Stage 12 reuses; none re-implements another's comparison.
 
-The consented `--write` moves item files into `Archive/` and never writes the index. If it moved a file, run `generate_backlog_index.py --config {planwise_root}/config.yaml --write` so the index links follow the moved files. Then re-run Phase 1's parse so this same invocation shows the regenerated index.
+The consented `--write` moves item files into `Archive/` and never writes the index. If it moved a file, run `generate_backlog_index.py --config {planwise_root}/config.yaml --write` so the index links follow the moved files. Then re-run Phase 1's parse so this same invocation shows the regenerated index. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
 
 **Detect body status lines (always-on unless `--no-check`):**
 
@@ -146,7 +148,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write                        # once, after the loop
 ```
 
-`--status` writes frontmatter only; a non-zero `--write` exit does not undo it — fix what it names and re-run `--write`.
+`--status` writes frontmatter only; a non-zero `--write` exit does not undo it — fix what it names and re-run `--write`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
 
 ---
 
@@ -443,7 +445,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
 ```
 
-`--write` rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. Exit `0` is clean. Exit `1` is unexpected — record it and keep going. Exit `2` means it refused and wrote nothing; the item's frontmatter is still correct, so fix what it names and re-run `--write` rather than repeating `--status`.
+`--write` rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. Exit `0` is clean. Exit `1` is unexpected — record it and keep going. Exit `2` means it refused and wrote nothing; the item's frontmatter is still correct, so fix what it names and re-run `--write` rather than repeating `--status`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
 
 **Automatic archival:** When status is set to COMPLETE or CLOSED, `update_backlog.py` automatically moves the item file(s) to the Archive/ directory within `{backlog_dir}`. It no longer repoints the index link itself — the `--write` run above does that, because it renders each row from wherever the file actually lives.
 
@@ -597,7 +599,7 @@ Task {
    ```bash
    python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
    ```
-   The generator rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step.
+   The generator rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
 
 ### Step 7.4: Output Summary
 

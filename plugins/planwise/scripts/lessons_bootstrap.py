@@ -220,32 +220,52 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
     )
 
 
-def _seed_lessons_index(cfg: "InitConfig") -> tuple[ConfigResult, str]:
-    """Seed the lessons index from the plugin seed dir if missing. Idempotent.
+# The lessons index and its two generated-shape companions, in the same
+# adjacency order copy_seed_files() uses for the backlog index + changelog
+# pair: the hub first, then the files its own footer pointers name.
+_LESSONS_SEED_NAMES = (
+    "00-Index-LessonsLearned.md",
+    "00-Changelog-LessonsLearned.md",
+    "00-PromotionLog-LessonsLearned.md",
+)
 
-    Mirrors copy_seed_files for the lessons index alone, so the upgrade-side
-    backfill can recreate it without re-seeding backlog/plans. Returns
-    SKIPPED_EXISTS when the file is already present (never overwrites a
-    populated index) and SKIPPED_NO_TEMPLATE when the plugin seed file is
-    absent.
+
+def _seed_lessons_index(cfg: "InitConfig") -> list[tuple[ConfigResult, str]]:
+    """Seed the lessons index and its changelog/promotion-log companions
+    from the plugin seed dir, one file at a time, each independently
+    idempotent. Mirrors copy_seed_files for the lessons artifacts alone, so
+    the upgrade-side backfill can recreate whichever of the three is
+    missing without re-seeding backlog/plans.
+
+    Returns one (ConfigResult, dst_rel) pair per file in
+    `_LESSONS_SEED_NAMES`, in that order. Each file independently reports
+    SKIPPED_EXISTS when already present (never overwrites a populated
+    file) or SKIPPED_NO_TEMPLATE when the plugin seed file is absent — a
+    project already carrying the index but not yet the two companions
+    backfills only the companions.
     """
-    src_name = "00-Index-LessonsLearned.md"
-    dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/{src_name}"
-    dst = cfg.project_root / dst_rel
-    if dst.exists():
-        return ConfigResult.SKIPPED_EXISTS, dst_rel
-    src = cfg.plugin_root / "seed" / src_name
-    try:
-        src_content = src.read_bytes()
-    except FileNotFoundError:
-        return ConfigResult.SKIPPED_NO_TEMPLATE, dst_rel
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with open(dst, "xb") as f:
-            f.write(src_content)
-    except FileExistsError:
-        return ConfigResult.SKIPPED_EXISTS, dst_rel
-    return ConfigResult.CREATED, dst_rel
+    results = []
+    for src_name in _LESSONS_SEED_NAMES:
+        dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/{src_name}"
+        dst = cfg.project_root / dst_rel
+        if dst.exists():
+            results.append((ConfigResult.SKIPPED_EXISTS, dst_rel))
+            continue
+        src = cfg.plugin_root / "seed" / src_name
+        try:
+            src_content = src.read_bytes()
+        except FileNotFoundError:
+            results.append((ConfigResult.SKIPPED_NO_TEMPLATE, dst_rel))
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(dst, "xb") as f:
+                f.write(src_content)
+        except FileExistsError:
+            results.append((ConfigResult.SKIPPED_EXISTS, dst_rel))
+            continue
+        results.append((ConfigResult.CREATED, dst_rel))
+    return results
 
 
 @dataclasses.dataclass
@@ -253,21 +273,26 @@ class LessonsBootstrap:
     """Outcome of bootstrap_lessons_artifacts, with banner-ready fields.
 
     Carries the per-artifact ConfigResult so each caller (fresh init / upgrade)
-    can render its own banner from the same routine.
+    can render its own banner from the same routine. `index_results` holds
+    one (ConfigResult, dst_rel) pair per file in `_LESSONS_SEED_NAMES` — the
+    hub plus its two companions — since each seeds independently.
     """
-    index_result: ConfigResult
-    index_rel: str
+    index_results: list[tuple[ConfigResult, str]]
     cat_result: ConfigResult
     cat_rel: str
 
     @property
     def created_any(self) -> bool:
         created = {ConfigResult.CREATED, ConfigResult.CREATED_FROM_DEFAULT}
-        return self.index_result in created or self.cat_result in created
+        return (
+            any(result in created for result, _ in self.index_results)
+            or self.cat_result in created
+        )
 
 
 def bootstrap_lessons_artifacts(cfg: "InitConfig") -> LessonsBootstrap:
-    """Ensure the lessons scaffolding (index seed + categorization file) exists.
+    """Ensure the lessons scaffolding (index + companions + categorization
+    file) exists.
 
     The single idempotent, non-destructive routine wired into BOTH fresh init
     and _run_upgrade(): each sub-step is a no-op when its file is already
@@ -275,11 +300,13 @@ def bootstrap_lessons_artifacts(cfg: "InitConfig") -> LessonsBootstrap:
     and a user-customised file is preserved verbatim. On an upgrade-adopted
     project this backfills 00-Categorization-By-Domain.md — the file that
     gates /planwise lessons curate and promote-batch — which the legacy
-    fresh-init-only render never created.
+    fresh-init-only render never created; it also backfills whichever of the
+    lessons index's two companions (changelog, promotion log) a
+    pre-companion project has not yet been given.
     """
-    index_result, index_rel = _seed_lessons_index(cfg)
+    index_results = _seed_lessons_index(cfg)
     cat_result, cat_rel = render_categorization_file(cfg)
-    return LessonsBootstrap(index_result, index_rel, cat_result, cat_rel)
+    return LessonsBootstrap(index_results, cat_result, cat_rel)
 
 
 def _emit_lessons_bootstrap_banner(boot: "LessonsBootstrap") -> None:
@@ -287,14 +314,15 @@ def _emit_lessons_bootstrap_banner(boot: "LessonsBootstrap") -> None:
 
     Names only what was actually created (CREATED / CREATED_FROM_DEFAULT),
     reusing the same lines the fresh-init Step 5 banner prints; stays silent
-    when both artifacts already existed so an up-to-date project reports
+    when every artifact already existed so an up-to-date project reports
     nothing.
     """
     if not boot.created_any:
         return
     print("Lessons scaffolding backfilled:")
-    if boot.index_result == ConfigResult.CREATED:
-        print(f"  + {boot.index_rel}")
+    for result, rel in boot.index_results:
+        if result == ConfigResult.CREATED:
+            print(f"  + {rel}")
     if boot.cat_result == ConfigResult.CREATED:
         print(f"  + {boot.cat_rel}")
     elif boot.cat_result == ConfigResult.CREATED_FROM_DEFAULT:

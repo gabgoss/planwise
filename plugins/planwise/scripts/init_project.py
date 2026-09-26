@@ -245,6 +245,8 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
         ("00-Index-Backlog.md", f"{cfg.planwise_root}/{cfg.backlog_dir}/00-Index-Backlog.md"),
         ("00-Changelog-Backlog.md", f"{cfg.planwise_root}/{cfg.backlog_dir}/00-Changelog-Backlog.md"),
         ("00-Index-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/00-Index-LessonsLearned.md"),
+        ("00-Changelog-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/00-Changelog-LessonsLearned.md"),
+        ("00-PromotionLog-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/00-PromotionLog-LessonsLearned.md"),
         ("00-Index-Plans.md", f"{cfg.planwise_root}/{cfg.plans_dir}/00-Index-Plans.md"),
     ]
     seed_dir = cfg.plugin_root / "seed"
@@ -750,10 +752,11 @@ def main():
         ))
     print()
 
-    # Lessons scaffolding (index seed + categorization file) via the shared
-    # idempotent routine — the SAME entry point _run_upgrade() backfills from.
-    # copy_seed_files() above already seeded the lessons index, so that
-    # sub-step is a no-op here; the categorization banner below is unchanged.
+    # Lessons scaffolding (index + companions + categorization file) via the
+    # shared idempotent routine — the SAME entry point _run_upgrade()
+    # backfills from. copy_seed_files() above already seeded the lessons
+    # index and its two companions, so that sub-step is a no-op here; the
+    # categorization banner below is unchanged.
     _lessons = bootstrap_lessons_artifacts(cfg)
     cat_result, cat_rel = _lessons.cat_result, _lessons.cat_rel
     if cat_result == ConfigResult.CREATED:

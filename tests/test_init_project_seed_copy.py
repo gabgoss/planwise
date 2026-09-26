@@ -54,5 +54,68 @@ class TestCopySeedFilesIncludesChangelog(unittest.TestCase):
         self.assertEqual(dst.read_text(encoding="utf-8"), "existing history\n")
 
 
+class TestCopySeedFilesIncludesLessonsCompanions(unittest.TestCase):
+    """A fresh init must seed the lessons index's two generated-shape
+    companions (changelog, promotion log) alongside the index itself, or
+    the generated hub's footer pointers dangle on a project that has never
+    run the generator — the same gap TestCopySeedFilesIncludesChangelog
+    covers for the backlog side."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="init_project_seed_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "planwise" / "Backlog").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "planwise" / "LessonsLearned").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "planwise" / "Plans").mkdir(parents=True, exist_ok=True)
+
+        self.cfg = InitConfig(
+            project_name="seed-copy-fixture",
+            project_root=self.tmp,
+            plugin_root=init_project.get_plugin_root(),
+        )
+
+    def test_fresh_init_copies_both_lessons_companion_seeds(self):
+        copied = init_project.copy_seed_files(self.cfg)
+
+        self.assertIn("planwise/LessonsLearned/00-Changelog-LessonsLearned.md", copied)
+        self.assertIn(
+            "planwise/LessonsLearned/00-PromotionLog-LessonsLearned.md", copied
+        )
+        changelog = self.tmp / "planwise" / "LessonsLearned" / "00-Changelog-LessonsLearned.md"
+        promotion_log = (
+            self.tmp / "planwise" / "LessonsLearned" / "00-PromotionLog-LessonsLearned.md"
+        )
+        self.assertTrue(changelog.exists())
+        self.assertTrue(promotion_log.exists())
+        self.assertIn("00-Index-LessonsLearned.md", changelog.read_text(encoding="utf-8"))
+        self.assertIn(
+            "00-Index-LessonsLearned.md", promotion_log.read_text(encoding="utf-8")
+        )
+
+    def test_existing_lessons_companions_are_never_overwritten(self):
+        changelog = self.tmp / "planwise" / "LessonsLearned" / "00-Changelog-LessonsLearned.md"
+        promotion_log = (
+            self.tmp / "planwise" / "LessonsLearned" / "00-PromotionLog-LessonsLearned.md"
+        )
+        changelog.write_text("existing changelog history\n", encoding="utf-8")
+        promotion_log.write_text("existing promotion log history\n", encoding="utf-8")
+
+        copied = init_project.copy_seed_files(self.cfg)
+
+        self.assertNotIn(
+            "planwise/LessonsLearned/00-Changelog-LessonsLearned.md", copied
+        )
+        self.assertNotIn(
+            "planwise/LessonsLearned/00-PromotionLog-LessonsLearned.md", copied
+        )
+        self.assertEqual(
+            changelog.read_text(encoding="utf-8"), "existing changelog history\n"
+        )
+        self.assertEqual(
+            promotion_log.read_text(encoding="utf-8"),
+            "existing promotion log history\n",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

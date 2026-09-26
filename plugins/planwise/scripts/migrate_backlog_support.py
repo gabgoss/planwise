@@ -133,6 +133,30 @@ def classify_shape(text: str):
     return "legacy", (header_idx, roles)
 
 
+def refuse_unless_generated(index_path: Path, read_text) -> tuple[str, str] | None:
+    """Classify the on-disk index at `index_path` via `classify_shape`.
+    Returns `None` when the file is absent, classifies `migrated`, or is a
+    `legacy`-shaped table whose single footer is already a migration
+    pointer (`migrate_backlog_index.py` has already extracted it, so only
+    the table itself is left in the old shape -- the same signal
+    `_changelog_state` already keys on). Otherwise `(shape, detail)`,
+    naming the shape a caller should refuse writing over or reading drift
+    from. `read_text` is the caller's own text-reading function, kept
+    injectable rather than imported here, so this stays pure and prints
+    nothing."""
+    if not index_path.exists():
+        return None
+    text = read_text(index_path)
+    shape, detail = classify_shape(text)
+    if shape == "migrated":
+        return None
+    if shape == "legacy":
+        footer = FOOTER_TEXT_RE.search(text)
+        if footer and POINTER_RE.match(footer.group(0)):
+            return None
+    return shape, detail
+
+
 # --- row versus frontmatter ---
 
 def _strip_markdown(text: str) -> str:

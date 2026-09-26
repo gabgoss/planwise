@@ -264,11 +264,62 @@ artifacts:
     config_keys:
       - "project.lessons_dir"
       - "project.index_files.lessons"
-    producer: "copy_seed_files()"
+    producer: "generate_lessons_index.py --write (seeded at zero lessons by copy_seed_files())"
     consumers:
       - "/planwise lessons"
     missing_key_behavior: warn_loud
     upgrade_behavior: preserve
+    notes: >
+      The file is generated build output, never hand-edited — see
+      references/lessons-schema.md § The One-Writer Rule. copy_seed_files()
+      installs the zero-lesson generator output as the initial file so a
+      fresh project has something to read before the first capture;
+      thereafter generate_lessons_index.py --write is the sole writer.
+      upgrade_behavior stays preserve because an upgrade must never
+      overwrite a project's live, lesson-populated index.
+
+  - id: lessons_changelog
+    on_disk: "{planwise_root}/{lessons_dir}/00-Changelog-LessonsLearned.md"
+    config_keys:
+      - "project.lessons_dir"
+      - "project.index_files.lessons"
+    producer: "copy_seed_files()"
+    consumers:
+      - "/planwise lessons curate"
+      - "/planwise lessons promote-batch"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
+    notes: >
+      Filename is derived from index_files.lessons by
+      generate_lessons_index.py's _changelog_filename(), never hardcoded;
+      the generator emits a fixed footer pointer to this file but never
+      creates or writes it. copy_seed_files() and
+      lessons_bootstrap._seed_lessons_index() both seed the file opener
+      idempotently; entries are appended by hand per
+      references/lessons-schema.md § Changelog Contract.
+
+  - id: lessons_promotion_log
+    on_disk: "{planwise_root}/{lessons_dir}/00-PromotionLog-LessonsLearned.md"
+    config_keys:
+      - "project.lessons_dir"
+      - "project.index_files.lessons"
+    producer: "copy_seed_files()"
+    consumers:
+      - "/planwise lessons promote (Stage 7 Log)"
+      - "/planwise lessons promote-batch"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
+    notes: >
+      Hub-side file name (lessons 201 and above) derived from
+      index_files.lessons by generate_lessons_index.py's
+      _promotion_log_filename(), never hardcoded; the generator emits a
+      fixed footer pointer to this file but never creates or writes it.
+      Four Archive-side century files (001-050, 051-075, 076-100, 101-200)
+      are not seeded — they come into existence only when a promotion
+      first appends to that century. copy_seed_files() and
+      lessons_bootstrap._seed_lessons_index() both seed the hub-side file
+      opener idempotently; see references/lessons-schema.md § Promotion-Log
+      Contract for the append-target function.
 
   - id: planwise_rules
     on_disk: ".claude/rules/planwise/*.md"

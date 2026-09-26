@@ -27,6 +27,15 @@ import init_project as ip
 # A minimal lessons-index seed file _seed_lessons_index copies from the plugin.
 SEED_LESSONS_INDEX = "# Lessons Learned — Master Index\n\n| ID | Title |\n|----|-------|\n"
 
+# The lessons index's two companion seed openers _seed_lessons_index also
+# copies, byte-built the same minimal way as SEED_LESSONS_INDEX above.
+SEED_LESSONS_CHANGELOG = "[← 00-Index-LessonsLearned.md](00-Index-LessonsLearned.md)\n"
+SEED_LESSONS_PROMOTION_LOG = (
+    "[← 00-Index-LessonsLearned.md](00-Index-LessonsLearned.md)\n\n"
+    "| Date | Lesson ID | Artifact Created | File |\n"
+    "|---|---|---|---|\n"
+)
+
 # A config.yaml.template carrying a context block (used by migrate_config in
 # the _run_upgrade path). No `categorization:` block — the realistic
 # upgrade-from-old shape, so the render falls back to DEFAULT_CATEGORIZATION.
@@ -74,6 +83,12 @@ class _BootstrapFixture(unittest.TestCase):
         (seed_dir / "00-Index-LessonsLearned.md").write_text(
             SEED_LESSONS_INDEX, encoding="utf-8"
         )
+        (seed_dir / "00-Changelog-LessonsLearned.md").write_text(
+            SEED_LESSONS_CHANGELOG, encoding="utf-8"
+        )
+        (seed_dir / "00-PromotionLog-LessonsLearned.md").write_text(
+            SEED_LESSONS_PROMOTION_LOG, encoding="utf-8"
+        )
 
         # Plugin template (used by migrate_config in the _run_upgrade path).
         (self.plugin_root / "config.yaml.template").write_text(
@@ -91,6 +106,12 @@ class _BootstrapFixture(unittest.TestCase):
 
     def index_path(self) -> Path:
         return self.lessons_dir / "00-Index-LessonsLearned.md"
+
+    def changelog_path(self) -> Path:
+        return self.lessons_dir / "00-Changelog-LessonsLearned.md"
+
+    def promotion_log_path(self) -> Path:
+        return self.lessons_dir / "00-PromotionLog-LessonsLearned.md"
 
     def config_path(self) -> Path:
         return self.planwise_dir / "config.yaml"
@@ -113,9 +134,9 @@ class TestBootstrapRoutine(_BootstrapFixture):
         boot = ip.bootstrap_lessons_artifacts(self.cfg)
 
         self.assertEqual(
-            boot.index_result,
-            ip.ConfigResult.CREATED,
-            "missing lessons index must be seeded",
+            [result for result, _ in boot.index_results],
+            [ip.ConfigResult.CREATED] * 3,
+            "missing lessons index and both companions must be seeded",
         )
         self.assertIn(
             boot.cat_result,
@@ -125,15 +146,22 @@ class TestBootstrapRoutine(_BootstrapFixture):
         self.assertTrue(boot.created_any)
         self.assertTrue(self.cat_path().exists())
         self.assertTrue(self.index_path().exists())
+        self.assertTrue(self.changelog_path().exists())
+        self.assertTrue(self.promotion_log_path().exists())
 
     def test_idempotent_second_call_is_noop(self):
         ip.bootstrap_lessons_artifacts(self.cfg)
         cat_before = self.cat_path().read_text(encoding="utf-8")
         index_before = self.index_path().read_text(encoding="utf-8")
+        changelog_before = self.changelog_path().read_text(encoding="utf-8")
+        promotion_log_before = self.promotion_log_path().read_text(encoding="utf-8")
 
         boot2 = ip.bootstrap_lessons_artifacts(self.cfg)
 
-        self.assertEqual(boot2.index_result, ip.ConfigResult.SKIPPED_EXISTS)
+        self.assertEqual(
+            [result for result, _ in boot2.index_results],
+            [ip.ConfigResult.SKIPPED_EXISTS] * 3,
+        )
         self.assertEqual(boot2.cat_result, ip.ConfigResult.SKIPPED_EXISTS)
         self.assertFalse(
             boot2.created_any, "a second call must report nothing created"
@@ -142,21 +170,77 @@ class TestBootstrapRoutine(_BootstrapFixture):
         self.assertEqual(
             self.index_path().read_text(encoding="utf-8"), index_before
         )
+        self.assertEqual(
+            self.changelog_path().read_text(encoding="utf-8"), changelog_before
+        )
+        self.assertEqual(
+            self.promotion_log_path().read_text(encoding="utf-8"),
+            promotion_log_before,
+        )
+
+    def test_backfills_only_the_missing_companion(self):
+        """A project that already has the index and changelog, but not the
+        promotion log (adopted before this seed existed), backfills only
+        the missing file — never touches the two that already exist."""
+        self.lessons_dir.mkdir(parents=True, exist_ok=True)
+        custom_index = "# PRE-EXISTING INDEX\n"
+        custom_changelog = "# PRE-EXISTING CHANGELOG\n"
+        self.index_path().write_text(custom_index, encoding="utf-8")
+        self.changelog_path().write_text(custom_changelog, encoding="utf-8")
+        self.assertFalse(self.promotion_log_path().exists())
+
+        boot = ip.bootstrap_lessons_artifacts(self.cfg)
+
+        results_by_name = {
+            Path(rel).name: result for result, rel in boot.index_results
+        }
+        self.assertEqual(
+            results_by_name["00-Index-LessonsLearned.md"],
+            ip.ConfigResult.SKIPPED_EXISTS,
+        )
+        self.assertEqual(
+            results_by_name["00-Changelog-LessonsLearned.md"],
+            ip.ConfigResult.SKIPPED_EXISTS,
+        )
+        self.assertEqual(
+            results_by_name["00-PromotionLog-LessonsLearned.md"],
+            ip.ConfigResult.CREATED,
+        )
+        self.assertTrue(boot.created_any)
+        self.assertEqual(self.index_path().read_text(encoding="utf-8"), custom_index)
+        self.assertEqual(
+            self.changelog_path().read_text(encoding="utf-8"), custom_changelog
+        )
+        self.assertTrue(self.promotion_log_path().exists())
 
     def test_preserves_user_customised_files_verbatim(self):
         self.lessons_dir.mkdir(parents=True, exist_ok=True)
         custom_cat = "# MY HAND-EDITED CATEGORIZATION\n\nDo not touch.\n"
         custom_index = "# MY HAND-EDITED INDEX\n"
+        custom_changelog = "# MY HAND-EDITED CHANGELOG\n"
+        custom_promotion_log = "# MY HAND-EDITED PROMOTION LOG\n"
         self.cat_path().write_text(custom_cat, encoding="utf-8")
         self.index_path().write_text(custom_index, encoding="utf-8")
+        self.changelog_path().write_text(custom_changelog, encoding="utf-8")
+        self.promotion_log_path().write_text(custom_promotion_log, encoding="utf-8")
 
         boot = ip.bootstrap_lessons_artifacts(self.cfg)
 
         self.assertEqual(boot.cat_result, ip.ConfigResult.SKIPPED_EXISTS)
-        self.assertEqual(boot.index_result, ip.ConfigResult.SKIPPED_EXISTS)
+        self.assertEqual(
+            [result for result, _ in boot.index_results],
+            [ip.ConfigResult.SKIPPED_EXISTS] * 3,
+        )
         self.assertEqual(self.cat_path().read_text(encoding="utf-8"), custom_cat)
         self.assertEqual(
             self.index_path().read_text(encoding="utf-8"), custom_index
+        )
+        self.assertEqual(
+            self.changelog_path().read_text(encoding="utf-8"), custom_changelog
+        )
+        self.assertEqual(
+            self.promotion_log_path().read_text(encoding="utf-8"),
+            custom_promotion_log,
         )
 
 

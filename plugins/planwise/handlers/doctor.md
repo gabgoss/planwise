@@ -739,6 +739,40 @@ archival audit; neither re-implements the other's comparison.
 
 ---
 
+### Stage 20: Backlog Index Shape Audit
+
+> [!constraint] Read-Only — audit only reports
+> Stage 20 runs `migrate_backlog_index.py --report --json` standalone. It
+> classifies the on-disk index shape and measures every changelog file, and
+> it never writes — remediation runs only when the user invokes
+> `/planwise upgrade` or the migrator's own repair flags directly.
+
+Always-on (independent of Token Saver) — auditing backlog-index shape is
+doctor's purpose, so this check has **no `--no-check` escape hatch**.
+
+```bash
+python {plugin_root}/scripts/migrate_backlog_index.py --config {planwise_root}/config.yaml --report --json
+```
+
+Print `shape`, `changelog`, `items.without_frontmatter`,
+`items.partial_frontmatter`, `dependencies.edges_missing_from_blocks`,
+`dependencies.soft_dependency_bullets`, `row_mismatches`,
+`ready_with_all_repairs`, and `would_refuse` from the JSON. Print every
+`changelog_files` entry whose `level` is `WARN` or `OVER`.
+
+When `changelog_over_budget` is `true`, print: "changelog file(s) over the
+read budget — `/planwise upgrade` re-splits them with backups, or run
+`migrate_backlog_index.py --config {planwise_root}/config.yaml
+--split-changelog`".
+
+Then one verdict line by `shape`. `generated`: "generated shape, nothing to
+do" when every changelog file is within budget. `legacy`: the counts above,
+then "run `/planwise upgrade` to migrate automatically; backups land under
+`upgrade-backups/`". `unrecognized`: the classifier's reason, then "left
+untouched; see the migrator's `--report` output".
+
+---
+
 ## Token Saver Audit
 
 > [!gate] Run only when `context.token_saver` is `true`

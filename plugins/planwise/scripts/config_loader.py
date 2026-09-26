@@ -379,7 +379,7 @@ def _get_config_path_from_args() -> Path | None:
     return known.config
 
 
-def load_config(script_path: Path | None = None) -> dict:
+def load_config(script_path: Path | None = None, *, config_path: Path | None = None) -> dict:
     """Load config.yaml for the current project.
 
     Config search order:
@@ -390,6 +390,10 @@ def load_config(script_path: Path | None = None) -> dict:
     Args:
         script_path: Path to the calling script. Used as fallback search root.
                      If None, uses __file__.
+        config_path: The config.yaml to load, for an in-process caller that
+                     has no argv of its own. When given, sys.argv and both
+                     upward searches are skipped, and a missing file raises
+                     FileNotFoundError instead of exiting the process.
 
     Returns:
         Parsed config dict with resolved paths.
@@ -397,8 +401,13 @@ def load_config(script_path: Path | None = None) -> dict:
     if script_path is None:
         script_path = Path(__file__)
 
-    # 1. Explicit --config argument
-    explicit_config = _get_config_path_from_args()
+    if config_path is not None:
+        explicit_config = Path(config_path)
+        if not explicit_config.resolve().exists():
+            raise FileNotFoundError(f"config.yaml not found at {explicit_config.resolve()}")
+    else:
+        # 1. Explicit --config argument
+        explicit_config = _get_config_path_from_args()
     if explicit_config is not None:
         config_path = explicit_config.resolve()
         if not config_path.exists():

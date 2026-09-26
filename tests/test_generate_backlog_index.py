@@ -53,6 +53,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import generate_backlog_index as gbi
+import migrate_backlog_support as sup
 import read_limits
 import score_backlog
 from markdown_parser import split_row_cells, split_row_raw
@@ -1792,6 +1793,206 @@ class TestTruncatedTableReasonReplacesMisleadingText(_GeneratorFixtureBase):
         self.assertIn("table truncated at line", out)
         self.assertIn("row for id 002 may exist after the split", out)
         self.assertNotIn("no on-disk row yet", out)
+
+
+class TestMissingArchiveShardIsDrift(_GeneratorFixtureBase):
+    """BB-381: a generated Archive shard the hub's `## Shards` section
+    still lists, but that is absent from disk, must be reported as drift
+    on `--check` and recreated byte-identical by `--write` -- never a
+    silent no-op, a false "clean" report, or a traceback."""
+
+    def test_missing_shard_is_named_drift_and_write_recreates_it(self):
+        self.write_item("001", title="Open item", priority="High",
+                         status="IN_PROGRESS", abbrev="BUG", created="2026-01-01")
+        self.write_item("990", title="Old closed item", priority="Low",
+                         status="COMPLETE", abbrev="PROC", created="2025-01-01",
+                         archived=True, filename="BB-990-01-PROC-Fixture.md")
+
+        code, _out, _err = self.run_main("--write")
+        self.assertEqual(code, 0)
+
+        shard_path = self.archive_dir / "Index-Backlog-990-990.md"
+        self.assertTrue(shard_path.exists())
+        hub_text = (self.backlog_dir / "00-Index-Backlog.md").read_text(encoding="utf-8")
+        self.assertIn("Index-Backlog-990-990.md", hub_text)
+        original_bytes = shard_path.read_bytes()
+        shard_path.unlink()
+
+        code, out, err = self.run_main("--check")
+
+        self.assertEqual(code, 1)
+        self.assertNotIn("No drift detected", out)
+        self.assertNotIn("Traceback", err)
+        self.assertIn("990", out)
+
+        code, _out, _err = self.run_main("--write")
+        self.assertEqual(code, 0)
+        self.assertTrue(shard_path.exists())
+        self.assertEqual(shard_path.read_bytes(), original_bytes)
+
+
+class TestGeneratorRefusesLegacyOrUnrecognizedIndex(_GeneratorFixtureBase):
+    """BB-380 fold (Session-02): `--write` and `--check` refuse loudly on a
+    hand-authored or unrecognized hub instead of silently overwriting it
+    or reporting drift over zero rows."""
+
+    LEGACY_INDEX_TEXT = (
+        "# Backlog Index\n\n"
+        "## Backlog Items\n\n"
+        "| ID | Feature | Priority | Status | Abbrev | Created | Files |\n"
+        "|---|---|---|---|---|---|---|\n"
+        "| 001 | Sample item | Medium | NOT_STARTED | BUG | 2026-01-01 "
+        "| [file](001-Sample.md) |\n\n"
+        "*Last Updated: 2026-01-01 — created*\n"
+    )
+    UNRECOGNIZED_INDEX_TEXT = "# Backlog Index\n\n| Foo | Bar |\n|---|---|\n| 1 | 2 |\n"
+
+    def _write_index_text(self, text):
+        index_path = self.backlog_dir / "00-Index-Backlog.md"
+        index_path.write_text(text, encoding="utf-8")
+        return index_path
+
+    def _snapshot(self):
+        return {p: p.read_bytes() for p in self.planwise_dir.rglob("*") if p.is_file()}
+
+    def test_write_refuses_legacy_hub_and_leaves_tree_unchanged(self):
+        self._write_index_text(self.LEGACY_INDEX_TEXT)
+        before = self._snapshot()
+
+        code, _out, err = self.run_main("--write")
+
+        self.assertEqual(code, 2)
+        self.assertIn("hand-authored", err)
+        self.assertIn("--replace-legacy", err)
+        self.assertEqual(self._snapshot(), before)
+
+    def test_write_replace_legacy_overwrites_and_becomes_migrated(self):
+        self._write_index_text(self.LEGACY_INDEX_TEXT)
+
+        code, _out, _err = self.run_main("--write", "--replace-legacy")
+
+        self.assertEqual(code, 0)
+        index_path = self.backlog_dir / "00-Index-Backlog.md"
+        shape, _detail = sup.classify_shape(index_path.read_text(encoding="utf-8"))
+        self.assertEqual(shape, "migrated")
+
+    def test_check_refuses_legacy_hub(self):
+        self._write_index_text(self.LEGACY_INDEX_TEXT)
+
+        code, _out, err = self.run_main("--check")
+
+        self.assertEqual(code, 2)
+        self.assertIn("hand-authored", err)
+        self.assertIn("/planwise upgrade", err)
+
+    def test_write_refuses_unrecognized_hub(self):
+        self._write_index_text(self.UNRECOGNIZED_INDEX_TEXT)
+        before = self._snapshot()
+
+        code, _out, err = self.run_main("--write")
+
+        self.assertEqual(code, 2)
+        self.assertIn("hand-authored", err)
+        self.assertIn("--replace-legacy", err)
+        self.assertEqual(self._snapshot(), before)
+
+    def test_check_refuses_unrecognized_hub(self):
+        self._write_index_text(self.UNRECOGNIZED_INDEX_TEXT)
+
+        code, _out, err = self.run_main("--check")
+
+        self.assertEqual(code, 2)
+        self.assertIn("hand-authored", err)
+        self.assertIn("/planwise upgrade", err)
+
+    def test_generated_fixture_write_and_check_unchanged(self):
+        self.write_item("001", title="Open item", priority="High",
+                         status="IN_PROGRESS", abbrev="BUG", created="2026-01-01")
+
+        code, _out, _err = self.run_main("--write")
+        self.assertEqual(code, 0)
+
+        code, out, _err = self.run_main("--check")
+        self.assertEqual(code, 0)
+        self.assertIn("No drift detected", out)
+
+
+class TestGeneratorGuardSkipsAlreadyMigratedPointerFooter(unittest.TestCase):
+    """A legacy-shaped table whose single footer is already a migration
+    pointer (`moved to [...](...)`) has already been processed by
+    `migrate_backlog_index.py` -- only the table itself is still in the
+    old shape, and `--write`/`--check` must finish regenerating it without
+    `--replace-legacy`. A genuine untouched legacy footer must still be
+    refused. Uses a custom index name, matching the scenario a pre-existing
+    migrator test exercises."""
+
+    CONFIG_YAML = """project:
+  name: "PointerFooterFixtureProject"
+  backlog_dir: "Backlog"
+  index_files:
+    backlog: "Backlog-Index.md"
+"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="generate_backlog_index_pointer_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.planwise_dir = self.tmp / "planwise"
+        self.backlog_dir = self.planwise_dir / "Backlog"
+        self.archive_dir = self.backlog_dir / "Archive"
+        self.backlog_dir.mkdir(parents=True, exist_ok=True)
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        self.config_path = self.planwise_dir / "config.yaml"
+        self.config_path.write_text(self.CONFIG_YAML, encoding="utf-8")
+        (self.backlog_dir / "001-Sample.md").write_text(
+            "---\nid: 001\ntitle: Sample item\npriority: Medium\n"
+            "status: NOT_STARTED\nabbrev: BUG\ncreated: 2026-01-01\n"
+            "blocks: []\n---\n\n# Sample item\n",
+            encoding="utf-8",
+        )
+        saved_argv = sys.argv
+        self.addCleanup(lambda: setattr(sys, "argv", saved_argv))
+
+    def run_main(self, *extra_args):
+        sys.argv = ["test_generate_backlog_index", "--config", str(self.config_path), *extra_args]
+        out, err = StringIO(), StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = gbi.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_pointer_footer_legacy_table_passes_write_and_check(self):
+        index_path = self.backlog_dir / "Backlog-Index.md"
+        index_path.write_text(
+            "## Backlog Items\n\n"
+            "| ID | Feature | Priority | Status | Abbrev | Created | Files |\n"
+            "|---|---|---|---|---|---|---|\n"
+            "| 001 | Sample item | Medium | NOT_STARTED | BUG | 2026-01-01 "
+            "| [file](001-Sample.md) |\n\n"
+            "*Last Updated: 2026-01-01 — moved to "
+            "[00-Backlog-Index-Changelog.md](00-Backlog-Index-Changelog.md)*\n",
+            encoding="utf-8",
+        )
+
+        code, _out, err = self.run_main("--write")
+        self.assertEqual(code, 0, err)
+
+        code, _out, err = self.run_main("--check")
+        self.assertEqual(code, 0, err)
+
+    def test_genuine_legacy_footer_is_still_refused(self):
+        index_path = self.backlog_dir / "Backlog-Index.md"
+        index_path.write_text(
+            "## Backlog Items\n\n"
+            "| ID | Feature | Priority | Status | Abbrev | Created | Files |\n"
+            "|---|---|---|---|---|---|---|\n"
+            "| 001 | Sample item | Medium | NOT_STARTED | BUG | 2026-01-01 "
+            "| [file](001-Sample.md) |\n\n"
+            "*Last Updated: 2026-01-01 — created*\n",
+            encoding="utf-8",
+        )
+
+        code, _out, err = self.run_main("--write")
+        self.assertEqual(code, 2)
+        self.assertIn("hand-authored", err)
 
 
 if __name__ == "__main__":

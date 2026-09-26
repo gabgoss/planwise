@@ -147,6 +147,9 @@ from backlog_index_schema import (
 )
 from config_loader import get_scoring_weights, load_config
 from read_limits import READ_TOKEN_WARN, estimate_tokens
+from reconcile_common import read_text_preserving_newlines
+
+import migrate_backlog_support as sup
 
 __all__ = [
     "CLOSED_STATUSES",
@@ -349,6 +352,7 @@ def _cmd_write(
     config: dict,
     *,
     json_out: bool,
+    replace_legacy: bool = False,
 ) -> int:
     """`--write`: re-scans fresh (the only scan this command performs, so it
     is by construction the race-safe "re-read immediately before healing"
@@ -360,6 +364,18 @@ def _cmd_write(
     function writes or deletes comes from `report["files"]` or
     `_list_disk_generated_files`, both scoped to `is_generated_index_file`.
     """
+    verdict = sup.refuse_unless_generated(index_path, read_text_preserving_newlines)
+    if verdict and not replace_legacy:
+        shape, _detail = verdict
+        print(
+            f"Error: {index_path} is a hand-authored index ({shape}); --write would "
+            "overwrite it. Run /planwise upgrade to migrate it (changelog footer, "
+            "feature-cell prose and dependency notes are moved into their homes "
+            "first, with backups), or pass --replace-legacy to overwrite anyway.",
+            file=sys.stderr,
+        )
+        return Disposition.REFUSED
+
     try:
         items = scan_backlog(backlog_dir, archive_dir, index_path)
         known_ids = {item["id"] for item in items}
@@ -445,6 +461,16 @@ def _cmd_check(
     """`--check`, factored out of `main()` so it is callable in-process (an
     upgrade orchestrator, with no argv). Same `Disposition` code; never
     changes the report text."""
+    verdict = sup.refuse_unless_generated(index_path, read_text_preserving_newlines)
+    if verdict:
+        shape, _detail = verdict
+        print(
+            f"Error: {index_path} is a hand-authored index ({shape}) — run "
+            "/planwise upgrade to migrate it before triage",
+            file=sys.stderr,
+        )
+        return Disposition.REFUSED
+
     try:
         items, reciprocal, report = _run_report_pipeline(
             backlog_dir, archive_dir, index_path, naming, config
@@ -528,6 +554,15 @@ def main() -> int:
             "result."
         ),
     )
+    parser.add_argument(
+        "--replace-legacy",
+        action="store_true",
+        help=(
+            "Allow --write to overwrite a hand-authored or unrecognized "
+            "index instead of refusing. Has no effect on --check or the "
+            "default report mode."
+        ),
+    )
     args, _ = parser.parse_known_args()
 
     config = load_config(Path(__file__))
@@ -541,7 +576,10 @@ def main() -> int:
     naming = _index_naming(index_path)
 
     if args.write:
-        return _cmd_write(backlog_dir, archive_dir, index_path, naming, config, json_out=args.json)
+        return _cmd_write(
+            backlog_dir, archive_dir, index_path, naming, config,
+            json_out=args.json, replace_legacy=args.replace_legacy,
+        )
 
     if args.check:
         return _cmd_check(backlog_dir, archive_dir, index_path, naming, config, json_out=args.json)
