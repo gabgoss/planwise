@@ -2,6 +2,7 @@
 """Helpers for `migrate_backlog_index.py`: recognise the hand-authored index,
 compare rows with frontmatter, extract the changelog footer, classify prose
 against an item body, and stage writes. Only `replace_all` changes a target."""
+import json
 import os
 import re
 import shutil
@@ -443,23 +444,25 @@ def _entry_section(label: str, body: str, nl: str) -> str:
     return f"## Entry {label}{nl}{nl}{body}{nl}{nl}"
 
 
-def _entry_chunks(segments: list, nl: str, budget: int) -> list:
+def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = None) -> list:
     """Split each footer entry into one or more (label, body) chunks. An
-    entry whose own section exceeds `budget` is split at blank-line
-    boundaries into 'N' and 'N (continued)' pieces. A single paragraph whose
-    own section alone still exceeds `budget` raises `Refusal`, naming the
-    entry and its token count -- a data error this tool cannot decide."""
+    entry whose own section reaches `target` (default `budget`) is split at
+    blank-line boundaries into 'N' and 'N (continued)' pieces. A single
+    paragraph whose own section alone still exceeds `budget` raises
+    `Refusal`, naming the entry and its token count -- a data error this
+    tool cannot decide. Each body takes `nl` line endings."""
+    target = budget if target is None else target
     chunks = []
     for i, seg in enumerate(segments, start=1):
-        body = seg.decode("utf-8")
-        if changelog_tokens(_entry_section(str(i), body, nl)) < budget:
+        body = seg.decode("utf-8").replace("\r\n", "\n").replace("\n", nl)
+        if changelog_tokens(_entry_section(str(i), body, nl)) < target:
             chunks.append((str(i), body))
             continue
         paras = body.split(nl + nl)
         pieces, buf = [], []
         for para in paras:
             candidate = buf + [para]
-            if buf and changelog_tokens(_entry_section(str(i), (nl + nl).join(candidate), nl)) >= budget:
+            if buf and changelog_tokens(_entry_section(str(i), (nl + nl).join(candidate), nl)) >= target:
                 pieces.append((nl + nl).join(buf))
                 buf = [para]
             else:
@@ -497,33 +500,60 @@ def split_changelog(segments: list, naming, index_name: str, nl: str, budget: in
     order, into numbered parts each under `budget`. Part 1 carries the
     backlink to the index and, when N > 1, a `Parts:` line to parts 2..N;
     every later part backlinks to part 1. When N = 1 the result is
-    byte-identical to `changelog_text`. Returns [(filename, text), ...]."""
-    chunks = _entry_chunks(segments, nl, budget)
-    rendered = [(label, body, _entry_section(label, body, nl)) for label, body in chunks]
+    byte-identical to `changelog_text`. Every chunk is sized against
+    `budget` less the larger header, so a part's first chunk fits beside
+    its header. A part that still measures over (its header plus one
+    paragraph that cannot be split) is refused by `check_parts_budget`,
+    which each caller runs. Returns [(filename, text), ...]."""
     part1_name = _changelog_filename(naming)
     part1_bare_header = f"[← {index_name}]({index_name}){nl}{nl}"
     other_header = f"[← {part1_name}]({part1_name}){nl}{nl}"
     other_tokens = changelog_tokens(other_header)
-    reserved, header1, parts_bodies = changelog_tokens(part1_bare_header), part1_bare_header, None
-    for _attempt in range(len(rendered) + 2):
+    header1, parts_bodies = part1_bare_header, None
+    for _attempt in range(100):
+        reserved = changelog_tokens(header1)
+        chunks = _entry_chunks(segments, nl, budget, budget - max(reserved, other_tokens))
+        rendered = [(label, body, _entry_section(label, body, nl)) for label, body in chunks]
         parts_bodies = _pack_changelog(rendered, budget, reserved, other_tokens)
         n = len(parts_bodies)
-        if n <= 1:
-            header1 = part1_bare_header
-            break
         part_names = [changelog_part_filename(naming, k) for k in range(2, n + 1)]
         parts_line = "Parts: " + ", ".join(f"[{nm}]({nm})" for nm in part_names) + nl
-        header1 = f"[← {index_name}]({index_name}){nl}{nl}{parts_line}{nl}"
-        new_reserved = changelog_tokens(header1)
-        if new_reserved <= reserved:
+        header1 = part1_bare_header if n <= 1 else f"[← {index_name}]({index_name}){nl}{nl}{parts_line}{nl}"
+        if changelog_tokens(header1) <= reserved:
             break
-        reserved = new_reserved
     out = []
     for k, body_list in enumerate(parts_bodies, start=1):
         header = header1 if k == 1 else other_header
         name = part1_name if k == 1 else changelog_part_filename(naming, k)
         out.append((name, header + "".join(body_list)))
     return out
+
+
+def check_parts_budget(split: list, budget: int = READ_TOKEN_WARN) -> list:
+    """Return `split` unchanged, or raise `Refusal` naming the first part
+    that measures at or over `budget`."""
+    for name, text in split:
+        tokens = changelog_tokens(text)
+        if tokens >= budget:
+            raise Refusal(f"changelog part {name} would measure ~{tokens} tokens, over the {budget}-token "
+                          "per-file budget: an entry in it has a paragraph too large to sit beside the part's "
+                          "header; add a blank line inside it by hand, then re-run")
+    return split
+
+
+JOURNAL_MODE = "write-in-progress"
+
+
+def journal_paths(ledger_path: Path) -> set:
+    """The resolved paths an interrupted `--write` was replacing, read from
+    the in-progress journal it left at the ledger path; empty otherwise."""
+    try:
+        data = json.loads(read_text(ledger_path))
+    except (OSError, ValueError):
+        return set()
+    if not isinstance(data, dict) or data.get("mode") != JOURNAL_MODE:
+        return set()
+    return {Path(p).resolve() for p in data.get("targets", ())}
 
 
 def joined_entries(texts: list) -> str:
@@ -616,7 +646,9 @@ def plan_changelog_resplit(config: dict, index_path: Path):
     """Re-split an already-migrated changelog that has grown over budget.
     Returns None when every existing changelog file already measures within
     budget; otherwise {"outputs": [(path, text)], "targets": [...], "parts":
-    [...]}. No other plan step runs."""
+    [...], "remove": [...]}. `remove` lists each existing `Part-NN` file
+    the new layout no longer uses; its entries now sit in `outputs`. The
+    parts keep part 1's line endings. No other plan step runs."""
     naming = _index_naming(index_path)
     part1_path = index_path.with_name(_changelog_filename(naming))
     if not part1_path.exists():
@@ -632,10 +664,12 @@ def plan_changelog_resplit(config: dict, index_path: Path):
     if ok:
         return None
     segments = parse_changelog(texts_on_disk)
-    nl = newline_of(read_text(index_path))
-    split = split_changelog(segments, naming, index_path.name, nl)
+    nl = newline_of(texts_on_disk[0])
+    split = check_parts_budget(split_changelog(segments, naming, index_path.name, nl))
     outputs = [(index_path.with_name(name), text) for name, text in split]
     parts_meta = [{"path": str(path), "tokens": changelog_tokens(text),
                    "entries": len(ENTRY_HEADING_RE.findall(text.replace("\r\n", "\n")))}
                   for path, text in outputs]
-    return {"outputs": outputs, "targets": targets, "parts": parts_meta}
+    written = {path for path, _text in outputs}
+    return {"outputs": outputs, "targets": targets, "parts": parts_meta,
+            "remove": [path for path in targets if path not in written]}

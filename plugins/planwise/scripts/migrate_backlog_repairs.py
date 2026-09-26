@@ -109,8 +109,9 @@ def insert_missing_keys(text: str, missing: dict, nl: str) -> str:
 
 def replace_key_line(text: str, key: str, value: str) -> str:
     """Replace one top-level frontmatter key's value with `value`. A
-    block-form list value (the key line plus indented `- ` lines) is
-    replaced whole, becoming one flow-form line. Raises KeyError when `key`
+    block-form list value (the key line plus indented `- ` lines, or
+    unindented ones after an empty key line) is replaced whole, becoming
+    one flow-form line. Raises KeyError when `key`
     has no line in `text`'s frontmatter, including when there is no block
     at all."""
     bom = BOM_CHAR if text.startswith(BOM_CHAR) else ""
@@ -124,7 +125,8 @@ def replace_key_line(text: str, key: str, value: str) -> str:
     fm_start, fm_end = open_match.end(), close_match.start()
     frontmatter = content[fm_start:fm_end]
     pattern = re.compile(
-        rf"^{re.escape(key)}:[ \t]*[^\r\n]*(?:(?:\r\n|\n)[ \t]+-[ \t][^\r\n]*)*", re.MULTILINE,
+        rf"^{re.escape(key)}:(?:[ \t]*(?:(?:\r\n|\n)[ \t]*-[ \t][^\r\n]*)+"
+        rf"|[ \t]*[^\r\n]*(?:(?:\r\n|\n)[ \t]+-[ \t][^\r\n]*)*)", re.MULTILINE,
     )
     new_frontmatter, count = pattern.subn(f"{key}: {value}", frontmatter, count=1)
     if count == 0:

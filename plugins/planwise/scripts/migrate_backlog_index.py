@@ -132,7 +132,7 @@ def _text(texts: dict, path: Path) -> str:
 
 def _header_only(changelog_text: str, index_path: Path) -> bool:
     """True when a changelog holds nothing but its backlink line (the seed and the generator's bootstrap)."""
-    return changelog_text.replace("\r\n", "\n").strip() == f"[← {index_path.name}]({index_path.name})"
+    return changelog_text.lstrip("﻿").replace("\r\n", "\n").strip() == f"[← {index_path.name}]({index_path.name})"
 
 
 def _census(config: dict, index_path: Path):
@@ -309,7 +309,7 @@ def plan_reconcile(diffs: list, mode: str | None, texts: dict, items: dict) -> l
                       f"{'; '.join(d['message'] for d in diffs[:10])}. The generator renders frontmatter, so "
                       "reconcile the frontmatter first -- or add --reconcile index-wins to write each row value "
                       "into frontmatter, or --reconcile frontmatter-wins to keep the frontmatter")
-    stuck = [d for d in diffs if d["prose"] or (mode == "index-wins" and d["row"] is None)]
+    stuck = [d for d in diffs if d["prose"] or (mode == "index-wins" and d["row"] in (None, ""))]
     if stuck:
         raise Refusal(f"{len(stuck)} row cell(s) disagree with item frontmatter and --reconcile {mode} cannot "
                       f"settle them: {'; '.join(d['message'] for d in stuck[:10])}. Fix them by hand, then re-run")
@@ -406,7 +406,8 @@ def plan_changelog(text: str, index_path: Path, changelog_path: Path, pending: i
                           "interrupted older run or a hand edit left this state -- restore from version control")
         return None
     extracted = sup.extract_changelog(index_path.read_bytes())
-    split = sup.split_changelog(extracted["segments"], naming, index_path.name, sup.newline_of(text))
+    split = sup.check_parts_budget(sup.split_changelog(extracted["segments"], naming, index_path.name,
+                                                       sup.newline_of(text)))
     pattern = sup.changelog_part_pattern(naming)
     max_planned = len(split)
     for p in index_path.parent.iterdir():
@@ -415,18 +416,13 @@ def plan_changelog(text: str, index_path: Path, changelog_path: Path, pending: i
             raise Refusal(f"{p.name} exists beyond the planned {max_planned} changelog part(s) -- a stale "
                           "part would silently shadow the real ones; remove it or restore the index from "
                           "version control")
-    plan = {**extracted, "resumed": False, "header_only": False}
-    part1_name, _part1_text = split[0]
-    part1_path = index_path.with_name(part1_name)
-    if part1_path.exists() and _header_only(read_text(part1_path), index_path):
-        plan["header_only"] = True
-        plan["parts"] = [(index_path.with_name(name), t) for name, t in split]
-        plan["text"] = plan["parts"][0][1]
-        return plan
+    part1_path = index_path.with_name(split[0][0])
+    header_only = part1_path.exists() and _header_only(read_text(part1_path), index_path)
+    plan = {**extracted, "resumed": False, "header_only": header_only}
     parts = []
-    for name, part_text in split:
+    for k, (name, part_text) in enumerate(split):
         part_path = index_path.with_name(name)
-        if part_path.exists():
+        if part_path.exists() and not (k == 0 and header_only):
             existing = read_text(part_path)
             if existing.replace("\r\n", "\n") != part_text.replace("\r\n", "\n"):
                 raise Refusal(f"{part_path.name} already exists but does not hold this index's footer "
@@ -487,6 +483,11 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
     written_cells = cells if options.reconcile == "index-wins" else []
     if written_cells:
         items = preflight_generator(config, index_path, texts)
+        dropped = chk.missing_edges(edges, items)
+        if dropped:
+            raise Refusal(f"--reconcile index-wins would drop {len(dropped)} '## Dependencies' edge(s) from "
+                          f"blocks: {'; '.join(dropped[:10])}. The row's Blocks cell and '## Dependencies' "
+                          "disagree -- make them agree by hand, then re-run")
     dests = plan_dedup(rows, options.high, options.low, options.append_ambiguous, texts)
     for dest in dests:
         if dest["append"]:
@@ -634,8 +635,9 @@ def verify_written(plan: dict, paths: tuple, index_path: Path) -> list:
 
 def execute(plan: dict, paths: tuple, index_path: Path, json_mode: bool) -> int:
     outputs = plan["outputs"]
-    try:
-        staged = sup.stage_all(outputs)
+    journal = {"mode": sup.JOURNAL_MODE, "targets": [str(p) for p, _text in outputs]}
+    try:  # the journal replaces first, so a rerun owns whatever an interrupted replace left dirty
+        staged = sup.stage_all([(paths[1], json.dumps(journal, indent=2) + "\n"), *outputs])
     except OSError as exc:
         return say(1, f"FAIL: staging failed ({exc}); nothing on disk changed.", json_mode, err=True)
     try:
@@ -661,17 +663,21 @@ def execute(plan: dict, paths: tuple, index_path: Path, json_mode: bool) -> int:
                   "Next: run generate_backlog_index.py --write.", json_mode)
 
 
-def execute_outputs(outputs: list) -> int:
-    """Stage and replace every (path, text) pair; returns the count written.
-    Session-02's orchestrator and `--split-changelog` both call this."""
-    return len(sup.replace_all(sup.stage_all(outputs)))
+def execute_outputs(outputs: list, remove: list = ()) -> int:
+    """Stage and replace every (path, text) pair, then delete each path in
+    `remove`; returns the count written. An upgrade orchestrator and
+    `--split-changelog` both call this."""
+    written = len(sup.replace_all(sup.stage_all(outputs)))
+    for path in remove:
+        path.unlink(missing_ok=True)
+    return written
 
 
 def plan_changelog_resplit(config: dict, index_path: Path):
     """Re-split an already-migrated changelog that has grown over budget.
     Returns None when every changelog file is already within budget, else
-    `{"outputs": [...], "targets": [...], "parts": [...]}`. Session-02's
-    orchestrator calls this name directly."""
+    `{"outputs": [...], "targets": [...], "parts": [...], "remove": [...]}`.
+    An upgrade orchestrator calls this name directly."""
     return sup.plan_changelog_resplit(config, index_path)
 
 
@@ -683,7 +689,11 @@ def _changelog_state(text: str, shape: str, index_path: Path, changelog: Path) -
         return "header-only"
     if shape != "legacy" or sup.POINTER_RE.match(sup.FOOTER_TEXT_RE.search(text).group(0)):
         return "populated"
-    planned = sup.changelog_text(sup.extract_changelog(index_path.read_bytes())["segments"], index_path.name, "\n")
+    segments = sup.extract_changelog(index_path.read_bytes())["segments"]
+    try:
+        planned = sup.split_changelog(segments, gen._index_naming(index_path), index_path.name, "\n")[0][1]
+    except Refusal:
+        return "foreign"
     return "populated" if existing.replace("\r\n", "\n") == planned else "foreign"
 
 
@@ -790,17 +800,28 @@ def run_split_changelog(config: dict, index_path: Path, args, js: bool) -> int:
     if shape != "migrated":
         return say(2, "REFUSED: --split-changelog requires a migrated index -- run the migration first",
                    js, err=True)
-    plan = plan_changelog_resplit(config, index_path)
+    try:
+        plan = plan_changelog_resplit(config, index_path)
+    except Refusal as exc:
+        return say(2, f"REFUSED: {exc}", js, err=True)
     if plan is None:
         return say(0, "changelog within budget", js)
     if not args.write:
         if js:
-            print(json.dumps({"targets": [str(p) for p in plan["targets"]], "parts": plan["parts"]}, indent=2))
+            print(json.dumps({"targets": [str(p) for p in plan["targets"]], "parts": plan["parts"],
+                              "remove": [str(p) for p in plan["remove"]]}, indent=2))
         else:
-            print("\n".join(f"would write {p.name}" for p, _t in plan["outputs"]))
+            print("\n".join([f"would write {p.name}" for p, _t in plan["outputs"]]
+                            + [f"would remove {p.name}" for p in plan["remove"]]))
         return say(1, "DRY-RUN: changelog split needed; no files written.", js)
+    refusal, warning = chk.write_gate(config["_project_root"], [index_path, *plan["targets"]],
+                                      args.allow_untracked_tree, args.force)
+    if refusal:
+        return say(2, f"REFUSED: {refusal}", js, err=True)
+    if warning:
+        say(0, warning, js, err=True)
     try:
-        written = execute_outputs(plan["outputs"])
+        written = execute_outputs(plan["outputs"], plan["remove"])
     except OSError as exc:
         return say(1, f"FAIL: staging failed ({exc}); nothing on disk changed.", js, err=True)
     except sup.ReplaceError as exc:

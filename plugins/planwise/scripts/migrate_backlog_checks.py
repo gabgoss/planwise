@@ -137,18 +137,32 @@ def missing_edges(edges: list, items: dict) -> list:
 def tree_gate(dirty: set, plan: dict, paths: tuple, index_path: Path, force: bool):
     """Return a refusal message, or None when the run may proceed. An
     interrupted migration of this index exempts exactly the paths it owns:
-    the index, the changelog, the ledger, and each item file the plan writes."""
+    the index, the changelog, the ledger, each item file the plan writes,
+    and each path the interrupted run's journal says it was replacing."""
     if not dirty or force:
         return None
     owned = set()
-    if plan["interrupted"]:
-        owned = {p.resolve() for p in (index_path, *paths[:2])} | {d["path"] for d in plan["dests"]}
+    journal = sup.journal_paths(paths[1]) if len(paths) > 1 else set()
+    if plan["interrupted"] or journal:
+        owned = {p.resolve() for p in (index_path, *paths[:2])} | {d["path"] for d in plan["dests"]} | journal
         owned |= {p.resolve() for p, _text in plan.get("outputs", ())}
     others = sorted(str(p) for p in dirty - owned)
     if not others:
         return None
     return (f"working tree has uncommitted changes outside this migration ({len(others)} path(s), "
             f"e.g. {', '.join(others[:3])}); commit/stash first or pass --force.")
+
+
+def write_gate(project_root: Path, inputs: list, allow_untracked: bool, force: bool):
+    """The migration's git gates for a write with no migration plan, such as
+    a changelog re-split: return (refusal or None, warning or None)."""
+    dirty, reason = git_state(project_root, inputs)
+    if dirty is None:
+        if allow_untracked:
+            return None, f"WARNING: proceeding without a git safety net -- {reason}."
+        return (f"cannot determine the working-tree state -- {reason}. Commit the changelog files to git "
+                "first, or pass --allow-untracked-tree."), None
+    return tree_gate(dirty, {"interrupted": False, "dests": []}, (), None, force), None
 
 
 def git_state(project_root: Path, inputs: list):
