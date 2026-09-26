@@ -215,7 +215,7 @@ Those two defaults are chosen operating points derived from measured accumulatio
 > Even when Master Plan Status is `IN_PROGRESS` (awaiting user action), individual Sprint Overview rows SHOULD flip to ✅ COMPLETE if their sprints have finished. The Master Plan Status field encodes "all sprints landed but downstream scaffolding awaits user input" — Sprint Overview rows reflect per-sprint progress, not the overall gate status.
 
 > [!practice] /planwise run Phase 4.3 Handler — User-Action-Gate Check
-> When `/planwise run` Phase 4.3 detects all sprints COMPLETE, the handler MUST check the Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain open, set Master Plan Status to `IN_PROGRESS — awaiting {user action}` rather than COMPLETE. See `handlers/run.md` Phase 4.3 for implementation.
+> When `/planwise run` Phase 4.3 detects all sprints COMPLETE, the handler MUST check the Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain open, set Master Plan Status to `IN_PROGRESS — awaiting {user action}` rather than COMPLETE. See `handlers/run.md` Phase 4.3 for implementation. The items in the Master Plan's `**Resolves:**` field stay `PLANNING` while that hold is in force; closeout closes them only on the transition to COMPLETE.
 
 ---
 

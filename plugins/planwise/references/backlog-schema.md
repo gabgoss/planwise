@@ -268,8 +268,15 @@ NOT_STARTED --[select in Phase 2]--> IN_PROGRESS
             +-----+                       |                       |
             |     |                       v                       v
    Approved v  Reverted v         All done --> COMPLETE    Plan --> PLANNING
-         COMPLETE  NOT_STARTED
+         COMPLETE  NOT_STARTED                                      |
+                                              /planwise run closeout, Master Plan
+                                              COMPLETE, item listed in the Master
+                                              Plan's `**Resolves:**` field
+                                                                    v
+                                                                COMPLETE
 ```
+
+A `PLANNING` item is closed by `/planwise run` closeout (`handlers/run.md` Step 4.3), never by a backlog route. The Master Plan's `**Resolves:**` header field is what links the two.
 
 ---
 

@@ -14,6 +14,7 @@ Use this template when creating `{Abbrev}-Master-Plan.md` inside `Exec-{Abbrev}/
 **Created:** {today's date}
 **Type:** Execution Plan (scaffolded from Discovery)
 **Prerequisite:** Meta-{ABBREV} (Discovery Phase) — COMPLETE
+**Resolves:** {BLI-{NNN}, comma-separated, or "none" — carried from the Meta-Plan; `/planwise run` closeout closes each item when Status reaches COMPLETE}
 
 ---
 
@@ -114,6 +115,7 @@ Assigns a global number to each spec output for cross-EI traceability. Execution
 - [ ] All sprints complete
 - [ ] {Final deliverable criterion}
 - [ ] All Consolidated Context part content implemented
+- [ ] Every item in **Resolves:** is COMPLETE with a dated resolution note (or Resolves is "none")
 
 ---
 

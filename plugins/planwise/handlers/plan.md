@@ -198,6 +198,7 @@ Use `AskUserQuestion` to collect:
 - What is the name of your plan? (e.g., "UserAuthentication", "DataMigration") — pre-fill from `$1` if provided
 - What is the 2-4 character abbreviation? (e.g., "UA", "DM")
 - Briefly describe the vision (1-2 sentences)
+- Which backlog item(s) does this plan resolve, if any? (item ids, or "none")
 
 **Question 2: Scope**
 - How many sprints do you anticipate? (1-5)
@@ -212,6 +213,9 @@ Use `AskUserQuestion` to collect:
 | `{sprint_names[XX]}` | each sprint's name | Step 3, Step 4's Sprint Overview table |
 | `{session_count[XX]}` | sessions in sprint `{XX}` | Step 3, Steps 6-8 (per-session cardinality), the Validation Checklist |
 | `{session_names[XX][YY]}` | each session's name | Step 3, Step 9's confirmation block |
+| `{resolves}` | the backlog item ids above, or `none` | Step 4's Master Plan `**Resolves:**` header field and its Project Complete When criterion — `/planwise run` closeout closes these items when the plan reaches COMPLETE |
+
+Under Auto Mode, or when the answer is empty, bind `{resolves}` to `none` unless the invoking context names an item. A `/planwise backlog` Route C dispatch always names one.
 
 **Every sprint AND every session named here gets fully scaffolded in this pass** (Steps 3-9 below) — this handler does not stop after Sprint 1, and it does not stop after each sprint's Session-01. `sum({session_count[XX]})` over all sprints is the number of Orchestration files this pass must produce.
 

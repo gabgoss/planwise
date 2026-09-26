@@ -42,6 +42,8 @@ Discovery is structurally impossible in a spawned context — it is multi-dispat
 
 Author the session plan from the item's own scope. Recognize a too-underspecified item during the gather pass, **before any file is written** — see Failure Semantics below.
 
+Write the dispatched item's id into the Master Plan `**Resolves:**` header field, and keep the template's Project Complete When criterion that names it. This field is the plan's only link back to the item. The orchestrator sets the item `PLANNING` after this agent returns, and `/planwise run` closeout closes it from this field when the Master Plan reaches COMPLETE. An item left out of the field stays `PLANNING` after its plan ships.
+
 ## 3. REPORT — Request Review, Then Stop
 
 This agent does not invoke review itself: multi-agent review cannot run inside a spawned subagent, because the Agent tool is stripped. Instead:

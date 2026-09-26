@@ -11,6 +11,7 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 **Status:** READY_TO_EXECUTE
 **Created:** {today's date}
 **Token Saver:** inherit   <!-- optional; "inherit" (or omit) = use config.yaml context.token_saver; "on"/"off" overrides Token Saver for THIS plan only. Overhead numbers are always project-level. -->
+**Resolves:** none   <!-- BLI-{NNN}, comma-separated, or "none": the backlog items this plan was authored to close. `/planwise run` closeout (Step 4.3) closes each one when Status reaches COMPLETE. An item left out of this field stays PLANNING after the plan ships. -->
 
 ---
 
@@ -131,6 +132,7 @@ recomputed: {today's date}.
 ### Project Complete When:
 - [ ] All sprints complete
 - [ ] {Final deliverable criterion}
+- [ ] Every item in **Resolves:** is COMPLETE with a dated resolution note (or Resolves is "none")
 
 ---
 

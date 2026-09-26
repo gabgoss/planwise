@@ -360,7 +360,10 @@ directly with item scope only."
      whether the review verdict was APPROVED or NEEDS_FIXES (per
      `backlog-planner`'s own Failure Semantics table: a `NEEDS_FIXES` verdict
      still leaves the item PLANNING — "a plan exists, unapproved" — it does not
-     revert to NOT_STARTED).
+     revert to NOT_STARTED). The item then stays `PLANNING` until `/planwise run`
+     closeout closes it from the Master Plan's `**Resolves:**` header field
+     (`handlers/run.md` Step 4.3) — no backlog route closes it, so a plan whose
+     Master Plan lacks the item in that field leaves the item open after shipping.
 
 ---
 
@@ -431,7 +434,7 @@ directly with item scope only."
 | Fix approved | `--status COMPLETE` |
 | Fix reverted | `--status NOT_STARTED` |
 | Task list completed | `--status COMPLETE` |
-| Session plan created | `--status PLANNING` |
+| Session plan created | `--status PLANNING` — `/planwise run` closeout later sets COMPLETE from the Master Plan `**Resolves:**` field |
 | Session planning failed (backlog-planner BLOCKED) | `--status NOT_STARTED` |
 | Skipped | No change |
 
