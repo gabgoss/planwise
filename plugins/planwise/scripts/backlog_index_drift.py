@@ -48,14 +48,20 @@ def _read_disk_table(content: str) -> tuple:
     `Generated:` line above the table nor the `## Shards` directory below
     it is ever mistaken for an item row.
 
-    Returns `(rows_by_id, anomalies, duplicate_ids)`. `rows_by_id` maps
-    item id -> its COLUMN_COUNT-length cell list, for every id that
+    Returns `(rows_by_id, anomalies, duplicate_ids, truncated)`. `rows_by_id`
+    maps item id -> its COLUMN_COUNT-length cell list, for every id that
     appeared EXACTLY once; a repeated id is excluded from `rows_by_id`
     entirely -- never last-wins, never silently healed -- and named instead
     in `anomalies` and returned in `duplicate_ids` (a set), so a caller
     comparing against known items can recognize "this id's disk row is
     quarantined by a duplicate anomaly" rather than misreading its absence
     from `rows_by_id` as an ordinary missing row.
+
+    `truncated` maps item id -> the 1-indexed stop line, for an id whose
+    row is found LATER in `content` -- a blank line, a heading, or any
+    other non-row line split one table into two, and the walk never
+    reached what comes after. Empty when the table ends legitimately
+    (nothing row-shaped follows the stopping line).
     """
     rows_by_id: dict = {}
     anomalies: list = []
@@ -63,16 +69,21 @@ def _read_disk_table(content: str) -> tuple:
     duplicate_ids: set = set()
     header_seen = False
     separator_seen = False
-    for line in content.split("\n"):
+    lines = content.split("\n")
+    stop_index = None
+    for idx, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
             if header_seen:
+                stop_index = idx
                 break
             continue
         if is_section_boundary(stripped, separator_seen=separator_seen):
+            stop_index = idx
             break
         if not stripped.startswith("|"):
             if header_seen:
+                stop_index = idx
                 break
             continue
         if not header_seen:
@@ -94,12 +105,26 @@ def _read_disk_table(content: str) -> tuple:
             continue
         seen_ids.add(item_id)
         rows_by_id[item_id] = cells
+
+    truncated: dict = {}
+    if stop_index is not None and header_seen:
+        for later_line in lines[stop_index + 1:]:
+            later_stripped = later_line.strip()
+            if not later_stripped.startswith("|"):
+                continue
+            later_cells = split_row_cells(later_line)
+            if len(later_cells) != COLUMN_COUNT:
+                continue
+            later_id = later_cells[COL_ID]
+            if later_id not in rows_by_id and later_id not in duplicate_ids:
+                truncated.setdefault(later_id, stop_index + 1)
+
     for item_id in sorted(duplicate_ids):
         anomalies.append(
             f"duplicate row for id {item_id}: the same id appears more than "
             "once in this table -- neither copy is trusted"
         )
-    return rows_by_id, anomalies, duplicate_ids
+    return rows_by_id, anomalies, duplicate_ids, truncated
 
 def _is_numeric_score(value: str) -> bool:
     """True for a Score cell that parses as an integer -- what every OPEN
@@ -160,7 +185,7 @@ def _check_drift(
     fresh_by_id: dict = {}
     fresh_file_by_id: dict = {}
     for entry in report["files"]:
-        rows, _errs, _dup = _read_disk_table(entry["content"])
+        rows, _errs, _dup, _trunc = _read_disk_table(entry["content"])
         for item_id, cells in rows.items():
             fresh_by_id[item_id] = cells
             fresh_file_by_id[item_id] = entry["path"]
@@ -172,6 +197,7 @@ def _check_drift(
     disk_by_id: dict = {}
     disk_file_by_id: dict = {}
     disk_files_seen: dict = {}  # id -> [rel_path, ...], every file it appeared in (F3)
+    disk_truncated_by_id: dict = {}  # id -> line a split row was found past
     quarantined_ids: set = set()  # duplicate ids -- already anomaly-reported below
     drift: list = []
     anomaly: list = []
@@ -209,10 +235,12 @@ def _check_drift(
                             "but that file does not exist"
                         ),
                     })
-        rows, errs, dup_ids = _read_disk_table(content)
+        rows, errs, dup_ids, trunc = _read_disk_table(content)
         for err in errs:
             anomaly.append({"id": rel, "reason": err})
         quarantined_ids |= dup_ids
+        for trunc_id, trunc_line in trunc.items():
+            disk_truncated_by_id.setdefault(trunc_id, trunc_line)
         for item_id, cells in rows.items():
             disk_files_seen.setdefault(item_id, []).append(rel)
             disk_by_id[item_id] = cells
@@ -285,10 +313,15 @@ def _check_drift(
 
     missing_ids = known_ids - disk_by_id.keys() - quarantined_ids
     for item_id in sorted(missing_ids, key=int):
-        drift.append({
-            "id": item_id,
-            "reason": f"no on-disk row yet (would be added to {fresh_file_by_id[item_id]})",
-        })
+        trunc_line = disk_truncated_by_id.get(item_id)
+        if trunc_line is not None:
+            reason = (
+                f"table truncated at line {trunc_line} by a non-row line; "
+                f"row for id {item_id} may exist after the split"
+            )
+        else:
+            reason = f"no on-disk row yet (would be added to {fresh_file_by_id[item_id]})"
+        drift.append({"id": item_id, "reason": reason})
 
     return {"drift": drift, "anomaly": anomaly, "stale_score": stale_score}
 

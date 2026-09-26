@@ -4,7 +4,8 @@
 `scan_index` walks the whole index, to end of file, and names every line
 that regeneration would drop and the migrator does not move. It also returns
 the edges of a legacy `## Dependencies` table, so the caller can compare
-each edge with item frontmatter. `git_state` reports the working-tree
+each edge with item frontmatter, and, on request, the soft-dependency
+bullets under that heading. `git_state` reports the working-tree
 state. It treats a git-ignored input as an unknown state, because git
 cannot vouch for a file it ignores.
 """
@@ -12,6 +13,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import migrate_backlog_repairs as repairs
 import migrate_backlog_support as sup
 
 METADATA_PREFIXES = ("**Purpose:**", "**Last Updated:**")  # preamble lines with no item content
@@ -56,13 +58,33 @@ def _shards_table(lines: list, start: int, end: int, problems: list) -> None:
             problems.append(f"line {i + 1}: unrecognised '{SHARDS}' row {lines[i].strip()[:60]!r}")
 
 
-def scan_index(text: str, header_idx: int):
-    """Return (problems, dependency edges). Recognised content: one `# `
-    title and metadata lines in the preamble; the items table; a Shards
-    table; a Dependencies table; `---`; blank lines; the footer. Every other
-    line, anywhere in the file, is a problem naming its line number."""
+def _dependency_notes(lines: list, candidates: set, problems: list) -> list:
+    """Sort the non-table lines under `## Dependencies` into soft-dependency
+    bullets, bold heading lines (structural, dropped), and problems."""
+    masked = [lines[i].rstrip("\r") if i in candidates else "" for i in range(len(lines))]
+    found, covered = [], set()
+    for line_no, owner, body in repairs.dependency_bullets(masked):
+        count = body.count("\n") + 1
+        covered.update(range(line_no, line_no + count))
+        found.append({"kind": "bullet", "line": line_no + 1, "count": count, "owner": owner, "text": body})
+    for i in sorted(candidates - covered):
+        if repairs._BOLD_HEADING_RE.match(masked[i]):
+            found.append({"kind": "heading", "line": i + 1, "count": 1, "owner": None, "text": masked[i].strip()})
+        else:
+            problems.append(f"line {i + 1}: text under '{DEPENDENCIES}', {lines[i].strip()[:60]!r}")
+    return sorted(found, key=lambda entry: entry["line"])
+
+
+def scan_index(text: str, header_idx: int, extract_notes: bool = False):
+    """Return (problems, dependency edges, dependency notes). Recognised
+    content: one `# ` title and metadata lines in the preamble; the items
+    table; a Shards table; a Dependencies table; `---`; blank lines; the
+    footer. Every other line, anywhere in the file, is a problem naming its
+    line number. With `extract_notes`, a `- ` bullet under `## Dependencies`
+    is returned as a note (kind "bullet") instead, and a bold heading line
+    there is structural (kind "heading"); the list is empty otherwise."""
     lines = text.split("\n")
-    problems, edges, seen = [], [], set()
+    problems, edges, seen, candidates = [], [], set(), set()
     section, titled, i = None, False, 0
     while i < len(lines):
         s = lines[i].strip()
@@ -96,10 +118,13 @@ def scan_index(text: str, header_idx: int):
         elif section == sup.LEGACY_HEADING:
             where = "between '## Backlog Items' and its table" if i < header_idx else "after the table"
             problems.append(f"line {i + 1}: text {where}, {s[:60]!r}")
+        elif section == DEPENDENCIES and extract_notes:
+            candidates.add(i)
         elif section != "?":
             problems.append(f"line {i + 1}: text under '{section}', {s[:60]!r}")
         i += 1
-    return problems, edges
+    notes = _dependency_notes(lines, candidates, problems) if candidates else []
+    return problems, edges, notes
 
 
 def missing_edges(edges: list, items: dict) -> list:
@@ -112,12 +137,13 @@ def missing_edges(edges: list, items: dict) -> list:
 def tree_gate(dirty: set, plan: dict, paths: tuple, index_path: Path, force: bool):
     """Return a refusal message, or None when the run may proceed. An
     interrupted migration of this index exempts exactly the paths it owns:
-    the index, the changelog, the ledger, and each destination item file."""
+    the index, the changelog, the ledger, and each item file the plan writes."""
     if not dirty or force:
         return None
     owned = set()
     if plan["interrupted"]:
         owned = {p.resolve() for p in (index_path, *paths[:2])} | {d["path"] for d in plan["dests"]}
+        owned |= {p.resolve() for p, _text in plan.get("outputs", ())}
     others = sorted(str(p) for p in dirty - owned)
     if not others:
         return None

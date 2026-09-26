@@ -179,6 +179,7 @@ __all__ = [
     "_budget_fields",
     "_changelog_filename",
     "_check_drift",
+    "_cmd_check",
     "_cmd_write",
     "_continuation_wrapper",
     "_escape_cell",
@@ -285,7 +286,8 @@ def exit_code_for(*, write_mode: bool, reciprocal_edge: bool, drift_or_anomaly: 
 
 
 def _run_report_pipeline(
-    backlog_dir: Path, archive_dir: Path, index_path: Path, naming: IndexNaming, config: dict
+    backlog_dir: Path, archive_dir: Path, index_path: Path, naming: IndexNaming, config: dict,
+    *, overrides: dict = None,
 ):
     """Shared by `--check` and `--dry-run`/default: scan -> resolve ->
     detect the reciprocal-edge anomaly -> score -> build_index_files ->
@@ -293,9 +295,12 @@ def _run_report_pipeline(
     always reaches measurement; only `--write` may stop before it. Raises
     `GeneratorError` for the caller to translate into `REFUSED`.
 
+    `overrides` is forwarded to `scan_backlog` unchanged (a caller plans a
+    backfill in memory and scans the planned result).
+
     Returns (items, reciprocal_edges, report).
     """
-    items = scan_backlog(backlog_dir, archive_dir, index_path)
+    items = scan_backlog(backlog_dir, archive_dir, index_path, overrides=overrides)
     known_ids = {item["id"] for item in items}
     validate_blocks_resolve(items, known_ids)
     blocks_index = build_blocks_index(items)
@@ -433,6 +438,52 @@ def _cmd_write(
     return Disposition.CLEAN
 
 
+def _cmd_check(
+    backlog_dir: Path, archive_dir: Path, index_path: Path, naming: IndexNaming, config: dict,
+    *, json_out: bool,
+) -> int:
+    """`--check`, factored out of `main()` so it is callable in-process (an
+    upgrade orchestrator, with no argv). Same `Disposition` code; never
+    changes the report text."""
+    try:
+        items, reciprocal, report = _run_report_pipeline(
+            backlog_dir, archive_dir, index_path, naming, config
+        )
+    except GeneratorError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return Disposition.REFUSED
+
+    for item_id in report["truncated_ids"]:
+        print(
+            f"Warning: title truncated to {TITLE_MAX_LEN} chars for item {item_id}",
+            file=sys.stderr,
+        )
+
+    reciprocal_anomalies = _reciprocal_anomalies(items, reciprocal)
+    for entry in reciprocal_anomalies:
+        print(f"Anomaly: {entry['reason']}.", file=sys.stderr)
+
+    result = _check_drift(items, report, backlog_dir, archive_dir, naming)
+    result["anomaly"] = reciprocal_anomalies + result["anomaly"]
+    drift_or_anomaly = bool(result["drift"]) or bool(result["anomaly"])
+    code = exit_code_for(
+        write_mode=False, reciprocal_edge=bool(reciprocal), drift_or_anomaly=drift_or_anomaly
+    )
+    if json_out:
+        payload = {
+            "files": _file_summary(report),
+            "drift": result["drift"],
+            "anomaly": result["anomaly"],
+            "stale_score": result["stale_score"],
+        }
+        print(json.dumps(payload, indent=2))
+    else:
+        _print_file_report(report)
+        print()
+        print(_format_check_report(result))
+    return code
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Scan backlog item frontmatter and render/check/write the Backlog Items index."
@@ -492,6 +543,9 @@ def main() -> int:
     if args.write:
         return _cmd_write(backlog_dir, archive_dir, index_path, naming, config, json_out=args.json)
 
+    if args.check:
+        return _cmd_check(backlog_dir, archive_dir, index_path, naming, config, json_out=args.json)
+
     try:
         items, reciprocal, report = _run_report_pipeline(
             backlog_dir, archive_dir, index_path, naming, config
@@ -509,27 +563,6 @@ def main() -> int:
     reciprocal_anomalies = _reciprocal_anomalies(items, reciprocal)
     for entry in reciprocal_anomalies:
         print(f"Anomaly: {entry['reason']}.", file=sys.stderr)
-
-    if args.check:
-        result = _check_drift(items, report, backlog_dir, archive_dir, naming)
-        result["anomaly"] = reciprocal_anomalies + result["anomaly"]
-        drift_or_anomaly = bool(result["drift"]) or bool(result["anomaly"])
-        code = exit_code_for(
-            write_mode=False, reciprocal_edge=bool(reciprocal), drift_or_anomaly=drift_or_anomaly
-        )
-        if args.json:
-            payload = {
-                "files": _file_summary(report),
-                "drift": result["drift"],
-                "anomaly": result["anomaly"],
-                "stale_score": result["stale_score"],
-            }
-            print(json.dumps(payload, indent=2))
-        else:
-            _print_file_report(report)
-            print()
-            print(_format_check_report(result))
-        return code
 
     code = exit_code_for(write_mode=False, reciprocal_edge=bool(reciprocal), drift_or_anomaly=False)
     if args.json:

@@ -8,13 +8,23 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from backlog_index_budget import _measure
+from backlog_index_schema import _changelog_filename, _index_naming
 from markdown_parser import split_row_raw
+from read_limits import READ_BYTE_WARN, READ_FILE_BYTE_CAP, READ_PAGE_CAP_TOKENS, READ_TOKEN_WARN
+from reconcile_common import read_text_preserving_newlines as read_text
+
+
+class Refusal(Exception):
+    """A condition that stops the run before any write (exit 2)."""
+
 
 SHINGLE_N = 5
 DEFAULT_HIGH = 0.75
 DEFAULT_LOW = 0.35
 LEGACY_HEADING = "## Backlog Items"
 NOTES_HEADING = "## Migration Notes"
+NOTES_HEADING_DEPS = "## Dependency Notes (migrated from the backlog index)"
 MIGRATED_HEADER = ["ID", "Title", "Priority", "Status", "Domain", "Created", "Blocks", "Score", "File"]
 COLUMN_ROLES = {"id": "id", "feature": "feature", "title": "feature", "priority": "priority", "status": "status",
                 "abbrev": "abbrev", "domain": "abbrev", "created": "created", "blocks": "blocks",
@@ -165,26 +175,37 @@ def link_listed(name: str, haystack: str) -> bool:
     return f"({name})" in haystack or f"/{name})" in haystack
 
 
-def compare_row(cells: list, roles: dict, fields: dict) -> list:
-    """Return one message per cell that disagrees with frontmatter."""
+def row_diffs(cells: list, roles: dict, fields: dict) -> list:
+    """Return one dict per cell that disagrees with frontmatter: `key`, the
+    `row` value (None when no frontmatter value could carry it), the
+    `frontmatter` value, `prose` (the cell holds text other than ids), and
+    the `message`."""
     out = []
     id_cell = cells[roles["id"]]
     if ids_in(id_cell) != [fields["id"]]:
-        out.append(f"id cell {id_cell!r} but {fields['_path'].name} has frontmatter id {fields['id']!r}")
+        out.append({"key": "id", "row": None, "frontmatter": fields["id"], "prose": False,
+                    "message": f"id cell {id_cell!r} but {fields['_path'].name} has frontmatter id {fields['id']!r}"})
     for role in COMPARED_ROLES:
         if role not in roles:
             continue
         cell = cells[roles[role]]
         if role == "blocks":
             if not blocks_text_ok(cell):
-                out.append(f"id {fields['id']}: Blocks cell {cell!r} carries text other than ids")
+                out.append({"key": role, "row": None, "frontmatter": sorted(fields["blocks"]), "prose": True,
+                            "message": f"id {fields['id']}: Blocks cell {cell!r} carries text other than ids"})
                 continue
             row_value, fm_value = ids_in(cell), sorted(fields["blocks"])
         else:
             row_value, fm_value = plain(cell), fields[role]
         if row_value != fm_value:
-            out.append(f"id {fields['id']}: {role.capitalize()} cell {row_value!r} but frontmatter {fm_value!r}")
+            out.append({"key": role, "row": row_value, "frontmatter": fm_value, "prose": False, "message":
+                        f"id {fields['id']}: {role.capitalize()} cell {row_value!r} but frontmatter {fm_value!r}"})
     return out
+
+
+def compare_row(cells: list, roles: dict, fields: dict) -> list:
+    """Return one message per cell that disagrees with frontmatter."""
+    return [diff["message"] for diff in row_diffs(cells, roles, fields)]
 
 
 # --- changelog footer (byte-exact) ---
@@ -309,9 +330,10 @@ def classify_unit(exact: bool, score: float, window: float, high: float, low: fl
     return "MISSING" if max(score, window) <= low else "AMBIGUOUS"
 
 
-def append_notes(body: str, units: list, nl: str) -> str:
+def append_notes(body: str, units: list, nl: str, heading_text: str = NOTES_HEADING) -> str:
+    """Append `units` under `heading_text`, adding the heading unless it is already the last `## ` section."""
     h2 = [ln.strip() for ln in body.splitlines() if ln.startswith("## ")]
-    heading = "" if h2 and h2[-1] == NOTES_HEADING else f"{NOTES_HEADING}{nl}{nl}"
+    heading = "" if h2 and h2[-1] == heading_text else f"{heading_text}{nl}{nl}"
     return body.rstrip("\r\n") + nl + nl + heading + (nl + nl).join(units) + nl
 
 
@@ -380,3 +402,240 @@ def replace_all(staged: list) -> list:
             raise ReplaceError(path, done, exc) from exc
         done.append(path)
     return done
+
+
+# --- changelog budget: numbered parts, each under the read-gate warn ---
+
+CONTINUED = " (continued)"
+BACKLINK_RE = re.compile(r"^\[← [^\]]*\]\([^)]*\)$")
+PARTS_LINE_RE = re.compile(r"^Parts: .*$")
+ENTRY_HEADING_RE = re.compile(r"^## Entry (\d+)( \(continued\))?$", re.M)
+
+
+def changelog_part_filename(naming, k: int) -> str:
+    """`{stem}-Part-{kk}{suffix}`, derived from `_changelog_filename`'s own
+    result -- never from the hub name directly."""
+    stem_path = Path(_changelog_filename(naming))
+    return f"{stem_path.stem}-Part-{k:02d}{stem_path.suffix}"
+
+
+def changelog_part_pattern(naming) -> re.Pattern:
+    stem_path = Path(_changelog_filename(naming))
+    return re.compile(rf"^{re.escape(stem_path.stem)}-Part-(\d{{2,}}){re.escape(stem_path.suffix)}$")
+
+
+def changelog_tokens(text: str) -> int:
+    """Token estimate for changelog text, via the generator's own budget
+    basis. `_measure` expects `\\n`-only text, so CRLF is normalised first."""
+    return _measure(text.replace("\r\n", "\n"))[1]
+
+
+def _changelog_level(num_bytes: int, tokens: int) -> str:
+    """OK|WARN|OVER against the same gates `measure_files.py` reports."""
+    if tokens >= READ_PAGE_CAP_TOKENS or num_bytes >= READ_FILE_BYTE_CAP:
+        return "OVER"
+    if tokens >= READ_TOKEN_WARN or num_bytes >= READ_BYTE_WARN:
+        return "WARN"
+    return "OK"
+
+
+def _entry_section(label: str, body: str, nl: str) -> str:
+    return f"## Entry {label}{nl}{nl}{body}{nl}{nl}"
+
+
+def _entry_chunks(segments: list, nl: str, budget: int) -> list:
+    """Split each footer entry into one or more (label, body) chunks. An
+    entry whose own section exceeds `budget` is split at blank-line
+    boundaries into 'N' and 'N (continued)' pieces. A single paragraph whose
+    own section alone still exceeds `budget` raises `Refusal`, naming the
+    entry and its token count -- a data error this tool cannot decide."""
+    chunks = []
+    for i, seg in enumerate(segments, start=1):
+        body = seg.decode("utf-8")
+        if changelog_tokens(_entry_section(str(i), body, nl)) < budget:
+            chunks.append((str(i), body))
+            continue
+        paras = body.split(nl + nl)
+        pieces, buf = [], []
+        for para in paras:
+            candidate = buf + [para]
+            if buf and changelog_tokens(_entry_section(str(i), (nl + nl).join(candidate), nl)) >= budget:
+                pieces.append((nl + nl).join(buf))
+                buf = [para]
+            else:
+                buf = candidate
+        if buf:
+            pieces.append((nl + nl).join(buf))
+        for j, piece in enumerate(pieces):
+            label = str(i) if j == 0 else f"{i}{CONTINUED}"
+            tokens = changelog_tokens(_entry_section(label, piece, nl))
+            if tokens >= budget:
+                raise Refusal(
+                    f"changelog entry {i} has a paragraph of ~{tokens} tokens, over the "
+                    f"{budget}-token per-file budget; add a blank line inside it by hand, then re-run")
+            chunks.append((label, piece))
+    return chunks
+
+
+def _pack_changelog(rendered: list, budget: int, header1_tokens: int, other_tokens: int) -> list:
+    """Greedily pack rendered (label, body, section_text) chunks into parts,
+    each part's running total (header + sections) kept under `budget`."""
+    parts, current, current_tokens = [], [], header1_tokens
+    for _label, _body, text in rendered:
+        tok = changelog_tokens(text)
+        if current and current_tokens + tok >= budget:
+            parts.append(current)
+            current, current_tokens = [], other_tokens
+        current.append(text)
+        current_tokens += tok
+    parts.append(current)
+    return parts
+
+
+def split_changelog(segments: list, naming, index_name: str, nl: str, budget: int = READ_TOKEN_WARN) -> list:
+    """Pure. Pack `## Entry N` sections greedily, in entry
+    order, into numbered parts each under `budget`. Part 1 carries the
+    backlink to the index and, when N > 1, a `Parts:` line to parts 2..N;
+    every later part backlinks to part 1. When N = 1 the result is
+    byte-identical to `changelog_text`. Returns [(filename, text), ...]."""
+    chunks = _entry_chunks(segments, nl, budget)
+    rendered = [(label, body, _entry_section(label, body, nl)) for label, body in chunks]
+    part1_name = _changelog_filename(naming)
+    part1_bare_header = f"[← {index_name}]({index_name}){nl}{nl}"
+    other_header = f"[← {part1_name}]({part1_name}){nl}{nl}"
+    other_tokens = changelog_tokens(other_header)
+    reserved, header1, parts_bodies = changelog_tokens(part1_bare_header), part1_bare_header, None
+    for _attempt in range(len(rendered) + 2):
+        parts_bodies = _pack_changelog(rendered, budget, reserved, other_tokens)
+        n = len(parts_bodies)
+        if n <= 1:
+            header1 = part1_bare_header
+            break
+        part_names = [changelog_part_filename(naming, k) for k in range(2, n + 1)]
+        parts_line = "Parts: " + ", ".join(f"[{nm}]({nm})" for nm in part_names) + nl
+        header1 = f"[← {index_name}]({index_name}){nl}{nl}{parts_line}{nl}"
+        new_reserved = changelog_tokens(header1)
+        if new_reserved <= reserved:
+            break
+        reserved = new_reserved
+    out = []
+    for k, body_list in enumerate(parts_bodies, start=1):
+        header = header1 if k == 1 else other_header
+        name = part1_name if k == 1 else changelog_part_filename(naming, k)
+        out.append((name, header + "".join(body_list)))
+    return out
+
+
+def joined_entries(texts: list) -> str:
+    """Every part's entry text, in order, with the backlink/Parts lines and
+    the `## Entry` section headers removed -- the basis `verify_written` and
+    `unaccounted` check footer segments against."""
+    chunks = []
+    for text in texts:
+        norm = text.replace("\r\n", "\n")
+        kept = [ln for ln in norm.split("\n")
+                if not (BACKLINK_RE.match(ln.strip()) or PARTS_LINE_RE.match(ln) or ENTRY_HEADING_RE.match(ln.strip()))]
+        chunks.append("\n".join(kept))
+    return "\n".join(chunks)
+
+
+def parse_changelog(texts: list) -> list:
+    """Inverse of `split_changelog`. `texts` are the changelog part files in
+    part order, part 1 first. Strips the backlink and `Parts:` lines and
+    re-joins continuation sections. Any other text outside an `## Entry`
+    section raises `Refusal`, naming the part and the line. Returns the
+    segment bytes in entry order."""
+    assembled = []
+    for pi, text in enumerate(texts):
+        lines = text.replace("\r\n", "\n").split("\n")
+        i, n = 0, len(lines)
+        if i >= n or not BACKLINK_RE.match(lines[i].strip()):
+            found = lines[i] if i < n else ""
+            raise Refusal(f"part {pi + 1} line {i + 1}: expected the backlink line, found {found!r}")
+        i += 1
+        if i < n and lines[i] == "":
+            i += 1
+        if i < n and PARTS_LINE_RE.match(lines[i]):
+            i += 1
+            if i < n and lines[i] == "":
+                i += 1
+        remainder = lines[i:]
+        headings = []
+        for j, line in enumerate(remainder):
+            stripped = line.strip()
+            match = ENTRY_HEADING_RE.match(stripped)
+            if stripped.startswith("## ") and not match:
+                raise Refusal(f"part {pi + 1} line {i + j + 1}: unrecognised section heading {line!r}")
+            if match:
+                headings.append((j, int(match.group(1)), bool(match.group(2))))
+        if not headings or headings[0][0] != 0:
+            bad = remainder[0] if remainder else ""
+            raise Refusal(f"part {pi + 1} line {i + 1}: text outside any '## Entry' section: {bad!r}")
+        for h, (start, num, is_cont) in enumerate(headings):
+            body_start = start + 1
+            if body_start < len(remainder) and remainder[body_start] == "":
+                body_start += 1
+            end = headings[h + 1][0] if h + 1 < len(headings) else len(remainder)
+            body_lines = remainder[body_start:end]
+            while body_lines and body_lines[-1] == "":
+                body_lines.pop()
+            assembled.append((num, is_cont, "\n".join(body_lines)))
+    result, current = [], None
+    for num, is_cont, body in assembled:
+        if not is_cont:
+            if current is not None:
+                result.append("\n\n".join(current["parts"]))
+            current = {"num": num, "parts": [body]}
+        else:
+            if current is None or current["num"] != num:
+                raise Refusal(f"entry {num} (continued) has no matching entry heading before it")
+            current["parts"].append(body)
+    if current is not None:
+        result.append("\n\n".join(current["parts"]))
+    return [body.encode("utf-8") for body in result]
+
+
+def changelog_budget_status(config: dict, index_path: Path) -> list:
+    """{path, tokens, level} for part 1 plus every existing `Part-NN` file.
+    Empty when no changelog exists yet."""
+    naming = _index_naming(index_path)
+    part1_path = index_path.with_name(_changelog_filename(naming))
+    if not part1_path.exists():
+        return []
+    pattern = changelog_part_pattern(naming)
+    files = [part1_path] + sorted(p for p in index_path.parent.iterdir() if pattern.match(p.name))
+    out = []
+    for path in files:
+        text = read_text(path)
+        num_bytes, tokens = _measure(text.replace("\r\n", "\n"))
+        out.append({"path": str(path), "tokens": tokens, "level": _changelog_level(num_bytes, tokens)})
+    return out
+
+
+def plan_changelog_resplit(config: dict, index_path: Path):
+    """Re-split an already-migrated changelog that has grown over budget.
+    Returns None when every existing changelog file already measures within
+    budget; otherwise {"outputs": [(path, text)], "targets": [...], "parts":
+    [...]}. No other plan step runs."""
+    naming = _index_naming(index_path)
+    part1_path = index_path.with_name(_changelog_filename(naming))
+    if not part1_path.exists():
+        return None
+    pattern = changelog_part_pattern(naming)
+    numbered = [(1, part1_path)]
+    numbered += [(int(pattern.match(p.name).group(1)), p)
+                 for p in index_path.parent.iterdir() if pattern.match(p.name)]
+    numbered.sort(key=lambda kp: kp[0])
+    targets = [p for _k, p in numbered]
+    texts_on_disk = [read_text(p) for p in targets]
+    ok = all(_changelog_level(*_measure(t.replace("\r\n", "\n"))) == "OK" for t in texts_on_disk)
+    if ok:
+        return None
+    segments = parse_changelog(texts_on_disk)
+    nl = newline_of(read_text(index_path))
+    split = split_changelog(segments, naming, index_path.name, nl)
+    outputs = [(index_path.with_name(name), text) for name, text in split]
+    parts_meta = [{"path": str(path), "tokens": changelog_tokens(text),
+                   "entries": len(ENTRY_HEADING_RE.findall(text.replace("\r\n", "\n")))}
+                  for path, text in outputs]
+    return {"outputs": outputs, "targets": targets, "parts": parts_meta}

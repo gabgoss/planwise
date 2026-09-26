@@ -39,6 +39,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1622,6 +1623,175 @@ class TestPrintedReportShowsBudgetAndRatio(_GeneratorFixtureBase):
         shard_line = next(line for line in file_lines if line.startswith("Archive/"))
         self.assertIn(f"budget {_HUB_LIMIT}", hub_line)
         self.assertIn(f"budget {read_limits.READ_TOKEN_WARN}", shard_line)
+
+
+# The base commit BCR Session-01 Task 1 pinned before any edit in this file
+# landed -- used only to load the PRE-fix `_check_drift` for the dry-run
+# proof below (Execution-Time Amendment, Step 7(d)). Not a project-side
+# bookkeeping reference: it names a plugin-repo commit, not a plan task.
+_PRE_FIX_DRIFT_SHA = "934c7831a086c2914a6f9e2268a7d9a7c8a1aae0"
+
+
+def _load_pre_fix_check_drift(sha):
+    """Load `_check_drift` from `backlog_index_drift.py` as it stood at
+    `sha` -- the module that owns the table walk, before the truncated-table
+    reason existed -- so a test can show the OLD "no on-disk row yet" text
+    was reported for a case the fix now reports correctly.
+    """
+    plugin_repo = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        ["git", "-C", str(plugin_repo), "show",
+         f"{sha}:plugins/planwise/scripts/backlog_index_drift.py"],
+        capture_output=True, text=True, check=True,
+    )
+    scripts_dir = plugin_repo / "plugins" / "planwise" / "scripts"
+    namespace = {
+        "__name__": "pre_fix_backlog_index_drift",
+        "__file__": str(scripts_dir / "backlog_index_drift.py"),
+    }
+    exec(compile(result.stdout, "pre_fix_backlog_index_drift.py", "exec"), namespace)
+    return namespace["_check_drift"]
+
+
+class TestScanBacklogOverridesSkipInvalidDisk(_GeneratorFixtureBase):
+    """`overrides` lets a caller plan a frontmatter backfill in memory and
+    scan the planned result -- proven here by an on-disk block that is
+    itself invalid (missing `created`, so a plain disk read would raise):
+    the override's fields are what `scan_backlog` yields, so the disk was
+    never actually read for this file."""
+
+    def test_override_used_instead_of_invalid_disk_block(self):
+        path = self.write_item("001", title="On-disk broken", priority="High",
+                                status="NOT_STARTED", abbrev="BUG")
+        text = path.read_text(encoding="utf-8")
+        broken_text = "\n".join(
+            line for line in text.split("\n") if not line.startswith("created:")
+        )
+        path.write_text(broken_text, encoding="utf-8")
+        index_path = self.backlog_dir / "00-Index-Backlog.md"
+
+        with self.assertRaises(gbi.GeneratorError):
+            gbi.scan_backlog(self.backlog_dir, self.archive_dir, index_path)
+
+        override_text = (
+            "---\nid: 001\ntitle: Override title\npriority: High\n"
+            "status: NOT_STARTED\nabbrev: BUG\ncreated: 2026-02-02\n"
+            "blocks: []\n---\n\n# Override title\n"
+        )
+        items = gbi.scan_backlog(
+            self.backlog_dir, self.archive_dir, index_path,
+            overrides={path.resolve(): override_text},
+        )
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["title"], "Override title")
+        self.assertEqual(items[0]["created"], "2026-02-02")
+
+
+class TestRunReportPipelineOverridesRoundTrip(_GeneratorFixtureBase):
+    """`overrides` threads through `_run_report_pipeline` the same way, so
+    the report a caller measures reflects the planned backfill, not the
+    invalid on-disk block."""
+
+    def test_overrides_reach_the_rendered_report(self):
+        path = self.write_item("001", title="On-disk broken", priority="High",
+                                status="NOT_STARTED", abbrev="BUG")
+        text = path.read_text(encoding="utf-8")
+        broken_text = "\n".join(
+            line for line in text.split("\n") if not line.startswith("created:")
+        )
+        path.write_text(broken_text, encoding="utf-8")
+        index_path = self.backlog_dir / "00-Index-Backlog.md"
+        naming = gbi._index_naming(index_path)
+
+        override_text = (
+            "---\nid: 001\ntitle: Override title\npriority: High\n"
+            "status: NOT_STARTED\nabbrev: BUG\ncreated: 2026-02-02\n"
+            "blocks: []\n---\n\n# Override title\n"
+        )
+        items, reciprocal, report = gbi._run_report_pipeline(
+            self.backlog_dir, self.archive_dir, index_path, naming, {},
+            overrides={path.resolve(): override_text},
+        )
+
+        self.assertEqual(reciprocal, [])
+        self.assertEqual(items[0]["title"], "Override title")
+        self.assertIn("Override title", report["files"][0]["content"])
+
+
+class TestCmdCheckMatchesMainOnFourDigitFixture(_GeneratorFixtureBase):
+    """`_cmd_check` is the same callable `main()`'s `--check` branch now
+    delegates to -- proven by reproducing the four-digit-id round-trip
+    fixture (`TestGeneratedFilePatternCoversFourDigitIds`) and calling
+    `_cmd_check` directly, in-process, with no argv/CLI involved."""
+
+    def test_cmd_check_returns_the_same_code_as_main(self):
+        self.write_item("001", title="Open item")
+        self.write_item("1000", title="Old closed item", priority="Low",
+                         status="COMPLETE", abbrev="PROC", created="2025-01-01",
+                         archived=True, filename="BB-1000-01-PROC-Fixture.md")
+        self.run_main("--write")
+
+        main_code, _out, _err = self.run_main("--check")
+
+        index_path = self.backlog_dir / "00-Index-Backlog.md"
+        naming = gbi._index_naming(index_path)
+        direct_code = gbi._cmd_check(
+            self.backlog_dir, self.archive_dir, index_path, naming, {}, json_out=False,
+        )
+
+        self.assertEqual(direct_code, main_code)
+        self.assertEqual(direct_code, 0)
+
+
+class TestTruncatedTableReasonReplacesMisleadingText(_GeneratorFixtureBase):
+    """BB-380: a stray non-row line splitting an otherwise continuous table
+    used to report a genuinely-present row as "no on-disk row yet". Proves
+    both halves of the Execution-Time Amendment's dry-run pair: the
+    pre-fix `_check_drift` (loaded from the pinned base commit) reports the
+    misleading reason, and today's reports the truncated-table reason
+    instead, naming the split line and the id found past it."""
+
+    def setUp(self):
+        super().setUp()
+        self.write_item("001", title="Open item one", priority="High",
+                         status="IN_PROGRESS", abbrev="BUG", created="2026-01-01")
+        self.write_item("002", title="Open item two", priority="Medium",
+                         status="NOT_STARTED", abbrev="INFRA", created="2026-01-01")
+        self.run_main("--write")
+        self.hub_path = self.backlog_dir / "00-Index-Backlog.md"
+        self._split_table_after_row("001")
+
+    def _split_table_after_row(self, item_id):
+        """Insert a stray heading between two table rows -- the BB-380
+        defect shape (a heading, a blank line, or any non-pipe line splits
+        what should be one continuous table into two)."""
+        lines = self.hub_path.read_text(encoding="utf-8").split("\n")
+        insert_at = next(
+            i for i, line in enumerate(lines) if line.strip().startswith(f"| {item_id} |")
+        )
+        lines.insert(insert_at + 1, "## Note")
+        self.hub_path.write_text("\n".join(lines), encoding="utf-8")
+
+    def test_dry_run_pair_pre_fix_fails_current_passes(self):
+        # Pre-fix half: the pinned base commit's `_check_drift` reports the
+        # misleading reason for a row that genuinely exists past the split.
+        pre_fix_check_drift = _load_pre_fix_check_drift(_PRE_FIX_DRIFT_SHA)
+        with patch.object(gbi, "_check_drift", pre_fix_check_drift):
+            pre_fix_code, pre_fix_out, _err = self.run_main("--check")
+
+        self.assertEqual(pre_fix_code, 1)
+        self.assertIn("no on-disk row yet", pre_fix_out)
+        self.assertNotIn("table truncated", pre_fix_out)
+
+        # Current half: the same on-disk fixture, unpatched, reports the
+        # truncated-table reason instead, naming the split line and the id.
+        code, out, _err = self.run_main("--check")
+
+        self.assertEqual(code, 1)
+        self.assertIn("table truncated at line", out)
+        self.assertIn("row for id 002 may exist after the split", out)
+        self.assertNotIn("no on-disk row yet", out)
 
 
 if __name__ == "__main__":

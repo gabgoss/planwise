@@ -74,8 +74,9 @@ def _parse_list_field(raw: str) -> list:
     return items
 
 
-def _read_frontmatter_map(path: Path) -> dict:
-    content = path.read_text(encoding="utf-8")
+def _read_frontmatter_map(path: Path, text: str = None) -> dict:
+    """Parse `text` when given (an in-memory override), else read `path`."""
+    content = text if text is not None else path.read_text(encoding="utf-8")
     parts = split_frontmatter_block(content)
     if parts is None:
         raise GeneratorError(f"{path}: no well-formed frontmatter block")
@@ -122,8 +123,8 @@ def _extract_fields(path: Path, raw_map: dict) -> dict:
     return fields
 
 
-def _scan_one_file(path: Path) -> dict:
-    raw_map = _read_frontmatter_map(path)
+def _scan_one_file(path: Path, text: str = None) -> dict:
+    raw_map = _read_frontmatter_map(path, text)
     return _extract_fields(path, raw_map)
 
 
@@ -160,7 +161,9 @@ def _iter_item_files(backlog_dir: Path, archive_dir: Path, index_path: Path):
             yield path
 
 
-def scan_backlog(backlog_dir: Path, archive_dir: Path, index_path: Path) -> list:
+def scan_backlog(
+    backlog_dir: Path, archive_dir: Path, index_path: Path, *, overrides: dict = None
+) -> list:
     """Scan every item file and return its extracted fields, id-sorted.
 
     Every file is checked before any error is raised, so one run reports
@@ -177,12 +180,17 @@ def scan_backlog(backlog_dir: Path, archive_dir: Path, index_path: Path) -> list
     "never fabricate, never half-ship" discipline every other GeneratorError
     in this scanner already applies to a missing key or a dangling `blocks:`
     entry.
+
+    `overrides` maps a resolved item-file path to text not yet on disk, so
+    a caller can plan a backfill in memory and scan the planned result. An
+    unmatched key is silently unused.
     """
+    overrides = overrides or {}
     errors = []
     items = []
     for path in _iter_item_files(backlog_dir, archive_dir, index_path):
         try:
-            items.append(_scan_one_file(path))
+            items.append(_scan_one_file(path, overrides.get(path.resolve())))
         except GeneratorError as exc:
             errors.append(str(exc))
 
