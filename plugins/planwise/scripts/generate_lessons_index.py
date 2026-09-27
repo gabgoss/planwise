@@ -679,6 +679,7 @@ def is_legacy_index(content: str) -> bool:
 
 
 _LEGACY_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+_LEGACY_HEADING_FENCE_RE = re.compile(r"^\s*(```|~~~)")
 
 
 def _legacy_headings_to_drop(content: str) -> list:
@@ -693,11 +694,25 @@ def _legacy_headings_to_drop(content: str) -> list:
     them); this function migrates nothing itself, it only names what is
     about to be lost so the operator sees it, on a legacy-hub refusal and
     on the `--replace-legacy` run that actually drops them.
+
+    Fence-aware: a `## `-shaped line inside a fenced code block (opened and
+    closed by a matching ``` or ~~~ line) is body text, not a heading -- a
+    Lesson File Template section fences its own example `## Context` /
+    `## Lesson` / `## Applies To` sub-headings inside one such block, and
+    those must never be reported as sections this run drops.
     """
-    return [
-        heading.strip() for heading in _LEGACY_HEADING_RE.findall(content)
-        if heading.strip() != "Master Table"
-    ]
+    headings = []
+    in_fence = False
+    for line in content.split("\n"):
+        if _LEGACY_HEADING_FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = _LEGACY_HEADING_RE.match(line)
+        if match and match.group(1).strip() != "Master Table":
+            headings.append(match.group(1).strip())
+    return headings
 
 
 # --------------------------------------------------------------------------
@@ -1347,8 +1362,10 @@ _WRITE_REFUSAL_CLASSES = frozenset({"duplicate-id", "id-mismatch"})
 def lessons_exit_code_for(*, write_mode: bool, findings: list, replace_legacy: bool = False) -> int:
     """Mirrors generate_backlog_index.exit_code_for. `--write` treats a
     duplicate id, a filename/frontmatter id mismatch, or a legacy-shaped
-    hub without `--replace-legacy`, as REFUSED (2); every other mode (and
-    every other finding) is ordinary DRIFT_OR_ANOMALY (1). A missing
+    hub without `--replace-legacy`, as REFUSED (2); a report mode (the
+    default, `--dry-run`, `--check`) treats a legacy-shaped hub as REFUSED
+    too, since a legacy hub cannot be read as generated; every other mode
+    (and every other finding) is ordinary DRIFT_OR_ANOMALY (1). A missing
     required key or an unshardable row
     never reaches this function -- both raise `LessonsGeneratorError`,
     handled by its own `except` block at each call site, exactly as
@@ -1362,6 +1379,8 @@ def lessons_exit_code_for(*, write_mode: bool, findings: list, replace_legacy: b
         )
         if refuses:
             return LessonsDisposition.REFUSED
+    elif any(f["class"] == "legacy-shape" for f in findings):
+        return LessonsDisposition.REFUSED
     return LessonsDisposition.DRIFT_OR_ANOMALY
 
 
@@ -1460,6 +1479,13 @@ def _cmd_write_lessons(
     if code == LessonsDisposition.REFUSED:
         for f in write_findings:
             print(f"Anomaly: [{f['class']}] {f['id']}: {f['detail']}. Refusing to write.", file=sys.stderr)
+        if is_legacy and not replace_legacy:
+            print(
+                f"Run /planwise upgrade to migrate {index_path} first (the migrator relocates the "
+                "changelog, the promotion log and the hand-written sections with backups), or pass "
+                "--replace-legacy to overwrite it without that migration.",
+                file=sys.stderr,
+            )
         if dropped_headings:
             print(
                 "--replace-legacy would drop these hand-written sections "
@@ -2338,8 +2364,10 @@ def main() -> int:
         "--check", action="store_true",
         help="Explicit synonym for the default report: every report mode "
         "always runs the full scan -> render -> split -> measure -> compare "
-        "pipeline and reports drift/anomalies; only --write stops "
-        "early on a refusal.",
+        "pipeline and reports drift/anomalies. A legacy-shaped hub exits 2: "
+        "plain mode prints only the migrate-first error, and --json still "
+        "prints the report with its legacy-shape finding. --write refuses "
+        "before touching disk on any unresolved condition.",
     )
     parser.add_argument(
         "--write", action="store_true",
@@ -2356,8 +2384,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--replace-legacy", action="store_true",
-        help="Allow --write to overwrite a legacy-shaped on-disk index, or "
-        "(with --companion) a companion that is not generated-shaped.",
+        help="Allow --write to overwrite a legacy-shaped on-disk index after its sections have "
+        "been relocated. Prefer migrate_lessons_index.py, which relocates them first.",
     )
     parser.add_argument(
         "--companion", action="store_true",
@@ -2403,7 +2431,19 @@ def main() -> int:
     )
     code = lessons_exit_code_for(write_mode=False, findings=findings)
 
+    if code == LessonsDisposition.REFUSED:
+        print(
+            f"Error: {index_path} is a hand-authored lessons index — run /planwise upgrade to "
+            "migrate it (the migrator relocates the changelog, the promotion log and the "
+            "hand-written sections with backups) before reading it as generated",
+            file=sys.stderr,
+        )
+        if not args.json:
+            return code
+
     if args.json:
+        # On a legacy hub this still prints, carrying its `legacy-shape`
+        # finding for a JSON reader, and then exits 2.
         drift, anomaly = _split_findings(findings)
         payload = {
             "files": _file_summary(report),

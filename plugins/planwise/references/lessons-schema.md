@@ -165,12 +165,12 @@ The index is never hand-edited. Edit the lesson file, then run the generator:
 python {plugin_root}/scripts/generate_lessons_index.py --config {config} --write
 ```
 
-`--dry-run` (also the default with no mode flag) and `--check` both run the full scan → render → split → measure → compare pipeline and report drift/anomalies without writing anything; only `--write` can refuse before touching disk. Exit codes are shared across every mode:
+`--dry-run` (also the default with no mode flag) and `--check` both run the full scan → render → split → measure → compare pipeline and report drift/anomalies without writing anything. A report mode still exits 2 on the refusal cases the table names. Exit codes are shared across every mode:
 
 | Exit | Meaning |
 |---|---|
 | 0 | Clean — no drift, no anomaly, no refusal |
 | 1 | Drift or anomaly found (report modes only) |
-| 2 | Refused — `--write` hit a duplicate id, a filename/frontmatter id mismatch, or a legacy-shaped on-disk hub without `--replace-legacy`; or any mode hit a missing required frontmatter key or an unshardable row |
+| 2 | Refused — `--write` hit a duplicate id, a filename/frontmatter id mismatch, or a legacy-shaped on-disk hub without `--replace-legacy`; a report mode hit a legacy-shaped hub (with `--json` it still prints the report, carrying the `legacy-shape` finding); or any mode hit a missing required frontmatter key or an unshardable row |
 
 `--replace-legacy` allows `--write` to overwrite a legacy-shaped hub (one carrying a `## Master Table` or `## Rule Promotion Log` heading) that would otherwise be refused.

@@ -723,13 +723,15 @@ class TestLegacyRefusal(_GenerateLessonsIndexFixtureBase):
         self.assertNotIn("## Master Table", hub_path.read_text(encoding="utf-8"))
 
     def test_check_reports_legacy_shape(self):
+        # BIR-S05-06-04 guard edit: --check on a legacy hub now exits 2,
+        # naming /planwise upgrade, instead of the drift-report exit 1.
         self.write_lesson(101, status="documented")
         self._write_legacy_hub()
 
-        code, out, _err = self.run_main("--check")
+        code, _out, err = self.run_main("--check")
 
-        self.assertEqual(code, 1)
-        self.assertIn("legacy-shape", out)
+        self.assertEqual(code, 2)
+        self.assertIn("/planwise upgrade", err)
 
     def _write_legacy_hub_with_hand_written_sections(self) -> Path:
         content = (
@@ -784,6 +786,118 @@ class TestLegacyRefusal(_GenerateLessonsIndexFixtureBase):
         ):
             self.assertIn(heading, out)
         self.assertNotIn("## Master Table", out)
+
+
+class TestBIRS0506_04GuardEdits(_GenerateLessonsIndexFixtureBase):
+    """BIR-S05-06-04's three surgical guard edits: fence-aware heading
+    detection, the exit-2 --check on a legacy hub, and the --replace-legacy
+    help text pointing at the migrator."""
+
+    def test_legacy_headings_to_drop_is_fence_aware(self):
+        content = (
+            "# Lessons Learned Index\n\n"
+            "## Naming Convention\n\nOutside the fence, a real heading.\n\n"
+            "## Lesson File Template\n\n"
+            "```yaml\n"
+            "id: LL-{NNN}\n"
+            "---\n\n"
+            "# LL-{NNN}-{Domain}: {Title}\n\n"
+            "## Context\n\n{body}\n\n"
+            "## Lesson\n\n{body}\n\n"
+            "## Applies To\n\n{body}\n"
+            "```\n\n"
+            "## Archive\n\nAlso outside the fence, a real heading.\n"
+        )
+        dropped = gli._legacy_headings_to_drop(content)
+        self.assertIn("Naming Convention", dropped)
+        self.assertIn("Lesson File Template", dropped)
+        self.assertIn("Archive", dropped)
+        for fenced in ("Context", "Lesson", "Applies To"):
+            self.assertNotIn(fenced, dropped)
+
+    def test_check_exit_two_on_legacy_hub_names_upgrade(self):
+        self.write_lesson(101, status="documented")
+        content = (
+            "# Lessons Learned Index\n\n## Master Table\n\n"
+            "| ID | Title | Category | Severity | Language | Technology | Domain | Source | Status | File |\n"
+            "|----|----|----|----|----|----|----|----|----|----|\n"
+        )
+        hub_path = self.lessons_dir / "00-Index-LessonsLearned.md"
+        hub_path.write_bytes(content.encode("utf-8"))
+
+        code, out, err = self.run_main("--check")
+
+        self.assertEqual(code, 2)
+        self.assertIn(str(hub_path), err)
+        self.assertIn("/planwise upgrade", err)
+        self.assertEqual(out, "")
+
+    def test_check_json_on_legacy_hub_prints_the_report_then_exits_two(self):
+        self.write_lesson(101, status="documented")
+        hub_path = self.lessons_dir / "00-Index-LessonsLearned.md"
+        hub_path.write_bytes(
+            b"# Lessons Learned Index\n\n## Master Table\n\n"
+            b"| ID | Title | Category | Severity | Language | Technology | Domain | Source | Status | File |\n"
+            b"|----|----|----|----|----|----|----|----|----|----|\n"
+        )
+
+        code, out, err = self.run_main("--check", "--json")
+
+        self.assertEqual(code, 2)
+        payload = json.loads(out)
+        self.assertIn("legacy-shape", [f["class"] for f in payload["drift"]])
+        self.assertIn("/planwise upgrade", err)
+
+    def test_check_help_text_describes_the_legacy_hub_exit(self):
+        old_argv = sys.argv
+        sys.argv = ["generate_lessons_index.py", "--help"]
+        out = StringIO()
+        try:
+            with redirect_stdout(out), self.assertRaises(SystemExit):
+                gli.main()
+        finally:
+            sys.argv = old_argv
+        text = " ".join(out.getvalue().split())
+        self.assertNotIn("only --write stops early", text)
+        self.assertIn("legacy-shape finding", text)
+
+    def test_lessons_exit_code_for_refuses_report_mode_on_legacy_shape(self):
+        findings = [{"class": "legacy-shape", "id": "00-Index-LessonsLearned.md", "detail": "x"}]
+        self.assertEqual(gli.lessons_exit_code_for(write_mode=False, findings=findings),
+                         gli.LessonsDisposition.REFUSED)
+        self.assertEqual(gli.lessons_exit_code_for(write_mode=False, findings=[]),
+                         gli.LessonsDisposition.CLEAN)
+
+    def test_write_refusal_names_upgrade_before_the_flag(self):
+        self.write_lesson(101, status="documented")
+        hub_path = self.lessons_dir / "00-Index-LessonsLearned.md"
+        hub_path.write_bytes(
+            b"# Lessons Learned Index\n\n## Master Table\n\n"
+            b"| ID | Title | Category | Severity | Language | Technology | Domain | Source | Status | File |\n"
+            b"|----|----|----|----|----|----|----|----|----|----|\n"
+        )
+
+        code, _out, err = self.run_main("--write")
+
+        self.assertEqual(code, 2)
+        upgrade_at = err.find("/planwise upgrade")
+        flag_at = err.find("--replace-legacy")
+        self.assertNotEqual(upgrade_at, -1)
+        self.assertNotEqual(flag_at, -1)
+        self.assertLess(upgrade_at, flag_at)
+
+    def test_replace_legacy_help_text_points_to_migrator(self):
+        old_argv = sys.argv
+        sys.argv = ["generate_lessons_index.py", "--help"]
+        out = StringIO()
+        try:
+            with redirect_stdout(out), self.assertRaises(SystemExit):
+                gli.main()
+        finally:
+            sys.argv = old_argv
+        text = out.getvalue()
+        self.assertIn("migrate_lessons_index.py", text)
+        self.assertIn("relocated", text)
 
 
 class _DriftFixtureBase(_GenerateLessonsIndexFixtureBase):
