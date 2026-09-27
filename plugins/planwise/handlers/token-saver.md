@@ -53,7 +53,7 @@ Extract from `config.yaml`:
 
 - The Token Saver budget engine (`scripts/token_saver.py`): `set_token_saver`, `calibrate`, the derivation helpers, and the FIXED Read-tool gates.
 - The shared config loader (`scripts/config_loader.py`): `get_effective_token_saver_config` overlays a per-plan on/off decision onto the project surface.
-- [doctor.md](doctor.md) — the staleness signal reused by `status` (see [Staleness Signal](#staleness-signal)).
+- [doctor-Part-3-TokenSaverAndBookkeepingReadGates.md](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md) — the staleness signal reused by `status` (see [Staleness Signal](#staleness-signal)).
 - [upgrade.md](upgrade.md) — the calibrate-on-enable pattern (`on` reuses the same `token_saver.calibrate(...)` call upgrade runs).
 - [../references/token-saver-profile.md](../references/token-saver-profile.md) — the two-tier policy and threshold-derivation formulas the `calibrate` call above implements.
 - **What this toggle's target means** — `token_saver_session_target` is a **per-dispatched-window** budget (the HARD ceiling on a task-runner subagent), NOT an orchestrator-session target; the orchestrator side is the **model floor** plus a measured session-length advisory. See [../references/token-saver-profile.md](../references/token-saver-profile.md) § Orchestrator-Window Expectation, and [../references/session-context-budget.md](../references/session-context-budget.md) §5 (§ Subagent Context Window for the model floor, § Per-Invocation Structural Floor for the cost calibration cannot see).
@@ -202,7 +202,7 @@ The override target is the plan's Master Plan frontmatter `Token Saver:` field �
 
 ## Staleness Signal
 
-Reused from [doctor.md](doctor.md)'s overhead-staleness check. The stored overheads no longer reflect this install's real `/context` footprint when EITHER signal fires:
+Reused from [doctor-Part-3-TokenSaverAndBookkeepingReadGates.md](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md)'s overhead-staleness check. The stored overheads no longer reflect this install's real `/context` footprint when EITHER signal fires:
 
 | Staleness signal | How to detect |
 |------------------|---------------|
@@ -214,4 +214,4 @@ Reused from [doctor.md](doctor.md)'s overhead-staleness check. The stored overhe
 
 ---
 
-*Cross-reference: [upgrade.md](upgrade.md) (Token Saver recalibration), [doctor.md](doctor.md) (overhead-staleness audit, read-gate scan), [token_saver + config_loader in scripts/](../scripts/token_saver.py).*
+*Cross-reference: [upgrade.md](upgrade.md) (Token Saver recalibration), [doctor-Part-3-TokenSaverAndBookkeepingReadGates.md](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md) (overhead-staleness audit, read-gate scan), [token_saver + config_loader in scripts/](../scripts/token_saver.py).*

@@ -157,4 +157,4 @@ The script re-reads the index immediately before writing (race-safe against a co
 
 ---
 
-*Consumed by [`handlers/doctor.md`](../handlers/doctor.md) Stages 11/12/13 and 19 (all four bindings, always-on — no `--no-check` escape hatch), [`handlers/list.md`](../handlers/list.md) (plans), [`handlers/backlog.md`](../handlers/backlog.md) (both backlog bindings, each skippable with `--no-check`) and [`lessons-curate-workflow.md`](lessons-curate-workflow.md) (lessons) — each citing this canonical instead of restating the detect/reconcile flow.*
+*Consumed by [`handlers/doctor.md`](../handlers/doctor.md) Stages 11/12/13 and [`handlers/doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md`](../handlers/doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md) Stage 19 (all four bindings, always-on — no `--no-check` escape hatch), [`handlers/list.md`](../handlers/list.md) (plans), [`handlers/backlog.md`](../handlers/backlog.md) (both backlog bindings, each skippable with `--no-check`) and [`lessons-curate-workflow.md`](lessons-curate-workflow.md) (lessons) — each citing this canonical instead of restating the detect/reconcile flow.*

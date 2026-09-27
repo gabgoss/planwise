@@ -207,8 +207,9 @@ Use `AskUserQuestion`:
 > correct: eight handlers invoke init as a subroutine, and an install prompt
 > firing mid-`/planwise backlog` would be wrong. Nobody is stranded by it —
 > [upgrade.md](upgrade.md) Step 4.5 makes the same offer to every install that
-> only ever auto-inits, and [doctor.md](doctor.md) Stage 16 reports the gate
-> state on demand.
+> only ever auto-inits, and
+> [doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md)
+> Stage 16 reports the gate state on demand.
 
 Probe for the GitHub CLI by running `gh --version`. Three outcomes, reported
 distinctly — the installed-but-unauthenticated case is the one most likely to

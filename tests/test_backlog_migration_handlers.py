@@ -23,6 +23,19 @@ DOCTOR_HANDLER = (
     Path(__file__).resolve().parent.parent
     / "plugins" / "planwise" / "handlers" / "doctor.md"
 )
+# Stages 14-20 were relocated out of doctor.md into this Part-2 file by the
+# read-gate token split (doctor.md alone exceeded the WARN threshold). Stage
+# 20's own tests below read this file, not DOCTOR_HANDLER.
+DOCTOR_HANDLER_PART2 = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "handlers"
+    / "doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md"
+)
+DOCTOR_HANDLER_PART3 = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "handlers"
+    / "doctor-Part-3-TokenSaverAndBookkeepingReadGates.md"
+)
 
 # The Stage heading set present in doctor.md BEFORE this task's Stage 20 was
 # appended. Pinned as a literal so the post-edit set can be asserted by
@@ -61,39 +74,58 @@ class TestBacklogHandlerHandAuthoredIndexBranch(unittest.TestCase):
 
 
 class TestDoctorHandlerStage20(unittest.TestCase):
+    """Stages 14-20 now live in DOCTOR_HANDLER_PART2, and the Token Saver
+    Audit that used to immediately follow Stage 20 in the same file now
+    lives in DOCTOR_HANDLER_PART3 -- see the split's own pointer table in
+    doctor.md. Assertions that used to span both within one file now assert
+    Stage 20 is Part 2's last stage and that Part 2 hands off to Part 3."""
 
     def setUp(self):
-        self.text = DOCTOR_HANDLER.read_text(encoding="utf-8-sig")
+        self.part1_text = DOCTOR_HANDLER.read_text(encoding="utf-8-sig")
+        self.part2_text = DOCTOR_HANDLER_PART2.read_text(encoding="utf-8-sig")
+        self.part3_text = DOCTOR_HANDLER_PART3.read_text(encoding="utf-8-sig")
 
     def test_stage_20_heading_present(self):
-        self.assertIn("### Stage 20: Backlog Index Shape Audit", self.text)
+        self.assertIn("### Stage 20: Backlog Index Shape Audit", self.part2_text)
 
-    def test_stage_20_sits_between_stage_19_and_token_saver_audit(self):
-        stage19_idx = self.text.index("### Stage 19")
-        stage20_idx = self.text.index("### Stage 20: Backlog Index Shape Audit")
-        token_saver_idx = self.text.index("## Token Saver Audit")
+    def test_stage_20_is_the_last_stage_heading_in_part2(self):
+        stage_headings = list(_STAGE_HEADING_RE.finditer(self.part2_text))
+        self.assertTrue(stage_headings)
+        last_stage_idx = stage_headings[-1].start()
+        stage20_idx = self.part2_text.index("### Stage 20: Backlog Index Shape Audit")
+        self.assertEqual(last_stage_idx, stage20_idx)
+
+    def test_stage_19_precedes_stage_20_in_part2(self):
+        stage19_idx = self.part2_text.index("### Stage 19")
+        stage20_idx = self.part2_text.index("### Stage 20: Backlog Index Shape Audit")
         self.assertLess(stage19_idx, stage20_idx)
-        self.assertLess(stage20_idx, token_saver_idx)
+
+    def test_part2_hands_off_to_token_saver_audit_in_part3(self):
+        self.assertIn("Continued in Part 3", self.part2_text)
+        self.assertIn("## Token Saver Audit", self.part3_text)
 
     def test_stage_20_contains_report_json_command(self):
         stage20_span = _span_between(
-            self.text,
+            self.part2_text,
             "### Stage 20: Backlog Index Shape Audit",
-            "## Token Saver Audit",
+            "**Continued in Part 3**",
         )
         self.assertIn("--report --json", stage20_span)
 
     def test_stage_20_contains_changelog_budget_flags(self):
         stage20_span = _span_between(
-            self.text,
+            self.part2_text,
             "### Stage 20: Backlog Index Shape Audit",
-            "## Token Saver Audit",
+            "**Continued in Part 3**",
         )
         self.assertIn("changelog_over_budget", stage20_span)
         self.assertIn("--split-changelog", stage20_span)
 
     def test_stage_heading_set_is_old_set_plus_20(self):
-        found = set(_STAGE_HEADING_RE.findall(self.text))
+        # Stages 8-13 now live in Part 1 (doctor.md); Stages 14-20 in Part 2.
+        found = set(_STAGE_HEADING_RE.findall(self.part1_text)) | set(
+            _STAGE_HEADING_RE.findall(self.part2_text)
+        )
         self.assertEqual(found, _PRE_EDIT_STAGE_SET | {"20"})
 
 

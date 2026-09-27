@@ -319,7 +319,8 @@ Implemented inside Step 2.4's script invocation (`_apply_feedback_dir()` in
 `artifact_upgrade.py`), not as a separate handler-side procedure — called
 out as its own step here only because it closes a distinct half of the
 directory-creation contract; see [init.md](init.md) Step 10 and
-[doctor.md](doctor.md) Stage 17 for the other two entry points.
+[doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md)
+Stage 17 for the other two entry points.
 
 On every `--upgrade` run that reaches an existing `config.yaml` — including
 the already-up-to-date early return, so a re-run at a current pin still
@@ -628,7 +629,7 @@ back to Recovery-only tracking (Track A).
 The **report always renders**, regardless of consent. The **write happens only on explicit interactive approval**: `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`) — "Add `CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"` to {settings_path}'s env block?" — inferred default **report-only, change nothing** (an unattended/non-interactive run never rewrites `env`). On confirm, merge the key into the existing `env` object — preserve every other key, never overwrite an unrelated env var — write, then read the file back to confirm the write landed, and note that a **new session** is required for the tools to appear (the current session's tool list is fixed at startup). On decline, or when no interactive answer is available, print the report and leave every settings file untouched.
 
 > [!practice] Why this offer runs at upgrade time and not only at init
-> `scripts/init_project.py::configure_settings()` writes `CLAUDE_CODE_ENABLE_TODO_TOOLS` unconditionally for every new project, same as Agent Teams. But every install that predates that write has already run its `init` and will never run it again, so an init-only placement leaves those consumers permanently dependent on noticing `handlers/doctor.md` Stage 18's advisory and hand-editing their settings file. This step reaches that population — the same reasoning Step 4.5 already states for the GitHub CLI offer.
+> `scripts/init_project.py::configure_settings()` writes `CLAUDE_CODE_ENABLE_TODO_TOOLS` unconditionally for every new project, same as Agent Teams. But every install that predates that write has already run its `init` and will never run it again, so an init-only placement leaves those consumers permanently dependent on noticing `handlers/doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md` Stage 18's advisory and hand-editing their settings file. This step reaches that population — the same reasoning Step 4.5 already states for the GitHub CLI offer.
 
 ---
 
