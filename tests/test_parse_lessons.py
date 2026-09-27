@@ -72,13 +72,11 @@ class _ParseLessonsFixtureBase(unittest.TestCase):
         self.index_path = self.lessons_dir / "00-Index-LessonsLearned.md"
 
         (self.planwise_dir / "config.yaml").write_bytes(
-            (
-                b'project:\n'
-                b'  name: "ParseLessonsFixtureProject"\n'
-                b'  lessons_dir: "LessonsLearned"\n'
-                b'  index_files:\n'
-                b'    lessons: "00-Index-LessonsLearned.md"\n'
-            )
+            b'project:\n'
+            b'  name: "ParseLessonsFixtureProject"\n'
+            b'  lessons_dir: "LessonsLearned"\n'
+            b'  index_files:\n'
+            b'    lessons: "00-Index-LessonsLearned.md"\n'
         )
 
         # load_config() reads --config from sys.argv; inject it for the test.
@@ -134,7 +132,7 @@ class _ParseLessonsFixtureBase(unittest.TestCase):
             (
                 f"---\nid: LL-{number:03d}\nstatus: documented\n---\n\n"
                 f"# LL-{number:03d}-PROC: Fixture lesson {number}\n"
-            ).encode("utf-8")
+            ).encode()
         )
         return path
 

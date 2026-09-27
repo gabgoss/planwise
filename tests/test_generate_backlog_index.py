@@ -1650,7 +1650,9 @@ def _load_pre_fix_check_drift(sha):
         "__name__": "pre_fix_backlog_index_drift",
         "__file__": str(scripts_dir / "backlog_index_drift.py"),
     }
-    exec(compile(result.stdout, "pre_fix_backlog_index_drift.py", "exec"), namespace)
+    exec(  # noqa: S102 -- loads a historical git blob of this module to run its pre-fix function for regression comparison, not external/untrusted input
+        compile(result.stdout, "pre_fix_backlog_index_drift.py", "exec"), namespace
+    )
     return namespace["_check_drift"]
 
 

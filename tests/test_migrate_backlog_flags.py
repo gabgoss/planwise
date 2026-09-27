@@ -6,15 +6,15 @@ written as bytes under tmp_path, never under plugins/planwise/."""
 import json
 import os
 import sys
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-import migrate_backlog_index as mig  # noqa: E402
-import migrate_backlog_support as sup  # noqa: E402
+import migrate_backlog_index as mig
+import migrate_backlog_support as sup
 
 NO_GIT = "--allow-untracked-tree"
 HEADER = "| ID | Feature | Priority | Status | Created | Blocks | Files |\n|---|---|---|---|---|---|---|\n"
@@ -143,7 +143,7 @@ def test_backfill_created_falls_back_to_mtime_without_a_created_column_or_git(tm
     os.utime(index_path.parent / NAMES["003"], (1_700_000_000, 1_700_000_000))
     code, out, err = run(monkeypatch, capsys, config_path, "--backfill-frontmatter", "--write")
     assert code == 0, err + out
-    expected = date.fromtimestamp(1_700_000_000).isoformat()
+    expected = datetime.fromtimestamp(1_700_000_000, tz=timezone.utc).astimezone().date().isoformat()
     assert f"created: {expected}\n".encode() in item_bytes(index_path, "003")
     assert ledger(index_path)["backfill"][0]["created_source"] == "mtime"
 
@@ -291,7 +291,7 @@ def test_in_process_plan_targets_then_execute(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["migrate_backlog_index.py", "--config", str(config_path)])
     config = mig.load_config(Path(mig.__file__))
     text = mig.read_text(index_path)
-    shape, detail = sup.classify_shape(text)
+    _shape, detail = sup.classify_shape(text)
     plan = mig.plan_migration(config, index_path, text, detail, mig.RepairOptions.all_on())
     changelog, ledger_path, _older = mig.artifact_paths(index_path)
     assert {p.name for p in mig.plan_targets(plan)} == {index_path.name, changelog.name, *NAMES.values()} - {

@@ -924,25 +924,25 @@ def format_route_line(signals: dict, score: int) -> str:
 
 def format_route_detail(signals: dict, score: int) -> str:
     """The full signal vector for one item (`--route --id N`)."""
-    yes_no = lambda flag: "yes" if flag else "no"  # noqa: E731 -- local rendering helper
+    yes_no = lambda flag: "yes" if flag else "no"
     lines = [
-        f"{signals['id']}  route {signals['route']}  LARGE_SCOPE {yes_no(signals['large_scope'])}"
-        f"  (score {score})",
+        (f"{signals['id']}  route {signals['route']}  LARGE_SCOPE {yes_no(signals['large_scope'])}"
+         f"  (score {score})"),
         f"  branch:            {signals['branch']}",
         f"  abbrev/is_bug:     {signals['abbrev']} / {yes_no(signals['is_bug'])}",
-        f"  line_count/short:  {signals['line_count']} / {yes_no(signals['is_short'])}"
-        f"  (< {SHORT_ITEM_LINES})",
+        (f"  line_count/short:  {signals['line_count']} / {yes_no(signals['is_short'])}"
+         f"  (< {SHORT_ITEM_LINES})"),
         f"  file_paths:        {len(signals['file_paths'])}",
-        f"  h2 / numbered:     {signals['h2_count']} / {signals['numbered_items']}"
-        f"  -> SUB_ITEMS {signals['sub_items']} (>= {SUB_ITEMS_THRESHOLD}: "
-        f"{yes_no(signals['sub_items'] >= SUB_ITEMS_THRESHOLD)})",
+        (f"  h2 / numbered:     {signals['h2_count']} / {signals['numbered_items']}"
+         f"  -> SUB_ITEMS {signals['sub_items']} (>= {SUB_ITEMS_THRESHOLD}: "
+         f"{yes_no(signals['sub_items'] >= SUB_ITEMS_THRESHOLD)})"),
         f"  step_count:        {signals['step_count']}  (longest consecutive numbered list)",
         f"  file_count:        {signals['file_count']}  (multiple: {yes_no(signals['has_multiple_files'])})",
         f"  HAS_CLEAR_FIX:     {yes_no(signals['has_clear_fix'])}  -- {signals['has_clear_fix_note']}",
-        f"    line_anchor={yes_no(signals['clear_fix']['line_anchor'])} "
-        f"edit_target={yes_no(signals['clear_fix']['edit_target'])} "
-        f"before_after={yes_no(signals['clear_fix']['before_after'])} "
-        f"scope_bound={yes_no(signals['clear_fix']['scope_bound'])}",
+        (f"    line_anchor={yes_no(signals['clear_fix']['line_anchor'])} "
+         f"edit_target={yes_no(signals['clear_fix']['edit_target'])} "
+         f"before_after={yes_no(signals['clear_fix']['before_after'])} "
+         f"scope_bound={yes_no(signals['clear_fix']['scope_bound'])}"),
         f"  HAS_MULTI_SPRINT:  {yes_no(signals['has_multi_sprint'])}  ({len(signals['multi_sprint_hits'])} hit(s))",
     ]
     lines.extend(f"    L{h['line']} [{h['term']}] {h['text']}" for h in signals["multi_sprint_hits"])

@@ -74,7 +74,7 @@ def _parse_list_field(raw: str) -> list:
     return items
 
 
-def _read_frontmatter_map(path: Path, text: str = None) -> dict:
+def _read_frontmatter_map(path: Path, text: str | None = None) -> dict:
     """Parse `text` when given (an in-memory override), else read `path`."""
     content = text if text is not None else path.read_text(encoding="utf-8")
     parts = split_frontmatter_block(content)
@@ -123,7 +123,7 @@ def _extract_fields(path: Path, raw_map: dict) -> dict:
     return fields
 
 
-def _scan_one_file(path: Path, text: str = None) -> dict:
+def _scan_one_file(path: Path, text: str | None = None) -> dict:
     raw_map = _read_frontmatter_map(path, text)
     return _extract_fields(path, raw_map)
 
@@ -162,7 +162,7 @@ def _iter_item_files(backlog_dir: Path, archive_dir: Path, index_path: Path):
 
 
 def scan_backlog(
-    backlog_dir: Path, archive_dir: Path, index_path: Path, *, overrides: dict = None
+    backlog_dir: Path, archive_dir: Path, index_path: Path, *, overrides: dict | None = None
 ) -> list:
     """Scan every item file and return its extracted fields, id-sorted.
 

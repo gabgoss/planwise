@@ -393,9 +393,8 @@ class TestCli(_BacklogFixtureBase):
         err = io.StringIO()
         with patch(
             "reconcile_backlog.archive_item_files", side_effect=fake_archive_item_files
-        ):
-            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ctx:
-                self.run_main("--write")
+        ), contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ctx:
+            self.run_main("--write")
 
         self.assertEqual(ctx.exception.code, 1)
         self.assertIn("fails-to-move-INFRA-item.md", err.getvalue())
@@ -414,9 +413,8 @@ class TestCli(_BacklogFixtureBase):
 
         with patch(
             "reconcile_backlog.archive_item_files", side_effect=fake_archive_item_files
-        ):
-            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                self.run_main("--write")
+        ), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_main("--write")
 
         out = self.run_main()  # detect mode, no --write -- must not raise
 

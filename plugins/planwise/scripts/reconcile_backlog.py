@@ -91,16 +91,16 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 # Import shared config loader + sibling primitives
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import reconcile_common
 from config_loader import load_config
 from constants import CLOSED_STATUSES
+from frontmatter_parser import BOM_CHAR, split_frontmatter_block
 from generate_backlog_index import (
     GeneratorError,
     _iter_item_files,
     _read_frontmatter_map,
     _strip_quotes,
 )
-import reconcile_common
-from frontmatter_parser import BOM_CHAR, split_frontmatter_block
 from reconcile_common import format_drift_report, run_reconcile_cli
 from update_backlog import _frontmatter_id, archive_item_files
 
@@ -389,7 +389,7 @@ def _scan_body_status(text: str) -> dict:
 
     for index in range(_body_start_index(text), len(lines)):
         raw = lines[index]
-        line = raw[:-1] if raw.endswith("\r") else raw
+        line = raw.removesuffix("\r")
         if index == 0:
             # Classification only: the write path keeps the raw BOM.
             line = line.lstrip(BOM_CHAR)

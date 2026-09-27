@@ -15,7 +15,7 @@ Run with:  python -m pytest tests/test_migrate_backlog_repairs.py -q
 import re
 import subprocess
 import sys
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -23,9 +23,9 @@ import pytest
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import migrate_backlog_support as sup  # noqa: E402
-from frontmatter_parser import BOM_CHAR  # noqa: E402
-from migrate_backlog_repairs import (  # noqa: E402
+import migrate_backlog_support as sup
+from frontmatter_parser import BOM_CHAR
+from migrate_backlog_repairs import (
     created_dates,
     dependency_bullets,
     filename_fields,
@@ -281,7 +281,7 @@ def test_created_dates_git_git_follow_and_mtime(tmp_path):
 
     untracked_date, untracked_source = result[untracked_file]
     assert untracked_source == "mtime"
-    expected = date.fromtimestamp(untracked_file.stat().st_mtime).isoformat()
+    expected = datetime.fromtimestamp(untracked_file.stat().st_mtime, tz=timezone.utc).astimezone().date().isoformat()
     assert untracked_date == expected
 
 
@@ -295,7 +295,7 @@ def test_created_dates_mtime_when_not_a_repository(tmp_path):
 
     lone_date, lone_source = result[lone_file]
     assert lone_source == "mtime"
-    expected = date.fromtimestamp(lone_file.stat().st_mtime).isoformat()
+    expected = datetime.fromtimestamp(lone_file.stat().st_mtime, tz=timezone.utc).astimezone().date().isoformat()
     assert lone_date == expected
 
 

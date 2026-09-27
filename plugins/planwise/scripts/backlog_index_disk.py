@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from backlog_index_schema import IndexNaming, is_generated_index_file
 from reconcile_common import read_text_preserving_newlines
 
+
 def _list_disk_generated_files(backlog_dir: Path, archive_dir: Path, naming: IndexNaming) -> list:
     """Every on-disk file matching `is_generated_index_file` under `naming`
     (Finding F5 -- the project's real config-derived naming, never a

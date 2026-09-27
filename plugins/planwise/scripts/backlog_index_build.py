@@ -29,6 +29,7 @@ from backlog_index_schema import (
 )
 from read_limits import READ_PAGE_CAP_TOKENS, READ_TOKEN_WARN, estimate_tokens
 
+
 def _relative_link(from_dir: Path, to_path: Path) -> str:
     rel = os.path.relpath(to_path, start=from_dir)
     return str(rel).replace("\\", "/")

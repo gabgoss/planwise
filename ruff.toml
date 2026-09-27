@@ -13,13 +13,24 @@
 # There is no "known baseline" allowance any more: a release battery asserts
 # the command above is clean, not "equal to N recorded findings".
 
+# Pin the ruff version this repo lints against. `[lint]` below selects no
+# rules explicitly, so the enforced rule set is ruff's own version-dependent
+# default set -- a different ruff version can silently change which findings
+# this gate reports. Pinning makes a mismatched ruff refuse to run instead of
+# quietly changing the gate.
+required-version = "==0.16.8"
+
 [lint]
 
 [lint.per-file-ignores]
 # evals/conftest.py must set sys.dont_write_bytecode and extend sys.path
 # BEFORE importing the modules under plugins/planwise/scripts; E402 is the
-# cost of that ordering, not a defect. tests/*.py carry `# noqa: E402` inline
-# for the same shape, so they need no entry here.
+# cost of that ordering, not a defect. E402 is not in ruff 0.16.8's default
+# rule set, so an inline `# noqa: E402` in a test file is dead and RUF100
+# flags it -- tests/*.py carry no such inline suppression any more. This
+# per-file-ignore is likewise dead under the current default rule set; it is
+# kept in place as a no-op rather than removed, so the ignore reactivates on
+# its own if a future ruff default set re-enables E402.
 "evals/conftest.py" = ["E402"]
 # tests/conftest.py imports init_project before artifact_upgrade/doctor_sweeps
 # on purpose: artifact_upgrade -> rule_descope_migration -> init_project is a

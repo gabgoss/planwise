@@ -14,9 +14,9 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scr
 SCRIPT = SCRIPTS / "migrate_backlog_index.py"
 GENERATOR = SCRIPTS / "generate_backlog_index.py"
 sys.path.insert(0, str(SCRIPTS))
-import generate_backlog_index as gen  # noqa: E402
-import migrate_backlog_index as mig  # noqa: E402
-import migrate_backlog_support as sup  # noqa: E402
+import generate_backlog_index as gen
+import migrate_backlog_index as mig
+import migrate_backlog_support as sup
 
 NO_GIT = "--allow-untracked-tree"
 FEATURE_TITLE = "Sample item needs love"
@@ -93,7 +93,7 @@ def _run(config_path, *extra_args, script=SCRIPT):
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     return subprocess.run([sys.executable, str(script), "--config", str(config_path), *extra_args],
                           capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          timeout=120, env=env)
+                          timeout=120, env=env, check=False)
 
 def _run_inproc(monkeypatch, config_path, *extra_args):
     monkeypatch.setattr(sys, "argv", ["migrate_backlog_index.py", "--config", str(config_path), *extra_args])
@@ -254,7 +254,7 @@ def test_stage_all_preserves_target_mode_and_new_file_gets_umask_default(tmp_pat
     assert target.stat().st_mode & 0o777 == 0o644 and new.stat().st_mode & 0o777 == sup.default_mode()
 
 def test_already_migrated_state_is_clean_and_rerun_appends_nothing(tmp_path):
-    config_path, index_path = _make_project(tmp_path, LEGACY_INDEX)
+    config_path, _index_path = _make_project(tmp_path, LEGACY_INDEX)
     assert _run(config_path, NO_GIT, "--write").returncode == 0
     after_first = _snapshot(tmp_path)
     dry = _run(config_path, NO_GIT)

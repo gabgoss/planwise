@@ -10,8 +10,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import test_backlog_migration as base  # noqa: E402
-from test_backlog_migration import bm, config_loader, gen, mig, sup  # noqa: E402
+import test_backlog_migration as base
+from test_backlog_migration import bm, config_loader, gen, mig, sup
 
 CHANGELOG = "00-Changelog-Backlog.md"
 POINTER_INDEX = base.legacy_index().replace(base.FOOTER, "*Last Updated: 2024-02-01 — moved to [{0}]({0})*\n")

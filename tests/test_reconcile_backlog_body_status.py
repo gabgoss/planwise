@@ -876,9 +876,9 @@ class TestWrite(_BodyStatusFixtureBase):
         f2_path = self.put("F2")
 
         err = io.StringIO()
-        with _inject_write_failure(select=lambda text: "id: 239" in text, partial=False):
-            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ctx:
-                self.run_main("--body-status", "--write")
+        with _inject_write_failure(select=lambda text: "id: 239" in text, partial=False), \
+                contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ctx:
+            self.run_main("--body-status", "--write")
 
         self.assertEqual(ctx.exception.code, 1)
         self.assertIn(f1_path.name, err.getvalue())
@@ -979,9 +979,9 @@ class TestAtomicWrite(_BodyStatusFixtureBase):
         f1_path = self.put("F1")
 
         err = io.StringIO()
-        with _inject_write_failure(select=lambda text: "id: 239" in text, partial=True):
-            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ctx:
-                self.run_main("--body-status", "--write")
+        with _inject_write_failure(select=lambda text: "id: 239" in text, partial=True), \
+                contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ctx:
+            self.run_main("--body-status", "--write")
 
         self.assertEqual(ctx.exception.code, 1)
         self.assertIn(f1_path.name, err.getvalue())
@@ -1172,9 +1172,9 @@ class TestStaleFailureState(_BodyStatusFixtureBase):
 
     def test_37_failed_write_then_clean_runs_exit_zero(self):
         f1_path = self.put("F1")
-        with _inject_write_failure(select=lambda text: "id: 239" in text, partial=False):
-            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                self.run_main("--body-status", "--write")
+        with _inject_write_failure(select=lambda text: "id: 239" in text, partial=False), \
+                contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_main("--body-status", "--write")
 
         detect_out = self.run_main("--body-status")  # must not raise
         write_out = self.run_main("--body-status", "--write")  # must not raise

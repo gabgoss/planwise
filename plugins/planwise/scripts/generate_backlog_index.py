@@ -55,6 +55,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import migrate_backlog_support as sup
 from backlog_index_budget import (
     CLOSED_STATUSES,
     HUB_HEADROOM_FACTOR,
@@ -149,8 +150,6 @@ from config_loader import get_scoring_weights, load_config
 from read_limits import READ_TOKEN_WARN, estimate_tokens
 from reconcile_common import read_text_preserving_newlines
 
-import migrate_backlog_support as sup
-
 __all__ = [
     "CLOSED_STATUSES",
     "COLUMN_COUNT",
@@ -163,13 +162,10 @@ __all__ = [
     "COL_SCORE",
     "COL_STATUS",
     "COL_TITLE",
-    "Disposition",
-    "GeneratorError",
     "HEADER_CELLS",
     "HUB_HEADROOM_FACTOR",
     "HUB_TOKEN_BUDGET",
     "INDEX_FILE_STEM",
-    "IndexNaming",
     "MEASUREMENT_BASIS",
     "READ_TOKEN_WARN",
     "REQUIRED_KEYS",
@@ -178,6 +174,9 @@ __all__ = [
     "_DEFAULT_INDEX_NAMING",
     "_LIST_ITEM_RE",
     "_UNESCAPED_PIPE_RE",
+    "Disposition",
+    "GeneratorError",
+    "IndexNaming",
     "_atomic_write_files",
     "_budget_fields",
     "_changelog_filename",
@@ -290,7 +289,7 @@ def exit_code_for(*, write_mode: bool, reciprocal_edge: bool, drift_or_anomaly: 
 
 def _run_report_pipeline(
     backlog_dir: Path, archive_dir: Path, index_path: Path, naming: IndexNaming, config: dict,
-    *, overrides: dict = None,
+    *, overrides: dict | None = None,
 ):
     """Shared by `--check` and `--dry-run`/default: scan -> resolve ->
     detect the reciprocal-edge anomaly -> score -> build_index_files ->

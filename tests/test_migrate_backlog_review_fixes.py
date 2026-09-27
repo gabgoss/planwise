@@ -9,10 +9,10 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-import backlog_index_schema as schema  # noqa: E402
-import migrate_backlog_index as mig  # noqa: E402
-import migrate_backlog_repairs as repairs  # noqa: E402
-import migrate_backlog_support as sup  # noqa: E402
+import backlog_index_schema as schema
+import migrate_backlog_index as mig
+import migrate_backlog_repairs as repairs
+import migrate_backlog_support as sup
 
 NO_GIT = "--allow-untracked-tree"
 BUDGET = 22000

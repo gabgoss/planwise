@@ -37,8 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from constants import ARCHIVE_STATUSES, VALID_STATUSES
 from generate_backlog_index import (
-    GeneratorError,
     TITLE_MAX_LEN,
+    GeneratorError,
     _iter_item_files,
     _read_frontmatter_map,
     _strip_quotes,
@@ -178,9 +178,8 @@ def _blocked_moves(
         if archiving and path.parent != archive_dir:
             if (archive_dir / path.name).exists():
                 blocked.append(path.name)
-        elif not archiving and path.parent == archive_dir:
-            if (backlog_dir / path.name).exists():
-                blocked.append(path.name)
+        elif not archiving and path.parent == archive_dir and (backlog_dir / path.name).exists():
+            blocked.append(path.name)
     return blocked
 
 

@@ -109,9 +109,7 @@ def scan_index(text: str, header_idx: int, extract_notes: bool = False):
             continue
         if section is None and s.startswith("# ") and not titled:
             titled = True
-        elif s in ("", "---") or s.startswith("*Last Updated:"):
-            pass
-        elif section is None and s.startswith(METADATA_PREFIXES):
+        elif s in ("", "---") or s.startswith("*Last Updated:") or section is None and s.startswith(METADATA_PREFIXES):
             pass
         elif section is None:
             problems.append(f"line {i + 1}: preamble text {s[:60]!r}")
@@ -170,7 +168,7 @@ def git_state(project_root: Path, inputs: list):
     cannot tell: no repo, a git error, git missing, or an input git ignores."""
     def git(*argv, stdin=None):
         return subprocess.run(["git", "-C", str(project_root), *argv], input=stdin, capture_output=True,
-                              text=True, encoding="utf-8", errors="replace", timeout=30)
+                              text=True, encoding="utf-8", errors="replace", timeout=30, check=False)
     try:
         top = git("rev-parse", "--show-toplevel")
         proc = git("status", "--porcelain", "-z", "--untracked-files=all") if top.returncode == 0 else top
