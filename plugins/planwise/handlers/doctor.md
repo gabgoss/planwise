@@ -933,10 +933,11 @@ Step 5 scans one plan's own files. A bookkeeping index is different: it grows ac
    | Backlog | The hub at `{backlog_dir}/{backlog_index}`, plus every generated shard beside it — see step 2 |
    | Lessons | The hub at `{lessons_dir}/{lessons_index}`, plus every generated shard beside it — see step 2's mirror below; skip when `project.lessons_dir` is absent, same as Stage 13 |
    | Plans | `{plans_dir}/{plans_index}` |
+   | Companion | `{lessons_dir}/00-Categorization-By-Domain.md` — resolved from config, skipped when `project.lessons_dir` is absent, same as the Lessons row |
 
 2. **The backlog index is a hub plus overflow leaves plus Archive shards, not one file.** Derive the naming shape from the resolved hub path with `generate_backlog_index._index_naming({backlog_dir}/{backlog_index})` — the same derivation the generator itself uses (see [`references/backlog-schema.md`](../references/backlog-schema.md) § Hub, Overflow Leaves, and Archive Shards). Then scan `{backlog_dir}` and its Archive subdirectory (`project.archive_dir`, default `{backlog_dir}/Archive`) and keep every entry where `generate_backlog_index.is_generated_index_file(name, naming)` is true. Include each matched file in the scan below. Never match by a hardcoded filename — a custom `index_files.backlog` renames the hub, its overflow leaves, and its shard stem together, and only the generator's own recognition function stays consistent with that rename.
 
-   The lessons index is the same shape, mirrored through the lessons generator's own naming resolution: derive it with `generate_lessons_index._index_naming({lessons_dir}/{lessons_index})`, then scan `{lessons_dir}` and its Archive subdirectory and keep every entry where `generate_lessons_index.is_generated_index_file(name, naming)` is true (see [`references/lessons-schema.md`](../references/lessons-schema.md) § Hub, Overflow Leaves and Archive Shards). Skip this scan entirely when `project.lessons_dir` is absent. The companion row (categorisation-file staleness) is a later release, not added here.
+   The lessons index is the same shape, mirrored through the lessons generator's own naming resolution: derive it with `generate_lessons_index._index_naming({lessons_dir}/{lessons_index})`, then scan `{lessons_dir}` and its Archive subdirectory and keep every entry where `generate_lessons_index.is_generated_index_file(name, naming)` is true (see [`references/lessons-schema.md`](../references/lessons-schema.md) § Hub, Overflow Leaves and Archive Shards). Skip this scan entirely when `project.lessons_dir` is absent. Detecting content drift between the companion and the lessons index (row-by-row staleness) is a later release; the Companion row in step 1 only checks read-gate size.
 
 3. **Classify each resolved file** with `token_saver.classify_file(path, model=None, thresholds=None)`. Pass no model and no thresholds: a bookkeeping index has no assigned agent the way a task file does, and `model=None` resolves to `DEFAULT_BYTES_PER_TOKEN` — the smallest, most conservative ratio measured across every model family, so the report never under-counts a file some model would trip. With no `thresholds`, the cost gate stays Green by construction, so any Warn or Critical here reports `reason=read` — the mechanical Read-tool cap, never a cost budget.
 
@@ -948,6 +949,7 @@ Step 5 scans one plan's own files. A bookkeeping index is different: it grows ac
      backlog:  {N} file(s) scanned (hub + overflow + shards)
      lessons:  {path} — {level} ({bytes} B / ~{tokens} tok, reason={reason})
      plans:    {path} — {level} ({bytes} B / ~{tokens} tok, reason={reason})
+     companion: {path} — {level} ({bytes} B / ~{tokens} tok, reason={reason})
 
      {one block per Warn-or-worse file, in the Step 5 finding shape:}
      [{level} / reason={reason}] {path}
@@ -960,7 +962,7 @@ Step 5 scans one plan's own files. A bookkeeping index is different: it grows ac
 
 5. **Give a Critical or Warn finding a visible acknowledgement path. Do not suppress it, and do not raise a threshold to hide it.** Read the first 20 lines of the flagged file for a comment line shaped `<!-- known-condition: {text} -->`. When present, print `Known condition: {text}` directly under the finding, so an operator sees the condition is tracked rather than new. When absent, print `No known-condition note recorded — add a "<!-- known-condition: ... -->" comment naming the plan or item that addresses this, or file a backlog item.` Either way, the finding's level stays exactly what step 3 computed. The note changes what the operator sees beside the finding. It never changes the severity.
 
-6. **This scope stays at exactly these three indexes, plus the backlog's generated shards. It does not extend to item files (`BB-*.md`) or lesson files (`LL-*.md`).** Those are unbounded populations, and scanning them here would trade one blind spot for constant noise. A hand-authored item file that grows past its own advisory sub-backlog budget (see [`references/backlog-schema.md`](../references/backlog-schema.md) `SB` row) has no checker; this step records that gap rather than closing it.
+6. **This scope stays at exactly these four indexes — backlog, lessons, plans, and the companion — plus the backlog's generated shards. It does not extend to item files (`BB-*.md`) or lesson files (`LL-*.md`).** Those are unbounded populations, and scanning them here would trade one blind spot for constant noise. A hand-authored item file that grows past its own advisory sub-backlog budget (see [`references/backlog-schema.md`](../references/backlog-schema.md) `SB` row) has no checker; this step records that gap rather than closing it.
 
 ---
 

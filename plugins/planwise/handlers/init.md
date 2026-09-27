@@ -98,39 +98,34 @@ If `python` is not found, try `python3`.
 
 ### Step 5.1 — Seed Categorisation file (fallback)
 
-Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` from the plugin template, populated with the user's `categorization:` block. This produces the companion file referenced by `{lessons_dir}/00-Index-LessonsLearned.md` and consumed by `/planwise lessons curate` and `/planwise lessons promote-batch`.
+Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` in the generated companion's own shape, populated with the user's `categorization:` block. This produces the companion file referenced by `{lessons_dir}/00-Index-LessonsLearned.md` and consumed by `/planwise lessons curate` and `/planwise lessons promote-batch`.
 
-> **Note:** This step runs in both the fast-path (after Step 2's script succeeds) and the fallback path. The script in `{plugin_root}/scripts/init_project.py` renders the categorization file when PyYAML is available; if PyYAML is missing the script falls through to this step and Claude renders the file via Read+Write. The Glob check in step 1 below makes the step idempotent — if the file already exists (either from a prior init or from the script just running) the step is a no-op.
+> **Note:** This step runs in both the fast-path (after Step 2's script succeeds) and the fallback path. The script in `{plugin_root}/scripts/init_project.py` renders the companion through `generate_lessons_index.render_companion_file` when PyYAML is available; if PyYAML is missing (that call needs a real YAML parse of `config.yaml`), the script falls through to this step and Claude renders the file directly via Read+Write, matching the same shape. The Glob check in step 1 below makes the step idempotent — if the file already exists (either from a prior init or from the script just running) the step is a no-op.
 
 > [!practice] Missing `categorization:` Block — Render From Defaults
-> When the user's `config.yaml` has no `categorization:` block (or the block is empty), the script falls back to a built-in default that mirrors the 4-bucket template (database / code / process / tooling) and surfaces an INFO line in the Step 10 banner naming the missing block. The downstream skill (`/planwise lessons curate`) still works against the rendered file. Suggest the user run `python init_project.py --migrate` to seed the block into their `config.yaml` for full customisation.
+> When the user's `config.yaml` has no `categorization:` block (or the block is empty), the script falls back to a built-in default that mirrors the 4-bucket shape in [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md) (database / code / process / tooling) and surfaces an INFO line in the Step 10 banner naming the missing block. The downstream skill (`/planwise lessons curate`) still works against the rendered file. Suggest the user run `python init_project.py --migrate` to seed the block into their `config.yaml` for full customisation.
 >
 > If Claude runs Step 5.1 in fallback mode (because PyYAML is unavailable), apply the same rule: if the user's `config.yaml` lacks the block, use the bucket list from `config.yaml.template` as the default and add a banner line noting it.
 
 1. Use **Glob** to check if `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` already exists — **skip this step if it does**.
 2. **Read** `{planwise_root}/config.yaml` (written in Step 5) and extract the `categorization:` block. The block has these keys: `buckets` (list), `decision_tree_order` (list), `default_bucket` (string), `edge_cases_section` (bool). Each bucket has `id`, `slug`, `name`, `description`, and optionally `triggers` (object with `technology` and/or `domain` lists), `sub_buckets` (list of `{id, name}` objects), and `code_bucket` (bool). `triggers` and `code_bucket` are not used by this rendering step — they are consumed by `/planwise lessons curate` and only need to round-trip cleanly through the read.
-3. **Read** the template: [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md).
-4. Render the template by substituting placeholders and expanding the iteration directives:
-
-   | Placeholder | Substitute With |
-   |-------------|-----------------|
-   | `{lessons_dir}` | `{lessons_dir}` from Step 1 |
-   | `{lessons_index}` | `00-Index-LessonsLearned.md` (from `config.yaml: project.index_files.lessons`) |
-   | `{TODAY}` | Today's date in ISO format (`YYYY-MM-DD`) |
-   | `{SCOPE_PARAGRAPH}` | Default sentence: `Lessons captured during {project_name} sessions.` (substitute `{project_name}` from Step 1) |
-
-5. Expand `{FOR EACH BUCKET in config.yaml: categorization.buckets:} ... {END}` once per bucket in `decision_tree_order`. For each bucket render:
+3. **Read** [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md) as a worked example of the target shape — it is the generator's own zero-lesson output for the ship-default config, not a fill-in-the-blanks template. Match its shape rather than substituting into it.
+4. Render the header block:
+   - `# Lessons Learned — Categorization by Domain`
+   - `Generated: <today's date>` (ISO format `YYYY-MM-DD`)
+   - `**Companion to:** [{lessons_index}]({lessons_index})` (`{lessons_index}` from `config.yaml: project.index_files.lessons`, default `00-Index-LessonsLearned.md`)
+   - `## Scope` heading, then `config.yaml: categorization.scope` if set, else `Lessons captured during {project_name} sessions.` (substitute `{project_name}` from Step 1)
+5. For each bucket in `decision_tree_order`, render:
    - `## {BUCKET_ID}. {BUCKET_NAME} (0)` heading (the `(0)` is a per-bucket lesson count, initialised to 0)
    - `{BUCKET_DESCRIPTION}` paragraph
    - Empty table:
      - Default 3-column schema: `| ID | Title | Severity |`
      - If the bucket has `code_bucket: true` in `config.yaml`, render 4 columns: `| ID | Title | Module | Severity |`
-6. Inside each bucket block, expand `{IF bucket has sub_buckets:} ... {END}` once per sub-bucket (skip entirely if `sub_buckets` is empty or absent). For each sub-bucket render:
+6. Inside each bucket block, for each sub-bucket (skip entirely if `sub_buckets` is empty or absent), render:
    - `### {SUB_ID}. {SUB_NAME} (0)` heading
    - Empty table with the same column schema as the parent bucket
-7. Preserve the `## Cross-cutting observations` section with its placeholder bullet and the `## Classification edge cases` section with its 3-column header (no rows).
-8. Strip the header HTML comment (lines 3-8 of the template) and the inline `<!-- Column schema: ... -->` comments inside each bucket — those are template-authoring notes, not output content.
-9. Use **Write** to create `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` with the rendered result.
+7. Close with a `---` rule, then the footer pointers: `[Notes](00-Categorization-Notes-LessonsLearned.md)` and `[Changelog](...)` (the changelog filename derived from `{lessons_index}` the same way the generator derives it — `00-Changelog-LessonsLearned.md` for the default hub name). Do NOT render a `## Cross-cutting observations` or `## Classification edge cases` section — those now live in `00-Categorization-Notes-LessonsLearned.md`, never in the companion.
+8. Use **Write** to create `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` with the rendered result.
 
 ---
 

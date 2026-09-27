@@ -131,7 +131,6 @@ try:
         LessonsBootstrap,  # noqa: F401 -- re-exported for callers of init_project
         _emit_lessons_bootstrap_banner,  # noqa: F401 -- re-exported for callers of init_project
         _lessons_seed_dst_names,
-        _render_bucket_section,  # noqa: F401 -- re-exported for callers of init_project
         _resolve_lessons_index_name,
         _seed_lessons_index,  # noqa: F401 -- re-exported for callers of init_project
         bootstrap_lessons_artifacts,
@@ -816,14 +815,16 @@ def main():
             consumer="/planwise lessons curate, /planwise lessons promote-batch",
             remediation="Install PyYAML (`pip install pyyaml`), or run /planwise init and let the handler's Step 5.1 fallback render the file via Read+Write.",
         ))
-    else:  # SKIPPED_NO_TEMPLATE or SKIPPED_BAD_CONFIG (defensive)
-        print("Categorization: skipped (config.yaml unparseable)")
+    else:  # SKIPPED_NO_TEMPLATE or SKIPPED_BAD_CONFIG
+        print("Categorization: skipped (config.yaml unparseable or its categorization: block is invalid)")
         skipped.append(SkippedArtifact(
             artifact=cat_rel,
-            reason="config.yaml could not be parsed (YAML error or unexpected structure)",
+            reason="config.yaml could not be parsed, or its categorization: block failed validation (a bucket without an id, a duplicate id, or an unresolved default_bucket/decision_tree_order entry)",
             consumer="/planwise lessons curate, /planwise lessons promote-batch",
-            remediation=f"Fix YAML errors in {cfg.planwise_root}/config.yaml, then re-run /planwise init or `python init_project.py --migrate`.",
+            remediation=f"Fix {cfg.planwise_root}/config.yaml (`generate_lessons_index.py --companion --check` names the offending entry), then re-run /planwise init or `python init_project.py --migrate`.",
         ))
+    if _lessons.notes_result == ConfigResult.CREATED:
+        print(f"Categorization notes: + {_lessons.notes_rel}")
     print()
 
     # Backlog-index retrofit: migrate a hand-authored backlog index (or

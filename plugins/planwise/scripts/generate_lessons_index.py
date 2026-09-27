@@ -93,6 +93,7 @@ from generate_backlog_index import (
     render_shards_section,
     truncate_title,
 )
+from markdown_parser import split_row_cells
 from parse_lessons import (
     LESSON_FILE_RE,
     LESSON_ROW_RE,
@@ -430,6 +431,11 @@ def _extract_fields(path: Path, raw_map: dict, valid_statuses: frozenset) -> dic
 
     for key in ("language", "technology", "domain"):
         fields[key] = _parse_list_field(stripped[key])
+
+    # `module:` is not in REQUIRED_KEYS -- most lessons carry no code-bucket
+    # module at all. Read it only when present, for the companion's
+    # code_bucket Module column (index rendering never reads this key).
+    fields["module"] = _strip_quotes(stripped["module"].strip()) if "module" in stripped else ""
 
     fields["_path"] = path
     return fields
@@ -1440,20 +1446,7 @@ def _cmd_write_lessons(
         print(f"Error: {exc}", file=sys.stderr)
         return LessonsDisposition.REFUSED
 
-    write_findings = []
-    for lesson_id, paths in result.duplicate_ids.items():
-        write_findings.append({
-            "class": "duplicate-id", "id": format_id(lesson_id),
-            "detail": f"claimed by {', '.join(str(p) for p in paths)}",
-        })
-    for mismatch in result.id_mismatches:
-        write_findings.append({
-            "class": "id-mismatch", "id": str(mismatch["path"]),
-            "detail": (
-                f"filename says {format_id(mismatch['filename_id'])}, "
-                f"frontmatter says {format_id(mismatch['frontmatter_id'])}"
-            ),
-        })
+    write_findings = _scan_integrity_findings(result)
     raw_content = read_text_preserving_newlines(index_path) if index_path.exists() else ""
     is_legacy = is_legacy_index(raw_content)
     dropped_headings = _legacy_headings_to_drop(raw_content) if is_legacy else []
@@ -1524,6 +1517,808 @@ def _cmd_write_lessons(
 
 
 # --------------------------------------------------------------------------
+# Categorization companion (--companion)
+#
+# `00-Categorization-By-Domain.md` is rendered from the SAME frontmatter
+# scan the index uses (`scan_lessons` above) -- no second frontmatter
+# reader. Membership runs the project's `config.yaml: categorization`
+# decision tree (curate's own §5.1 algorithm): the first bucket in
+# `decision_tree_order` whose `triggers.technology`/`triggers.domain`
+# shares a value with the lesson's own list wins; within that bucket, the
+# first sub-bucket (in the bucket's own `sub_buckets` order) whose trigger
+# matches wins, else the lesson lands in the bucket's own parent table; a
+# lesson matching no bucket at all lands in `default_bucket`'s parent
+# table, never one of its sub-buckets.
+#
+# The companion is not a hub: one file, no counter, no Archive shard, no
+# `## Master Table` heading -- regenerated whole on every --write. The
+# hand-written prose (cross-cutting observations, classification edge
+# cases) lives in a sibling notes file this module never reads or writes;
+# the companion's footer only points at it by name.
+# --------------------------------------------------------------------------
+
+COMPANION_FILENAME = "00-Categorization-By-Domain.md"
+NOTES_FILENAME = "00-Categorization-Notes-LessonsLearned.md"
+
+# Bold marks a landed lesson, exactly as the index's own File-cell-free
+# companion row still needs to show lifecycle state -- never the file's
+# directory.
+_LANDED_STATUSES = frozenset({"applied", "rule"})
+
+_SEVERITY_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+
+# `## {id}. {name} (N)` / `### {sub_id}. {sub_name} (N)` -- the same shape
+# lessons_bootstrap.py's zero-lesson renderer emits. Group 2 is the bucket
+# or sub-bucket id token (e.g. "A", "C1", "db-sql"), used to compare a disk
+# row's table against the fresh classification without re-deriving heading
+# text. The token is any run of non-space, non-dot characters, so the first
+# `.` after it is always the separator and a bucket NAME may carry dots of
+# its own; `_validate_categorization` rejects an id the token cannot hold.
+_COMPANION_HEADING_RE = re.compile(r"^(#{2,3})\s+([^\s.]+)\.\s+.+?\((\d+)\)\s*$")
+_COMPANION_ID_CELL_RE = re.compile(r"^\*{0,2}LL-(\d+)\*{0,2}$")
+_COMPANION_LEGACY_LAST_UPDATED_RE = re.compile(r"^\*\*Last Updated:\*\*", re.MULTILINE)
+_COMPANION_LEGACY_HEADING_RE = re.compile(r"^##\s+Cross-cutting observations\s*$", re.MULTILINE)
+_COMPANION_GENERATED_RE = re.compile(r"^Generated: .*$", re.MULTILINE)
+_COMPANION_TO_RE = re.compile(r"^\*\*Companion to:\*\*", re.MULTILINE)
+_COMPANION_ANY_HEADING_RE = re.compile(r"^#{2,3}\s+\S")
+_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+
+# Fallback categorization used when a project's config.yaml has no
+# `categorization:` block. Mirrors the buckets baked into
+# config.yaml.template. `--companion` renders from it (with an INFO line)
+# and lessons_bootstrap.py seeds the zero-lesson companion from it and
+# re-exports it under the same name for the `--migrate` flow. It lives here,
+# beside its renderer, because lessons_bootstrap already imports this
+# module -- the reverse import would be a cycle.
+DEFAULT_CATEGORIZATION = {
+    "buckets": [
+        {
+            "id": "A",
+            "slug": "database",
+            "name": "Database / SQL",
+            "description": "Lessons that touch the live database, schema, or DDL semantics.",
+        },
+        {
+            "id": "B",
+            "slug": "code",
+            "name": "Application Code",
+            "description": "Lessons about language-level patterns, type-checking, lint, runtime behaviour.",
+        },
+        {
+            "id": "C",
+            "slug": "process",
+            "name": "Planwise / Process",
+            "description": "Lessons about planning, scaffolding, dispatch, signoff, review.",
+            "sub_buckets": [],
+        },
+        {
+            "id": "D",
+            "slug": "tooling",
+            "name": "Tooling / Ergonomics",
+            "description": "Toolchain, shell, notebook, IDE, harness ergonomics.",
+        },
+    ],
+    "decision_tree_order": ["A", "B", "C", "D"],
+    "default_bucket": "D",
+    "edge_cases_section": True,
+}
+
+
+def _companion_path(lessons_dir: Path) -> Path:
+    return lessons_dir / COMPANION_FILENAME
+
+
+class CategorizationError(LessonsGeneratorError):
+    """config.yaml carries no usable `categorization:` block."""
+
+
+def has_categorization_block(config: dict) -> bool:
+    """True when `config` declares a `categorization:` block with at least
+    one bucket mapping -- the condition under which DEFAULT_CATEGORIZATION
+    is NOT the fallback."""
+    cat = config.get("categorization")
+    return isinstance(cat, dict) and bool(
+        [b for b in (cat.get("buckets") or []) if isinstance(b, dict)]
+    )
+
+
+def _validate_id(raw, where: str) -> str:
+    """The str form of one bucket/sub-bucket id, or CategorizationError
+    naming `where`. An id must be non-empty and carry no whitespace or
+    `.`, because the rendered heading `## {id}. {name} (N)` is how
+    `--check` reads a row's table back -- an id the heading cannot hold
+    would never round-trip."""
+    text = "" if raw is None else str(raw).strip()
+    if not text:
+        raise CategorizationError(f"config.yaml categorization: {where} has no id.")
+    if re.search(r"[\s.]", text):
+        raise CategorizationError(
+            f"config.yaml categorization: {where} id {text!r} contains whitespace "
+            "or '.', which the rendered heading cannot carry."
+        )
+    return text
+
+
+def _validate_categorization(cat: dict) -> None:
+    """Every bucket and sub-bucket has a usable, unique id (unique across
+    both levels, since both share one heading namespace), `default_bucket`
+    names a bucket, and every `decision_tree_order` entry names a bucket.
+    Raises CategorizationError naming the offending entry."""
+    seen: dict = {}
+    bucket_ids = set()
+    for index, bucket in enumerate(cat.get("buckets") or []):
+        if not isinstance(bucket, dict):
+            continue
+        where = f"buckets[{index}] ({bucket.get('name', 'unnamed')!s})"
+        bucket_id = _validate_id(bucket.get("id"), where)
+        if bucket_id in seen:
+            raise CategorizationError(
+                f"config.yaml categorization: id {bucket_id!r} is declared by both "
+                f"{seen[bucket_id]} and {where}."
+            )
+        seen[bucket_id] = where
+        bucket_ids.add(bucket_id)
+        subs = bucket.get("sub_buckets")
+        if subs is not None and not isinstance(subs, list):
+            raise CategorizationError(
+                f"config.yaml categorization: {where} sub_buckets must be a list."
+            )
+        for sub_index, sub in enumerate(subs or []):
+            if not isinstance(sub, dict):
+                continue
+            sub_where = f"{where} sub_buckets[{sub_index}] ({sub.get('name', 'unnamed')!s})"
+            sub_id = _validate_id(sub.get("id"), sub_where)
+            if sub_id in seen:
+                raise CategorizationError(
+                    f"config.yaml categorization: id {sub_id!r} is declared by both "
+                    f"{seen[sub_id]} and {sub_where}."
+                )
+            seen[sub_id] = sub_where
+    default_id = cat.get("default_bucket")
+    if default_id is None or str(default_id) not in bucket_ids:
+        raise CategorizationError(
+            f"config.yaml categorization: default_bucket {default_id!r} is not a "
+            "declared bucket id."
+        )
+    for entry in cat.get("decision_tree_order") or []:
+        if str(entry) not in bucket_ids:
+            raise CategorizationError(
+                f"config.yaml categorization: decision_tree_order entry {entry!r} "
+                "is not a declared bucket id."
+            )
+
+
+def _resolve_categorization(config: dict) -> dict:
+    if not has_categorization_block(config):
+        raise CategorizationError(
+            "config.yaml declares no usable categorization: block "
+            "(categorization.buckets is empty or the key is missing)."
+        )
+    cat = config["categorization"]
+    _validate_categorization(cat)
+    return cat
+
+
+def _ordered_buckets(cat: dict) -> list:
+    """Buckets in `decision_tree_order`, any bucket the order omits
+    appended at the end so a config editing mistake never silently drops
+    a bucket from the render. Ids compare as str, so a YAML int id and its
+    quoted form are one bucket."""
+    buckets = [b for b in (cat.get("buckets") or []) if isinstance(b, dict)]
+    buckets_by_id = {str(b["id"]): b for b in buckets}
+    order = cat.get("decision_tree_order") or [b["id"] for b in buckets]
+    ordered = [buckets_by_id[str(bid)] for bid in order if str(bid) in buckets_by_id]
+    ordered_ids = {str(b["id"]) for b in ordered}
+    for b in buckets:
+        if str(b["id"]) not in ordered_ids:
+            ordered.append(b)
+    return ordered
+
+
+def _bucket_matches(item: dict, triggers: dict) -> bool:
+    for field_name in ("technology", "domain"):
+        trigger_values = (triggers or {}).get(field_name) or []
+        if trigger_values and set(item.get(field_name) or []) & set(trigger_values):
+            return True
+    return False
+
+
+def _first_sub_bucket_match(item: dict, sub_buckets: list):
+    for sub in sub_buckets or []:
+        if isinstance(sub, dict) and _bucket_matches(item, sub.get("triggers")):
+            return sub
+    return None
+
+
+def classify_lesson(item: dict, cat: dict) -> tuple:
+    """(bucket, sub_bucket_or_None) for one scanned lesson item, per
+    curate §5.1. `default_bucket` never carries a sub-bucket -- a lesson
+    that matches no trigger at all lands in the default bucket's own
+    parent table."""
+    for bucket in _ordered_buckets(cat):
+        if _bucket_matches(item, bucket.get("triggers")):
+            return bucket, _first_sub_bucket_match(item, bucket.get("sub_buckets"))
+    buckets_by_id = {str(b["id"]): b for b in (cat.get("buckets") or []) if isinstance(b, dict)}
+    default_id = cat.get("default_bucket")
+    default_bucket = buckets_by_id.get(str(default_id))
+    if default_bucket is None:
+        raise CategorizationError(
+            f"config.yaml default_bucket {default_id!r} is not a declared bucket id"
+        )
+    return default_bucket, None
+
+
+def _row_sort_key(item: dict) -> tuple:
+    severity = str(item.get("severity", "")).strip().upper()
+    return (_SEVERITY_ORDER.get(severity, len(_SEVERITY_ORDER)), item["id"])
+
+
+def partition_companion(items: list, cat: dict) -> dict:
+    """{bucket_id: {"bucket": ..., "parent": [items], "subs": {sub_id:
+    {"sub": ..., "items": [items]}}}} in decision-tree order (dict
+    insertion order preserves it) -- every bucket and sub-bucket the
+    config declares is present even with zero items, which is what lets
+    the zero-lesson render show every heading. Each table's items are
+    sorted HIGH -> MEDIUM -> LOW, ascending id within a tier.
+    """
+    table: dict = {}
+    for bucket in _ordered_buckets(cat):
+        table[bucket["id"]] = {
+            "bucket": bucket,
+            "parent": [],
+            "subs": {
+                sub["id"]: {"sub": sub, "items": []}
+                for sub in (bucket.get("sub_buckets") or [])
+                if isinstance(sub, dict)
+            },
+        }
+    for item in items:
+        bucket, sub = classify_lesson(item, cat)
+        entry = table[bucket["id"]]
+        if sub is not None:
+            entry["subs"][sub["id"]]["items"].append(item)
+        else:
+            entry["parent"].append(item)
+    for entry in table.values():
+        entry["parent"].sort(key=_row_sort_key)
+        for sub_entry in entry["subs"].values():
+            sub_entry["items"].sort(key=_row_sort_key)
+    return table
+
+
+def _companion_table_header(code_bucket: bool) -> tuple:
+    if code_bucket:
+        return "| ID | Title | Module | Severity |", "|---|---|---|---|"
+    return "| ID | Title | Severity |", "|---|---|---|"
+
+
+def _companion_row(item: dict) -> tuple:
+    """(bold, title_cell, severity_cell, module_cell) -- the rendered,
+    escaped form of each cell the row can carry. The renderer picks which
+    cells to join; the drift checker reads the joined row back through
+    `split_row_cells` rather than comparing these escaped values."""
+    rendered_title, _ = truncate_title(item["title"])
+    bold = item["status"] in _LANDED_STATUSES
+    title_cell = _escape_cell(rendered_title)
+    severity_cell = _escape_cell(item["severity"])
+    module_cell = _escape_cell(item.get("module") or "-")
+    return bold, title_cell, severity_cell, module_cell
+
+
+def _render_companion_row(item: dict, code_bucket: bool) -> str:
+    bold, title_cell, severity_cell, module_cell = _companion_row(item)
+    id_cell = format_id(item["id"])
+    if bold:
+        id_cell = f"**{id_cell}**"
+    cells = [id_cell, title_cell]
+    if code_bucket:
+        cells.append(module_cell)
+    cells.append(severity_cell)
+    return "|" + "|".join(f" {c} " for c in cells) + "|"
+
+
+def _render_companion_table(items: list, code_bucket: bool) -> str:
+    header, sep = _companion_table_header(code_bucket)
+    lines = [header, sep]
+    lines.extend(_render_companion_row(item, code_bucket) for item in items)
+    return "\n".join(lines) + "\n"
+
+
+def render_companion_body(table: dict, cat: dict) -> str:
+    blocks = []
+    for bucket_id, entry in table.items():
+        bucket = entry["bucket"]
+        code_bucket = bool(bucket.get("code_bucket"))
+        section = [
+            f"## {bucket_id}. {bucket.get('name', '')} ({len(entry['parent'])})",
+            "",
+            str(bucket.get("description", "")),
+            "",
+            _render_companion_table(entry["parent"], code_bucket),
+        ]
+        for sub_id, sub_entry in entry["subs"].items():
+            sub = sub_entry["sub"]
+            sub_items = sub_entry["items"]
+            section.extend([
+                f"### {sub_id}. {sub.get('name', '')} ({len(sub_items)})",
+                "",
+                str(sub.get("description", "")),
+                "",
+                _render_companion_table(sub_items, code_bucket),
+            ])
+        blocks.append("\n".join(section))
+    return "\n\n".join(blocks) + "\n"
+
+
+def render_companion_header(config: dict, naming) -> str:
+    index_name = naming.hub_name
+    scope = (config.get("categorization") or {}).get("scope")
+    if not scope:
+        project_name = (config.get("project") or {}).get("name")
+        if project_name:
+            scope = f"Lessons captured during {project_name} sessions."
+        else:
+            scope = "Lessons captured during this project's sessions."
+    return (
+        "# Lessons Learned — Categorization by Domain\n"
+        "\n"
+        f"{_generated_line()}"
+        f"**Companion to:** [{index_name}]({index_name})\n"
+        "\n"
+        "## Scope\n"
+        "\n"
+        f"{scope}\n"
+    )
+
+
+def render_companion_footer() -> str:
+    return f"[Notes]({NOTES_FILENAME})\n"
+
+
+def render_companion_file(items: list, config: dict, naming) -> str:
+    cat = _resolve_categorization(config)
+    table = partition_companion(items, cat)
+    return (
+        render_companion_header(config, naming)
+        + "\n---\n\n"
+        + render_companion_body(table, cat)
+        + "\n---\n\n"
+        + render_companion_footer()
+        + f"[Changelog]({_changelog_filename(naming)})\n"
+    )
+
+
+def _companion_line_ending(companion_path: Path) -> str:
+    """Mirrors `detect_line_ending`'s CRLF-wins-on-a-tie convention
+    detection, applied to the one companion file directly -- there is no
+    shard family to walk for a single non-hub artifact."""
+    if not companion_path.exists():
+        return "\n"
+    content = read_text_preserving_newlines(companion_path)
+    crlf_count = content.count("\r\n")
+    lf_count = content.count("\n") - crlf_count
+    return "\r\n" if crlf_count >= lf_count else "\n"
+
+
+def is_legacy_companion(content: str) -> bool:
+    """True when `content` carries the hand-written shape the companion
+    is being cut over from: a `**Last Updated:**` line, or the
+    `## Cross-cutting observations` heading. A consumer migration path
+    reuses this class name -- do not rename it.
+    """
+    return bool(_COMPANION_LEGACY_LAST_UPDATED_RE.search(content)) or bool(
+        _COMPANION_LEGACY_HEADING_RE.search(content)
+    )
+
+
+def _parse_companion_shape(content: str) -> tuple:
+    """Walk `content` once into (headings, rows). `headings` is one entry
+    per `## `/`### ` bucket/sub-bucket heading, in document order, even a
+    zero-row table (`declared_count` vs `actual`, for `stale-count`).
+    `rows` is every data row, tagged with the heading it fell under and
+    that heading's bucket/sub-bucket id token (`table_id`), walked in
+    document order -- never keyed by id, which is what lets a repeated id
+    surface as `duplicate-row` instead of silently overwriting itself.
+    """
+    headings = []
+    rows = []
+    current = None
+    for raw_line in content.split("\n"):
+        line = raw_line.rstrip("\r")
+        heading_match = _COMPANION_HEADING_RE.match(line)
+        if heading_match:
+            current = {
+                "heading_text": line.strip(),
+                "table_id": heading_match.group(2),
+                "declared_count": int(heading_match.group(3)),
+                "actual": 0,
+            }
+            headings.append(current)
+            continue
+        if not line.startswith("|"):
+            continue
+        cells = split_row_cells(line)
+        if not cells:
+            continue
+        id_match = _COMPANION_ID_CELL_RE.match(cells[0].strip())
+        if not id_match:
+            continue
+        if current is not None:
+            current["actual"] += 1
+        rows.append({
+            "id": int(id_match.group(1)),
+            "bold": cells[0].strip().startswith("**"),
+            "cells": cells,
+            "table_id": current["table_id"] if current else None,
+            "heading_text": current["heading_text"] if current else None,
+        })
+    return headings, rows
+
+
+def _fresh_companion_rows(items: list, cat: dict) -> dict:
+    """{id: {"table_id", "bold", "cells"}} for the fresh classification.
+    `cells` is the fresh row rendered and then read back through
+    `split_row_cells` -- the same parser the disk row went through -- so
+    the row classifier always compares like with like (an escaped `|` in a
+    title, a Module cell, a column count)."""
+    fresh = {}
+    for item in items:
+        bucket, sub = classify_lesson(item, cat)
+        code_bucket = bool(bucket.get("code_bucket"))
+        cells = split_row_cells(_render_companion_row(item, code_bucket))
+        fresh[item["id"]] = {
+            "table_id": str(sub["id"] if sub is not None else bucket["id"]),
+            "bold": cells[0].startswith("**"),
+            "cells": cells,
+        }
+    return fresh
+
+
+def _mask_generated(content: str) -> str:
+    return _COMPANION_GENERATED_RE.sub("Generated: <date>", content, count=1)
+
+
+def _first_difference(disk_content: str, fresh_content: str):
+    """(1-based line number, disk line, fresh line) of the first line
+    where the two differ. A missing line reads as ''."""
+    disk_lines = disk_content.split("\n")
+    fresh_lines = fresh_content.split("\n")
+    for index in range(max(len(disk_lines), len(fresh_lines))):
+        disk_line = disk_lines[index] if index < len(disk_lines) else ""
+        fresh_line = fresh_lines[index] if index < len(fresh_lines) else ""
+        if disk_line != fresh_line:
+            return index + 1, disk_line, fresh_line
+    return None
+
+
+def _clip(text: str, limit: int = 60) -> str:
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def is_generated_companion(content: str) -> bool:
+    """True when `content`'s header -- everything above its first `---`
+    rule -- carries both the `Generated:` line and the `**Companion to:**`
+    line this module renders. Only a generated-shaped file may be
+    overwritten by `--companion --write` without `--replace-legacy`."""
+    header = content.split("\n---\n", 1)[0]
+    return bool(_COMPANION_GENERATED_RE.search(header)) and bool(_COMPANION_TO_RE.search(header))
+
+
+def _companion_headings_to_drop(disk_content: str, fresh_ids: set) -> list:
+    """Every `## `/`### ` heading in `disk_content` that is not a bucket or
+    sub-bucket heading of the fresh render -- what `--replace-legacy`
+    discards, named so the operator sees it. Lines inside a ``` or ~~~
+    fence are skipped: a fenced `## ` line is sample text, not a section.
+    """
+    dropped = []
+    in_fence = False
+    for raw_line in disk_content.split("\n"):
+        line = raw_line.rstrip("\r")
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence or not _COMPANION_ANY_HEADING_RE.match(line):
+            continue
+        heading_match = _COMPANION_HEADING_RE.match(line)
+        if heading_match and heading_match.group(2) in fresh_ids:
+            continue
+        dropped.append(line.strip())
+    return dropped
+
+
+def _companion_table_ids(cat: dict) -> set:
+    ids = set()
+    for bucket in _ordered_buckets(cat):
+        ids.add(str(bucket["id"]))
+        for sub in bucket.get("sub_buckets") or []:
+            if isinstance(sub, dict):
+                ids.add(str(sub["id"]))
+    return ids
+
+
+def _scan_integrity_findings(result) -> list:
+    """`duplicate-id` / `id-mismatch` findings for two lesson FILES that
+    claim one id, or a filename that disagrees with its frontmatter id.
+    Shared by the index and companion `--write` refusals and the companion
+    `--check` report."""
+    findings = []
+    for lesson_id, paths in result.duplicate_ids.items():
+        findings.append({
+            "class": "duplicate-id", "id": format_id(lesson_id),
+            "detail": f"claimed by {', '.join(str(p) for p in paths)}",
+        })
+    for mismatch in result.id_mismatches:
+        findings.append({
+            "class": "id-mismatch", "id": str(mismatch["path"]),
+            "detail": (
+                f"filename says {format_id(mismatch['filename_id'])}, "
+                f"frontmatter says {format_id(mismatch['frontmatter_id'])}"
+            ),
+        })
+    return findings
+
+
+def _check_companion_drift(items: list, disk_content: str, cat: dict, fresh_content: str) -> list:
+    """Compare the on-disk companion (already `\\r\\n`-normalised by the
+    caller) against `fresh_content`, the companion this run renders.
+
+    The gate is the whole file: with the `Generated:` line masked on both
+    sides, equal content is no drift. Only on a mismatch does the row
+    classifier run, to name what differs in the six row-level classes:
+    `missing-row`, `stale-row`, `orphan-row`, `stale-count`,
+    `duplicate-row`, `legacy-shape`. A mismatch that no row-level class
+    explains -- a heading, description, scope, column schema, bucket set,
+    or footer change -- is one `stale-shape` finding naming the first
+    differing line.
+
+    A legacy-shaped file is not meaningfully comparable row-by-row --
+    `legacy-shape` plus a `missing-row` per known lesson is the expected
+    pre-cutover reading, mirroring `_check_lessons_drift`'s own legacy
+    branch.
+    """
+    findings = []
+    if is_legacy_companion(disk_content):
+        findings.append({
+            "class": "legacy-shape", "id": COMPANION_FILENAME,
+            "detail": "companion carries a **Last Updated:** line or a "
+            "## Cross-cutting observations heading",
+        })
+        for item in items:
+            findings.append({
+                "class": "missing-row", "id": format_id(item["id"]),
+                "detail": "no on-disk generated row (companion is not generated-shaped)",
+            })
+        return findings
+
+    masked_disk = _mask_generated(disk_content)
+    masked_fresh = _mask_generated(fresh_content)
+    if masked_disk == masked_fresh:
+        return findings
+
+    headings, rows = _parse_companion_shape(disk_content)
+    fresh_by_id = _fresh_companion_rows(items, cat)
+
+    seen_ids = set()
+    for row in rows:
+        rid = row["id"]
+        if rid in seen_ids:
+            findings.append({
+                "class": "duplicate-row", "id": format_id(rid),
+                "detail": f"appears more than once (also under {row['heading_text']})",
+            })
+            continue
+        seen_ids.add(rid)
+        fresh = fresh_by_id.get(rid)
+        if fresh is None:
+            findings.append({
+                "class": "orphan-row", "id": format_id(rid),
+                "detail": f"row under {row['heading_text']} has no lesson file",
+            })
+            continue
+        reasons = []
+        if row["table_id"] != fresh["table_id"]:
+            reasons.append("table")
+        if row["bold"] != fresh["bold"]:
+            reasons.append("bold/status")
+        disk_cells, fresh_cells = row["cells"], fresh["cells"]
+        if len(disk_cells) != len(fresh_cells):
+            reasons.append(
+                f"malformed ({len(disk_cells)} cell(s), expected {len(fresh_cells)})"
+            )
+        else:
+            if disk_cells[1] != fresh_cells[1]:
+                reasons.append("Title")
+            if len(fresh_cells) == 4 and disk_cells[2] != fresh_cells[2]:
+                reasons.append("Module")
+            if disk_cells[-1] != fresh_cells[-1]:
+                reasons.append("Severity")
+        if reasons:
+            findings.append({
+                "class": "stale-row", "id": format_id(rid),
+                "detail": f"{', '.join(reasons)} differ(s) from frontmatter",
+            })
+
+    for item in items:
+        if item["id"] not in seen_ids:
+            findings.append({
+                "class": "missing-row", "id": format_id(item["id"]),
+                "detail": "no on-disk row",
+            })
+
+    for heading in headings:
+        if heading["declared_count"] != heading["actual"]:
+            findings.append({
+                "class": "stale-count", "id": heading["heading_text"],
+                "detail": f"declared ({heading['declared_count']}) != "
+                f"actual rows ({heading['actual']})",
+            })
+
+    if not findings:
+        difference = _first_difference(masked_disk, masked_fresh)
+        line_no, disk_line, fresh_line = difference if difference else (0, "", "")
+        findings.append({
+            "class": "stale-shape", "id": f"line {line_no}",
+            "detail": f"on disk {_clip(disk_line)!r}, generated {_clip(fresh_line)!r} "
+            "(a heading, description, scope, column schema, Module cell, bucket "
+            "set, or footer differs from the render)",
+        })
+
+    return findings
+
+
+def companion_exit_code_for(findings: list) -> int:
+    return LessonsDisposition.DRIFT_OR_ANOMALY if findings else LessonsDisposition.CLEAN
+
+
+def _companion_largest_table(items: list, cat: dict):
+    """(table_id, row_count) for the biggest bucket/sub-bucket table in
+    the fresh classification, named in an over-budget write refusal."""
+    table = partition_companion(items, cat)
+    sizes = []
+    for bucket_id, entry in table.items():
+        sizes.append((bucket_id, len(entry["parent"])))
+        for sub_id, sub_entry in entry["subs"].items():
+            sizes.append((sub_id, len(sub_entry["items"])))
+    return max(sizes, key=lambda pair: pair[1]) if sizes else (None, 0)
+
+
+def _companion_error(args, message: str) -> int:
+    print(f"Error: {message}", file=sys.stderr)
+    if args.json:
+        print(json.dumps({"error": message}, indent=2))
+    return LessonsDisposition.REFUSED
+
+
+def _run_companion_cli(args, lessons_dir: Path, archive_dir: Path, index_path, naming, config: dict) -> int:
+    """The `--companion` entry point `main()` dispatches to. Applies the
+    same `--dry-run`/`--check`/`--write`/`--json`/`--replace-legacy`
+    contract the index uses, targeted at the companion file instead.
+
+    Every refusal exits 2 with an `Error: ...` line on stderr; under
+    `--json` it also prints an object carrying an `error` key.
+    """
+    companion_path = _companion_path(lessons_dir)
+    if not has_categorization_block(config):
+        print(
+            "INFO: config.yaml has no categorization: block; rendering the "
+            "companion from the default buckets. Run `init_project.py --migrate` "
+            "to add the block to config.yaml.",
+            file=sys.stderr,
+        )
+        config = {**config, "categorization": DEFAULT_CATEGORIZATION}
+    try:
+        cat = _resolve_categorization(config)
+    except LessonsGeneratorError as exc:
+        return _companion_error(args, str(exc))
+
+    valid_statuses = _resolve_valid_statuses(config)
+    try:
+        result = scan_lessons(lessons_dir, archive_dir, index_path, valid_statuses)
+    except LessonsGeneratorError as exc:
+        return _companion_error(args, str(exc))
+
+    integrity_findings = _scan_integrity_findings(result)
+    disk_content = None
+    try:
+        fresh_content = render_companion_file(result.items, config, naming)
+        if companion_path.exists():
+            disk_content = read_text_preserving_newlines(companion_path).replace("\r\n", "\n")
+            drift_findings = _check_companion_drift(result.items, disk_content, cat, fresh_content)
+        else:
+            drift_findings = [
+                {
+                    "class": "missing-row", "id": format_id(item["id"]),
+                    "detail": "companion file does not exist yet",
+                }
+                for item in result.items
+            ]
+        largest_table = _companion_largest_table(result.items, cat)
+    except LessonsGeneratorError as exc:
+        return _companion_error(args, str(exc))
+    findings = integrity_findings + drift_findings
+
+    num_bytes, tokens = _measure(fresh_content)
+    budget_fields = _budget_fields(num_bytes, tokens, READ_TOKEN_WARN)
+    over_budget = tokens > READ_TOKEN_WARN
+
+    if args.write:
+        if integrity_findings:
+            for f in integrity_findings:
+                print(f"Anomaly: [{f['class']}] {f['id']}: {f['detail']}. Refusing to write.", file=sys.stderr)
+            return _companion_error(
+                args, f"{len(integrity_findings)} lesson-id anomaly(ies); fix the lesson "
+                "files, then re-run --write.",
+            )
+        if over_budget:
+            table_id, row_count = largest_table
+            return _companion_error(
+                args, f"companion projects {tokens} tokens (budget "
+                f"{READ_TOKEN_WARN}); largest table {table_id} has "
+                f"{row_count} rows. Refusing to write.",
+            )
+        legacy_present = any(f["class"] == "legacy-shape" for f in drift_findings)
+        foreign = bool(disk_content and disk_content.strip()) and (
+            legacy_present or not is_generated_companion(disk_content)
+        )
+        if foreign:
+            dropped = _companion_headings_to_drop(disk_content, _companion_table_ids(cat))
+            if not args.replace_legacy:
+                shape = (
+                    "legacy-shaped (a **Last Updated:** line or a ## Cross-cutting "
+                    "observations heading)" if legacy_present else
+                    "not generated-shaped (its header lacks the Generated: line or "
+                    "the **Companion to:** line)"
+                )
+                if dropped:
+                    print("--replace-legacy would drop these sections:", file=sys.stderr)
+                    for heading in dropped:
+                        print(f"  {heading}", file=sys.stderr)
+                return _companion_error(
+                    args, f"{companion_path} is {shape}. Refusing to overwrite it; "
+                    "re-run with --replace-legacy to replace it.",
+                )
+            for heading in dropped:
+                print(f"dropping: {heading}", file=sys.stderr)
+
+        line_ending = _companion_line_ending(companion_path)
+        out_content = fresh_content if line_ending == "\n" else fresh_content.replace("\n", line_ending)
+        try:
+            _atomic_write_files({companion_path: out_content}, [])
+        except OSError as exc:
+            path = getattr(exc, "filename", None) or "unknown path"
+            print(f"Error: write failed and was rolled back ({path}): {exc}", file=sys.stderr)
+            return LessonsDisposition.REFUSED
+        if args.json:
+            print(json.dumps({"written": [str(companion_path)], "budget": budget_fields}, indent=2))
+        else:
+            print(f"Wrote {companion_path}.")
+        return LessonsDisposition.CLEAN
+
+    code = companion_exit_code_for(findings)
+    if args.json:
+        payload = {
+            "companion": str(companion_path),
+            "budget": budget_fields,
+            "drift": findings,
+        }
+        print(json.dumps(payload, indent=2))
+        return code
+
+    print(
+        f"{companion_path}: {tokens} tokens, budget {READ_TOKEN_WARN}, "
+        f"page_cap_ratio {budget_fields['page_cap_ratio']} (basis: {MEASUREMENT_BASIS})"
+    )
+    print()
+    if not findings:
+        print("No drift detected. The companion matches lesson frontmatter.")
+    else:
+        print(f"Drift detected ({len(findings)} finding(s)):")
+        for f in findings:
+            print(f"  - [{f['class']}] {f['id']}: {f['detail']}")
+    return code
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -1561,7 +2356,15 @@ def main() -> int:
     )
     parser.add_argument(
         "--replace-legacy", action="store_true",
-        help="Allow --write to overwrite a legacy-shaped on-disk index.",
+        help="Allow --write to overwrite a legacy-shaped on-disk index, or "
+        "(with --companion) a companion that is not generated-shaped.",
+    )
+    parser.add_argument(
+        "--companion", action="store_true",
+        help="Target the categorization companion "
+        "(00-Categorization-By-Domain.md) instead of the lessons index. "
+        "The existing --dry-run/--check/--write/--json/--replace-legacy "
+        "flags apply to it exactly as they do to the index.",
     )
     args, _ = parser.parse_known_args()
 
@@ -1573,6 +2376,9 @@ def main() -> int:
         return 2
     archive_dir = lessons_dir / "Archive"
     naming = _index_naming(index_path)
+
+    if args.companion:
+        return _run_companion_cli(args, lessons_dir, archive_dir, index_path, naming, config)
 
     if args.write:
         return _cmd_write_lessons(

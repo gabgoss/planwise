@@ -8,6 +8,13 @@ into BOTH fresh init and _run_upgrade(), and never overwrites an existing
 /planwise lessons curate and promote-batch; the legacy fresh-init-only render
 left upgrade-adopted projects without it, hard-gating those commands.
 
+The categorization render itself goes through
+`generate_lessons_index.render_companion_file` (called as a library with an
+empty lesson set), not a hand-rolled bucket-table builder, so the seeded
+file is the generator's own zero-lesson shape: bucket/sub-bucket headings
+each carrying `(0)`, a `Generated:` line, a `**Companion to:**` line, and
+the `[Notes](...)`/`[Changelog](...)` footer pointers.
+
 Run with:  python -m unittest scripts/test_lessons_bootstrap.py
 """
 
@@ -148,6 +155,29 @@ class TestBootstrapRoutine(_BootstrapFixture):
         self.assertTrue(self.index_path().exists())
         self.assertTrue(self.changelog_path().exists())
         self.assertTrue(self.promotion_log_path().exists())
+
+    def test_rendered_companion_is_the_generator_zero_lesson_shape(self):
+        """The seeded file goes through render_companion_file, not a
+        hand-rolled builder: every DEFAULT_CATEGORIZATION bucket heading
+        carries `(0)`, plus the generated header/footer furniture."""
+        ip.bootstrap_lessons_artifacts(self.cfg)
+        content = self.cat_path().read_text(encoding="utf-8")
+
+        self.assertIn("Generated:", content)
+        self.assertIn("**Companion to:**", content)
+        for bucket_id, bucket_name in (
+            ("A", "Database / SQL"),
+            ("B", "Application Code"),
+            ("C", "Planwise / Process"),
+            ("D", "Tooling / Ergonomics"),
+        ):
+            self.assertIn(f"## {bucket_id}. {bucket_name} (0)", content)
+        self.assertIn("[Notes](00-Categorization-Notes-LessonsLearned.md)", content)
+        self.assertIn("[Changelog](00-Changelog-LessonsLearned.md)", content)
+        # The old hand-rolled shape is gone: no header bump line or
+        # curate-populated placeholder text.
+        self.assertNotIn("**Last Updated:**", content)
+        self.assertNotIn("Cross-cutting observations", content)
 
     def test_idempotent_second_call_is_noop(self):
         ip.bootstrap_lessons_artifacts(self.cfg)
@@ -373,6 +403,90 @@ class TestRunUpgradeBackfill(_BootstrapFixture):
             custom,
             "upgrade must NOT overwrite an existing categorization file",
         )
+
+
+class TestCategorizationNotesSeed(_BootstrapFixture):
+    """The notes file the companion's footer links to is seeded once,
+    beside the companion, and never overwritten."""
+
+    def notes_path(self) -> Path:
+        return self.lessons_dir / "00-Categorization-Notes-LessonsLearned.md"
+
+    def test_seeded_with_the_minimal_shape(self):
+        boot = ip.bootstrap_lessons_artifacts(self.cfg)
+
+        self.assertEqual(boot.notes_result, ip.ConfigResult.CREATED)
+        self.assertTrue(boot.notes_rel.endswith("LessonsLearned/00-Categorization-Notes-LessonsLearned.md"))
+        lines = self.notes_path().read_text(encoding="utf-8").split("\n")
+        self.assertEqual(lines[0], "[← 00-Categorization-By-Domain.md](00-Categorization-By-Domain.md)")
+        self.assertEqual(lines[1], "")
+        self.assertEqual(lines[2], "# Lessons Learned — Categorization Notes")
+        self.assertIn("generated from", lines[4])
+        self.assertIn("## Cross-cutting observations", lines)
+        edge = lines.index("## Classification edge cases")
+        self.assertLess(lines.index("## Cross-cutting observations"), edge)
+        self.assertEqual(lines[edge + 2], "| ID | Why it could fit elsewhere | Final bucket |")
+        self.assertEqual(lines[edge + 3], "|---|---|---|")
+        self.assertEqual(lines[edge + 4:], [""])
+
+    def test_second_call_is_skipped_and_byte_identical(self):
+        ip.bootstrap_lessons_artifacts(self.cfg)
+        before = self.notes_path().read_bytes()
+
+        boot2 = ip.bootstrap_lessons_artifacts(self.cfg)
+
+        self.assertEqual(boot2.notes_result, ip.ConfigResult.SKIPPED_EXISTS)
+        self.assertFalse(boot2.created_any)
+        self.assertEqual(self.notes_path().read_bytes(), before)
+
+    def test_existing_notes_preserved_verbatim(self):
+        self.lessons_dir.mkdir(parents=True, exist_ok=True)
+        custom = "# MY NOTES\n\n- an observation\n"
+        self.notes_path().write_text(custom, encoding="utf-8")
+
+        boot = ip.bootstrap_lessons_artifacts(self.cfg)
+
+        self.assertEqual(boot.notes_result, ip.ConfigResult.SKIPPED_EXISTS)
+        self.assertEqual(self.notes_path().read_text(encoding="utf-8"), custom)
+
+
+class TestBootstrapBadCategorization(_BootstrapFixture):
+    """A categorization block that fails validation is SKIPPED_BAD_CONFIG,
+    never an exception out of bootstrap_lessons_artifacts."""
+
+    def setUp(self):
+        super().setUp()
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML required for render_categorization_file")
+        self.config_path().write_text(
+            "project:\n"
+            "  name: FixtureProject\n"
+            "categorization:\n"
+            "  buckets:\n"
+            "  - id: A\n"
+            "    name: Alpha\n"
+            "  - name: Missing id\n"
+            "  decision_tree_order: [A]\n"
+            "  default_bucket: A\n",
+            encoding="utf-8",
+        )
+
+    def test_bucket_missing_id_is_skipped_bad_config(self):
+        boot = ip.bootstrap_lessons_artifacts(self.cfg)
+
+        self.assertEqual(boot.cat_result, ip.ConfigResult.SKIPPED_BAD_CONFIG)
+        self.assertFalse(self.cat_path().exists())
+
+
+class TestDefaultCategorizationReexport(unittest.TestCase):
+    def test_one_object_across_all_three_modules(self):
+        import generate_lessons_index as gli
+        import lessons_bootstrap as lb
+
+        self.assertIs(lb.DEFAULT_CATEGORIZATION, gli.DEFAULT_CATEGORIZATION)
+        self.assertIs(ip.DEFAULT_CATEGORIZATION, gli.DEFAULT_CATEGORIZATION)
 
 
 if __name__ == "__main__":

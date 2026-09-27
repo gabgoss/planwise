@@ -1,13 +1,14 @@
 """Lessons-directory scaffolding: categorization schema + bootstrap routine.
 
-Owns the fallback categorization schema (DEFAULT_CATEGORIZATION), the
-00-Categorization-By-Domain.md renderer, and the idempotent lessons-index +
-categorization seeding routine (bootstrap_lessons_artifacts) that both fresh
-init and the upgrade-side backfill path call through.
+Re-exports the fallback categorization schema (DEFAULT_CATEGORIZATION,
+defined in generate_lessons_index), and owns the
+00-Categorization-By-Domain.md seed, the categorization notes seed, and the
+idempotent lessons-index + categorization seeding routine
+(bootstrap_lessons_artifacts) that both fresh init and the upgrade-side
+backfill path call through.
 """
 
 import dataclasses
-from datetime import datetime
 from pathlib import Path
 
 try:
@@ -29,106 +30,68 @@ except ImportError:
 
 try:
     from generate_backlog_index import _changelog_filename, _index_naming
-    from generate_lessons_index import _promotion_log_filename
+
+    # DEFAULT_CATEGORIZATION is defined beside the companion renderer and
+    # re-exported here under the same name for init_project and --migrate.
+    from generate_lessons_index import (
+        COMPANION_FILENAME,
+        DEFAULT_CATEGORIZATION,
+        NOTES_FILENAME,
+        CategorizationError,
+        _promotion_log_filename,
+        has_categorization_block,
+        render_companion_file,
+    )
 except ImportError:
     raise ImportError(
         "generate_backlog_index/generate_lessons_index are required for "
-        "lessons_bootstrap's companion-filename derivation; the scripts/ "
-        "directory appears to be partially installed"
+        "lessons_bootstrap's companion-filename derivation and companion "
+        "rendering; the scripts/ directory appears to be partially installed"
     )
 
 
-# Fallback categorization used when the user's config.yaml has no
-# `categorization:` block. Mirrors the buckets baked into
-# config.yaml.template; consumed by render_categorization_file() and by the
-# `--migrate` flow when seeding the block on an existing config.
-DEFAULT_CATEGORIZATION = {
-    "buckets": [
-        {
-            "id": "A",
-            "slug": "database",
-            "name": "Database / SQL",
-            "description": "Lessons that touch the live database, schema, or DDL semantics.",
-        },
-        {
-            "id": "B",
-            "slug": "code",
-            "name": "Application Code",
-            "description": "Lessons about language-level patterns, type-checking, lint, runtime behaviour.",
-        },
-        {
-            "id": "C",
-            "slug": "process",
-            "name": "Planwise / Process",
-            "description": "Lessons about planning, scaffolding, dispatch, signoff, review.",
-            "sub_buckets": [],
-        },
-        {
-            "id": "D",
-            "slug": "tooling",
-            "name": "Tooling / Ergonomics",
-            "description": "Toolchain, shell, notebook, IDE, harness ergonomics.",
-        },
-    ],
-    "decision_tree_order": ["A", "B", "C", "D"],
-    "default_bucket": "D",
-    "edge_cases_section": True,
-}
-
-
-def _render_bucket_section(bucket: dict, code_bucket_inherited: bool = False) -> list[str]:
-    """Render one top-level bucket plus its sub-buckets to a list of lines."""
-    bucket_id = str(bucket.get("id", "?"))
-    bucket_name = str(bucket.get("name", ""))
-    description = str(bucket.get("description", ""))
-    code_bucket = bool(bucket.get("code_bucket", code_bucket_inherited))
-
-    if code_bucket:
-        header_row = "| ID | Title | Module | Severity |"
-        sep_row = "|----|-------|--------|----------|"
-    else:
-        header_row = "| ID | Title | Severity |"
-        sep_row = "|----|-------|----------|"
-
-    lines = [
-        f"## {bucket_id}. {bucket_name} (0)",
-        "",
-        description,
-        "",
-        header_row,
-        sep_row,
-    ]
-
-    for sub in bucket.get("sub_buckets") or []:
-        if not isinstance(sub, dict):
-            continue
-        sub_id = str(sub.get("id", "?"))
-        sub_name = str(sub.get("name", ""))
-        lines.extend([
-            "",
-            f"### {sub_id}. {sub_name} (0)",
-            "",
-            header_row,
-            sep_row,
-        ])
-
-    return lines
+# The hand-written complement to the generated companion. Seeded once and
+# never regenerated: curate appends classification edge cases and
+# cross-cutting observations to it.
+NOTES_SEED_CONTENT = (
+    f"[← {COMPANION_FILENAME}]({COMPANION_FILENAME})\n"
+    "\n"
+    "# Lessons Learned — Categorization Notes\n"
+    "\n"
+    f"The bucket tables in {COMPANION_FILENAME} are generated from lesson "
+    "frontmatter and regenerated whole on every write. This file holds the "
+    "hand-written record that the generator never reads or writes: "
+    "observations that span buckets, and the lessons whose bucket was a "
+    "judgment call.\n"
+    "\n"
+    "## Cross-cutting observations\n"
+    "\n"
+    "## Classification edge cases\n"
+    "\n"
+    "| ID | Why it could fit elsewhere | Final bucket |\n"
+    "|---|---|---|\n"
+)
 
 
 def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
-    """Render 00-Categorization-By-Domain.md from config + categorization schema.
+    """Render 00-Categorization-By-Domain.md through the generator's own
+    companion renderer (`generate_lessons_index.render_companion_file`),
+    called as a library with an empty lesson set -- the same zero-lesson
+    path `/planwise lessons curate`'s first `--companion --write` would
+    take on a fresh project, so the seeded file and the first regenerated
+    one are the identical shape.
 
     Idempotent — returns SKIPPED_EXISTS if the file already exists.
     Returns SKIPPED_NO_YAML if PyYAML is unavailable (the init handler's
     Step 5.1 fallback renders the file via Claude in that case).
 
     When the user's config has no `categorization:` block (or the block is
-    empty), the renderer falls back to DEFAULT_CATEGORIZATION and returns
-    CREATED_FROM_DEFAULT so the banner can flag it. The user can edit the
-    buckets afterwards, or run `--migrate` to add the template block to
-    their config for full customisation.
+    empty), DEFAULT_CATEGORIZATION is the fallback config the renderer
+    receives, and this returns CREATED_FROM_DEFAULT so the banner can flag
+    it. The user can edit the buckets afterwards, or run `--migrate` to add
+    the template block to their config for full customisation.
     """
-    dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/00-Categorization-By-Domain.md"
+    dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/{COMPANION_FILENAME}"
     dst = cfg.project_root / dst_rel
     if dst.exists():
         return ConfigResult.SKIPPED_EXISTS, dst_rel
@@ -138,86 +101,43 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
 
     config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
     config_present = config_path.exists()
-    cat: dict | None = None
+    full: dict = {}
     used_default = False
     lessons_index = "00-Index-LessonsLearned.md"
 
     if config_present:
         try:
             config_text = config_path.read_text(encoding="utf-8")
-            full = yaml.safe_load(config_text) or {}
-            if isinstance(full, dict):
-                candidate = full.get("categorization")
-                if isinstance(candidate, dict):
-                    buckets_candidate = candidate.get("buckets") or []
-                    if [b for b in buckets_candidate if isinstance(b, dict)]:
-                        cat = candidate
-                lessons_index = (
-                    full.get("project", {})
-                    .get("index_files", {})
-                    .get("lessons", "00-Index-LessonsLearned.md")
-                )
+            loaded = yaml.safe_load(config_text) or {}
+            if isinstance(loaded, dict):
+                full = loaded
+            lessons_index = (
+                full.get("project", {})
+                .get("index_files", {})
+                .get("lessons", "00-Index-LessonsLearned.md")
+            )
         except yaml.YAMLError:
             # Bad config — fall through to default, surface via banner.
             pass
 
-    if cat is None:
-        cat = DEFAULT_CATEGORIZATION
+    if not has_categorization_block(full):
+        full = dict(full)
+        full["categorization"] = DEFAULT_CATEGORIZATION
         used_default = True
 
-    buckets = cat.get("buckets") or []
-    buckets = [b for b in buckets if isinstance(b, dict)]
-    if not buckets:
-        # Defensive — DEFAULT_CATEGORIZATION always has buckets, but guard anyway.
+    if not isinstance(full.get("project"), dict) or not full["project"].get("name"):
+        full = dict(full)
+        full["project"] = {**(full.get("project") or {}), "name": cfg.project_name}
+
+    naming = _index_naming(Path(lessons_index))
+    try:
+        rendered = render_companion_file([], full, naming)
+    except CategorizationError:
+        # The project's own block failed validation (a bucket without an
+        # id, a duplicate id, an unresolved default_bucket or
+        # decision_tree_order entry). Report it, never raise out of the
+        # bootstrap.
         return ConfigResult.SKIPPED_BAD_CONFIG, dst_rel
-
-    decision_tree_order = cat.get("decision_tree_order") or [b.get("id") for b in buckets]
-    buckets_by_id = {b.get("id"): b for b in buckets}
-    ordered_buckets = [buckets_by_id[bid] for bid in decision_tree_order if bid in buckets_by_id]
-    for b in buckets:
-        if b.get("id") not in {bb.get("id") for bb in ordered_buckets}:
-            ordered_buckets.append(b)
-
-    bucket_blocks = []
-    for b in ordered_buckets:
-        bucket_blocks.append("\n".join(_render_bucket_section(b)))
-
-    today = datetime.now().astimezone().date().isoformat()
-    scope_paragraph = f"Lessons captured during {cfg.project_name} sessions."
-
-    rendered = (
-        "# Lessons Learned — Categorization by Domain\n"
-        "\n"
-        f"**Purpose:** Group lessons in `{cfg.lessons_dir}/` by domain for scope-specific review and rule-promotion decisions.\n"
-        f"**Last Updated:** {today}\n"
-        f"**Companion to:** [{lessons_index}]({lessons_index}) (chronological master table)\n"
-        "\n"
-        "---\n"
-        "\n"
-        "## Scope\n"
-        "\n"
-        f"{scope_paragraph}\n"
-        "\n"
-        "---\n"
-        "\n"
-        + "\n\n".join(bucket_blocks)
-        + "\n"
-        "\n"
-        "---\n"
-        "\n"
-        "## Cross-cutting observations\n"
-        "\n"
-        "_Populated by `/planwise lessons curate` as patterns emerge across buckets._\n"
-        "\n"
-        "---\n"
-        "\n"
-        "## Classification edge cases\n"
-        "\n"
-        "| ID | Why it could fit elsewhere | Final bucket |\n"
-        "|----|---------------------------|---------------|\n"
-        "\n"
-        "---\n"
-    )
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -229,6 +149,27 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
         ConfigResult.CREATED_FROM_DEFAULT if used_default else ConfigResult.CREATED,
         dst_rel,
     )
+
+
+def render_categorization_notes_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
+    """Seed 00-Categorization-Notes-LessonsLearned.md, the hand-written
+    file the companion's footer links to, with NOTES_SEED_CONTENT.
+
+    Idempotent — returns SKIPPED_EXISTS if the file already exists, and
+    never overwrites it. Needs no config.yaml and no PyYAML: the seed has
+    no project-specific content.
+    """
+    dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/{NOTES_FILENAME}"
+    dst = cfg.project_root / dst_rel
+    if dst.exists():
+        return ConfigResult.SKIPPED_EXISTS, dst_rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(dst, "x", encoding="utf-8") as f:
+            f.write(NOTES_SEED_CONTENT)
+    except FileExistsError:
+        return ConfigResult.SKIPPED_EXISTS, dst_rel
+    return ConfigResult.CREATED, dst_rel
 
 
 # The lessons index and its two generated-shape companions' SOURCE names in
@@ -335,10 +276,14 @@ class LessonsBootstrap:
     can render its own banner from the same routine. `index_results` holds
     one (ConfigResult, dst_rel) pair per file in `_LESSONS_SEED_NAMES` — the
     hub plus its two companions — since each seeds independently.
+    `notes_result`/`notes_rel` report the categorization notes seed the
+    same way `cat_result`/`cat_rel` report the companion.
     """
     index_results: list[tuple[ConfigResult, str]]
     cat_result: ConfigResult
     cat_rel: str
+    notes_result: ConfigResult
+    notes_rel: str
 
     @property
     def created_any(self) -> bool:
@@ -346,6 +291,7 @@ class LessonsBootstrap:
         return (
             any(result in created for result, _ in self.index_results)
             or self.cat_result in created
+            or self.notes_result in created
         )
 
 
@@ -361,11 +307,13 @@ def bootstrap_lessons_artifacts(cfg: "InitConfig") -> LessonsBootstrap:
     gates /planwise lessons curate and promote-batch — which the legacy
     fresh-init-only render never created; it also backfills whichever of the
     lessons index's two companions (changelog, promotion log) a
-    pre-companion project has not yet been given.
+    pre-companion project has not yet been given, and the categorization
+    notes file the companion's footer links to.
     """
     index_results = _seed_lessons_index(cfg)
     cat_result, cat_rel = render_categorization_file(cfg)
-    return LessonsBootstrap(index_results, cat_result, cat_rel)
+    notes_result, notes_rel = render_categorization_notes_file(cfg)
+    return LessonsBootstrap(index_results, cat_result, cat_rel, notes_result, notes_rel)
 
 
 def _emit_lessons_bootstrap_banner(boot: "LessonsBootstrap") -> None:
@@ -390,4 +338,6 @@ def _emit_lessons_bootstrap_banner(boot: "LessonsBootstrap") -> None:
             "config.yaml `categorization:` block missing)"
         )
         print("                  Add the block to customise buckets, or run --migrate to seed it from the template.")
+    if boot.notes_result == ConfigResult.CREATED:
+        print(f"  + {boot.notes_rel}")
     print()
