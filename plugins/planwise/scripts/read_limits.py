@@ -10,22 +10,27 @@ optional cost-budget gate (an externally-derived thresholds dict) and takes
 the max severity.
 
 Pure functions only — no filesystem writes, no subprocess. Re-validate the
-constants via a headless CLI probe if the harness changes (see
-`READ_LIMITS_MEASURED_*` so a doctor-style sweep can flag staleness).
+constants via a headless CLI probe if the harness changes. This file names
+no specific CLI build — the build a project's harness was last confirmed
+against is consumer-side state in that project's own config.yaml
+(`context.verified_cli_version`), not a literal pinned here; see
+`READ_LIMITS_MEASURED_ON` and `/planwise doctor`'s verified-CLI-version
+drift report.
 """
 
 import math
 import os
 
 # ---------------------------------------------------------------------------
-# FIXED Read-tool limit constants (empirically re-measured 2026-09-07 on CLI
-# 2.1.263 across Haiku 4.5, Sonnet 5, Opus 5, and Fable 5 — the caps are
-# identical on all four; only the tokenizer weight differs).
+# FIXED Read-tool limit constants (empirically re-measured 2026-09-07 across
+# Haiku 4.5, Sonnet 5, Opus 5, and Fable 5 — the caps are identical on all
+# four; only the tokenizer weight differs).
 #
 # These are mechanical harness facts about the Read tool, NOT derived from a
 # `/context` report and NOT written by calibrate(). Re-validate via a headless
-# `claude -p --model X` probe if the harness changes (see READ_LIMITS_MEASURED_*
-# so `doctor` can flag staleness).
+# `claude -p --model X` probe if the harness changes (see READ_LIMITS_MEASURED_ON
+# and /planwise doctor's verified-CLI-version drift report, which flags staleness
+# against the consuming project's own config.yaml — never a version hardcoded here).
 #
 # Gate priority: tokens first, then bytes, then lines — whichever comes first.
 # The binding split targets for generated artifacts are the WARN thresholds
@@ -43,7 +48,7 @@ READ_TOKEN_WARN = 22000
 
 # Byte gate (SECONDARY, model-independent): without an offset/limit, Read
 # refuses a file STRICTLY LARGER than this cap, reporting "exceeds maximum
-# allowed size (256KB)". Measured boundary (2026-09-07, CLI 2.1.263): a
+# allowed size (256KB)". Measured boundary (2026-09-07): a
 # 262,145-byte file refuses; a 262,144-byte file does NOT. `_read_level`
 # compares with `>=`, so it flags the one exact-cap size a byte early — a
 # deliberate conservatism, and unreachable in practice: 256 KiB of text is
@@ -60,8 +65,8 @@ READ_LINE_CAP = 2000
 
 # Empirical bytes-per-token ratios by model family and content class
 # (harness-reported token counts / on-disk bytes). Every cell was measured
-# 2026-09-07 on CLI 2.1.263 against a 150 KB corpus of its own content class;
-# no cell is derived from another.
+# 2026-09-07 against a 150 KB corpus of its own content class; no cell is
+# derived from another.
 #
 # The tokenizer splits by model GENERATION, not by model size: Opus 5,
 # Sonnet 5 and Fable 5 report the SAME token count for the same file (a 1-2
@@ -79,8 +84,8 @@ READ_LINE_CAP = 2000
 #   Claude 5 family   dense-md 2.605 · prose 2.906 · code 2.783
 #   Haiku 4.5         dense-md 3.540 · prose 4.023 · code 3.657
 #
-# Two structured-data classes, added 2026-09-23 on CLI 2.1.280 (same oracle:
-# the Read tool's over-cap error reports the exact token count). Both sit
+# Two structured-data classes, added 2026-09-23 (same oracle: the Read
+# tool's over-cap error reports the exact token count). Both sit
 # BELOW dense-md, and both are identifiable by file extension, which is why
 # they are reached only through an explicit or auto-detected content class
 # and never through the no-class fallback (see FALLBACK_CONTENT_CLASS).
@@ -123,10 +128,13 @@ FALLBACK_CONTENT_CLASS = "dense-md"
 NOTEBOOK_SUFFIXES = frozenset({".ipynb"})
 JSON_SUFFIXES = frozenset({".json", ".jsonl", ".ndjson"})
 
-# Provenance so `doctor` can flag staleness and a re-validation task can compare
-# the constants against the live tool.
+# Provenance so a re-validation task can date-check these constants. No CLI
+# build is pinned here — that would need editing every point release. The
+# build a project's harness was last confirmed against lives in that
+# project's own config.yaml (`context.verified_cli_version`), populated by
+# /planwise init and refreshed by /planwise upgrade; /planwise doctor reports
+# drift between it and the live `claude --version` without ever writing here.
 READ_LIMITS_MEASURED_ON = "2026-09-07"
-READ_LIMITS_MEASURED_CLI = "2.1.263"
 
 _LEVELS = ("Green", "Notice", "Warn", "Critical")
 _LEVEL_RANK = {name: i for i, name in enumerate(_LEVELS)}

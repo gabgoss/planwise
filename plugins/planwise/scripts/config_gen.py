@@ -7,8 +7,10 @@ through the same parse-checked writer.
 """
 
 import dataclasses
+import datetime
 import json
 import re
+import subprocess
 from enum import Enum
 from pathlib import Path
 
@@ -24,6 +26,7 @@ try:
         find_context_block,
         get_feedback_config,
         get_upgrade_config,
+        splice_context_block,
         write_config_checked,
     )
 except ImportError:
@@ -57,6 +60,13 @@ except ImportError:
         # from) the block-extent logic here would let a half-synced scripts
         # tree silently rewrite a user's config.yaml with no signal something
         # is wrong. Fail loudly instead — config_loader is a required sibling.
+        raise ImportError(
+            "config_loader is required for config.yaml context-block editing; "
+            "the scripts/ directory appears to be partially installed"
+        )
+
+    def splice_context_block(text: str, values: dict) -> str:
+        # Same fail-loud rationale as find_context_block above.
         raise ImportError(
             "config_loader is required for config.yaml context-block editing; "
             "the scripts/ directory appears to be partially installed"
@@ -108,6 +118,15 @@ MIGRATABLE_CONTEXT_SUBKEYS: list[tuple[str, str]] = [
     ("token_saver_orchestrator_advisory", "measured"),
     ("token_saver_session_checkpoint", "{window: 400000, turns: 194}"),
     ("run_layer_stop", "off"),
+    # Last CLI build planwise confirmed this project's harness against. This
+    # is consumer-side, mutable state -- NOT a version pin baked into shipped
+    # plugin source (see references/verify-against-shipped-artifact.md for why
+    # a shipped file citing a specific CLI build goes stale every release).
+    # Populated at init, refreshed on every /planwise upgrade; /planwise doctor
+    # reports drift against the live CLI but never writes (doctor is
+    # read-only throughout). "" is the uncalibrated sentinel.
+    ("verified_cli_version", '""'),
+    ("verified_cli_version_measured_on", '""'),
 ]
 
 
@@ -288,6 +307,71 @@ def read_plugin_version(plugin_root: Path) -> str:
         return str(data.get("version", "0.0.0"))
     except (FileNotFoundError, json.JSONDecodeError):
         return "0.0.0"
+
+
+def probe_cli_version(timeout: float = 5.0) -> str:
+    """Best-effort probe of the running Claude Code CLI's version via `claude --version`.
+
+    Returns the parsed `MAJOR.MINOR.PATCH` string, or "" when the `claude`
+    binary cannot be resolved/invoked or its output doesn't parse -- callers
+    treat "" as the same uncalibrated sentinel the Token Saver measurement
+    fields already use. Never raises: any probe failure (missing binary,
+    timeout, non-zero exit, unparseable output) degrades to the sentinel
+    rather than aborting the caller's init/upgrade run.
+    """
+    try:
+        result = subprocess.run(
+            ["claude", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    match = re.search(r"\b(\d+\.\d+\.\d+)\b", result.stdout or "")
+    return match.group(1) if match else ""
+
+
+def refresh_verified_cli_version(config_path: Path) -> str:
+    """Probe the live CLI version and write it into `context.verified_cli_version`.
+
+    Targeted text splice via config_loader.splice_context_block (comment-
+    preserving, never a YAML round-trip), written through the parse-checked
+    writer. A no-op when the probe returns "" (claude binary not resolvable) —
+    an unprobeable environment must never clobber an already-recorded value
+    with the uncalibrated sentinel.
+
+    Returns the probed version ("" on probe failure, or when there is no
+    `context:` block to nest under) so callers can report what happened
+    without re-probing.
+
+    Called from /planwise init (fresh population) and /planwise upgrade
+    (refresh on every run, mirroring _apply_feedback_dir's both-exits
+    placement). /planwise doctor never calls this — doctor is read-only
+    throughout and only reports drift against this value.
+
+    A config with no top-level `context:` block (a minimal/legacy config that
+    predates it, or a config generate_config()/migrate_config() has not yet
+    seeded) is left untouched — this helper only REFRESHES an already-present
+    block, it never creates one. splice_context_block's own "append when
+    absent" fallback assumes an existing context: block to insert relative to
+    and inserts at end-of-file otherwise, producing an unindented, unparented
+    mapping that fails to parse. Mirrors _flip_token_saver_on's existing
+    "key absent -> silent no-op" contract rather than that failure mode.
+    """
+    version = probe_cli_version()
+    if not version:
+        return ""
+    text = config_path.read_text(encoding="utf-8")
+    if find_context_block(text.split("\n")) is None:
+        return ""
+    text = splice_context_block(text, {
+        "verified_cli_version": f'"{version}"',
+        "verified_cli_version_measured_on": f'"{datetime.datetime.now().astimezone().date().isoformat()}"',
+    })
+    write_config_checked(config_path, text)
+    return version
 
 
 def generate_config(cfg: InitConfig) -> tuple[ConfigResult, str]:

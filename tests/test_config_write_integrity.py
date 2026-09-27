@@ -130,6 +130,8 @@ context:
   token_saver_orchestrator_advisory: measured
   token_saver_session_checkpoint: {window: 400000, turns: 194}
   run_layer_stop: off
+  verified_cli_version: "2.1.263"
+  verified_cli_version_measured_on: "2026-09-07"
 
 # Routing buckets for lessons curate. Order matters.
 categorization:

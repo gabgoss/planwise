@@ -70,6 +70,15 @@ context:
   # orchestrator writes the Session Boundary Note, prints one LAYER BOUNDARY
   # line, and ends its turn. Read by the run handler at Step 3.3.
   run_layer_stop: off
+  # Last Claude Code CLI build planwise confirmed THIS project's harness
+  # against. Consumer-side, mutable state — never a version pin baked into
+  # shipped plugin source, which would need editing on every CLI point
+  # release. Populated at init (probes `claude --version`), refreshed on
+  # every /planwise upgrade; /planwise doctor reports drift against the live
+  # CLI but never writes here (doctor is read-only throughout). "" is the
+  # uncalibrated sentinel (the probe could not resolve the `claude` binary).
+  verified_cli_version: ""
+  verified_cli_version_measured_on: ""
 
 abbreviations:
   APP: "Application features"

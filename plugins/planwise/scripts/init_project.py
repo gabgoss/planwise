@@ -90,6 +90,7 @@ try:
         merge_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
         migrate_config,
         read_plugin_version,
+        refresh_verified_cli_version,
         write_config_checked,
     )
 except ImportError:
@@ -791,6 +792,15 @@ def main():
             consumer="all handlers (config gate)",
             remediation="Re-install the planwise plugin or run /planwise init from a clean plugin checkout.",
         ))
+    if result == ConfigResult.CREATED:
+        probed = refresh_verified_cli_version(
+            cfg.project_root / cfg.planwise_root / "config.yaml"
+        )
+        if probed:
+            print(f"Verified CLI version: {probed} (probed via `claude --version`)")
+        else:
+            print("Verified CLI version: not probed (claude binary not resolvable) — "
+                  "left at the uncalibrated sentinel; /planwise upgrade will retry.")
     print()
 
     # Lessons scaffolding (index + companions + categorization file) via the

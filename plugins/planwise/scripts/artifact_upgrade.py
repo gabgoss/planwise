@@ -23,6 +23,7 @@ try:
         _flip_token_saver_on,
         get_upgrade_config,
         migrate_config,
+        refresh_verified_cli_version,
         write_config_checked,
     )
 except ImportError:
@@ -839,6 +840,14 @@ def _run_upgrade(
         # an install whose config predates the key — this is the ONLY
         # opportunity that population gets, since the version pin already
         # matches and the guarded block below never runs.
+        #
+        # verified_cli_version is deliberately NOT refreshed on this branch:
+        # an "already up to date, nothing else to do" re-run must stay a true
+        # no-op (see test_plugin_root_repoint.py's
+        # TestTokenSaverHonoredOnCurrentVersionBranch) rather than write on
+        # every invocation just because the live CLI build ticked forward.
+        # The refresh happens on an ACTUAL upgrade below (2d) and once at
+        # /planwise init — both real recalibration points.
         _apply_feedback_dir(cfg, config_path)
         report = migrate_backlog_if_legacy(
             cfg, pinned_version, target_version, reconcile=backlog_reconcile)
@@ -918,6 +927,15 @@ def _run_upgrade(
         # never touches it and never creates the directory either — this is
         # the only place in the --upgrade path that closes both gaps.
         _apply_feedback_dir(cfg, config_path)
+
+        # 2d. Refresh context.verified_cli_version against the CLI build this
+        # run is actually executing under — an upgrade is a natural
+        # recalibration point regardless of which plugin_version pair moved.
+        # A probe failure ("" returned) leaves the existing value untouched.
+        _refreshed_cli = refresh_verified_cli_version(config_path)
+        if _refreshed_cli:
+            print(f"Verified CLI version: {_refreshed_cli} (probed via `claude --version`)")
+            print()
 
         # Backlog-index retrofit: migrate a hand-authored backlog index
         # (or re-split an over-budget changelog on an already-generated one)

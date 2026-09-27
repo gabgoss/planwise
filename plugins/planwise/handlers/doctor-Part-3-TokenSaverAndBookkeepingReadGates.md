@@ -69,34 +69,31 @@ A passing read-gate/cost-gate scan is a necessary signal, not a sufficient one �
 
 ### Step 6: Read-constant drift tripwire
 
-Report the FIXED Read-tool constants and flag them stale when the harness CLI has moved past the measured version — the analogue of the overhead-staleness check, but for the hardcoded read limits (the harness may have changed the caps):
+Report the FIXED Read-tool constants' measured baseline, then defer the actual staleness signal to Stage 16's project-wide check rather than re-comparing a CLI build inline here — no shipped plugin file stores a literal CLI version to compare against (see the callout below for why).
 
-1. Report the constants' provenance and measured baseline — the values themselves are the read-gate canonical in [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits; this step never restates them:
+1. Report the constants' provenance — the values themselves are the read-gate canonical in [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits; this step never restates them:
 
    ```
    Fixed Read-tool limits (read_limits.py) — see references/session-context-budget.md § Read-Tool Hard Limits for the current values
-     Measured on:           {READ_LIMITS_MEASURED_ON}
-     Measured CLI:          {READ_LIMITS_MEASURED_CLI}
+     Measured on: {READ_LIMITS_MEASURED_ON}
    ```
 
-2. Compare the live CLI version against the measured one:
-
-   ```bash
-   claude --version   # → live CLI build
-   ```
-
-   When the live `claude --version` differs from `READ_LIMITS_MEASURED_CLI`, flag drift — the constants were validated against a different harness build and the caps may have changed:
+2. Point at Stage 16's own verdict (`doctor_cli.py`'s "verified CLI version drift" report, run earlier in this same `/planwise doctor` pass) rather than re-probing `claude --version` here:
 
    ```
-   ! Read-limit constants measured on CLI {READ_LIMITS_MEASURED_CLI}; live CLI is {live-version}.
-     The hardcoded Read-tool caps may be stale. Re-probe with the read-limit re-validation
-     procedure (headless `claude -p --model X` probes against synthetic files) and update the
-     constants + READ_LIMITS_MEASURED_ON / READ_LIMITS_MEASURED_CLI in scripts/read_limits.py.
-     That is where all four are DEFINED; scripts/token_saver.py only re-exports them,
-     and editing the re-export changes no value.
+   ! Read-limit constants measured {READ_LIMITS_MEASURED_ON}. Stage 16 above reports
+     {drift | uncalibrated | up to date} against context.verified_cli_version.
+     On drift or uncalibrated: the hardcoded Read-tool caps may be stale. Re-probe with the
+     read-limit re-validation procedure (headless `claude -p --model X` probes against
+     synthetic files) and update the constants + READ_LIMITS_MEASURED_ON in scripts/read_limits.py.
+     That is where both are DEFINED; scripts/token_saver.py only re-exports them, and editing
+     the re-export changes no value.
    ```
 
    This is the drift tripwire for the hardcoded read constants. It is advisory — `doctor` never edits the constants; it surfaces the mismatch so the one-shot live re-probe can be run.
+
+> [!binding] No shipped plugin file cites a specific CLI build
+> `read_limits.py` used to carry its own `READ_LIMITS_MEASURED_CLI` constant naming the exact build its constants were validated against — a version pin baked into shipped plugin source, requiring an edit on every CLI point release just to stay accurate. A project-local drift-watch tool that scans for any non-latest version string anywhere in the repo turned that churn into a large batch of near-identical "citation is stale" backlog items on every release, most of them against citations that were never functional pins to begin with (a measurement-provenance comment, not a compatibility requirement). The constant was removed; the *build a project's harness was last confirmed against* is now consumer-side, mutable state in `config.yaml`'s `context.verified_cli_version` — populated by `/planwise init`, refreshed by `/planwise upgrade`, reported (never written) by `/planwise doctor` Stage 16. Never reintroduce a literal CLI version into a file under `cloned-repos/planwise/plugins/planwise/`.
 
 The read-constant tripwire is paired with a cross-model ratio-band assertion in the plugin's test suite, which pins two properties of `BYTES_PER_TOKEN` for the same file. A drift in either signals a tokenizer-weight change:
 

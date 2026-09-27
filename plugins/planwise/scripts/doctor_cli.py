@@ -21,6 +21,7 @@ except ImportError:
 try:
     from config_gen import (
         InitConfig,
+        probe_cli_version,
         read_plugin_version,
     )
 except ImportError:
@@ -423,6 +424,22 @@ def _read_pinned_plugin_version(config_path: "Path") -> str:
     return (m.group(2) if m.group(2) is not None else m.group(3)).strip()
 
 
+def _read_verified_cli_version(config_path: "Path") -> str:
+    """Read `context.verified_cli_version` from config.yaml WITHOUT requiring
+    PyYAML, mirroring _read_pinned_plugin_version(). Returns "" (the
+    uncalibrated sentinel) when the key is absent, empty, or the file can't
+    be read -- the field predates any config written before this key shipped,
+    so absence is expected, not an error."""
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    m = re.search(r'^\s*verified_cli_version:\s*("([^"]*)"|(\S+))\s*$', text, re.MULTILINE)
+    if not m:
+        return ""
+    return (m.group(2) if m.group(2) is not None else m.group(3)).strip()
+
+
 def _read_configured_plugin_root(config_path: "Path") -> "Path | None":
     """Read the top-level plugin_root from config.yaml WITHOUT requiring
     PyYAML, mirroring _read_pinned_plugin_version() — so the read-only doctor
@@ -712,8 +729,12 @@ def _run_doctor(cfg: "InitConfig") -> int:
     its report — also always-on; DISTINCT from the Preflight version-state
     gate below (that gate reads config.yaml's plugin_root: pin, this stage
     reads settings.json's additionalDirectories grants), and read-only —
-    normalization is offered only by `/planwise upgrade` Step 4.4. Always
-    exits 0 (diagnostic, not a gate).
+    normalization is offered only by `/planwise upgrade` Step 4.4. Then runs
+    Stage 16, the verified-CLI-version drift advisory: probes the live
+    `claude --version` and compares it against config.yaml's
+    context.verified_cli_version (populated by init, refreshed by upgrade) —
+    read-only, recommends `/planwise upgrade` on drift or on an uncalibrated
+    ("") value, never writes. Always exits 0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
     Saver): an uninitialized or version-drifted install is surfaced with a
@@ -893,6 +914,31 @@ def _run_doctor(cfg: "InitConfig") -> int:
                   "the parent grant) — doctor is read-only and never rewrites settings")
         print()
         print(f"Total grant(s) needing normalization: {len(grants)} found.")
+
+    # Stage 16: verified-CLI-version drift advisory — read-only, always-on.
+    # Compares the live `claude --version` probe against context.verified_cli_version
+    # (populated by /planwise init, refreshed by /planwise upgrade). Never writes —
+    # /planwise upgrade is the only writer for this field, matching the settings-grant
+    # sweep above's read-only/recommend-only shape.
+    print()
+    print("planwise doctor — verified CLI version drift")
+    print()
+    config_path = _resolve_doctor_config_path(cfg)
+    recorded = _read_verified_cli_version(config_path) if config_path else ""
+    live = probe_cli_version()
+    if not live:
+        print("Could not probe the running CLI version (`claude --version` "
+              "not resolvable) — skipping the drift comparison.")
+    elif not recorded:
+        print(f"Not yet calibrated (context.verified_cli_version is empty). Live CLI: {live}.")
+        print("      recommend: run /planwise upgrade to populate it — doctor is "
+              "read-only and never writes config.yaml")
+    elif recorded != live:
+        print(f"Drift — recorded {recorded} != live {live}.")
+        print("      recommend: run /planwise upgrade to refresh it — doctor is "
+              "read-only and never writes config.yaml")
+    else:
+        print(f"Up to date — recorded {recorded} matches the live CLI.")
     return 0
 
 
