@@ -142,6 +142,10 @@ Reinstalling the plugin does **not** refresh the rules in `.claude/rules/planwis
 
 > **Run Stage 2 once per upgrade.** If you skip it, `/planwise init` and `/planwise doctor` both notice the version drift and remind you to run `/planwise upgrade`.
 
+### Upgrading from 1.0.5.1: backlog index
+
+Older installs use a hand-authored backlog index. Newer ones use a generated hub plus Archive shards, with each item's YAML frontmatter as the source of truth and the changelog in its own file. `/planwise upgrade` migrates a hand-authored index automatically, backing up every file it touches under `upgrade-backups/{from}-to-{to}/backlog/` before writing. An ambiguous feature-cell sentence, one that only partly matches its item file, is parked verbatim in the migration ledger rather than appended or refused. A refusal — for a data conflict the migration cannot resolve on its own, or for an index shape it does not recognize — leaves your index untouched and names the fix to apply before you re-run `/planwise upgrade`. Until the migration finishes, `/planwise backlog` and the index generator both refuse to run against a hand-authored index.
+
 ---
 
 ## Full user guide

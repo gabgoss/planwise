@@ -94,6 +94,43 @@ class TestArtifactsManifestEnums(unittest.TestCase):
         self.assertEqual(row["upgrade_behavior"], "migrate_only")
         self.assertIn("migrate_config()", row["notes"])
 
+    def test_backlog_artifact_rows_exist_with_required_keys(self):
+        """The backlog retrofit adds four new artifact rows; each MUST carry
+        every key the manifest's own schema requires of a row."""
+        required_keys = {
+            "id", "on_disk", "config_keys", "producer", "consumers",
+            "missing_key_behavior", "upgrade_behavior",
+        }
+        by_id = {r["id"]: r for r in self.doc["artifacts"]}
+        for row_id in (
+            "backlog_changelog",
+            "backlog_index_shards",
+            "backlog_hub_overflow_leaves",
+            "backlog_migration_ledger",
+        ):
+            self.assertIn(row_id, by_id, f"missing artifacts.yaml row: {row_id}")
+            missing = required_keys - set(by_id[row_id])
+            self.assertEqual(missing, set(), f"{row_id} is missing keys: {missing}")
+
+    def test_backlog_index_notes_name_the_migration_writer_and_escape_hatch(self):
+        row = next(r for r in self.doc["artifacts"] if r["id"] == "backlog_index")
+        self.assertEqual(row["upgrade_behavior"], "migrate_shape")
+        self.assertIn("migrate_backlog_if_legacy", row["notes"])
+        self.assertIn("--replace-legacy", row["notes"])
+
+    def test_backlog_changelog_notes_name_the_parts_and_resplit_flag(self):
+        row = next(r for r in self.doc["artifacts"] if r["id"] == "backlog_changelog")
+        self.assertIn("Part-", row["notes"])
+        self.assertIn("--split-changelog", row["notes"])
+
+    def test_header_comment_declares_the_new_enum_values(self):
+        text = MANIFEST.read_text(encoding="utf-8")
+        for value in ("migrate_shape", "generated", "regenerated"):
+            self.assertIn(value, text, f"header comment must document {value}")
+        self.assertIn("migrate_shape", self.doc["upgrade_behaviors"])
+        self.assertIn("generated", self.doc["upgrade_behaviors"])
+        self.assertIn("regenerated", self.doc["missing_key_behaviors"])
+
 
 if __name__ == "__main__":
     unittest.main()

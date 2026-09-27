@@ -12,9 +12,9 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-import backlog_index_schema as schema  # noqa: E402
-import migrate_backlog_index as mig  # noqa: E402
-import migrate_backlog_support as sup  # noqa: E402
+import backlog_index_schema as schema
+import migrate_backlog_index as mig
+import migrate_backlog_support as sup
 
 NO_GIT = "--allow-untracked-tree"
 HEADER = "| ID | Feature | Priority | Status | Created | Blocks | Files |\n|---|---|---|---|---|---|---|\n"
@@ -142,7 +142,7 @@ def test_single_oversized_paragraph_is_refused():
     body = "One giant paragraph with no blank line inside it at all, " * 20
     segments = [body.encode("utf-8")]
     tight_budget = sup.changelog_tokens(f"## Entry 1\n\n{body}\n\n") - 5
-    with pytest.raises(sup.Refusal, match=r"entry 1 has a paragraph"):
+    with pytest.raises(sup.Refusal, match=r"entry 1, which begins 'One giant.*', is one paragraph .* never splits an entry mid-line"):
         sup.split_changelog(segments, naming, "00-Index-Backlog.md", "\n", budget=tight_budget)
 
 
@@ -172,8 +172,8 @@ def test_foreign_text_in_a_part_is_refused():
     with pytest.raises(sup.Refusal):
         sup.parse_changelog(["not a backlink line at all\n\n## Entry 1\n\nbody\n\n"])
     with pytest.raises(sup.Refusal):
-        sup.parse_changelog(["[← 00-Index-Backlog.md](00-Index-Backlog.md)\n\n## Entry 1\n\nbody\n\n"
-                              "## Unexpected Heading\n\nmore\n\n"])
+        sup.parse_changelog([("[← 00-Index-Backlog.md](00-Index-Backlog.md)\n\n## Entry 1\n\nbody\n\n"
+                               "## Unexpected Heading\n\nmore\n\n")])
 
 
 # --- CLI-level tests: real migration, --split-changelog, --report ----------
@@ -215,7 +215,7 @@ def test_stale_part_file_beyond_planned_n_is_refused(tmp_path, monkeypatch, caps
 
 def test_split_changelog_within_budget_is_a_noop(tmp_path, monkeypatch, capsys):
     items = {"001": item("001")}
-    config_path, index_path = project(tmp_path, index(row("001")), items)
+    config_path, _index_path = project(tmp_path, index(row("001")), items)
     code, out, err = run(monkeypatch, capsys, config_path, "--write")
     assert code == 0, err + out
     promote_to_migrated(config_path)
@@ -295,8 +295,8 @@ def test_generator_coexists_with_changelog_parts(tmp_path, monkeypatch, capsys):
     part1 = index_path.with_name(schema._changelog_filename(naming))
     part2 = index_path.with_name(sup.changelog_part_filename(naming, 2))
     part3 = index_path.with_name(sup.changelog_part_filename(naming, 3))
-    part2.write_bytes(f"[← {part1.name}]({part1.name})\n\n## Entry 1\n\nExtra part two.\n\n".encode("utf-8"))
-    part3.write_bytes(f"[← {part1.name}]({part1.name})\n\n## Entry 1\n\nExtra part three.\n\n".encode("utf-8"))
+    part2.write_bytes(f"[← {part1.name}]({part1.name})\n\n## Entry 1\n\nExtra part two.\n\n".encode())
+    part3.write_bytes(f"[← {part1.name}]({part1.name})\n\n## Entry 1\n\nExtra part three.\n\n".encode())
     for path in (part1, part2, part3):
         assert not schema.is_generated_index_file(path.name, naming)
     before = {p.name: p.read_bytes() for p in (part1, part2, part3)}

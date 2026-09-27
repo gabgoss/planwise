@@ -12,7 +12,8 @@ targets, re-reads them from disk to verify, then writes the ledger.
 (4) Run `generate_backlog_index.py --write`. (5) Run it with `--check`.
 `/planwise upgrade` and `/planwise init` run this whole sequence with every
 repair flag on, backing up each file first. `--report` prints a read-only
-JSON readiness report instead; it never writes and always exits 0. The
+JSON readiness report instead, planned as the upgrade plans it, with the
+parked count; it never writes and always exits 0. The
 changelog is written as budgeted numbered parts, and `--split-changelog`
 re-splits one that has grown over budget.
 
@@ -45,7 +46,10 @@ an unparseable frontmatter block, and a reciprocal edge.
 Dedup: a unit is ALREADY-PRESENT only when its whole strict form (case
 folded, whitespace collapsed, emphasis stripped) occurs in one paragraph
 of the item file or of the appends already planned for it. Similarity
-alone yields AMBIGUOUS. A Files-cell link after the first is carried into
+alone yields AMBIGUOUS. `/planwise upgrade` and `/planwise init` plan with
+`park_ambiguous`: each AMBIGUOUS unit is kept verbatim in the ledger's
+`parked_ambiguous` list, counted as accounted, and appended nowhere. This
+CLI never parks, and `--append-ambiguous` wins over parking. A Files-cell link after the first is carried into
 the item's `## Migration Notes` block unless the item already links to its
 target. A unit already inside that block counts as appended by a prior run.
 Each file keeps its newline style and permission mode.
@@ -67,18 +71,20 @@ write or verification failure. 2 refused.
 """
 import argparse
 import json
+import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import generate_backlog_index as gen  # noqa: E402
-import migrate_backlog_checks as chk  # noqa: E402
-import migrate_backlog_repairs as repairs  # noqa: E402
-import migrate_backlog_support as sup  # noqa: E402
-from config_loader import load_config  # noqa: E402
-from reconcile_common import read_text_preserving_newlines as read_text  # noqa: E402
+import generate_backlog_index as gen
+import migrate_backlog_checks as chk
+import migrate_backlog_repairs as repairs
+import migrate_backlog_support as sup
+from config_loader import load_config
+from reconcile_common import read_text_preserving_newlines as read_text
 
 UNRECOVERABLE = ("resumed: this size includes notes an interrupted earlier run appended; "
                  "the pre-migration size is not recoverable from this file")
@@ -97,12 +103,24 @@ class RepairOptions:
     extract_dependency_notes: bool = False
     reconcile: str | None = None
     append_ambiguous: bool = False
+    park_ambiguous: bool = False  # keep AMBIGUOUS units in the ledger; `append_ambiguous` wins over it
     high: float = sup.DEFAULT_HIGH
     low: float = sup.DEFAULT_LOW
 
     @classmethod
     def all_on(cls, reconcile: str = "index-wins") -> "RepairOptions":
         return cls(backfill_frontmatter=True, write_edges=True, extract_dependency_notes=True, reconcile=reconcile)
+
+    @classmethod
+    def unattended(cls, reconcile: str = "index-wins") -> "RepairOptions":
+        """Every repair on, and AMBIGUOUS units parked: what `/planwise upgrade` and `init` run."""
+        return cls(backfill_frontmatter=True, write_edges=True, extract_dependency_notes=True, reconcile=reconcile,
+                   park_ambiguous=True)
+
+
+def _today() -> str:
+    """Today's local date, ISO form."""
+    return datetime.now().astimezone().date().isoformat()
 
 
 def say(code: int, msg: str, json_mode: bool, err: bool = False) -> int:
@@ -141,6 +159,23 @@ def _census(config: dict, index_path: Path):
         yield path.resolve(), body, raw, has_block
 
 
+def _non_numeric_hint(message: str, config: dict, index_path: Path, view: dict, backfill_hint: bool) -> str:
+    """The fix for the generator's "non-numeric id value" refusal, worded by the key that carries
+    the value: `--backfill-frontmatter` normalises a prefixed `id:`, but never a `blocks:` entry."""
+    m = re.search(r"non-numeric id value (['\"])(.*)\1", message)
+    value = m.group(2).strip().strip("\"'") if m else ""
+    raws = [(path, repairs.partial_frontmatter(view.get(path, body))[0] or {})
+            for path, body, _raw, _has in _census(config, index_path)] if value else []
+    if any(value == str(raw.get("id", "")).strip().strip("\"'") for _p, raw in raws):
+        return (" -- add --backfill-frontmatter to normalise an id: of the form {PREFIX}-{NNN}[-{NN}] that "
+                "matches its file name and index row") if backfill_hint else ""
+    owner = next((path for path, raw in raws if value in str(raw.get("blocks", ""))), None)
+    if owner is not None:
+        return (f" -- {owner.name} has blocks: entry {value!r}, which is not a bare item id. "
+                "--backfill-frontmatter does not rewrite blocks: entries, so fix it by hand, then re-run")
+    return ""
+
+
 def preflight_generator(config: dict, index_path: Path, overrides: dict | None = None,
                         backfill_hint: bool = False) -> dict:
     """Run the generator's own scan now, so its refusal lands before any write.
@@ -154,6 +189,8 @@ def preflight_generator(config: dict, index_path: Path, overrides: dict | None =
         hint = ""
         if backfill_hint and ("missing required frontmatter key" in str(exc) or "no well-formed frontmatter" in str(exc)):
             hint = " -- add --backfill-frontmatter to fill the missing frontmatter from the index row, file name and git"
+        elif "non-numeric id value" in str(exc):
+            hint = _non_numeric_hint(str(exc), config, index_path, view, backfill_hint)
         raise Refusal(f"the generator would refuse this tree -- {exc}{hint}") from exc
     if reciprocal:
         pairs = ", ".join(f"{a}<->{b}" for a, b in reciprocal)
@@ -181,15 +218,17 @@ def resolve_rows(text: str, header_idx: int, roles: dict, config: dict, index_pa
     return rows
 
 
-def collect_rows(resolved: list, roles: dict, index_path: Path, items: dict):
-    """Return (rows with their prose units, cell/frontmatter disagreements)."""
+def collect_rows(resolved: list, roles: dict, index_path: Path, items: dict, valid_abbrevs=None):
+    """Return (rows with their prose units, cell/frontmatter disagreements).
+    An Abbrev cell that is not a usable abbrev per `valid_abbrevs` is no disagreement."""
     rows, diffs = [], []
     for row in resolved:
         path, cells, links = row["path"], row["cells"], row["links"]
         fields = items.get(path)
         if fields is None:
             raise Refusal(f"row at line {row['line'] + 1}: {path.name} is not an item file the generator scans")
-        diffs += [{**diff, "id": fields["id"], "path": path} for diff in sup.row_diffs(cells, roles, fields)]
+        diffs += [{**diff, "id": fields["id"], "path": path}
+                  for diff in sup.row_diffs(cells, roles, fields, valid_abbrevs)]
         extra = [sup.link_unit(t, h, index_path.parent, path.parent) for t, h in links[1:]
                  if h.strip() != links[0][1].strip()]
         rows.append({"id": fields["id"], "path": path, "links": extra,
@@ -202,13 +241,17 @@ def _cell(row: dict, roles: dict, role: str) -> str:
 
 
 def _abbrev(row: dict, roles: dict, path: Path, config: dict, where: str) -> str:
-    configured = config.get("abbreviations")
-    valid = {str(k) for k in configured} if isinstance(configured, (dict, list, tuple, set)) and configured else None
+    valid = sup.configured_abbrevs(config)
     seg, cell = (repairs.filename_fields(path.name) or (None, None))[1], _cell(row, roles, "abbrev")
-    usable = [v for v in (seg, cell) if v and (valid is None or v in valid)]
+    usable = [v for v in (seg, cell) if sup.abbrev_usable(v, valid)]
     if len(set(usable)) > 1:
         raise Refusal(f"{where}: the file name says abbrev {seg!r} but the index cell says {cell!r} -- "
                       "make them agree by hand, then re-run")
+    unconfigured = sorted({v for v in (seg, cell) if sup.abbrev_usable(v, None)} - (valid or set()))
+    if not usable and valid is not None and unconfigured:
+        names = " and ".join(unconfigured)
+        raise Refusal(f"{where}: its abbrev {names} is not in config.yaml abbreviations: -- add {names} to "
+                      "abbreviations: in config.yaml, then re-run")
     return usable[0] if usable else ""
 
 
@@ -218,7 +261,7 @@ def _source_values(keys: list, row: dict, roles: dict, path: Path, config: dict,
     values, source = {}, None
     for key in keys:
         if key == "id":
-            ids, named = sup.ids_in(row["cells"][roles["id"]]), repairs.first_id_in(path.stem)
+            ids, named = sup.row_ids(row["cells"][roles["id"]]), repairs.first_id_in(path.stem)
             if len(ids) != 1 or (named is not None and named != ids[0]):
                 raise Refusal(f"{where}: the ID cell names {ids or 'no id'} and the file name names {named} -- "
                               "make them agree by hand, then re-run")
@@ -247,8 +290,30 @@ def _rendered(values: dict) -> dict:
     return {key: pairs[key] for key in values}
 
 
-def plan_backfill(resolved: list, roles: dict, config: dict, index_path: Path, texts: dict) -> list:
-    """Plan frontmatter for every scanned item file that lacks a block or keys, into `texts`."""
+def _repair_id(path: Path, body: str, raw: dict, row: dict | None, roles: dict, texts: dict,
+               id_repairs: list) -> str:
+    """Normalise an `id:` of the form "{PREFIX}-{NNN}[-{NN}]" to "{NNN}" in `texts`, and return
+    the file's text. Refuses when that id does not name this file and its index row."""
+    value = str(raw["id"])
+    prefix, row_id, sub = (sup.row_id_parts(row["cells"][roles["id"]]) if row is not None else None) or (None,) * 3
+    try:
+        fixed = repairs.bare_id(value, path.name, row_id, prefix, sub)
+    except ValueError as exc:
+        raise Refusal(f"{path.name}: {exc} -- fix its id: line by hand, then re-run") from exc
+    if fixed is None:
+        return body
+    texts[path] = repairs.replace_key_line(body, "id", fixed)
+    raw["id"] = fixed
+    id_repairs.append({"path": path, "from": value, "to": fixed})
+    return texts[path]
+
+
+def plan_backfill(resolved: list, roles: dict, config: dict, index_path: Path, texts: dict,
+                  id_repairs: list | None = None) -> list:
+    """Plan frontmatter for every scanned item file that lacks a block or keys, into `texts`.
+    An `id:` of the form "{PREFIX}-{NNN}[-{NN}]" is normalised first; each such repair is
+    appended to `id_repairs`."""
+    id_repairs = [] if id_repairs is None else id_repairs
     by_path = {}
     for row in resolved:
         by_path.setdefault(row["path"], row)
@@ -257,6 +322,8 @@ def plan_backfill(resolved: list, roles: dict, config: dict, index_path: Path, t
         if has_block and raw is None:
             raise Refusal(f"{path.name}: its frontmatter block does not close or cannot be parsed -- "
                           "fix it by hand, then re-run")
+        if raw is not None and "id" in raw:
+            body = _repair_id(path, body, raw, by_path.get(path), roles, texts, id_repairs)
         missing = [key for key in KEYS if raw is None or key not in raw]
         if not missing:
             continue
@@ -320,7 +387,11 @@ def plan_reconcile(diffs: list, mode: str | None, texts: dict, items: dict) -> l
             for d in diffs]
 
 
-def plan_dedup(rows: list, high: float, low: float, append_ambiguous: bool, texts: dict | None = None) -> list:
+def plan_dedup(rows: list, high: float, low: float, append_ambiguous: bool, texts: dict | None = None,
+               park_ambiguous: bool = False) -> list:
+    """Classify every row unit against its item file. An AMBIGUOUS unit is appended under
+    `append_ambiguous`, else parked (kept for the ledger, never appended) under
+    `park_ambiguous`, else refused by name."""
     texts = {} if texts is None else texts
     dests = {}
     for row in rows:
@@ -331,7 +402,7 @@ def plan_dedup(rows: list, high: float, low: float, append_ambiguous: bool, text
     for dest in dests.values():
         dest["body"] = _text(texts, dest["path"])
         dest["bytes_before"] = dest["path"].stat().st_size
-        dest["append"], dest["dedup"], dest["ambiguous"], dest["prior"] = [], [], [], []
+        dest["append"], dest["dedup"], dest["ambiguous"], dest["prior"], dest["parked"] = [], [], [], [], []
         notes, index = sup.prior_notes(dest["body"]), sup.body_index(dest["body"])
         for row_id, unit in dest["units"]:
             exact, score, window = sup.score_unit(unit, index)
@@ -342,6 +413,10 @@ def plan_dedup(rows: list, high: float, low: float, append_ambiguous: bool, text
             if verdict == "AMBIGUOUS":
                 if not append_ambiguous:
                     label = "near-duplicate" if max(score, window) >= high else "partial overlap"
+                    if park_ambiguous:
+                        dest["parked"].append({"row": row_id, "unit": unit, "label": label,
+                                               "similarity": round(max(score, window), 2)})
+                        continue
                     ambiguous.append(f"row {row_id} ({label}, similarity {max(score, window):.2f}): {unit[:80]!r}")
                     continue
                 dest["ambiguous"].append(unit)
@@ -450,6 +525,36 @@ def _key_lines(text: str, keys: list) -> list:
     return [line for line in lines[1:end] if line.split(":", 1)[0] in keys]
 
 
+def _refuse_unusable_abbrevs(texts: dict, valid) -> None:
+    """Refuse when a planned text sets an `abbrev:` that differs from the file's own on disk and
+    is not a usable abbrev: the migrator never writes an unconfigured abbrev."""
+    def abbrev_of(text: str) -> str:
+        return str((repairs.partial_frontmatter(text)[0] or {}).get("abbrev", "")).strip().strip("\"'")
+
+    for path, planned in texts.items():
+        value = abbrev_of(planned)
+        if value != abbrev_of(read_text(path)) and not sup.abbrev_usable(value, valid):
+            raise Refusal(f"{path.name}: the migration would write abbrev: {value!r}, which is not a configured "
+                          "abbreviation -- set its abbrev: by hand, or add it to abbreviations: in config.yaml, "
+                          "then re-run")
+
+
+def _refuse_unfinished_ledger(ledger_path: Path) -> None:
+    """Refuse when the index is already migrated but the ledger path still holds the in-progress
+    journal: the run stopped after replacing the index and before writing its ledger, so that
+    journal is the only record of what it did, including any parked units."""
+    if not sup.journal_paths(ledger_path):
+        return
+    try:
+        parked = len(json.loads(read_text(ledger_path)).get("parked_ambiguous") or [])
+    except (OSError, ValueError, AttributeError):
+        parked = 0
+    raise Refusal(f"{ledger_path.name} is still the in-progress journal of an interrupted migration: the index "
+                  f"was replaced but the ledger was never written, and the journal holds the only record of its "
+                  f"{parked} parked unit(s) -- keep that file: rename it (for example to {ledger_path.stem}"
+                  "-Interrupted.json), then re-run to regenerate the index")
+
+
 def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: tuple, options: RepairOptions):
     header_idx, roles = detail
     problems, edges, found = chk.scan_index(text, header_idx, extract_notes=options.extract_dependency_notes)
@@ -463,8 +568,9 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
         raise Refusal(f"{older.name} exists from an earlier version of this tool, and the generator "
                       f"would scan it as an item file -- rename it to {changelog_path.name}")
     resolved = resolve_rows(text, header_idx, roles, config, index_path)
-    texts = {}
-    backfill = plan_backfill(resolved, roles, config, index_path, texts) if options.backfill_frontmatter else []
+    texts, id_repairs = {}, []
+    backfill = (plan_backfill(resolved, roles, config, index_path, texts, id_repairs)
+                if options.backfill_frontmatter else [])
     no_backfill = not options.backfill_frontmatter
     edge_plan = []
     if options.write_edges and edges:
@@ -476,7 +582,8 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
                       f"{'; '.join(missing[:10])}. The generator renders no Dependencies section, so add "
                       "each edge to its item's blocks: first"
                       + ("" if options.write_edges else " -- or add --write-edges to write each edge into blocks:"))
-    rows, diffs = collect_rows(resolved, roles, index_path, items)
+    valid_abbrevs = sup.configured_abbrevs(config)
+    rows, diffs = collect_rows(resolved, roles, index_path, items, valid_abbrevs)
     cells = plan_reconcile(diffs, options.reconcile, texts, items)
     written_cells = cells if options.reconcile == "index-wins" else []
     if written_cells:
@@ -486,23 +593,25 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
             raise Refusal(f"--reconcile index-wins would drop {len(dropped)} '## Dependencies' edge(s) from "
                           f"blocks: {'; '.join(dropped[:10])}. The row's Blocks cell and '## Dependencies' "
                           "disagree -- make them agree by hand, then re-run")
-    dests = plan_dedup(rows, options.high, options.low, options.append_ambiguous, texts)
+    dests = plan_dedup(rows, options.high, options.low, options.append_ambiguous, texts, options.park_ambiguous)
     for dest in dests:
         if dest["append"]:
             units = [unit for _row_id, unit in dest["append"]]
             dest["new_text"] = sup.append_notes(dest["body"], units, sup.newline_of(dest["body"]))
             texts[dest["path"]] = dest["new_text"]
     notes = plan_notes([f for f in found if f["kind"] == "bullet"], items, texts)
+    _refuse_unusable_abbrevs(texts, valid_abbrevs)
     pending = (sum(len(d["append"]) for d in dests) + len(backfill) + len(edge_plan) + len(written_cells)
-               + sum(n["bullets"] for n in notes))
+               + sum(n["bullets"] for n in notes) + len(id_repairs))
     naming = gen._index_naming(index_path)
     changelog = plan_changelog(text, index_path, changelog_path, pending, naming)
     if changelog is None:
+        _refuse_unfinished_ledger(paths[1])
         return None
     for entry in backfill:
         entry["lines"] = _key_lines(texts[entry["path"]], entry["keys_added"])
     footer = sup.FOOTER_TEXT_RE.search(text)
-    pointer = f"*Last Updated: {date.today().isoformat()} — moved to [{changelog_path.name}]({changelog_path.name})*"
+    pointer = f"*Last Updated: {_today()} — moved to [{changelog_path.name}]({changelog_path.name})*"
     index_text = text[:footer.start()] + pointer + text[footer.end():]
     drop = {i for f in found for i in range(f["line"] - 1, f["line"] - 1 + f["count"])}
     if drop:
@@ -511,7 +620,7 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
     outputs += list(changelog["parts"]) + [(index_path, index_text)]
     return {"changelog": changelog, "dests": dests, "row_count": len(rows),
             "interrupted": changelog["resumed"] or any(d["prior"] for d in dests) or any(n["present"] for n in notes),
-            "index_text": index_text, "backfill": backfill, "edges": edge_plan, "notes": notes,
+            "index_text": index_text, "backfill": backfill, "id_repairs": id_repairs, "edges": edge_plan, "notes": notes,
             "dropped_headings": [f["text"] for f in found if f["kind"] == "heading"],
             "reconcile": {"mode": options.reconcile, "cells": cells}, "outputs": outputs}
 
@@ -530,14 +639,65 @@ def plan_targets(plan: dict) -> list:
     return [path for path, _text in plan["outputs"] if path.exists()]
 
 
+def _size(units) -> int:
+    return sum(len(u.encode("utf-8")) for u in units)
+
+
+def parked_records(dests: list) -> list:
+    """Each parked AMBIGUOUS unit, verbatim, with its source row, target item file, score and size."""
+    return [{"row": p["row"], "path": str(d["path"]), "unit": p["unit"], "label": p["label"],
+             "similarity": p["similarity"], "bytes": _size([p["unit"]])}
+            for d in dests for p in d.get("parked", ())]
+
+
+def units_on_disk(dests: list, ledger_path: Path) -> Counter:
+    """Every row prose unit a re-read from disk finds where the plan put it: an appended or
+    prior-run unit verbatim in its item file, a parked unit verbatim in the ledger-path file
+    (the journal before the ledger is written, the ledger after)."""
+    found = Counter()
+    for d in dests:
+        body = read_text(d["path"])
+        found.update(u for _r, u in d.get("append", []) + d.get("prior", []) if u in body)
+    if any(d.get("parked") for d in dests):
+        try:
+            held = json.loads(read_text(ledger_path)).get("parked_ambiguous") or []
+        except (OSError, ValueError, AttributeError):
+            held = []
+        wanted = Counter((p["row"], str(d["path"]), p["unit"]) for d in dests for p in d.get("parked", ()))
+        have = Counter((r.get("row"), r.get("path"), r.get("unit")) for r in held if isinstance(r, dict))
+        found.update(unit for (_row, _path, unit), n in (wanted & have).items() for _ in range(n))
+    return found
+
+
+def dedup_accounting(dests: list, on_disk: Counter | None = None) -> dict:
+    """Byte conservation for row prose: every unit is appended, already present, appended by a
+    prior run, or parked in the ledger. `unaccounted_*` counts what is none of these. With
+    `on_disk` (from `units_on_disk`), appended, prior-run and parked units count only when the
+    re-read found them; an already-present unit counts as the plan classified it, since it was in
+    its item file before this run and the run does not remove it."""
+    source = Counter(u for d in dests for u in [*(u for _r, u in d.get("units", ())),
+                                                *(u for _r, (u, _n) in d.get("links", ()))])
+    if on_disk is None:
+        placed = Counter(u for d in dests for u in [*(u for k in ("append", "dedup", "prior") for _r, u in d.get(k, ())),
+                                                    *(p["unit"] for p in d.get("parked", ()))])
+    else:
+        placed = on_disk + Counter(u for d in dests for _r, u in d.get("dedup", ()))
+    missing = source - placed
+    parked = [p["unit"] for d in dests for p in d.get("parked", ())]
+    return {"parked_units": len(parked), "parked_bytes": _size(parked),
+            "unaccounted_units": sum(missing.values()), "unaccounted_bytes": sum(_size([u]) * n for u, n in missing.items()),
+            "unaccounted_basis": "plan" if on_disk is None else "re-read from disk"}
+
+
 def build_ledger(plan: dict, paths: tuple, measured: dict | None = None, misses: list | None = None,
-                 disk_log: str | None = None) -> dict:
+                 disk_log: str | None = None, on_disk: Counter | None = None) -> dict:
     c, dests = plan["changelog"], plan["dests"]
     units = {k: [u for d in dests for _r, u in d[k]] for k in ("append", "dedup", "prior")}
-    size = lambda us: sum(len(u.encode("utf-8")) for u in us)  # noqa: E731
+    units["parked"] = [p["unit"] for d in dests for p in d.get("parked", ())]
+    size = _size
     planned_text = sup.joined_entries([t for _p, t in c["parts"]])
     ledger = {
-        "run_date": date.today().isoformat(), "mode": "dry-run" if measured is None else "write",
+        "run_date": _today(), "mode": "dry-run" if measured is None else "write",
         "changelog": {**{k: v for k, v in c.items() if k not in ("segments", "parts")},
                       "entries": len(c["segments"]), "path": str(paths[0]), "bytes_on_disk": None,
                       "parts": [{"path": str(p), "tokens": sup.changelog_tokens(t),
@@ -550,14 +710,17 @@ def build_ledger(plan: dict, paths: tuple, measured: dict | None = None, misses:
                   "appended_by_prior_run_units": len(units["prior"]),
                   "appended_by_prior_run_bytes": size(units["prior"]),
                   "deduplicated_units": len(units["dedup"]), "deduplicated_bytes": size(units["dedup"]),
-                  "ambiguous_appended": sum(len(d["ambiguous"]) for d in dests)},
+                  "ambiguous_appended": sum(len(d["ambiguous"]) for d in dests), **dedup_accounting(dests, on_disk)},
         "destinations": [{"path": str(d["path"]), "bytes_before": d["bytes_before"],
                           "bytes_before_basis": UNRECOVERABLE if d["prior"] else "pre-migration",
                           "bytes_after": None, "bytes_added": None, "units_appended": len(d["append"]),
                           "units_appended_by_prior_run": len(d["prior"]),
-                          "units_deduplicated": len(d["dedup"])} for d in dests],
+                          "units_deduplicated": len(d["dedup"]), "units_parked": len(d.get("parked", ()))}
+                         for d in dests],
+        "parked_ambiguous": parked_records(dests),
         "backfill": [{"path": str(b["path"]), "keys_added": b["keys_added"], "created_source": b["created_source"]}
                      for b in plan["backfill"]],
+        "id_repairs": [{"path": str(r["path"]), "from": r["from"], "to": r["to"]} for r in plan.get("id_repairs", ())],
         "edges": [{"src": e["src"], "dst": e["dst"]} for e in plan["edges"]],
         "dependency_notes": [{"path": str(n["path"]), "bullets": n["bullets"], "bytes": n["bytes"],
                               "already_present": n["present"]} for n in plan["notes"]],
@@ -575,25 +738,34 @@ def build_ledger(plan: dict, paths: tuple, measured: dict | None = None, misses:
     return ledger
 
 
-def format_report(plan: dict) -> str:
+def parked_line(units: int, num_bytes: int, ledger: str) -> str:
+    """The one line the dry-run report and the upgrade banner print for parked AMBIGUOUS units."""
+    return f"parked ambiguous units: {units} ({num_bytes} bytes) — see {ledger}"
+
+
+def format_report(plan: dict, ledger_name: str = "the migration ledger") -> str:
     c, dests = plan["changelog"], plan["dests"]
     count = {k: sum(len(d[k]) for d in dests) for k in ("append", "dedup", "prior")}
     backfill, notes, rec = plan["backfill"], plan["notes"], plan["reconcile"]
     planned_text = sup.joined_entries([t for _p, t in c["parts"]])
-    lines = [f"changelog: {len(c['segments'])} entr(y/ies), {c['entry_content_bytes']} content bytes, "
-             f"unaccounted={sup.unaccounted(c['segments'], planned_text)}"
-             f"{', resuming an interrupted run' if c['resumed'] else ''}"
-             f"{', filling a header-only changelog' if c.get('header_only') else ''}",
+    lines = [(f"changelog: {len(c['segments'])} entr(y/ies), {c['entry_content_bytes']} content bytes, "
+              f"unaccounted={sup.unaccounted(c['segments'], planned_text)}"
+              f"{', resuming an interrupted run' if c['resumed'] else ''}"
+              f"{', filling a header-only changelog' if c.get('header_only') else ''}"),
              f"changelog parts: {len(c['parts'])} file(s), " + ", ".join(
                  f"{p.name}={sup.changelog_tokens(t)}t" for p, t in c["parts"]),
-             f"dedup: {sum(count.values())} unit(s) across {plan['row_count']} row(s) -- {count['append']} to "
-             f"append, {count['prior']} appended by a prior run, {count['dedup']} already present (deduplicated)",
-             f"backfill: {len(backfill)} item file(s) gain frontmatter ({sum(b['partial'] for b in backfill)} "
-             "had a partial block)",
+             (f"dedup: {sum(count.values())} unit(s) across {plan['row_count']} row(s) -- {count['append']} to "
+              f"append, {count['prior']} appended by a prior run, {count['dedup']} already present (deduplicated)"),
+             (f"backfill: {len(backfill)} item file(s) gain frontmatter ({sum(b['partial'] for b in backfill)} "
+              f"had a partial block), {len(plan.get('id_repairs', ()))} prefixed id: value(s) normalised"),
              f"edges: {len(plan['edges'])} '## Dependencies' edge(s) to write into blocks:",
-             f"dependency notes: {sum(n['bullets'] for n in notes)} bullet(s) into "
-             f"{sum(1 for n in notes if n['bullets'])} item file(s), {len(plan['dropped_headings'])} heading line(s) dropped",
+             (f"dependency notes: {sum(n['bullets'] for n in notes)} bullet(s) into "
+              f"{sum(1 for n in notes if n['bullets'])} item file(s), {len(plan['dropped_headings'])} heading "
+              "line(s) dropped"),
              f"reconcile: {rec['mode'] or 'off'}, {len(rec['cells'])} cell(s)"]
+    parked = dedup_accounting(dests)
+    if parked["parked_units"]:
+        lines.append(parked_line(parked["parked_units"], parked["parked_bytes"], ledger_name))
     for d in dests:
         lines += [f"  append row {row_id} -> {d['path'].name}: {unit[:70]!r}" for row_id, unit in d["append"]]
     return "\n".join(lines)
@@ -611,9 +783,17 @@ def verify_written(plan: dict, paths: tuple, index_path: Path) -> list:
         body = read_text(d["path"])
         misses += [f"row {row_id} unit {unit[:70]!r} is missing from {d['path'].name}"
                    for row_id, unit in d["append"] + d["prior"] if unit not in body]
+    lost = dedup_accounting(plan["dests"], units_on_disk(plan["dests"], paths[1]))
+    if lost["unaccounted_units"]:
+        misses.append(f"{lost['unaccounted_units']} row prose unit(s), {lost['unaccounted_bytes']} bytes, are neither "
+                      "in an item file nor parked in the ledger")
     for b in plan.get("backfill", ()):
         body = read_text(b["path"]).replace("\r\n", "\n")
         misses += [f"backfilled line {line!r} is missing from {b['path'].name}" for line in b["lines"] if line not in body]
+    for r in plan.get("id_repairs", ()):
+        raw = repairs.partial_frontmatter(read_text(r["path"]))[0] or {}
+        if str(raw.get("id", "")).strip() != r["to"]:
+            misses.append(f"repaired id: {r['to']} is missing from {r['path'].name}")
     for e in plan.get("edges", ()):
         raw = repairs.partial_frontmatter(read_text(e["path"]))[0] or {}
         if e["dst"] not in sup.ids_in(raw.get("blocks", "")):
@@ -631,9 +811,26 @@ def verify_written(plan: dict, paths: tuple, index_path: Path) -> list:
     return misses
 
 
+def verify_parked(ledger_path: Path, records: list) -> list:
+    """Re-read the ledger from disk and name each parked unit it does not hold verbatim."""
+    if not records:
+        return []
+    try:
+        on_disk = json.loads(read_text(ledger_path)).get("parked_ambiguous") or []
+    except (OSError, ValueError, AttributeError) as exc:
+        return [f"the ledger could not be re-read to check its {len(records)} parked unit(s) ({exc})"]
+    held = Counter((r.get("row"), r.get("path"), r.get("unit")) for r in on_disk if isinstance(r, dict))
+    missing = Counter((r["row"], r["path"], r["unit"]) for r in records) - held
+    return [f"parked row {row} unit {unit[:70]!r} is missing from {ledger_path.name}"
+            for (row, _path, unit), n in missing.items() for _ in range(n)]
+
+
 def execute(plan: dict, paths: tuple, index_path: Path, json_mode: bool) -> int:
     outputs = plan["outputs"]
-    journal = {"mode": sup.JOURNAL_MODE, "targets": [str(p) for p, _text in outputs]}
+    # Parked units live nowhere else once the index is replaced, so the journal -- replaced first --
+    # carries them until the finished ledger overwrites it.
+    journal = {"mode": sup.JOURNAL_MODE, "targets": [str(p) for p, _text in outputs],
+               "parked_ambiguous": parked_records(plan["dests"])}
     try:  # the journal replaces first, so a rerun owns whatever an interrupted replace left dirty
         staged = sup.stage_all([(paths[1], json.dumps(journal, indent=2) + "\n"), *outputs])
     except OSError as exc:
@@ -647,12 +844,14 @@ def execute(plan: dict, paths: tuple, index_path: Path, json_mode: bool) -> int:
     misses = verify_written(plan, paths, index_path)
     written = {d["path"] for d in plan["dests"]} | {path for path, _text in outputs}
     disk_log = sup.joined_entries([read_text(p) for p, _t in plan["changelog"]["parts"]])
-    ledger = build_ledger(plan, paths, {str(p): p.stat().st_size for p in written}, misses, disk_log)
+    ledger = build_ledger(plan, paths, {str(p): p.stat().st_size for p in written}, misses, disk_log,
+                          units_on_disk(plan["dests"], paths[1]))  # the journal still holds the parked units
     try:
         sup.replace_all(sup.stage_all([(paths[1], json.dumps(ledger, indent=2) + "\n")]))
     except (OSError, sup.ReplaceError) as exc:
         return say(1, f"FAIL: migration written and verified={not misses}, but the ledger write failed ({exc}).",
                    json_mode, err=True)
+    misses += verify_parked(paths[1], ledger["parked_ambiguous"])
     if json_mode:
         print(json.dumps(ledger, indent=2))
     if misses:
@@ -707,7 +906,8 @@ def build_report(config: dict, index_path: Path) -> dict:
                         "unreferenced_without_frontmatter": sum(1 for path in bare if path not in referenced)},
               "dependencies": {"bare_edges": 0, "edges_missing_from_blocks": 0, "soft_dependency_bullets": 0,
                                "unrecognised_lines": 0},
-              "row_mismatches": 0, "ready_with_all_repairs": shape == "migrated",
+              "row_mismatches": 0, "parked_ambiguous": {"units": 0, "bytes": 0},
+              "ready_with_all_repairs": shape == "migrated",
               "would_refuse": [detail] if shape == "unrecognized" else []}
     changelog_path = artifact_paths(index_path)[0]
     if changelog_path.exists():
@@ -728,12 +928,16 @@ def build_report(config: dict, index_path: Path) -> dict:
                               "unrecognised_lines": len(problems)}
     for cells, path in rows:
         try:
-            report["row_mismatches"] += len(sup.row_diffs(cells, roles, gen._scan_one_file(path)))
-        except gen.GeneratorError:
+            report["row_mismatches"] += len(sup.row_diffs(cells, roles, gen._scan_one_file(path),
+                                                          sup.configured_abbrevs(config)))
+        except (gen.GeneratorError, Refusal):  # the plan below names a Refusal in would_refuse
             continue
-    try:
-        plan_migration(config, index_path, text, detail, RepairOptions.all_on())
+    try:  # the unattended upgrade's own options, so readiness and the parked count match what it would do
+        plan = plan_migration(config, index_path, text, detail, RepairOptions.unattended())
         report["ready_with_all_repairs"] = True
+        if plan is not None:
+            parked = dedup_accounting(plan["dests"])
+            report["parked_ambiguous"] = {"units": parked["parked_units"], "bytes": parked["parked_bytes"]}
     except Refusal as exc:
         report["would_refuse"] = [str(exc)]
     return report
@@ -749,7 +953,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--allow-untracked-tree", action="store_true",
                    help="Proceed when git cannot vouch for the tree (no repo, git error, no git, or ignored inputs).")
     p.add_argument("--append-ambiguous", action="store_true",
-                   help="Append AMBIGUOUS dedup units instead of refusing.")
+                   help="Append AMBIGUOUS dedup units instead of refusing. /planwise upgrade and init park them "
+                        "in the ledger instead; this flag wins over parking when both apply.")
     p.add_argument("--thresholds", default=f"{sup.DEFAULT_HIGH},{sup.DEFAULT_LOW}",
                    help="'high,low' similarity thresholds, 0 <= low < high <= 1.")
     p.add_argument("--backfill-frontmatter", action="store_true",
@@ -855,7 +1060,7 @@ def run(config: dict, args) -> int:
     if refusal:
         return say(2, f"REFUSED: {refusal}", js, err=True)
     if not args.write:
-        print(json.dumps(build_ledger(plan, paths), indent=2) if js else format_report(plan))
+        print(json.dumps(build_ledger(plan, paths), indent=2) if js else format_report(plan, paths[1].name))
         return say(1, "DRY-RUN: migration needed; no files written.", js)
     return execute(plan, paths, index_path, js)
 

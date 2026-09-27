@@ -6,7 +6,10 @@ the next upgrade and a finished one never repeats:
 
 - `legacy` (hand-authored): plan every repair in memory, back up each file the
   plan rewrites byte-exact, run the migrator's staged write, then back up every
-  generated file and regenerate and check the index.
+  generated file and regenerate and check the index. A row-prose unit the
+  dedup cannot call present or missing (AMBIGUOUS) is parked verbatim in the
+  migration ledger, never appended and never a refusal; the banner names the
+  parked count.
 - `migrated` (generated): re-split a changelog that has grown over the per-file
   read budget, with backups; otherwise do nothing and print nothing.
 - `unrecognized`: report the classifier's reason and touch nothing.
@@ -53,6 +56,7 @@ RERUN = ("then re-run /planwise upgrade (the migration re-fires on a hand-author
          "nothing else repeats)")
 MIGRATOR = "migrate_backlog_index.py"
 SILENT_STATES = ("absent", "generated")
+CREATED = "created; no pre-image (the file did not exist before this run)"
 
 
 @dataclasses.dataclass
@@ -109,8 +113,7 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     dirty, _reason = chk.git_state(config["_project_root"], inputs)
     report.git_dirty = None if dirty is None else bool(dirty)
     mode = reconcile or "index-wins"
-    options = mig.RepairOptions(backfill_frontmatter=True, write_edges=True, extract_dependency_notes=True,
-                                reconcile=mode, append_ambiguous=False, high=sup.DEFAULT_HIGH, low=sup.DEFAULT_LOW)
+    options = mig.RepairOptions.unattended(mode)  # AMBIGUOUS units are parked in the ledger, never refused
     try:
         plan = mig.plan_migration(config, index_path, text, detail, options)
     except mig.Refusal as exc:
@@ -120,7 +123,7 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     paths = mig.artifact_paths(index_path)
     backlog_dir = config["_backlog_dir"]
     if plan is not None:
-        targets = mig.plan_targets(plan)
+        targets = mig.plan_targets(plan) + ([paths[1]] if paths[1].is_file() else [])  # a ledger or journal left earlier
         pre = _backup(targets, backlog_dir, report, [*(p for p, _t in plan["outputs"]), paths[1]])
         if pre is None:
             return
@@ -133,8 +136,8 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
             _write_failed(report, pre, "re-run /planwise upgrade; the migration restarts from the restored files")
             return
         backed = {Path(p).resolve() for p in targets}
-        for path, _text in plan["outputs"]:
-            reason = _kept_at(path, backlog_dir, report) if path.resolve() in backed else "new file"
+        for path in [*(p for p, _t in plan["outputs"]), paths[1]]:
+            reason = _kept_at(path, backlog_dir, report) if path.resolve() in backed else CREATED
             _log(cfg, from_version, to_version, path, "backlog-migrated", reason, report)
     else:
         report.detail = "an earlier run migrated the index; this run regenerated it only (its counts are in that ledger)"
@@ -175,7 +178,7 @@ def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, in
         return
     backed = {Path(p).resolve() for p in targets}
     for path, _text in plan["outputs"]:
-        reason = "rewritten; " + _kept_at(path, backlog_dir, report) if path.resolve() in backed else "new part"
+        reason = "rewritten; " + _kept_at(path, backlog_dir, report) if path.resolve() in backed else "new part; " + CREATED
         _log(cfg, from_version, to_version, path, "backlog-changelog-split", reason, report)
     for path in remove:
         _log(cfg, from_version, to_version, path, "backlog-changelog-split",
@@ -334,6 +337,11 @@ def _regenerate(cfg, from_version: str, to_version: str, config: dict, index_pat
         for path in (p for p in targets if p not in logged):
             _log(cfg, from_version, to_version, path, "backlog-migrated",
                  "regenerated or removed by the index generator; " + _kept_at(path, backlog_dir, report), report)
+        known = logged | set(targets)  # a generated file absent before the write has no pre-image
+        created = [Path(p).resolve() for p in gen._list_disk_generated_files(backlog_dir, archive_dir, naming)]
+        for path in (p for p in dict.fromkeys(created) if p not in known):
+            _log(cfg, from_version, to_version, path, "backlog-migrated",
+                 "written by the index generator; " + CREATED, report)
     if report.generator_write_exit or report.generator_check_exit:
         report.detail = (report.detail + "\n" + buf.getvalue().strip()).strip()
         return False
@@ -377,6 +385,8 @@ def _ledger_counts(ledger: dict, mode: str) -> dict:
         "changelog_unaccounted": log.get("unaccounted", 0),
         "changelog_path": log["path"],
         "prose_units": ledger["dedup"]["appended_units"],
+        "parked_units": ledger["dedup"].get("parked_units", 0),
+        "parked_bytes": ledger["dedup"].get("parked_bytes", 0),
         "reconciled_cells": len(cells),
         "reconcile_mode": ledger["reconcile"]["mode"] or mode,
         "reconciled": [f"{c['id']}.{c['key']}: {c['frontmatter']} -> {c['index']}" for c in cells],
@@ -439,6 +449,8 @@ def _migrated_lines(report: BacklogMigrationReport) -> list:
             f"    blocks: edges written:  {c['edges']}",
             f"    dependency notes moved: {c['dependency_notes']} bullet(s) into {c['dependency_note_files']} item file(s)",
             f"    feature-cell prose moved: {c['prose_units']} unit(s)",
+            *([f"    {mig.parked_line(c['parked_units'], c['parked_bytes'], report.ledger_path)}"]
+              if c.get("parked_units") else []),
             f"    reconciled cells:       {c['reconciled_cells']} ({c['reconcile_mode']})"
             + (" — " + "; ".join(c["reconciled"][:5]) + reconciled if c["reconciled"] else ""),
         ]

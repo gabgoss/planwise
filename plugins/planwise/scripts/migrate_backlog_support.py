@@ -12,7 +12,12 @@ from pathlib import Path
 from backlog_index_budget import _measure
 from backlog_index_schema import _changelog_filename, _index_naming
 from markdown_parser import split_row_raw
-from read_limits import READ_BYTE_WARN, READ_FILE_BYTE_CAP, READ_PAGE_CAP_TOKENS, READ_TOKEN_WARN
+from read_limits import (
+    READ_BYTE_WARN,
+    READ_FILE_BYTE_CAP,
+    READ_PAGE_CAP_TOKENS,
+    READ_TOKEN_WARN,
+)
 from reconcile_common import read_text_preserving_newlines as read_text
 
 
@@ -48,6 +53,9 @@ _DIGITS_RE = re.compile(r"\d+")
 # text in it is prose the regeneration would drop.
 _BLOCKS_TEXT_RE = re.compile(r"(\d+([\s,;]+\d+)*)?|[-–—]|none", re.IGNORECASE)
 _FILES_GLUE_RE = re.compile(r"[\s,;]+|<br\s*/?>", re.IGNORECASE)
+_ABBREV_RE = re.compile(r"[A-Z][A-Z0-9]*")  # the shape an item file name's abbrev segment takes
+_ABBREV_CELL_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*")  # an Abbrev cell that carries a value, in any case
+_ROW_ID_RE = re.compile(r"(?:([A-Za-z]+)-)?(\d{3,})(?:-(\d{2}))?")  # an ID cell: "012", "012-03", "ITEM-012-03"
 _EXACT_DROP = str.maketrans("", "", "*_`")
 _SENT_SPLIT_RE = re.compile(r"(?:(?<=[.!?])|(?<=[.!?]\*\*)|(?<=[.!?]`))\s+(?=[A-Z0-9`\"'(\[*_-])")
 
@@ -223,6 +231,22 @@ def ids_in(cell: str) -> list:
     return sorted({d.zfill(3) for d in _DIGITS_RE.findall(plain(cell))})
 
 
+def row_id_parts(cell: str):
+    """(prefix or None, NNN, NN or None) for an ID cell of the form "[{PREFIX}-]{NNN}[-{NN}]",
+    else (None, the one id `ids_in` finds, None), else None when the cell names no single id."""
+    m = _ROW_ID_RE.fullmatch(plain(cell))
+    if m:
+        return m.group(1), m.group(2), m.group(3)
+    ids = ids_in(cell)
+    return (None, ids[0], None) if len(ids) == 1 else None
+
+
+def row_ids(cell: str) -> list:
+    """The id an ID cell names, as a one-item list, else every id `ids_in` finds."""
+    parts = row_id_parts(cell)
+    return [parts[1]] if parts else ids_in(cell)
+
+
 def blocks_text_ok(cell: str) -> bool:
     return bool(_BLOCKS_TEXT_RE.fullmatch(plain(cell)))
 
@@ -250,14 +274,32 @@ def link_listed(name: str, haystack: str) -> bool:
     return f"({name})" in haystack or f"/{name})" in haystack
 
 
-def row_diffs(cells: list, roles: dict, fields: dict) -> list:
+def configured_abbrevs(config: dict):
+    """The configured `abbreviations:` keys as a set, or None when none are configured."""
+    configured = config.get("abbreviations")
+    if isinstance(configured, (dict, list, tuple, set)) and configured:
+        return {str(k) for k in configured}
+    return None
+
+
+def abbrev_usable(value: str, valid) -> bool:
+    """True when `value` can stand as an abbrev: a configured one when `valid`
+    is a set, else any value shaped like a file name's abbrev segment."""
+    return bool(value) and (value in valid if valid is not None else bool(_ABBREV_RE.fullmatch(value)))
+
+
+def row_diffs(cells: list, roles: dict, fields: dict, valid_abbrevs=None) -> list:
     """Return one dict per cell that disagrees with frontmatter: `key`, the
     `row` value (None when no frontmatter value could carry it), the
     `frontmatter` value, `prose` (the cell holds text other than ids), and
-    the `message`."""
+    the `message`. A cell that supplies no value is not a disagreement: an
+    empty Created cell, and an Abbrev cell that is empty or not a token at
+    all (a misparsed `0`). An Abbrev cell that is a token but not in
+    `valid_abbrevs` raises `Refusal` naming config.yaml -- a data error, never
+    skipped, because the regeneration would erase it."""
     out = []
     id_cell = cells[roles["id"]]
-    if ids_in(id_cell) != [fields["id"]]:
+    if row_ids(id_cell) != [fields["id"]]:
         out.append({"key": "id", "row": None, "frontmatter": fields["id"], "prose": False,
                     "message": f"id cell {id_cell!r} but {fields['_path'].name} has frontmatter id {fields['id']!r}"})
     for role in COMPARED_ROLES:
@@ -272,6 +314,12 @@ def row_diffs(cells: list, roles: dict, fields: dict) -> list:
             row_value, fm_value = ids_in(cell), sorted(fields["blocks"])
         else:
             row_value, fm_value = plain(cell), fields[role]
+            if (role == "created" and not row_value) or (role == "abbrev"
+                                                         and not _ABBREV_CELL_RE.fullmatch(row_value)):
+                continue
+            if role == "abbrev" and valid_abbrevs is not None and row_value not in valid_abbrevs:
+                raise Refusal(f"id {fields['id']}: its Abbrev cell {row_value} is not in config.yaml abbreviations: "
+                              f"-- add {row_value} to abbreviations: in config.yaml, or correct the cell, then re-run")
         if row_value != fm_value:
             out.append({"key": role, "row": row_value, "frontmatter": fm_value, "prose": False, "message":
                         f"id {fields['id']}: {role.capitalize()} cell {row_value!r} but frontmatter {fm_value!r}"})
@@ -484,7 +532,7 @@ def replace_all(staged: list) -> list:
 CONTINUED = " (continued)"
 BACKLINK_RE = re.compile(r"^\[← [^\]]*\]\([^)]*\)$")
 PARTS_LINE_RE = re.compile(r"^Parts: .*$")
-ENTRY_HEADING_RE = re.compile(r"^## Entry (\d+)( \(continued\))?$", re.M)
+ENTRY_HEADING_RE = re.compile(r"^## Entry (\d+)( \(continued\))?$", re.MULTILINE)
 
 
 def changelog_part_filename(naming, k: int) -> str:
@@ -524,7 +572,9 @@ def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = Non
     blank-line boundaries into 'N' and 'N (continued)' pieces. A single
     paragraph whose own section alone still exceeds `budget` raises
     `Refusal`, naming the entry and its token count -- a data error this
-    tool cannot decide. Each body takes `nl` line endings."""
+    tool cannot decide. An entry with no paragraph boundary at all (a
+    footer entry is one line) is refused the same way and is never split
+    mid-line. Each body takes `nl` line endings."""
     target = budget if target is None else target
     chunks = []
     for i, seg in enumerate(segments, start=1):
@@ -546,6 +596,12 @@ def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = Non
         for j, piece in enumerate(pieces):
             label = str(i) if j == 0 else f"{i}{CONTINUED}"
             tokens = changelog_tokens(_entry_section(label, piece, nl))
+            if tokens >= budget and len(paras) == 1:
+                raise Refusal(
+                    f"changelog entry {i}, which begins {body.strip()[:60]!r}, is one paragraph of ~{tokens} tokens, over "
+                    f"the {budget}-token per-file budget on its own. It has no paragraph boundary to split at, and "
+                    f"the migration never splits an entry mid-line -- shorten entry {i} by hand, or split it into "
+                    "smaller entries, then re-run")
             if tokens >= budget:
                 raise Refusal(
                     f"changelog entry {i} has a paragraph of ~{tokens} tokens, over the "

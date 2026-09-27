@@ -139,6 +139,30 @@ The three `route_*` fields are optional and non-binding: an item without
 them is valid and scores normally, and triage always runs its own gates
 regardless of what a hint says.
 
+**Migrating a hand-authored index.** An index that still uses the
+pre-generation table shape -- one table, one footer line for the whole
+changelog -- is hand-authored. `/planwise upgrade` and `/planwise init`
+both recognize that shape and migrate it: backfilling missing or partial
+frontmatter, moving the changelog footer and dependency notes into their
+own files, then regenerating and checking the index. An ambiguous
+feature-cell sentence, one that only partly matches its item file, is
+parked verbatim in the migration ledger, never appended and never refused.
+`generate_backlog_index.py
+--write` refuses to overwrite a hand-authored index until that migration
+has run. Pass `--replace-legacy` to overwrite it directly instead, WITHOUT
+a backup. An index the migration recognizes as neither hand-authored nor
+generated is left untouched and reported through `migrate_backlog_index.py
+--report`.
+
+**Changelog layout.** The changelog lives in its own file, not in the
+index footer.
+
+- Part 1, `00-Changelog-Backlog.md`, is the file the hub links to.
+- Later entries go to `00-Changelog-Backlog-Part-NN.md` files.
+- Every file stays at or under the read budget.
+- A grown changelog is re-split by `/planwise upgrade`, or directly by
+  `migrate_backlog_index.py --split-changelog`.
+
 ---
 
 ## Scoring System

@@ -3,6 +3,7 @@ backlog index migrator. One test per report state, plus the config-path,
 within-budget no-op and idempotence cases. Fixtures live under tmp_path,
 never under plugins/planwise/, and are written as bytes."""
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -11,15 +12,15 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-import backlog_migration as bm  # noqa: E402
-import config_loader  # noqa: E402
-import generate_backlog_index as gen  # noqa: E402
-import migrate_backlog_index as mig  # noqa: E402
-import migrate_backlog_support as sup  # noqa: E402
-import upgrade_io  # noqa: E402
-from backlog_index_budget import _measure  # noqa: E402
-from config_gen import InitConfig  # noqa: E402
-from read_limits import READ_TOKEN_WARN  # noqa: E402
+import backlog_migration as bm
+import config_loader
+import generate_backlog_index as gen
+import migrate_backlog_index as mig
+import migrate_backlog_support as sup
+import upgrade_io
+from backlog_index_budget import _measure
+from config_gen import InitConfig
+from read_limits import READ_TOKEN_WARN
 
 TITLE = "Sample item needs love"
 DUP = "This extra detail duplicates content already present in the item file for dedup testing purposes."
@@ -150,13 +151,115 @@ def test_second_call_after_migrated_is_generated_and_touches_nothing(tmp_path):
     assert again.state == "generated" and _snapshot(tmp_path) == after
 
 
-def test_ambiguous_unit_is_refused_and_nothing_is_touched(tmp_path):
+def test_ambiguous_unit_is_parked_in_the_ledger_not_appended(tmp_path, capsys):
+    cfg, backlog = _project(tmp_path, legacy_index(f"{TITLE}. {AMBIG}"), body1=AMBIG_BODY)
+    item_before = (backlog / "001-Sample.md").read_bytes()
+    report = _migrate(cfg)
+    bm._emit_backlog_migration_banner(report)
+    banner = capsys.readouterr().out
+    assert report.state == "migrated", report.detail
+    # The unit is kept verbatim in the ledger, with its row, target, score and size.
+    ledger = json.loads(mig.read_text(report.ledger_path))
+    [parked] = ledger["parked_ambiguous"]
+    assert parked["unit"] == AMBIG and parked["row"] == "001" and parked["bytes"] == len(AMBIG.encode("utf-8"))
+    assert Path(parked["path"]).name == "001-Sample.md" and sup.DEFAULT_LOW < parked["similarity"] <= 1
+    assert (ledger["dedup"]["parked_units"], ledger["dedup"]["parked_bytes"]) == (1, parked["bytes"])
+    assert (ledger["dedup"]["unaccounted_units"], ledger["dedup"]["unaccounted_bytes"]) == (0, 0)
+    assert ledger["changelog"]["unaccounted"] == 0 and ledger["verification"]["verified"] is True
+    # Nothing is appended: the item's body is unchanged (only its blocks: line gains the edge).
+    item_after = (backlog / "001-Sample.md").read_text(encoding="utf-8")
+    assert AMBIG not in item_after and sup.NOTES_HEADING not in item_after
+    assert item_after.replace("blocks: [002]", "blocks: []") == item_before.decode("utf-8")
+    assert f"parked ambiguous units: 1 ({parked['bytes']} bytes) — see {report.ledger_path}" in banner, banner
+    # A re-run is silent and changes nothing.
+    after = _snapshot(tmp_path)
+    again = _migrate(cfg, ("1.1", "1.2"))
+    assert again.state == "generated", again.detail
+    assert _snapshot(tmp_path) == after
+
+
+def test_parked_units_survive_a_crash_between_the_index_write_and_the_ledger_write(tmp_path, monkeypatch):
+    cfg, backlog = _project(tmp_path, legacy_index(f"{TITLE}. {AMBIG}"), body1=AMBIG_BODY)
+    ledger_path = backlog / "00-Index-Backlog-Migration-Ledger.json"
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("simulated crash after the index was replaced, before the ledger write")
+    with monkeypatch.context() as m:
+        m.setattr(mig, "build_ledger", crash)
+        crashed = _migrate(cfg)
+    assert crashed.state == "error" and "simulated crash" in crashed.detail
+    index = mig.read_text(backlog / INDEX)
+    assert sup.POINTER_RE.match(sup.FOOTER_TEXT_RE.search(index)[0])  # the index was replaced
+    # The journal, replaced first, is the parked unit's only home now -- and it holds it verbatim.
+    journal = json.loads(mig.read_text(ledger_path))
+    assert journal["mode"] == sup.JOURNAL_MODE
+    assert [(p["row"], p["unit"]) for p in journal["parked_ambiguous"]] == [("001", AMBIG)]
+    # A rerun must not regenerate over it: it refuses, names the journal, and touches nothing.
+    before = _snapshot(tmp_path)
+    again = _migrate(cfg)
+    assert again.state == "refused", again.detail
+    assert ledger_path.name in again.detail and "1 parked unit(s)" in again.detail
+    assert again.fix.startswith("keep that file: rename it")
+    assert _snapshot(tmp_path) == before
+    # Following the fix finishes the migration and keeps the renamed journal.
+    kept = ledger_path.with_name(f"{ledger_path.stem}-Interrupted.json")
+    ledger_path.rename(kept)
+    assert _migrate(cfg).state == "migrated"
+    assert AMBIG in kept.read_text(encoding="utf-8")
+
+
+def test_standalone_cli_still_refuses_an_ambiguous_unit_by_default(tmp_path):
     cfg, _backlog = _project(tmp_path, legacy_index(f"{TITLE}. {AMBIG}"), body1=AMBIG_BODY)
     before = _snapshot(tmp_path)
+    flags = ["--backfill-frontmatter", "--write-edges", "--extract-dependency-notes", "--reconcile", "index-wins",
+             "--allow-untracked-tree", "--force", "--write"]
+    proc = subprocess.run([sys.executable, str(SCRIPTS / "migrate_backlog_index.py"), "--config",
+                           str(cfg.project_root / "planwise" / "config.yaml"), *flags],
+                          capture_output=True, text=True, check=False,
+                          env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "1 ambiguous dedup unit(s)" in proc.stderr and "--append-ambiguous" in proc.stderr
+    assert _snapshot(tmp_path) == before
+
+
+def test_append_ambiguous_wins_over_parking(tmp_path):
+    cfg, _backlog = _project(tmp_path, legacy_index(f"{TITLE}. {AMBIG}"), body1=AMBIG_BODY)
+    config = config_loader.load_config(Path(bm.__file__), config_path=cfg.project_root / "planwise" / "config.yaml")
+    index_path = config["_index_path"]
+    text = mig.read_text(index_path)
+    detail = sup.classify_shape(text)[1]
+    both = mig.RepairOptions.unattended()
+    both.append_ambiguous = True
+    plan = mig.plan_migration(config, index_path, text, detail, both)
+    dest = next(d for d in plan["dests"] if d["path"].name == "001-Sample.md")
+    assert dest["parked"] == [] and dest["ambiguous"] == [AMBIG]
+    assert AMBIG in dict(plan["outputs"])[dest["path"]]
+    parked = mig.plan_migration(config, index_path, text, detail, mig.RepairOptions.unattended())
+    assert [p["unit"] for d in parked["dests"] for p in d["parked"]] == [AMBIG]
+
+
+def test_every_newly_created_file_gets_a_created_disposition_row(tmp_path):
+    # Item 002 is COMPLETE, so the generator writes an Archive shard that did not exist before.
+    cfg, backlog = _project(tmp_path, legacy_index().replace("| NOT_STARTED | SMP | [002]", "| COMPLETE | SMP | [002]"))
+    other = backlog / "Archive" / "ITEM-002-SMP-Other.md"
+    _write(other, other.read_text(encoding="utf-8").replace("status: NOT_STARTED", "status: COMPLETE"))
+    existed = {p.resolve() for p in backlog.rglob("*") if p.is_file()}
     report = _migrate(cfg)
-    assert report.state == "refused" and "ambiguous" in report.detail
-    assert "--append-ambiguous" in report.fix and "re-run /planwise upgrade" in report.fix
-    assert _snapshot(tmp_path) == before and not (cfg.project_root / "planwise" / "upgrade-backups").exists()
+    assert report.state == "migrated", report.detail
+    rows = {}  # resolved path -> its DISPOSITIONS row; a row reads "- {date} `{rel}` — {action}: {reason}"
+    for r in (_pair(cfg) / "DISPOSITIONS.md").read_text(encoding="utf-8").splitlines():
+        if "backlog-migrated" in r:
+            rows.setdefault((cfg.project_root / r.split("`")[1]).resolve(), []).append(r)
+    assert sorted(rows) == sorted({Path(p).resolve() for p in report.written})
+    created = [Path(p).resolve() for p in report.written if Path(p).resolve() not in existed]
+    # The ledger is always new here, and the generator adds at least one Archive shard.
+    assert report.ledger_path.resolve() in created
+    assert any(p.parent.name == "Archive" for p in created), report.written
+    for path in created:
+        [row] = rows[path]
+        assert "created; no pre-image" in row, row
+    for path in (Path(p).resolve() for p in report.written if Path(p).resolve() in existed):
+        assert not any("created; no pre-image" in r for r in rows[path]), rows[path]
 
 
 def test_unrecognized_shape_is_reported_and_untouched(tmp_path):

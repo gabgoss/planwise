@@ -343,6 +343,7 @@ flowchart LR
 - **Feedback capability probe** — checks the three gates that decide whether [`/planwise feedback`](#12-planwise-feedback) actually posts (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and names the one-line remedy for each unmet gate. The fallback is silent by design, so without this check a consumer can draft reports for months believing they were filed.
 - **Upgrade recovery-leftover sweep** — walks the backup, transfer, and conflict directories that past [`/planwise upgrade`](#10-planwise-upgrade) runs left behind. They accumulate per upgrade and nothing purges them on its own, so the sweep sorts each one into what still needs you (unresolved conflicts, transferred customizations awaiting a re-homing decision) and what is now discardable (pre-change backups, consumed caches).
 - **Feedback directory presence check** — reports whether the directory your feedback drafts are written to actually exists. A project whose config predates the setting, or whose directory was removed by hand, would otherwise discover the gap only when the first draft failed to write.
+- **Backlog index shape audit** — classifies your backlog index as generated, hand-authored, or unrecognized, flags any changelog file over its read budget, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index, or `migrate_backlog_index.py --split-changelog` for an over-budget changelog.
 
 **Opt-in writers:** `doctor` has exactly three invocations that write, and none of them runs unless you ask for it by name. Two clean up; the third creates one missing directory.
 
@@ -445,6 +446,33 @@ When a new plugin version is published, upgrading happens in two stages:
 > Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
 
 **A note on "already up to date":** this comparison is entirely local — it checks your pinned `plugin_version:` against the plugin files already sitting in your local cache, never the marketplace source directly. If you haven't run Stage 1's refresh in a while, `/planwise upgrade` can report "already up to date" even though a newer release exists upstream, because fetching new versions into the local cache is Claude Code's own job, not this plugin's. Run `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace` periodically so the comparison has something current to compare against.
+
+### Upgrading from 1.0.5.1: backlog index
+
+Versions before 1.0.5.2 use a hand-authored backlog index: one table, one footer line for the whole changelog, and no generated Archive shards. From 1.0.5.2 on, an open item renders into a generated hub, and a closed item renders into a generated Archive shard. Each item's YAML frontmatter is the single source of truth for its row. The changelog moves into its own file. One item blocks another through the frontmatter `blocks:` key, not a `## Dependencies` table.
+
+`/planwise upgrade` migrates a hand-authored index automatically. Plain `/planwise init` runs the same migration, on both its "already up to date" exit and its main path. The migration:
+
+- Backs up every file it is about to write, under `{planwise_root}/upgrade-backups/{from}-to-{to}/backlog/`.
+- Moves the changelog footer, the feature-cell prose, and the dependency notes into their new homes.
+- Backfills missing or partial frontmatter.
+- Regenerates the index and checks it.
+- Records what it did in a migration ledger.
+- Parks each ambiguous feature-cell sentence — one that only partly matches its item file — verbatim in that ledger, instead of appending it or refusing. The banner names the parked count.
+
+The migration recognizes only two shapes: hand-authored or generated. An index it recognizes as neither is left untouched and reported through `migrate_backlog_index.py --report` — never migrated silently, and never called hand-authored.
+
+The migration refuses on a data conflict it cannot resolve on its own, such as a reciprocal block edge. When it refuses, nothing is written, and the banner names the exact reason and the exact fix. Re-run `/planwise upgrade` after applying the fix. The migration re-fires. A failed *write*, unlike a refusal, rolls every touched file back to its state before the run. `generate_backlog_index.py --write --replace-legacy` skips the migration and overwrites a hand-authored or unrecognized index directly, WITHOUT a backup.
+
+Backups are first-wins within one `{from}-to-{to}` version pair — the first run in that pair keeps its backup. A later run in the same pair may find the target changed since that kept backup. That run also writes the current file to a numbered sibling, `{name}.{n}.bak`, so its own restore point survives. An identical re-run, one that finds the target unchanged, writes no new sibling.
+
+Pass `--backlog-reconcile index-wins` or `--backlog-reconcile frontmatter-wins` to `/planwise upgrade` to choose how a row/frontmatter disagreement resolves. The default is `index-wins`. This flag applies only together with `--upgrade` — plain `/planwise init` does not accept it.
+
+A fresh `/planwise init` over a hand-authored index can meet an item whose needs the fresh config cannot yet supply — for example, an abbreviation its domain list does not define. That case is refused rather than run partway. The refusal prints a fix line and shows as a skipped item in the init summary, and the migration re-fires the next time `/planwise upgrade` runs. A fresh init does not always migrate a hand-authored index.
+
+Until the migration finishes, both [`/planwise backlog`](#5-planwise-backlog) and the index generator refuse to run against a hand-authored index.
+
+Every index and changelog file stays readable in one call: the hub holds to a 12,500-token budget, and both the Archive shards and the changelog parts hold to a wider 22,000-token budget. When a changelog outgrows that budget after further use, the next `/planwise upgrade` re-splits it into more parts, backing up every file it rewrites first.
 
 ---
 

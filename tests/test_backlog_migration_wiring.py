@@ -30,9 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/ itself, for t
 import artifact_upgrade
 import init_project as ip
 from config_gen import InitConfig, read_plugin_version
-from test_backlog_migration import AMBIG, AMBIG_BODY, TITLE
 from test_backlog_migration import _project as _bm_project
-from test_backlog_migration import legacy_index as _legacy_index_text
 
 INIT_PROJECT = SCRIPTS / "init_project.py"
 REAL_PLUGIN_ROOT = SCRIPTS.parent
@@ -107,12 +105,19 @@ def test_b_already_up_to_date_branch_still_migrates(tmp_path, monkeypatch, capsy
     assert report.state == "generated"
 
 
+def _unconfigure_abbrev(cfg, abbrev: str = "INFRA") -> None:
+    """Drop one abbreviation from the fixture's config.yaml, so the migration refuses
+    the row that uses it: an unconfigured abbrev is a data error it never guesses at."""
+    config_path = cfg.project_root / "planwise" / "config.yaml"
+    text = config_path.read_text(encoding="utf-8")
+    line = next(ln for ln in text.splitlines(keepends=True) if ln.strip().startswith(f"{abbrev}:"))
+    config_path.write_text(text.replace(line, ""), encoding="utf-8")
+
+
 def test_c_refusal_never_changes_the_return_code_and_the_pin_still_commits(tmp_path, monkeypatch, capsys):
-    # Reuse the ambiguous-unit fixture test_backlog_migration itself refuses on.
-    cfg, _backlog = _legacy_project(
-        tmp_path, pinned="1.0.5.1",
-        index_text=_legacy_index_text(f"{TITLE}. {AMBIG}"), body1=AMBIG_BODY,
-    )
+    # An unconfigured abbrev refuses; an AMBIGUOUS unit no longer does (it is parked in the ledger).
+    cfg, _backlog = _legacy_project(tmp_path, pinned="1.0.5.1")
+    _unconfigure_abbrev(cfg)
     monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
 
     exit_code = artifact_upgrade._run_upgrade(cfg)
@@ -170,10 +175,8 @@ def test_d2_truly_fresh_init_with_no_config_yet_refuses_on_an_unmapped_abbrev(tm
 
 
 def test_e_refused_init_names_the_index_under_skipped(tmp_path, monkeypatch, capsys):
-    cfg, _backlog = _legacy_project(
-        tmp_path, pinned=TARGET_VERSION,
-        index_text=_legacy_index_text(f"{TITLE}. {AMBIG}"), body1=AMBIG_BODY,
-    )
+    cfg, _backlog = _legacy_project(tmp_path, pinned=TARGET_VERSION)
+    _unconfigure_abbrev(cfg)
     argv = ["init_project.py", "--name", cfg.project_name,
             "--project-root", str(cfg.project_root)]
     monkeypatch.setattr(sys, "argv", argv)

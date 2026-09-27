@@ -430,10 +430,26 @@ class TestBacklogCliSurface(_UpdateBacklogFixtureBase):
         bli_path = self.backlog_dir / "new-TEST-item.md"
         self.assertTrue(bli_path.exists())
         rendered = bli_path.read_text(encoding="utf-8")
+
+        # The frontmatter fence opens the file and closes right after the
+        # last required key -- pinned against that specific closing point,
+        # not an unqualified count of "---" lines (a later "---" rule also
+        # separates the body).
+        self.assertTrue(rendered.startswith("---\n"))
+        self.assertIn("\nblocks: []\n---\n", rendered)
+
+        # All seven frontmatter keys the schema requires.
         self.assertIn("id: 099", rendered)
-        self.assertIn("status: NOT_STARTED", rendered)  # --status omitted -> default
+        self.assertIn('title: "New reconciliation guard"', rendered)
         self.assertIn("priority: High", rendered)
+        self.assertIn("status: NOT_STARTED", rendered)  # --status omitted -> default
         self.assertIn("abbrev: TEST", rendered)
+        self.assertRegex(rendered, r"\ncreated: \d{4}-\d{2}-\d{2}\n")
+        self.assertIn("blocks: []", rendered)
+
+        # Status lives in frontmatter only -- the body carries no separate
+        # status line.
+        self.assertNotIn("**Status:**", rendered)
 
         # --create never appends an index row -- the index is a build
         # artifact generate_backlog_index.py --write produces.
@@ -1118,7 +1134,7 @@ class TestArchiveOverwriteGuard(_UpdateBacklogFixtureBase):
         )
 
         self.assertEqual(len(results), 1)
-        filename, success, message = results[0]
+        _filename, success, message = results[0]
         self.assertFalse(success)
         self.assertIn("refused", message)
         self.assertEqual(src.read_text(encoding="utf-8"), "source copy\n")
@@ -1136,7 +1152,7 @@ class TestArchiveOverwriteGuard(_UpdateBacklogFixtureBase):
         )
 
         self.assertEqual(len(results), 1)
-        filename, success, message = results[0]
+        _filename, success, message = results[0]
         self.assertFalse(success)
         self.assertIn("refused", message)
         self.assertEqual(src.read_text(encoding="utf-8"), "archived copy\n")

@@ -13,7 +13,7 @@ style, so a migration built on these pieces changes only what it means to.
 import re
 import subprocess
 import sys
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -37,6 +37,11 @@ _CLOSE_FENCE_RE = re.compile(r"(\r\n|\n)---[ \t]*(\r\n|\n|\Z)")
 # alphabetic run -- a consumer's own naming convention supplies it.
 _FILENAME_RE = re.compile(r"^[A-Za-z]+-(\d{3,})(?:-\d{2})?-([A-Z][A-Z0-9]*)-")
 
+# The same filename's leading "{PREFIX}-{NNN}[-{NN}]", and an `id:` value
+# carrying that whole form instead of the bare "{NNN}" the generator reads.
+_FILENAME_KEY_RE = re.compile(r"^([A-Za-z]+)-(\d{3,})(?:-(\d{2}))?-")
+_PREFIXED_ID_RE = re.compile(r"^([A-Za-z]+)-(\d{3,})(?:-(\d{2}))?$")
+
 # The first zero-padded 3+ digit run (contrast sup.ids_in, which collects
 # every digit run, including 1-2 digit ones, and returns them sorted).
 _ID_RE = re.compile(r"\d{3,}")
@@ -45,8 +50,14 @@ _ID_RE = re.compile(r"\d{3,}")
 _BULLET_RE = re.compile(r"^(\s*)-\s")
 
 # A bold heading line such as "**Soft dependencies**" -- structural, never a
-# bullet or a continuation of one.
-_BOLD_HEADING_RE = re.compile(r"^\s*\*\*[^*]+\*\*\s*:?\s*$")
+# bullet or a continuation of one. It starts at column 0: an indented bold
+# line is a bullet's continuation, or prose. One parenthetical may follow the
+# bold lead, as in "**Soft dependencies** (informational, not enforced):",
+# only when it carries no digit and no sentence break (";", or ". " followed
+# by more text) -- an item id or a sentence there is prose. Any other trailing
+# text makes the line prose too, so it is never dropped as a heading.
+_BOLD_HEADING_RE = re.compile(
+    r"^\*\*[^*]+\*\*(?:[ \t]*\((?:[^()\d;.]|\.(?![ \t]+[^\s)]))*\))?[ \t]*:?\s*$")
 
 # One line of `git log --format=%as` output: a bare ISO date.
 _DATE_LINE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -153,11 +164,41 @@ def filename_fields(name: str) -> tuple[str, str] | None:
     return None if not m else (m.group(1), m.group(2))
 
 
+def bare_id(value: str, name: str, row_id: str | None, row_prefix: str | None = None,
+            row_sub: str | None = None) -> str | None:
+    """Return "{NNN}" for an `id:` value of the form "{PREFIX}-{NNN}" or
+    "{PREFIX}-{NNN}-{NN}", or None when `value` has neither form. The value
+    is accepted only when it names this file: PREFIX equals the prefix of
+    the file name `name`, NNN equals both the file name's id and the index
+    row's id `row_id` (None when no single row id names the file), and a
+    "-{NN}" suffix equals the file name's own. When the row's ID cell has a
+    prefix `row_prefix` or a suffix `row_sub` of its own, each must agree
+    too. Raises ValueError naming the first mismatch otherwise."""
+    m = _PREFIXED_ID_RE.match(value.strip().strip("\"'"))
+    if m is None:
+        return None
+    prefix, num, sub = m.groups()
+    named = _FILENAME_KEY_RE.match(name)
+    if named is None:
+        raise ValueError(f"id {value!r} cannot be checked: the file name has no leading {{PREFIX}}-{{NNN}}")
+    if prefix != named.group(1) or num != named.group(2) or (sub is not None and sub != named.group(3)):
+        raise ValueError(f"id {value!r} does not match the file name's {named.group(0)[:-1]!r}")
+    if row_id is None:
+        raise ValueError(f"id {value!r} cannot be checked: no single index row id names this file")
+    if num != row_id:
+        raise ValueError(f"id {value!r} does not match the index row's id {row_id!r}")
+    if row_prefix is not None and row_prefix != prefix:
+        raise ValueError(f"id {value!r} does not match the index row's prefix {row_prefix!r}")
+    if row_sub is not None and (row_sub != named.group(3) or (sub is not None and sub != row_sub)):
+        raise ValueError(f"id {value!r} does not match the index row's suffix {row_sub!r}")
+    return num
+
+
 def _run_git(args: list, cwd: Path) -> str | None:
     """Run a git command, returning its stdout, or None on any failure --
     git absent, `cwd` not a repository, or a non-zero exit."""
     try:
-        proc = subprocess.run(args, capture_output=True, text=True, cwd=cwd)
+        proc = subprocess.run(args, capture_output=True, text=True, cwd=cwd, check=False)
     except OSError:
         return None
     return proc.stdout if proc.returncode == 0 else None
@@ -209,7 +250,8 @@ def created_dates(project_root: Path, paths: list, backlog_dir: Path) -> dict:
         if dates:
             results[path] = (min(dates), "git-follow")
             continue
-        results[path] = (date.fromtimestamp(Path(path).stat().st_mtime).isoformat(), "mtime")
+        mtime = datetime.fromtimestamp(Path(path).stat().st_mtime, tz=timezone.utc).astimezone()  # local date
+        results[path] = (mtime.date().isoformat(), "mtime")
     return results
 
 
@@ -225,7 +267,8 @@ def dependency_bullets(lines: list) -> list:
     """Pull every `- ` bullet (plus its indented continuation lines) out of
     `lines`, as (line_no, owner_id, bullet_text). A bold heading line such
     as "**Soft dependencies**" is skipped, never treated as a bullet or a
-    continuation of one. `owner_id` is `first_id_in(bullet_text)`, None
+    continuation of one. An indented bold line is never a heading, so it
+    stays with its bullet as a continuation. `owner_id` is `first_id_in(bullet_text)`, None
     when the bullet names no id."""
     results = []
     i, n = 0, len(lines)
