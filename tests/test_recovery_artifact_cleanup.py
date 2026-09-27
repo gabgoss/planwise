@@ -580,12 +580,25 @@ class TestLeftoverSweepReportsBytes(_RecoveryArtifactFixtureMixin,
 
     def test_a_stat_failure_undercounts_rather_than_aborting(self):
         # A read-only diagnostic must still report when one file refuses a
-        # stat mid-sweep.
+        # stat mid-sweep — specifically the explicit `f.stat().st_size` call
+        # `_bytes_of()` guards with its own try/except OSError.
+        #
+        # On Python 3.13+, Path.is_file() (used by the sweep's own rglob
+        # filter, BEFORE _bytes_of ever runs) routes internally through
+        # self.stat(follow_symlinks=follow_symlinks) -- a bare
+        # mock.patch.object(Path, "stat", ...) intercepts that call too, and
+        # since is_file()'s caller has no try/except, the simulated OSError
+        # escaped uncaught and aborted the whole sweep before the code under
+        # test was ever reached. The discriminator below narrows the mock to
+        # the explicit, no-argument `.stat()` call _bytes_of() makes: pathlib
+        # internals always pass `follow_symlinks` explicitly, so an empty
+        # args/kwargs pair is diagnostic of the guarded call site, never of
+        # is_file()'s internal one.
         self.write_backup(self.PAIR, content=b"x" * 100)
         real_stat = Path.stat
 
         def flaky_stat(self_path, *args, **kwargs):
-            if self_path.name == "somefile.md":
+            if self_path.name == "somefile.md" and not args and not kwargs:
                 raise OSError("simulated stat failure")
             return real_stat(self_path, *args, **kwargs)
 

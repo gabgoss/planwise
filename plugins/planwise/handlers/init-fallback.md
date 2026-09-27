@@ -35,10 +35,13 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 | Source (read from plugin) | Destination |
 |---------------------------|-------------|
 | [../seed/00-Index-Backlog.md](../seed/00-Index-Backlog.md) | `{planwise_root}/{backlog_dir}/00-Index-Backlog.md` |
+| [../seed/00-Changelog-Backlog.md](../seed/00-Changelog-Backlog.md) | `{planwise_root}/{backlog_dir}/00-Changelog-Backlog.md` |
 | [../seed/00-Index-LessonsLearned.md](../seed/00-Index-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md` |
 | [../seed/00-Changelog-LessonsLearned.md](../seed/00-Changelog-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-Changelog-LessonsLearned.md` |
 | [../seed/00-PromotionLog-LessonsLearned.md](../seed/00-PromotionLog-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-PromotionLog-LessonsLearned.md` |
 | [../seed/00-Index-Plans.md](../seed/00-Index-Plans.md) | `{planwise_root}/{plans_dir}/00-Index-Plans.md` |
+
+Never overwrite an existing `00-Index-Backlog.md`; if it is hand-authored, run `/planwise upgrade` after init — the migration is automatic.
 
 ---
 

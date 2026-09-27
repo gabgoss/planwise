@@ -101,3 +101,46 @@ if __name__ == "__main__":
     unittest.main()
 
 # appended by the upgrade/init handler task
+
+UPGRADE_HANDLER = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "handlers" / "upgrade.md"
+)
+INIT_HANDLER = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "handlers" / "init.md"
+)
+INIT_FALLBACK_HANDLER = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "handlers" / "init-fallback.md"
+)
+
+
+class TestUpgradeAndInitHandlersBacklogMigration(unittest.TestCase):
+    """Pins the three entry handlers' surfacing of the automated backlog
+    index migration (`scripts/backlog_migration.py`) so a later edit cannot
+    silently drop a banner branch or the gate's shape probe."""
+
+    def test_upgrade_step_2_4_calls_migrate_backlog_if_legacy(self):
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 2.4", "### Step 2.5")
+        self.assertIn("migrate_backlog_if_legacy", span)
+
+    def test_upgrade_step_3_banner_contains_migration_block(self):
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 3 ", "### Step 4 ")
+        self.assertIn("Backlog index migration:", span)
+
+    def test_upgrade_step_1_gate_names_a_hand_authored_index(self):
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "[!gate] Upgrade Gate", "[!constraint] Compare the two versions")
+        self.assertIn("hand-authored", span)
+
+    def test_init_step_10_banner_has_a_backlog_index_line_group(self):
+        text = INIT_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 10 ", "### Step 11 ")
+        self.assertIn("Backlog index:", span)
+
+    def test_init_fallback_step_4_seeds_the_backlog_changelog(self):
+        text = INIT_FALLBACK_HANDLER.read_text(encoding="utf-8-sig")
+        self.assertIn("00-Changelog-Backlog.md", text)

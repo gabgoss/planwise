@@ -105,6 +105,18 @@ except ImportError:
         "partially installed"
     )
 
+try:
+    from backlog_migration import (
+        _emit_backlog_migration_banner,
+        migrate_backlog_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "backlog_migration is required for artifact_upgrade's post-refresh "
+        "backlog-index retrofit; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
 
 def load_artifact_manifest(plugin_root: Path) -> dict:
     """Load manifests/artifacts.yaml from the plugin root.
@@ -693,8 +705,15 @@ def _run_upgrade(
     cfg: "InitConfig",
     expected_pair: "tuple[str, str] | None" = None,
     allow_downgrade: bool = False,
+    backlog_reconcile: "str | None" = None,
 ) -> int:
     """Execute the --upgrade flow and print a banner. Returns exit code.
+
+    `backlog_reconcile` forwards to `migrate_backlog_if_legacy()`'s own
+    `reconcile` kwarg (None defaults to "index-wins" there) -- the backlog-
+    index retrofit runs on BOTH exits of this function (the already-up-to-
+    date early return and the main upgrade path), shape-triggered rather
+    than version-gated, so a refused migration re-fires on the next run.
 
     The upgrade version pair (config.yaml's pinned plugin_version -> the
     installed plugin's plugin.json version) is resolved ONCE, right below,
@@ -821,6 +840,9 @@ def _run_upgrade(
         # opportunity that population gets, since the version pin already
         # matches and the guarded block below never runs.
         _apply_feedback_dir(cfg, config_path)
+        report = migrate_backlog_if_legacy(
+            cfg, pinned_version, target_version, reconcile=backlog_reconcile)
+        _emit_backlog_migration_banner(report)
         if needs_repoint:
             _repoint_plugin_root(config_path, cfg.plugin_root)
             print(f"Plugin version: {pinned_version}")
@@ -896,6 +918,22 @@ def _run_upgrade(
         # never touches it and never creates the directory either — this is
         # the only place in the --upgrade path that closes both gaps.
         _apply_feedback_dir(cfg, config_path)
+
+        # Backlog-index retrofit: migrate a hand-authored backlog index
+        # (or re-split an over-budget changelog on an already-generated one)
+        # before the artifact refresh below. migrate_backlog_if_legacy()
+        # never raises and never changes this run's exit code by contract —
+        # wrapped in its own try/except anyway, since a defect in it must
+        # never abort an upgrade that has already started writing.
+        try:
+            _backlog_report = migrate_backlog_if_legacy(
+                cfg, pinned_version, target_version, reconcile=backlog_reconcile)
+            _emit_backlog_migration_banner(_backlog_report)
+        except Exception as exc:  # noqa: BLE001 -- the retrofit must never abort an upgrade
+            print(
+                f"  Warning: backlog index migration step raised unexpectedly: {exc}",
+                file=sys.stderr,
+            )
 
         # 3. Refresh artifacts.
         manifest = load_artifact_manifest(cfg.plugin_root)

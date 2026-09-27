@@ -144,6 +144,18 @@ except ImportError:
     )
 
 try:
+    from backlog_migration import (
+        _emit_backlog_migration_banner,
+        migrate_backlog_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "backlog_migration is required for init_project's backlog-index "
+        "retrofit on a fresh init; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
+try:
     import yaml
     HAS_YAML = True
 except ImportError:
@@ -480,7 +492,12 @@ def _print_skipped_banner(skipped: list[SkippedArtifact]) -> None:
         print(f"  ! {s.artifact}")
         print(f"      reason:      {s.reason}")
         print(f"      affects:     {s.consumer}")
-        print(f"      remediation: {s.remediation}")
+        # Indent a remediation's continuation lines to the "remediation: " value
+        # column (19 chars: 6 leading spaces + "remediation:" + one space) so a
+        # multi-line fix (e.g. a refused backlog migration's action + re-run line)
+        # stays visually aligned instead of falling back to column 0.
+        remediation = s.remediation.replace("\n", "\n" + " " * 19)
+        print(f"      remediation: {remediation}")
     print()
 
 
@@ -610,6 +627,13 @@ def main():
                              "would otherwise run the upgrade backwards silently. A "
                              "sanctioned downgrade still writes plugin_version and "
                              "plugin_root together in one commit.")
+    parser.add_argument("--backlog-reconcile", default=None,
+                        choices=["index-wins", "frontmatter-wins"],
+                        help="With --upgrade: how the backlog-index retrofit "
+                             "resolves a row/frontmatter disagreement. Default "
+                             "(omit the flag) is index-wins. frontmatter-wins "
+                             "drops the mismatched index cell instead of "
+                             "rewriting the item file.")
     parser.add_argument("--doctor", action="store_true",
                         help="Read-only diagnostic: scan installed rules and report any "
                              "still scoped to plan/backlog/lessons globs (always-on context "
@@ -670,6 +694,9 @@ def main():
     if args.allow_downgrade and not args.upgrade:
         parser.error("--allow-downgrade only applies together with --upgrade")
 
+    if args.backlog_reconcile and not args.upgrade:
+        parser.error("--backlog-reconcile requires --upgrade")
+
     if args.hash_installed:
         # The upgrade handler interpolates an absolute path here once per verdict
         # entry, so a typo'd or moved path must surface as a one-line error, not a
@@ -725,7 +752,8 @@ def main():
         if args.migrate:
             print("Note: --migrate is redundant when --upgrade is used (upgrade internally calls migrate).", file=sys.stderr)
         sys.exit(_run_upgrade(cfg, expected_pair=expected_pair,
-                              allow_downgrade=args.allow_downgrade))
+                              allow_downgrade=args.allow_downgrade,
+                              backlog_reconcile=args.backlog_reconcile))
 
     if args.migrate:
         sys.exit(_run_migrate(cfg))
@@ -797,6 +825,27 @@ def main():
             remediation=f"Fix YAML errors in {cfg.planwise_root}/config.yaml, then re-run /planwise init or `python init_project.py --migrate`.",
         ))
     print()
+
+    # Backlog-index retrofit: migrate a hand-authored backlog index (or
+    # re-split an over-budget changelog on an already-generated one) via the
+    # SAME idempotent routine _run_upgrade() calls on both of its exits — the
+    # trigger is the index's on-disk shape, not a version, so the migration
+    # runs on this very run. A legacy index whose units the fresh config
+    # cannot supply (e.g. nothing here yet supplies its abbrev) is refused
+    # instead, with a fix line, and re-fires on the next /planwise upgrade.
+    _backlog = migrate_backlog_if_legacy(cfg, "init", cfg.plugin_version)
+    _emit_backlog_migration_banner(_backlog)
+    if _backlog.state == "error" and _backlog.index_path is None:
+        pass  # config.yaml's own Skipped row above already reports this fault
+    elif _backlog.state in {"refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+        index_path = _backlog.index_path or (
+            cfg.project_root / cfg.planwise_root / cfg.backlog_dir / "00-Index-Backlog.md")
+        skipped.append(SkippedArtifact(
+            artifact=str(index_path),
+            reason=_backlog.detail,
+            consumer="/planwise backlog, /planwise harvest, backlog-author",
+            remediation=_backlog.fix or "re-run /planwise upgrade",
+        ))
 
     rules = install_rules(cfg)
     if rules:

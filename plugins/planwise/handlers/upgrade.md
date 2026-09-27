@@ -53,7 +53,7 @@ Extract from `config.yaml`:
 Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version` — the live root resolved in the Config Gate, always, so this comparison can never be fooled by a stale configured `plugin_root:`. Compare to the user's pinned `plugin_version:`:
 
 > [!gate] Upgrade Gate
-> If `pinned == shipped` **and** the config's stored `plugin_root` matches the live `{plugin_root}` → report "Plugin version: {version} — already up to date." and exit.
+> If `pinned == shipped` **and** the config's stored `plugin_root` matches the live `{plugin_root}` → run the Step 2.4 script invocation, then report "Plugin version: {version} — already up to date." and exit. The script re-checks the backlog index shape on this branch too and migrates a hand-authored index automatically; pass its `Backlog index migration:` (or `Backlog changelog:`) block through verbatim per the Step 3 callout below — the handler names no migration procedure of its own, only the one-word chat-summary label it derives from that block.
 > If `pinned == shipped` **but** the stored `plugin_root` differs → do NOT exit; skip the comparator fan-out (Steps 2.1–2.3 have nothing to compare — no artifact changed) and run the Step 2.4 script invocation, which repoints the root on its own. Report the result as "Plugin root repointed", not as a version change. See the mismatch note below.
 > If `pinned < shipped` (or `pinned` is absent) → proceed to Step 2.1.
 > If `pinned > shipped` → emit a warning ("Your config pins {pinned} but the installed plugin is {shipped} — did you downgrade?") and ask the user with `AskUserQuestion` whether to proceed. On decline, exit without writing. On approval, continue and append `--allow-downgrade` to the Step 2.4 invocation.
@@ -112,7 +112,7 @@ Token Saver is a budget mode that keeps task sessions under ~150K and warns when
 >
 > Headless / non-interactive: skip rows 3–4; the writer (row 5) runs with no `verdicts.json` and disposes
 > every diverged file via the inline `_classify_diverged()` primitive — including the automated
-> transfer-then-adopt path for customization-bearing verdicts (see Step 2.4, item 5).
+> transfer-then-adopt path for customization-bearing verdicts (see Step 2.4, item 6).
 
 ### Step 2.1 — `--list-diverged` pre-scan
 
@@ -212,7 +212,7 @@ Write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to
 >    `verdicts.json`; the writer falls back to the inline `_classify_diverged()`
 >    primitive for every diverged file. Always sufficient and safe: with
 >    `upgrade.customization_handoff: report+relocate` (the shipped template
->    default) the writer's automated transfer-then-adopt path (Step 2.4, item 5)
+>    default) the writer's automated transfer-then-adopt path (Step 2.4, item 6)
 >    still runs off the primitive's verdict, so a customization is never deleted
 >    — a failed transfer, a failed pre-image backup, or a degraded not-analyzed
 >    stand-in verdict falls back to preserve + sidecar. With `report` /
@@ -254,12 +254,13 @@ If `python` is not found, try `python3`.
 The script:
 1. Runs `migrate_config()` to merge any new top-level keys into `config.yaml`
 2. Calls `bootstrap_lessons_artifacts()` to backfill the lessons scaffolding — seeds the lessons index hub (`{lessons_dir}/00-Index-LessonsLearned.md`) plus its two companions (`00-Changelog-LessonsLearned.md`, `00-PromotionLog-LessonsLearned.md`), and renders `{lessons_dir}/00-Categorization-By-Domain.md` — whenever any is missing. Idempotent and non-destructive: a no-op when every artifact already exists, and an existing (possibly user-customised) file is preserved verbatim. This recovers the categorization file that gates `/planwise lessons curate` and `promote-batch` on projects adopted via `/planwise upgrade` rather than a fresh `/planwise init` (the render used to be fresh-init-only). Runs after `migrate_config()` so a freshly-migrated `categorization:` block is picked up; falls back to the built-in default buckets (and flags it in the banner) when the block is absent
-3. Iterates `manifests/artifacts.yaml` rows where `upgrade_behavior == "refresh_or_sidecar"`
-4. Refreshes installed copies whose normalised body matches the shipped body
-5. Classifies each **diverged** installed copy with the structural verdict — consuming `verdicts.json` when present (a comparator verdict for a filename **supersedes** the inline primitive; a missing entry, a malformed entry, or an entry whose `installed_sha256` is missing/stale falls back to the primitive). A clean **stale subset** is auto-adopted in place directly: rules refresh via `update_frontmatter()` (the project's `paths:` line is preserved). Any OTHER divergence — HAS_UNIQUE or a subset whose `notes` flag installed-only tolerated content — is **customization-bearing**, gated by `upgrade.customization_handoff`: under `report+relocate` (the shipped template default) the writer first **transfers** the full installed body (plus a generic provenance header — source filename, kind, upgrade pair, date, verdict summary) to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` — a **dormant preservation document** outside `.claude/rules/`, never loaded as a rule (a collision is uniquified with a numeric suffix loop, never clobbered) — **verifies** the write by reading it back, mirrors the pre-image under `upgrade-backups/`, and only then adopts the shipped body in place (the `DISPOSITIONS.md` row is appended only after the adoption write succeeds). Under `report` / `report+issue` (or the key absent) the writer is conservative: the customization-bearing file is preserved in place + a `.new` sidecar is written — no transfer, no adoption. A failed transfer write, a failed pre-image backup, a failed adoption write, or a degraded not-analyzed stand-in verdict (`structural_compare` unavailable at call time — no evidence to act on) likewise falls back to that conservative branch: installed file untouched, `.new` sidecar under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Every auto-adoption — stale-subset or transfer-then-adopt — first mirrors the pre-change file under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (failed backup = no destructive write) and deletes any sidecar it obsoletes from an earlier interrupted run
-6. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy when it is untouched (normalized-identical body, `paths:` match) **or** when its body is a high-confidence **stale subset** of the grown shipped reference with no installed-only content flagged; it **preserves** byte-for-byte any HAS_UNIQUE (customised) copy, any subset verdict with reorg confidence or a non-empty installed-only-content flag, and — while `upgrade.descope_preserve_paths_edits` is `true` (the default) — any copy with a customised `paths:` line, even over a stale body. Setting that key to `false` opts in to removing paths-edited copies (reported with an `[INFO]` marker). Every removal is backed up under `upgrade-backups/` first, so a disposition is always recoverable without VCS
-7. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size
-8. Bumps `plugin_version:` AND repoints `plugin_root:` together, in `config.yaml`, LAST, as the commit point — one write, so the pair can never disagree (see `_commit_upgrade_pin()` in `scripts/init_project.py`)
+3. Runs `migrate_backlog_if_legacy()` — when the backlog index is hand-authored it backs up every file it will write under `upgrade-backups/{from}-to-{to}/backlog/`, moves the changelog footer, feature-cell prose and dependency notes into their homes, backfills frontmatter, regenerates the index and checks it; recognise-or-refuse, never best-effort, never fails the upgrade; a refusal names the exact fix and re-fires on the next run. `--backlog-reconcile frontmatter-wins` overrides the default `index-wins` for row/frontmatter disagreements.
+4. Iterates `manifests/artifacts.yaml` rows where `upgrade_behavior == "refresh_or_sidecar"`
+5. Refreshes installed copies whose normalised body matches the shipped body
+6. Classifies each **diverged** installed copy with the structural verdict — consuming `verdicts.json` when present (a comparator verdict for a filename **supersedes** the inline primitive; a missing entry, a malformed entry, or an entry whose `installed_sha256` is missing/stale falls back to the primitive). A clean **stale subset** is auto-adopted in place directly: rules refresh via `update_frontmatter()` (the project's `paths:` line is preserved). Any OTHER divergence — HAS_UNIQUE or a subset whose `notes` flag installed-only tolerated content — is **customization-bearing**, gated by `upgrade.customization_handoff`: under `report+relocate` (the shipped template default) the writer first **transfers** the full installed body (plus a generic provenance header — source filename, kind, upgrade pair, date, verdict summary) to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` — a **dormant preservation document** outside `.claude/rules/`, never loaded as a rule (a collision is uniquified with a numeric suffix loop, never clobbered) — **verifies** the write by reading it back, mirrors the pre-image under `upgrade-backups/`, and only then adopts the shipped body in place (the `DISPOSITIONS.md` row is appended only after the adoption write succeeds). Under `report` / `report+issue` (or the key absent) the writer is conservative: the customization-bearing file is preserved in place + a `.new` sidecar is written — no transfer, no adoption. A failed transfer write, a failed pre-image backup, a failed adoption write, or a degraded not-analyzed stand-in verdict (`structural_compare` unavailable at call time — no evidence to act on) likewise falls back to that conservative branch: installed file untouched, `.new` sidecar under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Every auto-adoption — stale-subset or transfer-then-adopt — first mirrors the pre-change file under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (failed backup = no destructive write) and deletes any sidecar it obsoletes from an earlier interrupted run
+7. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy when it is untouched (normalized-identical body, `paths:` match) **or** when its body is a high-confidence **stale subset** of the grown shipped reference with no installed-only content flagged; it **preserves** byte-for-byte any HAS_UNIQUE (customised) copy, any subset verdict with reorg confidence or a non-empty installed-only-content flag, and — while `upgrade.descope_preserve_paths_edits` is `true` (the default) — any copy with a customised `paths:` line, even over a stale body. Setting that key to `false` opts in to removing paths-edited copies (reported with an `[INFO]` marker). Every removal is backed up under `upgrade-backups/` first, so a disposition is always recoverable without VCS
+8. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size
+9. Bumps `plugin_version:` AND repoints `plugin_root:` together, in `config.yaml`, LAST, as the commit point — one write, so the pair can never disagree (see `_commit_upgrade_pin()` in `scripts/init_project.py`)
 
 Capture stdout — the banner is rendered from it.
 
@@ -358,6 +359,29 @@ Lessons scaffolding backfilled:           ({omitted entirely when every artifact
   + {planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md
   …
 
+Backlog index migration:                                   (silent — nothing prints — when the index is already generated and within budget)
+  migrated: {index} -> generated hub + {N} shard(s)
+    changelog:              {path} + {N-1} part(s) ({N} entries, {N} bytes; each file ≤ {budget} tokens; every footer byte accounted for)
+    frontmatter backfilled: {N} item file(s) ({M} had a partial block)
+    blocks: edges written:  {N}
+    dependency notes moved: {N} bullet(s) into {N} item file(s)
+    feature-cell prose moved: {N} unit(s)
+    reconciled cells:       {N} ({index-wins|frontmatter-wins}) — {id}.{key}: {frontmatter} -> {index}; …
+    ledger:                 {path}
+    backups:                {planwise_root}/upgrade-backups/{from}-to-{to}/backlog/ ({N} file(s), listed in DISPOSITIONS.md)
+    git tree was dirty:     {yes|no|unknown} (informational — the backup above is the restore point)
+    generator --check:      clean
+  — or, on a hand-authored index the script refuses to touch:
+Backlog index migration: REFUSED (index and item files left untouched)
+  reason: {the migrator's own refusal text, verbatim}
+  fix:    {the exact edit the refusal names}
+          then re-run /planwise upgrade (the migration re-fires on a hand-authored index; nothing else repeats)
+  — or, on an index the script cannot classify as either hand-authored or generated:
+Backlog index migration: {index} is not a hand-authored or generated index — left untouched
+  reason: {the classifier's reason}; inspect it with: {migrate_backlog_index.py --report command}
+  — or, on an already-generated index whose changelog grew past the per-file budget:
+Backlog changelog: re-split into {N} part(s), each ≤ {budget} tokens; backups: {planwise_root}/upgrade-backups/{from}-to-{to}/backlog/
+
 Refreshed: {N}
   ({M} were stale subsets, auto-adopted shipped)   ({sub-line omitted when M == 0; pre-change copies live under {planwise_root}/upgrade-backups/<from>-to-<to>/})
   + {file}
@@ -402,6 +426,9 @@ Plugin root repointed: {live_plugin_root}
 Upgrade complete.
 ```
 
+> [!practice] The backlog index migration block is a pass-through, never a handler procedure
+> Pass the `Backlog index migration:` (or `Backlog changelog:`) block through verbatim, exactly as the script's own banner prints it — the handler names no repair step of its own. On `refused`, the `fix:` line already carries the re-run instruction; add nothing further to it.
+
 > [!practice] Recovery-artifact disposition classes
 > `action-required` — unresolved conflict sidecars. `review-then-discard` — transferred customizations awaiting re-homing. `safe-to-discard` — pre-change backups, once you are satisfied with the upgrade. `inert` — a consumed verdict cache. Step 4.3 offers per-class cleanup for `safe-to-discard` and `inert` only; `action-required` and `review-then-discard` are reported here but resolved through Step 4 / Step 4.1 / Step 4.2.
 
@@ -419,6 +446,7 @@ Plugin upgrade: {from} -> {to}
 
 Config keys added:       {N}        ({list, or "(none)"})
 Lessons backfilled:      {N}        (categorization file / index seed — gates lessons curate; "(none)" when both present)
+Backlog index:           {migrated | changelog re-split | refused | unrecognized | backup failed | write failed | error | already generated}   ({fix} surfaced from the banner above when refused, unrecognized, backup failed, or write failed)
 Artifacts refreshed:     {N}
 Artifacts unchanged:     {N}        (installed body already matched shipped)
 Untracked preserved:     {N}        ({list of files outside the manifest allowlist})
@@ -444,7 +472,7 @@ If customizations-transferred > 0, list each transferred file and its target pat
 > [!practice] Resolve, Don't Sidestep
 > Prefer fully resolving a divergence through the documented flow (relocation, adoption, or upstream issue) over leaving a sidecar note for later — a deferred resolution must name the constraint that forced deferral. See [do-the-hard-things.md](../references/do-the-hard-things.md).
 
-For each conflict in `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` (files preserved in place: conservative handoff mode — `upgrade.customization_handoff` is `report`/`report+issue` — or a transfer/backup/adoption write failed, or the verdict was the degraded not-analyzed stand-in — see Step 2.4, item 5):
+For each conflict in `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` (files preserved in place: conservative handoff mode — `upgrade.customization_handoff` is `report`/`report+issue` — or a transfer/backup/adoption write failed, or the verdict was the degraded not-analyzed stand-in — see Step 2.4, item 6):
 
 1. The user diffs `<destination>.md` against `<destination>.md.new`
 2. If the changes are acceptable → overwrite the installed file with the sidecar content (or merge selectively) → delete the `.new` file

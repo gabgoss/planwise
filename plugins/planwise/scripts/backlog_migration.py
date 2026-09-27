@@ -15,7 +15,9 @@ Recognise-or-refuse, never best-effort. Every step before the backup is
 read-only, and a failed backup means no write is attempted. A failed write
 restores every file it touched to this run's pre-image, then reports
 `write_failed`. The first pre-image wins: a backup an earlier run left in the
-same version pair is kept, never overwritten. The routine never raises: any
+same version pair is kept, never overwritten -- a later run whose target has
+since changed gets a numbered sibling (`{name}.{n}.bak`) instead, so its own
+restore point is not lost. The routine never raises: any
 unexpected exception becomes state `error`, so it never fails the caller. The
 git working-tree state is reported for information only, because the backup
 under `{planwise_root}/upgrade-backups/{from}-to-{to}/backlog/` is the restore
@@ -65,6 +67,7 @@ class BacklogMigrationReport:
     kept: list[str] = dataclasses.field(default_factory=list)  # backups an earlier run made; left as they were
     written: list[str] = dataclasses.field(default_factory=list)
     ledger_path: Path | None = None
+    diverged: dict = dataclasses.field(default_factory=dict)  # backup dst (str) -> sibling pre-image (str)
     counts: dict = dataclasses.field(default_factory=dict)
     git_dirty: bool | None = None
     generator_write_exit: int | None = None
@@ -77,7 +80,7 @@ def migrate_backlog_if_legacy(cfg: "InitConfig", from_version: str, to_version: 
     report = BacklogMigrationReport(state="absent", index_path=None)
     try:
         _migrate(cfg, from_version, to_version, reconcile, report)
-    except Exception as exc:  # the caller's upgrade must never fail on this step
+    except Exception as exc:  # noqa: BLE001 -- the caller's upgrade must never fail on this step
         report.state, report.detail = "error", repr(exc)
     return report
 
@@ -201,17 +204,52 @@ def _rel(path: Path, backlog_dir: Path) -> Path:
 
 
 def _kept_at(path: Path, backlog_dir: Path, report) -> str:
-    """The DISPOSITIONS reason naming where `path`'s pre-image sits, and whether an earlier run made it."""
+    """The DISPOSITIONS reason naming where `path`'s pre-image sits, whether an earlier run made
+    it, and a second pre-image location when this run's own bytes diverged from that kept one."""
     rel = _rel(path, backlog_dir)
+    dst = report.backup_dir / rel
     earlier = " (made by an earlier run in this version pair; kept, not overwritten)"
+    sibling = report.diverged.get(str(dst))
+    extra = ""
+    if sibling:
+        sibling_rel = Path(sibling).relative_to(report.backup_dir)
+        extra = (f"; current bytes differed, also backed up to "
+                 f"upgrade-backups/{report.backup_dir.parent.name}/backlog/{sibling_rel.as_posix()}")
     return (f"pre-image at upgrade-backups/{report.backup_dir.parent.name}/backlog/{rel.as_posix()}"
-            + (earlier if str(report.backup_dir / rel) in report.kept else ""))
+            + (earlier if str(dst) in report.kept else "") + extra)
+
+
+def _next_free_sibling(dst: Path) -> Path:
+    """The first `{dst.name}.{n}.bak` that does not already exist, starting at n=1."""
+    n = 1
+    while True:
+        candidate = dst.with_name(f"{dst.name}.{n}.bak")
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
+def _matching_sibling(dst: Path, current: bytes) -> Path | None:
+    """An existing `{dst.name}.{n}.bak` whose bytes equal `current`, so a re-run adds no duplicate."""
+    n = 1
+    while True:
+        candidate = dst.with_name(f"{dst.name}.{n}.bak")
+        if not candidate.exists():
+            return None
+        if candidate.read_bytes() == current:
+            return candidate
+        n += 1
 
 
 def _backup(targets: list, backlog_dir: Path, report, also: list = ()) -> dict | None:
     """Copy every existing target byte-exact before any write, and return this run's pre-image of
     each target and each path in `also` (None for a file that does not exist yet). The first
-    pre-image wins: a backup already present is kept. None means stop: nothing was written."""
+    pre-image wins: a backup already present is kept, never overwritten. When that kept backup's
+    bytes no longer match the target's own current bytes -- a later operation in the same version
+    pair found the target changed since the kept backup was made -- the current pre-image is ALSO
+    written to a new sibling (`{name}.{n}.bak`, next free `n`), so this run's own restore point is
+    not lost; a same-pair re-run whose bytes still match the kept backup writes nothing new. None
+    means stop: nothing was written."""
     for src in targets:
         dst = report.backup_dir / _rel(src, backlog_dir)
         if str(dst) in report.backed_up:
@@ -219,6 +257,14 @@ def _backup(targets: list, backlog_dir: Path, report, also: list = ()) -> dict |
         try:
             if dst.exists():
                 report.kept.append(str(dst))
+                current = Path(src).read_bytes() if Path(src).is_file() else None
+                if current is not None and current != dst.read_bytes():
+                    sibling = _matching_sibling(dst, current)
+                    if sibling is None:
+                        sibling = _next_free_sibling(dst)
+                        upgrade_io._copy_bytes_exact(Path(src), sibling)
+                        report.backed_up.append(str(sibling))
+                    report.diverged[str(dst)] = str(sibling)
             else:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 upgrade_io._copy_bytes_exact(Path(src), dst)
@@ -358,8 +404,8 @@ def _banner_lines(report: BacklogMigrationReport) -> list:
     c, index = report.counts, report.index_path
     fix = report.fix.replace("\n", "\n          ")
     if report.state == "changelog_split":
-        return [f"Backlog changelog: re-split into {c.get('changelog_parts')} part(s), each ≤ {READ_TOKEN_WARN} "
-                f"tokens; backups: {report.backup_dir}"]
+        return [(f"Backlog changelog: re-split into {c.get('changelog_parts')} part(s), each ≤ {READ_TOKEN_WARN} "
+                 f"tokens; backups: {report.backup_dir}")]
     if report.state == "refused":
         return ["Backlog index migration: REFUSED (index and item files left untouched)",
                 f"  reason: {report.detail}", f"  fix:    {fix}"]
@@ -387,8 +433,8 @@ def _migrated_lines(report: BacklogMigrationReport) -> list:
                      else f"{c['changelog_unaccounted']} footer byte(s) unaccounted")
         reconciled = " …" if len(c["reconciled"]) > 5 else ""
         lines += [
-            f"    changelog:              {c['changelog_path']} + {parts - 1} part(s) ({c['changelog_entries']} "
-            f"entries, {c['changelog_bytes']} bytes; each file ≤ {READ_TOKEN_WARN} tokens; {accounted})",
+            (f"    changelog:              {c['changelog_path']} + {parts - 1} part(s) ({c['changelog_entries']} "
+             f"entries, {c['changelog_bytes']} bytes; each file ≤ {READ_TOKEN_WARN} tokens; {accounted})"),
             f"    frontmatter backfilled: {c['backfilled']} item file(s) ({c['partial']} had a partial block)",
             f"    blocks: edges written:  {c['edges']}",
             f"    dependency notes moved: {c['dependency_notes']} bullet(s) into {c['dependency_note_files']} item file(s)",
@@ -418,7 +464,7 @@ def _emit_backlog_migration_banner(report: BacklogMigrationReport) -> None:
         return
     try:
         lines = _banner_lines(report)
-    except Exception as exc:  # a banner must never fail the caller
+    except Exception as exc:  # noqa: BLE001 -- a banner must never fail the caller
         lines = [f"Backlog index migration: {report.state} ({report.detail or exc!r})"]
     for line in lines:
         _say(line)
