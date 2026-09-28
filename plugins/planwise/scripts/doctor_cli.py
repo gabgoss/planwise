@@ -47,41 +47,6 @@ except ImportError:
         "installed"
     )
 
-try:
-    from doctor_sweeps import (
-        compute_injection_families,
-        format_bytes,
-        lint_installed_divergence,
-        lint_rule_overscope,
-        sweep_orphaned_agent_mirrors,
-        sweep_stale_descoped_rules,
-        sweep_upgrade_leftovers,
-    )
-except ImportError:
-    raise ImportError(
-        "doctor_sweeps is required for doctor_cli's report dispatchers; the "
-        "scripts/ directory appears to be partially installed"
-    )
-
-try:
-    from artifact_upgrade import RECOVERY_ARTIFACT_CLASSES
-except ImportError:
-    raise ImportError(
-        "artifact_upgrade is required for doctor_cli's leftover-sweep report "
-        "and prune writer (RECOVERY_ARTIFACT_CLASSES); the scripts/ "
-        "directory appears to be partially installed"
-    )
-
-try:
-    from init_project import DESCOPED_RULES, INSTALLED_RULES
-except ImportError:
-    raise ImportError(
-        "init_project is required for doctor_cli's INSTALLED_RULES/"
-        "DESCOPED_RULES tables (R1: the tuples stay on the residual); the "
-        "scripts/ directory appears to be partially installed"
-    )
-
-
 def _run_prune_stale(cfg: "InitConfig") -> int:
     """WRITER (opt-in): delete ONLY the REMOVABLE stale de-scoped rules and
     orphaned agent mirrors, log to PRUNED.md.
@@ -942,5 +907,42 @@ def _run_doctor(cfg: "InitConfig") -> int:
     else:
         print(f"Up to date — recorded {recorded} matches the live CLI.")
     return 0
+
+
+# These three sit below the definitions: each one reaches init_project, which
+# re-exports names from this module, so the names must exist first.
+try:
+    from doctor_sweeps import (
+        compute_injection_families,
+        format_bytes,
+        lint_installed_divergence,
+        lint_rule_overscope,
+        sweep_orphaned_agent_mirrors,
+        sweep_stale_descoped_rules,
+        sweep_upgrade_leftovers,
+    )
+except ImportError:
+    raise ImportError(
+        "doctor_sweeps is required for doctor_cli's report dispatchers; the "
+        "scripts/ directory appears to be partially installed"
+    )
+
+try:
+    from artifact_upgrade import RECOVERY_ARTIFACT_CLASSES
+except ImportError:
+    raise ImportError(
+        "artifact_upgrade is required for doctor_cli's leftover-sweep report "
+        "and prune writer (RECOVERY_ARTIFACT_CLASSES); the scripts/ "
+        "directory appears to be partially installed"
+    )
+
+try:
+    from init_project import DESCOPED_RULES, INSTALLED_RULES
+except ImportError:
+    raise ImportError(
+        "init_project is required for doctor_cli's INSTALLED_RULES/"
+        "DESCOPED_RULES tables (R1: the tuples stay on the residual); the "
+        "scripts/ directory appears to be partially installed"
+    )
 
 

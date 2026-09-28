@@ -50,16 +50,6 @@ except ImportError:
         "estimates; the scripts/ directory appears to be partially installed"
     )
 
-try:
-    from init_project import DESCOPED_RULES, INSTALLED_RULES
-except ImportError:
-    raise ImportError(
-        "init_project is required for doctor_sweeps's DESCOPED_RULES/"
-        "INSTALLED_RULES tables (R1: the tuples stay on the residual); the "
-        "scripts/ directory appears to be partially installed"
-    )
-
-
 # Frozen filename list for the post-boundary orphaned-mirror sweep: the agent
 # files formerly mirrored into .claude/agents/ on init. No live install list
 # remains after the mirror drop; this frozen copy lets the sweep recognize an
@@ -793,5 +783,17 @@ def format_bytes(total: int) -> str:
     if total < 1024 * 1024:
         return f"{total / 1024:.1f} KiB"
     return f"{total / (1024 * 1024):.1f} MiB"
+
+
+# Below the definitions: init_project reaches artifact_upgrade, which imports
+# names from this module, so they must exist before init_project loads.
+try:
+    from init_project import DESCOPED_RULES, INSTALLED_RULES
+except ImportError:
+    raise ImportError(
+        "init_project is required for doctor_sweeps's DESCOPED_RULES/"
+        "INSTALLED_RULES tables (R1: the tuples stay on the residual); the "
+        "scripts/ directory appears to be partially installed"
+    )
 
 
