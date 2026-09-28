@@ -54,15 +54,6 @@ except ImportError:
         "partially installed"
     )
 
-try:
-    from init_project import DESCOPED_RULES, resolve_rule_paths_value
-except ImportError:
-    raise ImportError(
-        "init_project is required for rule_descope_migration's DESCOPED_RULES "
-        "table (R1: the tuple stays on the residual) and its resolve_rule_paths_value() "
-        "helper; the scripts/ directory appears to be partially installed"
-    )
-
 
 # Version this de-scope migration ships in. migrate_installed_rules() only
 # acts when from_version < RESCOPE_MIGRATION_VERSION <= to_version, so the
@@ -411,5 +402,17 @@ def migrate_installed_rules(
                 "left in place")
 
     return report
+
+
+# Below the definitions: init_project re-exports names from this module, so
+# they must exist before init_project loads.
+try:
+    from init_project import DESCOPED_RULES, resolve_rule_paths_value
+except ImportError:
+    raise ImportError(
+        "init_project is required for rule_descope_migration's DESCOPED_RULES "
+        "table (R1: the tuple stays on the residual) and its resolve_rule_paths_value() "
+        "helper; the scripts/ directory appears to be partially installed"
+    )
 
 

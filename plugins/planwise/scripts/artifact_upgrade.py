@@ -65,36 +65,6 @@ except ImportError:
     )
 
 try:
-    from rule_descope_migration import migrate_installed_rules
-except ImportError:
-    raise ImportError(
-        "rule_descope_migration is required for artifact_upgrade's post-refresh "
-        "de-scope migration step; the scripts/ directory appears to be "
-        "partially installed"
-    )
-
-try:
-    from doctor_sweeps import lint_rule_overscope
-except ImportError:
-    raise ImportError(
-        "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "
-        "advisory; the scripts/ directory appears to be partially installed"
-    )
-
-try:
-    from init_project import (
-        INSTALLED_RULES,
-        resolve_rule_paths_value,
-        update_frontmatter,
-    )
-except ImportError:
-    raise ImportError(
-        "init_project is required for artifact_upgrade's INSTALLED_RULES table "
-        "(R1: the tuple stays on the residual) and its rule-write helper "
-        "(seam 8); the scripts/ directory appears to be partially installed"
-    )
-
-try:
     from lessons_bootstrap import (
         _emit_lessons_bootstrap_banner,
         bootstrap_lessons_artifacts,
@@ -1121,5 +1091,38 @@ def _run_upgrade(
             file=sys.stderr,
         )
         raise
+
+
+# These three sit below the definitions: each one reaches init_project, which
+# re-exports names from this module, so the names must exist first.
+try:
+    from init_project import (
+        INSTALLED_RULES,
+        resolve_rule_paths_value,
+        update_frontmatter,
+    )
+except ImportError:
+    raise ImportError(
+        "init_project is required for artifact_upgrade's INSTALLED_RULES table "
+        "(R1: the tuple stays on the residual) and its rule-write helper "
+        "(seam 8); the scripts/ directory appears to be partially installed"
+    )
+
+try:
+    from rule_descope_migration import migrate_installed_rules
+except ImportError:
+    raise ImportError(
+        "rule_descope_migration is required for artifact_upgrade's post-refresh "
+        "de-scope migration step; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
+try:
+    from doctor_sweeps import lint_rule_overscope
+except ImportError:
+    raise ImportError(
+        "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "
+        "advisory; the scripts/ directory appears to be partially installed"
+    )
 
 

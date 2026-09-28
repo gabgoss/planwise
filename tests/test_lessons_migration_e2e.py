@@ -42,15 +42,11 @@ import yaml
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-# `init_project` is imported before `artifact_upgrade`: importing
-# `artifact_upgrade` (or `promotion_log`/`lessons_changelog`) first hits a
-# circular-import ordering quirk between `init_project` and
-# `rule_descope_migration` outside pytest's own import machinery -- observed
-# empirically while authoring this module (a standalone `python probe.py`
-# raised `ImportError: cannot import name 'RESCOPE_MIGRATION_VERSION' from
-# partially initialized module`); this ordering sidesteps it and mirrors
-# `test_lessons_migration_wiring.py`'s own working import order.
-import init_project as ip  # noqa: I001 -- import order is load-bearing, see comment above
+# `init_project` (the composition root) is imported first by convention,
+# mirroring `test_lessons_migration_wiring.py`. The order is no longer
+# load-bearing: `test_import_order.py` proves `artifact_upgrade`,
+# `promotion_log` and `lessons_changelog` each import first on their own.
+import init_project as ip  # noqa: I001 -- composition root first, see comment above
 import artifact_upgrade
 import config_loader
 import generate_lessons_index as gen
