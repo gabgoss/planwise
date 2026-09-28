@@ -921,28 +921,28 @@ try:
         sweep_stale_descoped_rules,
         sweep_upgrade_leftovers,
     )
-except ImportError:
+except ImportError as exc:
     raise ImportError(
         "doctor_sweeps is required for doctor_cli's report dispatchers; the "
         "scripts/ directory appears to be partially installed"
-    )
+    ) from exc
 
 try:
     from artifact_upgrade import RECOVERY_ARTIFACT_CLASSES
-except ImportError:
+except ImportError as exc:
     raise ImportError(
         "artifact_upgrade is required for doctor_cli's leftover-sweep report "
         "and prune writer (RECOVERY_ARTIFACT_CLASSES); the scripts/ "
         "directory appears to be partially installed"
-    )
+    ) from exc
 
 try:
     from init_project import DESCOPED_RULES, INSTALLED_RULES
-except ImportError:
+except ImportError as exc:
     raise ImportError(
         "init_project is required for doctor_cli's INSTALLED_RULES/"
         "DESCOPED_RULES tables (R1: the tuples stay on the residual); the "
         "scripts/ directory appears to be partially installed"
-    )
+    ) from exc
 
 

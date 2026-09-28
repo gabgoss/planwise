@@ -1101,28 +1101,28 @@ try:
         resolve_rule_paths_value,
         update_frontmatter,
     )
-except ImportError:
+except ImportError as exc:
     raise ImportError(
         "init_project is required for artifact_upgrade's INSTALLED_RULES table "
-        "(R1: the tuple stays on the residual) and its rule-write helper "
-        "(seam 8); the scripts/ directory appears to be partially installed"
-    )
+        "(R1: the tuple stays on the residual) and its rule-write helper; "
+        "the scripts/ directory appears to be partially installed"
+    ) from exc
 
 try:
     from rule_descope_migration import migrate_installed_rules
-except ImportError:
+except ImportError as exc:
     raise ImportError(
         "rule_descope_migration is required for artifact_upgrade's post-refresh "
         "de-scope migration step; the scripts/ directory appears to be "
         "partially installed"
-    )
+    ) from exc
 
 try:
     from doctor_sweeps import lint_rule_overscope
-except ImportError:
+except ImportError as exc:
     raise ImportError(
         "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "
         "advisory; the scripts/ directory appears to be partially installed"
-    )
+    ) from exc
 
 
