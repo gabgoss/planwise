@@ -229,10 +229,11 @@ COMPANION_TEXT = (
     "# Categorization By Domain\n\n**Last Updated:** 2024-01-01\n\n## A. General (1)\n\n"
     "| ID | Title | Severity |\n|----|-------|----------|\n| LL-001 | First lesson title | Medium |\n"
 )
-# CRLF -- matches the plugin's own shipped seed byte-for-byte (verified: the
-# dev-tree `seed/00-Changelog-LessonsLearned.md` is CRLF), which is what
-# `copy_seed_files()`/`_seed_lessons_index()` actually write on Path 2.
-CHANGELOG_HEADER_ONLY = f"[\u2190 {INDEX}]({INDEX})\r\n".encode()
+# The plugin's own changelog seed, read from disk: `copy_seed_files()` /
+# `_seed_lessons_index()` copy it byte for byte on Path 2. Its line ending is
+# whatever the checkout gave it (LF, or CRLF under core.autocrlf=true), so
+# no line ending is hard-coded here.
+CHANGELOG_HEADER_ONLY = (REAL_PLUGIN_ROOT / "seed" / "00-Changelog-LessonsLearned.md").read_bytes()
 MISSING_ARTIFACT_ID = "LL-002"
 
 
@@ -720,6 +721,27 @@ def test_migrated_multi_entry_family_then_append_keeps_numbers_stable(tmp_path, 
     config_path = cfg.project_root / "planwise" / "config.yaml"
     assert lessons_changelog.main(["--config", str(config_path), "--append", "probe"]) == 0
     assert _changelog_numbers(lessons_dir) == list(range(len(numbers) + 1, 0, -1))
+
+
+def test_migrated_family_is_a_fixed_point_of_the_next_upgrade(tmp_path, monkeypatch):
+    """Re-review F9 guard: the migrator lays the changelog out through the
+    writer's own engine, so the next upgrade's `plan_split` -- which parses
+    this family, because one entry is over the page cap -- finds nothing to
+    move, and the second upgrade leaves every changelog file byte-identical."""
+    cfg, lessons_dir = _project(tmp_path, dirty=False)
+    history = ("<!-- Previous: 2024-06-06 the newest earlier history -->\n"
+               f"<!-- Previous: 2024-05-05 {'y' * 30_000} -->\n"
+               f"<!-- Previous: 2024-04-04 {'o' * 70_000} -->\n")
+    index = _seed_index().replace("**Last Updated:** YYYY-MM-DD\n", "**Last Updated:** YYYY-MM-DD\n" + history, 1)
+    _write(lessons_dir / INDEX, _crlf(index))
+    cfg = _pin(cfg, FROM)
+    monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
+    assert artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None) == 0
+    assert lessons_changelog.plan_split(_config(cfg), lessons_dir / INDEX) is None
+    family = {p.name: p.read_bytes() for p in lessons_dir.glob(f"{CHANGELOG[:-3]}*.md")}
+    assert len(family) >= 2
+    assert artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None) == 0
+    assert {p.name: p.read_bytes() for p in lessons_dir.glob(f"{CHANGELOG[:-3]}*.md")} == family
 
 
 def test_legacy_positional_family_is_renumbered_by_upgrade_then_silent(tmp_path, capsys):

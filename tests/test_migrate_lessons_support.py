@@ -546,3 +546,38 @@ def test_counter_inside_the_log_section_is_not_residue(nl):
     assert not any("Next available ID" in raw or "Drift record" in raw for _n, raw in leftover)
     segments = [s["text"] for s in sup.extract_header_changelog(text)]
     assert sum("Drift record" in s for s in segments) == 1  # the header side owns it, once
+
+
+# ---------------------------------------------------------------------------
+# One changelog layout engine (re-review F9): the migrator's output is a
+# fixed point of the writer's next `plan_split`
+# ---------------------------------------------------------------------------
+
+def _write_family(lessons_dir: Path, out: list, nl: str) -> Path:
+    lessons_dir.mkdir(parents=True, exist_ok=True)
+    for name, text in out:
+        (lessons_dir / name).write_bytes(text.encode("utf-8"))
+    return lessons_dir / "00-Index-LessonsLearned.md"
+
+
+@pytest.mark.parametrize("nl", ["\n", "\r\n"])
+def test_migrated_changelog_is_a_fixed_point_of_plan_split(tmp_path, nl):
+    """Bodies carrying blank lines at either end, and one entry over the
+    page cap so `plan_split` parses and re-lays out the family: a second
+    engine that measures those blank lines packs differently, and the next
+    upgrade would rewrite what the migration just wrote."""
+    import lessons_changelog
+    segments = [f"\n\nEntry text {k} " + "p" * 5_000 + "\n" * 400 for k in range(14)]
+    segments.append({"text": "o" * 70_000, "flag": None})
+    out = sup.render_changelog(segments, "00-Index-LessonsLearned.md", nl, "2026-09-27")
+    assert len(out) >= 3
+    index_path = _write_family(tmp_path / "LessonsLearned", out, nl)
+    assert lessons_changelog.plan_split({}, index_path) is None
+
+
+def test_render_changelog_refuses_a_body_that_would_not_read_back():
+    """An unfenced `## Entry N` line inside a migrated body would split off a
+    phantom entry; the engine's read-back check refuses it, naming the entry."""
+    segments = [{"text": "Newest.", "flag": None}, {"text": "Body.\n## Entry 7\nmore", "flag": None}]
+    with pytest.raises(sup.Refusal, match="Entry 1"):
+        sup.render_changelog(segments, "00-Index-LessonsLearned.md", "\n", "2026-09-27")

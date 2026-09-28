@@ -180,6 +180,16 @@ class TestDoctorStep8ArchiveYearSource(unittest.TestCase):
         self.assertIn("lessons_changelog._existing_archive_main", self.part3_text)
         self.assertIn("lessons_changelog._ARCHIVE_YEAR_RE", self.part3_text)
 
+    def test_step_8_names_the_archive_stem_resolver_and_the_four_digit_rule(self):
+        """The stem `_existing_archive_main` globs is not a naive changelog
+        stem (a custom index name can make those differ) -- it comes from
+        `_archive_base`, which derives it from the writer's own namer. Step
+        8 must name that resolver, not just the glob/year functions, and
+        must state the exactly-four-digits rule the glob is filtered by."""
+        span = _span_between(self.part3_text, "### Step 8", "*Cross-reference:")
+        self.assertIn("lessons_changelog._archive_base", span)
+        self.assertIn(r"-Archive-\d{4}", span)
+
     def test_step_8_states_no_archive_means_nothing_to_measure(self):
         span = _span_between(
             self.part3_text, "### Step 8", "*Cross-reference:"

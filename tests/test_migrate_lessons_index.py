@@ -826,3 +826,37 @@ def test_counter_inside_the_promotion_log_section_travels_once(tmp_path):
     texts = [p.read_bytes().decode("utf-8") for p in lessons_dir.rglob("*.md")]
     assert sum(t.count("Drift record") for t in texts) == 1  # header history, relocated once
     assert sum(t.count("**Next available ID:**") for t in texts) == 1  # the generated hub's own counter
+
+
+# ---------------------------------------------------------------------------
+# `build_report` must survive a changelog or promotion-log file that is not
+# valid UTF-8: a clean, specific refusal in the relevant field, never the
+# opaque `error` fallback `_safe_report` produces for an unhandled exception,
+# which discards every other field the report would otherwise carry.
+# ---------------------------------------------------------------------------
+
+def test_report_survives_an_undecodable_changelog_file(tmp_path):
+    config, _index_path, lessons_dir = _build(tmp_path)
+    assert _run(config, *_WRITE_ARGS) == 0
+    changelog_path = lessons_dir / "00-Changelog-LessonsLearned.md"
+    changelog_path.write_bytes(b"\xff\xfe not valid UTF-8 bytes\n")
+    report = json.loads(_capture_json(config, "--report", "--json"))
+    assert "error" not in report
+    assert report["changelog"] == "unreadable"
+    # Matches lessons_changelog.py --split's own refusal for the same input.
+    assert report["changelog_resplit"] == "refused"
+    assert any("not valid UTF-8" in item for item in report["would_refuse"])
+    assert report["ready_with_all_repairs"] is False
+
+
+def test_report_survives_an_undecodable_promotion_log_file(tmp_path):
+    config, _index_path, lessons_dir = _build(tmp_path)  # promo=True by default: seeds LL-001..003 rows
+    assert _run(config, *_WRITE_ARGS) == 0
+    century_path = lessons_dir / "Archive" / "PromotionLog-LessonsLearned-001-050.md"
+    assert century_path.is_file()
+    century_path.write_bytes(b"\xff\xfe not valid UTF-8 bytes\n")
+    report = json.loads(_capture_json(config, "--report", "--json"))
+    assert "error" not in report
+    assert report["promotion_log"] == "unreadable"
+    assert any("not valid UTF-8" in item for item in report["would_refuse"])
+    assert report["ready_with_all_repairs"] is False

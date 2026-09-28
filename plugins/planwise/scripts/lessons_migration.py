@@ -201,6 +201,34 @@ def write_changelog_plan(plan: dict, lessons_dir: Path, report, rerun: str) -> l
     return rows + [(p, "removed; " + _kept_at(p, lessons_dir, report)) for p in remove]
 
 
+def write_with_dispositions(plan: dict, config: dict, backup_dir: Path, day: str, action: str,
+                            rerun_cmd: str, log_header: str) -> tuple:
+    """Write `plan` through `write_changelog_plan`, then append one
+    DISPOSITIONS row per file it touched to `backup_dir.parent /
+    "DISPOSITIONS.md"` (`log_header` written once, the first time this log
+    file is created). The one write-then-log path every manual writer into
+    an existing family shares: `lessons_changelog.py --append`/`--split`,
+    and `promotion_log.py`'s century-file creation and stale-listing
+    repair -- never a second scheme invented in either caller. Returns
+    `(ok, report)`; a failed write (`rows` is None) logs nothing, since
+    there is nothing to log."""
+    lessons_dir = Path(config["_lessons_dir"])
+    report = LessonsMigrationReport(state="absent", index_path=config.get("_lessons_index"), backup_dir=backup_dir)
+    rows = write_changelog_plan(plan, lessons_dir, report, rerun_cmd)
+    if rows is None:
+        return False, report
+    log_path = backup_dir.parent / "DISPOSITIONS.md"
+    header = "" if log_path.exists() else log_header
+    lines = [f"- {day} `{_rel(p, lessons_dir).as_posix()}` — {action}: {reason}" for p, reason in rows]
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(header + "\n".join(lines) + "\n")
+    except OSError as exc:
+        print(f"  Warning: could not log dispositions to {log_path}: {exc}", file=sys.stderr)
+    return True, report
+
+
 def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, index_path: Path, report) -> None:
     """A generated index: re-split an over-budget changelog, or renumber an
     unstable one, with backups; or stay silent (mirrors
@@ -226,7 +254,8 @@ def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, in
         _log(cfg, from_version, to_version, path, "lessons-changelog-split", reason, report)
     report.state = "changelog_split"
     report.counts.update({"changelog_parts": plan["parts"], "changelog_kind": plan["kind"],
-                          "changelog_renumbered": plan["renumbered"]})
+                          "changelog_renumbered": plan["renumbered"],
+                          "changelog_files_written": len(plan["outputs"])})
 
 
 def _refuse(report, message: str) -> None:
@@ -492,12 +521,21 @@ def _changelog_split_line(report: LessonsMigrationReport) -> str:
     """The one `changelog_split` banner line. It states the real limits: the
     main file stays under `READ_TOKEN_WARN`, each archive part under
     `READ_PAGE_CAP_TOKENS`, and a file holding one larger entry keeps it
-    whole. A renumber says so, and a renumber alone names no limits."""
+    whole. A renumber says so, and a renumber alone names no limits.
+
+    A renumber's "across N file(s)" names the files this run actually
+    wrote (`changelog_files_written`), never the family's whole file
+    count (`changelog_parts`): a renumber that lands on an already-correct
+    number leaves that file byte-identical and out of `plan["outputs"]`,
+    so the two counts can differ -- a positional family renumbering its
+    main file alone, with its archive's lone entry already numbered 1,
+    prints "across 1 file(s)", not the family's 2."""
     c = report.counts
     parts, renumbered = c.get("changelog_parts"), c.get("changelog_renumbered", 0)
+    written = c.get("changelog_files_written", parts)
     done = f"renumbered {renumbered} entries by position (the oldest is Entry 1)" if renumbered else ""
     if c.get("changelog_kind") == "renumber":
-        return f"Lessons changelog: {done} across {parts} file(s); backups: {report.backup_dir}"
+        return f"Lessons changelog: {done} across {written} file(s); backups: {report.backup_dir}"
     split = (f"re-split into {parts} part(s) (main file under {sup.READ_TOKEN_WARN} tokens, each archive part "
              f"under {sup.READ_PAGE_CAP_TOKENS}; a file holding one larger entry keeps it whole)")
     return f"Lessons changelog: {done + ' and ' if done else ''}{split}; backups: {report.backup_dir}"

@@ -15,25 +15,32 @@ A family whose numbers do not strictly descend in that order is unstable
 by family position: the oldest entry becomes Entry 1. A stable family is
 never renumbered, and a move between files never rewrites a heading.
 
-A multi-file write backs up every existing file it replaces or removes,
-byte-exact, through the upgrade routine's first-pre-image-wins helper,
-writes each file an entry moves into before the file it leaves, and
-restores every touched file on any failure. A single-file `--append` is
-one atomic replace. Each file keeps its own BOM and newline style, and a
-file whose entries do not change is never rewritten.
+Every write, a one-file `--append` included, backs up every existing file
+it replaces or removes, byte-exact, through the upgrade routine's
+first-pre-image-wins helper, writes each file an entry moves into before
+the file it leaves, and restores every touched file on any failure. Each
+file keeps its own BOM and newline style, and a file whose entries do not
+change is never rewritten. Every planned file is read back through the
+parser before anything is written, and a file that would not read back as
+the entries planned for it is refused, naming the entry.
 
-`lessons_migration.py` calls `plan_split` on an already-generated index;
-`migrate_lessons_index.py --report` calls `plan_split_with_info`, the
-function it wraps.
+Both modes refuse while the lessons index beside the family is not
+generated: the migrator still owns the family then. `lessons_migration.py`
+calls `plan_split` on an already-generated index; `migrate_lessons_index.py
+--report` calls `plan_split_with_info`, the function it wraps, and the
+migrator lays out a new family through `render_family`, this module's own
+engine.
 
 Usage:
     lessons_changelog.py --config CONFIG (--append TEXT | --append-file PATH | --split)
                           [--dry-run] [--json] [--date YYYY-MM-DD]
 
 Exit codes: 0 = wrote (or a clean `--dry-run`, or nothing to do); 1 =
-refused (foreign content outside any `## Entry` section, an unstable family
-on `--append`, a malformed new entry or `--date`, or a write that failed
-and was rolled back); 2 = the main changelog file does not exist yet.
+refused (an index that is not generated, foreign content outside any
+`## Entry` section, an unstable family on `--append`, a malformed or
+repeated new entry, a malformed `--date`, a layout that would not read
+back, or a write that failed and was rolled back); 2 = the main changelog
+file does not exist yet.
 """
 from __future__ import annotations
 
@@ -50,21 +57,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from backlog_index_budget import _measure
 from backlog_index_schema import _changelog_filename, _index_naming
 from config_loader import load_config
-from migrate_backlog_support import ReplaceError
+from migrate_backlog_support import BACKLINK_RE
 from migrate_lessons_support import (
     _FENCE_RE,
     Refusal,
     _archive_naming,
     _fenced_lines,
     changelog_part_filename,
+    classify_shape,
     newline_of,
-    replace_all,
-    stage_all,
 )
-from read_limits import READ_PAGE_CAP_TOKENS, READ_TOKEN_WARN
+from read_limits import READ_PAGE_CAP_TOKENS, READ_TOKEN_WARN, estimate_tokens
 from reconcile_common import read_text_preserving_newlines as read_text
 
-_HEADER_LINE_RE = re.compile(r"^\[← [^\]]*\]\([^)]*\)$")
 _OLDER_RE = re.compile(r"^Older entries: \[[^\]]*\]\([^)]*\)$")
 _ENTRY_HEADING_RE = re.compile(r"^## Entry (\d+)(.*)$")
 _ENTRY_NUMBER_RE = re.compile(r"(## Entry )\d+")
@@ -100,7 +105,7 @@ def _entry_headings(lines: list) -> list:
     return out
 
 
-def _parse_changelog_body(text: str, label: str) -> tuple:
+def _parse_changelog_body(text: str, label: str, older_re=None) -> tuple:
     """Parse one on-disk changelog file into `([(num, suffix, body), ...],
     trailing_pointer)`, in file order (newest first). `suffix` is whatever
     followed the entry number on its heading line, kept verbatim so a move
@@ -110,14 +115,17 @@ def _parse_changelog_body(text: str, label: str) -> tuple:
     Entries are delimited ONLY by an unfenced `## Entry N` line
     (`_entry_headings`). Every other line past the first heading --
     `## Drift Record`, a fenced `## Context`, anything -- is body text of
-    the entry it falls in. Before the first heading, only a backlink or the
-    trailing `Older entries:` pointer is recognised; anything else raises
-    `Refusal` naming `label` and the 1-based line."""
+    the entry it falls in. The trailing pointer is recognised only where
+    the writer puts it: `older_re` is given for the main file alone, and
+    only a last non-blank line it matches is the pointer; any other line
+    stays body text. Before the first heading only a backlink is
+    recognised; anything else raises `Refusal` naming `label` and the
+    1-based line."""
     norm = text.removeprefix(BOM).replace("\r\n", "\n")
     lines = norm.split("\n")
     i, n = 0, len(lines)
     consumed = 0
-    while i < n and _HEADER_LINE_RE.match(lines[i].strip()):
+    while i < n and BACKLINK_RE.match(lines[i].strip()):
         consumed += 1
         i += 1
         if i < n and lines[i] == "":
@@ -130,7 +138,7 @@ def _parse_changelog_body(text: str, label: str) -> tuple:
     while end > 0 and body_lines[end - 1] == "":
         end -= 1
     trailing_pointer = ""
-    if end > 0 and _OLDER_RE.match(body_lines[end - 1].strip()):
+    if end > 0 and older_re is not None and older_re.match(body_lines[end - 1].strip()):
         trailing_pointer = body_lines[end - 1].strip()
         body_lines = body_lines[: end - 1]
         while body_lines and body_lines[-1] == "":
@@ -187,15 +195,32 @@ def _renumber_text(text: str, numbers) -> str:
 # Render and plan
 # --------------------------------------------------------------------------
 
+def canonical_body(text: str) -> str:
+    """An entry body as the parser reads it back: no BOM, `\\n` newlines,
+    no blank line at either end. `--append`, the duplicate check and the
+    migrator all hand the engine bodies in this form."""
+    return text.removeprefix(BOM).replace("\r\n", "\n").strip("\n")
+
+
 def _render_entries(entries: list) -> str:
     return "".join(f"## Entry {num}{suffix}\n\n{body}\n\n" for num, suffix, body in entries)
+
+
+def _archive_base(naming, changelog_name: str) -> str:
+    """Every archive filename's stem before `-Archive-{YYYY}`, taken from
+    `_archive_naming` -- the writer's own namer -- so the locator finds
+    exactly the files the writer names, whatever the index is called."""
+    stem = Path(_changelog_filename(_archive_naming(naming, changelog_name, "0000"))).stem
+    return stem.removesuffix("-Archive-0000")
 
 
 def _names(naming, index_name: str, archive_year: str) -> dict:
     changelog_name = _changelog_filename(naming)
     a_naming = _archive_naming(naming, changelog_name, archive_year)
+    archive = rf"{re.escape(_archive_base(naming, changelog_name))}-Archive-\d{{4}}{re.escape(naming.suffix)}"
     return {"index": index_name, "changelog": changelog_name, "a_naming": a_naming,
-            "archive": _changelog_filename(a_naming)}
+            "archive": _changelog_filename(a_naming),
+            "older_re": re.compile(rf"^Older entries: \[({archive})\]\(\1\)$")}
 
 
 def _file_name(pos: int, names: dict) -> str:
@@ -226,39 +251,117 @@ def _tokens(text: str) -> int:
     return _measure(text.removeprefix(BOM).replace("\r\n", "\n"))[1]
 
 
+def _fence_runs(body: str) -> tuple:
+    """`(opens, closes)` of one entry body read alone, each a list of
+    `(char, width)`: every fence opener that never closes inside the body,
+    and every bare fence run. `_fenced_lines` pairs fences across a whole
+    file, so an opener left open here pairs with a matching bare run in
+    any LATER entry of the same file and folds the headings between into
+    this entry."""
+    lines = body.split("\n")
+    fenced = _fenced_lines(lines)
+    opens, closes = [], []
+    for j, line in enumerate(lines):
+        m = _FENCE_RE.match(line)
+        if m:
+            run = (m.group(1)[0], len(m.group(1)))
+            if not m.group(2).strip():
+                closes.append(run)
+            if not fenced[j] and not (run[0] == "`" and "`" in m.group(2)):
+                opens.append(run)
+    return opens, closes
+
+
+def _closes_any(closes: list, pending: list) -> bool:
+    return any(c == pc and w >= pw for c, w in closes for pc, pw in pending)
+
+
 def _layout(entries: list, names: dict) -> list:
     """Pure. `entries` is the WHOLE family, newest first, each `(num,
     suffix, body)`. Packs from scratch every time, so the same entries
-    always give the same layout. Returns `[(pos, [entries]), ...]`, main
-    first: the main file keeps as many of the newest entries as fit under
-    `READ_TOKEN_WARN` (always at least one), and the rest pack greedily
-    into archive parts under `READ_PAGE_CAP_TOKENS`, one whole entry at a
-    time. A file holding a single entry larger than its budget keeps it
-    whole: no layout can do better."""
-    if not entries or _tokens(_render(0, entries, names)) < READ_TOKEN_WARN:
-        return [(0, list(entries))]
-    kept, moved = list(entries), []
-    while len(kept) > 1 and _tokens(_render(0, kept, names, older=True)) >= READ_TOKEN_WARN:
-        moved.insert(0, kept.pop())
-    layout, current = [(0, kept)], []
-    for entry in moved:
-        current.append(entry)
+    always give the same layout. Returns `[(pos, [entries], bytes), ...]`,
+    main first, `bytes` being the file's measured size: the main file keeps
+    as many of the newest entries as fit under `READ_TOKEN_WARN` (always at
+    least one), and the rest pack greedily into archive parts under
+    `READ_PAGE_CAP_TOKENS`, one whole entry at a time. A file holding a
+    single entry larger than its budget keeps it whole: no layout can do
+    better. A file also ends before an entry that would close a fence an
+    earlier entry of that file leaves open, so every file reads back as the
+    entries planned for it.
+
+    Each entry is measured once and the file sizes are running sums: the
+    measure is additive over concatenation, so the layout is the one a
+    re-measure of every candidate file would give."""
+    sizes = [_measure(_render_entries([e]))[0] for e in entries]
+    head = {key: _measure(_render(max(key, 0), [], names, key < 0))[0] for key in (-1, 0, 1, 2)}
+    runs = [_fence_runs(body) for _n, _s, body in entries]
+    n, limit, pending = len(entries), len(entries), []
+    for i, (opens, closes) in enumerate(runs):
+        if _closes_any(closes, pending):
+            limit = i
+            break
+        pending += opens
+    if limit == n and estimate_tokens(head[0] + sum(sizes)) < READ_TOKEN_WARN:
+        return [(0, list(entries), head[0] + sum(sizes))]
+    kept, used = 1, sizes[0]
+    while kept < min(limit, n - 1) and estimate_tokens(head[-1] + used + sizes[kept]) < READ_TOKEN_WARN:
+        used += sizes[kept]
+        kept += 1
+    layout = [(0, list(entries[:kept]), head[-1 if kept < n else 0] + used)]
+    group, used, pending = [], 0, []
+    for i in range(kept, n):
         pos = len(layout)
-        if len(current) > 1 and _tokens(_render(pos, current, names)) >= READ_PAGE_CAP_TOKENS:
-            layout.append((pos, current[:-1]))
-            current = current[-1:]
-    if current:
-        layout.append((len(layout), current))
+        opens, closes = runs[i]
+        if group and (_closes_any(closes, pending)
+                      or estimate_tokens(head[min(pos, 2)] + used + sizes[i]) >= READ_PAGE_CAP_TOKENS):
+            layout.append((pos, group, head[min(pos, 2)] + used))
+            group, used, pending = [], 0, []
+        group.append(entries[i])
+        used += sizes[i]
+        pending += opens
+    if group:
+        layout.append((len(layout), group, head[min(len(layout), 2)] + used))
     return layout
+
+
+def _render_checked(pos: int, group: list, names: dict, older: bool) -> str:
+    """`_render`, then the text read back through the parser. A file that
+    would not read back as exactly `group` -- a heading folded into a
+    fence, a body line taken for the pointer, a heading-shaped body line --
+    raises `Refusal` naming the file and the first entry that would change,
+    before anything is written."""
+    name = _file_name(pos, names)
+    text = _render(pos, group, names, older)
+    try:
+        back = _parse_changelog_body(text, name, names["older_re"] if pos == 0 else None)[0]
+    except Refusal as exc:
+        raise Refusal(f"{name}: the planned file would not read back ({exc}); nothing was written") from exc
+    if back != group:
+        k = next((i for i, (a, b) in enumerate(zip(group, back)) if a != b), min(len(group), len(back)))
+        num = (group[k] if k < len(group) else back[k])[0]
+        raise Refusal(f"{name}: the planned file would not read back as the entries planned for it: Entry {num} "
+                      f"would change ({len(group)} entries planned, {len(back)} read back); nothing was written")
+    return text
+
+
+def render_family(entries: list, naming, index_name: str, year: str) -> list:
+    """`[(filename, text), ...]`, main first, `\\n` text: `entries` (the
+    whole family, newest first, bodies in `canonical_body` form) laid out,
+    rendered and read back by this module's engine. The migrator writes a
+    new family through it, so the next `plan_split` finds nothing to move."""
+    names = _names(naming, index_name, year)
+    layout = _layout(entries, names)
+    return [(_file_name(pos, names), _render_checked(pos, group, names, pos == 0 and len(layout) > 1))
+            for pos, group, _b in layout]
 
 
 def _oversized(layout: list, names: dict) -> list:
     """Each layout file still over its own budget -- always a file holding
     one entry larger than the budget by itself."""
     out = []
-    for pos, group in layout:
+    for pos, group, nbytes in layout:
         budget = READ_TOKEN_WARN if pos == 0 else READ_PAGE_CAP_TOKENS
-        tokens = _tokens(_render(pos, group, names, older=pos == 0 and len(layout) > 1))
+        tokens = estimate_tokens(nbytes)
         if tokens >= budget:
             out.append({"file": _file_name(pos, names), "entry": group[0][0], "tokens": tokens,
                         "budget": budget})
@@ -286,20 +389,22 @@ def _write_order(paths: list, old_home: list, new_home: list, added: int) -> lis
     return ordered
 
 
-def _plan_writes(family: dict, entries: list, archive_year: str, added: int = 0) -> tuple:
+def _plan_writes(family: dict, entries: list, added: int = 0) -> tuple:
     """Lay out `entries` (the whole new family, newest first; its last
     `len(entries) - added` items are the parsed family's entries in order,
     possibly renumbered) and diff the layout against the files on disk.
     Returns `(plan, oversized)`; `plan` is None when every file already
     holds its planned entries -- the converged case, where the only files
-    still over budget each hold one entry that is larger by itself."""
-    names = _names(family["naming"], family["index_name"], archive_year)
+    still over budget each hold one entry that is larger by itself. Raises
+    `Refusal` when a file it would write does not read back
+    (`_render_checked`)."""
+    names = family["names"]
     layout = _layout(entries, names)
     lessons_dir = family["lessons_dir"]
     per_file = {f["path"]: f for f in family["per_file"]}
     main_style = (family["per_file"][0]["bom"], family["per_file"][0]["nl"])
     texts = {}
-    for pos, group in layout:
+    for pos, group, _nbytes in layout:
         path = lessons_dir / _file_name(pos, names)
         older = pos == 0 and len(layout) > 1
         on_disk = per_file.get(path)
@@ -307,15 +412,15 @@ def _plan_writes(family: dict, entries: list, archive_year: str, added: int = 0)
                 pos != 0 or on_disk["pointer"] == (_pointer(names) if older else "")):
             continue  # untouched: left byte-identical
         bom, nl = (on_disk["bom"], on_disk["nl"]) if on_disk is not None else main_style
-        text = _render(pos, group, names, older)
+        text = _render_checked(pos, group, names, older)
         texts[path] = bom + (text if nl == "\n" else text.replace("\n", nl))
-    planned = {lessons_dir / _file_name(pos, names) for pos, _g in layout}
+    planned = {lessons_dir / _file_name(pos, names) for pos, _g, _b in layout}
     remove = [p for p in family["files"] if p not in planned]
     oversized = _oversized(layout, names)
     if not texts and not remove:
         return None, oversized
     old_home = [f["path"] for f in family["per_file"] for _e in f["entries"]]
-    new_home = [lessons_dir / _file_name(pos, names) for pos, group in layout for _e in group]
+    new_home = [lessons_dir / _file_name(pos, names) for pos, group, _b in layout for _e in group]
     order = _write_order(list(texts), old_home, new_home, added)
     return {"outputs": [(p, texts[p]) for p in order], "remove": remove,
             "targets": [p for p in order if p.is_file()] + remove,
@@ -350,19 +455,21 @@ def _archive_parts(lessons_dir: Path, stem: str, year: str) -> list:
     return [p for _k, p in sorted(found)]
 
 
-def _locate_family_files(index_path: Path, changelog_name: str) -> tuple:
+def _locate_family_files(index_path: Path, changelog_name: str, year: str | None = None) -> tuple:
     """Every file in the family that exists on disk, in file order (main,
     archive part 1, further parts), located by naming convention ALONE --
-    no file is opened, let alone parsed. Returns `(files, archive_year)`:
+    no file is opened, let alone parsed. The archive names come from the
+    writer's own namer (`_archive_base`). Returns `(files, archive_year)`:
     `files` is `[]` when the main file itself does not exist yet;
     `archive_year` is the year embedded in an existing archive filename
-    (part 1, else the newest orphan `-Part-NN`), or this run's own date's
-    year when no archive exists yet."""
+    (part 1, else the newest orphan `-Part-NN`), or `year` (default: this
+    run's own date's year) when no archive exists yet."""
+    year = year or _today()[:4]
     lessons_dir = Path(index_path).parent
     main_path = lessons_dir / changelog_name
     if not main_path.is_file():
-        return [], _today()[:4]
-    stem = Path(changelog_name).stem
+        return [], year
+    stem = _archive_base(_index_naming(Path(index_path)), changelog_name)
     archive_main = _existing_archive_main(lessons_dir, stem)
     if archive_main is not None:
         archive_year = _ARCHIVE_YEAR_RE.search(archive_main.stem).group(1)
@@ -370,7 +477,7 @@ def _locate_family_files(index_path: Path, changelog_name: str) -> tuple:
         orphan_re = re.compile(rf"^{re.escape(stem)}-Archive-(\d{{4}})-Part-\d{{2,}}\.md$")
         years = sorted(m.group(1) for p in lessons_dir.glob(f"{stem}-Archive-*-Part-*.md")
                        if (m := orphan_re.match(p.name)))
-        archive_year = years[-1] if years else _today()[:4]
+        archive_year = years[-1] if years else year
     files = [main_path] + ([archive_main] if archive_main else [])
     return files + _archive_parts(lessons_dir, stem, archive_year), archive_year
 
@@ -384,19 +491,20 @@ def _within_budget(texts: list) -> bool:
                for i, t in enumerate(texts))
 
 
-def _gather(index_path: Path) -> dict:
+def _gather(index_path: Path, year: str | None = None) -> dict:
     """Locate and read every file in the family; nothing is parsed yet.
-    Raises `FileNotFoundError` if the main file is missing (the caller turns
-    that into a naming refusal)."""
+    `year` stamps a new archive (`_locate_family_files`). Raises
+    `FileNotFoundError` if the main file is missing (the caller turns that
+    into a naming refusal)."""
     naming = _index_naming(index_path)
     changelog_name = _changelog_filename(naming)
     lessons_dir = Path(index_path).parent
-    files, archive_year = _locate_family_files(index_path, changelog_name)
+    files, archive_year = _locate_family_files(index_path, changelog_name, year)
     if not files:
         raise FileNotFoundError(str(lessons_dir / changelog_name))
     return {"naming": naming, "index_name": Path(index_path).name, "changelog_name": changelog_name,
             "files": files, "texts": [read_text(p) for p in files], "archive_year": archive_year,
-            "lessons_dir": lessons_dir}
+            "lessons_dir": lessons_dir, "names": _names(naming, Path(index_path).name, archive_year)}
 
 
 def _parse_family(family: dict) -> dict:
@@ -404,8 +512,8 @@ def _parse_family(family: dict) -> dict:
     foreign content. Adds `per_file` (each file's entries, trailing
     pointer, BOM and newline style) and the flattened `entries`."""
     per_file = []
-    for path, text in zip(family["files"], family["texts"]):
-        entries, pointer = _parse_changelog_body(text, str(path))
+    for k, (path, text) in enumerate(zip(family["files"], family["texts"])):
+        entries, pointer = _parse_changelog_body(text, str(path), family["names"]["older_re"] if k == 0 else None)
         per_file.append({"path": path, "entries": entries, "pointer": pointer,
                          "bom": BOM if text.startswith(BOM) else "", "nl": newline_of(text)})
     family["per_file"] = per_file
@@ -413,7 +521,7 @@ def _parse_family(family: dict) -> dict:
     return family
 
 
-def plan_split_with_info(config: dict, index_path: Path) -> tuple:
+def plan_split_with_info(config: dict, index_path: Path, year: str | None = None) -> tuple:
     """`(plan, info)`. `plan` is None when there is nothing to do; else
     `{"outputs": [(Path, text)] in write order, "remove", "targets", "kind",
     "parts", "entries", "renumbered"}`. `info` is `{"renumber": bool,
@@ -425,8 +533,9 @@ def plan_split_with_info(config: dict, index_path: Path) -> tuple:
     change. An over-budget family is parsed, renumbered when unstable, and
     re-laid out (`kind` "split"); when the best layout is what is already
     on disk, the family has converged and `plan` is None, with each
-    oversized single entry in `info`. Never writes."""
-    family = _gather(index_path)
+    oversized single entry in `info`. `year` stamps a new archive, as
+    `--date` does for `--append`. Never writes."""
+    family = _gather(index_path, year)
     numbers = [num for text in family["texts"] for num in _heading_numbers(text)]
     stable = _is_stable(numbers)
     info = {"renumber": not stable, "oversized": []}
@@ -443,7 +552,7 @@ def plan_split_with_info(config: dict, index_path: Path) -> tuple:
                 "parts": len(family["files"]), "entries": len(numbers), "renumbered": len(numbers)}, info
     _parse_family(family)
     entries = family["entries"] if stable else _renumbered(family["entries"])
-    plan, info["oversized"] = _plan_writes(family, entries, family["archive_year"])
+    plan, info["oversized"] = _plan_writes(family, entries)
     if plan is not None and not stable:
         plan["renumbered"] = len(entries)
     return plan, info
@@ -482,6 +591,22 @@ def _append_refusal(body: str) -> str | None:
     return None
 
 
+def index_refusal(index_path: Path) -> str | None:
+    """Why the lessons index beside the family bars a changelog write, or
+    None when it is generated. Beside a hand-authored, unrecognised or
+    missing index the family is still the migrator's to fill: a write here
+    would make a header-only seed non-empty, and the migration would then
+    refuse that file as foreign. Keyed on the migrator's own shape
+    classifier, `migrate_lessons_support.classify_shape`."""
+    try:
+        shape, detail = classify_shape(read_text(index_path))
+    except FileNotFoundError:
+        return f"the lessons index {index_path} does not exist"
+    except (OSError, UnicodeDecodeError) as exc:
+        return f"the lessons index {index_path} could not be read: {exc}"
+    return None if shape == "generated" else f"the lessons index {index_path} is {shape}, not generated ({detail})"
+
+
 def _valid_date(value: str) -> bool:
     if not _DATE_RE.match(value):
         return False
@@ -497,34 +622,19 @@ def _valid_date(value: str) -> bool:
 # --------------------------------------------------------------------------
 
 def _write_with_backups(plan: dict, config: dict, backup_dir: Path, day: str, action: str) -> tuple:
-    """Back up, write and, on failure, roll back through the upgrade
-    routine's own helper (`lessons_migration.write_changelog_plan`), then
-    append one DISPOSITIONS row per file written or removed. Returns
-    `(ok, report)`."""
+    """Back up, write and, on failure, roll back through
+    `lessons_migration.write_with_dispositions` -- the same backup-then-log
+    path `promotion_log.py`'s century-file creation and stale-listing
+    repair share, never a second scheme invented here. Returns `(ok,
+    report)`."""
     import lessons_migration  # deferred: lessons_migration imports this module
 
-    lessons_dir = Path(config["_lessons_dir"])
-    report = lessons_migration.LessonsMigrationReport(state="absent", index_path=config.get("_lessons_index"),
-                                                      backup_dir=backup_dir)
-    rows = lessons_migration.write_changelog_plan(plan, lessons_dir, report,
-                                                  "re-run the same lessons_changelog.py command")
-    if rows is None:
-        return False, report
-    log_path = backup_dir.parent / "DISPOSITIONS.md"
-    header = "" if log_path.exists() else (
-        "# Manual changelog write dispositions\n\n"
-        "Pre-change copies of every file this write replaced or removed live\n"
-        "alongside this log, mirroring their lessons-directory paths.\n\n"
-    )
-    lines = [f"- {day} `{lessons_migration._rel(p, lessons_dir).as_posix()}` — {action}: {reason}"
-             for p, reason in rows]
-    try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as fh:
-            fh.write(header + "\n".join(lines) + "\n")
-    except OSError as exc:
-        print(f"  Warning: could not log dispositions to {log_path}: {exc}", file=sys.stderr)
-    return True, report
+    header = ("# Manual changelog write dispositions\n\n"
+             "Pre-change copies of every file this write replaced or removed live\n"
+             "alongside this log, mirroring their lessons-directory paths.\n\n")
+    return lessons_migration.write_with_dispositions(
+        plan, config, backup_dir, day, action,
+        "re-run the same lessons_changelog.py command", header)
 
 
 def _failed(report, js: bool) -> int:
@@ -565,12 +675,17 @@ def main(argv: list | None = None) -> int:
                       f"run /planwise upgrade (or {seed_cmd}) to migrate the lessons index and "
                       "seed it, or /planwise init on a fresh project", js, err=True)
 
+    why = index_refusal(index_path)
+    if why:
+        return _say(1, f"REFUSED: {why}; run /planwise upgrade to migrate the lessons index first (the "
+                       "migration writes this changelog family itself), then re-run this command", js, err=True)
+
     if args.split:
         # plan_split_with_info measures the family by raw bytes before it
         # ever parses a line, so a stable within-budget family reaches
         # "changelog within budget" without a parse.
         try:
-            plan, info = plan_split_with_info(config, index_path)
+            plan, info = plan_split_with_info(config, index_path, day[:4])
         except FileNotFoundError as exc:
             return _missing(exc)
         except (Refusal, UnicodeDecodeError) as exc:
@@ -613,7 +728,7 @@ def main(argv: list | None = None) -> int:
     # --append always needs the family's own entries (to compute the next
     # number and to prepend under), so this path always parses.
     try:
-        family = _parse_family(_gather(index_path))
+        family = _parse_family(_gather(index_path, day[:4]))
     except FileNotFoundError as exc:
         return _missing(exc)
     except (Refusal, UnicodeDecodeError) as exc:
@@ -633,17 +748,29 @@ def main(argv: list | None = None) -> int:
             new_text = args.append_file.read_text(encoding="utf-8-sig")
         except (OSError, UnicodeDecodeError) as exc:
             return _say(1, f"REFUSED: could not read --append-file {args.append_file}: {exc}", js, err=True)
-    new_body = new_text.removeprefix(BOM).replace("\r\n", "\n").strip("\n")
+    new_body = canonical_body(new_text)
     if not new_body.strip():
         return _say(1, "REFUSED: the new entry's text is empty", js, err=True)
     why = _append_refusal(new_body)
     if why:
         return _say(1, f"REFUSED: {why}", js, err=True)
 
+    if family["entries"] and canonical_body(family["entries"][0][2]) == new_body:
+        return _say(1, f"REFUSED: the newest entry, Entry {numbers[0]}, already holds this text; "
+                       "a retried --append would add it twice", js, err=True)
+
     new_number = (numbers[0] if numbers else 0) + 1
-    entries = [(new_number, "", new_body)] + family["entries"]
-    archive_year = family["archive_year"] if len(family["files"]) > 1 else day[:4]
-    plan, _oversized_now = _plan_writes(family, entries, archive_year, added=1)
+    # Every other heading in a family reads `## Entry N — {date or title}`;
+    # a bare `## Entry N` was the one shape with no suffix at all. The
+    # schema (`references/lessons-schema.md` Changelog Contract) requires
+    # only `## Entry N`, so a suffix is not forbidden -- this uses the
+    # append's own date (`day`, above: `--date`, else today), the same
+    # value that stamps the archive year and the backup directory.
+    entries = [(new_number, f" — {day}", new_body)] + family["entries"]
+    try:
+        plan, _oversized_now = _plan_writes(family, entries, added=1)
+    except Refusal as exc:
+        return _say(1, f"REFUSED: {exc}", js, err=True)
     outputs, remove = plan["outputs"], plan["remove"]
 
     if args.dry_run:
@@ -655,23 +782,16 @@ def main(argv: list | None = None) -> int:
             print(f"Would add Entry {new_number} and write: " + ", ".join(p.name for p, _t in outputs))
         return 0
 
-    backup_dir = None
-    if len(outputs) == 1 and not remove:
-        try:
-            replace_all(stage_all(outputs))
-        except (OSError, ReplaceError) as exc:  # one atomic replace: the file on disk is unchanged
-            return _say(1, f"REFUSED: the changelog write failed and nothing changed: {exc}", js, err=True)
-    else:
-        backup_dir = backups_root / f"manual-append-{day}" / "lessons"
-        ok, report = _write_with_backups(plan, config, backup_dir, day, "lessons-changelog-append")
-        if not ok:
-            return _failed(report, js)
+    # Every append, a one-file one included, backs up its pre-image first.
+    backup_dir = backups_root / f"manual-append-{day}" / "lessons"
+    ok, report = _write_with_backups(plan, config, backup_dir, day, "lessons-changelog-append")
+    if not ok:
+        return _failed(report, js)
 
     main_path = family["files"][0]
     if js:
         print(json.dumps({"entry": new_number, "wrote": [str(p) for p, _t in outputs],
-                          "removed": [str(p) for p in remove],
-                          "backup_dir": str(backup_dir) if backup_dir else None}, indent=2))
+                          "removed": [str(p) for p in remove], "backup_dir": str(backup_dir)}, indent=2))
     else:
         print(f"Added Entry {new_number} to {main_path}")
         state = "changelog_split" if len(outputs) > 1 or remove else "generated"

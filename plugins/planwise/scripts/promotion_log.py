@@ -11,19 +11,46 @@ century file that does not exist yet but whose hub-side sibling does (a
 fresh id range, or a project whose family was migrated before this range
 ever had a row) is CREATED on first use, with the same opener
 `migrate_lessons_support.render_promotion_logs` writes — never hand-typed
-— and the hub-side file's `Parts:` listing is updated to name it, in the
-same format that renderer would produce. Line endings are preserved:
-reading and writing go through `reconcile_common`'s newline-preserving
-pair, so a CRLF file stays CRLF, and a newly created century file matches
-the family's own newline style (read from the hub).
+— and the hub-side file's Archive-parts listing is updated to name it, in
+the hub's own existing listing form when it already carries one (`Parts: `,
+the current writer's own form, or `Archive parts: `, an earlier migrator's
+form — the two recognised on read; see `_parse_existing_listing`), else
+the writer's own default form. Line endings are preserved: reading and
+writing go through `reconcile_common`'s newline-preserving pair, so a CRLF
+file stays CRLF, and a newly created century file matches the family's
+own newline style (read from the hub).
 
 Usage:
     promotion_log.py --config CONFIG --lesson LL-NNN --artifact TEXT
                       --file PATH [--date YYYY-MM-DD] [--dry-run] [--json]
 
-Exit codes: 0 = appended (or a clean `--dry-run`); 1 = refused (a duplicate
-tuple, a malformed cell, or malformed existing content in the target file);
-2 = the hub-side file does not exist (the family was never migrated/seeded).
+Both modes refuse while the lessons index beside the family is not
+generated: the migrator still owns the family then, exactly as
+`lessons_changelog.py` refuses (`migrate_lessons_support.classify_shape`,
+via `lessons_changelog.index_refusal`, imported once rather than
+re-derived here).
+
+Every write that replaces or grows an existing file -- an ordinary append
+into an already-relocated century/hub file, century-file creation, and a
+hub listing repair alike -- goes through `lessons_migration.
+write_with_dispositions`, the same backup-then-log path
+`lessons_changelog.py` uses: any file the call would replace is backed up
+byte-exact first, under `upgrade-backups/manual-promotion-log-{date}/
+lessons/` (first pre-image of the day wins, later same-day writes get a
+numbered `.N.bak` sibling); a failure restores every touched file and
+removes whatever this call created, and the caller sees a clean REFUSED
+message, never a raw traceback; a success logs one DISPOSITIONS row per
+file touched. A re-run also repairs a hub listing a century file's
+existence has outgrown, in its existing form, even when the row itself is
+already logged — and a call that refuses for any other reason (a
+duplicate, an unreadable index) writes nothing unless the listing was
+truly stale.
+
+Exit codes: 0 = appended (or a clean `--dry-run`); 1 = refused (the lessons
+index is not generated, a duplicate tuple, a malformed cell, malformed
+existing content in the target file, or a backup/write failure -- always
+rolled back first); 2 = the hub-side file does not exist (the family was
+never migrated/seeded).
 """
 from __future__ import annotations
 
@@ -46,10 +73,7 @@ from migrate_lessons_support import (
     row_cells,
 )
 from parse_lessons import format_id
-from reconcile_common import (
-    read_text_preserving_newlines,
-    write_text_preserving_newlines,
-)
+from reconcile_common import read_text_preserving_newlines
 
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
@@ -152,6 +176,18 @@ def _insert_after_last_row(text: str, rows: list, new_line: str) -> str:
 
 _CENTURY_PROBE_IDS = (1, 51, 76, 101)  # one id per Archive century band
 
+# Two listing forms are recognised on a hub's Archive-parts line: `Parts: `
+# (the current writer's own form, `migrate_lessons_support.
+# render_promotion_logs`, comma-space separated, visible link text equal to
+# the href) and `Archive parts: ` (an earlier migrator's form -- not
+# produced anywhere in the current tree, but still carried by a hub that
+# was migrated under it, middle-dot separated, visible link text just the
+# href's filename). The seed (`seed/00-PromotionLog-LessonsLearned.md`)
+# carries no listing line at all, since a fresh family starts with zero
+# Archive parts. No third form has been found in either.
+_LISTING_PREFIXES = ("Archive parts: ", "Parts: ")
+_LISTING_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
+
 
 def _existing_archive_parts(lessons_dir: Path, naming) -> list:
     """The Archive century filenames that exist on disk right now, sorted
@@ -163,40 +199,134 @@ def _existing_archive_parts(lessons_dir: Path, naming) -> list:
     return sorted(n for n in names if (lessons_dir / n).is_file())
 
 
+def _parse_existing_listing(line: str):
+    """`(prefix, separator, style)` read back from `line` when it is an
+    Archive-parts listing line, else None. `style` is `'full'` (the first
+    link's visible text equals its href -- the current writer's form) or
+    `'basename'` (the visible text is just the href's filename -- the
+    earlier form); a link matching neither falls back to `'full'` rather
+    than guessing a third scheme. `separator` is read from between the
+    first two links when there are at least two, else the writer's own
+    default (`, `) -- so a single-entry listing still repairs in the
+    writer's own separator once it grows a second part."""
+    for prefix in _LISTING_PREFIXES:
+        if not line.startswith(prefix):
+            continue
+        rest = line[len(prefix):]
+        links = list(_LISTING_LINK_RE.finditer(rest))
+        if not links:
+            return prefix, ", ", "full"
+        text, href = links[0].group(1), links[0].group(2)
+        style = "basename" if text == Path(href).name and text != href else "full"
+        sep = rest[links[0].end():links[1].start()] if len(links) > 1 else ", "
+        return prefix, sep, style
+    return None
+
+
 def _with_parts_listing(hub_text: str, nl: str, archive_parts: list) -> str:
-    """`hub_text` with its `Parts:` line reflecting `archive_parts`, in the
-    same format `render_promotion_logs` renders (a `, `-joined list of
-    `[name](name)` links) and the same placement -- the line right after
-    the backlink. Added when the family has just grown its first Archive
-    part, replaced when one already lists a different set, and never
-    touching the header or the rows below it."""
+    """`hub_text` with its Archive-parts listing line reflecting
+    `archive_parts`. A listing line already present is rewritten IN PLACE,
+    on its own existing line, keeping its own prefix, its own separator
+    and its own link-text style (`_parse_existing_listing`) -- never
+    replaced by the writer's own default form and never duplicated onto a
+    second line. Only when the hub carries no listing line at all does a
+    fresh one get the writer's default form (`Parts: `, comma-space
+    separated, link text equal to the href) inserted right after the
+    backlink. A hub whose listing already names exactly `archive_parts`
+    comes back byte-identical, so a caller can tell "nothing to repair"
+    from equality alone."""
     lines = hub_text.replace("\r\n", "\n").split("\n")
-    body = [ln for ln in lines[1:] if not ln.startswith("Parts: ")]
-    new_lines = [lines[0]]
-    if archive_parts:
-        listing = ", ".join(f"[{p}]({p})" for p in archive_parts)
-        new_lines.append(f"Parts: {listing}")
-    new_lines += body
+    existing_idx = None
+    prefix, sep, style = "Parts: ", ", ", "full"
+    for i in range(1, len(lines)):
+        parsed = _parse_existing_listing(lines[i])
+        if parsed is not None:
+            existing_idx = i
+            prefix, sep, style = parsed
+            break
+
+    def _link(p: str) -> str:
+        text = Path(p).name if style == "basename" else p
+        return f"[{text}]({p})"
+
+    new_line = f"{prefix}{sep.join(_link(p) for p in archive_parts)}" if archive_parts else None
+    new_lines = list(lines)
+    if existing_idx is not None:
+        if new_line is None:
+            del new_lines[existing_idx]
+        else:
+            new_lines[existing_idx] = new_line
+    elif new_line is not None:
+        new_lines.insert(1, new_line)
     return nl.join(new_lines)
 
 
-def _create_century_file(dest_path: Path, dest_name: str, hub_path: Path, hub_name: str,
-                         naming, lesson_id: int, date: str, artifact: str, file_: str) -> None:
-    """Create a missing Archive century file with the opener
-    `render_promotion_logs` produces for a single-row destination -- never
-    hand-typed -- carrying this promotion's one row, then update the
-    hub-side file's `Parts:` listing to name it. Both writes use the
-    family's own newline style, read from the hub (`newline_of`), so a
-    CRLF family stays CRLF end to end."""
+def _write_backed_up(outputs: list, config: dict, backups_root: Path, day: str, action: str) -> tuple:
+    """Write `outputs` (`[(path, text), ...]`) all-or-nothing, through
+    `lessons_migration.write_with_dispositions` -- the same backup-then-log
+    path every `lessons_changelog.py` write already goes through, never a
+    second scheme invented here. Any file this call would replace is
+    backed up byte-exact under `backups_root` first; a failure restores
+    every touched file to its pre-image and removes whatever this call
+    created; a success adds one DISPOSITIONS row per file it touched,
+    under the same `manual-promotion-log-{date}` directory `_write_backed_
+    up`'s own callers already name. Returns `(ok, report)`; a failed
+    `report` becomes a clean REFUSED message (`_failed`), never a raw
+    traceback."""
+    import lessons_migration  # deferred: avoids a circular import at module load
+
+    backup_dir = backups_root / f"manual-promotion-log-{day}" / "lessons"
+    plan = {"outputs": outputs, "remove": []}
+    header = ("# Manual promotion-log write dispositions\n\n"
+             "Pre-change copies of every file this write replaced or removed live\n"
+             "alongside this log, mirroring their lessons-directory paths.\n\n")
+    return lessons_migration.write_with_dispositions(
+        plan, config, backup_dir, day, action,
+        "re-run the same promotion_log.py command", header)
+
+
+def _failed(report, js: bool) -> int:
+    return _say(1, f"REFUSED: {report.state}: {report.detail}\nbackups: {report.backup_dir}\nfix: {report.fix}",
+               js, err=True)
+
+
+def _century_outputs(dest_path: Path, dest_name: str, hub_path: Path, naming,
+                     lesson_id: int, date: str, artifact: str, file_: str) -> tuple:
+    """The two `(path, text)` outputs a century-file creation writes: the
+    opener `render_promotion_logs` produces for a single-row destination --
+    never hand-typed -- carrying this promotion's one row, and the hub with
+    its Archive-parts listing updated to name it (added to whatever century
+    files already exist on disk -- `dest_path` itself does not exist yet,
+    so it never shows up in that scan on its own), in the hub's own
+    existing listing form when it already carries one, else the writer's
+    own default form. Both use the family's
+    own newline style, read from the hub (`newline_of`), so a CRLF family
+    stays CRLF end to end. Only computes text; `_write_backed_up` is what
+    actually writes, atomically."""
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
     hub_text = read_text_preserving_newlines(hub_path)
     nl = newline_of(hub_text)
     new_row = {"line": 0, "lesson_id": lesson_id,
               "cells": (date, format_id(lesson_id), artifact, file_)}
     rendered = dict(render_promotion_logs([new_row], naming, nl))
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-    write_text_preserving_newlines(dest_path, rendered[dest_name])
+    archive_parts = sorted(set(_existing_archive_parts(hub_path.parent, naming)) | {dest_name})
+    new_hub_text = _with_parts_listing(hub_text, nl, archive_parts)
+    return (dest_path, rendered[dest_name]), (hub_path, new_hub_text)
+
+
+def _stale_parts_repair(hub_path: Path, naming) -> str | None:
+    """The hub's own text with its Archive-parts listing brought in line
+    with the century files that actually exist on disk, in its own
+    existing form, or None when it already names exactly that set (not
+    stale). A century file created outside a normal write here (an earlier
+    interrupted run, a hand edit) can leave this drifted; the caller
+    repairs it -- backed up, same as any other write -- instead of only
+    refusing whatever this run was asked to do."""
+    hub_text = read_text_preserving_newlines(hub_path)
+    nl = newline_of(hub_text)
     archive_parts = _existing_archive_parts(hub_path.parent, naming)
-    write_text_preserving_newlines(hub_path, _with_parts_listing(hub_text, nl, archive_parts))
+    repaired = _with_parts_listing(hub_text, nl, archive_parts)
+    return repaired if repaired != hub_text else None
 
 
 def main(argv: list | None = None) -> int:
@@ -233,6 +363,13 @@ def main(argv: list | None = None) -> int:
     if lessons_dir is None or index_path is None:
         return _say(1, "REFUSED: config.yaml declares no project.lessons_dir", js, err=True)
 
+    # Deferred: avoids a circular import at module load.
+    from lessons_changelog import index_refusal
+    why = index_refusal(Path(index_path))
+    if why:
+        return _say(1, f"REFUSED: {why}; run /planwise upgrade to migrate the lessons index first (the "
+                      "migration writes the promotion log itself), then re-run this command", js, err=True)
+
     naming = _index_naming(Path(index_path))
     try:
         dest_name = log_destination(lesson_id, naming)
@@ -244,6 +381,7 @@ def main(argv: list | None = None) -> int:
     seed_cmd = f"python {script_dir / 'migrate_lessons_index.py'} --config {args.config} --write"
     hub_name = _promotion_log_filename(naming)
     hub_path = Path(lessons_dir) / hub_name
+    backups_root = Path(config["_planwise_root"]) / "upgrade-backups"
 
     if not hub_path.is_file():
         detail = (f"the promotion-log file for {args.lesson} does not exist at {dest_path}; "
@@ -265,10 +403,34 @@ def main(argv: list | None = None) -> int:
         except Refusal as exc:
             return _say(1, f"REFUSED: {dest_path} already carries malformed content: {exc}", js, err=True)
 
-    for row in rows:
-        if row["lesson_id"] == lesson_id and _normalize_cell(row["cells"][2]) == _normalize_cell(args.artifact):
-            return _say(1, f"REFUSED: {args.lesson} / {args.artifact!r} is already logged at "
-                          f"{dest_path} line {row['line']}", js, err=True)
+    duplicate = next((row for row in rows if row["lesson_id"] == lesson_id
+                      and _normalize_cell(row["cells"][2]) == _normalize_cell(args.artifact)), None)
+
+    # A century file already on disk (an earlier interrupted run, a hand edit)
+    # can leave the hub's own `Parts:` listing stale. A live re-run repairs it
+    # -- backed up, same as any other write -- even when this call goes on to
+    # refuse the append as a duplicate below; `--dry-run` writes nothing, so
+    # the repair is skipped there too.
+    if duplicate and not creating and not args.dry_run:
+        repaired_hub_text = _stale_parts_repair(hub_path, naming)
+        if repaired_hub_text is not None:
+            ok, report = _write_backed_up([(hub_path, repaired_hub_text)], config, backups_root, date,
+                                          "promotion-log-listing-repair")
+            if not ok:
+                return _failed(report, js)
+            # The repair rewrote hub_path in place; when the duplicate's own
+            # row lives in that same file (ids routed straight to the hub),
+            # the repair can shift every line below its listing line, so the
+            # refusal below must name the line AFTER the repair, not before.
+            if dest_path == hub_path:
+                rows = _read_rows(repaired_hub_text, dest_path)
+                duplicate = next((row for row in rows if row["lesson_id"] == lesson_id
+                                  and _normalize_cell(row["cells"][2]) == _normalize_cell(args.artifact)),
+                                 duplicate)
+
+    if duplicate:
+        return _say(1, f"REFUSED: {args.lesson} / {args.artifact!r} is already logged at "
+                      f"{dest_path} line {duplicate['line']}", js, err=True)
 
     new_line = _render_row(date, lesson_id, args.artifact, args.file_)
 
@@ -284,14 +446,23 @@ def main(argv: list | None = None) -> int:
         return 0
 
     if creating:
-        _create_century_file(dest_path, dest_name, hub_path, hub_name,
-                             naming, lesson_id, date, args.artifact, args.file_)
+        outputs = list(_century_outputs(dest_path, dest_name, hub_path, naming,
+                                        lesson_id, date, args.artifact, args.file_))
+        ok, report = _write_backed_up(outputs, config, backups_root, date, "promotion-log-century-create")
+        if not ok:
+            return _failed(report, js)
     else:
         try:
             new_text = _insert_after_last_row(text, rows, new_line)
         except Refusal as exc:
             return _say(1, f"REFUSED: {exc}", js, err=True)
-        write_text_preserving_newlines(dest_path, new_text)
+        # An append into an EXISTING file replaces a user file, exactly like
+        # a century-file creation's hub rewrite -- the same backup rule
+        # applies, so it goes through the same helper rather than writing
+        # bare.
+        ok, report = _write_backed_up([(dest_path, new_text)], config, backups_root, date, "promotion-log-append")
+        if not ok:
+            return _failed(report, js)
 
     regen = f"python {script_dir / 'generate_lessons_index.py'} --config {args.config} --write"
     payload = {"lesson": args.lesson, "artifact": args.artifact, "file": args.file_,

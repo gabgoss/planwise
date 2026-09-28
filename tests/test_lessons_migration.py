@@ -258,7 +258,11 @@ def test_unstable_family_is_renumbered_once_then_silent(tmp_path, capsys):
     report = _migrate(cfg)
     assert report.state == "changelog_split", report.detail
     lm._emit_lessons_migration_banner(report)
-    assert "Lessons changelog: renumbered 4 entries by position (the oldest is Entry 1)" in capsys.readouterr().out
+    # (D) The archive's one entry (already numbered 1 by position) is left
+    # byte-identical by the renumber, so only the main file is actually
+    # written -- the banner's file count must say 1, not the family's 2.
+    out = capsys.readouterr().out
+    assert "Lessons changelog: renumbered 4 entries by position (the oldest is Entry 1) across 1 file(s)" in out
     assert (lessons_dir / _MAIN).read_bytes() == _family_file([_BACKLINK], [(4, "d"), (3, "c"), (2, "b")],
                                                               pointer=True)
     after = _snapshot(tmp_path)

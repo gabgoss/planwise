@@ -635,8 +635,14 @@ def build_report(config: dict, index_path: Path) -> dict:
     naming = _index_naming(index_path)
     changelog_path = lessons_dir / _changelog_filename(naming)
     if changelog_path.exists():
-        c_text = read_text(changelog_path)
-        report["changelog"] = "header-only" if sup.header_only(c_text, naming.hub_name) else "populated"
+        try:
+            c_text = read_text(changelog_path)
+        except UnicodeDecodeError as exc:
+            report["changelog"] = "unreadable"
+            report["would_refuse"].append(f"{changelog_path} is not valid UTF-8: {exc}")
+            report["ready_with_all_repairs"] = False
+        else:
+            report["changelog"] = "header-only" if sup.header_only(c_text, naming.hub_name) else "populated"
     companion_path = lessons_dir / gen.COMPANION_FILENAME
     if companion_path.exists():
         c_text = read_text(companion_path)
@@ -655,8 +661,22 @@ def build_report(config: dict, index_path: Path) -> dict:
     log_paths += [lessons_dir / sup.log_destination(lid, naming) for lid in (1, 51, 76, 101)]
     existing_logs = [p for p in log_paths if p.exists()]
     if existing_logs:
-        populated = any(not sup.header_only(read_text(p), naming.hub_name) for p in existing_logs)
-        report["promotion_log"] = "populated" if populated else "header-only"
+        populated, unreadable = False, None
+        for p in existing_logs:
+            try:
+                log_text = read_text(p)
+            except UnicodeDecodeError as exc:
+                unreadable = (p, exc)
+                break
+            if not sup.header_only(log_text, naming.hub_name):
+                populated = True
+        if unreadable is not None:
+            bad_path, exc = unreadable
+            report["promotion_log"] = "unreadable"
+            report["would_refuse"].append(f"{bad_path} is not valid UTF-8: {exc}")
+            report["ready_with_all_repairs"] = False
+        else:
+            report["promotion_log"] = "populated" if populated else "header-only"
     # `changelog_resplit` is computed by the SAME function the upgrade
     # routine calls (`lessons_changelog.plan_split`), and only on the shape
     # the routine calls it on (`generated`), so doctor Stage 21 and the
@@ -673,7 +693,10 @@ def build_report(config: dict, index_path: Path) -> dict:
             report["changelog_oversized"] = info["oversized"]
         except FileNotFoundError:
             report["changelog_resplit"] = "within_budget"
-        except sup.Refusal as exc:
+        except (sup.Refusal, UnicodeDecodeError) as exc:
+            # Matches lessons_changelog.py --split's own except clause and
+            # message shape (`REFUSED: {exc}`), so the report, the upgrade
+            # banner and --split never disagree about an undecodable file.
             report["changelog_resplit"] = "refused"
             report["would_refuse"].append(str(exc))
             report["ready_with_all_repairs"] = False

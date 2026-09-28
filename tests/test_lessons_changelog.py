@@ -50,6 +50,8 @@ ARCHIVE_2026 = "00-Changelog-LessonsLearned-Archive-2026.md"
 ARCHIVE_PART_02 = "00-Changelog-LessonsLearned-Archive-2026-Part-02.md"
 BACKLINK = f"[← {INDEX_NAME}]({INDEX_NAME})"
 FILLER = "Lorem ipsum filler text describing a fixture entry body in full. " * 90  # ~4.6 KB
+GENERATED_INDEX = b"Generated: 2026-01-01\n**Next available ID:** LL-001\n\n| ID | Title |\n|---|---|\n"
+LEGACY_INDEX = b"# Lessons Learned Index\n\n## Master Table\n\n| ID | Title |\n|---|---|\n"
 
 
 def _entry_block(n: int, body: str, nl: str = "\n") -> str:
@@ -74,6 +76,8 @@ class LessonsChangelogTestCase(unittest.TestCase):
         (self.lessons_dir / "Archive").mkdir(parents=True)
         self.config_path = self.planwise_dir / "config.yaml"
         self.config_path.write_bytes(CONFIG_YAML_FIXTURE)
+        # Both modes refuse beside an index that is not generated.
+        (self.lessons_dir / INDEX_NAME).write_bytes(GENERATED_INDEX)
 
     def _seed_main(self, entries: list = (), nl: str = "\n", pointer: str | None = None) -> Path:
         path = self.lessons_dir / MAIN_NAME
@@ -125,6 +129,34 @@ class TestEntryNumberingNewestFirst(LessonsChangelogTestCase):
         after = (self.lessons_dir / MAIN_NAME).read_bytes()
         entry_one_after = after[after.index(b"## Entry 1"):]
         self.assertEqual(entry_one_before, entry_one_after)
+
+
+class TestAppendedHeadingCarriesADateSuffix(LessonsChangelogTestCase):
+    """(D) Every existing entry heading in a real family reads `## Entry N
+    — {date or title}` (an em dash, per the fixtures throughout this file
+    and this project's own live changelog); `--append` used to write a
+    bare `## Entry N`, the only shape in the family with no suffix at all.
+    `references/lessons-schema.md` § Changelog Contract requires only
+    `## Entry N`, so a suffix is not forbidden -- this uses the append's
+    own date (`--date`, else today)."""
+
+    def test_append_writes_the_entry_dash_date_heading(self):
+        self._seed_main([(1, "First.")])
+        code, out = self._run(["--append", "Second.", "--date", "2026-03-04"])
+        self.assertEqual(code, 0, out)
+        text = (self.lessons_dir / MAIN_NAME).read_text(encoding="utf-8")
+        self.assertIn("## Entry 2 — 2026-03-04\n\nSecond.", text)
+
+    def test_a_retried_append_is_still_refused_as_a_duplicate(self):
+        """The duplicate check compares the BODY alone (`canonical_body`),
+        so the new suffix cannot make a retried append with the same text
+        evade it."""
+        self._seed_main([])
+        code, out = self._run(["--append", "First note.", "--date", "2026-03-04"])
+        self.assertEqual(code, 0, out)
+        code, out = self._run(["--append", "First note.", "--date", "2026-03-05"])
+        self.assertEqual(code, 1, out)
+        self.assertIn("already holds this text", out)
 
 
 class TestOverBudgetAppendSpillsToArchive(LessonsChangelogTestCase):
@@ -229,11 +261,15 @@ class TestCRLFPreserved(LessonsChangelogTestCase):
     def test_crlf_file_stays_crlf_after_append(self):
         text = _main_text([(1, "First.")], nl="\r\n")
         (self.lessons_dir / MAIN_NAME).write_bytes(text.encode("utf-8"))
-        code, out = self._run(["--append", "Second."])
+        code, out = self._run(["--append", "Second.", "--date", "2026-01-02"])
         self.assertEqual(code, 0, out)
         raw = (self.lessons_dir / MAIN_NAME).read_bytes()
         # Exact bytes: a `\r\r\n` rewrite would still satisfy a count comparison.
-        self.assertEqual(raw, _main_text([(2, "Second."), (1, "First.")], nl="\r\n").encode("utf-8"))
+        # `_main_text` builds bare `(n, body)` headings with no suffix, so the
+        # new entry's `## Entry N — {date}` heading is spelled out by hand.
+        expected = (f"{BACKLINK}\r\n\r\n## Entry 2 — 2026-01-02\r\n\r\nSecond.\r\n\r\n"
+                   "## Entry 1\r\n\r\nFirst.\r\n\r\n")
+        self.assertEqual(raw, expected.encode("utf-8"))
 
 
 class TestDryRun(LessonsChangelogTestCase):
@@ -352,10 +388,11 @@ class TestUnstableNumbering(LessonsChangelogTestCase):
         self.assertIn("within budget", out)
         self.assertEqual((self.lessons_dir / MAIN_NAME).read_bytes(), expected_main)
 
-        code, out = self._run(["--append", "Next note."])
+        code, out = self._run(["--append", "Next note.", "--date", "2026-09-28"])
         self.assertEqual(code, 0, out)
         text = (self.lessons_dir / MAIN_NAME).read_bytes().decode("utf-8")
-        self.assertTrue(text.startswith(f"{BACKLINK}\r\n\r\n## Entry 18\r\n\r\nNext note.\r\n\r\n## Entry 17 — "))
+        self.assertTrue(text.startswith(
+            f"{BACKLINK}\r\n\r\n## Entry 18 — 2026-09-28\r\n\r\nNext note.\r\n\r\n## Entry 17 — "))
 
     def test_renumber_keeps_the_bom_and_every_other_byte(self):
         entries = [(1, "", "Newest."), (2, " — title", "Oldest.")]
@@ -508,19 +545,19 @@ class TestEncodingPerFile(LessonsChangelogTestCase):
         (self.lessons_dir / MAIN_NAME).write_bytes(main)
         (self.lessons_dir / ARCHIVE_2026).write_bytes(archive)
         (self.lessons_dir / ARCHIVE_PART_02).write_bytes(part2)
-        code, out = self._run(["--append", "Small."])
+        code, out = self._run(["--append", "Small.", "--date", "2026-01-02"])
         self.assertEqual(code, 0, out)
         self.assertEqual((self.lessons_dir / ARCHIVE_2026).read_bytes(), archive)
         self.assertEqual((self.lessons_dir / ARCHIVE_PART_02).read_bytes(), part2)
         self.assertEqual((self.lessons_dir / MAIN_NAME).read_bytes(),
-                         _family_file([BACKLINK], [(26, "", "Small.")] + main_entries, "\r\n", POINTER))
+                         _family_file([BACKLINK], [(26, " — 2026-01-02", "Small.")] + main_entries, "\r\n", POINTER))
 
     def test_bom_is_kept_on_append(self):
         (self.lessons_dir / MAIN_NAME).write_bytes(_family_file([BACKLINK], [(1, "", "First.")], bom=True))
-        code, out = self._run(["--append", "Second."])
+        code, out = self._run(["--append", "Second.", "--date", "2026-01-02"])
         self.assertEqual(code, 0, out)
         self.assertEqual((self.lessons_dir / MAIN_NAME).read_bytes(),
-                         _family_file([BACKLINK], [(2, "", "Second."), (1, "", "First.")], bom=True))
+                         _family_file([BACKLINK], [(2, " — 2026-01-02", "Second."), (1, "", "First.")], bom=True))
 
 
 class TestCandidates(LessonsChangelogTestCase):
@@ -538,6 +575,244 @@ class TestCandidates(LessonsChangelogTestCase):
             self.assertEqual(code, 1, (bad, out))
             self.assertIn("is not YYYY-MM-DD", out)
         self.assertEqual(path.read_bytes(), before)
+
+
+# ---------------------------------------------------------------------------
+# Re-review fix round
+# ---------------------------------------------------------------------------
+
+def _family_numbers(lessons_dir: Path, pattern: str = "00-Changelog-LessonsLearned*.md") -> list:
+    """Every unfenced `## Entry N` number in family order (main, archive,
+    parts), read with the parser's own delimiter rule."""
+    files = sorted(lessons_dir.glob(pattern), key=lambda p: (len(p.name), p.name))
+    return [n for p in files for n in lessons_changelog._heading_numbers(p.read_bytes().decode("utf-8"))]
+
+
+class TestCustomIndexName(LessonsChangelogTestCase):
+    """F1: with a custom index name the locator must find the archive and
+    parts the writer names, or the next re-split overwrites them."""
+
+    CUSTOM_INDEX = "Lessons-Index.md"
+    CUSTOM_MAIN = "00-Lessons-Index-Changelog.md"
+    CUSTOM_ARCHIVE = "00-Changelog-Lessons-Index-Archive-2026.md"
+
+    def setUp(self):
+        super().setUp()
+        self.config_path.write_bytes(CONFIG_YAML_FIXTURE.replace(b"00-Index-LessonsLearned.md",
+                                                                 self.CUSTOM_INDEX.encode()))
+        (self.lessons_dir / self.CUSTOM_INDEX).write_bytes(GENERATED_INDEX)
+        text = _family_file([f"[← {self.CUSTOM_INDEX}]({self.CUSTOM_INDEX})"],
+                            [(n, "", _marked(n)) for n in range(30, 0, -1)])
+        (self.lessons_dir / self.CUSTOM_MAIN).write_bytes(text)
+
+    def test_locate_finds_the_archive_the_writer_names(self):
+        code, out = self._run(["--split", "--date", "2026-02-01"])
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.lessons_dir / self.CUSTOM_ARCHIVE).is_file())
+        files, _year = lessons_changelog._locate_family_files(self.lessons_dir / self.CUSTOM_INDEX,
+                                                              self.CUSTOM_MAIN)
+        self.assertIn(self.lessons_dir / self.CUSTOM_ARCHIVE, files)
+
+    def test_resplit_after_growth_keeps_every_entry(self):
+        code, out = self._run(["--split", "--date", "2026-02-01"])
+        self.assertEqual(code, 0, out)
+        for n in range(31, 41):
+            code, out = self._run(["--append", _marked(n), "--date", "2026-02-02"])
+            self.assertEqual(code, 0, out)
+        family = "".join(p.read_bytes().decode("utf-8") for p in self.lessons_dir.glob("00-*Lessons-Index*.md"))
+        for n in range(1, 41):
+            self.assertEqual(family.count(f"marker-{n:03d}."), 1, n)
+
+
+class TestFenceAcrossEntries(LessonsChangelogTestCase):
+    """F2: an entry ending in an unclosed fence opener, moved above an entry
+    that opens a real fence, must not swallow the next `## Entry` heading."""
+
+    def test_resplit_keeps_every_entry_heading(self):
+        # 41 entries: the old layout puts Entry 21 directly above Entry 20 in one part.
+        main = [(n, "", _marked(n)) for n in range(41, 21, -1)] + [(21, "", _marked(21) + "\n\n```python")]
+        archive = [(20, "", "```\nprint('a real fence')\n```\n\n" + _marked(20))]
+        archive += [(n, "", _marked(n)) for n in range(19, 0, -1)]
+        (self.lessons_dir / MAIN_NAME).write_bytes(_family_file([BACKLINK], main, pointer=POINTER))
+        (self.lessons_dir / ARCHIVE_2026).write_bytes(_family_file([ARCHIVE_BACK, BACKLINK], archive))
+        code, out = self._run(["--split", "--date", "2026-05-01"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(_family_numbers(self.lessons_dir), list(range(41, 0, -1)))
+        code, out = self._run(["--split", "--date", "2026-05-01"])
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("WROTE", out)
+
+    def test_a_layout_that_would_not_read_back_is_refused_naming_the_entry(self):
+        names = lessons_changelog._names(lessons_changelog._index_naming(Path(INDEX_NAME)), INDEX_NAME, "2026")
+        group = [(2, "", "Newest."), (1, "", "Body.\n## Entry 7\nmore")]
+        with self.assertRaises(lessons_changelog.Refusal) as ctx:
+            lessons_changelog._render_checked(0, group, names, False)
+        self.assertIn("Entry 1", str(ctx.exception))
+
+
+class TestPointerOnlyWhereTheWriterPutsIt(LessonsChangelogTestCase):
+    """F4: a real last body line shaped like `Older entries: [x](y)` is body
+    text, in the main file and in an archive part."""
+
+    LINE = "Older entries: [the old wiki](wiki.md)"
+
+    def test_append_keeps_a_pointer_shaped_last_body_line(self):
+        self._seed_main([(1, f"Body.\n\n{self.LINE}")])
+        code, out = self._run(["--append", "New note."])
+        self.assertEqual(code, 0, out)
+        self.assertIn(self.LINE, (self.lessons_dir / MAIN_NAME).read_text(encoding="utf-8"))
+
+    def test_split_keeps_a_pointer_shaped_line_in_an_archive_part(self):
+        main = _family_file([BACKLINK], [(n, "", _marked(n)) for n in range(40, 10, -1)], pointer=POINTER)
+        archive = [(n, "", _marked(n)) for n in range(10, 6, -1)] + [(6, "", f"{_marked(6)}\n\n{self.LINE}")]
+        (self.lessons_dir / MAIN_NAME).write_bytes(main)
+        (self.lessons_dir / ARCHIVE_2026).write_bytes(_family_file([ARCHIVE_BACK, BACKLINK], archive))
+        code, out = self._run(["--split", "--date", "2026-05-02"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("WROTE", out)
+        self.assertEqual(_family_text(self.lessons_dir).count(self.LINE), 1)
+
+
+class TestAppendDuplicate(LessonsChangelogTestCase):
+    """F6: a retried `--append` of the newest entry's own text is refused."""
+
+    def test_retried_append_is_refused_naming_the_entry(self):
+        self._seed_main([(1, "First.")])
+        code, out = self._run(["--append", "Second."])
+        self.assertEqual(code, 0, out)
+        before = (self.lessons_dir / MAIN_NAME).read_bytes()
+        for retry in ("Second.", "\r\nSecond.\r\n\r\n"):
+            code, out = self._run(["--append", retry])
+            self.assertEqual(code, 1, out)
+            self.assertIn("Entry 2", out)
+        self.assertEqual((self.lessons_dir / MAIN_NAME).read_bytes(), before)
+
+    def test_an_older_entry_with_the_same_text_does_not_block(self):
+        self._seed_main([(2, "Second."), (1, "Same text.")])
+        code, out = self._run(["--append", "Same text."])
+        self.assertEqual(code, 0, out)
+
+
+class TestSplitDate(LessonsChangelogTestCase):
+    """F8: `--split --date` stamps a new archive with that date's year, as
+    `--append --date` does."""
+
+    def test_split_date_reaches_the_archive_name(self):
+        self._seed_main([(n, FILLER) for n in range(30, 0, -1)])
+        code, out = self._run(["--split", "--date", "2025-06-01"])
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.lessons_dir / "00-Changelog-LessonsLearned-Archive-2025.md").is_file())
+        self.assertFalse((self.lessons_dir / ARCHIVE_2026).exists())
+
+
+class TestIndexNotGenerated(LessonsChangelogTestCase):
+    """F3 (changelog side): both modes refuse beside an index that is not
+    generated, so a bootstrap seed stays header-only for the migration."""
+
+    def _assert_refused(self, argv: list):
+        path = self._seed_main([])
+        before = path.read_bytes()
+        code, out = self._run(argv)
+        self.assertEqual(code, 1, out)
+        self.assertIn("not generated", out)
+        self.assertIn("/planwise upgrade", out)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_append_refuses_beside_a_legacy_index(self):
+        (self.lessons_dir / INDEX_NAME).write_bytes(LEGACY_INDEX)
+        self._assert_refused(["--append", "A note."])
+
+    def test_split_refuses_beside_a_legacy_index(self):
+        (self.lessons_dir / INDEX_NAME).write_bytes(LEGACY_INDEX)
+        self._assert_refused(["--split"])
+
+    def test_append_refuses_when_the_index_is_missing(self):
+        (self.lessons_dir / INDEX_NAME).unlink()
+        self._seed_main([])
+        code, out = self._run(["--append", "A note."])
+        self.assertEqual(code, 1, out)
+        self.assertIn("does not exist", out)
+
+
+class TestEveryAppendBacksUp(LessonsChangelogTestCase):
+    """User decision: every `--append`, a one-file one included, takes a
+    backup under `manual-append-{date}/`; the day's first pre-image wins."""
+
+    def test_single_file_append_backs_up_and_first_pre_image_wins(self):
+        path = self._seed_main([(1, "First.")])
+        first = path.read_bytes()
+        code, out = self._run(["--append", "Second.", "--date", "2026-05-05"])
+        self.assertEqual(code, 0, out)
+        backup = self.planwise_dir / "upgrade-backups" / "manual-append-2026-05-05" / "lessons" / MAIN_NAME
+        self.assertEqual(backup.read_bytes(), first)
+        second = path.read_bytes()
+        code, out = self._run(["--append", "Third.", "--date", "2026-05-05"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(backup.read_bytes(), first)
+        self.assertEqual(backup.with_name(f"{MAIN_NAME}.1.bak").read_bytes(), second)
+        log = (backup.parent.parent / "DISPOSITIONS.md").read_text(encoding="utf-8")
+        self.assertIn("lessons-changelog-append", log)
+
+
+def _old_layout(entries: list, names: dict) -> list:
+    """The layout algorithm as it stood before the running-sum rewrite:
+    re-render and re-measure every candidate file. The reference the
+    rewrite must match."""
+    lc = lessons_changelog
+    if not entries or lc._tokens(lc._render(0, entries, names)) < lc.READ_TOKEN_WARN:
+        return [(0, list(entries))]
+    kept, moved = list(entries), []
+    while len(kept) > 1 and lc._tokens(lc._render(0, kept, names, older=True)) >= lc.READ_TOKEN_WARN:
+        moved.insert(0, kept.pop())
+    layout, current = [(0, kept)], []
+    for entry in moved:
+        current.append(entry)
+        pos = len(layout)
+        if len(current) > 1 and lc._tokens(lc._render(pos, current, names)) >= lc.READ_PAGE_CAP_TOKENS:
+            layout.append((pos, current[:-1]))
+            current = current[-1:]
+    if current:
+        layout.append((len(layout), current))
+    return layout
+
+
+LAYOUT_FIXTURES = (
+    ("filler-30", [(n, "", FILLER) for n in range(30, 0, -1)]),
+    ("marked-40", [(n, "", _marked(n)) for n in range(40, 0, -1)]),
+    ("one-oversized", [(1, "", "x" * 70_000)]),
+    ("tiny-then-three-big", [(4, "", "tiny")] + [(n, "", ch * 35_000) for n, ch in zip((3, 2, 1), "yzw")]),
+    ("mixed-sizes", [(n, "", "m" * (200 + (n * 7919) % 30_000)) for n in range(120, 0, -1)]),
+    ("many-small", [(n, " — title", f"Small body {n}.") for n in range(3000, 0, -1)]),
+    ("empty", []),
+)
+
+
+class TestLayoutMeasuresOnce(unittest.TestCase):
+    """F10: each entry is measured once; the layout equals the old
+    re-measure-everything algorithm on every fixture shape."""
+
+    NAMES = lessons_changelog._names(lessons_changelog._index_naming(Path(INDEX_NAME)), INDEX_NAME, "2026")
+
+    def test_layout_equals_the_old_algorithm(self):
+        for label, entries in LAYOUT_FIXTURES:
+            new = [(t[0], t[1]) for t in lessons_changelog._layout(entries, self.NAMES)]
+            self.assertEqual(new, _old_layout(entries, self.NAMES), label)
+
+    def test_each_entry_is_measured_once(self):
+        entries = [(n, "", _marked(n)) for n in range(200, 0, -1)]
+        measured = {"calls": 0, "chars": 0}
+        real = lessons_changelog._measure
+
+        def counting(text):
+            measured["calls"] += 1
+            measured["chars"] += len(text)
+            return real(text)
+        with mock.patch.object(lessons_changelog, "_measure", counting):
+            layout = lessons_changelog._layout(entries, self.NAMES)
+        self.assertGreater(len(layout), 2)
+        family = len(lessons_changelog._render_entries(entries))
+        self.assertLessEqual(measured["calls"], len(entries) + 8, measured)
+        self.assertLessEqual(measured["chars"], family + 2000, measured)
 
 
 if __name__ == "__main__":
