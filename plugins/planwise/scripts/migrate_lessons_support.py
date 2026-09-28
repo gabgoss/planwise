@@ -351,11 +351,16 @@ def _entry_body(seg) -> str:
     return seg["text"] if isinstance(seg, dict) else seg
 
 
-def _entries_text(items: list, nl: str) -> str:
+def _entries_text(items: list, nl: str, top: int) -> str:
+    """`items` newest first, numbered DOWN from `top`: the stable ascending
+    scheme, where the oldest entry of the whole family is Entry 1 and a
+    number never changes once assigned. A caller rendering a slice of the
+    family passes the slice's own first number, so an archive part never
+    restarts at 1."""
     parts = []
-    for n, seg in enumerate(items, start=1):
+    for i, seg in enumerate(items):
         body = _entry_body(seg).replace("\r\n", "\n").replace("\n", nl)
-        parts.append(f"## Entry {n}{nl}{nl}{body}{nl}{nl}")
+        parts.append(f"## Entry {top - i}{nl}{nl}{body}{nl}{nl}")
     return "".join(parts)
 
 
@@ -374,7 +379,12 @@ def _archive_naming(naming, changelog_name: str, year: str) -> IndexNaming:
 
 def render_changelog(segments: list, index_name: str, nl: str, today: str) -> list:
     """`00-Changelog-{X}.md`, opening with the backlink, then `## Entry N`
-    sections newest-first (`segments[0]` is the newest). Each item of
+    sections newest-first (`segments[0]` is the newest). Numbers are stable
+    ascending across the whole family: the newest of `len(segments)`
+    entries is Entry `len(segments)`, the oldest is Entry 1, so the
+    numbers descend top to bottom through the main file, the archive, and
+    every further part, the scheme `lessons_changelog.py --append` extends
+    with max + 1. Each item of
     `segments` is either a dict carrying a "text" key (as
     `extract_header_changelog` returns) or a plain pre-rendered entry body
     string (e.g. from `render_relocated_entry`).
@@ -391,7 +401,8 @@ def render_changelog(segments: list, index_name: str, nl: str, today: str) -> li
     changelog_name = _changelog_filename(naming)
     backlink = f"[← {index_name}]({index_name})"
 
-    full = f"{backlink}{nl}{nl}{_entries_text(segments, nl)}"
+    top = len(segments)
+    full = f"{backlink}{nl}{nl}{_entries_text(segments, nl, top)}"
     if not segments or _measure(full.replace("\r\n", "\n"))[1] < READ_TOKEN_WARN:
         return [(changelog_name, full)]
 
@@ -402,41 +413,45 @@ def render_changelog(segments: list, index_name: str, nl: str, today: str) -> li
 
     kept, moved = list(segments), []
     while len(kept) > 1:
-        head = f"{backlink}{nl}{nl}{_entries_text(kept, nl)}{pointer}{nl}"
+        head = f"{backlink}{nl}{nl}{_entries_text(kept, nl, top)}{pointer}{nl}"
         if _measure(head.replace("\r\n", "\n"))[1] < READ_TOKEN_WARN:
             break
         moved.insert(0, kept.pop())
-    current_text = f"{backlink}{nl}{nl}{_entries_text(kept, nl)}{pointer}{nl}"
+    current_text = f"{backlink}{nl}{nl}{_entries_text(kept, nl, top)}{pointer}{nl}"
 
     archive_back = f"[← {changelog_name}]({changelog_name})"
-    archive_full = f"{archive_back}{nl}{nl}{backlink}{nl}{nl}{_entries_text(moved, nl)}"
+    archive_top = top - len(kept)
+    archive_full = f"{archive_back}{nl}{nl}{backlink}{nl}{nl}{_entries_text(moved, nl, archive_top)}"
     if _measure(archive_full.replace("\r\n", "\n"))[1] < READ_PAGE_CAP_TOKENS:
         return [(changelog_name, current_text), (archive_name, archive_full)]
 
-    return [(changelog_name, current_text)] + _split_archive_parts(moved, a_naming, archive_back, backlink, nl)
+    return [(changelog_name, current_text)] + _split_archive_parts(moved, a_naming, archive_back, backlink, nl,
+                                                                   archive_top)
 
 
-def _split_archive_parts(moved: list, a_naming, archive_back: str, backlink: str, nl: str) -> list:
+def _split_archive_parts(moved: list, a_naming, archive_back: str, backlink: str, nl: str, top: int) -> list:
     """Pack `moved` entries greedily into `-Part-{NN}` files, each kept
     under `READ_PAGE_CAP_TOKENS`, in entry order. Part 1 is the archive
     file itself and carries both backlinks; a later part backlinks only to
-    part 1."""
+    part 1. `top` is the number of `moved[0]`; each part continues the
+    descending count where the part before it stopped."""
     archive_name = _changelog_filename(a_naming)
-    parts, current, k = [], [], 1
+    parts, current, k, first = [], [], 1, top
 
     def flush():
-        nonlocal current, k
+        nonlocal current, k, first
         if not current:
             return
         name = archive_name if k == 1 else changelog_part_filename(a_naming, k)
         head = f"{archive_back}{nl}{nl}{backlink}" if k == 1 else f"[← {archive_name}]({archive_name})"
-        parts.append((name, f"{head}{nl}{nl}{_entries_text(current, nl)}"))
+        parts.append((name, f"{head}{nl}{nl}{_entries_text(current, nl, first)}"))
+        first -= len(current)
         current, k = [], k + 1
 
     for seg in moved:
         current.append(seg)
         head = f"{archive_back}{nl}{nl}{backlink}" if k == 1 else f"[← {archive_name}]({archive_name})"
-        text = f"{head}{nl}{nl}{_entries_text(current, nl)}"
+        text = f"{head}{nl}{nl}{_entries_text(current, nl, first)}"
         if _measure(text.replace("\r\n", "\n"))[1] >= READ_PAGE_CAP_TOKENS and len(current) > 1:
             spill = current.pop()
             flush()

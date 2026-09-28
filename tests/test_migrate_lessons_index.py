@@ -5,6 +5,7 @@ meaningful; a `write_text` fixture normalises to `os.linesep` and cannot
 detect a newline rewrite.
 """
 import json
+import re
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -235,6 +236,46 @@ def test_report_on_generated_shape(tmp_path):
     report = json.loads(_capture_json(config, "--report", "--json"))
     assert report["shape"] == "generated"
     assert report["ready_with_all_repairs"] is True
+
+
+def _entry_numbers(texts: list) -> list:
+    return [int(n) for text in texts for n in re.findall(r"^## Entry (\d+)", text, re.MULTILINE)]
+
+
+def test_render_changelog_numbers_are_stable_ascending_across_the_whole_family():
+    """The newest entry gets the highest number and the count descends
+    through the main file, the archive and every part -- never restarting
+    at 1 in the archive."""
+    segments = [{"text": "tiny newest entry", "flag": None}] + [
+        {"text": ch * 35_000, "flag": None} for ch in "yzw"]
+    out = sup.render_changelog(segments, "00-Index-LessonsLearned.md", "\n", "2026-09-27")
+    assert len(out) == 3  # main, archive, -Part-02
+    assert _entry_numbers([text for _name, text in out]) == [4, 3, 2, 1]
+
+
+def test_migrated_changelog_numbers_descend_to_one(tmp_path):
+    config, _index_path, lessons_dir = _build(tmp_path)
+    assert _run(config, "--write", "--backfill-frontmatter", "--quote-titles", "--reconcile", "index-wins",
+               "--harvest-cells", "--relocate-prose", "--allow-untracked-tree") == 0
+    numbers = _entry_numbers([(lessons_dir / "00-Changelog-LessonsLearned.md").read_text(encoding="utf-8")])
+    assert len(numbers) >= 2
+    assert numbers == list(range(len(numbers), 0, -1))
+
+
+def test_report_on_a_legacy_index_does_not_plan_the_changelog(tmp_path):
+    """The upgrade routine plans a changelog re-split only on a generated
+    index; the report matches it, so a legacy index's changelog (which the
+    migration rewrites anyway) is never reported as a refusal."""
+    config, _index_path, lessons_dir = _build(tmp_path)
+    filler = "Lorem ipsum filler text describing a fixture entry body in full. " * 90
+    body = "".join(f"## Entry {n}\n\n{filler}\n\n" for n in range(30, 0, -1))
+    (lessons_dir / "00-Changelog-LessonsLearned.md").write_bytes(
+        ("[← 00-Index-LessonsLearned.md](00-Index-LessonsLearned.md)\n\nA rogue paragraph.\n\n" + body)
+        .encode("utf-8"))
+    report = json.loads(_capture_json(config, "--report", "--json"))
+    assert report["shape"] == "legacy"
+    assert report["changelog_resplit"] == "not_applicable"
+    assert not any("outside any '## Entry' section" in item for item in report["would_refuse"])
 
 
 def _capture_json(config, *args):
@@ -747,6 +788,24 @@ def test_bootstrap_seeded_logs_are_header_only_and_never_refuse(tmp_path, index_
     assert _run(config, *_WRITE_ARGS) == 0
     assert "LL-201" in hub_log.read_text(encoding="utf-8")
     assert "## Entry 1" in changelog.read_text(encoding="utf-8")
+
+
+def test_report_promotion_log_not_missing_on_a_migrated_tree(tmp_path):
+    """Regression: the key used to look only for a hub-level
+    `00-PromotionLog-...` file, so a migrated tree whose rows relocated to
+    `Archive/PromotionLog-LessonsLearned-001-050.md` (ids 1-3 here) still
+    read "missing"."""
+    config, _index_path, lessons_dir = _build(tmp_path)  # promo=True by default: embeds rows for LL-001..003
+    assert _run(config, *_WRITE_ARGS) == 0
+    report = json.loads(_capture_json(config, "--report", "--json"))
+    assert report["promotion_log"] != "missing"
+    assert (lessons_dir / "Archive" / "PromotionLog-LessonsLearned-001-050.md").is_file()
+
+
+def test_report_promotion_log_missing_with_no_log_files_at_all(tmp_path):
+    config, _index_path, _lessons_dir = _build(tmp_path, promo=False)
+    report = json.loads(_capture_json(config, "--report", "--json"))
+    assert report["promotion_log"] == "missing"
 
 
 PROMO_WITH_THE_COUNTER = (

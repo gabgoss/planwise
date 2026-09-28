@@ -118,6 +118,18 @@ except ImportError:
         "partially installed"
     )
 
+try:
+    from lessons_migration import (
+        _emit_lessons_migration_banner,
+        migrate_lessons_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "lessons_migration is required for artifact_upgrade's post-refresh "
+        "lessons-index retrofit; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
 
 def load_artifact_manifest(plugin_root: Path) -> dict:
     """Load manifests/artifacts.yaml from the plugin root.
@@ -707,6 +719,7 @@ def _run_upgrade(
     expected_pair: "tuple[str, str] | None" = None,
     allow_downgrade: bool = False,
     backlog_reconcile: "str | None" = None,
+    lessons_reconcile: "str | None" = None,
 ) -> int:
     """Execute the --upgrade flow and print a banner. Returns exit code.
 
@@ -715,6 +728,10 @@ def _run_upgrade(
     index retrofit runs on BOTH exits of this function (the already-up-to-
     date early return and the main upgrade path), shape-triggered rather
     than version-gated, so a refused migration re-fires on the next run.
+
+    `lessons_reconcile` forwards to `migrate_lessons_if_legacy()`'s own
+    `reconcile` kwarg the same way, on the same two exits, right after the
+    backlog retrofit on each.
 
     The upgrade version pair (config.yaml's pinned plugin_version -> the
     installed plugin's plugin.json version) is resolved ONCE, right below,
@@ -852,6 +869,11 @@ def _run_upgrade(
         report = migrate_backlog_if_legacy(
             cfg, pinned_version, target_version, reconcile=backlog_reconcile)
         _emit_backlog_migration_banner(report)
+        # 2e. Lessons-index retrofit, same shape and same pair as the backlog
+        # retrofit above -- never changes this branch's return code either.
+        _lessons_report = migrate_lessons_if_legacy(
+            cfg, pinned_version, target_version, reconcile=lessons_reconcile)
+        _emit_lessons_migration_banner(_lessons_report)
         if needs_repoint:
             _repoint_plugin_root(config_path, cfg.plugin_root)
             print(f"Plugin version: {pinned_version}")
@@ -950,6 +972,19 @@ def _run_upgrade(
         except Exception as exc:  # noqa: BLE001 -- the retrofit must never abort an upgrade
             print(
                 f"  Warning: backlog index migration step raised unexpectedly: {exc}",
+                file=sys.stderr,
+            )
+
+        # 2e. Lessons-index retrofit, same contract as the backlog retrofit
+        # above -- never raises, never changes this run's exit code -- run
+        # right after it and before the artifact refresh below.
+        try:
+            _lessons_report = migrate_lessons_if_legacy(
+                cfg, pinned_version, target_version, reconcile=lessons_reconcile)
+            _emit_lessons_migration_banner(_lessons_report)
+        except Exception as exc:  # noqa: BLE001 -- the retrofit must never abort an upgrade
+            print(
+                f"  Warning: lessons index migration step raised unexpectedly: {exc}",
                 file=sys.stderr,
             )
 

@@ -13,6 +13,7 @@ Run with:  python -m unittest tests/test_artifacts_manifest.py
 """
 
 import copy
+import re
 import unittest
 from pathlib import Path
 
@@ -25,6 +26,13 @@ MANIFEST = (
     Path(__file__).resolve().parent.parent
     / "plugins" / "planwise" / "manifests" / "artifacts.yaml"
 )
+SKILL_ROUTER = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "skills" / "planwise" / "SKILL.md"
+)
+
+_CONSUMER_SUBCOMMAND_RE = re.compile(r"^/planwise ([a-z-]+)")
+_ROUTING_TABLE_ROW_RE = re.compile(r"^\| `([a-z-]+)` \| ", re.MULTILINE)
 
 ENUM_FIELDS = {
     "upgrade_behavior": "upgrade_behaviors",
@@ -130,6 +138,69 @@ class TestArtifactsManifestEnums(unittest.TestCase):
         self.assertIn("migrate_shape", self.doc["upgrade_behaviors"])
         self.assertIn("generated", self.doc["upgrade_behaviors"])
         self.assertIn("regenerated", self.doc["missing_key_behaviors"])
+
+    def test_lessons_artifact_rows_exist_with_required_keys(self):
+        """The lessons migration (mirroring the backlog retrofit) adds three
+        new artifact rows; each MUST carry every key the manifest's own
+        schema requires of a row."""
+        required_keys = {
+            "id", "on_disk", "config_keys", "producer", "consumers",
+            "missing_key_behavior", "upgrade_behavior",
+        }
+        by_id = {r["id"]: r for r in self.doc["artifacts"]}
+        for row_id in (
+            "lessons_index_shards",
+            "lessons_hub_overflow_leaves",
+            "lessons_migration_ledger",
+        ):
+            self.assertIn(row_id, by_id, f"missing artifacts.yaml row: {row_id}")
+            missing = required_keys - set(by_id[row_id])
+            self.assertEqual(missing, set(), f"{row_id} is missing keys: {missing}")
+
+    def test_lessons_index_flipped_to_migrate_shape(self):
+        row = next(r for r in self.doc["artifacts"] if r["id"] == "lessons_index")
+        self.assertEqual(row["upgrade_behavior"], "migrate_shape")
+        self.assertIn("migrate_lessons_if_legacy", row["notes"])
+        self.assertIn("--replace-legacy", row["notes"])
+
+    def test_lessons_migration_ledger_mirrors_backlog_ledger_disposition(self):
+        row = next(
+            r for r in self.doc["artifacts"] if r["id"] == "lessons_migration_ledger"
+        )
+        self.assertEqual(row["upgrade_behavior"], "preserve")
+        self.assertIn("migrate_lessons_index.LEDGER_FILENAME", row["notes"])
+
+    def test_lessons_log_rows_name_their_writer_scripts(self):
+        by_id = {r["id"]: r for r in self.doc["artifacts"]}
+        self.assertIn("lessons_changelog.py", by_id["lessons_changelog"]["notes"])
+        self.assertIn("promotion_log.py", by_id["lessons_promotion_log"]["notes"])
+
+    def test_every_declared_upgrade_behavior_value_is_used_by_some_row(self):
+        """The enum must cover every value actually used -- and, checked here
+        in the other direction, every declared value should be load-bearing
+        rather than aspirational; a value nothing uses is dead documentation."""
+        used = {r.get("upgrade_behavior") for r in self.doc["artifacts"]}
+        declared = set(self.doc["upgrade_behaviors"])
+        self.assertTrue(used.issubset(declared), used - declared)
+
+    def test_every_consumer_names_a_subcommand_the_router_actually_routes(self):
+        """Every `/planwise <name>` consumer entry must name a subcommand
+        the skill router's own routing table still dispatches -- derived
+        from SKILL.md at test time, never a hardcoded list, so a renamed or
+        retired subcommand fails this test instead of silently going stale."""
+        routed = set(
+            _ROUTING_TABLE_ROW_RE.findall(
+                SKILL_ROUTER.read_text(encoding="utf-8-sig")
+            )
+        )
+        self.assertTrue(routed, "SKILL.md routing table extraction found nothing")
+        stale = []
+        for row in self.doc["artifacts"]:
+            for consumer in row.get("consumers") or []:
+                match = _CONSUMER_SUBCOMMAND_RE.match(consumer)
+                if match and match.group(1) not in routed:
+                    stale.append((row["id"], consumer))
+        self.assertEqual(stale, [])
 
 
 if __name__ == "__main__":

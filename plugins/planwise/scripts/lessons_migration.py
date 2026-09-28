@@ -41,6 +41,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     import config_loader
     import generate_lessons_index as gen
+    import lessons_changelog as changelog
+    import migrate_backlog_index as backlog_mig
     import migrate_lessons_index as mig
     import migrate_lessons_support as sup
     import parse_lessons
@@ -108,7 +110,7 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
         report.state, report.detail, report.fix = "unrecognized", detail, f"{command} --report"
         return
     if shape == "generated":
-        _check_generated(config, index_path, report)
+        _check_generated(cfg, from_version, to_version, config, index_path, report)
         return
 
     archive_dir = lessons_dir / "Archive"
@@ -147,9 +149,12 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     _count_shards(config, index_path, report)
 
 
-def _check_generated(config: dict, index_path: Path, report) -> None:
-    """A generated index: check it and the companion, and stay silent
-    either way -- the caller's banner never prints for this state."""
+def _check_generated(cfg, from_version: str, to_version: str, config: dict, index_path: Path, report) -> None:
+    """A generated index: check it and the companion, then re-split the
+    changelog if it has grown over budget, or renumber it if its entry
+    numbers do not strictly descend (the `changelog_split` state). Within
+    budget and in order, state stays `generated` and the caller's banner
+    never prints."""
     lessons_dir = config["_lessons_dir"]
     archive_dir = lessons_dir / "Archive"
     naming = mig._index_naming(index_path)
@@ -159,6 +164,69 @@ def _check_generated(config: dict, index_path: Path, report) -> None:
         lessons_dir, archive_dir, index_path, naming, config)
     report.state = "generated"
     report.detail = f"index --check exit {index_exit}, companion --check exit {companion_exit}"
+    _resplit_changelog(cfg, from_version, to_version, config, index_path, report)
+
+
+def write_changelog_plan(plan: dict, lessons_dir: Path, report, rerun: str) -> list | None:
+    """Write one `lessons_changelog` plan safely; the upgrade routine and
+    the `lessons_changelog.py` CLI both call this. Every existing file the
+    plan replaces or removes is backed up byte-exact under
+    `report.backup_dir` first (`_backup`: the first pre-image wins). The
+    outputs are written in the plan's own order, which puts each file an
+    entry moves into before the file it leaves, and the removals come
+    last. On any failure every touched file is restored from its pre-image
+    -- a file that existed before the run is never deleted -- and the
+    report reads `backup_failed` or `write_failed`, its fix ending in
+    `rerun` (what the caller re-runs). Returns one `(path, reason)`
+    DISPOSITIONS row per file written or removed, or None after a
+    failure."""
+    outputs, remove = plan["outputs"], list(plan["remove"])
+    out_paths = [p for p, _t in outputs]
+    targets = list(dict.fromkeys([*(p for p in out_paths if Path(p).is_file()), *remove]))
+    pre = _backup(targets, lessons_dir, report, also=out_paths)
+    if pre is None:
+        report.fix = f"free the backup location or fix its permissions, then {rerun}"
+        return None
+    try:
+        written, output = _captured(backlog_mig.execute_outputs, outputs, remove)
+    except (OSError, mig.ReplaceError) as exc:
+        written, output = None, f"changelog write failed: {exc}"
+    if written != len(outputs):
+        report.detail = output if written is None else f"changelog write wrote {written} of {len(outputs)} file(s)"
+        created = [p for p in out_paths if pre.get(Path(p)) is None and Path(p).is_file()]
+        _write_failed(report, pre, created, f"{rerun}; the write restarts from the restored files")
+        return None
+    rows = [(p, ("rewritten; " + _kept_at(p, lessons_dir, report)) if pre.get(Path(p)) is not None
+             else "new part; " + CREATED) for p in out_paths]
+    return rows + [(p, "removed; " + _kept_at(p, lessons_dir, report)) for p in remove]
+
+
+def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, index_path: Path, report) -> None:
+    """A generated index: re-split an over-budget changelog, or renumber an
+    unstable one, with backups; or stay silent (mirrors
+    `backlog_migration._resplit_changelog`). A project with no changelog
+    file yet -- nothing this routine ever seeds itself, per the generator's
+    own footer-pointer contract -- has nothing to re-split; state stays
+    `generated`, exactly as when the changelog is within budget and
+    numbered in order, or has converged (a file still over budget only
+    because one entry is larger than the budget by itself)."""
+    try:
+        plan = changelog.plan_split(config, index_path)
+    except FileNotFoundError:
+        return
+    except sup.Refusal as exc:
+        _refuse_changelog(report, str(exc))
+        return
+    if plan is None:
+        return
+    rows = write_changelog_plan(plan, config["_lessons_dir"], report, "re-run /planwise upgrade")
+    if rows is None:
+        return
+    for path, reason in rows:
+        _log(cfg, from_version, to_version, path, "lessons-changelog-split", reason, report)
+    report.state = "changelog_split"
+    report.counts.update({"changelog_parts": plan["parts"], "changelog_kind": plan["kind"],
+                          "changelog_renumbered": plan["renumbered"]})
 
 
 def _refuse(report, message: str) -> None:
@@ -167,6 +235,18 @@ def _refuse(report, message: str) -> None:
     line points at that list rather than repeating it."""
     report.state, report.detail = "refused", message
     report.fix = f"close each refusal in the reason as its group says,\n{RERUN}"
+
+
+def _refuse_changelog(report, message: str) -> None:
+    """State `refused` for a changelog-only refusal. `message` already names
+    the changelog file and the 1-based line to fix (`lessons_changelog.
+    Refusal`'s own text). The fix text must NOT claim the index is
+    hand-authored -- it is generated; only the named changelog line is
+    wrong -- unlike `_refuse`'s shared `RERUN` text, which is written for
+    the legacy-migration refusal path and does make that claim."""
+    report.state, report.detail = "refused", message
+    report.fix = ("fix the changelog line named above, then re-run /planwise upgrade "
+                 "(the changelog is re-checked on every run; nothing else repeats)")
 
 
 def _rel(path: Path, lessons_dir: Path) -> Path:
@@ -218,13 +298,13 @@ def _matching_sibling(dst: Path, current: bytes) -> Path | None:
         n += 1
 
 
-def _backup(targets: list, lessons_dir: Path, report) -> dict | None:
+def _backup(targets: list, lessons_dir: Path, report, also: list = ()) -> dict | None:
     """Copy every existing target byte-exact before any write, and return
-    this run's pre-image of each target (None for a file that does not
-    exist yet). The first pre-image wins. None means stop: nothing was
-    written. `report.backed_up` lists only the copies this run made;
-    `report.kept` lists the backups an earlier run made, left as they
-    were."""
+    this run's pre-image of each target and each path in `also` (None for
+    a file that does not exist yet). The first pre-image wins. None means
+    stop: nothing was written. `report.backed_up` lists only the copies
+    this run made; `report.kept` lists the backups an earlier run made,
+    left as they were."""
     for src in targets:
         dst = report.backup_dir / _rel(src, lessons_dir)
         if str(dst) in report.backed_up or str(dst) in report.kept:
@@ -247,7 +327,7 @@ def _backup(targets: list, lessons_dir: Path, report) -> dict | None:
         except OSError as exc:
             return _backup_failed(report, src, exc)
     try:
-        return {Path(p): Path(p).read_bytes() if Path(p).exists() else None for p in targets}
+        return {Path(p): Path(p).read_bytes() if Path(p).exists() else None for p in [*targets, *also]}
     except OSError as exc:
         return _backup_failed(report, "a pre-image", exc)
 
@@ -389,6 +469,8 @@ def _say(line: str = "") -> None:
 def _banner_lines(report: LessonsMigrationReport) -> list:
     index = report.index_path
     fix = report.fix.replace("\n", "\n          ")
+    if report.state == "changelog_split":
+        return [_changelog_split_line(report)]
     if report.state == "refused":
         return ["Lessons index migration: REFUSED (index and lesson files left untouched)",
                 "  reason: " + report.detail.replace("\n", "\n          "), f"  fix:    {fix}"]
@@ -404,6 +486,21 @@ def _banner_lines(report: LessonsMigrationReport) -> list:
     if report.state == "error":
         return ["Lessons index migration: ERROR (nothing else in this run depends on it)", f"  {report.detail}"]
     return _migrated_lines(report)
+
+
+def _changelog_split_line(report: LessonsMigrationReport) -> str:
+    """The one `changelog_split` banner line. It states the real limits: the
+    main file stays under `READ_TOKEN_WARN`, each archive part under
+    `READ_PAGE_CAP_TOKENS`, and a file holding one larger entry keeps it
+    whole. A renumber says so, and a renumber alone names no limits."""
+    c = report.counts
+    parts, renumbered = c.get("changelog_parts"), c.get("changelog_renumbered", 0)
+    done = f"renumbered {renumbered} entries by position (the oldest is Entry 1)" if renumbered else ""
+    if c.get("changelog_kind") == "renumber":
+        return f"Lessons changelog: {done} across {parts} file(s); backups: {report.backup_dir}"
+    split = (f"re-split into {parts} part(s) (main file under {sup.READ_TOKEN_WARN} tokens, each archive part "
+             f"under {sup.READ_PAGE_CAP_TOKENS}; a file holding one larger entry keeps it whole)")
+    return f"Lessons changelog: {done + ' and ' if done else ''}{split}; backups: {report.backup_dir}"
 
 
 def _migrated_lines(report: LessonsMigrationReport) -> list:

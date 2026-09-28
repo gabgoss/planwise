@@ -158,13 +158,15 @@ Step 5 scans one plan's own files. A bookkeeping index is different: it grows ac
    | Index | Resolution |
    |-------|------------|
    | Backlog | The hub at `{backlog_dir}/{backlog_index}`, plus every generated shard beside it — see step 2 |
-   | Lessons | The hub at `{lessons_dir}/{lessons_index}`, plus every generated shard beside it — see step 2's mirror below; skip when `project.lessons_dir` is absent, same as Stage 13 |
+   | Lessons | The hub at `{lessons_dir}/{lessons_index}`, plus every generated shard, the changelog file family, and the promotion-log file family beside it — see step 2's mirror below; skip when `project.lessons_dir` is absent, same as Stage 13 |
    | Plans | `{plans_dir}/{plans_index}` |
    | Companion | `{lessons_dir}/00-Categorization-By-Domain.md` — resolved from config, skipped when `project.lessons_dir` is absent, same as the Lessons row |
 
 2. **The backlog index is a hub plus overflow leaves plus Archive shards, not one file.** Derive the naming shape from the resolved hub path with `generate_backlog_index._index_naming({backlog_dir}/{backlog_index})` — the same derivation the generator itself uses (see [`references/backlog-schema.md`](../references/backlog-schema.md) § Hub, Overflow Leaves, and Archive Shards). Then scan `{backlog_dir}` and its Archive subdirectory (`project.archive_dir`, default `{backlog_dir}/Archive`) and keep every entry where `generate_backlog_index.is_generated_index_file(name, naming)` is true. Include each matched file in the scan below. Never match by a hardcoded filename — a custom `index_files.backlog` renames the hub, its overflow leaves, and its shard stem together, and only the generator's own recognition function stays consistent with that rename.
 
    The lessons index is the same shape, mirrored through the lessons generator's own naming resolution: derive it with `generate_lessons_index._index_naming({lessons_dir}/{lessons_index})`, then scan `{lessons_dir}` and its Archive subdirectory and keep every entry where `generate_lessons_index.is_generated_index_file(name, naming)` is true (see [`references/lessons-schema.md`](../references/lessons-schema.md) § Hub, Overflow Leaves and Archive Shards). Skip this scan entirely when `project.lessons_dir` is absent. Detecting content drift between the companion and the lessons index (row-by-row staleness) is a later release; the Companion row in step 1 only checks read-gate size.
+
+   **The lessons changelog and promotion-log file families are scanned alongside the index, never by a hardcoded filename.** Resolve the changelog main file with `generate_lessons_index._changelog_filename(naming)`, its archive part (when present) and any `-Part-{NN}` sibling through the same naming the migrator's changelog splitter derives them from (`migrate_lessons_support`'s changelog-part naming); resolve the promotion-log family with `generate_lessons_index._promotion_log_filename(naming)` for the hub-side file plus the four Archive century files `migrate_lessons_support.log_destination` resolves by lesson-id band. **The archive part's `{YYYY}` is never guessed or defaulted for this scan — it is read off the one existing `{changelog-stem}-Archive-*.md` filename**, the same way `lessons_changelog._existing_archive_main` finds it (Glob on that pattern in the lessons directory, excluding a `-Part-NN` continuation, then `lessons_changelog._ARCHIVE_YEAR_RE` extracts the year from the matched name). A tree with no archive part on disk has none to measure — skip it, never invent a year to probe. Include every resolved file in the scan below. **The changelog archive part is allowed to Warn — a single indivisible entry can land it between the warn threshold and the page cap — so report it at whatever level `token_saver.classify_file` computes, never suppressed to Green.**
 
 3. **Classify each resolved file** with `token_saver.classify_file(path, model=None, thresholds=None)`. Pass no model and no thresholds: a bookkeeping index has no assigned agent the way a task file does, and `model=None` resolves to `DEFAULT_BYTES_PER_TOKEN` — the smallest, most conservative ratio measured across every model family, so the report never under-counts a file some model would trip. With no `thresholds`, the cost gate stays Green by construction, so any Warn or Critical here reports `reason=read` — the mechanical Read-tool cap, never a cost budget.
 
@@ -174,7 +176,7 @@ Step 5 scans one plan's own files. A bookkeeping index is different: it grows ac
    planwise doctor — bookkeeping index read-gate scan
 
      backlog:  {N} file(s) scanned (hub + overflow + shards)
-     lessons:  {path} — {level} ({bytes} B / ~{tokens} tok, reason={reason})
+     lessons:  {N} file(s) scanned (hub + overflow + shards + changelog + promotion log)
      plans:    {path} — {level} ({bytes} B / ~{tokens} tok, reason={reason})
      companion: {path} — {level} ({bytes} B / ~{tokens} tok, reason={reason})
 

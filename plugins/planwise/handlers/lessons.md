@@ -76,7 +76,7 @@ This binds every mode below that writes a lesson file — Curate, Batch-Promote,
 
 ## List Mode (no arguments)
 
-Read `{lessons_dir}/{lessons_index}` (the hub) and display its table. The hub stays under the Read-tool page cap by construction; the rest of the population lives in its overflow leaves and the Archive shards named in its `## Shards` directory line — see [`references/lessons-schema.md`](../references/lessons-schema.md) § Hub, Overflow Leaves and Archive Shards.
+Read `{lessons_dir}/{lessons_index}` (the hub) and display its table. The hub is generated from lesson frontmatter — see [Lessons-Index Write Convention](#lessons-index-write-convention) — and stays under the Read-tool page cap by construction; the rest of the population lives in its overflow leaves and the Archive shards named in its `## Shards` directory line — see [`references/lessons-schema.md`](../references/lessons-schema.md) § Hub, Overflow Leaves and Archive Shards. To confirm the hub is current against lesson frontmatter, run `python {plugin_root}/scripts/generate_lessons_index.py --config {planwise_root}/config.yaml --check`.
 
 If the file does not exist:
 
@@ -339,22 +339,13 @@ Skip if the file is already in `Archive/`.
 
 ### Stage 7: Log
 
-Append a row to the promotion-log file for the lesson's id. The append target — which of the five files — is a pure function of the lesson id; see [`references/lessons-schema.md`](../references/lessons-schema.md) § Promotion-Log Contract for the id ranges and file list. No shipped script computes this target or performs the append yet.
+Append a row to the promotion-log file for the lesson's id with:
 
-**If the target file does not exist yet** (only the hub-side file is seeded at init; the four Archive-part files for ids 1-200 are never created for you), create it first with the promotion-log opener, adjusted to the target file's own name and backlink per the Promotion-Log Contract:
-
-```markdown
-[← {lessons_index}]({lessons_index for the hub-side file, or ../{lessons_index} for an Archive-part file})
-
-| Date | Lesson ID | Artifact Created | File |
-|------|-----------|-----------------|------|
+```
+python {plugin_root}/scripts/promotion_log.py --config {planwise_root}/config.yaml --lesson LL-{NNN} --artifact "…" --file "…"
 ```
 
-Then add the row by hand:
-
-```markdown
-| YYYY-MM-DD | LL-{NNN} | {artifact-name} | `.claude/{type}/{name}` |
-```
+The script resolves the append target — which of the five files — as a pure function of the lesson id (see [`references/lessons-schema.md`](../references/lessons-schema.md) § Promotion-Log Contract for the id ranges and file list), refuses a duplicate `(lesson, artifact)` tuple, and prints the regenerate command. A missing Archive century file is created on first use when its hub-side sibling exists; only a missing hub-side file is refused, naming the command that creates it — never hand-create either file.
 
 The lesson's `Status` cell in the generated index follows from Stage 5's frontmatter flip the next time the generator runs — run it. No separate header bump: the generator writes its own `Generated:` line.
 
@@ -366,7 +357,7 @@ The lesson's `Status` cell in the generated index follows from Stage 5's frontma
 | Ambiguous artifact type | Present options to user and let them choose |
 | Artifact file path conflict | Check if file exists; ask user to rename or merge |
 | Lesson frontmatter edit fails | Use Edit tool manually on the YAML frontmatter block |
-| Index update fails | Manually add the row to the lesson's promotion-log file (see [`references/lessons-schema.md`](../references/lessons-schema.md) § Promotion-Log Contract); re-run the generator once the lesson file itself is correct |
+| Index update fails | Append the row with `python {plugin_root}/scripts/promotion_log.py --config {planwise_root}/config.yaml --lesson LL-{NNN} --artifact "…" --file "…"` (see [`references/lessons-schema.md`](../references/lessons-schema.md) § Promotion-Log Contract); re-run the generator once the lesson file itself is correct |
 
 ---
 
@@ -446,7 +437,7 @@ If approved:
    The draft was not written. Re-run `/planwise lessons capture` to re-derive the ID.
    ```
 4. Write file: `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`
-5. Run the generator; append the changelog entry (see [Lessons-Index Write Convention](#lessons-index-write-convention), which also covers the exit 2 `legacy-shape` refusal branch). Two files that still end up claiming one id despite step 3's check make `--write` refuse (exit 2, `duplicate-id`) rather than pick one — it names both.
+5. Run the generator (`python {plugin_root}/scripts/generate_lessons_index.py --config {planwise_root}/config.yaml --write`); append the changelog entry with `python {plugin_root}/scripts/lessons_changelog.py --config {planwise_root}/config.yaml --append "…"` (see [Lessons-Index Write Convention](#lessons-index-write-convention), which also covers the exit 2 `legacy-shape` refusal branch). The companion (`00-Categorization-By-Domain.md`) regenerates separately, with `--companion --write`, when the lesson's `domain:` changes a bucket's membership. Two files that still end up claiming one id despite step 3's check make `--write` refuse (exit 2, `duplicate-id`) rather than pick one — it names both.
 
 ### Step 5: Skip
 

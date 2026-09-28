@@ -622,7 +622,8 @@ def _resolve_settings_paths(cfg: "InitConfig") -> list[Path]:
     """Return the project-scope settings files to sweep for plugin-cache
     grants: `.claude/settings.json` and `.claude/settings.local.json`, in
     that order, whichever exist on disk. Read-only — these are the same two
-    files `handlers/upgrade.md` Step 4.4 reads for its normalization offer."""
+    files `handlers/upgrade-Part-3-BannerAndConflictResolution.md` Step 4.4
+    reads for its normalization offer."""
     claude_dir = cfg.project_root / ".claude"
     candidates = (claude_dir / "settings.json", claude_dir / "settings.local.json")
     return [p for p in candidates if p.exists()]
@@ -631,7 +632,8 @@ def _resolve_settings_paths(cfg: "InitConfig") -> list[Path]:
 def _sweep_settings_grants(cfg: "InitConfig") -> list[dict]:
     """Read-only sweep of `.claude/settings*.json` for plugin-cache
     `additionalDirectories` grants, classifying each into one of three
-    classes (mirroring `handlers/upgrade.md` Step 4.4 and the target-shape
+    classes (mirroring `handlers/upgrade-Part-3-BannerAndConflictResolution.md`
+    Step 4.4 and the target-shape
     doctrine at `handlers/init-fallback.md`'s grant step — never restated
     here):
       "version-agnostic parent"                   — already the correct
@@ -883,7 +885,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
             if f["klass"] in ("inert", "safe-to-discard"):
                 print("      action:  remove with /planwise doctor --prune-upgrade-leftovers")
             else:
-                print("      action:  resolve per handlers/upgrade.md Step 4 — never auto-pruned")
+                print("      action:  resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md Step 4 — never auto-pruned")
         prunable = [f for f in leftovers if f["klass"] in ("inert", "safe-to-discard")]
         print()
         # The reclaimable total is reported over the PRUNABLE subset only.

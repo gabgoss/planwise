@@ -2,7 +2,7 @@
 
 **Part 2 of 3.** This handler spans three files, split by topic because the combined text exceeds the Read-tool page cap. Each Stage keeps its own identifier wherever it lands, so an existing `Stage N` reference still names exactly one section — only the filename that holds it changes. See [`doctor.md`](doctor.md) for the full three-part pointer table, the Config Gate, the Preflight version-state gate, and Stages 8-13.
 
-This file covers **Stages 14-20**: the upgrade recovery-leftover sweep, the settings-grant sweep, the feedback capability and directory probes, the task-tools availability advisory, and the backlog body-status and index-shape audits. **Part 3** ([`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md)) covers Steps 4-8: the Token Saver audits, the capture self-containment scan, and the bookkeeping index read-gate scan.
+This file covers **Stages 14-21**: the upgrade recovery-leftover sweep, the settings-grant sweep, the feedback capability and directory probes, the task-tools availability advisory, the backlog body-status and index-shape audits, and the lessons index-shape audit. **Part 3** ([`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md)) covers Steps 4-8: the Token Saver audits, the capture self-containment scan, and the bookkeeping index read-gate scan.
 
 ---
 
@@ -33,8 +33,8 @@ already reports at upgrade time:
 
 - **action-required** — unresolved conflict sidecars (`*.new` files under
   `upgrade-conflicts/{pair}/`) and the pair's `issue-drafts/` subfolder.
-  *Never offered for deletion here* — resolve per `handlers/upgrade.md`
-  Step 4.
+  *Never offered for deletion here* — resolve per
+  `handlers/upgrade-Part-3-BannerAndConflictResolution.md` Step 4.
 - **review-then-discard** — transferred customizations under
   `upgrade-transfers/{pair}/`, awaiting the user's re-homing decision.
   *Never offered for deletion here.*
@@ -53,7 +53,7 @@ Leftover recovery artifacts across {N} version pair(s):
       path:    {absolute path}
       size:    {N} file(s), {B} {B|KiB|MiB}, {D}d old
       meaning: {the class's one-line meaning}
-      action:  {remove with /planwise doctor --prune-upgrade-leftovers | resolve per handlers/upgrade.md Step 4 — never auto-pruned}
+      action:  {remove with /planwise doctor --prune-upgrade-leftovers | resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md Step 4 — never auto-pruned}
 
 Total prunable (inert/safe-to-discard) leftover(s): {N} of {M} found, {B} {B|KiB|MiB} reclaimable.
 ```
@@ -80,7 +80,8 @@ Before invoking it, ask one `AskUserQuestion` per PRESENT prunable class
 (*inert*, *safe-to-discard* — never per file), tagged
 `<!-- AUTO-MODE: convenience -->` with an inferred default of **skip-all**
 in unattended runs (state the inference inline) — the same per-class
-confirm contract `handlers/upgrade.md` Step 4.3 uses for its own cleanup
+confirm contract `handlers/upgrade-Part-3-BannerAndConflictResolution.md`
+Step 4.3 uses for its own cleanup
 offer. *action-required* and *review-then-discard* findings are never
 offered here at all; they only ever route to Step 4.
 
@@ -151,7 +152,8 @@ plugin version-state gate in [`doctor.md`](doctor.md): that gate reads
 plugin currently resolves scripts through is live and current; this stage
 instead reads `.claude/settings.json`'s `permissions.additionalDirectories`
 — the consumer's own Claude Code read-permission grants — for entries in the
-plugin-cache path family.** It mirrors `handlers/upgrade.md` Step 4.4's
+plugin-cache path family.** It mirrors
+`handlers/upgrade-Part-3-BannerAndConflictResolution.md` Step 4.4's
 classification and never restates the target-shape doctrine already
 documented at `handlers/init-fallback.md`'s grant step / `handlers/init.md`:
 
@@ -404,6 +406,65 @@ do" when every changelog file is within budget. `legacy`: the counts above,
 then "run `/planwise upgrade` to migrate automatically; backups land under
 `upgrade-backups/`". `unrecognized`: the classifier's reason, then "left
 untouched; see the migrator's `--report` output".
+
+---
+
+### Stage 21: Lessons Index Shape Audit
+
+> [!constraint] Read-Only — audit only reports
+> Stage 21 runs `migrate_lessons_index.py --report --json` standalone. It
+> classifies the on-disk index shape and measures every lesson file it can
+> resolve, and it never writes — remediation runs only when the user invokes
+> `/planwise upgrade` or the migrator's own repair flags directly.
+
+Always-on (independent of Token Saver) — auditing lessons-index shape is
+doctor's purpose, so this check has **no `--no-check` escape hatch**.
+
+```bash
+python {plugin_root}/scripts/migrate_lessons_index.py --config {planwise_root}/config.yaml --report --json
+```
+
+Print `shape`, `changelog`, `changelog_resplit`, `changelog_renumber`,
+`changelog_oversized`, `promotion_log`, `companion`,
+`lessons.without_frontmatter`, `lessons.partial_frontmatter`,
+`lessons.titles_needing_quotes`, `lessons.status_mismatches`, `cells.units`,
+`prose_sections`, `ready_with_all_repairs`, and `would_refuse` from the
+JSON. `changelog_resplit` is computed by the same `lessons_changelog.plan_split`
+the upgrade routine calls, and only on a `generated` index, where the
+routine calls it, so this stage and the upgrade banner can never disagree.
+It reads `not_applicable` on any other shape.
+
+`changelog_resplit` takes one of five values:
+
+- `within_budget`: every changelog file is within its budget, and the entry
+  numbers strictly descend from the newest entry to the oldest.
+- `would_split`: the next upgrade rewrites the changelog. It re-splits an
+  over-budget family, renumbers a family whose numbers do not strictly
+  descend, or both. `changelog_renumber` is `true` when it renumbers: by
+  position, so the oldest entry becomes Entry 1 and the newest gets the
+  highest number. A family numbered in order is never renumbered.
+- `converged`: a file stays over its budget only because one entry is
+  larger than the budget on its own, and no split can do better. The
+  upgrade writes nothing. `changelog_oversized` names each such file, its
+  entry, its tokens and its budget.
+- `refused`: the changelog carries text the parser cannot place in an
+  entry. The reason is in `would_refuse`.
+- `not_applicable`: the index is not `generated`, so the migration writes
+  the changelog itself.
+
+Then one verdict line by `shape`. `generated`: by `changelog_resplit` —
+`within_budget` stays "generated shape, nothing to do"; `converged` says
+"generated shape, nothing to do" and prints each `changelog_oversized`
+entry; `would_split` says "the next `/planwise upgrade` re-splits the
+changelog; backups land under `upgrade-backups/`", or, when
+`changelog_renumber` is `true`, "the next `/planwise upgrade` renumbers the
+changelog entries by position (the oldest becomes Entry 1); backups land
+under `upgrade-backups/`"; `refused` prints the report's own reason (from
+`would_refuse`) and says "`/planwise upgrade` will refuse until that
+changelog line is fixed". `legacy`: the counts above, then "run
+`/planwise upgrade` to migrate automatically; backups land under
+`upgrade-backups/`". `unrecognized`: the classifier's reason, then "left
+untouched".
 
 ---
 

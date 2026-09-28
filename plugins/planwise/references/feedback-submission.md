@@ -13,7 +13,7 @@ engine, not a handler — it has no entry point of its own.
 
 **Consumers (delegate here; do not re-specify any of the below locally):**
 - `handlers/feedback.md`
-- `handlers/upgrade.md` Step 4.2
+- `handlers/upgrade-Part-3-BannerAndConflictResolution.md` Step 4.2
 - `handlers/lessons.md` (capture-prompt upstream option)
 - `handlers/backlog.md` (create-prompt upstream option)
 
@@ -23,7 +23,7 @@ definitions here and re-specify none of them locally. What each adds on top is i
 reporting or offer text, which this file does not own.
 - `handlers/doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md` Stage 16 (feedback capability probe) — reports whether gates 1, 3 and 4
   are met, with a remedy line per unmet gate. It posts nothing, so gates 2 and 5 do not apply.
-- `handlers/init.md` Step 9.5 and `handlers/upgrade.md` Step 4.5 (GitHub CLI offer) — evaluate
+- `handlers/init.md` Step 9.5 and `handlers/upgrade-Part-3-BannerAndConflictResolution.md` Step 4.5 (GitHub CLI offer) — evaluate
   gates 3 and 4 to decide whether to offer the install, then own the offer itself.
 
 ## Table of Contents

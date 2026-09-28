@@ -14,7 +14,7 @@ This handler spans **three files**, split by topic because the combined text exc
 | Part | File | Stages / Steps | Topic |
 |---|---|---|---|
 | 1 (this file) | `doctor.md` | Preflight, Steps 1-3, Stages 8-13 | Version-state gate, over-scope linter, stale-rule/agent-mirror sweeps, plans/backlog/lessons index drift audits |
-| 2 | [`doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md`](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md) | Stages 14-20 | Upgrade recovery-leftover sweep, settings-grant sweep, feedback capability/directory probes, task-tools advisory, backlog body-status and index-shape audits |
+| 2 | [`doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md`](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md) | Stages 14-21 | Upgrade recovery-leftover sweep, settings-grant sweep, feedback capability/directory probes, task-tools advisory, backlog body-status and index-shape audits, lessons index-shape audit |
 | 3 | [`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md) | Steps 4-8 | Token Saver overhead/read-gate/read-constant audits, capture self-containment scan, bookkeeping index read-gate scan |
 
 `/planwise doctor` reads all three files in sequence — this file first, then Part 2, then Part 3 — to produce one continuous report.
@@ -387,4 +387,4 @@ re-implements another's comparison.
 
 ---
 
-**Continued in Part 2** (Stages 14-20) and **Part 3** (Steps 4-8) — see the pointer table above.
+**Continued in Part 2** (Stages 14-21) and **Part 3** (Steps 4-8) — see the pointer table above.

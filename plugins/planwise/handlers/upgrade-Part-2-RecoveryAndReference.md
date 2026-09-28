@@ -1,6 +1,6 @@
 # Handler: /planwise upgrade — Part 2: Conflict Resolution Reference and Recovery
 
-**Part 2 of [upgrade.md](upgrade.md).** Part 1 carries the Config Gate and the Workflow (Steps 1–4.5) and is the file `/planwise upgrade` dispatches to; this part carries the scenario table the Workflow's Step 4 dispositions point back to, and the recovery procedures that apply when a run — or the Config Gate itself — cannot complete. Read it when Part 1 sends you here, or when diagnosing a failed or un-startable upgrade. Split at this section boundary so each part stays within one Read-tool page.
+**Part 2 of [upgrade.md](upgrade.md).** Part 1 carries the Config Gate and Steps 1-2.7 of the Workflow, and is the file `/planwise upgrade` dispatches to; [`upgrade-Part-3-BannerAndConflictResolution.md`](upgrade-Part-3-BannerAndConflictResolution.md) (Part 3) carries Step 3 through Step 4.6, whose Step 4 dispositions point back to the scenario table this part carries. This part also carries the recovery procedures that apply when a run — or the Config Gate itself — cannot complete. Read it when Part 1 or Part 3 sends you here, or when diagnosing a failed or un-startable upgrade. Split at this section boundary so each part stays within one Read-tool page.
 
 ## Table of Contents
 
@@ -85,4 +85,4 @@ The two recoveries below apply when the Config Gate itself cannot complete — b
 
 ---
 
-*Cross-reference: [upgrade.md](upgrade.md) (Part 1 — Config Gate and Workflow), [init.md](init.md), [agents/rule-comparator.md](../agents/rule-comparator.md), [migrate logic in scripts/init_project.py](../scripts/init_project.py).*
+*Cross-reference: [upgrade.md](upgrade.md) (Part 1 — Config Gate and Steps 1-2.7), [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) (Part 3 — Step 4 dispositions this table backs), [init.md](init.md), [agents/rule-comparator.md](../agents/rule-comparator.md), [migrate logic in scripts/init_project.py](../scripts/init_project.py).*

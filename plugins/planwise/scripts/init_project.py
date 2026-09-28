@@ -156,6 +156,18 @@ except ImportError:
     )
 
 try:
+    from lessons_migration import (
+        _emit_lessons_migration_banner,
+        migrate_lessons_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "lessons_migration is required for init_project's lessons-index "
+        "retrofit on a fresh init; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
+try:
     import yaml
     HAS_YAML = True
 except ImportError:
@@ -634,6 +646,13 @@ def main():
                              "(omit the flag) is index-wins. frontmatter-wins "
                              "drops the mismatched index cell instead of "
                              "rewriting the item file.")
+    parser.add_argument("--lessons-reconcile", default=None,
+                        choices=["index-wins", "frontmatter-wins"],
+                        help="With --upgrade: how the lessons-index retrofit "
+                             "resolves a row/frontmatter disagreement. Default "
+                             "(omit the flag) is index-wins. frontmatter-wins "
+                             "drops the mismatched index cell instead of "
+                             "rewriting the lesson file.")
     parser.add_argument("--doctor", action="store_true",
                         help="Read-only diagnostic: scan installed rules and report any "
                              "still scoped to plan/backlog/lessons globs (always-on context "
@@ -697,6 +716,9 @@ def main():
     if args.backlog_reconcile and not args.upgrade:
         parser.error("--backlog-reconcile requires --upgrade")
 
+    if args.lessons_reconcile and not args.upgrade:
+        parser.error("--lessons-reconcile requires --upgrade")
+
     if args.hash_installed:
         # The upgrade handler interpolates an absolute path here once per verdict
         # entry, so a typo'd or moved path must surface as a one-line error, not a
@@ -753,7 +775,8 @@ def main():
             print("Note: --migrate is redundant when --upgrade is used (upgrade internally calls migrate).", file=sys.stderr)
         sys.exit(_run_upgrade(cfg, expected_pair=expected_pair,
                               allow_downgrade=args.allow_downgrade,
-                              backlog_reconcile=args.backlog_reconcile))
+                              backlog_reconcile=args.backlog_reconcile,
+                              lessons_reconcile=args.lessons_reconcile))
 
     if args.migrate:
         sys.exit(_run_migrate(cfg))
@@ -856,6 +879,28 @@ def main():
             reason=_backlog.detail,
             consumer="/planwise backlog, /planwise harvest, backlog-author",
             remediation=_backlog.fix or "re-run /planwise upgrade",
+        ))
+
+    # Lessons-index retrofit: migrate a hand-authored lessons index (or
+    # re-split an over-budget changelog on an already-generated one) via the
+    # SAME idempotent routine _run_upgrade() calls on both of its exits,
+    # immediately after the backlog retrofit above -- the trigger is the
+    # index's on-disk shape, not a version, so the migration runs on this
+    # very run. Runs after bootstrap_lessons_artifacts() above, so the
+    # migrator meets the openers the bootstrap already seeded rather than
+    # their absence.
+    _lessons_mig = migrate_lessons_if_legacy(cfg, "init", cfg.plugin_version)
+    _emit_lessons_migration_banner(_lessons_mig)
+    if _lessons_mig.state == "error" and _lessons_mig.index_path is None:
+        pass  # config.yaml's own Skipped row above already reports this fault
+    elif _lessons_mig.state in {"refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+        index_path = _lessons_mig.index_path or (
+            cfg.project_root / cfg.planwise_root / cfg.lessons_dir / "00-Index-LessonsLearned.md")
+        skipped.append(SkippedArtifact(
+            artifact=str(index_path),
+            reason=_lessons_mig.detail,
+            consumer="/planwise lessons, /planwise run Step 4.2, /planwise doctor Stage 13",
+            remediation=_lessons_mig.fix or "re-run /planwise upgrade",
         ))
 
     rules = install_rules(cfg)

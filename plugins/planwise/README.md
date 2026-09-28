@@ -335,7 +335,7 @@ flowchart LR
 - **Rule scope** — lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. These inject into every plan-brief read and can overflow a 200K-window task-runner, so `doctor` flags them with their size.
 - **Token Saver overhead staleness** — reports the stored `/context`-measured overheads and flags them stale after a plugin upgrade or a change in your agent/skill count.
 - **Read-gate scan** — checks your active plan's files against the Read-tool limits (the ~25K-token page cap — the binding gate on text — plus the 256 KiB byte cap and the 2,000-line window) and flags any that can't be read in one pass.
-- **Read-limit drift** — flags the fixed read constants if your CLI build has moved past the version they were measured on.
+- **CLI-version drift** — reports when your CLI build has moved past the version `verified_cli_version` in `config.yaml` was last measured against. `/planwise init` probes `claude --version` to set it. `/planwise upgrade` refreshes it on every run. The stage only reports. It never writes.
 - **Stale de-scoped rule sweep** — finds rule copies left behind in `.claude/rules/planwise/` by older versions; those rules are now loaded on demand from the plugin instead.
 - **Installed rule divergence lint** — classifies every still-installed rule against its shipped counterpart: a stale copy of an older shipped version (run [`/planwise upgrade`](#10-planwise-upgrade) — it refreshes it safely), a genuine customization (re-home it — never delete), or not analyzable (diff it manually).
 - **Orphaned agent mirror sweep** — flags agent copies under `.claude/agents/` left behind by older versions that mirrored agents into the project; agents now run directly from the plugin, so copies you never edited are safe to remove.
@@ -344,6 +344,7 @@ flowchart LR
 - **Upgrade recovery-leftover sweep** — walks the backup, transfer, and conflict directories that past [`/planwise upgrade`](#10-planwise-upgrade) runs left behind. They accumulate per upgrade and nothing purges them on its own, so the sweep sorts each one into what still needs you (unresolved conflicts, transferred customizations awaiting a re-homing decision) and what is now discardable (pre-change backups, consumed caches).
 - **Feedback directory presence check** — reports whether the directory your feedback drafts are written to actually exists. A project whose config predates the setting, or whose directory was removed by hand, would otherwise discover the gap only when the first draft failed to write.
 - **Backlog index shape audit** — classifies your backlog index as generated, hand-authored, or unrecognized, flags any changelog file over its read budget, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index, or `migrate_backlog_index.py --split-changelog` for an over-budget changelog.
+- **Lessons index shape audit** — classifies your lessons index as generated, hand-authored, or unrecognized, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
 
 **Opt-in writers:** `doctor` has exactly three invocations that write, and none of them runs unless you ask for it by name. Two clean up; the third creates one missing directory.
 
@@ -468,11 +469,33 @@ Backups are first-wins within one `{from}-to-{to}` version pair — the first ru
 
 Pass `--backlog-reconcile index-wins` or `--backlog-reconcile frontmatter-wins` to `/planwise upgrade` to choose how a row/frontmatter disagreement resolves. The default is `index-wins`. This flag applies only together with `--upgrade` — plain `/planwise init` does not accept it.
 
+Pass `--lessons-reconcile index-wins` or `--lessons-reconcile frontmatter-wins` to `/planwise upgrade` for the same choice over the lessons index. The default is `index-wins`. This flag applies only together with `--upgrade`.
+
 A fresh `/planwise init` over a hand-authored index can meet an item whose needs the fresh config cannot yet supply — for example, an abbreviation its domain list does not define. That case is refused rather than run partway. The refusal prints a fix line and shows as a skipped item in the init summary, and the migration re-fires the next time `/planwise upgrade` runs. A fresh init does not always migrate a hand-authored index.
 
 Until the migration finishes, both [`/planwise backlog`](#5-planwise-backlog) and the index generator refuse to run against a hand-authored index.
 
 Every index and changelog file stays readable in one call: the hub holds to a 12,500-token budget, and both the Archive shards and the changelog parts hold to a wider 22,000-token budget. When a changelog outgrows that budget after further use, the next `/planwise upgrade` re-splits it into more parts, backing up every file it rewrites first.
+
+### Upgrading from 1.0.5.1: lessons index
+
+Versions before 1.0.5.2 use a hand-authored lessons index: one Master Table, a header changelog block, and a Rule Promotion Log table, all in the same file. From 1.0.5.2 on, the index is generated from each lesson file's frontmatter, the changelog moves into its own file, and the Promotion Log moves into its own files. Directory membership is never a routing input — a lesson's `status:` decides whether it lists in the hub or shards to `Archive/`.
+
+`/planwise upgrade` migrates a hand-authored lessons index automatically. Plain `/planwise init` runs the same migration, on both its "already up to date" exit and its main path. The migration:
+
+- Backs up every file it is about to write, under `{planwise_root}/upgrade-backups/{from}-to-{to}/lessons/`.
+- Relocates the header changelog and the Rule Promotion Log into their own files.
+- Drops a hand-written prose section whose text already matches the seed, and relocates one that differs verbatim into the changelog.
+- Renames a hand-written categorization companion out of the way and regenerates it.
+- Backfills missing or partial frontmatter, and quotes an unquoted title that needs it.
+- Regenerates the index and checks it.
+- Records what it did in a migration ledger.
+
+The migration recognizes only two shapes: hand-authored or generated. An index it recognizes as neither is left untouched and reported through `migrate_lessons_index.py --report` — never migrated silently, and never called hand-authored.
+
+The migration refuses on a data conflict it cannot resolve on its own. When it refuses, nothing is written, and the banner names the exact reason and the exact fix. Re-run `/planwise upgrade` after applying the fix. The migration re-fires. A failed *write*, unlike a refusal, rolls every touched file back to its state before the run. `generate_lessons_index.py --write --replace-legacy` skips the migration and overwrites a hand-authored or unrecognized index directly, WITHOUT a backup.
+
+Until the migration finishes, any `/planwise lessons` mode that writes a lesson file (Capture, Curate, Promote, Batch-Promote), and the index generator itself, refuse to run against a hand-authored index.
 
 ---
 

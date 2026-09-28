@@ -36,6 +36,15 @@ DOCTOR_HANDLER_PART3 = (
     / "plugins" / "planwise" / "handlers"
     / "doctor-Part-3-TokenSaverAndBookkeepingReadGates.md"
 )
+# Step 3 (Render the banner) through Step 4.6 were relocated out of
+# upgrade.md into this Part-3 file by the read-gate token split (upgrade.md
+# alone exceeded the OVER threshold after the lessons-migration wiring).
+# The Step 3 banner test below reads this file, not UPGRADE_HANDLER.
+UPGRADE_HANDLER_PART3 = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "handlers"
+    / "upgrade-Part-3-BannerAndConflictResolution.md"
+)
 
 # The Stage heading set present in doctor.md BEFORE this task's Stage 20 was
 # appended. Pinned as a literal so the post-edit set can be asserted by
@@ -88,12 +97,22 @@ class TestDoctorHandlerStage20(unittest.TestCase):
     def test_stage_20_heading_present(self):
         self.assertIn("### Stage 20: Backlog Index Shape Audit", self.part2_text)
 
-    def test_stage_20_is_the_last_stage_heading_in_part2(self):
+    def test_stage_20_present_and_immediately_followed_by_stage_21_as_last_heading(self):
+        # Stage 21 (Lessons Index Shape Audit) was appended immediately after
+        # Stage 20 by the lessons-migration handler wiring, so Stage 20 is no
+        # longer Part 2's last stage -- Stage 21 is. Stage 20's own heading
+        # must still be present, byte-unchanged, and precede Stage 21 with no
+        # other stage heading between them.
         stage_headings = list(_STAGE_HEADING_RE.finditer(self.part2_text))
         self.assertTrue(stage_headings)
-        last_stage_idx = stage_headings[-1].start()
         stage20_idx = self.part2_text.index("### Stage 20: Backlog Index Shape Audit")
-        self.assertEqual(last_stage_idx, stage20_idx)
+        stage21_idx = self.part2_text.index("### Stage 21: Lessons Index Shape Audit")
+        self.assertLess(stage20_idx, stage21_idx)
+        last_stage_idx = stage_headings[-1].start()
+        self.assertEqual(last_stage_idx, stage21_idx)
+        # no stage heading sits between Stage 20 and Stage 21
+        between = [h for h in stage_headings if stage20_idx < h.start() < stage21_idx]
+        self.assertEqual(between, [])
 
     def test_stage_19_precedes_stage_20_in_part2(self):
         stage19_idx = self.part2_text.index("### Stage 19")
@@ -121,12 +140,14 @@ class TestDoctorHandlerStage20(unittest.TestCase):
         self.assertIn("changelog_over_budget", stage20_span)
         self.assertIn("--split-changelog", stage20_span)
 
-    def test_stage_heading_set_is_old_set_plus_20(self):
-        # Stages 8-13 now live in Part 1 (doctor.md); Stages 14-20 in Part 2.
+    def test_stage_heading_set_is_old_set_plus_20_and_21(self):
+        # Stages 8-13 now live in Part 1 (doctor.md); Stages 14-21 in Part 2
+        # (Stage 21, Lessons Index Shape Audit, was appended after Stage 20
+        # by the lessons-migration handler wiring).
         found = set(_STAGE_HEADING_RE.findall(self.part1_text)) | set(
             _STAGE_HEADING_RE.findall(self.part2_text)
         )
-        self.assertEqual(found, _PRE_EDIT_STAGE_SET | {"20"})
+        self.assertEqual(found, _PRE_EDIT_STAGE_SET | {"20", "21"})
 
 
 if __name__ == "__main__":
@@ -159,7 +180,9 @@ class TestUpgradeAndInitHandlersBacklogMigration(unittest.TestCase):
         self.assertIn("migrate_backlog_if_legacy", span)
 
     def test_upgrade_step_3_banner_contains_migration_block(self):
-        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        # Step 3 now lives in UPGRADE_HANDLER_PART3 -- see the split's own
+        # pointer table in upgrade.md.
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
         span = _span_between(text, "### Step 3 ", "### Step 4 ")
         self.assertIn("Backlog index migration:", span)
 

@@ -41,7 +41,7 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 | [../seed/00-PromotionLog-LessonsLearned.md](../seed/00-PromotionLog-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-PromotionLog-LessonsLearned.md` |
 | [../seed/00-Index-Plans.md](../seed/00-Index-Plans.md) | `{planwise_root}/{plans_dir}/00-Index-Plans.md` |
 
-Never overwrite an existing `00-Index-Backlog.md`; if it is hand-authored, run `/planwise upgrade` after init — the migration is automatic.
+Never overwrite an existing `00-Index-Backlog.md`; if it is hand-authored, run `/planwise upgrade` after init — the migration is automatic. Never overwrite a hand-shaped lessons index; run `/planwise upgrade` after init — the lessons migration is likewise automatic.
 
 ---
 

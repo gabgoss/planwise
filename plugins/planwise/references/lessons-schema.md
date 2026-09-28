@@ -57,7 +57,7 @@ An overflow leaf exists only when the hub-family content will not fit one file u
 
 > **"Replace the previous value — do not preserve it. History belongs in a changelog file, not in this line."**
 
-The generator's own footer-pointer contract governs this file's *name*, not its *content* — the generator emits the `[Changelog](...)` link and never creates, bootstraps, or writes to the changelog file itself. (This differs from the backlog generator's `--write` path, which bootstraps a missing changelog with a one-line header the first time; the lessons generator's `_cmd_write_lessons` has no equivalent step.) The changelog exists on disk because the installer seeds it (`copy_seed_files` / `_seed_lessons_index`) and because curate/promote-batch workflows append entries to it by hand.
+The generator's own footer-pointer contract governs this file's *name*, not its *content* — the generator emits the `[Changelog](...)` link and never creates, bootstraps, or writes to the changelog file itself. (This differs from the backlog generator's `--write` path, which bootstraps a missing changelog with a one-line header the first time; the lessons generator's `_cmd_write_lessons` has no equivalent step.) The changelog exists on disk because the installer seeds it (`copy_seed_files` / `_seed_lessons_index`) and because curate/promote-batch workflows append entries to it with `lessons_changelog.py`. `lessons_changelog.py --append` is the guarded writer for a new entry — it assigns the next `## Entry N` (never renumbering an existing one) and refuses text outside any `## Entry` section, naming the file and line; `--split` re-packs a file that has grown over budget into the archive part and, past its own cap, `-Part-NN` continuations, with byte-exact backups.
 
 ## Promotion-Log Contract
 
@@ -71,10 +71,16 @@ The promotion log is **five files**, not one. Lessons 201 and above append to th
 | `Archive/PromotionLog-LessonsLearned-101-200.md` | 101-200 |
 | `00-PromotionLog-LessonsLearned.md` | 201 and above |
 
-The append target is a pure function of the lesson id alone. Each file opens with a backlink to the hub; the hub-side file additionally lists the two-way links to every Archive part. The table is 4 columns (`Date | Lesson ID | Artifact Created | File`), and an append deduplicates by the `(lesson id, artifact)` pair.
+The append target is a pure function of the lesson id alone. Each file opens with a backlink to the hub; the hub-side file additionally lists the two-way links to every Archive part. The table is 4 columns (`Date | Lesson ID | Artifact Created | File`), and an append deduplicates by the `(lesson id, artifact)` pair, both sides whitespace-trimmed before the comparison. `promotion_log.py` is the guarded writer, invoked as:
 
-> [!binding] This 5-way split is not yet implemented in the shipped generator
-> `generate_lessons_index.py` computes only the hub-side filename (`_promotion_log_filename`, `00-PromotionLog-{X}{suffix}`) and, exactly like the changelog, never writes to any promotion-log file — confirmed directly in `_cmd_write_lessons`, which stages no promotion-log content. No shipped script implements the century-boundary append-target function this contract describes: a repo-wide grep for `PromotionLog-LessonsLearned` and for the boundary literals (`001-050`, `051-075`, `076-100`, `101-200`) under `plugins/planwise/` returns zero hits outside this reference and the generator's own filename derivation. `promotion_log.py` was explicitly not shipped by Session 03 (its own Recovery records the append-target function as deferred). This contract is authored from the design decision text because there is no shipped map to author it from instead — the usual "the script wins" rule has no script to defer to here. Treat the append-target function as a specification for a follow-up, not as observed behavior.
+```
+python {plugin_root}/scripts/promotion_log.py --config {planwise_root}/config.yaml --lesson LL-{NNN} --artifact "…" --file "…"
+```
+
+It routes through `migrate_lessons_support.log_destination`, refuses a duplicate `(lesson, artifact)` tuple and a malformed cell, and preserves the target file's own line endings. A missing Archive century file whose hub-side sibling exists is created on first use, with the hub's `Parts:` listing updated to name it; only the hub-side file itself missing is refused, naming the command that creates it.
+
+> [!binding] The append-target function is `migrate_lessons_support.log_destination`; `promotion_log.py` is its writer
+> `generate_lessons_index.py` still computes only the hub-side filename (`_promotion_log_filename`, `00-PromotionLog-{X}{suffix}`) and, exactly like the changelog, never writes to any promotion-log file — confirmed directly in `_cmd_write_lessons`, which stages no promotion-log content. The generator's footer-pointer contract governs the file's *name*, never its *content*. The century-boundary routing this contract describes lives in `migrate_lessons_support.log_destination(lesson_id, naming)`, a pure function of the id alone; `promotion_log.py` is the one script that calls it to append a row.
 
 ## Status Definitions
 

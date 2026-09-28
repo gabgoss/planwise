@@ -41,6 +41,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import generate_lessons_index as gen
+import lessons_changelog as changelog
 import migrate_lessons_repairs as repairs
 import migrate_lessons_support as sup
 import parse_lessons
@@ -622,6 +623,7 @@ def build_report(config: dict, index_path: Path) -> dict:
     shape, detail = sup.classify_shape(text)
     report = {"shape": shape, "detail": detail if shape == "unrecognized" else "", "index": str(index_path),
               "changelog": "missing", "promotion_log": "missing", "companion": "missing",
+              "changelog_resplit": "not_applicable", "changelog_renumber": False, "changelog_oversized": [],
               "lessons": {"total": 0, "without_frontmatter": 0, "partial_frontmatter": 0,
                           "titles_needing_quotes": 0, "status_mismatches": 0},
               "cells": {"rows_with_over_title_units": 0, "units": 0},
@@ -641,17 +643,46 @@ def build_report(config: dict, index_path: Path) -> dict:
         norm = c_text.replace("\r\n", "\n")
         report["companion"] = ("generated" if not _companion_needs_rename(c_text)
                                else "legacy" if gen.is_legacy_companion(norm) else "foreign")
+    # The promotion log is five files (sup.log_destination): the hub-side
+    # file (id >= 201) plus the four Archive century files, each a pure
+    # function of `naming` alone -- so every destination is known without
+    # reading a single lesson id. This resolves both the hub file AND the
+    # century files, which the OLD key (a hub-only existence check) never
+    # did: on a migrated tree the rows live under Archive/, never at the
+    # hub path, and that key always read "missing" there regardless of
+    # content.
+    log_paths = [lessons_dir / gen._promotion_log_filename(naming)]
+    log_paths += [lessons_dir / sup.log_destination(lid, naming) for lid in (1, 51, 76, 101)]
+    existing_logs = [p for p in log_paths if p.exists()]
+    if existing_logs:
+        populated = any(not sup.header_only(read_text(p), naming.hub_name) for p in existing_logs)
+        report["promotion_log"] = "populated" if populated else "header-only"
+    # `changelog_resplit` is computed by the SAME function the upgrade
+    # routine calls (`lessons_changelog.plan_split`), and only on the shape
+    # the routine calls it on (`generated`), so doctor Stage 21 and the
+    # upgrade banner can never disagree: a family the upgrade would refuse,
+    # renumber or resplit is reported here too, never silently
+    # "within_budget". On a legacy index the migration writes the
+    # changelog itself, so the field reads "not_applicable".
+    if shape == "generated":
+        try:
+            changelog_plan, info = changelog.plan_split_with_info(config, index_path)
+            report["changelog_resplit"] = ("would_split" if changelog_plan is not None
+                                           else "converged" if info["oversized"] else "within_budget")
+            report["changelog_renumber"] = info["renumber"]
+            report["changelog_oversized"] = info["oversized"]
+        except FileNotFoundError:
+            report["changelog_resplit"] = "within_budget"
+        except sup.Refusal as exc:
+            report["changelog_resplit"] = "refused"
+            report["would_refuse"].append(str(exc))
+            report["ready_with_all_repairs"] = False
     if shape != "legacy":
         return report
 
     valid_statuses = gen._resolve_valid_statuses(config)
     archive_dir = lessons_dir / "Archive"
     rows, _skipped = sup.split_placeholder_rows(parse_lessons.parse_legacy_master_table(text, source=index_path))
-    promo_rows = sup.walk_promotion_log(text, [])
-    if promo_rows:
-        hub_promo = lessons_dir / gen._promotion_log_filename(naming)
-        report["promotion_log"] = ("header-only" if hub_promo.exists()
-                                   and sup.header_only(read_text(hub_promo), naming.hub_name) else "populated")
     resolved = _resolve_rows(lessons_dir, archive_dir, rows, [])
 
     report["lessons"]["total"] = len(resolved)

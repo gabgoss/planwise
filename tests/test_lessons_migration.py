@@ -82,9 +82,10 @@ def _migrate(cfg, versions=("1.0", "1.1")):
 # ---------------------------------------------------------------------------
 # The nine report states: absent, generated, unrecognized, refused,
 # backup_failed, write_failed, migrated, changelog_split, error.
-# `changelog_split` has no lessons-side trigger yet (the lessons migrator
-# ships with no --split-changelog path); it stays in the state type union
-# for parity with the backlog's report shape but is not reached here.
+# `changelog_split` reaches on the `generated` branch when
+# `lessons_changelog.plan_split` finds the changelog over budget -- see the
+# dedicated tests below (a project with no changelog file yet, and one
+# whose changelog is within budget, both stay `generated`).
 # ---------------------------------------------------------------------------
 
 
@@ -106,6 +107,175 @@ def test_generated_shape_is_silent_and_checks_both(tmp_path, capsys):
     assert "index --check exit" in report.detail and "companion --check exit" in report.detail
     assert capsys.readouterr().out == ""
     assert _snapshot(tmp_path) == before
+
+
+def _seed_changelog(lessons_dir: Path, entries: list) -> None:
+    """`entries`: `[(number, body), ...]`, newest first."""
+    lines = ["[← 00-Index-LessonsLearned.md](00-Index-LessonsLearned.md)", ""]
+    for n, body in entries:
+        lines += [f"## Entry {n}", "", body, ""]
+    _write(lessons_dir / "00-Changelog-LessonsLearned.md", "\n".join(lines) + "\n")
+
+
+_FILLER = "Lorem ipsum filler text describing a fixture entry body in full. " * 90
+
+
+def test_within_budget_changelog_stays_generated_and_writes_nothing(tmp_path, capsys):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _seed_changelog(lessons_dir, [(2, "Second."), (1, "First.")])
+    before = _snapshot(tmp_path)
+    report = _migrate(cfg)
+    lm._emit_lessons_migration_banner(report)
+    assert report.state == "generated"
+    assert _snapshot(tmp_path) == before
+    assert capsys.readouterr().out == ""
+
+
+def test_over_budget_changelog_reaches_changelog_split_and_emits_banner(tmp_path, capsys):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _seed_changelog(lessons_dir, [(n, _FILLER) for n in range(30, 0, -1)])
+    report = _migrate(cfg)
+    assert report.state == "changelog_split"
+    assert report.counts["changelog_parts"] >= 2
+    assert any(p.name.startswith("00-Changelog-LessonsLearned-Archive-") for p in lessons_dir.glob("*.md"))
+    main_text = (lessons_dir / "00-Changelog-LessonsLearned.md").read_text(encoding="utf-8")
+    assert "Older entries:" in main_text
+    lm._emit_lessons_migration_banner(report)
+    out = capsys.readouterr().out
+    assert f"Lessons changelog: re-split into {report.counts['changelog_parts']} part(s)" in out
+    assert str(report.backup_dir) in out
+
+
+def test_second_run_after_changelog_split_is_silent(tmp_path, capsys):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _seed_changelog(lessons_dir, [(n, _FILLER) for n in range(30, 0, -1)])
+    first = _migrate(cfg)
+    assert first.state == "changelog_split"
+    before = _snapshot(tmp_path)
+    second = _migrate(cfg)
+    lm._emit_lessons_migration_banner(second)
+    assert second.state == "generated"
+    assert _snapshot(tmp_path) == before
+    assert capsys.readouterr().out == ""
+
+
+_BACKLINK = "[← 00-Index-LessonsLearned.md](00-Index-LessonsLearned.md)"
+_MAIN = "00-Changelog-LessonsLearned.md"
+_ARCHIVE = "00-Changelog-LessonsLearned-Archive-2026.md"
+_PART_03 = "00-Changelog-LessonsLearned-Archive-2026-Part-03.md"
+
+
+def _family_file(heads: list, entries: list, nl: str = "\n", pointer: bool = False) -> bytes:
+    """One changelog family file by bytes; `entries` newest first: [(n, body)]."""
+    text = "".join(f"{h}{nl}{nl}" for h in heads)
+    text += "".join(f"## Entry {n}{nl}{nl}{b}{nl}{nl}" for n, b in entries)
+    if pointer:
+        text += f"Older entries: [{_ARCHIVE}]({_ARCHIVE}){nl}"
+    return text.encode("utf-8")
+
+
+def _marked(n: int) -> str:
+    return f"{_FILLER}marker-{n:03d}."
+
+
+def _failing_replace(fail_on: int):
+    import os
+    calls = {"n": 0}
+
+    def fake(src, dst):
+        calls["n"] += 1
+        if calls["n"] == fail_on:
+            raise PermissionError(13, "simulated: the file is locked", str(dst))
+        os.replace(src, dst)
+    return fake
+
+
+def _seed_gap_family(lessons_dir: Path) -> bytes:
+    """Main over budget, the archive, and an orphan -Part-03 after a missing
+    -Part-02. Returns the orphan's bytes."""
+    _write(lessons_dir / _MAIN, _family_file([_BACKLINK], [(n, _marked(n)) for n in range(40, 10, -1)],
+                                             pointer=True).decode("utf-8"))
+    _write(lessons_dir / _ARCHIVE, _family_file([f"[← {_MAIN}]({_MAIN})", _BACKLINK],
+                                                [(n, _marked(n)) for n in range(10, 5, -1)]).decode("utf-8"))
+    part3 = _family_file([f"[← {_ARCHIVE}]({_ARCHIVE})"], [(n, _marked(n)) for n in range(5, 0, -1)])
+    (lessons_dir / _PART_03).write_bytes(part3)
+    return part3
+
+
+def test_orphan_part_after_a_gap_is_backed_up_kept_and_logged_honestly(tmp_path):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    part3 = _seed_gap_family(lessons_dir)
+    report = _migrate(cfg)
+    assert report.state == "changelog_split", report.detail
+    family = "".join(p.read_bytes().decode("utf-8") for p in lessons_dir.glob("00-Changelog-*.md"))
+    for n in range(1, 41):
+        assert family.count(f"marker-{n:03d}.") == 1, n
+    assert (_pair(cfg) / "lessons" / _PART_03).read_bytes() == part3
+    rows = [ln for ln in (_pair(cfg) / "DISPOSITIONS.md").read_text(encoding="utf-8").splitlines()
+            if _PART_03 in ln]
+    assert rows and all("created" not in ln for ln in rows), rows
+
+
+def test_write_failure_never_deletes_a_file_that_existed_before_the_run(tmp_path, monkeypatch):
+    import migrate_backlog_support
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    part3 = _seed_gap_family(lessons_dir)
+    before = _snapshot(lessons_dir)
+    monkeypatch.setattr(migrate_backlog_support, "_replace", _failing_replace(2))
+    report = _migrate(cfg)
+    assert report.state == "write_failed", report.detail
+    assert (lessons_dir / _PART_03).read_bytes() == part3
+    assert _snapshot(lessons_dir) == before
+
+
+def test_single_oversized_entry_converges_silently_with_no_writes(tmp_path, capsys):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _write(lessons_dir / _MAIN, _family_file([_BACKLINK], [(3, "Small newest."), (2, "Small.")], pointer=True)
+           .decode("utf-8"))
+    _write(lessons_dir / _ARCHIVE, _family_file([f"[← {_MAIN}]({_MAIN})", _BACKLINK], [(1, "y" * 70_000)])
+           .decode("utf-8"))
+    before = _snapshot(tmp_path)
+    for _run in range(2):
+        report = _migrate(cfg)
+        lm._emit_lessons_migration_banner(report)
+        assert report.state == "generated", report.detail
+        assert _snapshot(tmp_path) == before
+    assert capsys.readouterr().out == ""
+    config = lm.config_loader.load_config(Path(mig.__file__), config_path=cfg.project_root / "planwise" / "config.yaml")
+    rep = mig.build_report(config, lessons_dir / "00-Index-LessonsLearned.md")
+    assert rep["changelog_resplit"] == "converged"
+    assert [(o["file"], o["entry"]) for o in rep["changelog_oversized"]] == [(_ARCHIVE, 1)]
+
+
+def test_unstable_family_is_renumbered_once_then_silent(tmp_path, capsys):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    # Positional scheme from an earlier migrator: newest is Entry 1, and the
+    # archive restarts at 1; a later max + 1 entry (4) sits on top.
+    _write(lessons_dir / _MAIN, _family_file([_BACKLINK], [(4, "d"), (1, "c"), (2, "b")], pointer=True)
+           .decode("utf-8"))
+    _write(lessons_dir / _ARCHIVE, _family_file([f"[← {_MAIN}]({_MAIN})", _BACKLINK], [(1, "a")])
+           .decode("utf-8"))
+    report = _migrate(cfg)
+    assert report.state == "changelog_split", report.detail
+    lm._emit_lessons_migration_banner(report)
+    assert "Lessons changelog: renumbered 4 entries by position (the oldest is Entry 1)" in capsys.readouterr().out
+    assert (lessons_dir / _MAIN).read_bytes() == _family_file([_BACKLINK], [(4, "d"), (3, "c"), (2, "b")],
+                                                              pointer=True)
+    after = _snapshot(tmp_path)
+    second = _migrate(cfg)
+    assert second.state == "generated"
+    assert _snapshot(tmp_path) == after
+
+
+def test_changelog_split_banner_states_the_real_limits(capsys):
+    report = lm.LessonsMigrationReport(state="changelog_split", index_path=None, backup_dir=Path("b"),
+                                       counts={"changelog_parts": 3, "changelog_kind": "split",
+                                               "changelog_renumbered": 0})
+    lm._emit_lessons_migration_banner(report)
+    line = capsys.readouterr().out.splitlines()[0]
+    assert line.startswith("Lessons changelog: re-split into 3 part(s) (main file under 22000 tokens, "
+                           "each archive part under 25000; a file holding one larger entry keeps it whole)")
+    assert "each ≤" not in line
 
 
 def test_unrecognized_shape_is_reported_and_untouched(tmp_path):

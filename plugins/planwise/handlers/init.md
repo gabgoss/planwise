@@ -90,7 +90,7 @@ Omit the trailing `--token-saver` flag when `{token_saver}` is `no` — the gene
 
 If `python` is not found, try `python3`.
 
-**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. If the output carries a `Backlog index migration:` block, pass it through verbatim; a `REFUSED` block is an action-required item, shown under Step 10's Skipped section. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML), run **Step 8.5** (Token Saver calibration capture), and skip to **Step 9** (team sharing).
+**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. If the output carries a `Backlog index migration:` block, pass it through verbatim; a `REFUSED` block is an action-required item, shown under Step 10's Skipped section. Likewise, if the output carries a `Lessons index migration:` block, pass it through verbatim, with the same REFUSED disposition. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML), run **Step 8.5** (Token Saver calibration capture), and skip to **Step 9** (team sharing).
 
 **If the script fails** (Python not available or any error): Read [handlers/init-fallback.md](init-fallback.md) and follow Steps 3-8 there, then return here and continue at **Step 8.5**.
 
@@ -206,7 +206,7 @@ Use `AskUserQuestion`:
 > **The population the suppression skips.** Suppressing under `--auto-from` is
 > correct: eight handlers invoke init as a subroutine, and an install prompt
 > firing mid-`/planwise backlog` would be wrong. Nobody is stranded by it —
-> [upgrade.md](upgrade.md) Step 4.5 makes the same offer to every install that
+> [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) Step 4.5 makes the same offer to every install that
 > only ever auto-inits, and
 > [doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md)
 > Stage 16 reports the gate state on demand.
@@ -299,6 +299,9 @@ Seed files installed:
 
 Backlog index:
   ✓ generated shape (or no backlog index yet)   (one of: "✓ generated shape (or no backlog index yet)" / "migrated from a hand-authored index (backups under upgrade-backups/init-to-{version}/backlog/)" / "! refused — {fix}"; the script prints nothing for either of the first case's two sub-states, since both mean there was nothing to migrate)
+
+Lessons index:
+  ✓ generated shape (or no lessons index yet)   (one of: "✓ generated shape (or no lessons index yet)" / "migrated from a hand-authored index (backups under upgrade-backups/init-to-{version}/lessons/)" / "! refused — {fix}"; the script prints nothing for either of the first case's two sub-states, since both mean there was nothing to migrate)
 
 Configuration:
   ✓ {planwise_root}/config.yaml (scope: {install_scope}, plan tier: {plan_tier} → {context_window} context window)

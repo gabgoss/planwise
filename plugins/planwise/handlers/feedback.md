@@ -141,6 +141,6 @@ own gate 5 explicit consent — this handler introduces no second consent site.
 consumer who just hit a live bug); a subcommand-only design (discards an
 already-articulated draft on any interruption); a `lessons` sub-mode (buries an outward
 network action inside an inward handler and collides with its own mode parsing); folding
-this into `upgrade.md` Step 4.2 (that step only runs at version change, not on demand);
+this into `upgrade-Part-3-BannerAndConflictResolution.md` Step 4.2 (that step only runs at version change, not on demand);
 auto-detect-and-file (violates the never-automatic precedent above); a `gh`-less HTTP POST
 (would require in-plugin token handling — `gh`'s own auth is the safe borrow).

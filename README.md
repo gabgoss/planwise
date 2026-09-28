@@ -146,6 +146,10 @@ Reinstalling the plugin does **not** refresh the rules in `.claude/rules/planwis
 
 Older installs use a hand-authored backlog index. Newer ones use a generated hub plus Archive shards, with each item's YAML frontmatter as the source of truth and the changelog in its own file. `/planwise upgrade` migrates a hand-authored index automatically, backing up every file it touches under `upgrade-backups/{from}-to-{to}/backlog/` before writing. An ambiguous feature-cell sentence, one that only partly matches its item file, is parked verbatim in the migration ledger rather than appended or refused. A refusal — for a data conflict the migration cannot resolve on its own, or for an index shape it does not recognize — leaves your index untouched and names the fix to apply before you re-run `/planwise upgrade`. Until the migration finishes, `/planwise backlog` and the index generator both refuse to run against a hand-authored index.
 
+### Upgrading from 1.0.5.1: lessons index
+
+Older installs use a hand-authored lessons index — a Master Table, a header changelog block, and a Rule Promotion Log table, all in one file. Newer ones generate the index from lesson frontmatter, with the changelog and the Promotion Log each in their own files. `/planwise upgrade` migrates a hand-authored lessons index automatically, backing up every file it touches under `upgrade-backups/{from}-to-{to}/lessons/` before writing, relocating the changelog and Promotion Log content, renaming a hand-written categorization companion out of the way, and regenerating both. A refusal leaves your index untouched and names the fix to apply before you re-run `/planwise upgrade`. Until the migration finishes, any `/planwise lessons` mode that writes a lesson file, and the index generator itself, refuse to run against a hand-authored index.
+
 ---
 
 ## Full user guide
@@ -164,7 +168,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, backlog item body status lines, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, backlog/lessons index shape audits, backlog item body status lines, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
