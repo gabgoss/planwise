@@ -1,4 +1,12 @@
-"""Lessons index generator — column layout, required keys, hub statuses, and the generator error."""
+"""Lessons index schema: the 10-column row layout and its import-time asserts,
+the required frontmatter keys, the hub-status set, the config-derived
+status resolver, and `LessonsGeneratorError`. Imports no other plugin module.
+
+Imported by `lessons_index_scan`, `lessons_index_render`, `lessons_index_budget`,
+`lessons_index_build`, `lessons_index_drift`, `lessons_index_run`, and
+`lessons_index_companion`. Re-exported unchanged by the `generate_lessons_index`
+facade.
+"""
 
 import sys
 from pathlib import Path
@@ -55,7 +63,7 @@ REQUIRED_KEYS = (
 )
 
 # Hub membership: decided by status alone, never by directory (see the
-# module docstring). Everything else shards to an Archive-century file.
+# `generate_lessons_index` module docstring). Everything else shards to an Archive-century file.
 HUB_STATUSES = frozenset({"documented", "orphaned"})
 
 # Fallback declared-status set when config.yaml carries no `lesson_statuses:`

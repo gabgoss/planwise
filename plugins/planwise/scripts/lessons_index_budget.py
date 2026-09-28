@@ -1,4 +1,13 @@
-"""Lessons index generator — hub and shard partition and the per-file token budget."""
+"""Lessons index budget: hub-versus-Archive membership decided by status alone,
+the ID-century shard number, location-anomaly detection, and the recursive
+splitter that keeps every generated file under its token budget after a
+wrapper reserve.
+
+Imports `lessons_index_render` and `lessons_index_schema` from this generator,
+plus `generate_backlog_index`, `parse_lessons`, and `read_limits`. Imported by
+`lessons_index_build` and `lessons_index_run`. Re-exported unchanged by the
+`generate_lessons_index` facade.
+"""
 
 import sys
 from pathlib import Path
@@ -70,7 +79,7 @@ def split_lessons_to_budget(
     items: list, from_dir: Path, wrapper_tokens: int = 0, budget: int = READ_TOKEN_WARN
 ) -> list:
     """Mirrors generate_backlog_index.split_items_to_budget, re-written to
-    render through this module's own `_render_lessons_table_body` (which
+    render through `lessons_index_render._render_lessons_table_body` (which
     calls `render_row`) instead of the backlog renderer.
 
     Recursively splits `items` until the rendered table body, PLUS the

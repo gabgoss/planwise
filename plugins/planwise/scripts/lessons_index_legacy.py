@@ -1,4 +1,10 @@
-"""Lessons index generator — the legacy-index predicate and legacy heading detection."""
+"""Lessons index legacy: the predicate that recognizes a hand-authored,
+legacy-shaped lessons index, and the fence-aware listing of the sections a
+`--replace-legacy` write would drop.
+
+Imports `parse_lessons` only. Imported by `lessons_index_run`. Re-exported
+unchanged by the `generate_lessons_index` facade.
+"""
 
 import re
 import sys

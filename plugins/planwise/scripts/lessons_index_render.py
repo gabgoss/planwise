@@ -1,4 +1,12 @@
-"""Lessons index generator — row, header, counter, and table-body rendering."""
+"""Lessons index render: the 10-cell lesson row, the header and separator, the
+counter line and header block, the footer pointers, and the table body. Each
+row takes the directory of the generated file it lands in as an explicit
+`emit_dir`, so the File cell is a relative link from that file.
+
+Imports `lessons_index_schema` from this generator, plus `generate_backlog_index`
+and `parse_lessons`. Imported by `lessons_index_budget` and `lessons_index_build`.
+Re-exported unchanged by the `generate_lessons_index` facade.
+"""
 
 import re
 import sys
@@ -43,8 +51,8 @@ def render_row(item: dict, emit_dir: Path):
     """Render one lesson's fields into a 10-cell table row.
 
     Returns (row_text, title_was_truncated). `emit_dir` is the directory
-    of the generated file this row is rendered into -- see the module
-    docstring's File-cell section.
+    of the generated file this row is rendered into -- see the
+    `generate_lessons_index` module docstring's File-cell section.
     """
     rendered_title, was_truncated = truncate_title(item["title"])
     cells = [""] * COLUMN_COUNT
@@ -124,8 +132,8 @@ def _footer_line(naming) -> str:
 
 def _render_lessons_table_body(items: list, emit_dir: Path) -> tuple:
     """Render `items` into one table body: header, separator, one row per
-    item, each through `render_row` (see the module docstring's File-cell
-    section for what `emit_dir` controls). Returns (body_text,
+    item, each through `render_row` (see the `generate_lessons_index` module
+    docstring's File-cell section for what `emit_dir` controls). Returns (body_text,
     truncated_ids) -- `truncated_ids` is every id whose Title cell was
     truncated, in canonical `LL-NNN` form, matching what a report entry's
     `truncated_ids` field carries.

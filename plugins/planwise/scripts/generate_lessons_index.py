@@ -14,6 +14,24 @@ per-file token-budget splitter, the hub and Archive-shard file builders,
 `--dry-run`/`--check`/`--write`/`--json`/`--replace-legacy`, drift
 classification against the on-disk generated set, and the atomic write.
 
+## Module map
+
+This file is a facade: the code lives in ten sibling modules, and every name
+they define that other code imports is re-exported through `__all__`, so an importer of
+`generate_lessons_index` sees one flat namespace. `lessons_index_schema` holds
+the column layout, required keys, and `LessonsGeneratorError`.
+`lessons_index_scan` holds frontmatter extraction and `scan_lessons`.
+`lessons_index_render` holds row, header, and table-body rendering.
+`lessons_index_budget` holds hub and shard partition and the token-budget
+splitter. `lessons_index_legacy` holds the legacy-index predicate.
+`lessons_index_build` holds hub, leaf, and shard file assembly.
+`lessons_index_drift` holds the `--check` comparison.
+`lessons_index_run` holds exit-code mapping, report printers, and the report
+and write pipelines. `lessons_index_companion` holds categorization and
+companion rendering. `lessons_index_companion_drift` holds the companion
+shape parse, drift check, and integrity scan. Only the companion CLI entry
+point, its helpers, and `main` stay in this file.
+
 ## Hub membership
 
 Hub membership is decided by frontmatter `status:` alone (`HUB_STATUSES`),

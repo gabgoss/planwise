@@ -1,4 +1,13 @@
-"""Lessons index generator — frontmatter extraction and the lesson-file scan."""
+"""Lessons index scan: text-level, quote-aware frontmatter extraction, the
+lesson-file discovery walk, and `scan_lessons`, which returns the id-sorted
+fields plus every id mismatch and duplicate id. Reads lesson files and never
+writes them.
+
+Imports `lessons_index_schema` from this generator, plus `frontmatter_parser`,
+`generate_backlog_index`, `parse_lessons`, and `reconcile_common`. Imported by
+`lessons_index_run`. Re-exported unchanged by the `generate_lessons_index`
+facade.
+"""
 
 import re
 import sys
@@ -268,7 +277,7 @@ def _iter_lesson_files(lessons_dir: Path, archive_dir: Path, naming) -> list:
     `LL-template.md`: that file has no `LL-\\d+` id to extract, so scanning
     it either mis-scans as a lesson or (missing the required frontmatter
     keys) refuses the whole run over a file that was never a lesson. A
-    generated index artifact this module itself would emit (the hub, an
+    generated index artifact this generator itself would emit (the hub, an
     overflow leaf, or an Archive shard) is skipped -- it is never a lesson
     file.
     """

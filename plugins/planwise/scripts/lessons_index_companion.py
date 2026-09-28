@@ -1,4 +1,11 @@
-"""Lessons index generator — categorization and companion file rendering."""
+"""Lessons index companion: the categorization decision tree, the default
+buckets, and rendering of the categorization companion file (`--companion`).
+
+Imports `lessons_index_schema` from this generator, plus `generate_backlog_index`
+and `parse_lessons`. Imported by `lessons_index_companion_drift`, and by
+`lessons_bootstrap` through the `generate_lessons_index` facade, which
+re-exports it unchanged.
+"""
 
 import re
 import sys
@@ -19,7 +26,7 @@ from parse_lessons import format_id
 # Categorization companion (--companion)
 #
 # `00-Categorization-By-Domain.md` is rendered from the SAME frontmatter
-# scan the index uses (`scan_lessons` above) -- no second frontmatter
+# scan the index uses (`lessons_index_scan.scan_lessons`) -- no second frontmatter
 # reader. Membership runs the project's `config.yaml: categorization`
 # decision tree (curate's own §5.1 algorithm): the first bucket in
 # `decision_tree_order` whose `triggers.technology`/`triggers.domain`

@@ -1,4 +1,12 @@
-"""Lessons index generator — exit-code mapping, report printers, and the report and write pipelines."""
+"""Lessons index run: the exit-code mapping every mode routes through, the report
+printers, the shared report pipeline, and the atomic `--write` path.
+
+Imports `lessons_index_budget`, `lessons_index_build`, `lessons_index_companion_drift`,
+`lessons_index_drift`, `lessons_index_legacy`, `lessons_index_scan`, and
+`lessons_index_schema` from this generator, plus `generate_backlog_index`,
+`parse_lessons`, and `reconcile_common`. Imported by the `generate_lessons_index`
+facade, which calls it from `main`.
+"""
 
 import json
 import sys

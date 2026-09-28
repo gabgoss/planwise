@@ -1,4 +1,12 @@
-"""Lessons index generator — hub, leaf, and Archive shard file assembly."""
+"""Lessons index build: assembly of the hub file with its overflow leaves and of
+the Archive shard files, including the wrapper-token reserve and the fixed-point
+loop that sizes the `## Shards` directory against the split.
+
+Imports `lessons_index_budget`, `lessons_index_render`, and `lessons_index_schema`
+from this generator, plus `generate_backlog_index` and `read_limits`. Imported by
+`lessons_index_run`. Re-exported unchanged by the `generate_lessons_index`
+facade.
+"""
 
 import sys
 from pathlib import Path
@@ -62,7 +70,8 @@ def build_lessons_hub_files(
     budget: int = HUB_TOKEN_BUDGET,
 ) -> list:
     """Mirrors generate_backlog_index.build_hub_files, re-written to render
-    through this module's own splitter/renderer and to carry the lessons
+    through `lessons_index_budget.split_lessons_to_budget` and the
+    `lessons_index_render` renderer, and to carry the lessons
     header block and two-pointer footer instead of backlog's.
 
     Leaf 0 carries the header block (`render_header_block`), the
@@ -170,8 +179,8 @@ def build_lessons_shard_files(
     file per group, split further only if a single century's table itself
     exceeds `budget`. Each shard opens with a backlink to the hub, derived
     from `naming` (never hardcoded), and rows render with `archive_dir` as
-    their `emit_dir` -- see the module docstring's File-cell section: a
-    shard row's File link differs from the same lesson's hub-row link.
+    their `emit_dir` -- see the `generate_lessons_index` module docstring's
+    File-cell section: a shard row's File link differs from the same lesson's hub-row link.
     """
     files = []
     hub_path = lessons_dir / naming.hub_name

@@ -1,4 +1,11 @@
-"""Lessons index generator — companion shape parse, drift check, and integrity scan."""
+"""Lessons index companion drift: the companion file's shape parse, its drift
+check against a fresh render, the legacy and generated-shape predicates, and
+the lesson-id integrity scan.
+
+Imports `lessons_index_companion` from this generator, plus `markdown_parser`,
+`parse_lessons`, and `reconcile_common`. Imported by `lessons_index_run`.
+Re-exported unchanged by the `generate_lessons_index` facade.
+"""
 
 import sys
 from pathlib import Path
@@ -134,7 +141,7 @@ def _clip(text: str, limit: int = 60) -> str:
 def is_generated_companion(content: str) -> bool:
     """True when `content`'s header -- everything above its first `---`
     rule -- carries both the `Generated:` line and the `**Companion to:**`
-    line this module renders. Only a generated-shaped file may be
+    line `lessons_index_companion.render_companion_header` renders. Only a generated-shaped file may be
     overwritten by `--companion --write` without `--replace-legacy`."""
     header = content.split("\n---\n", 1)[0]
     return bool(_COMPANION_GENERATED_RE.search(header)) and bool(_COMPANION_TO_RE.search(header))

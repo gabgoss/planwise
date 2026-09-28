@@ -1,4 +1,11 @@
-"""Lessons index generator — the --check comparison and its report."""
+"""Lessons index drift: the `--check` comparison of the on-disk generated set
+against a fresh render, the drift-class table, the forward-only counter floor,
+and the formatted report.
+
+Imports `lessons_index_schema` from this generator, plus `generate_backlog_index`,
+`parse_lessons`, and `reconcile_common`. Imported by `lessons_index_run`.
+Re-exported unchanged by the `generate_lessons_index` facade.
+"""
 
 import re
 import sys
