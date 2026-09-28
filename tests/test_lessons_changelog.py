@@ -53,6 +53,14 @@ FILLER = "Lorem ipsum filler text describing a fixture entry body in full. " * 9
 GENERATED_INDEX = b"Generated: 2026-01-01\n**Next available ID:** LL-001\n\n| ID | Title |\n|---|---|\n"
 LEGACY_INDEX = b"# Lessons Learned Index\n\n## Master Table\n\n| ID | Title |\n|---|---|\n"
 
+# The day of the write. The backup directory and the DISPOSITIONS line carry
+# it, while --date stamps the entry, so it differs from every --date below.
+WRITE_DAY = "2031-01-02"
+
+
+def _on_write_day():
+    return mock.patch.object(lessons_changelog, "_today", lambda: WRITE_DAY)
+
 
 def _entry_block(n: int, body: str, nl: str = "\n") -> str:
     return f"## Entry {n}{nl}{nl}{body}{nl}{nl}"
@@ -215,14 +223,15 @@ class TestSplit(LessonsChangelogTestCase):
         entries = [(n, FILLER) for n in range(30, 0, -1)]
         self._seed_main(entries)
         before = (self.lessons_dir / MAIN_NAME).read_bytes()
-        code, out = self._run(["--split", "--date", "2026-02-01"])
+        with _on_write_day():
+            code, out = self._run(["--split", "--date", "2026-02-01"])
         self.assertEqual(code, 0, out)
         self.assertIn("WROTE", out)
         after = (self.lessons_dir / MAIN_NAME).read_bytes()
         self.assertNotEqual(before, after)
         archive_path = self.lessons_dir / ARCHIVE_2026
         self.assertTrue(archive_path.is_file())
-        backup_dir = self.planwise_dir / "upgrade-backups" / "manual-split-2026-02-01" / "lessons"
+        backup_dir = self.planwise_dir / "upgrade-backups" / f"manual-split-{WRITE_DAY}" / "lessons"
         backed_up_main = backup_dir / MAIN_NAME
         self.assertTrue(backed_up_main.is_file())
         self.assertEqual(backed_up_main.read_bytes(), before)
@@ -373,14 +382,15 @@ class TestUnstableNumbering(LessonsChangelogTestCase):
 
     def test_split_renumbers_the_live_shape_once_by_position(self):
         main_bytes, archive_bytes = self._seed_live()
-        code, out = self._run(["--split", "--date", "2026-09-27"])
+        with _on_write_day():
+            code, out = self._run(["--split", "--date", "2026-09-27"])
         self.assertEqual(code, 0, out)
         self.assertIn("RENUMBERED: 17", out)
         expected_main = _family_file([BACKLINK], _renumber(LIVE_MAIN, 17), "\r\n", POINTER)
         self.assertEqual((self.lessons_dir / MAIN_NAME).read_bytes(), expected_main)
         # The archive's only entry is already Entry 1 by position: untouched.
         self.assertEqual((self.lessons_dir / ARCHIVE_2026).read_bytes(), archive_bytes)
-        backup = self.planwise_dir / "upgrade-backups" / "manual-split-2026-09-27" / "lessons" / MAIN_NAME
+        backup = self.planwise_dir / "upgrade-backups" / f"manual-split-{WRITE_DAY}" / "lessons" / MAIN_NAME
         self.assertEqual(backup.read_bytes(), main_bytes)
 
         code, out = self._run(["--split", "--date", "2026-09-27"])
@@ -416,26 +426,30 @@ class TestUnstableNumbering(LessonsChangelogTestCase):
 
 class TestMultiFileWriteSafety(LessonsChangelogTestCase):
     """A write that moves entries between files: backups before the first
-    replace, destinations before sources, rollback on failure, no traceback."""
+    replace, destinations before sources, rollback on failure, no traceback.
+    The backup directory carries the day of the write, never --date."""
 
     def setUp(self):
         super().setUp()
         self.before = _family_file([BACKLINK], [(n, "", _marked(n)) for n in range(30, 0, -1)])
         (self.lessons_dir / MAIN_NAME).write_bytes(self.before)
+        write_day = _on_write_day()
+        write_day.start()
+        self.addCleanup(write_day.stop)
 
-    def _backup(self, kind: str, date: str) -> Path:
-        return self.planwise_dir / "upgrade-backups" / f"{kind}-{date}" / "lessons" / MAIN_NAME
+    def _backup(self, kind: str) -> Path:
+        return self.planwise_dir / "upgrade-backups" / f"{kind}-{WRITE_DAY}" / "lessons" / MAIN_NAME
 
     def test_append_second_replace_failure_rolls_back_without_a_traceback(self):
         with mock.patch.object(migrate_backlog_support, "_replace", _failing_replace(2)):
             code, out = self._run(["--append", "A new note.", "--date", "2026-03-03"])
         self.assertEqual(code, 1, out)
         self.assertIn("REFUSED", out)
-        self.assertIn("manual-append-2026-03-03", out)
+        self.assertIn(f"manual-append-{WRITE_DAY}", out)
         self.assertNotIn("Traceback", out)
         self.assertEqual(_family_files(self.lessons_dir), [self.lessons_dir / MAIN_NAME])
         self.assertEqual((self.lessons_dir / MAIN_NAME).read_bytes(), self.before)
-        self.assertEqual(self._backup("manual-append", "2026-03-03").read_bytes(), self.before)
+        self.assertEqual(self._backup("manual-append").read_bytes(), self.before)
 
     def test_failed_restore_leaves_entries_duplicated_never_missing(self):
         def restore_fails(report, _pre, _created, fix):
@@ -448,13 +462,13 @@ class TestMultiFileWriteSafety(LessonsChangelogTestCase):
         family = _family_text(self.lessons_dir)
         for n in range(1, 31):
             self.assertIn(f"marker-{n:03d}.", family, n)
-        self.assertEqual(self._backup("manual-append", "2026-03-03").read_bytes(), self.before)
+        self.assertEqual(self._backup("manual-append").read_bytes(), self.before)
 
     def test_same_day_rerun_keeps_the_first_pre_image(self):
         with mock.patch.object(migrate_backlog_support, "_replace", _failing_replace(2)):
             code, out = self._run(["--split", "--date", "2026-03-04"])
         self.assertEqual(code, 1, out)
-        backup = self._backup("manual-split", "2026-03-04")
+        backup = self._backup("manual-split")
         self.assertEqual(backup.read_bytes(), self.before)
         edited = self.before.replace(b"marker-030.", b"marker-030 edited.")
         (self.lessons_dir / MAIN_NAME).write_bytes(edited)
@@ -485,12 +499,13 @@ class TestOrphanParts(LessonsChangelogTestCase):
 
     def test_split_keeps_every_entry_of_an_orphan_part_and_logs_it_honestly(self):
         part3 = self._seed_gap()
-        code, out = self._run(["--split", "--date", "2026-04-04"])
+        with _on_write_day():
+            code, out = self._run(["--split", "--date", "2026-04-04"])
         self.assertEqual(code, 0, out)
         family = _family_text(self.lessons_dir)
         for n in range(1, 41):
             self.assertEqual(family.count(f"marker-{n:03d}."), 1, n)
-        backup_dir = self.planwise_dir / "upgrade-backups" / "manual-split-2026-04-04" / "lessons"
+        backup_dir = self.planwise_dir / "upgrade-backups" / f"manual-split-{WRITE_DAY}" / "lessons"
         self.assertEqual((backup_dir / ARCHIVE_PART_03).read_bytes(), part3)
         rows = [ln for ln in (backup_dir.parent / "DISPOSITIONS.md").read_text(encoding="utf-8").splitlines()
                 if ARCHIVE_PART_03 in ln]
@@ -736,22 +751,53 @@ class TestIndexNotGenerated(LessonsChangelogTestCase):
 
 class TestEveryAppendBacksUp(LessonsChangelogTestCase):
     """User decision: every `--append`, a one-file one included, takes a
-    backup under `manual-append-{date}/`; the day's first pre-image wins."""
+    backup under `manual-append-{day}/`, `{day}` being the day of the
+    write; the day's first pre-image wins."""
 
     def test_single_file_append_backs_up_and_first_pre_image_wins(self):
         path = self._seed_main([(1, "First.")])
         first = path.read_bytes()
-        code, out = self._run(["--append", "Second.", "--date", "2026-05-05"])
+        with _on_write_day():
+            code, out = self._run(["--append", "Second.", "--date", "2026-05-05"])
         self.assertEqual(code, 0, out)
-        backup = self.planwise_dir / "upgrade-backups" / "manual-append-2026-05-05" / "lessons" / MAIN_NAME
+        backup = self.planwise_dir / "upgrade-backups" / f"manual-append-{WRITE_DAY}" / "lessons" / MAIN_NAME
         self.assertEqual(backup.read_bytes(), first)
         second = path.read_bytes()
-        code, out = self._run(["--append", "Third.", "--date", "2026-05-05"])
+        with _on_write_day():
+            code, out = self._run(["--append", "Third.", "--date", "2026-05-05"])
         self.assertEqual(code, 0, out)
         self.assertEqual(backup.read_bytes(), first)
         self.assertEqual(backup.with_name(f"{MAIN_NAME}.1.bak").read_bytes(), second)
         log = (backup.parent.parent / "DISPOSITIONS.md").read_text(encoding="utf-8")
         self.assertIn("lessons-changelog-append", log)
+
+
+class TestBackupDayIsTheWriteDay(LessonsChangelogTestCase):
+    """--date stamps the entry heading and the archive year. The backup
+    directory and the DISPOSITIONS line carry the day of the write."""
+
+    def test_append_backs_up_under_the_write_day_and_the_heading_keeps_date(self):
+        path = self._seed_main([(1, "First.")])
+        with _on_write_day():
+            code, out = self._run(["--append", "Second.", "--date", "2026-05-05"])
+        self.assertEqual(code, 0, out)
+        backups = self.planwise_dir / "upgrade-backups"
+        self.assertTrue((backups / f"manual-append-{WRITE_DAY}" / "lessons" / MAIN_NAME).is_file())
+        self.assertFalse((backups / "manual-append-2026-05-05").exists())
+        log = (backups / f"manual-append-{WRITE_DAY}" / "DISPOSITIONS.md").read_text(encoding="utf-8")
+        self.assertIn(f"- {WRITE_DAY} ", log)
+        self.assertNotIn("2026-05-05", log)
+        self.assertIn("## Entry 2 — 2026-05-05", path.read_text(encoding="utf-8"))
+
+    def test_split_backs_up_under_the_write_day_and_the_archive_keeps_the_date_year(self):
+        self._seed_main([(n, FILLER) for n in range(30, 0, -1)])
+        with _on_write_day():
+            code, out = self._run(["--split", "--date", "2026-02-01"])
+        self.assertEqual(code, 0, out)
+        backups = self.planwise_dir / "upgrade-backups"
+        self.assertTrue((backups / f"manual-split-{WRITE_DAY}" / "lessons" / MAIN_NAME).is_file())
+        self.assertFalse((backups / "manual-split-2026-02-01").exists())
+        self.assertTrue((self.lessons_dir / ARCHIVE_2026).is_file())
 
 
 def _old_layout(entries: list, names: dict) -> list:

@@ -663,7 +663,8 @@ def main(argv: list | None = None) -> int:
     if lessons_dir is None or index_path is None:
         return _say(1, "REFUSED: config.yaml declares no project.lessons_dir", js, err=True)
     index_path = Path(index_path)
-    day = args.date or _today()
+    day = args.date or _today()  # the entry heading and the archive year
+    write_day = _today()  # the backup directory and the DISPOSITIONS line
     backups_root = Path(config["_planwise_root"]) / "upgrade-backups"
 
     script_dir = Path(__file__).resolve().parent
@@ -706,8 +707,8 @@ def main(argv: list | None = None) -> int:
                 print("\n".join([f"would write {p.name}" for p, _t in plan["outputs"]]
                                 + [f"would remove {p.name}" for p in plan["remove"]]))
             return 0
-        backup_dir = backups_root / f"manual-split-{day}" / "lessons"
-        ok, report = _write_with_backups(plan, config, backup_dir, day, "lessons-changelog-split")
+        backup_dir = backups_root / f"manual-split-{write_day}" / "lessons"
+        ok, report = _write_with_backups(plan, config, backup_dir, write_day, "lessons-changelog-split")
         if not ok:
             return _failed(report, js)
         regen = f"python {script_dir / 'generate_lessons_index.py'} --config {args.config} --check"
@@ -765,7 +766,8 @@ def main(argv: list | None = None) -> int:
     # schema (`references/lessons-schema.md` Changelog Contract) requires
     # only `## Entry N`, so a suffix is not forbidden -- this uses the
     # append's own date (`day`, above: `--date`, else today), the same
-    # value that stamps the archive year and the backup directory.
+    # value that stamps the archive year. The backup directory uses
+    # `write_day` instead.
     entries = [(new_number, f" — {day}", new_body)] + family["entries"]
     try:
         plan, _oversized_now = _plan_writes(family, entries, added=1)
@@ -783,8 +785,8 @@ def main(argv: list | None = None) -> int:
         return 0
 
     # Every append, a one-file one included, backs up its pre-image first.
-    backup_dir = backups_root / f"manual-append-{day}" / "lessons"
-    ok, report = _write_with_backups(plan, config, backup_dir, day, "lessons-changelog-append")
+    backup_dir = backups_root / f"manual-append-{write_day}" / "lessons"
+    ok, report = _write_with_backups(plan, config, backup_dir, write_day, "lessons-changelog-append")
     if not ok:
         return _failed(report, js)
 

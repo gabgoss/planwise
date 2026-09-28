@@ -35,8 +35,9 @@ into an already-relocated century/hub file, century-file creation, and a
 hub listing repair alike -- goes through `lessons_migration.
 write_with_dispositions`, the same backup-then-log path
 `lessons_changelog.py` uses: any file the call would replace is backed up
-byte-exact first, under `upgrade-backups/manual-promotion-log-{date}/
-lessons/` (first pre-image of the day wins, later same-day writes get a
+byte-exact first, under `upgrade-backups/manual-promotion-log-{day}/
+lessons/`, where `{day}` is the day of the write, never `--date`, which
+stamps the row only (first pre-image of the day wins, later same-day writes get a
 numbered `.N.bak` sibling); a failure restores every touched file and
 removes whatever this call created, and the caller sees a clean REFUSED
 message, never a raw traceback; a success logs one DISPOSITIONS row per
@@ -56,6 +57,7 @@ never migrated/seeded).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import sys
@@ -122,16 +124,44 @@ def _today() -> str:
     return datetime.now().astimezone().date().isoformat()
 
 
+def _valid_date(value: str) -> bool:
+    """True when `value` is `YYYY-MM-DD` AND a real calendar date, so
+    `2026-02-30` is refused rather than stamped into a row."""
+    from datetime import date
+
+    if not _ISO_DATE_RE.match(value):
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _read_text(path: Path) -> str:
+    """`path`'s text, line endings preserved. An unreadable or non-UTF-8
+    file raises `Refusal` naming it, so the caller prints the REFUSED
+    message instead of a traceback."""
+    try:
+        return read_text_preserving_newlines(path)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise Refusal(f"{path} could not be read: {exc}") from exc
+
+
 def _say(code: int, msg: str, json_mode: bool, err: bool = False) -> int:
     print(msg, file=sys.stderr if (err or json_mode) else sys.stdout)
     return code
 
 
 def _validate_cell(name: str, value: str) -> str | None:
-    """None when `value` is a legal cell: non-empty, and any `|` in it is
-    already escaped (`\\|`) by the caller. Otherwise the refusal detail."""
+    """None when `value` is a legal cell: non-empty, on one line, and any
+    `|` in it is already escaped (`\\|`) by the caller. Otherwise the
+    refusal detail. A line break would split the rendered row across two
+    table lines."""
     if not value.strip():
         return f"--{name} is empty"
+    if "\n" in value or "\r" in value:
+        return f"--{name} {value!r} carries a line break — a table row must stay on one line"
     if _UNESCAPED_PIPE_RE.search(value):
         return f"--{name} {value!r} carries an unescaped '|' — escape it as '\\|' first"
     return None
@@ -270,8 +300,8 @@ def _write_backed_up(outputs: list, config: dict, backups_root: Path, day: str, 
     backed up byte-exact under `backups_root` first; a failure restores
     every touched file to its pre-image and removes whatever this call
     created; a success adds one DISPOSITIONS row per file it touched,
-    under the same `manual-promotion-log-{date}` directory `_write_backed_
-    up`'s own callers already name. Returns `(ok, report)`; a failed
+    under the `manual-promotion-log-{day}` directory, `day` being the day
+    of the write (the caller's `write_day`). Returns `(ok, report)`; a failed
     `report` becomes a clean REFUSED message (`_failed`), never a raw
     traceback."""
     import lessons_migration  # deferred: avoids a circular import at module load
@@ -303,9 +333,9 @@ def _century_outputs(dest_path: Path, dest_name: str, hub_path: Path, naming,
     own default form. Both use the family's
     own newline style, read from the hub (`newline_of`), so a CRLF family
     stays CRLF end to end. Only computes text; `_write_backed_up` is what
-    actually writes, atomically."""
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-    hub_text = read_text_preserving_newlines(hub_path)
+    actually writes, atomically, and the caller creates the Archive
+    directory. Raises `Refusal` when the hub cannot be read."""
+    hub_text = _read_text(hub_path)
     nl = newline_of(hub_text)
     new_row = {"line": 0, "lesson_id": lesson_id,
               "cells": (date, format_id(lesson_id), artifact, file_)}
@@ -322,8 +352,9 @@ def _stale_parts_repair(hub_path: Path, naming) -> str | None:
     stale). A century file created outside a normal write here (an earlier
     interrupted run, a hand edit) can leave this drifted; the caller
     repairs it -- backed up, same as any other write -- instead of only
-    refusing whatever this run was asked to do."""
-    hub_text = read_text_preserving_newlines(hub_path)
+    refusing whatever this run was asked to do. Raises `Refusal` when the
+    hub cannot be read."""
+    hub_text = _read_text(hub_path)
     nl = newline_of(hub_text)
     archive_parts = _existing_archive_parts(hub_path.parent, naming)
     repaired = _with_parts_listing(hub_text, nl, archive_parts)
@@ -347,10 +378,13 @@ def main(argv: list | None = None) -> int:
         return _say(1, f"REFUSED: --lesson {args.lesson!r} is not LL-NNN", js, err=True)
     lesson_id = int(m.group(1))
 
+    # `date` stamps the row only. The backup directory and the DISPOSITIONS
+    # line carry `write_day`, the day this write actually happens.
     date = args.date or _today()
+    write_day = _today()
     problems = []
-    if args.date is not None and not _ISO_DATE_RE.match(args.date):
-        problems.append(f"--date {args.date!r} is not YYYY-MM-DD")
+    if args.date is not None and not _valid_date(args.date):
+        problems.append(f"--date {args.date!r} is not a real YYYY-MM-DD calendar date")
     for name, value in (("artifact", args.artifact), ("file", args.file_)):
         detail = _validate_cell(name, value)
         if detail:
@@ -398,7 +432,10 @@ def main(argv: list | None = None) -> int:
     if creating:
         rows = []
     else:
-        text = read_text_preserving_newlines(dest_path)
+        try:
+            text = _read_text(dest_path)
+        except Refusal as exc:
+            return _say(1, f"REFUSED: {exc}", js, err=True)
         try:
             rows = _read_rows(text, dest_path)
         except Refusal as exc:
@@ -413,9 +450,12 @@ def main(argv: list | None = None) -> int:
     # refuse the append as a duplicate below; `--dry-run` writes nothing, so
     # the repair is skipped there too.
     if duplicate and not creating and not args.dry_run:
-        repaired_hub_text = _stale_parts_repair(hub_path, naming)
+        try:
+            repaired_hub_text = _stale_parts_repair(hub_path, naming)
+        except Refusal as exc:
+            return _say(1, f"REFUSED: {exc}", js, err=True)
         if repaired_hub_text is not None:
-            ok, report = _write_backed_up([(hub_path, repaired_hub_text)], config, backups_root, date,
+            ok, report = _write_backed_up([(hub_path, repaired_hub_text)], config, backups_root, write_day,
                                           "promotion-log-listing-repair")
             if not ok:
                 return _failed(report, js)
@@ -447,10 +487,24 @@ def main(argv: list | None = None) -> int:
         return 0
 
     if creating:
-        outputs = list(_century_outputs(dest_path, dest_name, hub_path, naming,
-                                        lesson_id, date, args.artifact, args.file_))
-        ok, report = _write_backed_up(outputs, config, backups_root, date, "promotion-log-century-create")
+        try:
+            outputs = list(_century_outputs(dest_path, dest_name, hub_path, naming,
+                                            lesson_id, date, args.artifact, args.file_))
+        except Refusal as exc:
+            return _say(1, f"REFUSED: {exc}", js, err=True)
+        # The Archive directory is created only now, next to the write, and
+        # a refused write removes it again when this run created it and the
+        # rollback left it empty (`rmdir` refuses a non-empty directory).
+        made_archive_dir = not dest_path.parent.exists()
+        try:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return _say(1, f"REFUSED: could not create {dest_path.parent}: {exc}", js, err=True)
+        ok, report = _write_backed_up(outputs, config, backups_root, write_day, "promotion-log-century-create")
         if not ok:
+            if made_archive_dir:
+                with contextlib.suppress(OSError):
+                    dest_path.parent.rmdir()
             return _failed(report, js)
     else:
         try:
@@ -467,7 +521,8 @@ def main(argv: list | None = None) -> int:
         # a century-file creation's hub rewrite -- the same backup rule
         # applies, so it goes through the same helper rather than writing
         # bare.
-        ok, report = _write_backed_up([(dest_path, new_text)], config, backups_root, date, "promotion-log-append")
+        ok, report = _write_backed_up([(dest_path, new_text)], config, backups_root, write_day,
+                                      "promotion-log-append")
         if not ok:
             return _failed(report, js)
 

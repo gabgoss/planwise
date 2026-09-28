@@ -47,6 +47,14 @@ INDEX_NAME = "00-Index-LessonsLearned.md"
 GENERATED_INDEX = b"Generated: 2026-01-01\n**Next available ID:** LL-001\n\n| ID | Title |\n|---|---|\n"
 LEGACY_INDEX = b"# Lessons Learned Index\n\n## Master Table\n\n| ID | Title |\n|---|---|\n"
 
+# The day of the write. The backup directory and the DISPOSITIONS line carry
+# it, while the row carries --date, so it differs from every --date below.
+WRITE_DAY = "2031-01-02"
+
+
+def _on_write_day():
+    return patch("promotion_log._today", lambda: WRITE_DAY)
+
 
 class PromotionLogTestCase(unittest.TestCase):
     def setUp(self):
@@ -399,7 +407,8 @@ class TestArchivePartsListingForm(PromotionLogTestCase):
             century_path.write_bytes(f"[← {index_name}]({index_name})\n\n{LOG_HEADER}\n{LOG_SEP}\n".encode())
         # The row sits at line 5 before any repair (backlink, blank, header,
         # separator, row).
-        code, out = self._run(self._argv("LL-201", "a rule", "some/path.md", "--date", "2026-04-01"))
+        with _on_write_day():
+            code, out = self._run(self._argv("LL-201", "a rule", "some/path.md", "--date", "2026-04-01"))
         self.assertEqual(code, 1, out)
         self.assertIn("already logged", out)
         self.assertIn("line 6", out)  # shifted down by the inserted listing line, measured AFTER the repair
@@ -413,7 +422,7 @@ class TestArchivePartsListingForm(PromotionLogTestCase):
             hub_text,
         )
 
-        dispositions = (self.planwise_dir / "upgrade-backups" / "manual-promotion-log-2026-04-01"
+        dispositions = (self.planwise_dir / "upgrade-backups" / f"manual-promotion-log-{WRITE_DAY}"
                         / "DISPOSITIONS.md")
         self.assertTrue(dispositions.is_file())
         self.assertIn("promotion-log-listing-repair", dispositions.read_text(encoding="utf-8"))
@@ -431,9 +440,10 @@ class TestPromotionLogDispositionsRow(PromotionLogTestCase):
     def test_century_creation_logs_a_dispositions_row(self):
         hub_rel = "00-PromotionLog-LessonsLearned.md"
         self._seed_log(hub_rel)
-        code, out = self._run(self._argv("LL-007", "a rule", "some/path.md", "--date", "2026-04-01"))
+        with _on_write_day():
+            code, out = self._run(self._argv("LL-007", "a rule", "some/path.md", "--date", "2026-04-01"))
         self.assertEqual(code, 0, out)
-        dispositions_path = (self.planwise_dir / "upgrade-backups" / "manual-promotion-log-2026-04-01"
+        dispositions_path = (self.planwise_dir / "upgrade-backups" / f"manual-promotion-log-{WRITE_DAY}"
                              / "DISPOSITIONS.md")
         self.assertTrue(dispositions_path.is_file())
         text = dispositions_path.read_text(encoding="utf-8")
@@ -449,7 +459,14 @@ class TestPlainAppendTakesABackup(PromotionLogTestCase):
     numbered `.n.bak` sibling, and a DISPOSITIONS row is logged. Before
     this fix, an append into a file that already existed wrote bare
     (`write_text_preserving_newlines`, no backup helper at all) -- RR3's
-    rehearsal call 3."""
+    rehearsal call 3. The backup directory carries the day of the write,
+    never --date."""
+
+    def setUp(self):
+        super().setUp()
+        write_day = _on_write_day()
+        write_day.start()
+        self.addCleanup(write_day.stop)
 
     def test_append_into_an_existing_file_takes_a_backup(self):
         rel = "00-PromotionLog-LessonsLearned.md"
@@ -457,11 +474,11 @@ class TestPlainAppendTakesABackup(PromotionLogTestCase):
         before = path.read_bytes()
         code, out = self._run(self._argv("LL-202", "a different rule", "some/other.md", "--date", "2026-05-01"))
         self.assertEqual(code, 0, out)
-        backup_path = (self.planwise_dir / "upgrade-backups" / "manual-promotion-log-2026-05-01"
+        backup_path = (self.planwise_dir / "upgrade-backups" / f"manual-promotion-log-{WRITE_DAY}"
                        / "lessons" / rel)
         self.assertTrue(backup_path.is_file())
         self.assertEqual(backup_path.read_bytes(), before)
-        dispositions = (self.planwise_dir / "upgrade-backups" / "manual-promotion-log-2026-05-01"
+        dispositions = (self.planwise_dir / "upgrade-backups" / f"manual-promotion-log-{WRITE_DAY}"
                         / "DISPOSITIONS.md")
         self.assertTrue(dispositions.is_file())
         self.assertIn("promotion-log-append", dispositions.read_text(encoding="utf-8"))
@@ -476,7 +493,7 @@ class TestPlainAppendTakesABackup(PromotionLogTestCase):
         self.assertNotEqual(second_before, first_before)  # the file grew after the first append
         code, out = self._run(self._argv("LL-203", "yet another rule", "some/third.md", "--date", "2026-05-01"))
         self.assertEqual(code, 0, out)
-        backup_dir = self.planwise_dir / "upgrade-backups" / "manual-promotion-log-2026-05-01" / "lessons"
+        backup_dir = self.planwise_dir / "upgrade-backups" / f"manual-promotion-log-{WRITE_DAY}" / "lessons"
         self.assertEqual((backup_dir / rel).read_bytes(), first_before)  # first pre-image wins, kept
         sibling_backup = backup_dir / f"{rel}.1.bak"
         self.assertTrue(sibling_backup.is_file())
@@ -534,6 +551,140 @@ class TestExitCodes(PromotionLogTestCase):
     def test_missing_file_is_two(self):
         code, _out = self._run(self._argv("LL-010", "a rule", "some/path.md"))
         self.assertEqual(code, 2)
+
+
+class TestMultiLineCellRefusal(PromotionLogTestCase):
+    """A line break in --artifact or --file would split the rendered row
+    across two table lines, so both are refused before anything is read."""
+
+    def test_newline_in_artifact_refused(self):
+        path = self._seed_log("00-PromotionLog-LessonsLearned.md")
+        before = path.read_bytes()
+        code, out = self._run(self._argv("LL-201", "a rule\n| 2026-01-01 | LL-999 | forged | x |", "some/path.md"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("REFUSED", out)
+        self.assertIn("line break", out)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_carriage_return_in_file_refused(self):
+        path = self._seed_log("00-PromotionLog-LessonsLearned.md")
+        before = path.read_bytes()
+        code, out = self._run(self._argv("LL-201", "a rule", "some/path.md\r"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("REFUSED", out)
+        self.assertIn("line break", out)
+        self.assertEqual(path.read_bytes(), before)
+
+
+class TestWritePathFailuresRefuseCleanly(PromotionLogTestCase):
+    """Every failure on a write path ends in the REFUSED message, never a
+    raw traceback, and a refused century-file creation leaves no Archive/
+    directory behind that this run created."""
+
+    HUB = "00-PromotionLog-LessonsLearned.md"
+    CENTURY = "PromotionLog-LessonsLearned-001-050.md"
+
+    def _run_safely(self, argv: list) -> tuple:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            try:
+                code = main(argv)
+            except Exception as exc:  # noqa: BLE001 -- the bug under test is an escaping exception
+                code = f"raised {type(exc).__name__}: {exc}"
+        return code, out.getvalue()
+
+    def test_undecodable_hub_on_century_create_refuses(self):
+        (self.lessons_dir / self.HUB).write_bytes(b"\xff\xfe not utf-8\n")
+        code, out = self._run_safely(self._argv("LL-007", "a rule", "some/path.md"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("REFUSED", out)
+        self.assertFalse((self.archive_dir / self.CENTURY).exists())
+
+    def test_undecodable_destination_refuses(self):
+        (self.lessons_dir / self.HUB).write_bytes(b"\xff\xfe not utf-8\n")
+        code, out = self._run_safely(self._argv("LL-201", "a rule", "some/path.md"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("REFUSED", out)
+
+    def test_unencodable_row_text_is_rolled_back_and_refused(self):
+        path = self._seed_log(self.HUB)
+        before = path.read_bytes()
+        code, out = self._run_safely(self._argv("LL-201", "a lone surrogate \ud800", "some/path.md"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("REFUSED", out)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_archive_path_blocked_by_a_file_refuses(self):
+        self._seed_log(self.HUB)
+        self.archive_dir.rmdir()
+        self.archive_dir.write_bytes(b"not a directory\n")
+        code, out = self._run_safely(self._argv("LL-007", "a rule", "some/path.md"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("REFUSED", out)
+        self.assertEqual(self.archive_dir.read_bytes(), b"not a directory\n")
+
+    def test_refused_century_create_removes_the_archive_dir_it_created(self):
+        hub_path = self._seed_log(self.HUB)
+        before_hub = hub_path.read_bytes()
+        self.archive_dir.rmdir()
+        real_replace = migrate_backlog_support._replace
+        calls: list = []
+
+        def _second_replace_fails(tmp, path):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError("simulated failure writing the hub")
+            return real_replace(tmp, path)
+
+        with patch("migrate_backlog_support._replace", _second_replace_fails):
+            code, out = self._run_safely(self._argv("LL-007", "a rule", "some/path.md"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("REFUSED", out)
+        self.assertEqual(hub_path.read_bytes(), before_hub)
+        self.assertFalse(self.archive_dir.exists())
+
+    def test_refused_century_create_keeps_an_archive_dir_that_already_existed(self):
+        self._seed_log(self.HUB)
+        real_replace = migrate_backlog_support._replace
+        calls: list = []
+
+        def _second_replace_fails(tmp, path):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError("simulated failure writing the hub")
+            return real_replace(tmp, path)
+
+        with patch("migrate_backlog_support._replace", _second_replace_fails):
+            code, out = self._run_safely(self._argv("LL-007", "a rule", "some/path.md"))
+        self.assertEqual(code, 1, out)
+        self.assertTrue(self.archive_dir.is_dir())
+
+
+class TestDateValidationAndWriteDay(PromotionLogTestCase):
+    """--date must be a real calendar date. It stamps the row only; the
+    backup directory and the DISPOSITIONS line carry the day of the write."""
+
+    def test_calendar_invalid_date_refused(self):
+        path = self._seed_log("00-PromotionLog-LessonsLearned.md")
+        before = path.read_bytes()
+        code, out = self._run(self._argv("LL-201", "a rule", "some/path.md", "--date", "2026-02-30"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("REFUSED", out)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_backup_dir_and_dispositions_use_the_write_day_and_the_row_keeps_date(self):
+        rel = "00-PromotionLog-LessonsLearned.md"
+        path = self._seed_log(rel, rows=["| 2026-01-01 | LL-201 | a rule | some/path.md |"])
+        with _on_write_day():
+            code, out = self._run(self._argv("LL-202", "another rule", "some/other.md", "--date", "2026-04-01"))
+        self.assertEqual(code, 0, out)
+        backups = self.planwise_dir / "upgrade-backups"
+        self.assertTrue((backups / f"manual-promotion-log-{WRITE_DAY}" / "lessons" / rel).is_file())
+        self.assertFalse((backups / "manual-promotion-log-2026-04-01").exists())
+        log = (backups / f"manual-promotion-log-{WRITE_DAY}" / "DISPOSITIONS.md").read_text(encoding="utf-8")
+        self.assertIn(f"- {WRITE_DAY} ", log)
+        self.assertNotIn("2026-04-01", log)
+        self.assertIn("| 2026-04-01 | LL-202 | another rule | some/other.md |", path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

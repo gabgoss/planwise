@@ -593,3 +593,26 @@ def test_banner_counts_only_this_runs_backups_and_labels_a_kept_one(tmp_path, ca
     index_rel = (lessons_dir / "00-Index-LessonsLearned.md").relative_to(cfg.project_root).as_posix()
     reasons = {path: reason for path, _action, reason in _disposition_rows(cfg)}
     assert "kept, not overwritten" in reasons[index_rel]
+
+
+# ---------------------------------------------------------------------------
+# write_changelog_plan: a write failure that is not an OSError (here, text the
+# UTF-8 encoder cannot write) still ends in write_failed with the tree
+# restored, never a raised exception.
+# ---------------------------------------------------------------------------
+
+
+def test_a_non_oserror_write_failure_is_rolled_back_and_reported(tmp_path):
+    lessons_dir = tmp_path / "LessonsLearned"
+    lessons_dir.mkdir()
+    existing = lessons_dir / "00-Changelog-LessonsLearned.md"
+    existing.write_bytes(b"before\n")
+    created = lessons_dir / "00-Changelog-LessonsLearned-Part-02.md"
+    plan = {"outputs": [(created, "new part\n"), (existing, "a lone surrogate \ud800\n")], "remove": []}
+    report = lm.LessonsMigrationReport(state="absent", index_path=None, backup_dir=tmp_path / "backups")
+    rows = lm.write_changelog_plan(plan, lessons_dir, report, "re-run the command")
+    assert rows is None
+    assert report.state == "write_failed", report.detail
+    assert existing.read_bytes() == b"before\n"
+    assert not created.exists()
+    assert sorted(p.name for p in lessons_dir.iterdir()) == [existing.name]  # no staged temp file left

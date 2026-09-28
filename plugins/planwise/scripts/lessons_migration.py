@@ -174,7 +174,8 @@ def write_changelog_plan(plan: dict, lessons_dir: Path, report, rerun: str) -> l
     `report.backup_dir` first (`_backup`: the first pre-image wins). The
     outputs are written in the plan's own order, which puts each file an
     entry moves into before the file it leaves, and the removals come
-    last. On any failure every touched file is restored from its pre-image
+    last. On any failure (an `OSError`, a partial replace, or text the
+    encoder cannot write) every touched file is restored from its pre-image
     -- a file that existed before the run is never deleted -- and the
     report reads `backup_failed` or `write_failed`, its fix ending in
     `rerun` (what the caller re-runs). Returns one `(path, reason)`
@@ -189,7 +190,7 @@ def write_changelog_plan(plan: dict, lessons_dir: Path, report, rerun: str) -> l
         return None
     try:
         written, output = _captured(backlog_mig.execute_outputs, outputs, remove)
-    except (OSError, mig.ReplaceError) as exc:
+    except Exception as exc:  # noqa: BLE001 -- any write failure is rolled back below, never a traceback
         written, output = None, f"changelog write failed: {exc}"
     if written != len(outputs):
         report.detail = output if written is None else f"changelog write wrote {written} of {len(outputs)} file(s)"
