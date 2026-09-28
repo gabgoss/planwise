@@ -481,6 +481,36 @@ def test_path1_writers_after_migration(tmp_path, monkeypatch):
     assert changelog.index("## Entry 2") < changelog.index("## Entry 1")  # newest first, prepended
 
 
+def test_path1_hub_lists_every_part_after_a_hub_routed_write(tmp_path, monkeypatch):
+    """The hub-side promotion-log file lists every Archive part on disk.
+
+    The migration leaves the hub header-only (the fixture's one row, LL-003,
+    routes to the 001-050 part). LL-201 is the first id `log_destination`
+    routes to the hub itself, so this write is what makes the hub carry
+    rows, and after it the hub's `Parts:` line must name every part file
+    that exists. The expected set is read from disk, never hardcoded."""
+    cfg, lessons_dir = _project(tmp_path)
+    cfg = _pin(cfg, FROM)
+    monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
+    artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None)
+    config_path = cfg.project_root / "planwise" / "config.yaml"
+    hub_rel = "00-PromotionLog-LessonsLearned.md"
+
+    rc = promotion_log.main(["--config", str(config_path), "--lesson", "LL-201",
+                             "--artifact", "rule-y.md", "--file", "rule-y.md", "--date", "2026-09-02"])
+    assert rc == 0
+
+    hub = read_text(lessons_dir / hub_rel)
+    assert "| 2026-09-02 | LL-201 | rule-y.md | rule-y.md |" in hub
+    on_disk = sorted(p.relative_to(lessons_dir).as_posix()
+                     for p in (lessons_dir / "Archive").glob("PromotionLog-LessonsLearned-*.md"))
+    assert PROMO_ARCHIVE in on_disk
+    parts_lines = [ln for ln in hub.splitlines() if ln.startswith("Parts: ")]
+    assert len(parts_lines) == 1, hub
+    listed = sorted(href for _text, href in re.findall(r"\[([^\]]*)\]\(([^)]*)\)", parts_lines[0]))
+    assert listed == on_disk
+
+
 def test_path1_refusal_leaves_tree_untouched(tmp_path, monkeypatch, capsys):
     """LL-002's row resolves to zero files (its own file is omitted) ->
     state `refused`, grouped in one RefusalSet block naming it, exit code

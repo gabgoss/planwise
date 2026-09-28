@@ -40,7 +40,8 @@ lessons/` (first pre-image of the day wins, later same-day writes get a
 numbered `.N.bak` sibling); a failure restores every touched file and
 removes whatever this call created, and the caller sees a clean REFUSED
 message, never a raw traceback; a success logs one DISPOSITIONS row per
-file touched. A re-run also repairs a hub listing a century file's
+file touched. An append routed to the hub itself brings that listing in
+line with the century files on disk in the same write. A re-run also repairs a hub listing a century file's
 existence has outgrown, in its existing form, even when the row itself is
 already logged — and a call that refuses for any other reason (a
 duplicate, an unreadable index) writes nothing unless the listing was
@@ -456,6 +457,12 @@ def main(argv: list | None = None) -> int:
             new_text = _insert_after_last_row(text, rows, new_line)
         except Refusal as exc:
             return _say(1, f"REFUSED: {exc}", js, err=True)
+        # A row routed to the hub itself rewrites the hub, so its Archive-parts
+        # listing is brought in line with the century files on disk in the
+        # same write (a no-op when it already names exactly that set).
+        if dest_path == hub_path:
+            new_text = _with_parts_listing(new_text, newline_of(text),
+                                           _existing_archive_parts(hub_path.parent, naming))
         # An append into an EXISTING file replaces a user file, exactly like
         # a century-file creation's hub rewrite -- the same backup rule
         # applies, so it goes through the same helper rather than writing
