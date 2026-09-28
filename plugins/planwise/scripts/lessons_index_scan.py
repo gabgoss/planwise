@@ -203,9 +203,9 @@ def _parse_list_field(raw: str) -> list:
 
 def _read_frontmatter_map(path: Path) -> dict:
     raw_content = read_text_preserving_newlines(path)
-    # See the module docstring's CRLF section: split_frontmatter_block's
-    # fence check is LF-only, so a CRLF file's line endings are normalised
-    # before the split.
+    # See the `generate_lessons_index` module docstring's CRLF section:
+    # split_frontmatter_block's fence check is LF-only, so a CRLF file's
+    # line endings are normalised before the split.
     content = raw_content.replace("\r\n", "\n")
     parts = split_frontmatter_block(content)
     if parts is None:
