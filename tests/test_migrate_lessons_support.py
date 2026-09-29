@@ -229,6 +229,12 @@ def test_log_destination_covers_all_five_bands():
     assert sup.log_destination(250, NAMING) == "00-PromotionLog-LessonsLearned.md"
 
 
+def test_century_log_filenames_match_log_destination_over_century_ids():
+    assert set(sup.century_log_filenames(NAMING)) == {
+        sup.log_destination(i, NAMING) for i in range(1, 201)
+    }
+
+
 def test_render_promotion_logs_groups_by_destination():
     rows = sup.walk_promotion_log(LOG_TEXT)
     out = dict(sup.render_promotion_logs(rows, NAMING, "\n"))

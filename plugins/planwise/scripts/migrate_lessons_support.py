@@ -569,28 +569,50 @@ def promotion_log_residue(leftover: list) -> tuple:
     return "\n".join(kept) + "\n", content
 
 
+# The Archive century bands of the promotion log, in ascending order: each
+# pair is (highest lesson id the band holds, the band's filename label). An
+# id above the last upper bound belongs to the hub-side file. This table is
+# the single owner of the band boundaries: `log_destination` routes by it and
+# `century_log_filenames` lists from it, so the two cannot disagree.
+_CENTURY_BANDS = (
+    (50, "001-050"),
+    (75, "051-075"),
+    (100, "076-100"),
+    (200, "101-200"),
+)
+
+
+def _century_filename(stem: str, label: str, naming) -> str:
+    return f"Archive/{stem}-{label}{naming.suffix}"
+
+
 def log_destination(lesson_id: int, naming) -> str:
     """The append target as a pure function of the id alone: <=50, 51-75,
     76-100 and 101-200 to their Archive century file, >=201 to the
-    hub-side file. `naming` is a lessons `IndexNaming` (see
-    `_index_naming`); every filename derives from it, never hardcoded, so
-    a custom `index_files.lessons` renames every century file along with
-    the hub. A promotion-log writer that appends rows after migration
-    routes each row through this same function, so keep its
-    `(lesson_id: int, naming) -> str` signature stable."""
+    hub-side file (the bands are `_CENTURY_BANDS`). `naming` is a lessons
+    `IndexNaming` (see `_index_naming`); every filename derives from it,
+    never hardcoded, so a custom `index_files.lessons` renames every
+    century file along with the hub. A promotion-log writer that appends
+    rows after migration routes each row through this same function, so
+    keep its `(lesson_id: int, naming) -> str` signature stable."""
     if lesson_id is None or lesson_id < 1:
         raise Refusal(f"promotion-log row names lesson id {lesson_id!r}, out of the expected range")
     hub_name = _promotion_log_filename(naming)
     stem = Path(hub_name).stem.removeprefix("00-")
-    if lesson_id <= 50:
-        return f"Archive/{stem}-001-050{naming.suffix}"
-    if lesson_id <= 75:
-        return f"Archive/{stem}-051-075{naming.suffix}"
-    if lesson_id <= 100:
-        return f"Archive/{stem}-076-100{naming.suffix}"
-    if lesson_id <= 200:
-        return f"Archive/{stem}-101-200{naming.suffix}"
+    for upper_bound, label in _CENTURY_BANDS:
+        if lesson_id <= upper_bound:
+            return _century_filename(stem, label, naming)
     return hub_name
+
+
+def century_log_filenames(naming) -> list:
+    """Every Archive century filename of the promotion log, in band order
+    (lowest ids first) -- the files `log_destination` can return other than
+    the hub-side file. Derived from the same band table as
+    `log_destination`, so a caller that enumerates the century files asks
+    the owner of the bands instead of probing it with hardcoded ids."""
+    stem = Path(_promotion_log_filename(naming)).stem.removeprefix("00-")
+    return [_century_filename(stem, label, naming) for _upper_bound, label in _CENTURY_BANDS]
 
 
 def render_promotion_logs(rows: list, naming, nl: str) -> list:

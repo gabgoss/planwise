@@ -658,7 +658,7 @@ def build_report(config: dict, index_path: Path) -> dict:
     # hub path, and that key always read "missing" there regardless of
     # content.
     log_paths = [lessons_dir / gen._promotion_log_filename(naming)]
-    log_paths += [lessons_dir / sup.log_destination(lid, naming) for lid in (1, 51, 76, 101)]
+    log_paths += [lessons_dir / name for name in sup.century_log_filenames(naming)]
     existing_logs = [p for p in log_paths if p.exists()]
     if existing_logs:
         populated, unreadable = False, None

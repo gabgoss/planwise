@@ -70,6 +70,7 @@ from config_loader import load_config
 from migrate_lessons_support import (
     Refusal,
     _promotion_log_filename,
+    century_log_filenames,
     log_destination,
     newline_of,
     render_promotion_logs,
@@ -205,8 +206,6 @@ def _insert_after_last_row(text: str, rows: list, new_line: str) -> str:
     return nl.join(lines)
 
 
-_CENTURY_PROBE_IDS = (1, 51, 76, 101)  # one id per Archive century band
-
 # Two listing forms are recognised on a hub's Archive-parts line: `Parts: `
 # (the current writer's own form, `migrate_lessons_support.
 # render_promotion_logs`, comma-space separated, visible link text equal to
@@ -223,11 +222,10 @@ _LISTING_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 def _existing_archive_parts(lessons_dir: Path, naming) -> list:
     """The Archive century filenames that exist on disk right now, sorted
     ascending -- the same set and order `render_promotion_logs` lists in a
-    hub's `Parts:` line. Derived by asking `log_destination` -- never
-    hardcoding the band boundaries or the stem -- for one representative
-    id per band, then checking which of those files are present."""
-    names = {log_destination(i, naming) for i in _CENTURY_PROBE_IDS}
-    return sorted(n for n in names if (lessons_dir / n).is_file())
+    hub's `Parts:` line. Derived by asking `century_log_filenames` -- never
+    hardcoding the band boundaries or the stem -- for every band's file,
+    then checking which of those files are present."""
+    return sorted(n for n in century_log_filenames(naming) if (lessons_dir / n).is_file())
 
 
 def _parse_existing_listing(line: str):
