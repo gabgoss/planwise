@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
-"""Detect and reconcile plans-index status drift against each plan's Master Plan.
+"""Detect and reconcile plans-index drift against each plan's Master Plan.
 
-The plans index is a denormalized cache: each row's Status column is a copy of
-its Master Plan's own `**Status:**` field, written at some earlier point in
-time. If a plan's Master Plan is updated without the index being refreshed to
-match, the index row goes stale. This module is the single, testable source of
-that drift logic so multiple callers (e.g. a listing command and a doctor/
-health-check command) can detect and, on request, reconcile the same way
-instead of each re-implementing the comparison.
+The plans index is generated from the Master Plans on disk by
+`generate_plans_index.py`. This module is a thin audit over that generator, so
+the audit and the writer can never disagree about what a row should say. It
+keeps no row parser of its own: the index is read by `parse_plans`, and the
+expected rows come from the generator's render.
 
 Two operations:
-  - detect_drift(config): read-only. Resolves each index row's Master Plan via
-    the row's Path column, compares statuses using a normalized "base token"
-    (so a gated-completion note suffix does not register as false drift), and
-    reports rows whose Master Plan cannot be found as anomalies rather than
-    drift.
-  - reconcile(config): re-reads the index fresh (race-safe against a
-    concurrent writer that may have healed a row since a prior detect call),
-    and writes the Status + Last Updated cells of any row still drifted,
-    mirroring the Master Plan's own status and last-updated date.
+  - detect_drift(config): read-only. Reads the index on disk, renders the index
+    the generator would write, and compares the two by Path. Findings:
+    `missing-row` and `stale-row` (one per differing field) go to `drifts`.
+    `orphan-row`, `duplicate-row`, `unparsed-rows` and the render's own status
+    anomalies go to `anomalies`. A hand-authored (legacy-shaped) index is
+    reported as `legacy-shape` and never compared.
+  - reconcile(config): re-reads the index fresh (race-safe against a concurrent
+    writer), and when the index differs from the render, hands the write to the
+    generator. This module never computes a cell.
+
+The audit refuses to report a clean result over a comparison it could not
+make. When the index or the tree holds rows and none of them were compared, or
+when part of the index could not be parsed, `main` exits 3. A legacy-shaped
+index exits 2. A missing index with no Master Plans on disk exits 1.
 """
 
-import re
+import argparse
 import sys
-from datetime import datetime
 from pathlib import Path
 
 # Fix Windows cp1252 stdout encoding
@@ -33,336 +35,386 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
-from markdown_parser import pad_cell, split_row_cells, split_row_raw
+from generate_plans_index import (
+    diff_index_rows,
+    index_matches_render,
+    plans_index_path,
+    render_plans_index,
+    write_plans_index,
+)
+from parse_plans import (
+    detect_index_shape,
+    enumerate_master_plans,
+    master_plan_path_for,
+    normalize_status,
+    parse_index_table,
+)
 from reconcile_common import (
     format_drift_report,
     read_text_preserving_newlines,
-    run_reconcile_cli,
-    write_text_preserving_newlines,
+    write_json_result,
 )
 
-_HEADER_RE = re.compile(r"\|\s*Abbrev\s*\|")
-_SEPARATOR_RE = re.compile(r"\|[-\s|]+\|")
-_STATUS_FIELD_RE = re.compile(r"^\*\*Status:\*\*\s*(.+)$", re.MULTILINE)
-# The date may be followed by the closing `*` OR an annotation before it
-# (e.g. `*Last Updated: 2026-03-19 (Session-02 COMPLETE)*`), so do not require
-# the `*` immediately after the date — the fixed-width date group is boundary
-# enough. Requiring a trailing `*` here silently drops annotated footers and
-# falls back to today.
-_LAST_UPDATED_RE = re.compile(r"^\*Last Updated:\s*(\d{4}-\d{2}-\d{2})", re.MULTILINE)
+JSON_PREFIX = "reconcile-plans-"
+
+_ROW_CLASSES = ("missing-row", "orphan-row", "stale-row")
 
 
-def _plans_index_path(config: dict) -> Path:
-    """Resolve the plans index file path from config.
-
-    Reuses config_loader's resolved `_plans_dir` and reads
-    `project.index_files.plans` for the filename (default: 00-Index-Plans.md).
-    """
-    project = config.get("project", {}) if isinstance(config.get("project"), dict) else {}
-    index_files = project.get("index_files", {}) if isinstance(project.get("index_files"), dict) else {}
-    filename = index_files.get("plans", "00-Index-Plans.md")
-    return config["_plans_dir"] / filename
+class LegacyIndexError(Exception):
+    """The on-disk index is hand-authored and must be migrated, not rewritten."""
 
 
-def _master_plan_filename(abbrev: str, meta: bool = False) -> str:
-    """Build the Master Plan filename for a plan.
-
-    Regular execution plans name their Master Plan `{Abbrev}-Master-Plan.md`;
-    Discovery/Meta plans name theirs `{Abbrev}-META-Master-Plan.md`.
-    """
-    return f"{abbrev}-META-Master-Plan.md" if meta else f"{abbrev}-Master-Plan.md"
+class WriteRefusedError(Exception):
+    """The generator refused the write. The message names the refusal and nothing was written."""
 
 
-def _is_meta_row(row: dict) -> bool:
-    """True when a Plans-index row's Path marks it a Discovery/Meta plan.
-
-    Discovery/Meta plans live under a `Meta-{Abbrev}/` directory (the final
-    non-empty Path segment starts with `Meta-`) and name their Master Plan
-    `{Abbrev}-META-Master-Plan.md` rather than `{Abbrev}-Master-Plan.md`. This
-    marker gates the `-META-` resolution fallback so a genuinely-missing
-    regular Master Plan still reports as an anomaly instead of silently probing
-    a second filename.
-    """
-    segments = [s for s in row.get("path", "").split("/") if s]
-    return bool(segments) and segments[-1].startswith("Meta-")
-
-
-def _relative_master_plan_path(config: dict, row: dict) -> str:
-    """Build a project-relative display path for anomaly reporting.
-
-    Uses the raw (unresolved) project.plans_dir string rather than the
-    absolute filesystem path, so reports stay portable across machines. Names
-    the `-META-` convention for Meta-marked rows so a genuinely-missing
-    Discovery/Meta Master Plan reports the filename it should actually have.
-    """
-    project = config.get("project", {}) if isinstance(config.get("project"), dict) else {}
-    plans_rel = project.get("plans_dir", "Plans")
-    filename = _master_plan_filename(row["abbrev"], meta=_is_meta_row(row))
-    return f"{plans_rel}/{row['path']}{filename}"
-
-
-def resolve_master_plan_path(config: dict, row: dict) -> Path:
-    """Resolve a Plans-index row's Master Plan file path (absolute, for file I/O).
-
-    Joins the resolved plans directory with the row's Path column (which
-    already ends in `/` and may nest) and the Master Plan filename. Tries the
-    regular `{Abbrev}-Master-Plan.md` first; when that file does not exist AND
-    the row's Path marks it a Discovery/Meta plan, falls back to the
-    `{Abbrev}-META-Master-Plan.md` convention those plans use. A genuinely-
-    missing regular Master Plan (Path not Meta-marked) returns the primary
-    path, which the caller reports as an anomaly.
-    """
-    plan_dir = config["_plans_dir"] / row["path"]
-    primary = plan_dir / _master_plan_filename(row["abbrev"])
-    if not primary.exists() and _is_meta_row(row):
-        meta_path = plan_dir / _master_plan_filename(row["abbrev"], meta=True)
-        if meta_path.exists():
-            return meta_path
-    return primary
+def _legacy_message(index_path: Path) -> str:
+    return (
+        f"Error: {index_path} is a hand-authored plans index — run /planwise upgrade "
+        "to migrate it before auditing it"
+    )
 
 
 def parse_plans_index(content: str) -> list[dict]:
-    """Parse the Plans index markdown table into a list of row dicts.
+    """Parse the plans index table into a list of row dicts.
 
-    The table's header starts with an Abbrev column (not ID), so the generic
-    shared table parser's ID-column header detection does not apply here;
-    this parses the pipe table directly, mirroring its cell-splitting style.
+    Delegates to `parse_plans.parse_index_table`, which reads past HTML
+    comments and blank lines and accepts bare, bold, linked and escaped cells.
 
     Returns dicts with keys: abbrev, name, status, created, last_updated,
-    path, line_number (index into content.split("\\n"), used by reconcile()
-    to edit the row's cells in place).
+    path, line_number (a 0-based index into content.split("\\n")).
     """
-    lines = content.split("\n")
-
-    header_idx = None
-    for i, line in enumerate(lines):
-        if _HEADER_RE.match(line.strip()):
-            header_idx = i
-            break
-    if header_idx is None:
-        return []
-
-    separator_idx = header_idx + 1
-    if separator_idx >= len(lines) or not _SEPARATOR_RE.match(lines[separator_idx].strip()):
-        return []
-
-    rows = []
-    for i in range(separator_idx + 1, len(lines)):
-        stripped = lines[i].strip()
-        if not stripped.startswith("|"):
-            break
-        cells = split_row_cells(stripped)
-        if len(cells) < 6:
-            continue
-        abbrev = cells[0]
-        if not abbrev or re.match(r"^-+$", abbrev):
-            continue
-        rows.append(
-            {
-                "abbrev": abbrev,
-                "name": cells[1],
-                "status": cells[2],
-                "created": cells[3],
-                "last_updated": cells[4],
-                "path": cells[5],
-                "line_number": i,
-            }
-        )
-    return rows
+    return [
+        {
+            "abbrev": row.abbrev,
+            "name": row.name,
+            "status": row.status_raw,
+            "created": row.created,
+            "last_updated": row.last_updated,
+            "path": row.path,
+            "line_number": row.line_number - 1,
+        }
+        for row in parse_index_table(content).rows
+    ]
 
 
 def base_token(status: str) -> str:
-    """Normalize a status string to its comparison token.
+    """Normalize a status string to its leading token, or `""` when it has none.
 
-    The base token is the first whitespace-delimited word, uppercased, with
-    any wrapping markdown emphasis (`**`, `*`, `__`) stripped. A trailing note
-    suffix (e.g. " -- awaiting user action" or " - some note") is naturally
-    excluded since it is separated from the token by whitespace.
     Example: "IN_PROGRESS -- awaiting user transfer" -> "IN_PROGRESS".
-    Example: "**COMPLETE** (2026-01-01) -- shipped" -> "COMPLETE".
+    Example: "✅ **COMPLETE (2026-01-01) -- shipped" -> "COMPLETE".
     """
-    stripped = status.strip() if status else ""
-    if not stripped:
-        return ""
-    token = stripped.split()[0].upper()
-    return token.strip("*_")
+    return normalize_status(status) or ""
 
 
-def read_master_plan_status(mp_path: Path) -> tuple[str | None, str | None]:
-    """Read a Master Plan's Status field and Last Updated footer date.
+def resolve_master_plan_path(config: dict, row: dict) -> Path:
+    """Resolve an index row's Master Plan file path (absolute, for file I/O).
 
-    Returns (status, last_updated) — either may be None if the file has no
-    parseable field. Does not raise if the file is missing; callers should
-    check existence first.
+    A Path whose last segment starts `Meta-` names `{Abbrev}-META-Master-Plan.md`.
+    Every other Path names `{Abbrev}-Master-Plan.md`. The caller tests whether
+    the returned file exists.
     """
-    if not mp_path.exists():
-        return None, None
-    content = mp_path.read_text(encoding="utf-8")
-    status_match = _STATUS_FIELD_RE.search(content)
-    status = status_match.group(1).strip() if status_match else None
-    date_match = _LAST_UPDATED_RE.search(content)
-    last_updated = date_match.group(1) if date_match else None
-    return status, last_updated
+    return master_plan_path_for(config["_plans_dir"], row["path"], row["abbrev"])
 
 
-def _evaluate_row(config: dict, row: dict) -> dict:
-    """Evaluate a single Plans-index row against its Master Plan.
+def _display_path(config: dict, file: Path) -> str:
+    """A portable display path: the configured plans directory name plus the file's place under it."""
+    project = config.get("project", {}) if isinstance(config.get("project"), dict) else {}
+    plans_rel = project.get("plans_dir", "Plans")
+    try:
+        relative = file.relative_to(Path(config["_plans_dir"])).as_posix()
+    except ValueError:
+        return file.as_posix()
+    return f"{plans_rel}/{relative}"
 
-    Single source of the detect/reconcile comparison so neither caller
-    duplicates it. Returns a dict tagged with kind "drift", "anomaly", or
-    "ok", carrying whatever fields that kind needs downstream.
-    """
-    mp_path = resolve_master_plan_path(config, row)
-    if not mp_path.exists():
-        return {
-            "kind": "anomaly",
-            "abbrev": row["abbrev"],
-            "reason": "Master Plan not found",
-            "expected_path": _relative_master_plan_path(config, row),
-        }
 
-    mp_status, mp_last_updated = read_master_plan_status(mp_path)
-    if mp_status is None:
-        return {
-            "kind": "anomaly",
-            "abbrev": row["abbrev"],
-            "reason": "Master Plan has no Status field",
-            "expected_path": _relative_master_plan_path(config, row),
-        }
+def _cell_or_none(value: str):
+    return None if value in ("", "-") else value
 
-    if base_token(row["status"]) == base_token(mp_status):
-        return {"kind": "ok"}
 
-    # The index Status cell holds a single enum token; reconcile writes
-    # mp_status back verbatim, and callers render it in a one-line drift
-    # banner. Store the NORMALIZED base token, not the raw Master Plan Status
-    # line — real Master Plans annotate that line heavily (e.g.
-    # "COMPLETE — all 7 sprints done 2026-06-01 (...)", or a markdown-bolded
-    # "**COMPLETE**"), and writing the raw string would corrupt the one-token
-    # cell (and break any exact-token --active filter that reads it back).
-    return {
-        "kind": "drift",
-        "abbrev": row["abbrev"],
-        "index_status": row["status"],
-        "mp_status": base_token(mp_status),
-        "mp_last_updated": mp_last_updated,
-        "path": row["path"],
-        "line_number": row["line_number"],
+def _drift_record(finding: dict, disk_by_line: dict, rendered_by_path: dict) -> dict:
+    """One `drifts` entry. A status finding carries the keys older readers expect."""
+    rendered_row = rendered_by_path.get(finding["path"])
+    source_row = disk_by_line.get(finding.get("line")) or rendered_row
+    record = {
+        "class": finding["class"],
+        "abbrev": source_row.abbrev if source_row else "-",
+        "path": finding["path"],
     }
+    if finding["class"] == "stale-row":
+        record.update(field=finding["field"], disk=finding["disk"], rendered=finding["rendered"], line=finding["line"])
+        if finding["field"] == "status":
+            record.update(
+                index_status=finding["disk"],
+                mp_status=finding["rendered"],
+                mp_last_updated=_cell_or_none(rendered_row.last_updated) if rendered_row else None,
+            )
+    record["message"] = finding["message"]
+    return record
 
 
 def detect_drift(config: dict) -> dict:
-    """Compare each Plans-index row's Status against its Master Plan's Status.
+    """Compare the on-disk plans index with the index the generator would render.
 
     Read-only. Never writes. Returns:
-        {"drifts": [{"abbrev", "index_status", "mp_status", "mp_last_updated",
-                     "path"}, ...],
-         "anomalies": [{"abbrev", "reason", "expected_path"}, ...]}
+        {"drifts": [{"class", "abbrev", "path", "message", ...}, ...],
+         "anomalies": [{"class", "abbrev", "reason", "expected_path", ...}, ...],
+         "compared": int, "total": int, "status": str}
+
+    A `stale-row` for the status field also carries `index_status`,
+    `mp_status` and `mp_last_updated`. `compared` counts the Paths present on
+    both sides. `total` counts the table-shaped lines in the table region plus
+    every six-cell line outside it, or the Master Plans the walk found when the
+    file has no such line. `status` is one of
+    `legacy-shape`, `could-not-run`, `incomplete`, `index-missing` or `ran`.
     """
-    index_path = _plans_index_path(config)
-    content = index_path.read_text(encoding="utf-8")
-    rows = parse_plans_index(content)
+    index_path = plans_index_path(config)
+    exists = index_path.is_file()
+    content = read_text_preserving_newlines(index_path) if exists else ""
+    table = parse_index_table(content)
 
-    drifts = []
-    anomalies = []
-    for row in rows:
-        evaluation = _evaluate_row(config, row)
-        kind = evaluation["kind"]
-        if kind == "drift":
-            drifts.append(
-                {k: v for k, v in evaluation.items() if k not in ("kind", "line_number")}
+    if detect_index_shape(content) == "legacy":
+        anomaly = {
+            "class": "legacy-shape",
+            "abbrev": "-",
+            "reason": "hand-authored plans index; run /planwise upgrade to migrate it",
+            "expected_path": str(index_path),
+        }
+        return {"drifts": [], "anomalies": [anomaly], "compared": 0, "total": len(table.table_lines), "status": "legacy-shape"}
+
+    render = render_plans_index(config)
+    findings = diff_index_rows(table.rows, render.rows)
+    disk_by_line = {row.line_number: row for row in table.rows}
+    rendered_by_path: dict = {}
+    for row in render.rows:
+        rendered_by_path.setdefault(row.path, row)
+
+    drifts: list = []
+    anomalies: list = []
+    for finding in findings:
+        kind = finding["class"]
+        if kind in ("missing-row", "stale-row"):
+            drifts.append(_drift_record(finding, disk_by_line, rendered_by_path))
+        elif kind == "orphan-row":
+            row = disk_by_line[finding["line"]]
+            expected = resolve_master_plan_path(config, {"abbrev": row.abbrev, "path": row.path})
+            anomalies.append(
+                {
+                    "class": "orphan-row",
+                    "abbrev": row.abbrev,
+                    "reason": "Master Plan not found",
+                    "expected_path": _display_path(config, expected),
+                    "path": row.path,
+                    "line": row.line_number,
+                }
             )
-        elif kind == "anomaly":
-            anomalies.append({k: v for k, v in evaluation.items() if k != "kind"})
+        elif kind == "duplicate-row":
+            first = disk_by_line[finding["lines"][0]]
+            expected = resolve_master_plan_path(config, {"abbrev": first.abbrev, "path": first.path})
+            anomalies.append(
+                {
+                    "class": "duplicate-row",
+                    "source": "index",
+                    "abbrev": first.abbrev,
+                    "reason": finding["message"],
+                    "expected_path": _display_path(config, expected),
+                    "path": first.path,
+                    "lines": finding["lines"],
+                }
+            )
 
-    return {"drifts": drifts, "anomalies": anomalies}
+    if table.unparsed:
+        lines = [{"line": line.line_number, "reason": line.reason} for line in table.unparsed]
+        anomalies.append(
+            {
+                "class": "unparsed-rows",
+                "abbrev": "-",
+                "reason": "; ".join(f"line {item['line']} ({item['reason']})" for item in lines),
+                "expected_path": str(index_path),
+                "lines": lines,
+            }
+        )
+
+    abbrev_by_file = {row.file: row.abbrev for row in render.rows}
+    for anomaly in render.anomalies:
+        file = anomaly.get("file")
+        if file is None:
+            first = rendered_by_path.get(anomaly.get("path"))
+            abbrev = first.abbrev if first else "-"
+            file = ", ".join(anomaly.get("files", []))
+        else:
+            abbrev = abbrev_by_file.get(file, "-")
+        record = {
+            "class": anomaly["class"],
+            "abbrev": abbrev,
+            "reason": anomaly["message"],
+            "expected_path": file or "-",
+        }
+        if anomaly["class"] == "duplicate-row":
+            record.update(source="tree", path=anomaly["path"])
+        anomalies.append(record)
+
+    compared = findings.compared
+    total = len(table.table_lines) or len(render.rows)
+    if total >= 1 and compared == 0:
+        status = "could-not-run"
+    elif table.unparsed:
+        status = "incomplete"
+    elif not exists and not render.rows:
+        status = "index-missing"
+    else:
+        status = "ran"
+    return {"drifts": drifts, "anomalies": anomalies, "compared": compared, "total": total, "status": status}
+
+
+def _write_through_generator(config: dict) -> tuple[int, int]:
+    """Write the index through the generator. Returns (rows changed, write exit code).
+
+    Re-reads the index fresh, so a row healed since an earlier `detect_drift`
+    is not counted. When the file already equals the render (the `Generated:`
+    line masked) nothing is written. The count is the number of Paths whose
+    row the render adds, drops or changes. When the generator refuses the
+    write, this raises `WriteRefusedError` with the generator's message.
+    """
+    index_path = plans_index_path(config)
+    exists = index_path.is_file()
+    disk = read_text_preserving_newlines(index_path) if exists else ""
+    if detect_index_shape(disk) == "legacy":
+        raise LegacyIndexError(_legacy_message(index_path))
+
+    render = render_plans_index(config)
+    anomaly_code = 1 if render.anomalies else 0
+    if exists and index_matches_render(disk, render):
+        return 0, anomaly_code
+
+    findings = diff_index_rows(parse_index_table(disk).rows, render.rows)
+    changed = len({finding["path"] for finding in findings if finding["class"] in _ROW_CLASSES})
+    result = write_plans_index(config)
+    if result.refusal is not None:
+        raise WriteRefusedError(result.refusal)
+    return changed, result.exit_code
 
 
 def reconcile(config: dict) -> int:
-    """Re-read the index and write only rows still drifted against their Master Plan.
+    """Re-read the index and rewrite it through the generator when it differs from the render.
 
-    Race-safe: reads the index fresh from disk and recomputes drift against
-    that just-read copy rather than trusting a previously computed result, so
-    a row healed by a concurrent writer between detect and write is read as
-    non-drifted and left untouched. Anomaly rows (missing Master Plan, or a
-    Master Plan with no Status field) are never written.
+    Race-safe: the index is read fresh from disk and compared with a fresh
+    render, so a row a concurrent writer healed since a prior `detect_drift`
+    is not counted and not rewritten. A hand-authored (legacy-shaped) index
+    raises `LegacyIndexError` and nothing is written. A write the generator
+    refuses, such as an over-budget render, raises `WriteRefusedError`. Every
+    written byte comes from the generator's render.
 
-    For each still-drifted row, sets Status to the Master Plan's status
-    normalized to its base enum token (so an annotated Master-Plan Status line
-    does not corrupt the one-token index cell) and Last Updated by mirroring
-    the Master Plan's own `*Last Updated: {YYYY-MM-DD}*` footer date (accepting
-    an annotation after the date), falling back to today only when no parseable
-    date is found. Every other column, the row's surrounding whitespace
-    padding, and the file's original line endings are preserved.
-
-    Returns the number of rows written.
+    Returns the number of rows the write added, dropped or changed.
     """
-    index_path = _plans_index_path(config)
-    # read_text_preserving_newlines uses newline="" so the file's original
-    # line endings survive into `content` untranslated; splitting on "\n"
-    # then leaves a trailing "\r" on each line of a CRLF file, which the
-    # "\n".join round-trip restores exactly on write. Without this,
-    # universal-newline read + text-mode write would rewrite every line to
-    # the platform's os.linesep — a whole-file diff, and a "preserve
-    # non-table lines exactly" violation on this destructive path.
-    content = read_text_preserving_newlines(index_path)
-    rows = parse_plans_index(content)
-    lines = content.split("\n")
+    return _write_through_generator(config)[0]
 
-    written = 0
-    for row in rows:
-        evaluation = _evaluate_row(config, row)
-        if evaluation["kind"] != "drift":
-            continue
 
-        new_status = evaluation["mp_status"]
-        new_last_updated = evaluation["mp_last_updated"] or datetime.now().astimezone().date().isoformat()
-
-        line = lines[row["line_number"]]
-        parts = split_row_raw(line)
-        if len(parts) < 7:
-            continue
-        # parse_plans_index reads status from cell 2 and last_updated from cell
-        # 4; raw segments carry one extra leading element before the opening
-        # pipe, so the write positions are those cell indices plus one.
-        parts[3] = pad_cell(parts[3], new_status)
-        parts[5] = pad_cell(parts[5], new_last_updated)
-        lines[row["line_number"]] = "|".join(parts)
-        written += 1
-
-    if written:
-        # write_text_preserving_newlines uses newline="" to write the
-        # reconstructed text verbatim (no os.linesep translation),
-        # preserving the original CRLF/LF exactly.
-        write_text_preserving_newlines(index_path, "\n".join(lines))
-
-    return written
+def _drift_line(drift: dict) -> str:
+    if drift["class"] == "missing-row":
+        return f"  - {drift['abbrev']}: missing-row {drift['path']} (the tree has a Master Plan the index lacks)"
+    if drift.get("field") == "status":
+        return f"  - {drift['abbrev']}: index={drift['index_status']} -> Master Plan={drift['mp_status']}"
+    return f"  - {drift['abbrev']}: {drift['field']} index={drift['disk']} -> Master Plan={drift['rendered']}"
 
 
 def _format_report(result: dict) -> str:
     """Render a human-readable drift + anomaly report."""
+    rows_out_of_sync = len({d["path"] for d in result["drifts"]})
     return format_drift_report(
         result,
         no_drift_message="No drift detected. All index rows match their Master Plan status.",
         no_drift_only_message="No status drift detected.",
-        drift_header=f"Drift detected ({len(result['drifts'])} row(s) out of sync with Master Plan status):",
-        drift_line=lambda d: f"  - {d['abbrev']}: index={d['index_status']} -> Master Plan={d['mp_status']}",
+        drift_header=f"Drift detected ({rows_out_of_sync} row(s) out of sync with Master Plan status):",
+        drift_line=_drift_line,
         anomaly_line=lambda a: f"  - {a['abbrev']}: {a['reason']} (expected: {a['expected_path']})",
     )
 
 
-def main():
-    run_reconcile_cli(
-        description="Detect and reconcile plans-index status drift against each plan's Master Plan.",
-        load_config=lambda: load_config(Path(__file__)),
-        resolve_index_path=_plans_index_path,
-        missing_index_message=lambda index_path: f"Error: Plans index not found at {index_path}",
-        detect_drift=detect_drift,
-        reconcile=reconcile,
-        format_report=_format_report,
-        json_prefix="reconcile-plans-",
+def _print_json(result: dict) -> None:
+    print(f"JSON: {write_json_result(result, JSON_PREFIX)}")
+
+
+def _report_detect(result: dict, index_path: Path, want_json: bool) -> int:
+    """Print the detect result and return the exit code the status calls for."""
+    status = result["status"]
+    compared, total = result["compared"], result["total"]
+    if status == "index-missing":
+        print(f"Error: Plans index not found at {index_path}", file=sys.stderr)
+        return 1
+    if status == "legacy-shape":
+        print(_legacy_message(index_path), file=sys.stderr)
+        code = 2
+    elif status == "could-not-run":
+        print(f"Drift audit could not run: 0 of {total} rows compared")
+        if index_path.is_file():
+            print("No index row matched a Master Plan on disk.")
+        else:
+            print(f"The index is missing and the tree holds {total} Master Plans.")
+        code = 3
+    elif status == "incomplete" or (compared != total and not result["drifts"] and not result["anomalies"]):
+        # The second clause is a guard: rows went uncompared with nothing to report, so no all-clear.
+        print(f"Drift audit incomplete: {compared} of {total} rows compared")
+        for anomaly in result["anomalies"]:
+            if anomaly["class"] == "unparsed-rows":
+                for item in anomaly["lines"]:
+                    print(f"  - line {item['line']}: table-shaped but yields no row ({item['reason']})")
+        code = 3
+    else:
+        print(_format_report(result))
+        print(f"{compared} of {total} rows compared.")
+        code = 0
+    if want_json:
+        _print_json(result)
+    return code
+
+
+def _report_write(config: dict, index_path: Path, want_json: bool) -> int:
+    if not index_path.is_file() and not enumerate_master_plans(Path(config["_plans_dir"])):
+        print(f"Error: Plans index not found at {index_path}", file=sys.stderr)
+        return 1
+    try:
+        written, code = _write_through_generator(config)
+    except (LegacyIndexError, WriteRefusedError) as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    print(f"Reconciled {written} row(s).")
+    if want_json:
+        _print_json(detect_drift(config))
+    return code
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Detect and reconcile plans-index drift against each plan's Master Plan."
     )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to config.yaml; overrides default config search.",
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Reconcile drifted rows (re-reads the index immediately before writing).",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Additionally write a JSON temp file and print its path.",
+    )
+    # `--config` is declared for `--help` and so an explicit `--config <path>` does not
+    # trip `parse_known_args`; `load_config` reads it back out of `sys.argv` itself.
+    args, _ = parser.parse_known_args()
+
+    config = load_config(Path(__file__))
+    index_path = plans_index_path(config)
+
+    if args.write:
+        return _report_write(config, index_path, args.json)
+    return _report_detect(detect_drift(config), index_path, args.json)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

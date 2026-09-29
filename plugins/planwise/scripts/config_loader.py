@@ -22,6 +22,24 @@ except ImportError:
     HAS_YAML = False
 
 
+# The Master Plan `**Status:**` vocabulary: exactly the values shipped writers
+# emit. `load_config` supplies it as `plan_statuses` when the config has no
+# such list, so the plans index generator always has a vocabulary to check
+# against.
+DEFAULT_PLAN_STATUSES = (
+    "NOT_STARTED",
+    "PLANNING",
+    "READY_TO_EXECUTE",
+    "REVIEWED",
+    "APPROVED",
+    "NEEDS_FIXES",
+    "IN_PROGRESS",
+    "BLOCKED",
+    "COMPLETE",
+    "CLOSED",
+)
+
+
 # Every planwise config.yaml opens with a top-level `project:` mapping (the
 # first block config.yaml.template renders). It is the discriminator the
 # upward walk uses to tell this project's config from an unrelated file that
@@ -478,6 +496,24 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
     # Resolve plans path
     plans_rel = project.get("plans_dir", "Plans")
     config["_plans_dir"] = planwise_root / plans_rel
+    config["_plans_index"] = config["_plans_dir"] / index_files.get("plans", "00-Index-Plans.md")
+
+    # The simple parser turns an empty top-level key into {}, so anything that
+    # is not a non-empty list of strings counts as absent.
+    plan_statuses = config.get("plan_statuses")
+    if isinstance(plan_statuses, list) and plan_statuses and all(isinstance(s, str) for s in plan_statuses):
+        config["plan_statuses"] = list(plan_statuses)
+    else:
+        if isinstance(plan_statuses, list):
+            for entry in plan_statuses:
+                if not isinstance(entry, str):
+                    print(
+                        f"Warning: plan_statuses entry {entry!r} is not a string, "
+                        "so the default plan statuses apply. Quote the value in config.yaml.",
+                        file=sys.stderr,
+                    )
+                    break
+        config["plan_statuses"] = list(DEFAULT_PLAN_STATUSES)
 
     # Resolve lessons paths (optional)
     lessons_dir = project.get("lessons_dir", "")
