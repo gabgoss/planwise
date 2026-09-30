@@ -605,9 +605,7 @@ Ask the user: "Were any lessons learned during this session?"
 
    > [!practice] User-Action-Gate Check
    > When all sprints COMPLETE, check Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain, set IN_PROGRESS with note — NOT COMPLETE.
-5. Update plans index row for this plan in `{plans_dir}/{plans_index}`:
-   - Set **Status** to match the Master Plan status (e.g., IN_PROGRESS or COMPLETE)
-   - Set **Last Updated** to today's date
+5. Set the Master Plan `*Last Updated:*` footer to today. Run `python {plugin_root}/scripts/generate_plans_index.py --config {planwise_root}/config.yaml --write`.
 6. **Close the backlog items this plan resolves** — only when step 4 just set the Master Plan to `Status: COMPLETE`:
    1. `Read` the Master Plan header `**Resolves:**` field. Absent, or `none`: skip this step. A Master Plan authored before the field existed names the item under `## References` instead — treat that citation as the field.
    2. For each item id listed, `Edit` the item file **first**: append a dated line under its `## Notes` section (create the section if absent) — `{today}: resolved by plan {Abbrev}; closed at session {session-id}`. Edit before the status write, because the status write archives the file.
@@ -623,7 +621,7 @@ Ask the user: "Were any lessons learned during this session?"
    5. Record the closed ids in the Summary's Context Notes.
 
 > [!constraint] Twin-BB reconciliation — if a backlog route already shipped this plan's deliverables, reconcile instead of duplicating
-> A plan and a backlog item that name the same deliverables are twins. If this session found its deliverables **already satisfied** at the first dispatch layer — you grepped each deliverable against the live target and it already existed — the work was shipped through a backlog route (`/planwise backlog` Route A/B, a direct commit) and this twin plan was never retired at that route's closeout. Do NOT re-author or re-run idempotency-unsafe steps ("append N rows", "insert at max+1") against already-satisfied state. Reconcile instead: set this plan's Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{NNN} {route} {date})`, update its plans-index row, and record the linkage in the Summary. A plan that is entirely already-satisfied at its first dispatch layer is the signal that its twin was never retired. The reverse defect is the same class: a Master Plan that reaches COMPLETE while the items in its `**Resolves:**` field are still `PLANNING`. Step 6 above closes them.
+> A plan and a backlog item that name the same deliverables are twins. If this session found its deliverables **already satisfied** at the first dispatch layer — you grepped each deliverable against the live target and it already existed — the work was shipped through a backlog route (`/planwise backlog` Route A/B, a direct commit) and this twin plan was never retired at that route's closeout. Do NOT re-author or re-run idempotency-unsafe steps ("append N rows", "insert at max+1") against already-satisfied state. Reconcile instead: set this plan's Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{NNN} {route} {date})` (and its footer date), run `generate_plans_index.py --write`, and record the linkage in the Summary. A plan that is entirely already-satisfied at its first dispatch layer is the signal that its twin was never retired. The reverse defect is the same class: a Master Plan that reaches COMPLETE while the items in its `**Resolves:**` field are still `PLANNING`. Step 6 above closes them.
 
 ### Step 4.4: Propagate Cross-Task Coordination Flags
 
@@ -667,7 +665,7 @@ git push
 
 **Rules:**
 - Stage specific files -- never use `git add .` or `git add -A`
-- Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), plans index (if updated), the backlog item files closed in Step 4.3 and the regenerated backlog index (if any), **any downstream plan files that received propagated coordination flags in Step 4.4**
+- Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), the regenerated plans index, the backlog item files closed in Step 4.3 and the regenerated backlog index (if any), **any downstream plan files that received propagated coordination flags in Step 4.4**
 - Commit types: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
 - Step 4.0's prior-sprint Outputs guard MUST have passed (or carry a recorded Recovery override) before staging — a commit is what makes a silent overwrite of a completed sprint's artifact of record permanent
 

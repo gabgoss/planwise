@@ -373,12 +373,20 @@ artifacts:
     config_keys:
       - "project.plans_dir"
       - "project.index_files.plans"
-    producer: "copy_seed_files()"
+    producer: "copy_seed_files() (seed) / generate_plans_index.py --write (regeneration)"
     consumers:
       - "/planwise plan"
       - "/planwise list"
     missing_key_behavior: warn_loud
     upgrade_behavior: preserve
+    notes: >
+      The file is a regenerated build artifact rendered from each Master
+      Plan's own fields -- see references/plans-schema.md § The One-Writer
+      Rule. A handler edits the Master Plan and runs
+      generate_plans_index.py --write, never a row. copy_seed_files() seeds
+      a fresh project with the generator's output over an empty plans
+      directory. upgrade_behavior stays preserve until a consumer migration
+      path for a legacy-shaped plans index exists.
 
   - id: lessons_index
     on_disk: "{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md"

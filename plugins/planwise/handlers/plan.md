@@ -445,17 +445,15 @@ The contract the tool implements, for reference when reading its output:
 
 **Runs once, after every sprint has been scaffolded** (not per-sprint like 8/8a-8c/8e).
 
-Add a row to the plans index so `/planwise list` reflects the new plan:
+The plans index is generated from each plan's Master Plan, so `/planwise list` reflects the new plan once the generator runs. The Master Plan written earlier in this handler already carries `**Status:** READY_TO_EXECUTE` and its dates. Nothing writes a row by hand, and no Path is composed.
 
-1. Read `{plans_dir}/{plans_index}` (path from `config.yaml`)
-2. Add a row to the table:
-   - **Abbrev:** `{ABBREV}`
-   - **Name:** `{PlanName}`
-   - **Status:** `NOT_STARTED`
-   - **Created:** `{today's date}`
-   - **Last Updated:** `{today's date}`
-   - **Path:** `{plans_dir}/{PlanName}/`
-3. Write the updated index back to disk
+Run the generator once, after every sprint is scaffolded:
+
+```bash
+python "{plugin_root}/scripts/generate_plans_index.py" --config "{planwise_root}/config.yaml" --write
+```
+
+To change a plan's row later, edit the Master Plan's `**Status:**` line (and its footer date), then run `generate_plans_index.py --write`. See [`references/plans-schema.md`](../references/plans-schema.md) § The One-Writer Rule.
 
 ### Step 8e: Populate Verification Commands (Per-File-Type Map)
 
@@ -703,7 +701,7 @@ Before completing `/planwise plan`, verify:
 [ ] Recovery file initialized
 [ ] Outputs/ folder created
 [ ] All files follow naming conventions
-[ ] Plans index updated with new row (Abbrev, Name, Status, Created, Last Updated, Path)
+[ ] Plans index regenerated (generate_plans_index.py --write; no hand-written row)
 [ ] Session token estimates validated (< `practical_session_limit` per session — 100K on Pro, 400K on Max; see `references/session-context-budget.md` §5)
 [ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
 [ ] If DELEGATED: each task estimate + 54K overhead < `context_window` (200K on Pro, 1M on Max)

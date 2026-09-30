@@ -163,5 +163,101 @@ class TestCopySeedFilesCustomLessonsHubName(unittest.TestCase):
         self.assertFalse((lessons_dir / "00-PromotionLog-LessonsLearned.md").exists())
 
 
+class TestCopySeedFilesCustomPlansIndexName(unittest.TestCase):
+    """copy_seed_files names the plans seed's destination from the project's
+    configured `index_files.plans` (when config.yaml already exists at call
+    time) and from the generated default otherwise -- never a fixed literal.
+    An existing destination is never overwritten."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="init_project_seed_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "planwise" / "Backlog").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "planwise" / "LessonsLearned").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "planwise" / "Plans").mkdir(parents=True, exist_ok=True)
+        self.plans_dir = self.tmp / "planwise" / "Plans"
+
+        self.cfg = InitConfig(
+            project_name="seed-copy-fixture",
+            project_root=self.tmp,
+            plugin_root=init_project.get_plugin_root(),
+        )
+
+    def _write_config(self, plans_name: str) -> None:
+        (self.tmp / "planwise" / "config.yaml").write_text(
+            "project:\n"
+            "  planwise_root: planwise\n"
+            "  plans_dir: Plans\n"
+            "  index_files:\n"
+            f"    plans: {plans_name}\n",
+            encoding="utf-8",
+        )
+
+    def test_seed_lands_at_the_configured_name(self):
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML required for _resolve_plans_index_name")
+        self._write_config("00-Plans-Custom.md")
+
+        copied = init_project.copy_seed_files(self.cfg)
+
+        self.assertIn("planwise/Plans/00-Plans-Custom.md", copied)
+        self.assertTrue((self.plans_dir / "00-Plans-Custom.md").exists())
+        self.assertFalse((self.plans_dir / "00-Index-Plans.md").exists())
+
+    def test_no_config_seeds_the_default_name(self):
+        copied = init_project.copy_seed_files(self.cfg)
+
+        self.assertIn("planwise/Plans/00-Index-Plans.md", copied)
+        self.assertTrue((self.plans_dir / "00-Index-Plans.md").exists())
+
+    def test_existing_plans_index_is_never_overwritten(self):
+        dst = self.plans_dir / "00-Index-Plans.md"
+        dst.write_text("existing plans index\n", encoding="utf-8")
+
+        copied = init_project.copy_seed_files(self.cfg)
+
+        self.assertNotIn("planwise/Plans/00-Index-Plans.md", copied)
+        self.assertEqual(dst.read_text(encoding="utf-8"), "existing plans index\n")
+
+    def test_existing_plans_index_at_the_configured_name_is_never_overwritten(self):
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML required for _resolve_plans_index_name")
+        self._write_config("00-Plans-Custom.md")
+        dst = self.plans_dir / "00-Plans-Custom.md"
+        dst.write_text("existing custom plans index\n", encoding="utf-8")
+
+        copied = init_project.copy_seed_files(self.cfg)
+
+        self.assertNotIn("planwise/Plans/00-Plans-Custom.md", copied)
+        self.assertEqual(dst.read_text(encoding="utf-8"), "existing custom plans index\n")
+        self.assertFalse((self.plans_dir / "00-Index-Plans.md").exists())
+
+    def _assert_null_block_falls_back_to_default(self, config_text: str) -> None:
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML required for _resolve_plans_index_name")
+        (self.tmp / "planwise" / "config.yaml").write_text(config_text, encoding="utf-8")
+
+        self.assertEqual(init_project._resolve_plans_index_name(self.cfg), "00-Index-Plans.md")
+
+    def test_null_project_block_falls_back_to_the_default_name(self):
+        self._assert_null_block_falls_back_to_default("project:\n")
+
+    def test_null_index_files_block_falls_back_to_the_default_name(self):
+        self._assert_null_block_falls_back_to_default(
+            "project:\n  planwise_root: planwise\n  index_files:\n"
+        )
+
+    def test_non_dict_index_files_block_falls_back_to_the_default_name(self):
+        self._assert_null_block_falls_back_to_default(
+            "project:\n  planwise_root: planwise\n  index_files: 00-Plans-Custom.md\n"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

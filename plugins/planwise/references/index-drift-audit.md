@@ -16,14 +16,14 @@ python "{plugin_root}/scripts/{reconcile_script}" --config "{planwise_root}/conf
 
 A binding may add a mode flag to this command line and to its `--write` counterpart, as the body-status binding adds `--body-status`.
 
-Read the JSON file at the path it prints (`JSON: {path}`), shaped `{"drifts": [...], "anomalies": [...]}` (the lessons binding uses a different shape entirely — see Per-Index Bindings). `drifts` are rows out of sync with the source of truth; `anomalies` are rows whose source cannot be resolved at all (deleted/renamed — reported, never fabricated).
+Read the JSON file at the path it prints (`JSON: {path}`), shaped `{"drifts": [...], "anomalies": [...]}` (the plans binding adds `compared`, `total` and `status`, and the lessons binding uses a different shape entirely — see Per-Index Bindings). `drifts` are rows out of sync with the source of truth; `anomalies` are rows whose source cannot be resolved at all (deleted/renamed — reported, never fabricated).
 
 ## Result Classes
 
 | Class | Generic meaning | Ever auto-healed? |
 |-------|------------------|--------------------|
 | `drift` | A row (or, for lessons, the single counter) is out of sync with its source of truth | Yes — on explicit consent via `--write`, and only for rows still drifted at write time |
-| `anomaly` | The row's source cannot be resolved (linked file/plan not found, or a file exists with no index row) — a data-integrity signal, not a stale-cache signal | Never — reported only, so nothing is fabricated |
+| `anomaly` | The row's source cannot be resolved (linked file/plan not found, or a file exists with no index row) — a data-integrity signal, not a stale-cache signal | Never — reported only, so nothing is fabricated. The plans binding is the exception: its `--write` regenerates the index and drops orphan rows |
 
 ## Monotonic Sequences Heal Forward Only
 
@@ -54,7 +54,7 @@ elif stated > computed:
 Two corollaries:
 
 - **A record present in the ledger but missing on disk still bounds the counter.** Its identifier was issued, so excluding it from the max would hand the same number out again. Report the missing file as an anomaly **and** keep its identifier in the max — the two dispositions are independent, and only doing the first re-opens the number.
-- **Never heal an anomaly automatically.** Drift has one correct resolution derivable from the data; an anomaly is a disagreement between sources where deciding which side is right needs a human. *A reconciler that heals anomalies has stopped reconciling and started guessing.*
+- **Never heal an anomaly automatically.** Drift has one correct resolution derivable from the data; an anomaly is a disagreement between sources where deciding which side is right needs a human. *A reconciler that heals anomalies has stopped reconciling and started guessing.* The plans binding is the one stated exception: its index is a build artifact, so the Master Plans on disk are the only source and a row with no Master Plan carries no fact to lose. Its `--write` regenerates the index, which drops an `orphan-row`, and its consent prompt says so.
 
 > [!practice] Review prompt for a reconciler spec
 > When a spec says "compute the correct value and correct the field to it", ask what the computed value being **lower** than the stated one would mean, and whether anything downstream still names what would be reissued. A spec that reads symmetrically in both directions usually has not been asked the question.
@@ -83,17 +83,39 @@ After reporting, the caller MAY offer to reconcile via `AskUserQuestion` (prompt
 python "{plugin_root}/scripts/{reconcile_script}" --config "{planwise_root}/config.yaml" --write
 ```
 
-The script re-reads the index immediately before writing (race-safe against a concurrent update to the index elsewhere), reconciles only rows still drifted, and never touches an anomaly row. Report `Reconciled {N} row(s).` Declining leaves the index untouched — the report above already recorded what was found. The two backlog bindings are the exceptions. Each `--write` re-scans item files and never edits the index. The archival binding moves closed item files into `Archive/` and reports `Moved {N} file(s) to Archive/.` The caller then regenerates the index — see [Backlog — `reconcile_backlog.py`](#backlog--reconcile_backlogpy). The body-status binding strips drifted lines in place and reports `Stripped {N} body status line(s).` No regeneration follows a strip — see [Backlog item body status — `reconcile_backlog.py --body-status`](#backlog-item-body-status--reconcile_backlogpy---body-status).
+The script re-reads the index immediately before writing (race-safe against a concurrent update to the index elsewhere), reconciles only rows still drifted, and never touches an anomaly row. The plans binding is the exception: its `--write` regenerates the whole index and drops orphan rows (see [Plans — `reconcile_plans.py`](#plans--reconcile_planspy)). Report `Reconciled {N} row(s).` Declining leaves the index untouched — the report above already recorded what was found. The two backlog bindings are the other exceptions. Each `--write` re-scans item files and never edits the index. The archival binding moves closed item files into `Archive/` and reports `Moved {N} file(s) to Archive/.` The caller then regenerates the index — see [Backlog — `reconcile_backlog.py`](#backlog--reconcile_backlogpy). The body-status binding strips drifted lines in place and reports `Stripped {N} body status line(s).` No regeneration follows a strip — see [Backlog item body status — `reconcile_backlog.py --body-status`](#backlog-item-body-status--reconcile_backlogpy---body-status).
 
 ## Per-Index Bindings
 
 ### Plans — `reconcile_plans.py`
 
-- Source of truth: each row's Master Plan `Status:` field.
-- Drift: index `Status` ≠ Master Plan `Status`. Row identifier: `{ABBR}`.
-- Anomaly: Master Plan not found at the row's linked path.
-- Banner drift line: `{ABBR}: index={X}  ->  Master Plan={Y}`.
-- Consent prompt: "Reconcile {K} drifted row(s) in the plans index to match their Master Plan status?"
+- Source of truth: each Master Plan's own fields, enumerated by the generator's disk walk (see [plans-schema.md](plans-schema.md)). The plans index is a regenerated build artifact with exactly one writer, `generate_plans_index.py --write`. `reconcile_plans.py` is a thin audit over that generator and keeps no row parser of its own.
+- Drift: the on-disk index compared with the index the generator would render, matched by row Path. Row identifier: `{ABBR}`. Drift records are per field and carry a `class`:
+  - `missing-row`: the tree has a Master Plan the index lacks.
+  - `stale-row`: a cell differs from the render. The record has `field`, `disk` and `rendered`. A `stale-row` for `status` also has `index_status`, `mp_status` and `mp_last_updated`. A handler printing a drift line reads `field` for a non-status record.
+- Anomaly classes, reported and never itself a drift:
+  - `orphan-row`: an index row whose Master Plan is not on disk.
+  - `duplicate-row`: two index rows, or two Master Plans, share one Path. The record's `source` is `index` or `tree`.
+  - `unparsed-rows`: a table-shaped line in the index that yields no row.
+  - `legacy-shape`: the index is hand-authored. It is never compared (see the exit-2 rule below).
+  - The render's own status anomalies (`unknown-status`, `missing-status`, `unreadable-file`).
+- Result shape: `{"drifts": [...], "anomalies": [...], "compared": N, "total": M, "status": "..."}`. Read `status`, not only the two lists. It is one of `ran`, `legacy-shape`, `could-not-run`, `incomplete` or `index-missing`. `compared` counts the Paths present on both sides.
+- Exit codes and their banners. Print exactly one of these, never a mix:
+
+  | Exit | `status` | Banner |
+  |------|----------|--------|
+  | 0 | `ran` | The drift banner above, then `{compared} of {total} rows compared.` The all-clear line is legitimate only here |
+  | 3 | `could-not-run` | `Drift audit could not run: 0 of {total} rows compared`, then the script's second line |
+  | 3 | `incomplete` | `Drift audit incomplete: {compared} of {total} rows compared`, then one line per unparsed table line |
+  | 2 | `legacy-shape` | `Error: {index} is a hand-authored plans index — run /planwise upgrade to migrate it before auditing it` (stderr) |
+  | 1 | `index-missing` | `Error: Plans index not found at {index}` (stderr) |
+
+- **The zero-compared rule.** When nothing could be compared, or part of the index could not be parsed, the script prints the exit-3 line and exits 3. An exit 3 is never an all-clear. Rows the script cannot compare are not evidence that the index is right. When the JSON `status` is `could-not-run` and `drifts` holds `missing-row` records, the exit-3 banner also offers `reconcile_plans.py --write`, because regenerating the index is the repair for an index that is empty or missing. The offer says that `--write` regenerates the whole file and drops every line the render does not produce: unparsed lines, prose and comments in the table region, and duplicate rows. On `incomplete`, the banner offers no write, because a regenerate would drop the unparsed lines the script listed.
+- **Write mode.** `reconcile_plans.py --write` delegates to `generate_plans_index.py --write` and passes its exit code through. Exit 0 means written or already current. Exit 1 means the file **was written** and the tree has an anomaly, so the script can print `Reconciled {N} row(s).` and still exit 1. Exit 2 means the write was refused (a legacy-shaped index, or a render over budget). In write mode, exit 1 also covers a missing index when the tree holds no Master Plan, and then the script prints `Error: Plans index not found at {index}` instead. A handler reports a write-mode exit 1 that printed `Reconciled {N} row(s).` as a written index with an anomaly, never as a failed write.
+- A legacy-shaped index exits 2 and names `/planwise upgrade`. Never offer `--write` for it: the generator refuses to overwrite a hand-authored index without `--replace-legacy`.
+- Banner drift line: `{ABBR}: index={X}  ->  Master Plan={Y}` for `status`, `{ABBR}: {field} index={X}  ->  Master Plan={Y}` for another field, and `{ABBR}: missing-row {path}` for a missing row.
+- `--write` regenerates the whole index through `generate_plans_index.py --write`. There is no per-row heal. It adds each `missing-row`, replaces each `stale-row`, **drops each `orphan-row` and collapses a duplicate**, because the regenerated file holds only what the Master Plans on disk render. This is the one binding where the write touches anomaly rows, and it is safe because the index is a build artifact and the Master Plans keep every fact. The script re-reads the index before writing and writes nothing when the file already equals the render. It reports `Reconciled {N} row(s).`, counting every Path added, dropped or changed. A refused write (a legacy-shaped index, or a render over budget) exits 2 with the generator's message on stderr, prints no `Reconciled` line and writes nothing.
+- Consent prompt: "Regenerate the plans index from its Master Plans to resolve {K} drifted row(s)? `--write` regenerates the whole index and drops {O} orphan row(s)." `{K}` counts drifted rows. `{O}` counts `orphan-row` anomalies. State `{O}` even when it is 0.
 
 ### Backlog — `reconcile_backlog.py`
 

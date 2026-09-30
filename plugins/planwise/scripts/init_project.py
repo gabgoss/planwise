@@ -264,6 +264,31 @@ def create_directories(cfg: InitConfig) -> list[str]:
     return created
 
 
+def _resolve_plans_index_name(cfg: InitConfig) -> str:
+    """Read `project.index_files.plans` from the project's config.yaml,
+    falling back to the generated default when config.yaml does not exist yet
+    (the normal fresh-init ordering: copy_seed_files() runs before
+    generate_config()), is unparsable, or the key is unset.
+    """
+    # Same literal as config_loader's `_plans_index` default (no shared constant).
+    default = "00-Index-Plans.md"
+    if not HAS_YAML:
+        return default
+    config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
+    if not config_path.exists():
+        return default
+    try:
+        full = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return default
+    if not isinstance(full, dict):
+        return default
+    # A null or scalar `project:` / `index_files:` block falls back, as config_loader does.
+    project = full.get("project") if isinstance(full.get("project"), dict) else {}
+    index_files = project.get("index_files") if isinstance(project.get("index_files"), dict) else {}
+    return index_files.get("plans") or default
+
+
 def copy_seed_files(cfg: InitConfig) -> list[str]:
     """Copy seed index files. Skips if destination exists. Returns list of copied files.
 
@@ -273,7 +298,8 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
     normal fresh-init ordering, since this runs before generate_config())
     via `_lessons_seed_dst_names` -- the same naming helpers
     `generate_lessons_index.py`'s own footer links use -- never a second,
-    hardcoded pair of companion names.
+    hardcoded pair of companion names. The plans seed is named from
+    `index_files.plans` the same way, via `_resolve_plans_index_name`.
     """
     copied = []
     lessons_hub_name, lessons_changelog_name, lessons_promotion_name = (
@@ -285,7 +311,7 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
         ("00-Index-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/{lessons_hub_name}"),
         ("00-Changelog-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/{lessons_changelog_name}"),
         ("00-PromotionLog-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/{lessons_promotion_name}"),
-        ("00-Index-Plans.md", f"{cfg.planwise_root}/{cfg.plans_dir}/00-Index-Plans.md"),
+        ("00-Index-Plans.md", f"{cfg.planwise_root}/{cfg.plans_dir}/{_resolve_plans_index_name(cfg)}"),
     ]
     seed_dir = cfg.plugin_root / "seed"
     for src_name, dst_rel in seeds:

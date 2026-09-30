@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, report whether this session has the Task checklist tools (`TaskCreate` and siblings) and name the opt-in when it does not, always scan the plans/backlog/lessons bookkeeping indexes against the same Read-tool caps regardless of Token Saver, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against a fresh render of each plan's Master Plan, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, report whether this session has the Task checklist tools (`TaskCreate` and siblings) and name the opt-in when it does not, always scan the plans/backlog/lessons bookkeeping indexes against the same Read-tool caps regardless of Token Saver, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
@@ -321,7 +321,9 @@ none of the formerly mirrored agents left, or they already match shipped.`
 > [!constraint] Read-Only — audit only recommends
 > Stage 11 runs `reconcile_plans.py --json` standalone, reading the plans
 > index (`{plans_dir}/{plans_index}`). It writes nothing unless the user
-> explicitly consents to reconcile — the audit itself never mutates.
+> explicitly consents to reconcile — the audit itself never mutates. On
+> consent, `--write` regenerates the whole index through the generator and
+> drops any orphan row.
 
 Always-on (independent of Token Saver) — auditing plans-index consistency is
 doctor's purpose, so this check has **no `--no-check` escape hatch** (contrast
@@ -333,6 +335,29 @@ against the **plans** index (`reconcile_plans.py`, banner `planwise doctor —
 plans index drift audit`). This is the same detect pass `/planwise list`
 runs, reused here alongside doctor's other health checks — neither handler
 re-implements the comparison.
+
+Read the exit code and the JSON `status`, then report exactly one of these
+outcomes. The exit table is in the canonical's Plans binding.
+
+- **Exit 0 (`ran`) — a real verdict.** Print the canonical banner, then the
+  drift and anomaly lines or `No drift detected`. Only this outcome may print
+  `No drift detected`.
+- **Exit 3 — audit could not run.** Print the script's own lines (`Drift audit
+  could not run: 0 of {total} rows compared` or `Drift audit incomplete:
+  {compared} of {total} rows compared`) under the doctor banner. Never print
+  `No drift detected`. When the JSON `status` is `could-not-run` and `drifts`
+  holds `missing-row` records, offer `reconcile_plans.py --write`, and say
+  that it regenerates the whole file and drops every line the render does not
+  produce. On `incomplete`, offer no write: regenerating would drop the
+  unparsed lines the script listed.
+- **Exit 2 — legacy-shaped plans index.** Print the script's line and name
+  `/planwise upgrade`. Never print `No drift detected`. Offer no write.
+- **Exit 1 — index not found.** In detect mode, print the script's
+  `Error: Plans index not found at {index}` line.
+
+After a consented `reconcile_plans.py --write`, exit 1 has a different
+meaning: the index was written and the tree has an anomaly. Report
+`Reconciled {N} row(s).` and the anomaly, not a failed write.
 
 ---
 
