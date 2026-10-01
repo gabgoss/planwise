@@ -453,6 +453,8 @@ Run the generator once, after every sprint is scaffolded:
 python "{plugin_root}/scripts/generate_plans_index.py" --config "{planwise_root}/config.yaml" --write
 ```
 
+Exit 2 means the index is still hand-authored or unrecognized, and nothing was written. Tell the user to run `/planwise upgrade`, which migrates it. If upgrade reports the index as unrecognized, name `migrate_plans_index.py --report`.
+
 To change a plan's row later, edit the Master Plan's `**Status:**` line (and its footer date), then run `generate_plans_index.py --write`. See [`references/plans-schema.md`](../references/plans-schema.md) § The One-Writer Rule.
 
 ### Step 8e: Populate Verification Commands (Per-File-Type Map)

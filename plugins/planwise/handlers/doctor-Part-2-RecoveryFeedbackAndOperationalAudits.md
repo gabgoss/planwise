@@ -2,7 +2,7 @@
 
 **Part 2 of 3.** This handler spans three files, split by topic because the combined text exceeds the Read-tool page cap. Each Stage keeps its own identifier wherever it lands, so an existing `Stage N` reference still names exactly one section — only the filename that holds it changes. See [`doctor.md`](doctor.md) for the full three-part pointer table, the Config Gate, the Preflight version-state gate, and Stages 8-13.
 
-This file covers **Stages 14-21**: the upgrade recovery-leftover sweep, the settings-grant sweep, the feedback capability and directory probes, the task-tools availability advisory, the backlog body-status and index-shape audits, and the lessons index-shape audit. **Part 3** ([`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md)) covers Steps 4-8: the Token Saver audits, the capture self-containment scan, and the bookkeeping index read-gate scan.
+This file covers **Stages 14-22**: the upgrade recovery-leftover sweep, the settings-grant sweep, the feedback capability and directory probes, the task-tools availability advisory, the backlog body-status and index-shape audits, the lessons index-shape audit, and the plans index-shape audit. **Part 3** ([`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md)) covers Steps 4-8: the Token Saver audits, the capture self-containment scan, and the bookkeeping index read-gate scan.
 
 ---
 
@@ -465,6 +465,36 @@ changelog line is fixed". `legacy`: the counts above, then "run
 `/planwise upgrade` to migrate automatically; backups land under
 `upgrade-backups/`". `unrecognized`: the classifier's reason, then "left
 untouched".
+
+---
+
+### Stage 22: Plans Index Shape Audit
+
+> [!constraint] Read-Only — audit only reports
+> Stage 22 runs `migrate_plans_index.py --report --json` standalone. It
+> classifies the on-disk plans index shape and counts what a migration would
+> move, and it never writes — remediation runs only when the user invokes
+> `/planwise upgrade` or the migrator's own flags directly.
+
+Always-on (independent of Token Saver) — auditing plans-index shape is
+doctor's purpose, so this check has **no `--no-check` escape hatch**.
+
+```bash
+python {plugin_root}/scripts/migrate_plans_index.py --config {planwise_root}/config.yaml --report --json
+```
+
+Print `shape`, `detail`, `index`, `rows`, `comments`, `narrative_cells`,
+`attributable`, `unattributed`, `uncarried_lines`, `root_path_rows`, `prefixed_rows`,
+`status_changes`, `append_targets`, `ready`, and `would_refuse` from the
+JSON. `shape` is `absent`, `generated`, `legacy` or `unrecognized`. A shape
+other than `legacy` prints zero counts and `ready` false. `unknown` (with an
+`error` field) means the report itself failed.
+
+Then one verdict line by `shape`. `generated`: "generated shape, nothing to
+do". `legacy`: the counts above, then "run `/planwise upgrade` to migrate
+automatically; backups land under `upgrade-backups/`". `unrecognized`: the
+classifier's reason from `detail`, then "left untouched". `absent`: "no plans
+index found".
 
 ---
 

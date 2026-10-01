@@ -535,9 +535,28 @@ class TestLegacyGuard:
         cli(two_plans, "--write")
         assert cli(two_plans, "--write")[0] == 0
 
-    def test_an_unrecognized_file_without_a_table_is_not_legacy(self, two_plans, cli):
-        index_of(two_plans).write_text("notes only\n", encoding="utf-8")
+    def test_write_refuses_an_unrecognized_non_empty_index_and_names_the_fix(self, two_plans, cli):
+        body = b"notes only\r\n"
+        index_of(two_plans).write_bytes(body)
+        code, _, err = cli(two_plans, "--write")
+        assert code == 2
+        assert index_of(two_plans).read_bytes() == body
+        assert "migrate_plans_index.py --report" in err and "Nothing was written" in err
+
+    def test_replace_legacy_does_not_override_the_unrecognized_refusal(self, two_plans, cli):
+        body = b"# Our plans\n\nWe track plans in a spreadsheet now.\n"
+        index_of(two_plans).write_bytes(body)
+        assert cli(two_plans, "--write", "--replace-legacy")[0] == 2
+        assert index_of(two_plans).read_bytes() == body
+
+    def test_write_still_writes_a_missing_a_zero_byte_and_a_blank_index(self, two_plans, cli):
+        assert not index_of(two_plans).exists()
         assert cli(two_plans, "--write")[0] == 0
+        index_of(two_plans).write_bytes(b"")
+        assert cli(two_plans, "--write")[0] == 0
+        index_of(two_plans).write_bytes(b" \r\n\r\n")
+        assert cli(two_plans, "--write")[0] == 0
+        assert cli(two_plans, "--check")[0] == 0
 
 
 # ---------------------------------------------------------------------------

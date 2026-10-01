@@ -90,7 +90,7 @@ Omit the trailing `--token-saver` flag when `{token_saver}` is `no` — the gene
 
 If `python` is not found, try `python3`.
 
-**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. If the output carries a `Backlog index migration:` block, pass it through verbatim; a `REFUSED` block is an action-required item, shown under Step 10's Skipped section. Likewise, if the output carries a `Lessons index migration:` block, pass it through verbatim, with the same REFUSED disposition. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML), run **Step 8.5** (Token Saver calibration capture), and skip to **Step 9** (team sharing).
+**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. If the output carries a `Backlog index migration:` block, pass it through verbatim; a `REFUSED` block is an action-required item, shown under Step 10's Skipped section. Likewise, if the output carries a `Lessons index migration:` block, pass it through verbatim, with the same REFUSED disposition. The same holds for a `Plans index migration:` block. A plans index that init seeds itself is rendered through the plans index generator, so its Status Legend follows the config's `plan_statuses:`, and an index that already exists is never overwritten. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML), run **Step 8.5** (Token Saver calibration capture), and skip to **Step 9** (team sharing).
 
 **If the script fails** (Python not available or any error): Read [handlers/init-fallback.md](init-fallback.md) and follow Steps 3-8 there, then return here and continue at **Step 8.5**.
 
@@ -290,7 +290,7 @@ Directories created:
   ✓ {planwise_root}/{feedback_dir}/
 
 Seed files installed:
-  ✓ {planwise_root}/{plans_dir}/00-Index-Plans.md
+  ✓ {planwise_root}/{plans_dir}/{plans_index}
   ✓ {planwise_root}/{backlog_dir}/00-Index-Backlog.md
   ✓ {planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md
   ✓ {planwise_root}/{lessons_dir}/00-Changelog-LessonsLearned.md
@@ -302,6 +302,9 @@ Backlog index:
 
 Lessons index:
   ✓ generated shape (or no lessons index yet)   (one of: "✓ generated shape (or no lessons index yet)" / "migrated from a hand-authored index (backups under upgrade-backups/init-to-{version}/lessons/)" / "! refused — {fix}"; the script prints nothing for either of the first case's two sub-states, since both mean there was nothing to migrate)
+
+Plans index:
+  ✓ generated shape (or no plans index yet)   (one of: "✓ generated shape (or no plans index yet)" / "migrated from a hand-authored index (backups under upgrade-backups/init-to-{version}/plans/)" / "! refused — {fix}"; the script prints nothing for either of the first case's two sub-states, since both mean there was nothing to migrate)
 
 Configuration:
   ✓ {planwise_root}/config.yaml (scope: {install_scope}, plan tier: {plan_tier} → {context_window} context window)

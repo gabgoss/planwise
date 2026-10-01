@@ -77,13 +77,15 @@ missing_key_behaviors:
 #     doesn't invent a duplicate install path.
 #
 #   migrate_shape: Hand-authored today, generator-owned after a one-time
-#     shape migration. `migrate_backlog_if_legacy()` runs at the upgrade
-#     commit point (and at init) and rewrites a legacy hand-authored file
-#     into the generated shape, backing up the original first; once
-#     migrated, later runs see the shape as already generated and the
-#     migration does not re-fire. `--replace-legacy` on the generator
-#     itself is the only way `--write` overwrites a still-hand-authored
-#     file directly, bypassing the migration and its backup.
+#     shape migration. `migrate_backlog_if_legacy()`,
+#     `migrate_lessons_if_legacy()` and `migrate_plans_if_legacy()` run at
+#     the upgrade commit point (and at init) and rewrite a legacy
+#     hand-authored file into the generated shape, backing up the original
+#     first; once migrated, later runs see the shape as already generated
+#     and the migration does not re-fire. `--replace-legacy` on the
+#     generator itself is the only way `--write` overwrites a
+#     still-hand-authored file directly, bypassing the migration and its
+#     backup.
 #
 #   generated: Deterministically rebuilt by the owning generator's
 #     `--write` from item frontmatter on every run; never hand-edited and
@@ -378,15 +380,46 @@ artifacts:
       - "/planwise plan"
       - "/planwise list"
     missing_key_behavior: warn_loud
-    upgrade_behavior: preserve
+    upgrade_behavior: migrate_shape
     notes: >
       The file is a regenerated build artifact rendered from each Master
       Plan's own fields -- see references/plans-schema.md § The One-Writer
       Rule. A handler edits the Master Plan and runs
       generate_plans_index.py --write, never a row. copy_seed_files() seeds
       a fresh project with the generator's output over an empty plans
-      directory. upgrade_behavior stays preserve until a consumer migration
-      path for a legacy-shaped plans index exists.
+      directory. A hand-authored plans index migrates once:
+      migrate_plans_if_legacy() (migrate_plans_index.py, at the upgrade
+      commit point or at init) backs up the index and every Master Plan it
+      appends to, attaches each index note to the row it followed, then
+      runs generate_plans_index.py --write --replace-legacy. A generated
+      index is left alone, and an index of unrecognized shape is reported
+      and left untouched.
+
+  - id: plans_migration_ledger
+    on_disk: "{planwise_root}/{plans_dir}/00-Plans-Migration-Ledger.md"
+    config_keys:
+      - "project.plans_dir"
+      - "project.index_files.plans"
+    producer: "migrate_plans_index.py --write"
+    consumers:
+      - "/planwise doctor (migration audit trail)"
+      - "/planwise upgrade (plans migration verification)"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
+    notes: >
+      Written once by the one-time legacy-to-generated shape migration
+      (migrate_plans_index.py, driven by migrate_plans_if_legacy() at the
+      upgrade commit point or at init); records every appended index note,
+      status changes, unattributed notes, unresolved rows, backups, the
+      generator verdict and the byte accounting, so a later audit never has
+      to re-derive them from a diff. The filename comes from
+      migrate_plans_index.LEDGER_FILENAME, resolved by
+      migrate_plans_index.ledger_path_for(plans_dir), never re-derived by
+      hand -- mirrors lessons_migration_ledger. It sits at the plans
+      directory root, where the Master Plan walk never looks, so it cannot
+      become an index row. upgrade_behavior is preserve because a completed
+      migration's ledger is a historical record of what that migration did
+      -- never regenerated or overwritten by a later run.
 
   - id: lessons_index
     on_disk: "{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md"

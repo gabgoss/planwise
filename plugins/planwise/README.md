@@ -345,6 +345,7 @@ flowchart LR
 - **Feedback directory presence check** — reports whether the directory your feedback drafts are written to actually exists. A project whose config predates the setting, or whose directory was removed by hand, would otherwise discover the gap only when the first draft failed to write.
 - **Backlog index shape audit** — classifies your backlog index as generated, hand-authored, or unrecognized, flags any changelog file over its read budget, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index, or `migrate_backlog_index.py --split-changelog` for an over-budget changelog.
 - **Lessons index shape audit** — classifies your lessons index as generated, hand-authored, or unrecognized, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
+- **Plans index shape audit** — classifies your plans index as generated, hand-authored, or unrecognized, counts what a migration would move, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
 
 **Opt-in writers:** `doctor` has exactly three invocations that write, and none of them runs unless you ask for it by name. Two clean up; the third creates one missing directory.
 
@@ -496,6 +497,25 @@ The migration recognizes only two shapes: hand-authored or generated. An index i
 The migration refuses on a data conflict it cannot resolve on its own. When it refuses, nothing is written, and the banner names the exact reason and the exact fix. Re-run `/planwise upgrade` after applying the fix. The migration re-fires. A failed *write*, unlike a refusal, rolls every touched file back to its state before the run. `generate_lessons_index.py --write --replace-legacy` skips the migration and overwrites a hand-authored or unrecognized index directly, WITHOUT a backup.
 
 Until the migration finishes, any `/planwise lessons` mode that writes a lesson file (Capture, Curate, Promote, Batch-Promote), and the index generator itself, refuse to run against a hand-authored index.
+
+### Upgrading from 1.0.5.1: plans index
+
+Versions before 1.0.5.2 use a hand-authored plans index: one table whose rows, statuses and notes you edited by hand. From 1.0.5.2 on, the index is generated from each plan's Master Plan. The Master Plan's `**Status:**` line and dates decide each row, and a row is never edited directly.
+
+`/planwise upgrade` migrates a hand-authored plans index automatically. Plain `/planwise init` runs the same migration. The migration:
+
+- Backs up the index and every Master Plan it appends to, under `{planwise_root}/upgrade-backups/{from}-to-{to}/plans/`.
+- Attaches each note in the index to the row it followed, and appends it to that row's Master Plan without changing any byte already there.
+- Keeps a note it cannot attach, and every row it cannot resolve, verbatim in the migration ledger.
+- Lets the Master Plan's status win when a row and its Master Plan disagree, and counts each change.
+- Regenerates the index and checks it.
+- Records what it did in `{plans_dir}/00-Plans-Migration-Ledger.md`, with a byte accounting that shows no byte of the old index was lost. Any line the generator does not re-render, such as hand-written prose below the table, is listed there verbatim.
+
+The migration recognizes only two shapes: hand-authored or generated. An index it recognizes as neither is left untouched and reported through `migrate_plans_index.py --report`. The index generator refuses to overwrite such an index too.
+
+The migration refuses on a data conflict it cannot resolve, such as an HTML comment that never closes. When it refuses, nothing is written, and the banner names the exact reason and the exact fix. It does not refuse on the git state. `/planwise upgrade` backs up every Master Plan it appends to byte-exact before the append, so uncommitted edits are kept, and the banner reports whether the git tree was dirty. The standalone `migrate_plans_index.py --write` refuses a tree that git cannot vouch for, or a dirty Master Plan in its append set, unless you pass `--allow-untracked-tree` or `--force`. Re-run `/planwise upgrade` after applying the fix. A failed *write* rolls every touched file back to its state before the run. `generate_plans_index.py --write --replace-legacy` skips the migration and overwrites a hand-authored index directly, WITHOUT a backup and without keeping its notes.
+
+Until the migration finishes, `generate_plans_index.py --write` exits 2 against a hand-authored index, and `/planwise plan`, `/planwise run` and `/planwise backlog` tell you to run `/planwise upgrade`.
 
 ---
 

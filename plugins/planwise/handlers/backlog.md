@@ -457,7 +457,7 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 
 > [!constraint] Retire or link the twin plan at backlog closeout
 > 1. **Detect the twin.** Grep the plans index (`{plans_dir}/{plans_index}`) and the Master Plans under `{plans_dir}/**` for a plan that names the same deliverables — or targets the same files — this item just shipped.
-> 2. **Reconcile it in this closeout.** For each twin found, set its Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{item_id} {route} {date})` (and the Master Plan's footer date), then run `generate_plans_index.py --write` — OR explicitly link the two so the plan is not independently runnable.
+> 2. **Reconcile it in this closeout.** For each twin found, set its Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{item_id} {route} {date})` (and the Master Plan's footer date), then run `generate_plans_index.py --write` (exit 2 means the index is still hand-authored or unrecognized, and nothing was written: tell the user to run `/planwise upgrade`, which migrates it, and to use `migrate_plans_index.py --report` if upgrade reports it unrecognized) — OR explicitly link the two so the plan is not independently runnable.
 > 3. **If you cannot reconcile now, do not leave it silently runnable** — record the twin plan and the blocker so a later closeout retires it.
 >
 > WRONG — close the item, leave the twin plan alone → `/planwise run` starts it → a task step "append N rows" runs against rows that already exist → N duplicate rows, or a duplicate `## N` section colliding with the shipped one.

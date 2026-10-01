@@ -170,6 +170,36 @@ class TestArtifactsManifestEnums(unittest.TestCase):
         self.assertEqual(row["upgrade_behavior"], "preserve")
         self.assertIn("migrate_lessons_index.LEDGER_FILENAME", row["notes"])
 
+    def test_plans_index_is_migrate_shape_and_names_the_migration(self):
+        row = next(r for r in self.doc["artifacts"] if r["id"] == "plans_index")
+        self.assertEqual(row["upgrade_behavior"], "migrate_shape")
+        self.assertIn("generate_plans_index.py", row["producer"])
+        self.assertIn("migrate_plans_if_legacy", row["notes"])
+        self.assertIn("--replace-legacy", row["notes"])
+
+    def test_plans_migration_ledger_row_exists_with_required_keys_and_preserve(self):
+        required_keys = {
+            "id", "on_disk", "config_keys", "producer", "consumers",
+            "missing_key_behavior", "upgrade_behavior",
+        }
+        by_id = {r["id"]: r for r in self.doc["artifacts"]}
+        self.assertIn("plans_migration_ledger", by_id)
+        row = by_id["plans_migration_ledger"]
+        self.assertEqual(required_keys - set(row), set())
+        self.assertEqual(row["upgrade_behavior"], "preserve")
+        self.assertEqual(row["producer"], "migrate_plans_index.py --write")
+        self.assertIn("00-Plans-Migration-Ledger.md", row["on_disk"])
+        self.assertIn("migrate_plans_index.LEDGER_FILENAME", row["notes"])
+
+    def test_header_definition_of_migrate_shape_names_all_three_migrators(self):
+        text = MANIFEST.read_text(encoding="utf-8")
+        for routine in (
+            "migrate_backlog_if_legacy()",
+            "migrate_lessons_if_legacy()",
+            "migrate_plans_if_legacy()",
+        ):
+            self.assertIn(routine, text.split("upgrade_behaviors:", 1)[0])
+
     def test_lessons_log_rows_name_their_writer_scripts(self):
         by_id = {r["id"]: r for r in self.doc["artifacts"]}
         self.assertIn("lessons_changelog.py", by_id["lessons_changelog"]["notes"])

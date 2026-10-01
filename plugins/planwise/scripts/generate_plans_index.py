@@ -17,8 +17,10 @@ through `_escape_cell`. The Status cell is the normalized status token.
 ## Refusals and exit codes
 
 - `--write` refuses to overwrite a hand-authored (legacy-shaped) index unless
-  `--replace-legacy` is given, and refuses when the render measures over
-  `HUB_TOKEN_BUDGET`. Both exit 2 and write nothing.
+  `--replace-legacy` is given, refuses a non-empty index that is neither
+  hand-authored nor generated (`--replace-legacy` never overrides that), and
+  refuses when the render measures over `HUB_TOKEN_BUDGET`. All exit 2 and
+  write nothing. A missing, zero-byte or blank index writes.
 - `--write` still writes when the tree carries an anomaly (an unknown or missing
   status, two Master Plans with one Path, an unreadable file), then exits 1. The
   index never lags the tree.
@@ -571,7 +573,9 @@ def write_plans_index(config: dict, *, replace_legacy: bool = False) -> WriteRes
     """Write the index from a fresh render. Prints nothing and raises nothing on a refusal.
 
     Refuses, and writes nothing, when the file on disk is hand-authored and
-    `replace_legacy` is false, or when the render measures over the budget. The
+    `replace_legacy` is false, when it is non-empty and neither hand-authored
+    nor generated (`replace_legacy` never overrides that), or when the render
+    measures over the budget. A missing, zero-byte or blank file writes. The
     refusal message is in the result. A tree anomaly does not stop the write: it
     sets exit code 1.
     """
@@ -584,6 +588,13 @@ def write_plans_index(config: dict, *, replace_legacy: bool = False) -> WriteRes
         refusal = (
             f"Error: {index_path} is a hand-authored plans index. Run /planwise upgrade to migrate it first, "
             "or pass --replace-legacy to overwrite it and drop its hand-written content. Nothing was written."
+        )
+        return WriteResult(2, False, refusal, render, shape)
+    if shape == "empty" and disk.strip():
+        refusal = (
+            f"Error: {index_path} is neither a hand-authored nor a generated plans index, so it may hold "
+            "content this write would destroy. Nothing was written. Inspect it with "
+            "`migrate_plans_index.py --report`, then move it aside or migrate it."
         )
         return WriteResult(2, False, refusal, render, shape)
     if render.tokens > HUB_TOKEN_BUDGET:

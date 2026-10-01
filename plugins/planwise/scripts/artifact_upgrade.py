@@ -100,6 +100,17 @@ except ImportError:
         "partially installed"
     )
 
+try:
+    from plans_migration import (
+        _emit_plans_migration_banner,
+        migrate_plans_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "plans_migration is required for artifact_upgrade's plans-index "
+        "retrofit; the scripts/ directory appears to be partially installed"
+    )
+
 
 def load_artifact_manifest(plugin_root: Path) -> dict:
     """Load manifests/artifacts.yaml from the plugin root.
@@ -844,6 +855,14 @@ def _run_upgrade(
         _lessons_report = migrate_lessons_if_legacy(
             cfg, pinned_version, target_version, reconcile=lessons_reconcile)
         _emit_lessons_migration_banner(_lessons_report)
+        # 2f. Plans-index retrofit: re-fires on a hand-shaped index, silent on
+        # a generated one, never changes this branch's return code.
+        try:
+            _emit_plans_migration_banner(
+                migrate_plans_if_legacy(cfg, pinned_version, target_version))
+        except Exception as exc:  # noqa: BLE001 -- never change the exit code
+            print(f"  Warning: plans index migration step raised unexpectedly: {exc}",
+                  file=sys.stderr)
         if needs_repoint:
             _repoint_plugin_root(config_path, cfg.plugin_root)
             print(f"Plugin version: {pinned_version}")
@@ -957,6 +976,15 @@ def _run_upgrade(
                 f"  Warning: lessons index migration step raised unexpectedly: {exc}",
                 file=sys.stderr,
             )
+
+        # 2f. Plans-index retrofit, same contract as 2e: re-fires on a
+        # hand-shaped index, silent on a generated one, never changes the exit code.
+        try:
+            _emit_plans_migration_banner(
+                migrate_plans_if_legacy(cfg, pinned_version, target_version))
+        except Exception as exc:  # noqa: BLE001 -- never abort an upgrade
+            print(f"  Warning: plans index migration step raised unexpectedly: {exc}",
+                  file=sys.stderr)
 
         # 3. Refresh artifacts.
         manifest = load_artifact_manifest(cfg.plugin_root)

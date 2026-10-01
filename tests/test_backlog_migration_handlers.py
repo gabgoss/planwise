@@ -97,19 +97,22 @@ class TestDoctorHandlerStage20(unittest.TestCase):
     def test_stage_20_heading_present(self):
         self.assertIn("### Stage 20: Backlog Index Shape Audit", self.part2_text)
 
-    def test_stage_20_present_and_immediately_followed_by_stage_21_as_last_heading(self):
+    def test_stage_20_present_and_immediately_followed_by_stage_21_and_stage_22_is_the_last_heading(self):
         # Stage 21 (Lessons Index Shape Audit) was appended immediately after
-        # Stage 20 by the lessons-migration handler wiring, so Stage 20 is no
-        # longer Part 2's last stage -- Stage 21 is. Stage 20's own heading
-        # must still be present, byte-unchanged, and precede Stage 21 with no
-        # other stage heading between them.
+        # Stage 20 by the lessons-migration handler wiring, and Stage 22
+        # (Plans Index Shape Audit) after Stage 21 by the plans-migration
+        # handler wiring, so Stage 22 is now Part 2's last stage. Stage 20's
+        # own heading must still be present, byte-unchanged, and precede
+        # Stage 21 with no other stage heading between them.
         stage_headings = list(_STAGE_HEADING_RE.finditer(self.part2_text))
         self.assertTrue(stage_headings)
         stage20_idx = self.part2_text.index("### Stage 20: Backlog Index Shape Audit")
         stage21_idx = self.part2_text.index("### Stage 21: Lessons Index Shape Audit")
+        stage22_idx = self.part2_text.index("### Stage 22: Plans Index Shape Audit")
         self.assertLess(stage20_idx, stage21_idx)
+        self.assertLess(stage21_idx, stage22_idx)
         last_stage_idx = stage_headings[-1].start()
-        self.assertEqual(last_stage_idx, stage21_idx)
+        self.assertEqual(last_stage_idx, stage22_idx)
         # no stage heading sits between Stage 20 and Stage 21
         between = [h for h in stage_headings if stage20_idx < h.start() < stage21_idx]
         self.assertEqual(between, [])
@@ -140,14 +143,15 @@ class TestDoctorHandlerStage20(unittest.TestCase):
         self.assertIn("changelog_over_budget", stage20_span)
         self.assertIn("--split-changelog", stage20_span)
 
-    def test_stage_heading_set_is_old_set_plus_20_and_21(self):
-        # Stages 8-13 now live in Part 1 (doctor.md); Stages 14-21 in Part 2
+    def test_stage_heading_set_is_old_set_plus_20_21_and_22(self):
+        # Stages 8-13 now live in Part 1 (doctor.md); Stages 14-22 in Part 2
         # (Stage 21, Lessons Index Shape Audit, was appended after Stage 20
-        # by the lessons-migration handler wiring).
+        # by the lessons-migration handler wiring, and Stage 22, Plans Index
+        # Shape Audit, after Stage 21 by the plans-migration handler wiring).
         found = set(_STAGE_HEADING_RE.findall(self.part1_text)) | set(
             _STAGE_HEADING_RE.findall(self.part2_text)
         )
-        self.assertEqual(found, _PRE_EDIT_STAGE_SET | {"20", "21"})
+        self.assertEqual(found, _PRE_EDIT_STAGE_SET | {"20", "21", "22"})
 
 
 if __name__ == "__main__":

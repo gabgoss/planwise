@@ -105,13 +105,17 @@ Prose that lived in the old hand-authored index (a comment, or narrative in a St
 ## Index Notes (harvested YYYY-MM-DD)
 ```
 
-The heading is followed by this banner, quoted exactly:
+The heading is followed by this banner, quoted exactly as `migrate_plans_index.py` writes it:
 
 ```
-> [!note] Historical notes moved from the plans index on YYYY-MM-DD. They record what was true when written; this Master Plan's **Status:** line is authoritative.
+> [!note] Historical notes moved from the plans index on YYYY-MM-DD, each attached to the row it followed in the index. They record what was true when written; this Master Plan's **Status:** line is authoritative.
 ```
 
-Each note is copied byte-exact. One line precedes it and names the index line it came from. The banner says the notes are history: the `**Status:**` line stays the only authority for status.
+Each note is copied byte-exact. One italic line precedes it and names the index file and line it came from, in the form `*From 00-Index-Plans.md line N (KIND).*`. KIND is `HTML comment` or `Status cell text after the leading token`. The index file name in the label is the project's own configured index name. The banner says the notes are history: the `**Status:**` line stays the only authority for status.
+
+Notes attach by position, never by content. A comment goes to the Master Plan of the nearest table row that precedes it in the index. A Status-cell narrative goes to its own row's Master Plan. A note with no preceding row, or whose row has no Master Plan on disk, stays in the migration ledger under `## Unattributed Index Notes`. The migrator never edits a `**Status:**` line. When a row's status token differs from its Master Plan's, the Master Plan wins and the ledger lists the row under `## Status Changes`.
+
+An index harvested by hand before the migrator existed carries the shorter banner, without the words "each attached to the row it followed in the index". Both forms are valid history. Neither is rewritten.
 
 The Last Updated reader takes the last line that starts `*Last Updated:`. An append after the footer therefore does not move the Last Updated column, unless a note line itself starts with that label.
 

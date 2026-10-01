@@ -137,14 +137,14 @@ class TestSeedIsTheGeneratorsEmptyRender(unittest.TestCase):
 
 
 class TestManifestPlansIndexRow(unittest.TestCase):
-    def test_row_names_the_generator_and_keeps_preserve(self):
+    def test_row_names_the_generator_and_is_migrate_shape(self):
         self.assertTrue(MANIFEST.is_file(), f"{MANIFEST} is missing")
         rows = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))["artifacts"]
         row = next((r for r in rows if r.get("id") == "plans_index"), None)
 
         self.assertIsNotNone(row, "the manifest has no plans_index row")
         self.assertIn("generate_plans_index.py", row["producer"])
-        self.assertEqual(row["upgrade_behavior"], "preserve")
+        self.assertEqual(row["upgrade_behavior"], "migrate_shape")
 
 
 if __name__ == "__main__":

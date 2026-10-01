@@ -168,6 +168,20 @@ except ImportError:
     )
 
 try:
+    import config_loader
+    import generate_plans_index
+    from plans_migration import (
+        _emit_plans_migration_banner,
+        migrate_plans_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "plans_migration and generate_plans_index are required for "
+        "init_project's plans-index retrofit and seed render on a fresh "
+        "init; the scripts/ directory appears to be partially installed"
+    )
+
+try:
     import yaml
     HAS_YAML = True
 except ImportError:
@@ -329,6 +343,40 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
             continue
         copied.append(dst_rel)
     return copied
+
+
+def render_new_plans_index(cfg: InitConfig, seeds: list[str]) -> str | None:
+    """Re-render a plans index this run seeded, so its legend follows the
+    configured `plan_statuses:`.
+
+    The seed carries the default ten-value legend, so a config that sets a
+    different `plan_statuses:` would fail `generate_plans_index.py --check` the
+    moment init finished. This writes through the generator's own render, and
+    only for an index `copy_seed_files()` created in this run: an index that
+    already existed, in any shape, is never touched. A seed that already equals
+    the render (the default statuses) keeps its seed bytes. Never raises.
+    Returns a one-line note when it wrote, else None.
+    """
+    try:
+        config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
+        if not config_path.is_file():
+            return None
+        config = config_loader.load_config(Path(__file__), config_path=config_path)
+        index_path = Path(config["_plans_index"])
+        seeded = {(cfg.project_root / rel).resolve() for rel in seeds}
+        if index_path.resolve() not in seeded:
+            return None
+        disk = index_path.read_text(encoding="utf-8", newline="")
+        render = generate_plans_index.render_plans_index(config)
+        if generate_plans_index.index_matches_render(disk, render):
+            return None
+        result = generate_plans_index.write_plans_index(config)
+        if not result.written:
+            return None
+        return f"Plans index: {index_path} rendered with the configured plan_statuses"
+    except Exception as exc:  # noqa: BLE001 -- the seed copy stands if the render fails
+        print(f"  Warning: plans index render skipped: {exc}", file=sys.stderr)
+        return None
 
 
 def update_frontmatter(content: str, paths_value: str) -> str:
@@ -852,6 +900,13 @@ def main():
                   "left at the uncalibrated sentinel; /planwise upgrade will retry.")
     print()
 
+    # A plans index seeded in this run is re-rendered once config.yaml exists,
+    # so its legend follows `plan_statuses:`.
+    _plans_render_note = render_new_plans_index(cfg, seeds)
+    if _plans_render_note:
+        print(_plans_render_note)
+        print()
+
     # Lessons scaffolding (index + companions + categorization file) via the
     # shared idempotent routine — the SAME entry point _run_upgrade()
     # backfills from. copy_seed_files() above already seeded the lessons
@@ -927,6 +982,25 @@ def main():
             reason=_lessons_mig.detail,
             consumer="/planwise lessons, /planwise run Step 4.2, /planwise doctor Stage 13",
             remediation=_lessons_mig.fix or "re-run /planwise upgrade",
+        ))
+
+    # Plans-index retrofit: migrate a hand-authored plans index via the SAME
+    # idempotent routine _run_upgrade() calls on both of its exits, right after
+    # the lessons retrofit above -- the trigger is the index's on-disk shape,
+    # not a version, so the migration runs on this very run. A fresh seed is
+    # already generator-shaped, so the routine stays silent on it.
+    _plans_mig = migrate_plans_if_legacy(cfg, "init", cfg.plugin_version)
+    _emit_plans_migration_banner(_plans_mig)
+    if _plans_mig.state == "error" and _plans_mig.index_path is None:
+        pass  # config.yaml's own Skipped row above already reports this fault
+    elif _plans_mig.state in {"refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+        index_path = _plans_mig.index_path or (
+            cfg.project_root / cfg.planwise_root / cfg.plans_dir / _resolve_plans_index_name(cfg))
+        skipped.append(SkippedArtifact(
+            artifact=str(index_path),
+            reason=_plans_mig.detail,
+            consumer="/planwise list, /planwise doctor Stage 11",
+            remediation=_plans_mig.fix or "re-run /planwise upgrade",
         ))
 
     rules = install_rules(cfg)

@@ -96,6 +96,38 @@ Lessons index migration: WRITE FAILED
 Lessons index migration: ERROR (nothing else in this run depends on it)
   {detail}
 
+Plans index migration:                                     (silent — nothing prints — when the index is already generated or absent)
+  migrated: {index} -> generated from the Master Plans ({N} row(s))
+    index notes appended:    {N} item(s) into {N} Master Plan(s), {N} already present
+    unattributed notes:      {N} (kept verbatim in the ledger)
+    uncarried index lines:   {N} (listed verbatim in the ledger)
+    status changes:          {N} (the Master Plan's Status line won)
+    rows:                    PRE {N}, mapped {N}, POST {N}, added {N}
+    unresolved rows:         {N} (listed in the ledger; the generator dropped them)
+    ledger:                  {plans_dir}/00-Plans-Migration-Ledger.md
+    backups:                 {planwise_root}/upgrade-backups/{from}-to-{to}/plans/ ({N} file(s) this run, listed in DISPOSITIONS.md)
+    git tree was dirty:      {yes|no|unknown} (informational -- the backup above is the restore point)
+    generator --check:       {clean|clean apart from tree anomalies|not clean; re-run /planwise upgrade}
+  — or, on a hand-authored index the script refuses to touch:
+Plans index migration: REFUSED (index and Master Plans left untouched)
+  reason: {the migrator's own refusal text, verbatim}
+  fix:    {the exact edit the refusal names}
+  — or, on an index the script cannot classify as either hand-authored or generated:
+Plans index migration: {index} is not a hand-authored or generated index -- left untouched
+  reason: {the classifier's reason}; inspect it with: {migrate_plans_index.py --report command}
+  — or, on a backup failure before any write:
+Plans index migration: BACKUP FAILED -- no write was attempted
+  {detail}
+  fix:    {the exact edit the refusal names}
+  — or, on a write failure that rolled every touched file back:
+Plans index migration: WRITE FAILED
+  {detail}
+  backups: {path} ({note on kept vs. numbered-sibling backups})
+  fix:    {the exact edit the refusal names}
+  — or, on an unexpected exception the routine caught rather than raised:
+Plans index migration: ERROR (nothing else in this run depends on it)
+  {detail}
+
 Refreshed: {N}
   ({M} were stale subsets, auto-adopted shipped)   ({sub-line omitted when M == 0; pre-change copies live under {planwise_root}/upgrade-backups/<from>-to-<to>/})
   + {file}
@@ -141,7 +173,7 @@ Upgrade complete.
 ```
 
 > [!practice] The index migration blocks are a pass-through, never a handler procedure
-> Pass the `Backlog index migration:` (or `Backlog changelog:`) and `Lessons index migration:` (or `Lessons changelog:`) blocks through verbatim, exactly as the script's own banner prints them — the handler names no repair step of its own. On `refused`, the `fix:` line already carries the re-run instruction; add nothing further to it.
+> Pass the `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` (or `Lessons changelog:`) and `Plans index migration:` blocks through verbatim, exactly as the script's own banner prints them — the handler names no repair step of its own. On `refused`, the `fix:` line already carries the re-run instruction; add nothing further to it.
 
 > [!practice] Recovery-artifact disposition classes
 > `action-required` — unresolved conflict sidecars. `review-then-discard` — transferred customizations awaiting re-homing. `safe-to-discard` — pre-change backups, once you are satisfied with the upgrade. `inert` — a consumed verdict cache. Step 4.3 offers per-class cleanup for `safe-to-discard` and `inert` only; `action-required` and `review-then-discard` are reported here but resolved through Step 4 / Step 4.1 / Step 4.2.
@@ -162,6 +194,7 @@ Config keys added:       {N}        ({list, or "(none)"})
 Lessons backfilled:      {N}        (categorization file / index seed — gates lessons curate; "(none)" when both present)
 Backlog index:           {migrated | changelog re-split | refused | unrecognized | backup failed | write failed | error | already generated}   ({fix} surfaced from the banner above when refused, unrecognized, backup failed, or write failed)
 Lessons index:           {migrated | changelog re-split | refused | unrecognized | backup failed | write failed | error | already generated}   ({fix} surfaced from the banner above when refused, unrecognized, backup failed, or write failed)
+Plans index:             {migrated | refused | unrecognized | backup failed | write failed | error | already generated}   ({fix} surfaced from the banner above when refused, unrecognized, backup failed, or write failed)
 Artifacts refreshed:     {N}
 Artifacts unchanged:     {N}        (installed body already matched shipped)
 Untracked preserved:     {N}        ({list of files outside the manifest allowlist})
@@ -187,7 +220,7 @@ If customizations-transferred > 0, list each transferred file and its target pat
 > [!practice] Resolve, Don't Sidestep
 > Prefer fully resolving a divergence through the documented flow (relocation, adoption, or upstream issue) over leaving a sidecar note for later — a deferred resolution must name the constraint that forced deferral. See [do-the-hard-things.md](../references/do-the-hard-things.md).
 
-For each conflict in `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` (files preserved in place: conservative handoff mode — `upgrade.customization_handoff` is `report`/`report+issue` — or a transfer/backup/adoption write failed, or the verdict was the degraded not-analyzed stand-in — see upgrade.md Step 2.4, item 7):
+For each conflict in `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` (files preserved in place: conservative handoff mode — `upgrade.customization_handoff` is `report`/`report+issue` — or a transfer/backup/adoption write failed, or the verdict was the degraded not-analyzed stand-in — see upgrade.md Step 2.4, item 8):
 
 1. The user diffs `<destination>.md` against `<destination>.md.new`
 2. If the changes are acceptable → overwrite the installed file with the sidecar content (or merge selectively) → delete the `.new` file

@@ -1,6 +1,6 @@
 # Handler: /planwise doctor — Part 3: Token Saver and Bookkeeping Read Gates
 
-**Part 3 of 3.** This handler spans three files, split by topic because the combined text exceeds the Read-tool page cap. Each Step keeps its own identifier wherever it lands, so an existing `Step N` reference still names exactly one section — only the filename that holds it changes. See [`doctor.md`](doctor.md) for the full three-part pointer table, the Config Gate, the Preflight version-state gate, and Stages 8-13. [`doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md`](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md) covers Stages 14-20.
+**Part 3 of 3.** This handler spans three files, split by topic because the combined text exceeds the Read-tool page cap. Each Step keeps its own identifier wherever it lands, so an existing `Step N` reference still names exactly one section — only the filename that holds it changes. See [`doctor.md`](doctor.md) for the full three-part pointer table, the Config Gate, the Preflight version-state gate, and Stages 8-13. [`doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md`](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md) covers Stages 14-22.
 
 This file covers **Steps 4-8**: the Token Saver overhead audit, the read-gate scan, the read-constant drift tripwire, the capture self-containment scan, and the bookkeeping index read-gate scan.
 

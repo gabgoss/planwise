@@ -605,7 +605,7 @@ Ask the user: "Were any lessons learned during this session?"
 
    > [!practice] User-Action-Gate Check
    > When all sprints COMPLETE, check Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain, set IN_PROGRESS with note — NOT COMPLETE.
-5. Set the Master Plan `*Last Updated:*` footer to today. Run `python {plugin_root}/scripts/generate_plans_index.py --config {planwise_root}/config.yaml --write`.
+5. Set the Master Plan `*Last Updated:*` footer to today. Run `python {plugin_root}/scripts/generate_plans_index.py --config {planwise_root}/config.yaml --write`. On exit 2 (a hand-authored or unrecognized index, nothing written), tell the user to run `/planwise upgrade`, or `migrate_plans_index.py --report` if upgrade calls it unrecognized.
 6. **Close the backlog items this plan resolves** — only when step 4 just set the Master Plan to `Status: COMPLETE`:
    1. `Read` the Master Plan header `**Resolves:**` field. Absent, or `none`: skip this step. A Master Plan authored before the field existed names the item under `## References` instead — treat that citation as the field.
    2. For each item id listed, `Edit` the item file **first**: append a dated line under its `## Notes` section (create the section if absent) — `{today}: resolved by plan {Abbrev}; closed at session {session-id}`. Edit before the status write, because the status write archives the file.
