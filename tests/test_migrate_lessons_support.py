@@ -252,6 +252,21 @@ def test_render_promotion_logs_groups_by_destination():
             assert name in hub_text
 
 
+def test_render_promotion_logs_renders_the_hub_when_only_century_rows_exist():
+    """No row routes to the hub (ids 1-200 only), yet the hub is rendered with
+    its `Parts:` line and no rows. Without an Archive part the hub is not."""
+    hub = "00-PromotionLog-LessonsLearned.md"
+    century = sup.century_log_filenames(NAMING)
+    rows = [{"line": 1, "lesson_id": 10, "cells": ("2026-09-01", "LL-010", "a.md", "a.md")},
+            {"line": 2, "lesson_id": 60, "cells": ("2026-09-02", "LL-060", "b.md", "b.md")}]
+    out = dict(sup.render_promotion_logs(rows, NAMING, "\n"))
+    assert hub in out
+    expected = ", ".join(f"[{p}]({p})" for p in (century[0], century[1]))
+    assert [ln for ln in out[hub].splitlines() if ln.startswith("Parts:")] == [f"Parts: {expected}"]
+    assert "| LL-" not in out[hub]
+    assert hub not in dict(sup.render_promotion_logs([], NAMING, "\n"))
+
+
 def test_walk_promotion_log_short_row_kept_and_flagged():
     text = (
         "## Rule Promotion Log\n\n"

@@ -619,14 +619,17 @@ def render_promotion_logs(rows: list, naming, nl: str) -> list:
     """Group `rows` (as `walk_promotion_log` returns) by `log_destination`
     and render each file: a backlink to the hub, then the 4-column table
     (`Date | Lesson ID | Artifact Created | File`). The hub-side file
-    additionally lists every Archive part it owns. Returns
-    `[(filename, text), ...]`."""
+    additionally lists every Archive part it owns, and is rendered whenever
+    any Archive part is, even when no row routes to it (a family under 201
+    lessons has only century files). Returns `[(filename, text), ...]`."""
     hub_name = _promotion_log_filename(naming)
     by_dest: dict = {}
     for row in rows:
         dest = log_destination(row["lesson_id"], naming)
         by_dest.setdefault(dest, []).append(row)
     archive_parts = sorted(d for d in by_dest if d != hub_name)
+    if archive_parts:
+        by_dest.setdefault(hub_name, [])
     out = []
     for dest in sorted(by_dest):
         dest_rows = sorted(by_dest[dest], key=lambda r: r["line"])

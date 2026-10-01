@@ -52,7 +52,6 @@ import config_loader
 import generate_lessons_index as gen
 import lessons_changelog
 import migrate_lessons_index as mig
-import migrate_lessons_support as sup
 import parse_lessons
 import promotion_log
 from config_gen import InitConfig, read_plugin_version
@@ -402,15 +401,15 @@ def test_path1_run_upgrade_migrates_legacy_lessons_end_to_end(tmp_path, monkeypa
     #    tuple count 1 before and after this run (nothing else migrated).
     promo = read_text(lessons_dir / PROMO_ARCHIVE)
     assert "| LL-003 | rule-x.md | rule-x.md |" in promo.replace("2026-09-01 | ", "")
-    # The hub-side file "lists every part" is NOT asserted here: this
-    # fixture's one row (id <= 50) never routes to the hub file at all
-    # (`log_destination` only writes id >= 201 there), so the MIGRATION never
-    # populates it. `_run_upgrade`'s own bootstrap step seeds it fresh
-    # (header-only) before the retrofit runs regardless, exactly as it does
-    # for the promotion-log/notes pair in the refusal test above, so the
-    # file exists but stays at the bootstrap's header-only shape. See
-    # Promises Not Asserted.
-    assert sup.header_only(read_text(lessons_dir / "00-PromotionLog-LessonsLearned.md"), INDEX)
+    # The hub-side file carries no rows here: this fixture's one row (id <= 50)
+    # never routes to the hub (`log_destination` only writes id >= 201 there).
+    # It still lists every Archive part. `_run_upgrade`'s bootstrap seeds the
+    # hub header-only first, and the migration then adds the `Parts:` line.
+    # `test_path1_migrated_hub_lists_every_archive_part_when_no_row_routes_to_it`
+    # asserts the listing against the parts on disk.
+    hub_text = read_text(lessons_dir / "00-PromotionLog-LessonsLearned.md")
+    assert f"Parts: [{PROMO_ARCHIVE}]({PROMO_ARCHIVE})" in hub_text
+    assert "| LL-" not in hub_text
 
     # 9. Changelog: Entry 1 carries the relocated header history; since this
     #    fixture's five prose sections all equal the shipped seed's current
@@ -484,7 +483,7 @@ def test_path1_writers_after_migration(tmp_path, monkeypatch):
 def test_path1_hub_lists_every_part_after_a_hub_routed_write(tmp_path, monkeypatch):
     """The hub-side promotion-log file lists every Archive part on disk.
 
-    The migration leaves the hub header-only (the fixture's one row, LL-003,
+    The migration leaves the hub without rows (the fixture's one row, LL-003,
     routes to the 001-050 part). LL-201 is the first id `log_destination`
     routes to the hub itself, so this write is what makes the hub carry
     rows, and after it the hub's `Parts:` line must name every part file
@@ -509,6 +508,77 @@ def test_path1_hub_lists_every_part_after_a_hub_routed_write(tmp_path, monkeypat
     assert len(parts_lines) == 1, hub
     listed = sorted(href for _text, href in re.findall(r"\[([^\]]*)\]\(([^)]*)\)", parts_lines[0]))
     assert listed == on_disk
+
+
+HUB_LOG = "00-PromotionLog-LessonsLearned.md"
+
+
+def _archive_log_parts(lessons_dir: Path) -> list:
+    """The Archive promotion-log parts on disk, as hub-relative hrefs, sorted."""
+    return sorted(p.relative_to(lessons_dir).as_posix()
+                  for p in (lessons_dir / "Archive").glob("PromotionLog-LessonsLearned-*.md"))
+
+
+def _hub_listing(lessons_dir: Path) -> tuple:
+    """`(Parts: line count, sorted hrefs of the first such line)` read from the hub."""
+    parts_lines = [ln for ln in read_text(lessons_dir / HUB_LOG).splitlines() if ln.startswith("Parts: ")]
+    hrefs = sorted(href for _t, href in re.findall(r"\[([^\]]*)\]\(([^)]*)\)", parts_lines[0])) if parts_lines else []
+    return len(parts_lines), hrefs
+
+
+def test_path1_migrated_hub_lists_every_archive_part_when_no_row_routes_to_it(tmp_path, monkeypatch):
+    """A family under 201 lessons migrates to Archive century files only, since
+    `log_destination` sends only ids of 201 or more to the hub. The hub must
+    still carry one `Parts:` line naming every Archive part on disk. The
+    expected set is read from disk, never hardcoded, and a second run on the
+    migrated output is silent."""
+    cfg, lessons_dir = _project(tmp_path)
+    cfg = _pin(cfg, FROM)
+    monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
+
+    assert artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None) == 0
+
+    on_disk = _archive_log_parts(lessons_dir)
+    assert on_disk == [PROMO_ARCHIVE]  # the fixture's one row (LL-003) is the only part
+    count, listed = _hub_listing(lessons_dir)
+    assert count == 1, read_text(lessons_dir / HUB_LOG)
+    assert listed == on_disk
+
+    after_first = _snapshot(cfg.project_root)
+    assert artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None) == 0
+    assert _snapshot(cfg.project_root) == after_first
+
+
+def test_path1_century_append_repairs_a_hub_without_a_parts_listing(tmp_path, monkeypatch):
+    """An append of an id in 1-200 lands in an existing Archive century file,
+    never in the hub, yet it must leave the hub's `Parts:` line equal to the
+    Archive parts on disk. The hub's listing is stripped first, so this test
+    does not depend on the migrator having written one. A second append, with
+    the listing already correct, leaves the hub byte-identical."""
+    cfg, lessons_dir = _project(tmp_path)
+    cfg = _pin(cfg, FROM)
+    monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
+    artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None)
+    config_path = cfg.project_root / "planwise" / "config.yaml"
+    hub_path = lessons_dir / HUB_LOG
+    stripped = "".join(ln for ln in read_text(hub_path).splitlines(keepends=True) if not ln.startswith("Parts: "))
+    _write(hub_path, stripped.encode("utf-8"))
+    assert _hub_listing(lessons_dir) == (0, [])
+
+    rc = promotion_log.main(["--config", str(config_path), "--lesson", "LL-001",
+                             "--artifact", "rule-a.md", "--file", "rule-a.md", "--date", "2026-09-02"])
+    assert rc == 0
+
+    assert "| 2026-09-02 | LL-001 | rule-a.md | rule-a.md |" in read_text(lessons_dir / PROMO_ARCHIVE)
+    count, listed = _hub_listing(lessons_dir)
+    assert count == 1, read_text(hub_path)
+    assert listed == _archive_log_parts(lessons_dir)
+
+    repaired = hub_path.read_bytes()
+    rc2 = promotion_log.main(["--config", str(config_path), "--lesson", "LL-002",
+                              "--artifact", "rule-b.md", "--file", "rule-b.md", "--date", "2026-09-02"])
+    assert rc2 == 0
+    assert hub_path.read_bytes() == repaired
 
 
 def test_path1_refusal_leaves_tree_untouched(tmp_path, monkeypatch, capsys):
@@ -543,6 +613,30 @@ def test_path1_refusal_leaves_tree_untouched(tmp_path, monkeypatch, capsys):
     assert not (cfg.project_root / "planwise" / "upgrade-backups" / f"{FROM}-to-{TO}" / "lessons").exists()
     assert "Lessons index migration: REFUSED" in banner
     assert MISSING_ARTIFACT_ID in banner  # the RefusalSet group names the missing lesson
+
+
+def test_path1_hand_written_hub_log_refuses_a_family_with_century_rows_only(tmp_path, monkeypatch, capsys):
+    """A family under 201 lessons now plans the hub-side promotion-log file
+    too, so a hub carrying hand-written content is foreign to the migration
+    and refuses it, exactly as it already did for a family with rows of 201
+    or more. Nothing is overwritten: the hub, the index and the Archive
+    directory are byte-for-byte what they were."""
+    cfg, lessons_dir = _project(tmp_path)
+    cfg = _pin(cfg, FROM)
+    monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
+    hand_written = b"# My own promotion notes\n\nKept by hand, not by the migrator.\n"
+    _write(lessons_dir / HUB_LOG, hand_written)
+    original_index = (lessons_dir / INDEX).read_bytes()
+
+    assert artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None) == 0
+    banner = capsys.readouterr().out
+
+    assert "Lessons index migration: REFUSED" in banner
+    assert HUB_LOG in banner
+    assert (lessons_dir / HUB_LOG).read_bytes() == hand_written
+    assert (lessons_dir / INDEX).read_bytes() == original_index
+    assert not (lessons_dir / PROMO_ARCHIVE).exists()
+    assert not (cfg.project_root / "planwise" / "upgrade-backups" / f"{FROM}-to-{TO}" / "lessons").exists()
 
 
 def test_path1_changelog_split_reached_through_run_upgrade(tmp_path, monkeypatch):

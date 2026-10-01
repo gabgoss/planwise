@@ -42,7 +42,9 @@ numbered `.N.bak` sibling); a failure restores every touched file and
 removes whatever this call created, and the caller sees a clean REFUSED
 message, never a raw traceback; a success logs one DISPOSITIONS row per
 file touched. An append routed to the hub itself brings that listing in
-line with the century files on disk in the same write. A re-run also repairs a hub listing a century file's
+line with the century files on disk in the same write, and so does an
+append into an existing century file when the hub's listing is stale or
+missing. A re-run also repairs a hub listing a century file's
 existence has outgrown, in its existing form, even when the row itself is
 already logged — and a call that refuses for any other reason (a
 duplicate, an unreadable index) writes nothing unless the listing was
@@ -511,15 +513,26 @@ def main(argv: list | None = None) -> int:
             return _say(1, f"REFUSED: {exc}", js, err=True)
         # A row routed to the hub itself rewrites the hub, so its Archive-parts
         # listing is brought in line with the century files on disk in the
-        # same write (a no-op when it already names exactly that set).
+        # same write (a no-op when it already names exactly that set). A row
+        # routed to an existing century file leaves the hub alone unless its
+        # listing is stale or missing, in which case the repaired hub joins
+        # the same all-or-nothing write.
+        outputs = [(dest_path, new_text)]
         if dest_path == hub_path:
-            new_text = _with_parts_listing(new_text, newline_of(text),
-                                           _existing_archive_parts(hub_path.parent, naming))
+            outputs = [(dest_path, _with_parts_listing(new_text, newline_of(text),
+                                                       _existing_archive_parts(hub_path.parent, naming)))]
+        else:
+            try:
+                repaired_hub_text = _stale_parts_repair(hub_path, naming)
+            except Refusal as exc:
+                return _say(1, f"REFUSED: {exc}", js, err=True)
+            if repaired_hub_text is not None:
+                outputs.append((hub_path, repaired_hub_text))
         # An append into an EXISTING file replaces a user file, exactly like
         # a century-file creation's hub rewrite -- the same backup rule
         # applies, so it goes through the same helper rather than writing
         # bare.
-        ok, report = _write_backed_up([(dest_path, new_text)], config, backups_root, write_day,
+        ok, report = _write_backed_up(outputs, config, backups_root, write_day,
                                       "promotion-log-append")
         if not ok:
             return _failed(report, js)

@@ -428,6 +428,76 @@ class TestArchivePartsListingForm(PromotionLogTestCase):
         self.assertIn("promotion-log-listing-repair", dispositions.read_text(encoding="utf-8"))
 
 
+class TestCenturyAppendRepairsHubListing(PromotionLogTestCase):
+    """An append into an EXISTING century file (an id of 1-200, never the hub)
+    brings a stale or missing hub `Parts:` listing in line with the century
+    files on disk, in the same all-or-nothing backed-up write as the row."""
+
+    def _seed_century(self, band: str, rows: list = ()) -> Path:
+        index_name = "00-Index-LessonsLearned.md"
+        path = self.archive_dir / f"PromotionLog-LessonsLearned-{band}.md"
+        lines = [f"[← {index_name}]({index_name})", "", LOG_HEADER, LOG_SEP, *rows]
+        path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+        return path
+
+    def test_a_stale_archive_parts_listing_is_repaired_in_place_in_its_own_form(self):
+        index_name = "00-Index-LessonsLearned.md"
+        hub_path = self.lessons_dir / "00-PromotionLog-LessonsLearned.md"
+        one_part = ("Archive parts: [PromotionLog-LessonsLearned-001-050.md]"
+                    "(Archive/PromotionLog-LessonsLearned-001-050.md)")
+        hub_path.write_bytes("\n".join([f"[← {index_name}]({index_name})", "", one_part, "",
+                                        LOG_HEADER, LOG_SEP, ""]).encode("utf-8"))
+        for band in CENTURY_BANDS:
+            self._seed_century(band)
+
+        with _on_write_day():
+            code, out = self._run(self._argv("LL-007", "a rule", "some/path.md", "--date", "2026-04-01"))
+        self.assertEqual(code, 0, out)
+
+        hub_text = hub_path.read_text(encoding="utf-8")
+        self.assertEqual(hub_text.count("Archive parts:"), 1)
+        self.assertNotIn("\nParts: ", hub_text)
+        self.assertEqual(hub_text.count("](Archive/PromotionLog-LessonsLearned-"), len(CENTURY_BANDS))
+        self.assertIn("| 2026-04-01 | LL-007 | a rule | some/path.md |",
+                      (self.archive_dir / "PromotionLog-LessonsLearned-001-050.md").read_text(encoding="utf-8"))
+        dispositions = (self.planwise_dir / "upgrade-backups" / f"manual-promotion-log-{WRITE_DAY}"
+                        / "DISPOSITIONS.md").read_text(encoding="utf-8")
+        self.assertEqual(dispositions.count("promotion-log-append"), 2)  # the century file and the hub
+        self.assertTrue((self.planwise_dir / "upgrade-backups" / f"manual-promotion-log-{WRITE_DAY}"
+                         / "lessons" / "00-PromotionLog-LessonsLearned.md").is_file())  # the hub pre-image
+
+    def test_a_hub_write_failure_after_the_century_append_restores_both_files(self):
+        hub_path = self._seed_log("00-PromotionLog-LessonsLearned.md")  # no Parts: line
+        century_path = self._seed_century("001-050", ["| 2026-01-01 | LL-003 | old rule | old/path.md |"])
+        before_hub, before_century = hub_path.read_bytes(), century_path.read_bytes()
+        real_replace = migrate_backlog_support._replace
+        calls: list = []
+
+        def _second_replace_fails(tmp, path):
+            calls.append(path)
+            if len(calls) == 2:  # the century file's own replace lands first; the hub's fails
+                raise OSError("simulated failure writing the hub")
+            return real_replace(tmp, path)
+
+        with patch("migrate_backlog_support._replace", _second_replace_fails):
+            code, out = self._run(self._argv("LL-007", "a rule", "some/path.md"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("REFUSED", out)
+        self.assertNotIn("Traceback", out)
+        self.assertEqual(century_path.read_bytes(), before_century)  # the appended row is rolled back
+        self.assertEqual(hub_path.read_bytes(), before_hub)
+
+    def test_a_correct_listing_leaves_the_hub_byte_identical(self):
+        hub_path = self._seed_log("00-PromotionLog-LessonsLearned.md")
+        self._seed_century("001-050", ["| 2026-01-01 | LL-003 | old rule | old/path.md |"])
+        self.assertEqual(self._run(self._argv("LL-007", "rule one", "one.md"))[0], 0)  # repairs the missing listing
+        repaired = hub_path.read_bytes()
+        self.assertEqual(repaired.count(b"Parts:"), 1)
+
+        self.assertEqual(self._run(self._argv("LL-008", "rule two", "two.md"))[0], 0)
+        self.assertEqual(hub_path.read_bytes(), repaired)
+
+
 class TestPromotionLogDispositionsRow(PromotionLogTestCase):
     """B / info-to-fix: every promotion-log write into an existing family
     now goes through `lessons_migration.write_with_dispositions`, the same
