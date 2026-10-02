@@ -615,19 +615,38 @@ def century_log_filenames(naming) -> list:
     return [_century_filename(stem, label, naming) for _upper_bound, label in _CENTURY_BANDS]
 
 
-def render_promotion_logs(rows: list, naming, nl: str) -> list:
+def _existing_archive_parts(lessons_dir: Path, naming) -> list:
+    """The Archive century filenames that exist on disk right now, sorted
+    ascending -- the same set and order `render_promotion_logs` lists in a
+    hub's `Parts:` line. Derived by asking `century_log_filenames` -- never
+    hardcoding the band boundaries or the stem -- for every band's file,
+    then checking which of those files are present. The one helper both
+    `render_promotion_logs` (the migrator) and the guarded promotion-log
+    writer call, so the two cannot disagree about which parts exist."""
+    return sorted(n for n in century_log_filenames(naming) if (lessons_dir / n).is_file())
+
+
+def render_promotion_logs(rows: list, naming, nl: str, lessons_dir: Path | None = None) -> list:
     """Group `rows` (as `walk_promotion_log` returns) by `log_destination`
     and render each file: a backlink to the hub, then the 4-column table
     (`Date | Lesson ID | Artifact Created | File`). The hub-side file
     additionally lists every Archive part it owns, and is rendered whenever
     any Archive part is, even when no row routes to it (a family under 201
-    lessons has only century files). Returns `[(filename, text), ...]`."""
+    lessons has only century files). With `lessons_dir`, that listing is the
+    sorted union of the parts the rows route to and the century files
+    already on disk there (`_existing_archive_parts`), so a century file no
+    row routes to is still listed; the file itself is neither rendered nor
+    rewritten. Without it, only the routed parts are listed. No rows render
+    nothing, whatever is on disk. Returns `[(filename, text), ...]`."""
     hub_name = _promotion_log_filename(naming)
     by_dest: dict = {}
     for row in rows:
         dest = log_destination(row["lesson_id"], naming)
         by_dest.setdefault(dest, []).append(row)
-    archive_parts = sorted(d for d in by_dest if d != hub_name)
+    listed = {d for d in by_dest if d != hub_name}
+    if rows and lessons_dir is not None:
+        listed |= set(_existing_archive_parts(lessons_dir, naming))
+    archive_parts = sorted(listed)
     if archive_parts:
         by_dest.setdefault(hub_name, [])
     out = []
@@ -675,6 +694,9 @@ def seed_normalized(text: str) -> str:
 # changelog and promotion-log seeds from here byte for byte.
 _SEED_DIR = Path(__file__).resolve().parent.parent / "seed"
 _SEPARATOR_4_RE = re.compile(r"^\|(?:[ \t]*-+[ \t]*\|){4}$")
+# The hub's `Parts:` listing line as `render_promotion_logs` writes it: the
+# prefix, then one or more `[text](href)` links separated by commas.
+_PARTS_LINE_RE = re.compile(r"^Parts:[ \t]*\[[^\]]*\]\([^)]*\)(?:[ \t]*,[ \t]*\[[^\]]*\]\([^)]*\))*$")
 
 
 def _bootstrap_log_seeds() -> tuple:
@@ -699,8 +721,14 @@ def header_only(text: str, index_name: str) -> bool:
     compare with any BOM removed and line endings ignored:
 
     - the generated opener: the backlink to `index_name`, alone or followed
-      by a blank line, the 4-column log header, and a separator whose four
-      cells are runs of `-`;
+      by an optional `Parts:` listing line, an optional blank line, the
+      4-column log header, and a separator whose four cells are runs of `-`,
+      with zero data rows. The listing line is derived from the century
+      files on disk, so nothing a refusal would protect is lost with it. It
+      counts only when it is a `Parts:` prefix followed by links and
+      separators and nothing else; any other line in that position is
+      hand-written content and the file is foreign. One data row, or any
+      line past the separator, makes the file foreign;
     - the exact text the lessons bootstrap seeds (`_bootstrap_log_seeds`).
       Its backlink names the default hub, so it matches even in a project
       whose index has a custom name."""
@@ -711,8 +739,15 @@ def header_only(text: str, index_name: str) -> bool:
     lines = norm.strip().split("\n")
     if lines == [backlink]:
         return True
-    return (len(lines) == 4 and lines[0] == backlink and not lines[1].strip()
-            and lines[2].strip() == _LOG_HEADER and bool(_SEPARATOR_4_RE.match(lines[3].strip())))
+    if lines[0] != backlink:
+        return False
+    rest = lines[1:]
+    if rest and _PARTS_LINE_RE.match(rest[0].strip()):
+        rest = rest[1:]
+    if rest and not rest[0].strip():
+        rest = rest[1:]
+    return (len(rest) == 2 and rest[0].strip() == _LOG_HEADER
+            and bool(_SEPARATOR_4_RE.match(rest[1].strip())))
 
 
 # --------------------------------------------------------------------------

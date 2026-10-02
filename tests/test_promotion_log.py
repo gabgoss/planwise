@@ -497,6 +497,53 @@ class TestCenturyAppendRepairsHubListing(PromotionLogTestCase):
         self.assertEqual(self._run(self._argv("LL-008", "rule two", "two.md"))[0], 0)
         self.assertEqual(hub_path.read_bytes(), repaired)
 
+    def _assert_correct_listing_hub_is_left_alone(self, hub_bytes: bytes):
+        """Seed `hub_bytes` (a hub whose `Parts:` listing is already correct)
+        beside an existing century file, append twice into that century file,
+        and assert the hub is byte-identical after each append with no hub
+        backup and no hub DISPOSITIONS row -- only the century file's."""
+        hub_name = "00-PromotionLog-LessonsLearned.md"
+        hub_path = self.lessons_dir / hub_name
+        hub_path.write_bytes(hub_bytes)
+        century_path = self._seed_century("001-050", ["| 2026-01-01 | LL-003 | old rule | old/path.md |"])
+        backup_root = self.planwise_dir / "upgrade-backups" / f"manual-promotion-log-{WRITE_DAY}"
+        dispositions_path = backup_root / "DISPOSITIONS.md"
+
+        for run, (lesson, artifact, file_) in enumerate(
+                [("LL-007", "rule one", "one.md"), ("LL-008", "rule two", "two.md")], start=1):
+            with _on_write_day():
+                code, out = self._run(self._argv(lesson, artifact, file_, "--date", "2026-04-01"))
+            self.assertEqual(code, 0, out)
+            self.assertIn(f"| 2026-04-01 | {lesson} |", century_path.read_text(encoding="utf-8"))  # row landed
+            self.assertEqual(hub_path.read_bytes(), hub_bytes, f"hub rewritten by append {run}")
+            self.assertEqual(list((backup_root / "lessons").glob("00-PromotionLog-LessonsLearned*")), [],
+                             f"hub backed up by append {run}")
+            dispositions = dispositions_path.read_text(encoding="utf-8")
+            self.assertEqual(dispositions.count("promotion-log-append"), run)  # one row per run: the century file
+            self.assertNotIn(hub_name, dispositions)
+
+    @staticmethod
+    def _correct_hub_lines() -> list:
+        index_name = "00-Index-LessonsLearned.md"
+        part = "Archive/PromotionLog-LessonsLearned-001-050.md"
+        return [f"[← {index_name}]({index_name})", f"Parts: [{part}]({part})", "", LOG_HEADER, LOG_SEP]
+
+    def test_a_correct_listing_leaves_a_pure_lf_hub_byte_identical(self):
+        hub_bytes = ("\n".join(self._correct_hub_lines()) + "\n").encode("utf-8")
+        self._assert_correct_listing_hub_is_left_alone(hub_bytes)
+
+    def test_a_correct_listing_leaves_a_pure_crlf_hub_byte_identical(self):
+        hub_bytes = ("\r\n".join(self._correct_hub_lines()) + "\r\n").encode("utf-8")
+        self._assert_correct_listing_hub_is_left_alone(hub_bytes)
+
+    def test_a_correct_listing_leaves_a_mixed_line_ending_hub_byte_identical(self):
+        # LF on the backlink, the `Parts:` line and the blank line; CRLF on the table lines.
+        lines = self._correct_hub_lines()
+        hub_bytes = ("\n".join(lines[:3]) + "\n" + "\r\n".join(lines[3:]) + "\r\n").encode("utf-8")
+        self.assertIn(b"\r\n", hub_bytes)
+        self.assertIn(b"\n" + lines[1].encode("utf-8") + b"\n", hub_bytes)  # genuinely mixed
+        self._assert_correct_listing_hub_is_left_alone(hub_bytes)
+
 
 class TestPromotionLogDispositionsRow(PromotionLogTestCase):
     """B / info-to-fix: every promotion-log write into an existing family
@@ -669,6 +716,24 @@ class TestWritePathFailuresRefuseCleanly(PromotionLogTestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("REFUSED", out)
         self.assertFalse((self.archive_dir / self.CENTURY).exists())
+
+    def test_undecodable_hub_on_existing_century_append_refuses(self):
+        # An append into an existing century file reads the hub to check its
+        # `Parts:` listing, so an unreadable hub refuses the append. This pins
+        # the refusal as the intended behavior: it matches the century-create
+        # path above and the duplicate-row repair path, which also refuse.
+        century_path = self._seed_log("Archive/" + self.CENTURY)
+        hub_path = self.lessons_dir / self.HUB
+        hub_path.write_bytes(b"\xff\xfe not utf-8\n")
+        century_before = century_path.read_bytes()
+        hub_before = hub_path.read_bytes()
+        code, out = self._run_safely(self._argv("LL-007", "a rule", "some/path.md"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("REFUSED", out)
+        self.assertNotIn("Traceback", out)
+        self.assertEqual(century_path.read_bytes(), century_before)
+        self.assertEqual(hub_path.read_bytes(), hub_before)
+        self.assertFalse((self.planwise_dir / "upgrade-backups").exists())
 
     def test_undecodable_destination_refuses(self):
         (self.lessons_dir / self.HUB).write_bytes(b"\xff\xfe not utf-8\n")

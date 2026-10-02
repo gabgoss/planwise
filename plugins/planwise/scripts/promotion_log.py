@@ -44,7 +44,10 @@ message, never a raw traceback; a success logs one DISPOSITIONS row per
 file touched. An append routed to the hub itself brings that listing in
 line with the century files on disk in the same write, and so does an
 append into an existing century file when the hub's listing is stale or
-missing. A re-run also repairs a hub listing a century file's
+missing. That append reads the hub to check its `Parts:` listing. A hub
+that cannot be read (for example, not valid UTF-8) refuses the append
+with REFUSED and writes nothing, the same as century-file creation and a
+duplicate-row repair do. A re-run also repairs a hub listing a century file's
 existence has outgrown, in its existing form, even when the row itself is
 already logged — and a call that refuses for any other reason (a
 duplicate, an unreadable index) writes nothing unless the listing was
@@ -254,6 +257,18 @@ def _parse_existing_listing(line: str):
     return None
 
 
+def _listing_hrefs(hub_text: str):
+    """The hrefs, in order, that the hub's Archive-parts listing line names
+    (the same line `_with_parts_listing` rewrites: the first line after the
+    first that `_parse_existing_listing` recognises), or None when the hub
+    carries no listing line. Line endings play no part in the answer."""
+    for line in hub_text.replace("\r\n", "\n").split("\n")[1:]:
+        parsed = _parse_existing_listing(line)
+        if parsed is not None:
+            return [m.group(2) for m in _LISTING_LINK_RE.finditer(line[len(parsed[0]):])]
+    return None
+
+
 def _with_parts_listing(hub_text: str, nl: str, archive_parts: list) -> str:
     """`hub_text` with its Archive-parts listing line reflecting
     `archive_parts`. A listing line already present is rewritten IN PLACE,
@@ -263,9 +278,11 @@ def _with_parts_listing(hub_text: str, nl: str, archive_parts: list) -> str:
     second line. Only when the hub carries no listing line at all does a
     fresh one get the writer's default form (`Parts: `, comma-space
     separated, link text equal to the href) inserted right after the
-    backlink. A hub whose listing already names exactly `archive_parts`
-    comes back byte-identical, so a caller can tell "nothing to repair"
-    from equality alone."""
+    backlink. A hub of one uniform line ending whose listing already names
+    exactly `archive_parts` comes back byte-identical. A hub that mixes
+    line endings does not (every line is rejoined with `nl`), so a caller
+    deciding "nothing to repair" must use `_stale_parts_repair`, not
+    equality."""
     lines = hub_text.replace("\r\n", "\n").split("\n")
     existing_idx = None
     prefix, sep, style = "Parts: ", ", ", "full"
@@ -357,6 +374,15 @@ def _stale_parts_repair(hub_path: Path, naming) -> str | None:
     hub_text = _read_text(hub_path)
     nl = newline_of(hub_text)
     archive_parts = _existing_archive_parts(hub_path.parent, naming)
+    # Decide staleness from the listing, not the whole text: the repair
+    # rejoins every line with one line ending, so a hub that mixes LF and
+    # CRLF would never compare equal to its own repair even with a correct
+    # listing, and would be rewritten and backed up on every call.
+    listed = _listing_hrefs(hub_text)
+    if listed is None and not archive_parts:
+        return None  # no listing and nothing to list
+    if archive_parts and listed == archive_parts:
+        return None  # the listing already names exactly the parts on disk
     repaired = _with_parts_listing(hub_text, nl, archive_parts)
     return repaired if repaired != hub_text else None
 

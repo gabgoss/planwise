@@ -860,3 +860,128 @@ def test_report_survives_an_undecodable_promotion_log_file(tmp_path):
     assert report["promotion_log"] == "unreadable"
     assert any("not valid UTF-8" in item for item in report["would_refuse"])
     assert report["ready_with_all_repairs"] is False
+
+
+# ---------------------------------------------------------------------------
+# The migrated hub's `Parts:` line names the century files on disk, and a
+# resumed run overwrites a zero-row hub but never one that holds a row.
+# One test per cell of the interaction matrix:
+#
+#   existing state                         | migrating rows     | outcome
+#   ---------------------------------------+--------------------+---------------------------
+#   stray century file                     | century rows       | hub lists planned + stray
+#   stray century file                     | hub-side rows only | hub lists the stray
+#   stray century file                     | none               | no hub written, stray kept
+#   zero-row hub with a Parts: line        | differs from plan  | overwritten
+#   zero-row hub with a prose Parts: line  | differs from plan  | refused, bytes kept
+#   hub holding one data row               | differs from plan  | refused, bytes kept
+#   hub equal to the planned text          | any                | accepted (resume), no change
+#   opener-only / seed hub                 | any                | accepted (existing tests)
+# ---------------------------------------------------------------------------
+
+HUB_LOG_NAME = "00-PromotionLog-LessonsLearned.md"
+_PROMO_ONLY_HUB_SIDE = (
+    "## Rule Promotion Log\n\n| Date | Lesson ID | Artifact Created | File |\n"
+    "|------|-----------|-----------------|------|\n"
+    "| 2024-01-03 | LL-201 | a later rule | [later.md](later.md) |\n\n---\n"
+)
+
+
+def _on_disk_archive_parts(lessons_dir) -> list:
+    return sorted(f"Archive/{p.name}" for p in (lessons_dir / "Archive").glob("PromotionLog-*.md"))
+
+
+def _hub_parts_hrefs(lessons_dir) -> list:
+    text = (lessons_dir / HUB_LOG_NAME).read_text(encoding="utf-8")
+    lines = [ln for ln in text.splitlines() if ln.startswith("Parts:")]
+    assert len(lines) == 1, f"expected exactly one Parts: line, got {lines!r}"
+    return re.findall(r"\]\(([^)]*)\)", lines[0])
+
+
+def _stray_part(lessons_dir, index_path, which: int) -> str:
+    """Create a century file no migrating row routes to; return its hub-relative name."""
+    name = sup.century_log_filenames(mig._index_naming(index_path))[which]
+    (lessons_dir / name).write_bytes(
+        f"[← {index_path.name}]({index_path.name})\n\n{sup._LOG_HEADER}\n{sup._LOG_SEP}\n".encode("utf-8"))
+    return name
+
+
+def test_hub_parts_line_lists_a_stray_century_file_with_no_migrating_row(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path)  # LL-003 routes to the 001-050 part
+    stray = _stray_part(lessons_dir, index_path, 1)
+    before = (lessons_dir / stray).read_bytes()
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert _hub_parts_hrefs(lessons_dir) == _on_disk_archive_parts(lessons_dir)
+    assert stray in _hub_parts_hrefs(lessons_dir)
+    assert (lessons_dir / stray).read_bytes() == before  # listed, never rewritten
+
+
+def test_hub_parts_line_lists_a_stray_century_file_when_only_hub_side_rows_migrate(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path, promo=False)
+    index_path.write_bytes(index_path.read_bytes() + _PROMO_ONLY_HUB_SIDE.encode("utf-8"))
+    stray = _stray_part(lessons_dir, index_path, 2)
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert _hub_parts_hrefs(lessons_dir) == [stray] == _on_disk_archive_parts(lessons_dir)
+    assert "LL-201" in (lessons_dir / HUB_LOG_NAME).read_text(encoding="utf-8")
+
+
+def test_a_stray_century_file_with_no_migrating_rows_at_all_writes_no_hub(tmp_path):
+    """A hub is rendered only when the migration carries promotion-log rows. With none, there
+    is nothing to overwrite and nothing to list, so no hub appears; the writer repairs a stale
+    listing on its next append."""
+    config, index_path, lessons_dir = _build(tmp_path, promo=False)
+    stray = _stray_part(lessons_dir, index_path, 1)
+    before = (lessons_dir / stray).read_bytes()
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert not (lessons_dir / HUB_LOG_NAME).exists()
+    assert (lessons_dir / stray).read_bytes() == before
+
+
+def _zero_row_hub_listing(index_path, part_names: list, parts_line: str | None = None) -> bytes:
+    listing = parts_line if parts_line is not None else "Parts: " + ", ".join(f"[{p}]({p})" for p in part_names)
+    return (f"[← {index_path.name}]({index_path.name})\n{listing}\n\n"
+            f"{sup._LOG_HEADER}\n{sup._LOG_SEP}\n").encode("utf-8")
+
+
+def test_resume_overwrites_a_zero_row_hub_that_carries_a_parts_line(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path)  # planned hub lists the 001-050 part only
+    other = sup.century_log_filenames(mig._index_naming(index_path))[1]
+    hub = lessons_dir / HUB_LOG_NAME
+    hub.write_bytes(_zero_row_hub_listing(index_path, [other]))  # differs from the planned hub
+    _plan(config, index_path, mig.RepairOptions.all_on())  # no refusal
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert _hub_parts_hrefs(lessons_dir) == _on_disk_archive_parts(lessons_dir)
+    assert other not in _hub_parts_hrefs(lessons_dir)  # the century file never existed on disk
+
+
+def test_resume_refuses_a_hub_that_holds_a_data_row(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path)
+    part = sup.century_log_filenames(mig._index_naming(index_path))[1]
+    hub = lessons_dir / HUB_LOG_NAME
+    hub.write_bytes(_zero_row_hub_listing(index_path, [part]) + b"| 2024-01-01 | LL-060 | a rule | [r](r.md) |\n")
+    before = hub.read_bytes()
+    with pytest.raises(mig.Refusal, match="already exists"):
+        _plan(config, index_path, mig.RepairOptions.all_on())
+    assert _run(config, *_WRITE_ARGS) != 0
+    assert hub.read_bytes() == before
+
+
+def test_resume_refuses_a_zero_row_hub_whose_line_is_prose_not_a_parts_listing(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path)
+    hub = lessons_dir / HUB_LOG_NAME
+    hub.write_bytes(_zero_row_hub_listing(index_path, [], parts_line="Parts: see the archive folder"))
+    before = hub.read_bytes()
+    with pytest.raises(mig.Refusal, match="already exists"):
+        _plan(config, index_path, mig.RepairOptions.all_on())
+    assert hub.read_bytes() == before
+
+
+def test_resume_accepts_a_hub_equal_to_the_planned_text(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path)
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    planned = {path.name: text for path, text in plan["outputs"]}
+    hub = lessons_dir / HUB_LOG_NAME
+    hub.write_bytes(planned[HUB_LOG_NAME].encode("utf-8"))
+    _plan(config, index_path, mig.RepairOptions.all_on())  # no refusal: a resumed run's own output
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert _hub_parts_hrefs(lessons_dir) == _on_disk_archive_parts(lessons_dir)

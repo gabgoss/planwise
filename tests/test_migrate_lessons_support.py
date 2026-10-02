@@ -3,6 +3,7 @@ is asserted (Archive/LL-149: a `write_text` fixture normalises to
 `os.linesep` and cannot detect a newline rewrite), and never live under
 plugins/planwise/."""
 import itertools
+import re
 import sys
 from pathlib import Path
 
@@ -602,3 +603,140 @@ def test_render_changelog_refuses_a_body_that_would_not_read_back():
     segments = [{"text": "Newest.", "flag": None}, {"text": "Body.\n## Entry 7\nmore", "flag": None}]
     with pytest.raises(sup.Refusal, match="Entry 1"):
         sup.render_changelog(segments, "00-Index-LessonsLearned.md", "\n", "2026-09-27")
+
+
+# ---------------------------------------------------------------------------
+# The hub's `Parts:` line lists the century files on disk, and `header_only`
+# recognises a zero-row hub that carries that line
+# ---------------------------------------------------------------------------
+
+HUB_LOG = "00-PromotionLog-LessonsLearned.md"
+IDX = "00-Index-LessonsLearned.md"
+
+
+def _parts_hrefs(text: str) -> list:
+    """The hrefs of the single `Parts:` line in `text`; fails when there is not exactly one."""
+    lines = [ln for ln in text.splitlines() if ln.startswith("Parts:")]
+    assert len(lines) == 1, f"expected exactly one Parts: line, got {lines!r}"
+    return re.findall(r"\]\(([^)]*)\)", lines[0])
+
+
+def _century_row(lesson_id: int) -> dict:
+    return {"line": lesson_id, "lesson_id": lesson_id,
+            "cells": ("2026-09-01", f"LL-{lesson_id:03d}", "a.md", "a.md")}
+
+
+def _seed_archive_part(lessons_dir: Path, name: str) -> None:
+    (lessons_dir / name).parent.mkdir(parents=True, exist_ok=True)
+    (lessons_dir / name).write_bytes(
+        f"[← {IDX}]({IDX})\n\n{sup._LOG_HEADER}\n{sup._LOG_SEP}\n".encode("utf-8"))
+
+
+def test_the_writer_and_the_migrator_share_one_on_disk_parts_helper():
+    import promotion_log
+    assert promotion_log._existing_archive_parts is sup._existing_archive_parts
+
+
+def test_existing_archive_parts_lists_only_the_century_files_on_disk_sorted(tmp_path):
+    century = sup.century_log_filenames(NAMING)
+    _seed_archive_part(tmp_path, century[2])
+    _seed_archive_part(tmp_path, century[0])
+    (tmp_path / "Archive" / "PromotionLog-LessonsLearned-999-999.md").write_text("x", encoding="utf-8")
+    assert sup._existing_archive_parts(tmp_path, NAMING) == [century[0], century[2]]
+
+
+def test_render_without_a_lessons_dir_lists_the_planned_parts_only(tmp_path):
+    century = sup.century_log_filenames(NAMING)
+    _seed_archive_part(tmp_path, century[3])  # on disk, but the caller does not pass the dir
+    out = dict(sup.render_promotion_logs([_century_row(10)], NAMING, "\n"))
+    assert _parts_hrefs(out[HUB_LOG]) == [century[0]]
+
+
+def test_render_lists_a_stray_century_file_beside_the_planned_ones(tmp_path):
+    century = sup.century_log_filenames(NAMING)
+    _seed_archive_part(tmp_path, century[3])  # no migrating row routes here
+    out = dict(sup.render_promotion_logs([_century_row(10)], NAMING, "\n", tmp_path))
+    assert _parts_hrefs(out[HUB_LOG]) == [century[0], century[3]]
+    assert century[3] not in out  # the stray file is listed, never rewritten
+
+
+def test_render_lists_a_stray_century_file_when_only_hub_side_rows_migrate(tmp_path):
+    century = sup.century_log_filenames(NAMING)
+    _seed_archive_part(tmp_path, century[1])
+    out = dict(sup.render_promotion_logs([_century_row(250)], NAMING, "\n", tmp_path))
+    assert set(out) == {HUB_LOG}
+    assert _parts_hrefs(out[HUB_LOG]) == [century[1]]
+
+
+def test_render_lists_a_planned_part_that_is_also_on_disk_once(tmp_path):
+    century = sup.century_log_filenames(NAMING)
+    _seed_archive_part(tmp_path, century[0])
+    out = dict(sup.render_promotion_logs([_century_row(10)], NAMING, "\n", tmp_path))
+    assert _parts_hrefs(out[HUB_LOG]) == [century[0]]
+
+
+def test_render_with_a_lessons_dir_and_no_rows_still_renders_nothing(tmp_path):
+    _seed_archive_part(tmp_path, sup.century_log_filenames(NAMING)[0])
+    assert sup.render_promotion_logs([], NAMING, "\n", tmp_path) == []
+
+
+PARTS_HUB_PART = "Archive/PromotionLog-LessonsLearned-001-050.md"
+PARTS_LINE = f"Parts: [{PARTS_HUB_PART}]({PARTS_HUB_PART})"
+
+
+def _zero_row_hub(index_name: str = IDX, parts_line: str = PARTS_LINE, blank: bool = True) -> str:
+    lines = [f"[← {index_name}]({index_name})"]
+    if parts_line:
+        lines.append(parts_line)
+    if blank:
+        lines.append("")
+    lines += [sup._LOG_HEADER, sup._LOG_SEP]
+    return "\n".join(lines) + "\n"
+
+
+@pytest.mark.parametrize("index_name", [IDX, CUSTOM_INDEX])
+@pytest.mark.parametrize("blank", [True, False], ids=["blank-line", "no-blank-line"])
+@pytest.mark.parametrize("variant", ["lf", "crlf", "bom-crlf"])
+def test_header_only_accepts_a_zero_row_hub_that_carries_a_parts_line(index_name, blank, variant):
+    text = _zero_row_hub(index_name, blank=blank)
+    if variant != "lf":
+        text = text.replace("\n", "\r\n")
+    if variant == "bom-crlf":
+        text = "﻿" + text
+    assert sup.header_only(text, index_name)
+
+
+def test_header_only_accepts_a_parts_line_with_several_parts():
+    two = (f"Parts: [{PARTS_HUB_PART}]({PARTS_HUB_PART}), "
+           "[Archive/PromotionLog-LessonsLearned-051-075.md](Archive/PromotionLog-LessonsLearned-051-075.md)")
+    assert sup.header_only(_zero_row_hub(parts_line=two), IDX)
+
+
+def test_header_only_still_accepts_the_plain_opener_forms():
+    assert sup.header_only(f"[← {IDX}]({IDX})\n", IDX)
+    assert sup.header_only(_zero_row_hub(parts_line=""), IDX)
+
+
+def test_header_only_treats_the_blank_line_as_optional_without_a_parts_line():
+    assert sup.header_only(_zero_row_hub(parts_line="", blank=False), IDX)
+
+
+@pytest.mark.parametrize("blank", [True, False], ids=["blank-line", "no-blank-line"])
+def test_header_only_rejects_a_parts_hub_that_holds_one_data_row(blank):
+    text = _zero_row_hub(blank=blank) + LOG_ROW + "\n"
+    assert not sup.header_only(text, IDX)
+    assert not sup.header_only(text.replace("\n", "\r\n"), IDX)
+
+
+@pytest.mark.parametrize("parts_line", [
+    "Parts: see the archive files for the older rows",
+    f"Parts: [{PARTS_HUB_PART}]({PARTS_HUB_PART}) plus a hand-written note",
+    "Parts:",
+    "Notes: a hand-written line that is not a parts listing",
+], ids=["prose", "links-and-prose", "empty-listing", "other-prefix"])
+def test_header_only_rejects_a_hub_whose_line_is_not_a_parts_listing(parts_line):
+    assert not sup.header_only(_zero_row_hub(parts_line=parts_line), IDX)
+
+
+def test_header_only_rejects_a_hub_with_two_lines_between_the_backlink_and_the_header():
+    assert not sup.header_only(_zero_row_hub(parts_line=PARTS_LINE + "\nParts: [x](x)"), IDX)
