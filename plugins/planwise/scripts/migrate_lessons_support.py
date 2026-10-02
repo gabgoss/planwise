@@ -626,7 +626,7 @@ def _existing_archive_parts(lessons_dir: Path, naming) -> list:
     return sorted(n for n in century_log_filenames(naming) if (lessons_dir / n).is_file())
 
 
-def render_promotion_logs(rows: list, naming, nl: str, lessons_dir: Path | None = None) -> list:
+def render_promotion_logs(rows: list, naming, nl: str, lessons_dir: "Path | None" = None) -> list:
     """Group `rows` (as `walk_promotion_log` returns) by `log_destination`
     and render each file: a backlink to the hub, then the 4-column table
     (`Date | Lesson ID | Artifact Created | File`). The hub-side file

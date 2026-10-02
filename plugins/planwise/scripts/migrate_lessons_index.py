@@ -314,7 +314,8 @@ def plan_migration(config: dict, index_path: Path, text: str, detail, options: R
     changelog_outputs = (sup.render_changelog(changelog_segments, naming.hub_name, index_nl, today)
                          if changelog_segments else [])
     changelog_path = lessons_dir / _changelog_filename(naming)
-    promo_outputs = sup.render_promotion_logs(promo_rows, naming, index_nl) if promo_rows else []
+    promo_outputs = (sup.render_promotion_logs(promo_rows, naming, index_nl, lessons_dir)
+                     if promo_rows else [])
     for name, out_text in changelog_outputs + promo_outputs:
         blocker = _existing_or_none(lessons_dir / name, out_text, naming.hub_name)
         if blocker:

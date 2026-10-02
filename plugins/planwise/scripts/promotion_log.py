@@ -74,6 +74,7 @@ from backlog_index_schema import _index_naming
 from config_loader import load_config
 from migrate_lessons_support import (
     Refusal,
+    _existing_archive_parts,
     _promotion_log_filename,
     century_log_filenames,
     log_destination,
@@ -222,15 +223,6 @@ def _insert_after_last_row(text: str, rows: list, new_line: str) -> str:
 # Archive parts. No third form has been found in either.
 _LISTING_PREFIXES = ("Archive parts: ", "Parts: ")
 _LISTING_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
-
-
-def _existing_archive_parts(lessons_dir: Path, naming) -> list:
-    """The Archive century filenames that exist on disk right now, sorted
-    ascending -- the same set and order `render_promotion_logs` lists in a
-    hub's `Parts:` line. Derived by asking `century_log_filenames` -- never
-    hardcoding the band boundaries or the stem -- for every band's file,
-    then checking which of those files are present."""
-    return sorted(n for n in century_log_filenames(naming) if (lessons_dir / n).is_file())
 
 
 def _parse_existing_listing(line: str):
