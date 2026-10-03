@@ -14,6 +14,21 @@ import pytest
 sys.dont_write_bytecode = True
 
 
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the user home at a scratch directory for every test.
+
+    ``init_project.configure_thrifty_sonic()`` writes ``~/.claude/settings.json``
+    by design. Without this redirect, any test that reaches it would edit the
+    developer's real user settings. The guard sits in a fixture, not in each
+    test body, so no test needs to remember it. ``Path.home()`` reads
+    ``USERPROFILE`` on Windows and ``HOME`` elsewhere, so both are set.
+    """
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+
 def pytest_collection_modifyitems(
     session: pytest.Session, config: pytest.Config, items: list[pytest.Item]
 ) -> None:

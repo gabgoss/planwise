@@ -151,7 +151,9 @@ class TestDoctorHandlerStage20(unittest.TestCase):
         found = set(_STAGE_HEADING_RE.findall(self.part1_text)) | set(
             _STAGE_HEADING_RE.findall(self.part2_text)
         )
-        self.assertEqual(found, _PRE_EDIT_STAGE_SET | {"20", "21", "22"})
+        # Stage 15b (thrifty-sonic env var sweep) sits beside Stage 15, the
+        # other settings-file sweep.
+        self.assertEqual(found, _PRE_EDIT_STAGE_SET | {"15b", "20", "21", "22"})
 
 
 if __name__ == "__main__":

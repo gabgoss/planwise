@@ -29,6 +29,7 @@ reporting or offer text, which this file does not own.
 ## Table of Contents
 
 - [Gate Chain](#gate-chain)
+  - [Resolving `gh`](#resolving-gh)
 - [Step 4.5 — Duplicate Scan (Non-Fatal)](#step-45--duplicate-scan-non-fatal)
 - [Draft-First, Then Post](#draft-first-then-post)
 - [Marking a Posted Draft](#marking-a-posted-draft)
@@ -50,8 +51,10 @@ ALL gates below MUST pass, in this order, before a post is attempted:
    opt-in precedent).
 2. **Interactive session.** In Auto Mode the pipeline is **draft-only, unconditionally** —
    gates 3-5 are skipped and execution proceeds straight to the draft-write step below.
-3. **`gh` resolvable on PATH.**
-4. **`gh auth status` exits 0.** An unauthenticated `gh` otherwise fails at post time with
+3. **`gh` resolvable** — on PATH, or at a known install location (see
+   [Resolving `gh`](#resolving-gh) below). Gate 3 records the resolved `{gh_path}`, and every
+   later `gh` call in this engine runs through it.
+4. **`{gh_path} auth status` exits 0.** An unauthenticated `gh` otherwise fails at post time with
    no fallback; checking auth before rendering moves that failure into the fallback path
    where it belongs.
 5. **Explicit `AskUserQuestion`** — one call, three outcomes. It shows the duplicate-scan
@@ -70,13 +73,46 @@ ALL gates below MUST pass, in this order, before a post is attempted:
 |---|------|---------------|
 | 1 | `feedback.enabled: true` | Unaffected — config-based, no session distinction. |
 | 2 | Interactive session | Draft-only, unconditionally; gates 3-5 are skipped. |
-| 3 | `gh` on PATH | Only evaluated in an interactive session. |
-| 4 | `gh auth status` exits 0 | Only evaluated in an interactive session. |
+| 3 | `gh` resolvable (PATH, then known install locations) | Only evaluated in an interactive session. |
+| 4 | `{gh_path} auth status` exits 0 | Only evaluated in an interactive session. |
 | 4.5 | Duplicate scan (step, not gate) | Runs opportunistically; the result is written into the draft. No consent site. |
 | 5 | Explicit consent (`AskUserQuestion`) | Auto-deny → draft written **with the possible-duplicates block**, exit 0 (see the Auto Mode deviation below, not a fail-loud STOP). |
 
 Row 4.5 is a **step**, not a gate — the "ALL gates below MUST pass" rule above governs
 gates 1–5 only, and a scan that fails never stops the pipeline.
+
+### Resolving `gh`
+
+A shell started by a running session inherits the PATH the session had at launch. A `gh`
+installed after that point works by full path and stays invisible to a bare `gh` for the rest
+of the session. A PATH-only check therefore reports "not installed" for a working install.
+Gate 3 resolves `gh` in this order and stops at the first success:
+
+1. **PATH.** Run `gh --version`. On exit 0, `{gh_path}` is the bare word `gh`.
+2. **Known install locations.** Test each candidate for the detected platform, in the order
+   listed. A candidate counts only if the file exists and `"{candidate}" --version` exits 0.
+   The first one that counts is `{gh_path}`.
+
+| Platform | Candidates, in order |
+|---|---|
+| Windows | `C:\Program Files\GitHub CLI\gh.exe`, `%LOCALAPPDATA%\Programs\GitHub CLI\gh.exe`, `C:\Program Files (x86)\GitHub CLI\gh.exe` |
+| macOS | `/opt/homebrew/bin/gh`, `/usr/local/bin/gh` |
+| Linux | `/usr/bin/gh`, `/usr/local/bin/gh`, `/home/linuxbrew/.linuxbrew/bin/gh`, `~/.local/bin/gh` |
+
+If every step fails, gate 3 is unmet and `{gh_path}` is undefined. A caller that needs only
+the yes/no answer reads "undefined" as "not resolvable".
+
+- **Report the source.** A caller that prints the result names where `gh` was found. A hit
+  from step 2 reads `found at {gh_path}, not on this session's PATH`. That wording tells the
+  user a new terminal will resolve it and that nothing is broken.
+- **Quote the path.** Every candidate contains a space or may do so. Write `"{gh_path}"` in a
+  command line, and use the quoted form in both Git Bash and PowerShell (in PowerShell, call
+  it with the `&` operator).
+- **Change nothing.** Resolution never edits PATH, a profile, or a settings file. It also
+  never installs anything. The install offers in `handlers/init.md` and
+  `handlers/upgrade-Part-3-BannerAndConflictResolution.md` own the install.
+- **Resolve once per run.** The result holds for the whole pipeline. Do not re-probe between
+  gates 3, 4 and the posting step.
 
 ---
 
@@ -133,7 +169,7 @@ the newest 5 under an explicit weak-signal caveat. The scan never silently does 
 One search, repeated once per key:
 
 ```
-gh issue list -R {feedback.repo} --state all --limit 20 --search "{query} in:title,body" \
+"{gh_path}" issue list -R {feedback.repo} --state all --limit 20 --search "{query} in:title,body" \
   --json number,title,state,createdAt,url
 ```
 
@@ -144,13 +180,13 @@ gh issue list -R {feedback.repo} --state all --limit 20 --search "{query} in:tit
 | `--json` | Exactly these five fields. Do not add fields without first confirming they exist on the installed `gh` — an unknown field name makes the whole call exit non-zero, converting a working scan into a degradation row. |
 | `{query}` | One search key, already safety-filtered, always double-quoted. |
 | `in:title,body` | Keeps the match off labels and comment threads, where a shared word produces noise. |
-| Permitted surface | Read-only. `gh issue view {NN} -R {feedback.repo} --json number,title,state,url` is the only other invocation this step may make, and only to validate a user-named issue number at gate 5. No other `gh` subcommand is permitted here. |
+| Permitted surface | Read-only. `"{gh_path}" issue view {NN} -R {feedback.repo} --json number,title,state,url` is the only other invocation this step may make, and only to validate a user-named issue number at gate 5. No other `gh` subcommand is permitted here. |
 
 When the body cites no identifier and every title query returns nothing, one unkeyed recency
 listing runs in their place:
 
 ```
-gh issue list -R {feedback.repo} --state all --limit 20 \
+"{gh_path}" issue list -R {feedback.repo} --state all --limit 20 \
   --json number,title,state,createdAt,url
 ```
 
@@ -236,7 +272,7 @@ shown, and posted *from that file*. Before that first write, create the parent d
 the comment draft path resolve under it:
 
 ```
-gh issue create -R {feedback.repo} --title "{title}" --body-file "{draft_path}" --label {label}
+"{gh_path}" issue create -R {feedback.repo} --title "{title}" --body-file "{draft_path}" --label {label}
 ```
 
 - `{feedback.repo}` resolves to the literal `gabgoss/planwise` by default and is **NEVER**
@@ -261,7 +297,7 @@ printed verbatim (its absolute path, then its contents; a print, **not** a promp
 posted from that file:
 
 ```
-gh issue comment -R {feedback.repo} {NN} --body-file "{comment_draft_path}"
+"{gh_path}" issue comment -R {feedback.repo} {NN} --body-file "{comment_draft_path}"
 ```
 
 No `--label` — comments carry none. Both drafts stay on disk afterwards, on success and on
@@ -271,7 +307,7 @@ failure alike.
 already returned: the first `#[0-9]+` token in it if there is one, otherwise the rank-1
 candidate that the option's own label named. If neither is available, treat the answer as
 cancel and print `No issue number supplied — nothing was posted.` Validate the resolved
-target read-only with `gh issue view {NN} -R {feedback.repo} --json number,title,state,url`;
+target read-only with `"{gh_path}" issue view {NN} -R {feedback.repo} --json number,title,state,url`;
 a non-zero exit or an empty result posts nothing and prints
 `Could not resolve issue #{NN} in {feedback.repo} — nothing was posted.` No further question
 is asked at any step — this post pipeline has exactly one consent site.
@@ -481,7 +517,7 @@ sidecar if one exists.
 De-duplicated issue numbers are queried, one read-only call each:
 
 ```
-gh issue view {NN} -R {feedback.repo} --json number,title,state,url
+"{gh_path}" issue view {NN} -R {feedback.repo} --json number,title,state,url
 ```
 
 exactly the four fields already documented above as the engine's read-only validation call.
@@ -538,8 +574,8 @@ date, route, URL) read from disk, which needs no network and no permission.
 | Case | Behaviour | `{status_caveat}` |
 |---|---|---|
 | `feedback.enabled` is false | Local half only; no `gh` call is made | `Tracker state not checked — feedback.enabled is false in config.yaml. Only the local record is shown.` |
-| `gh` not on PATH | Local half only | `Tracker state unknown — gh was not found on PATH.` |
-| `gh auth status` exits non-zero | Local half only | `Tracker state unknown — gh is not authenticated (gh auth status exited non-zero).` |
+| `gh` not resolvable (not on PATH, not at a known install location) | Local half only | `Tracker state unknown — gh was not found on PATH or at a known install location.` |
+| `{gh_path} auth status` exits non-zero | Local half only | `Tracker state unknown — gh is not authenticated (gh auth status exited non-zero).` |
 | `config.yaml` missing or unreadable | Local half only, `plugin_version: unknown` posture | `Tracker state not checked — config.yaml could not be read, so the feedback repo is unknown.` |
 | One `gh issue view` exits non-zero, returns empty, or exceeds its budget | That row only renders `unknown`; the run continues | `Tracker state unknown for {n} of {m} issue(s).` |
 | Whole-run budget exceeded | No further calls; remaining rows render `unknown` | `Tracker state unknown for {n} of {m} issue(s) — the lookup budget was reached.` |

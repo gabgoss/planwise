@@ -594,6 +594,22 @@ artifacts:
     missing_key_behavior: warn_loud
     upgrade_behavior: preserve
 
+  - id: thrifty_sonic_env
+    on_disk: ".claude/settings.json and ~/.claude/settings.json: env.CLAUDE_CODE_THRIFTY_SONIC"
+    config_keys:
+      - "project.install_scope"
+    producer: "configure_thrifty_sonic()"
+    consumers:
+      - "every Claude Code session (session-behavior toggle; written to both files whatever the install scope)"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: preserve
+    notes: >
+      Dual-scope by design, unlike agent_teams_env: the project file and the
+      user-global file both carry the key, and settings.local.json never does.
+      An install that predates the key is provisioned by /planwise upgrade
+      Step 4.7 (opt-in offer) and audited read-only by /planwise doctor Stage
+      15b.
+
   - id: plugin_permissions
     on_disk: "{settings_file}: permissions.additionalDirectories"
     config_keys:

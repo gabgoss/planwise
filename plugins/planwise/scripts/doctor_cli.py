@@ -671,6 +671,49 @@ def _sweep_settings_grants(cfg: "InitConfig") -> list[dict]:
     return findings
 
 
+def _sweep_thrifty_sonic(cfg: "InitConfig") -> list[dict]:
+    """Read-only sweep of the two settings files that should carry
+    `env.CLAUDE_CODE_THRIFTY_SONIC` set to "false": the project's
+    `.claude/settings.json` and the user-global `~/.claude/settings.json`,
+    whatever the install scope. `settings.local.json` is never read.
+
+    Returns one finding per file that is NOT correct, each a dict with
+    `settings_path`, `klass` and `detail`. Classes:
+      "missing"       — the file, the `env` block, or the key is absent.
+      "wrong value"   — the key holds something other than "false".
+      "invalid JSON"  — the file does not parse; reported, never repaired.
+    A file already holding "false" yields no finding. Never mutates — `/planwise
+    upgrade` Step 4.7 is the only writer, and only on explicit approval.
+    Doctor never imports the writer, so the two target paths are restated here
+    rather than shared with init_project.py.
+    """
+    targets = (
+        cfg.project_root / ".claude" / "settings.json",
+        Path.home() / ".claude" / "settings.json",
+    )
+    findings = []
+    for settings_path in targets:
+        if not settings_path.exists():
+            findings.append({"settings_path": settings_path, "klass": "missing",
+                             "detail": "file does not exist"})
+            continue
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            findings.append({"settings_path": settings_path, "klass": "invalid JSON",
+                             "detail": "file does not parse — fix the JSON by hand"})
+            continue
+        env = settings.get("env") if isinstance(settings, dict) else None
+        value = env.get("CLAUDE_CODE_THRIFTY_SONIC") if isinstance(env, dict) else None
+        if value is None:
+            findings.append({"settings_path": settings_path, "klass": "missing",
+                             "detail": "env.CLAUDE_CODE_THRIFTY_SONIC is absent"})
+        elif value != "false":
+            findings.append({"settings_path": settings_path, "klass": "wrong value",
+                             "detail": f"env.CLAUDE_CODE_THRIFTY_SONIC is {value!r}, expected 'false'"})
+    return findings
+
+
 def _run_doctor(cfg: "InitConfig") -> int:
     """Run the read-only overscope linter + stale-rule sweep and print a report.
 
@@ -697,7 +740,9 @@ def _run_doctor(cfg: "InitConfig") -> int:
     gate below (that gate reads config.yaml's plugin_root: pin, this stage
     reads settings.json's additionalDirectories grants), and read-only —
     normalization is offered only by `/planwise upgrade` Step 4.4. Then runs
-    Stage 16, the verified-CLI-version drift advisory: probes the live
+    Stage 15b, the thrifty-sonic env var sweep (_sweep_thrifty_sonic()) — also
+    always-on and read-only; the remedy is `/planwise upgrade` Step 4.7. Then
+    runs Stage 16, the verified-CLI-version drift advisory: probes the live
     `claude --version` and compares it against config.yaml's
     context.verified_cli_version (populated by init, refreshed by upgrade) —
     read-only, recommends `/planwise upgrade` on drift or on an uncalibrated
@@ -881,6 +926,24 @@ def _run_doctor(cfg: "InitConfig") -> int:
                   "the parent grant) — doctor is read-only and never rewrites settings")
         print()
         print(f"Total grant(s) needing normalization: {len(grants)} found.")
+
+    # Stage 15b: thrifty-sonic env var sweep — read-only, always-on. Sits beside
+    # the grant sweep because both read settings files; /planwise upgrade Step
+    # 4.7 is the only writer.
+    print()
+    print("planwise doctor — thrifty-sonic env var sweep")
+    print()
+    thrifty = _sweep_thrifty_sonic(cfg)
+    if not thrifty:
+        print("CLAUDE_CODE_THRIFTY_SONIC=false is set in both the user and project settings files.")
+    else:
+        print(f"CLAUDE_CODE_THRIFTY_SONIC drift in {len(thrifty)} of 2 settings file(s):")
+        for f in thrifty:
+            print(f"  ~ {f['settings_path']}")
+            print(f"      class:     {f['klass']}")
+            print(f"      detail:    {f['detail']}")
+            print("      recommend: run /planwise upgrade (Step 4.7 offers to set it) — "
+                  "doctor is read-only and never rewrites settings")
 
     # Stage 16: verified-CLI-version drift advisory — read-only, always-on.
     # Compares the live `claude --version` probe against context.verified_cli_version

@@ -564,6 +564,54 @@ def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None]:
     return str(settings_path), plugin_dir
 
 
+THRIFTY_SONIC_KEY = "CLAUDE_CODE_THRIFTY_SONIC"
+THRIFTY_SONIC_VALUE = "false"
+
+
+def get_thrifty_sonic_paths(cfg: InitConfig) -> list[Path]:
+    """Return the settings files that carry the standing session-behavior var.
+
+    Always the project's .claude/settings.json and the user-global
+    ~/.claude/settings.json, whatever the install scope: the var is a
+    session toggle meant to apply everywhere, not to one install. The
+    settings.local.json file is never a target.
+    """
+    return [
+        cfg.project_root / ".claude" / "settings.json",
+        Path.home() / ".claude" / "settings.json",
+    ]
+
+
+def configure_thrifty_sonic(cfg: InitConfig) -> list[tuple[Path, str]]:
+    """Set env.CLAUDE_CODE_THRIFTY_SONIC="false" in every target settings file.
+
+    Each file is read, merged and written independently, so one malformed file
+    never blocks the other. Every other key is preserved. Returns one
+    (path, status) pair per target, status being "added", "corrected",
+    "unchanged" or "skipped" (invalid JSON — a warning is printed).
+    """
+    results: list[tuple[Path, str]] = []
+    for path in get_thrifty_sonic_paths(cfg):
+        try:
+            settings = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            settings = {}
+        except json.JSONDecodeError:
+            print(f"  Warning: {path} contains invalid JSON — skipping {THRIFTY_SONIC_KEY}.", file=sys.stderr)
+            results.append((path, "skipped"))
+            continue
+        env = settings.setdefault("env", {})
+        current = env.get(THRIFTY_SONIC_KEY)
+        if current == THRIFTY_SONIC_VALUE:
+            results.append((path, "unchanged"))
+            continue
+        env[THRIFTY_SONIC_KEY] = THRIFTY_SONIC_VALUE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+        results.append((path, "added" if current is None else "corrected"))
+    return results
+
+
 def _print_skipped_banner(skipped: list[SkippedArtifact]) -> None:
     """Emit the Step 10 SKIPPED section if any artifact was not produced.
 
@@ -1026,6 +1074,19 @@ def main():
             consumer="Agent Teams + plugin permissions (all handlers)",
             remediation=f"Fix the JSON in {get_settings_path(cfg)} and re-run /planwise init.",
         ))
+    print()
+
+    thrifty_results = configure_thrifty_sonic(cfg)
+    print(f"Session env var {THRIFTY_SONIC_KEY}={THRIFTY_SONIC_VALUE} (user + project settings):")
+    for thrifty_path, thrifty_status in thrifty_results:
+        print(f"  {thrifty_status}: {thrifty_path}")
+        if thrifty_status == "skipped":
+            skipped.append(SkippedArtifact(
+                artifact=str(thrifty_path),
+                reason="settings.json contains invalid JSON",
+                consumer=THRIFTY_SONIC_KEY,
+                remediation=f"Fix the JSON in {thrifty_path} and re-run /planwise init.",
+            ))
     print()
 
     # Manifest-driven post-checks: load manifests/artifacts.yaml and surface

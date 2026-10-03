@@ -211,11 +211,14 @@ Use `AskUserQuestion`:
 > [doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md)
 > Stage 16 reports the gate state on demand.
 
-Probe for the GitHub CLI by running `gh --version`. Three outcomes, reported
-distinctly — the installed-but-unauthenticated case is the one most likely to
+Resolve the GitHub CLI by the engine's own order — PATH first, then the known install
+locations ([`references/feedback-submission.md`](../references/feedback-submission.md)
+§ Resolving `gh`). Do not probe PATH alone: a `gh` installed after this session started
+works by full path and is invisible to a bare `gh` until a new terminal opens. Three
+outcomes, reported distinctly — the installed-but-unauthenticated case is the one most likely to
 confuse, because the binary is present and posting still will not happen:
 
-**If it resolves,** probe the auth state with `gh auth status`. On exit 0 skip this
+**If it resolves,** probe the auth state with `"{gh_path}" auth status`. On exit 0 skip this
 step silently — there is nothing to offer. On any non-zero exit, print one line and
 continue (no question, no install, never blocking):
 
@@ -233,8 +236,9 @@ local draft instead of posting.
 > your report is saved as a draft file that you paste into the issues page yourself.
 > Install it now? (Yes / No)"
 
-**If Yes:** run the install command for the detected platform, then re-probe with
-`gh --version` and report the result:
+**If Yes:** run the install command for the detected platform, then re-resolve `gh` by
+the same order and report the result. The re-resolution is what finds a fresh install,
+because the session's PATH does not yet carry it:
 
 | Platform | Command |
 |---|---|
@@ -314,6 +318,9 @@ Token Saver:
 
 Agent Teams:
   ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}
+
+Session env var (user + project settings):
+  ✓ CLAUDE_CODE_THRIFTY_SONIC=false → ~/.claude/settings.json and {project_root}/.claude/settings.json   (per file: added / corrected / unchanged / skipped — invalid JSON)
 
 Plugin permissions:
   ✓ additionalDirectories: {plugin_root} → {settings_file}

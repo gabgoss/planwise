@@ -255,7 +255,7 @@ flowchart LR
 
 Shows a table of every plan in your project with its status, sprint count, and when it was created.
 
-`list` also cross-checks every index row against its plan's actual Master Plan status and flags any drift before the table, offering to reconcile the index on the spot — nothing is written without your consent (`--no-check` skips the check).
+`list` also cross-checks the index against a fresh render of every Master Plan and flags any drift before the table, offering to reconcile the index on the spot — nothing is written without your consent (`--no-check` skips the check). It prints "No drift detected" only after a full comparison. When the check could not compare every row, it says so instead. When the index is still hand-authored, it points you to [`/planwise upgrade`](#10-planwise-upgrade) and offers no write.
 
 #### How `list` works
 
@@ -339,10 +339,14 @@ flowchart LR
 - **Stale de-scoped rule sweep** — finds rule copies left behind in `.claude/rules/planwise/` by older versions; those rules are now loaded on demand from the plugin instead.
 - **Installed rule divergence lint** — classifies every still-installed rule against its shipped counterpart: a stale copy of an older shipped version (run [`/planwise upgrade`](#10-planwise-upgrade) — it refreshes it safely), a genuine customization (re-home it — never delete), or not analyzable (diff it manually).
 - **Orphaned agent mirror sweep** — flags agent copies under `.claude/agents/` left behind by older versions that mirrored agents into the project; agents now run directly from the plugin, so copies you never edited are safe to remove.
-- **Index drift audits** — compares the plans index with the generator's render of every Master Plan, and says so loudly when nothing could be compared. It also checks the backlog index against archival state.
-- **Feedback capability probe** — checks the three gates that decide whether [`/planwise feedback`](#12-planwise-feedback) actually posts (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and names the one-line remedy for each unmet gate. The fallback is silent by design, so without this check a consumer can draft reports for months believing they were filed.
+- **Index drift audits** — compares the plans index with the generator's render of every Master Plan, and says so loudly when nothing could be compared. It also checks the backlog index against archival state, and the lessons index against its ID counter.
+- **Feedback capability probe** — checks the three gates that decide whether [`/planwise feedback`](#12-planwise-feedback) actually posts (`feedback.enabled`, `gh` resolvable on PATH or at a known install location, `gh` authenticated) and names the one-line remedy for each unmet gate. The fallback is silent by design, so without this check a consumer can draft reports for months believing they were filed.
 - **Upgrade recovery-leftover sweep** — walks the backup, transfer, and conflict directories that past [`/planwise upgrade`](#10-planwise-upgrade) runs left behind. They accumulate per upgrade and nothing purges them on its own, so the sweep sorts each one into what still needs you (unresolved conflicts, transferred customizations awaiting a re-homing decision) and what is now discardable (pre-change backups, consumed caches).
 - **Feedback directory presence check** — reports whether the directory your feedback drafts are written to actually exists. A project whose config predates the setting, or whose directory was removed by hand, would otherwise discover the gap only when the first draft failed to write.
+- **Settings-grant sweep** — reads `.claude/settings.json` and `.claude/settings.local.json` for read-permission grants that point into the plugin cache. It never writes. [`/planwise upgrade`](#10-planwise-upgrade) is the only command that normalizes a grant, and only after it asks.
+- **Thrifty-sonic env var sweep** — checks that `CLAUDE_CODE_THRIFTY_SONIC` is `"false"` in both your user and project `settings.json`. It never writes. [`/planwise upgrade`](#10-planwise-upgrade) offers to set it, and `/planwise init` sets it for new projects.
+- **Task-tools advisory** — reports whether the Claude Code Task tools are available in this session. Newer model families omit them, and `/planwise run` then tracks progress in its recovery file only. The report names the setting that turns them on and never edits it.
+- **Backlog item body-status audit** — finds a legacy `**Status:**` line left under an item's title, so the frontmatter `status:` stays the only status field. It strips a line only after you consent.
 - **Backlog index shape audit** — classifies your backlog index as generated, hand-authored, or unrecognized, flags any changelog file over its read budget, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index, or `migrate_backlog_index.py --split-changelog` for an over-budget changelog.
 - **Lessons index shape audit** — classifies your lessons index as generated, hand-authored, or unrecognized, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
 - **Plans index shape audit** — classifies your plans index as generated, hand-authored, or unrecognized, counts what a migration would move, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
@@ -552,7 +556,7 @@ Walks you through a short prompt — bug, lesson, or idea — and drafts a submi
 
 **Privacy.** The submitted body never contains your file contents, repo paths, or config values — only what you wrote in the prompt. If `gh` isn't installed, isn't authenticated, or you decline the post, your draft is preserved locally and the issues URL is printed so you can file it by hand.
 
-**Needs the [GitHub CLI](https://cli.github.com/) (`gh`) to post directly** — see [Requirements](#requirements) for the install command and the two gates that follow it. `/planwise init` and `/planwise upgrade` offer to install it when it's missing — always as a question, never silently. Because the draft fallback is silent by design, [`/planwise doctor`](#8-planwise-doctor) also probes all three posting gates (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and tells you whether reports are actually posting or quietly landing in your local feedback directory (`Feedback/` by default).
+**Needs the [GitHub CLI](https://cli.github.com/) (`gh`) to post directly** — see [Requirements](#requirements) for the install command and the two gates that follow it. `/planwise init` and `/planwise upgrade` offer to install it when it's missing — always as a question, never silently. Because the draft fallback is silent by design, [`/planwise doctor`](#8-planwise-doctor) also probes all three posting gates (`feedback.enabled`, `gh` resolvable on PATH or at a known install location, `gh` authenticated) and tells you whether reports are actually posting or quietly landing in your local feedback directory (`Feedback/` by default).
 
 #### How `feedback` works
 
@@ -617,7 +621,7 @@ flowchart LR
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, backlog item body status lines, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, backlog/lessons/plans index shape audits, backlog item body status lines, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
@@ -668,7 +672,7 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 12 subcommand handlers across 15 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
+  handlers/                         # 12 subcommand handlers across 19 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
   agents/                           # 8 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates

@@ -1,6 +1,6 @@
 # Handler: /planwise upgrade — Part 3: Banner Rendering and Conflict Resolution
 
-**Part 3 of [upgrade.md](upgrade.md).** Part 1 carries the Config Gate and Steps 1-2.7 of the Workflow, and is the file `/planwise upgrade` dispatches to; this part carries Step 3 (Render the banner) through Step 4.6 (Task-tools env var offer) — the banner the upgrade script emits, and every conflict-resolution and post-upgrade offer step that follows it. [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) (Part 2) carries the scenario table this file's Step 4 dispositions point back to, and the recovery procedures for a run — or the Config Gate — that cannot complete. Split at this section boundary so each part stays within one Read-tool page.
+**Part 3 of [upgrade.md](upgrade.md).** Part 1 carries the Config Gate and Steps 1-2.7 of the Workflow, and is the file `/planwise upgrade` dispatches to; this part carries Step 3 (Render the banner) through Step 4.7 (Thrifty-sonic env var offer) — the banner the upgrade script emits, and every conflict-resolution and post-upgrade offer step that follows it. [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) (Part 2) carries the scenario table this file's Step 4 dispositions point back to, and the recovery procedures for a run — or the Config Gate — that cannot complete. Split at this section boundary so each part stays within one Read-tool page.
 
 ## Table of Contents
 
@@ -12,6 +12,7 @@
 - [Step 4.4 — Settings-grant normalization offer](#step-44--settings-grant-normalization-offer)
 - [Step 4.5 — GitHub CLI availability offer](#step-45--github-cli-availability-offer)
 - [Step 4.6 — Task-tools env var offer](#step-46--task-tools-env-var-offer)
+- [Step 4.7 — Thrifty-sonic env var offer](#step-47--thrifty-sonic-env-var-offer)
 
 ---
 
@@ -347,7 +348,7 @@ When no `additionalDirectories` entry falls in the plugin-cache path family at a
 
 ### Step 4.5 — GitHub CLI availability offer
 
-After a successful upgrade, probe for the GitHub CLI by running `gh --version`. If it resolves, probe the auth state with `gh auth status` and report the installed-but-unauthenticated case exactly as [init.md](init.md) Step 9.5 specifies — one line, no question, never blocking. On exit 0, skip this step silently; there is nothing to offer.
+After a successful upgrade, resolve the GitHub CLI by the order [init.md](init.md) Step 9.5 specifies (PATH first, then the known install locations). If it resolves, probe the auth state with `"{gh_path}" auth status` and report the installed-but-unauthenticated case exactly as [init.md](init.md) Step 9.5 specifies — one line, no question, never blocking. On exit 0, skip this step silently; there is nothing to offer.
 
 If it does not resolve, offer the install exactly as [init.md](init.md) Step 9.5 specifies. That step owns the platform command table, the one-command-only failure posture, the unauthenticated-case report line, and the post-install `gh auth login` / `feedback.enabled` instruction; this step invokes it and does not restate or re-derive any of it. `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`), inferred default **No — install nothing** (an unattended run never invokes a package manager).
 
@@ -377,6 +378,28 @@ The **report always renders**, regardless of consent. The **write happens only o
 
 > [!practice] Why this offer runs at upgrade time and not only at init
 > `scripts/init_project.py::configure_settings()` writes `CLAUDE_CODE_ENABLE_TODO_TOOLS` unconditionally for every new project, same as Agent Teams. But every install that predates that write has already run its `init` and will never run it again, so an init-only placement leaves those consumers permanently dependent on noticing `handlers/doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md` Stage 18's advisory and hand-editing their settings file. This step reaches that population — the same reasoning Step 4.5 already states for the GitHub CLI offer.
+
+---
+
+### Step 4.7 — Thrifty-sonic env var offer
+
+After a successful upgrade, read BOTH `~/.claude/settings.json` (the user-global file) and the project's `.claude/settings.json` for `env.CLAUDE_CODE_THRIFTY_SONIC`. The variable belongs in both files whatever the install scope, because it is a session-behavior toggle meant to apply everywhere. Consumer settings files are DATA, never a ship-boundary artifact — this step READS and OFFERS, and it never rewrites without approval. It never reads or writes `.claude/settings.local.json`.
+
+Classify each of the two files:
+
+| Class | Shape | Offered action |
+|---|---|---|
+| `correct` | `env.CLAUDE_CODE_THRIFTY_SONIC` equals `"false"` | none — report it |
+| `missing` | the key, the `env` block, or the file is absent | offer to add it |
+| `wrong value` | the key holds anything other than `"false"` | offer to correct it, naming the value replaced |
+| `invalid JSON` | the file does not parse | report it, leave the file untouched, name the fix |
+
+The **report always renders**: one line per file naming its path and class, even when the user declines. When both files are `correct`, print "Thrifty-sonic env var: set in both settings files." and skip the offer.
+
+The **write happens only on approval**: `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->`) — "Set `CLAUDE_CODE_THRIFTY_SONIC: "false"` in {the files that are missing or wrong}?" The inferred default is **add**. The write is additive and non-destructive, unlike Step 4.4, which edits an existing value. On approval, merge the key into each file's existing `env` object independently. Preserve every other key, and create the `env` block or the file when absent. Then read each file back to confirm the write landed. Use the `Read` and `Edit` tools, or `Write` for an absent file. A new session is required for the variable to take effect, so say so after a write. On decline, leave both files untouched.
+
+> [!practice] Why this offer runs at upgrade time and not only at init
+> `scripts/init_project.py::configure_thrifty_sonic()` writes the variable to both files for every new project. Every install that predates that write has already run its `init` and never will again, so an init-only placement leaves those consumers unprovisioned. Steps 4.5 and 4.6 state the same reasoning for their offers. The read-only drift report is `handlers/doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md` Stage 15b, and its remedy points back to this step.
 
 ---
 

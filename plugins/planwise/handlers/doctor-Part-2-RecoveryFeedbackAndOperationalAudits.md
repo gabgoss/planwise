@@ -2,7 +2,7 @@
 
 **Part 2 of 3.** This handler spans three files, split by topic because the combined text exceeds the Read-tool page cap. Each Stage keeps its own identifier wherever it lands, so an existing `Stage N` reference still names exactly one section — only the filename that holds it changes. See [`doctor.md`](doctor.md) for the full three-part pointer table, the Config Gate, the Preflight version-state gate, and Stages 8-13.
 
-This file covers **Stages 14-22**: the upgrade recovery-leftover sweep, the settings-grant sweep, the feedback capability and directory probes, the task-tools availability advisory, the backlog body-status and index-shape audits, the lessons index-shape audit, and the plans index-shape audit. **Part 3** ([`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md)) covers Steps 4-8: the Token Saver audits, the capture self-containment scan, and the bookkeeping index read-gate scan.
+This file covers **Stages 14-22**: the upgrade recovery-leftover sweep, the settings-grant sweep, the thrifty-sonic env var sweep, the feedback capability and directory probes, the task-tools availability advisory, the backlog body-status and index-shape audits, the lessons index-shape audit, and the plans index-shape audit. **Part 3** ([`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md)) covers Steps 4-8: the Token Saver audits, the capture self-containment scan, and the bookkeeping index read-gate scan.
 
 ---
 
@@ -194,6 +194,42 @@ plugin-cache grant exists yet.`
 
 ---
 
+### Stage 15b: Thrifty-sonic env var sweep (post-boundary)
+
+> [!constraint] Read-Only — bare doctor only recommends
+> Stage 15b runs `_sweep_thrifty_sonic()` standalone. It READS the project's
+> `.claude/settings.json` and the user-global `~/.claude/settings.json`,
+> whatever the install scope, then prints a report. It never reads
+> `.claude/settings.local.json`. It writes nothing. To set the variable, run
+> `/planwise upgrade` — its Step 4.7 offer is the only writer.
+
+Always-on, independent of Token Saver. The sweep checks that
+`env.CLAUDE_CODE_THRIFTY_SONIC` equals `"false"` in both files. A file that
+already holds `"false"` yields no finding. Every other file lands in one class:
+
+| Class | Meaning |
+|---|---|
+| `missing` | the file, the `env` block, or the key is absent |
+| `wrong value` | the key holds anything other than `"false"` |
+| `invalid JSON` | the file does not parse, so doctor reports it and repairs nothing |
+
+Print verbatim:
+
+```
+planwise doctor — thrifty-sonic env var sweep
+
+CLAUDE_CODE_THRIFTY_SONIC drift in {N} of 2 settings file(s):
+  ~ {settings_path}
+      class:     {klass}
+      detail:    {detail}
+      recommend: run /planwise upgrade (Step 4.7 offers to set it) — doctor is read-only and never rewrites settings
+```
+
+If the sweep returns nothing: `CLAUDE_CODE_THRIFTY_SONIC=false is set in both the
+user and project settings files.`
+
+---
+
 ### Stage 16: Feedback capability probe
 
 > [!constraint] Read-Only — probes, never installs
@@ -231,10 +267,17 @@ unmet one with the matching line:
 | Gate (defined by the engine) | Reported when unmet |
 |---|---|
 | 1 — `feedback.enabled` | `feedback.enabled is false — /planwise feedback drafts locally and posts nothing` |
-| 3 — `gh` on PATH | `gh not found on PATH — install from https://cli.github.com/, or run /planwise upgrade to be offered the install` |
+| 3 — `gh` resolvable | `gh not found on PATH or at a known install location — install from https://cli.github.com/, or run /planwise upgrade to be offered the install` |
 | 4 — `gh` authenticated | `gh is installed but not authenticated — run: gh auth login` |
 
-`{gh_version_when_present}` is the version string `gh --version` reports once gate
+Gate 3 resolves `gh` by the engine's own order: PATH first, then the known install
+locations. When gate 3 resolves through a known install location and not through PATH,
+the gate is met. Print a note line in place of a remedy line:
+`gh found at {gh_path}, not on this session's PATH — a new terminal will resolve it`.
+Gate 4 runs `"{gh_path}" auth status`, so a `gh` found by full path is judged on its
+real auth state.
+
+`{gh_version_when_present}` is the version string `{gh_path} --version` reports once gate
 3 has resolved. It is a reporting detail of this stage, not part of the gate —
 the engine's gate 3 tests resolvability and nothing more.
 
@@ -244,7 +287,7 @@ Print verbatim:
 planwise doctor — feedback capability probe
 
   feedback.enabled:  {true|false}
-  gh on PATH:        {yes|no}  {gh_version_when_present}
+  gh resolvable:     {yes — on PATH|yes — at {gh_path}|no}  {gh_version_when_present}
   gh authenticated:  {yes|no|n/a — gh absent}
 
   {one remedy line per unmet gate, from the table above}

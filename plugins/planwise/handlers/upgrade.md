@@ -10,7 +10,7 @@ This handler spans **three files**, split by topic because the combined text exc
 |---|---|---|---|
 | 1 (this file) | `upgrade.md` | Config Gate, Steps 1-2.7 | Drift detection, Token Saver mode offer, comparator fan-out, verdict write, the upgrade script invocation, calibration refresh, lessons/feedback backfill |
 | 2 | [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) | Conflict Resolution Reference, Auto-Init Fallback, Mid-Upgrade Failure, Config Recovery | The scenario table Part 3's Step 4 dispositions point back to, and recovery procedures for a run — or the Config Gate — that cannot complete |
-| 3 | [`upgrade-Part-3-BannerAndConflictResolution.md`](upgrade-Part-3-BannerAndConflictResolution.md) | Steps 3-4.6 | Banner rendering, conflict resolution (relocation, upstream issue, per-class cleanup), settings-grant/GitHub-CLI/task-tools post-upgrade offers |
+| 3 | [`upgrade-Part-3-BannerAndConflictResolution.md`](upgrade-Part-3-BannerAndConflictResolution.md) | Steps 3-4.7 | Banner rendering, conflict resolution (relocation, upstream issue, per-class cleanup), settings-grant/GitHub-CLI/task-tools/thrifty-sonic post-upgrade offers |
 
 `/planwise upgrade` dispatches to this file; it reads Part 3 for the banner and conflict-resolution steps, and Part 2 when the Config Gate branches to Auto-Init Fallback or a Part 3 step needs the scenario table.
 
@@ -27,7 +27,7 @@ This handler spans **three files**, split by topic because the combined text exc
   - [Step 2.5 — Refresh Token Saver calibration](#step-25--refresh-token-saver-calibration)
   - [Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)](#step-26--lessons-scaffolding-backfill-pyyaml-missing-fallback)
   - [Step 2.7 — Feedback directory backfill and creation](#step-27--feedback-directory-backfill-and-creation)
-- [Part 3 — Banner Rendering and Conflict Resolution](#part-3--banner-rendering-and-conflict-resolution) — pointer to the separate file [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) (Step 3 — Render the banner; Step 4 — Resolve conflicts; Step 4.1 — Assisted relocation; Step 4.2 — Opt-in upstream GitHub issue; Step 4.3 — Interactive per-class cleanup offer; Step 4.4 — Settings-grant normalization offer; Step 4.5 — GitHub CLI availability offer; Step 4.6 — Task-tools env var offer)
+- [Part 3 — Banner Rendering and Conflict Resolution](#part-3--banner-rendering-and-conflict-resolution) — pointer to the separate file [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) (Step 3 — Render the banner; Step 4 — Resolve conflicts; Step 4.1 — Assisted relocation; Step 4.2 — Opt-in upstream GitHub issue; Step 4.3 — Interactive per-class cleanup offer; Step 4.4 — Settings-grant normalization offer; Step 4.5 — GitHub CLI availability offer; Step 4.6 — Task-tools env var offer; Step 4.7 — Thrifty-sonic env var offer)
 - [Part 2 — Conflict Resolution Reference and Recovery](#part-2--conflict-resolution-reference-and-recovery) — pointer to the separate file [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Conflict Resolution Reference, Auto-Init Fallback, Mid-Upgrade Failure, Config Recovery)
 
 ---
@@ -350,7 +350,7 @@ when it fires.
 
 ## Part 3 — Banner Rendering and Conflict Resolution
 
-Step 3 (Render the banner) through Step 4.6 (Task-tools env var offer) live in [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) — split at this section boundary so each part stays within one Read-tool page. Read it for:
+Step 3 (Render the banner) through Step 4.7 (Thrifty-sonic env var offer) live in [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) — split at this section boundary so each part stays within one Read-tool page. Read it for:
 
 - [Step 3 — Render the banner](upgrade-Part-3-BannerAndConflictResolution.md#step-3--render-the-banner)
 - [Step 4 — Resolve conflicts](upgrade-Part-3-BannerAndConflictResolution.md#step-4--resolve-conflicts)
@@ -360,6 +360,7 @@ Step 3 (Render the banner) through Step 4.6 (Task-tools env var offer) live in [
 - [Step 4.4 — Settings-grant normalization offer](upgrade-Part-3-BannerAndConflictResolution.md#step-44--settings-grant-normalization-offer)
 - [Step 4.5 — GitHub CLI availability offer](upgrade-Part-3-BannerAndConflictResolution.md#step-45--github-cli-availability-offer)
 - [Step 4.6 — Task-tools env var offer](upgrade-Part-3-BannerAndConflictResolution.md#step-46--task-tools-env-var-offer)
+- [Step 4.7 — Thrifty-sonic env var offer](upgrade-Part-3-BannerAndConflictResolution.md#step-47--thrifty-sonic-env-var-offer)
 
 ---
 
