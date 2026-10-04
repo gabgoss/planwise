@@ -584,6 +584,27 @@ artifacts:
       (the default). This glob row covers only the four still-installed rules
       for refresh_or_sidecar.
 
+  - id: style_rules
+    on_disk: "{scope_claude_dir}/rules/planwise/plain-language.md, {scope_claude_dir}/rules/planwise/plain-presentation.md"
+    config_keys:
+      - "style.plain_language"
+      - "style.plain_presentation"
+      - "project.install_scope"
+    producer: "install_style_rules()"
+    consumers:
+      - "every Claude Code session (global always-on rule; spawned subagents other than Explore and Plan also receive it)"
+      - "/planwise doctor (style rules stage)"
+    missing_key_behavior: render_from_template_default
+    upgrade_behavior: refresh_or_sidecar
+    notes: >
+      Two global rules with no `paths:` line, installed by install_style_rules()
+      in style_rules.py, not by install_rules(), so INSTALLED_RULES keeps its
+      four path-scoped entries. A key set to off removes an untouched copy on
+      upgrade. An absent style block means both rules are on. The directory
+      follows the install scope: ~/.claude for user, the project's .claude
+      otherwise. A same-name file at the top level of either rules directory
+      stops the install and is reported.
+
   - id: agent_teams_env
     on_disk: "{settings_file}: env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
     config_keys:

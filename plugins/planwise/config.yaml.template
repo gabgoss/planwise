@@ -166,6 +166,21 @@ feedback:
   # No project file contents, paths, or config values are ever attached.
   include_environment: true
 
+style:
+  # Two global, always-on rules that planwise installs into rules/planwise/ under
+  # .claude/ (project or local scope) or ~/.claude/ (user scope).
+  # A key set to `on` installs the rule. An absent key means `on`.
+  # A key set to `off` removes an untouched installed copy on the next /planwise upgrade.
+  # An edited copy is never removed or overwritten.
+  # A rule is not installed when a file of the same name already sits at the top
+  # level of .claude/rules/ or ~/.claude/rules/.
+  # plain_language: sentence-level rules (short sentences, active voice, one term per concept).
+  # Costs about 940 tokens in every session, subagents included.
+  plain_language: on
+  # plain_presentation: rules for tables, lists, headings and code blocks.
+  # Costs about 680 tokens in every session, subagents included.
+  plain_presentation: on
+
 scoring:
   priority_high: 30
   priority_medium: 20
