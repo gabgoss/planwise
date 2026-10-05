@@ -202,6 +202,8 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # `.claude/**` file activity, and stay small. The sixteen plan/backlog/lessons
 # rules that used to be installed here are now handler-loaded on demand from
 # references/ — see DESCOPED_RULES below and migrate_installed_rules().
+# The two global style rules are installed separately by
+# `style_rules.install_style_rules` and are not in this table.
 INSTALLED_RULES: list[tuple[str, str]] = [
     ("agent-authoring.md", ".claude/agents/**"),
     ("skill-authoring.md", ".claude/skills/**"),
@@ -490,6 +492,13 @@ def install_rules(cfg: InitConfig) -> list[str]:
         except FileExistsError:
             continue
         installed.append(filename)
+
+    from style_rules import format_duplicate_line, install_style_rules
+
+    style_installed, style_skipped = install_style_rules(cfg)
+    installed.extend(style_installed)
+    for duplicate in style_skipped:
+        print(format_duplicate_line(*duplicate))
 
     return installed
 
@@ -1056,6 +1065,11 @@ def main():
         print("Rules installed to .claude/rules/planwise/:")
         for r in rules:
             print(f"  + {r}")
+        if cfg.install_scope == InstallScope.USER:
+            from style_rules import STYLE_RULES, style_rule_dir
+
+            if any(name in rules for name, _key in STYLE_RULES):
+                print(f"Style rules installed to {style_rule_dir(cfg)}.")
     else:
         print("Rules: already exist, skipped")
     print()

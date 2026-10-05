@@ -16,6 +16,22 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path_factory, monkeypatch):
+    """A test must never read or write the developer's real home directory.
+
+    Redirects `Path.home()`, `HOME` and `USERPROFILE` to a fresh empty directory
+    per test. Applies to `unittest.TestCase` methods as well. A test that sets
+    its own redirect nests inside this one.
+    """
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
 
 def _engine():
     """Import (or re-import) the not-yet-implemented token_saver engine module.
