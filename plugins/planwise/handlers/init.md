@@ -330,6 +330,10 @@ Rules installed to .claude/rules/planwise/:
   ✓ skill-authoring.md              (paths: .claude/skills/**)
   ✓ rule-authoring.md               (paths: .claude/rules/**)
   ✓ artifact-self-containment.md    (paths: .claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md)
+  ✓ plain-language.md               (global style rule, no paths: line)
+  ✓ plain-presentation.md           (global style rule, no paths: line)
+
+  (With user install scope the script adds one line: "Style rules installed to {style_rule_dir}.")
 
   (Plan/backlog/lessons reference rules are handler-loaded on demand from the
    plugin's references/ directory — not installed as path-scoped rules.)
@@ -399,7 +403,7 @@ python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --migrate
 
 1. Resolves `{planwise_root}/config.yaml` (must already exist — otherwise it errors and instructs you to run plain `/planwise init`).
 2. Reads `config.yaml.template`, replaces the placeholders, and parses both files.
-3. For each top-level key in the script's `MIGRATABLE_TOP_LEVEL_KEYS` list (`plugin_root`, `context`, `categorization`):
+3. For each top-level key in the script's `MIGRATABLE_TOP_LEVEL_KEYS` list (defined in `scripts/config_gen.py`):
    - If the key is **absent** in the user's config → copies the template value in.
    - If the key is **present** → leaves it untouched, no value overwriting.
 4. Re-emits the merged config preserving the user's leading comment header.

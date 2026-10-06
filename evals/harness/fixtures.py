@@ -57,6 +57,8 @@ INIT_WRITE_SET = frozenset({
     ".claude/rules/planwise/artifact-self-containment.md",
     ".claude/rules/planwise/rule-authoring.md",
     ".claude/rules/planwise/skill-authoring.md",
+    ".claude/rules/planwise/plain-language.md",
+    ".claude/rules/planwise/plain-presentation.md",
     "planwise/config.yaml",
     "planwise/Backlog/00-Index-Backlog.md",
     "planwise/LessonsLearned/00-Index-LessonsLearned.md",

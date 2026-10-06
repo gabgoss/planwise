@@ -14,7 +14,8 @@ diagnostics), and lessons_bootstrap
 (the categorization schema + lessons-scaffolding routine).
 
 Creates directories, copies seed files, generates config.yaml,
-and installs reference files as path-scoped rules.
+installs reference files as path-scoped rules, and installs two global style
+rules.
 
 Usage:
     python init_project.py --name "MyProject" [options]

@@ -106,7 +106,7 @@ your-project/
     LessonsLearned/      <-- where insights are saved
   .claude/
     rules/
-      planwise/          <-- 4 path-scoped rules installed (the rest load on demand from the plugin)
+      planwise/          <-- 4 path-scoped author-time rules + 2 global style rules installed (the rest load on demand from the plugin)
 ```
 
 > **You only need to run `init` once per project.** After that, planwise remembers your setup. `init` also offers to enable [Token Saver mode](#9-planwise-token-saver).
@@ -435,7 +435,7 @@ When a new plugin version is published, upgrading happens in two stages:
    /planwise upgrade
    ```
 
-   `/plugin install` does not refresh the rules in `.claude/rules/planwise/` — those were installed during `/planwise init` and are skip-if-exists thereafter. (Agents need no propagation step at all: they run directly from the plugin, invoked as `planwise:<name>`, so Stage 1 alone updates them.) `/planwise upgrade`:
+   `/plugin install` does not refresh the rules in `.claude/rules/planwise/` — those were installed during `/planwise init` and are skip-if-exists thereafter, except the two [style rules](#style-rules), which `/planwise upgrade` installs, refreshes, and removes by config key. (Agents need no propagation step at all: they run directly from the plugin, invoked as `planwise:<name>`, so Stage 1 alone updates them.) `/planwise upgrade`:
 
    - Bumps the pinned `plugin_version:` in your `config.yaml`
    - Adds any new top-level config keys (the additive merge previously available via `--migrate`), including the `upgrade:` block described below
@@ -664,6 +664,34 @@ After running `/planwise init`, your settings live in `planwise/config.yaml`. He
 | `context.token_saver` | Token Saver mode default (see [§9](#9-planwise-token-saver)) | `false` |
 | `upgrade.customization_handoff` | How upgrade hands off files you've customised (see [§10](#10-planwise-upgrade)) | `report+relocate` |
 
+### Style Rules
+
+planwise installs two global rules that shape how Claude writes. `plain-language` asks for short sentences, active voice, and one term per concept. `plain-presentation` sets conventions for tables, lists, headings, and code blocks.
+
+Both rules are on by default. `/planwise init` and every `/planwise upgrade` run install them. The location follows the install scope: `~/.claude/rules/planwise/` for `user`, otherwise the project's `.claude/rules/planwise/`.
+
+Each rule has its own key in `config.yaml`:
+
+```yaml
+style:
+  plain_language: on        # style.plain_language
+  plain_presentation: on    # style.plain_presentation
+```
+
+A key accepts `on`, `off`, `true`, or `false`, in any case. A malformed value prints a warning on stderr and counts as `on`.
+
+The two rules cost about 1,400 to 1,600 tokens per session: 1,623 by a conservative byte estimate, 1,418 measured with `/context` in another project. The rules are global, so spawned subagents receive them, except Explore and Plan subagents.
+
+To turn a rule off, set its key to `off` and run `/planwise upgrade`. The change applies on that run, also when the plugin version is already current. The run removes an untouched copy and keeps an edited copy. An added `paths:` line counts as an edit. The run never removes a symlinked copy.
+
+planwise installs no second copy when a file of the same name sits at the top level of `.claude/rules/` or `~/.claude/rules/`. It reports the existing copy.
+
+`/planwise doctor` Stage 23 prints one line per rule and one token summary line. Each rule shows one state: `OK`, `DUPLICATE`, `CUSTOMIZED`, `MISSING`, `OFF`, or `MISMATCH`. It treats an `off` key as a finding to confirm and reports a rule that loads twice.
+
+Evidence for `plain-language`: in a controlled comparison it gave shorter sentences on 10 of 10 test prompts. It won a blinded human read and passed all six correctness guards. A later rerun on one model at one repetition made 5 of 6 answers plainer and dropped a small amount of detail on 3.
+
+Evidence for `plain-presentation`: it follows four published style guides. Structure checks and human review verified it. No prompt campaign tested it.
+
 ### Plugin file structure
 
 ```
@@ -674,7 +702,7 @@ planwise/                           # Plugin root
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 12 subcommand handlers across 19 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
   agents/                           # 8 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
-  references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
+  references/                       # Knowledge base documents (4 installed as path-scoped rules + 2 installed as global style rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init
   scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py)

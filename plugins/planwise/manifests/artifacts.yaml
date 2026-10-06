@@ -569,10 +569,12 @@ artifacts:
     missing_key_behavior: warn_loud
     upgrade_behavior: refresh_or_sidecar
     notes: >
-      install_rules() installs ONLY the four `.claude/**`-scoped author-time
-      rules (agent-authoring, skill-authoring, rule-authoring,
-      artifact-self-containment) — see INSTALLED_RULES in init_project.py. The
-      plan/backlog/lessons reference files that previously installed here are
+      The four `.claude/**`-scoped author-time rules (agent-authoring,
+      skill-authoring, rule-authoring, artifact-self-containment) come from the
+      INSTALLED_RULES table in init_project.py. install_rules() also calls
+      install_style_rules() for the two global style rules, which the
+      style_rules row below describes. The plan/backlog/lessons reference
+      files that previously installed here are
       now handler-loaded in-place from references/ (upgrade_behavior:
       not_installed; see DESCOPED_RULES and the de-scoped rows below). On
       upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
@@ -581,8 +583,9 @@ artifacts:
       first); copies carrying user content (HAS_UNIQUE, or any flagged
       installed-only content) are preserved byte-for-byte, and paths-only
       edits are preserved while upgrade.descope_preserve_paths_edits is true
-      (the default). This glob row covers only the four still-installed rules
-      for refresh_or_sidecar.
+      (the default). This glob row's refresh_or_sidecar duty covers the four
+      INSTALLED_RULES entries. The two global style rules that share the
+      directory belong to the style_rules row.
 
   - id: style_rules
     on_disk: "{scope_claude_dir}/rules/planwise/plain-language.md, {scope_claude_dir}/rules/planwise/plain-presentation.md"
@@ -598,9 +601,9 @@ artifacts:
     upgrade_behavior: refresh_or_sidecar
     notes: >
       Two global rules with no `paths:` line, installed by install_style_rules()
-      in style_rules.py, not by install_rules(), so INSTALLED_RULES keeps its
-      four path-scoped entries. A key set to off removes an untouched copy on
-      upgrade. An absent style block means both rules are on. The directory
+      in style_rules.py. install_rules() calls it after the INSTALLED_RULES
+      loop, so INSTALLED_RULES keeps its four path-scoped entries. A key set to
+      off removes an untouched copy on upgrade. An absent style block means both rules are on. The directory
       follows the install scope: ~/.claude for user, the project's .claude
       otherwise. A same-name file at the top level of either rules directory
       stops the install and is reported.
