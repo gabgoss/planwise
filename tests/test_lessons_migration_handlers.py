@@ -152,7 +152,7 @@ class TestDoctorHandlerStage21(unittest.TestCase):
         # say the escape hatch does not exist for this stage.
         self.assertIn("no `--no-check` escape hatch", stage21_span)
 
-    def test_stage_22_follows_stage_21_and_is_the_last_stage_heading_in_part2(self):
+    def test_stage_22_follows_stage_21_and_stage_23_is_the_last_stage_heading_in_part2(self):
         stage_headings = list(_STAGE_HEADING_RE.finditer(self.part2_text))
         self.assertTrue(stage_headings)
         last_stage_idx = stage_headings[-1].start()
@@ -162,8 +162,10 @@ class TestDoctorHandlerStage21(unittest.TestCase):
         stage22_idx = self.part2_text.index(
             "### Stage 22: Plans Index Shape Audit"
         )
+        stage23_idx = self.part2_text.index("### Stage 23: Style Rules")
         self.assertLess(stage21_idx, stage22_idx)
-        self.assertEqual(last_stage_idx, stage22_idx)
+        self.assertLess(stage22_idx, stage23_idx)
+        self.assertEqual(last_stage_idx, stage23_idx)
 
     def test_closing_cross_reference_still_points_at_part_3(self):
         self.assertIn("Continued in Part 3", self.part2_text)

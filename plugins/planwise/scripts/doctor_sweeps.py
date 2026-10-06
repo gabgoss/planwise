@@ -33,6 +33,7 @@ try:
         _verdict_not_analyzed,
         is_safe_to_remove,
         is_subset,
+        normalize_pair,
         normalize_rule_for_diff,
     )
 except ImportError:
@@ -509,6 +510,91 @@ def sweep_orphaned_agent_mirrors(cfg: "InitConfig") -> list[dict]:
     return findings
 
 
+def check_installed_against_shipped(dst: Path, src: Path, kind: str, norm) -> dict | None:
+    """Compare one installed file with its shipped reference. Read-only.
+
+    Returns `None` when `dst` is not installed (not a broken install) or when
+    both sides are identical after `norm` is applied. Otherwise returns one
+    finding dict `{path, kind, classification, line_count, approx_bytes,
+    approx_tokens, recommendation}` whose `classification` is `SUBSET`,
+    `HAS_UNIQUE`, `NOT_ANALYZED` or `UNVERIFIABLE`. An unreadable installed or
+    shipped file, or a missing shipped file, is an `UNVERIFIABLE` row, never an
+    exception and never a silent skip. Both sides are read as `utf-8-sig`.
+    """
+    if not dst.is_file():
+        return None   # not installed — nothing to check, not a broken install
+
+    # utf-8-sig: mirrors the artifact refresh writer's own read encoding
+    # (see upgrade_artifacts()) so a leading BOM cannot defeat the
+    # frontmatter-anchored comparison and falsely report a divergence.
+    try:
+        installed_raw = dst.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        # A non-UTF-8 (or otherwise unreadable) installed file must
+        # never crash the always-exit-0 doctor path — report it as
+        # unverifiable instead of letting the exception escape.
+        return {"path": str(dst), "kind": kind, "classification": "UNVERIFIABLE",
+                "line_count": 0, "approx_bytes": 0, "approx_tokens": 0,
+                "recommendation": f"unreadable ({exc}) — cannot verify divergence"}
+
+    line_count = installed_raw.count("\n") + (0 if installed_raw.endswith("\n") else 1)
+    num_bytes = len(installed_raw.encode("utf-8"))
+    base = {"path": str(dst), "kind": kind,
+            "line_count": line_count, "approx_bytes": num_bytes,
+            "approx_tokens": estimate_tokens(num_bytes)}
+
+    if not src.is_file():
+        # Missing shipped reference = a broken/partial install — an
+        # explicit unverifiable row, never a silent skip that would let
+        # the caller's all-clear line print over it.
+        return {**base, "classification": "UNVERIFIABLE",
+                "recommendation": "shipped reference unavailable — cannot verify divergence"}
+    try:
+        shipped_raw = src.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        return {**base, "classification": "UNVERIFIABLE",
+                "recommendation": f"shipped reference unreadable ({exc}) — cannot verify divergence"}
+    inst_norm, ship_norm = normalize_pair(installed_raw, shipped_raw, norm)
+
+    if inst_norm == ship_norm:
+        return None
+
+    v = _classify_diverged(inst_norm, ship_norm)
+    notes = getattr(v, "notes", "") or ""
+
+    if _verdict_not_analyzed(v):
+        # Degraded stand-in (structural_compare unavailable at call
+        # time) — no analysis actually ran. Must NOT be reported as a
+        # confident HAS_UNIQUE recommendation; mirrors the migrate/
+        # upgrade NOT-analyzed notice convention.
+        return {**base, "classification": "NOT_ANALYZED",
+                "recommendation": "NOT analyzed — structural comparison unavailable; "
+                                   "diff it against references/ before acting manually"}
+
+    if is_subset(v):
+        if notes:
+            # Non-empty notes = the matcher tolerated installed-only
+            # content (e.g. sub-noise-floor fragments) — the writer's
+            # own auto-adopt gate (`is_subset(verdict) and not
+            # verdict.notes`) does NOT fire here; /planwise upgrade
+            # instead routes this file through the customization-bearing
+            # transfer-then-adopt (or preserve) gate, never an
+            # unconditional auto-adopt.
+            recommendation = (
+                "recommend /planwise upgrade — installed-only content flagged "
+                f"({notes}); upgrade will transfer it (or preserve it in place, "
+                "depending on upgrade.customization_handoff) before adopting "
+                "shipped, not auto-adopt unconditionally"
+            )
+        else:
+            recommendation = "recommend /planwise upgrade (auto-adopts shipped)"
+        return {**base, "classification": "SUBSET", "recommendation": recommendation}
+
+    # HAS_UNIQUE — re-home per the rule decide-callout.
+    recommendation = 're-home per the "Choosing a Home for a Rule Customization" decide callout'
+    return {**base, "classification": "HAS_UNIQUE", "recommendation": recommendation}
+
+
 def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
     """Read-only: report still-installed rules whose body diverges
     from the plugin-shipped reference.
@@ -565,83 +651,10 @@ def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
     rules_dst_dir = cfg.project_root / ".claude" / "rules" / "planwise"
     refs_dir = cfg.plugin_root / "references"
 
-    def _check(dst: Path, src: Path, kind: str, norm) -> dict | None:
-        if not dst.is_file():
-            return None   # not installed — nothing to check, not a broken install
-
-        # utf-8-sig: mirrors the artifact refresh writer's own read encoding
-        # (see upgrade_artifacts()) so a leading BOM cannot defeat the
-        # frontmatter-anchored comparison and falsely report a divergence.
-        try:
-            installed_raw = dst.read_text(encoding="utf-8-sig")
-        except (OSError, UnicodeDecodeError) as exc:
-            # A non-UTF-8 (or otherwise unreadable) installed file must
-            # never crash the always-exit-0 doctor path — report it as
-            # unverifiable instead of letting the exception escape.
-            return {"path": str(dst), "kind": kind, "classification": "UNVERIFIABLE",
-                    "line_count": 0, "approx_bytes": 0, "approx_tokens": 0,
-                    "recommendation": f"unreadable ({exc}) — cannot verify divergence"}
-
-        line_count = installed_raw.count("\n") + (0 if installed_raw.endswith("\n") else 1)
-        num_bytes = len(installed_raw.encode("utf-8"))
-        base = {"path": str(dst), "kind": kind,
-                "line_count": line_count, "approx_bytes": num_bytes,
-                "approx_tokens": estimate_tokens(num_bytes)}
-
-        if not src.is_file():
-            # Missing shipped reference = a broken/partial install — an
-            # explicit unverifiable row, never a silent skip that would let
-            # the caller's all-clear line print over it.
-            return {**base, "classification": "UNVERIFIABLE",
-                    "recommendation": "shipped reference unavailable — cannot verify divergence"}
-        try:
-            shipped_raw = src.read_text(encoding="utf-8-sig")
-        except (OSError, UnicodeDecodeError) as exc:
-            return {**base, "classification": "UNVERIFIABLE",
-                    "recommendation": f"shipped reference unreadable ({exc}) — cannot verify divergence"}
-
-        inst_norm, ship_norm = norm(installed_raw), norm(shipped_raw)
-        if inst_norm == ship_norm:
-            return None
-
-        v = _classify_diverged(inst_norm, ship_norm)
-        notes = getattr(v, "notes", "") or ""
-
-        if _verdict_not_analyzed(v):
-            # Degraded stand-in (structural_compare unavailable at call
-            # time) — no analysis actually ran. Must NOT be reported as a
-            # confident HAS_UNIQUE recommendation; mirrors the migrate/
-            # upgrade NOT-analyzed notice convention.
-            return {**base, "classification": "NOT_ANALYZED",
-                    "recommendation": "NOT analyzed — structural comparison unavailable; "
-                                       "diff it against references/ before acting manually"}
-
-        if is_subset(v):
-            if notes:
-                # Non-empty notes = the matcher tolerated installed-only
-                # content (e.g. sub-noise-floor fragments) — the writer's
-                # own auto-adopt gate (`is_subset(verdict) and not
-                # verdict.notes`) does NOT fire here; /planwise upgrade
-                # instead routes this file through the customization-bearing
-                # transfer-then-adopt (or preserve) gate, never an
-                # unconditional auto-adopt.
-                recommendation = (
-                    "recommend /planwise upgrade — installed-only content flagged "
-                    f"({notes}); upgrade will transfer it (or preserve it in place, "
-                    "depending on upgrade.customization_handoff) before adopting "
-                    "shipped, not auto-adopt unconditionally"
-                )
-            else:
-                recommendation = "recommend /planwise upgrade (auto-adopts shipped)"
-            return {**base, "classification": "SUBSET", "recommendation": recommendation}
-
-        # HAS_UNIQUE — re-home per the rule decide-callout.
-        recommendation = 're-home per the "Choosing a Home for a Rule Customization" decide callout'
-        return {**base, "classification": "HAS_UNIQUE", "recommendation": recommendation}
-
     findings: list[dict] = []
     for filename, _paths_template in INSTALLED_RULES:
-        row = _check(rules_dst_dir / filename, refs_dir / filename, "rule", normalize_rule_for_diff)
+        row = check_installed_against_shipped(
+            rules_dst_dir / filename, refs_dir / filename, "rule", normalize_rule_for_diff)
         if row:
             findings.append(row)
     return findings

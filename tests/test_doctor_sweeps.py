@@ -12,7 +12,9 @@ monolith was split into; those live in conftest.py.
 Run with:  python -m unittest tests/test_doctor_sweeps.py
 """
 
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -923,3 +925,56 @@ class TestVerdictOverrideShapeAndFreshness(unittest.TestCase):
         )
 
 
+
+
+class TestCheckInstalledAgainstShipped(unittest.TestCase):
+    """check_installed_against_shipped(): the installed file is read once, and an error names its file."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="srd_sweeps_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.src = self.tmp / "shipped.md"
+        self.dst = self.tmp / "installed.md"
+        self.src.write_text("---\nname: x\n---\nBody one.\n", encoding="utf-8")
+        self.dst.write_text("---\nname: x\n---\nBody one.\nExtra line.\n", encoding="utf-8")
+
+    def _check(self, fail_read_of=None, after_reads=0):
+        """Run the check with `Path.read_text` counted. Reads of `fail_read_of` after `after_reads` raise."""
+        real = Path.read_text
+        reads: list[Path] = []
+
+        def counting(path, *args, **kwargs):
+            if fail_read_of is not None and path == fail_read_of and reads.count(path) >= after_reads:
+                reads.append(path)
+                raise OSError("simulated read failure")
+            reads.append(path)
+            return real(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", counting):
+            finding = doctor_sweeps.check_installed_against_shipped(
+                self.dst, self.src, "rule", doctor_sweeps.normalize_rule_for_diff
+            )
+        return finding, reads
+
+    def test_the_installed_file_is_read_exactly_once(self):
+        finding, reads = self._check()
+        self.assertIsNotNone(finding)
+        self.assertEqual(reads.count(self.dst), 1, reads)
+        self.assertEqual(reads.count(self.src), 1, reads)
+
+    def test_a_second_read_of_the_installed_file_never_happens_so_it_cannot_be_blamed_on_the_shipped_file(self):
+        finding, reads = self._check(fail_read_of=self.dst, after_reads=1)
+        self.assertEqual(reads.count(self.dst), 1, reads)
+        self.assertNotEqual(finding["classification"], "UNVERIFIABLE", finding)
+
+    def test_an_installed_side_read_error_is_labelled_installed(self):
+        finding, _reads = self._check(fail_read_of=self.dst, after_reads=0)
+        self.assertEqual(finding["classification"], "UNVERIFIABLE")
+        self.assertTrue(finding["recommendation"].startswith("unreadable (simulated read failure)"), finding)
+
+    def test_a_shipped_side_read_error_is_labelled_shipped(self):
+        finding, _reads = self._check(fail_read_of=self.src, after_reads=0)
+        self.assertEqual(finding["classification"], "UNVERIFIABLE")
+        self.assertTrue(
+            finding["recommendation"].startswith("shipped reference unreadable (simulated read failure)"), finding
+        )

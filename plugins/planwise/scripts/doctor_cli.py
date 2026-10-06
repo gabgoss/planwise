@@ -746,7 +746,10 @@ def _run_doctor(cfg: "InitConfig") -> int:
     `claude --version` and compares it against config.yaml's
     context.verified_cli_version (populated by init, refreshed by upgrade) —
     read-only, recommends `/planwise upgrade` on drift or on an uncalibrated
-    ("") value, never writes. Always exits 0 (diagnostic, not a gate).
+    ("") value, never writes. Then runs Stage 23, the style-rule check
+    (run_style_stage()): per rule, its config switch, installed copy, copies
+    that also load, and token cost — also always-on and read-only. Always exits
+    0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
     Saver): an uninitialized or version-drifted install is surfaced with a
@@ -775,7 +778,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
     print()
     if not overscoped:
         print("No overscoped rules found.")
-        print("All installed rules are scoped to code paths (.claude/** or narrower).")
+        print("All installed path-scoped rules are scoped to code paths (.claude/** or narrower).")
     else:
         total_tokens = sum(item["approx_tokens"] for item in overscoped)
         print(f"Flagged {len(overscoped)} rule(s) scoped to plan/backlog/lessons globs:")
@@ -969,6 +972,18 @@ def _run_doctor(cfg: "InitConfig") -> int:
               "read-only and never writes config.yaml")
     else:
         print(f"Up to date — recorded {recorded} matches the live CLI.")
+
+    # Stage 23: style rules — read-only, always-on. Reports each always-on style
+    # rule's switch, installed copy, other loading copies and token cost.
+    print()
+    print("planwise doctor — style rules")
+    print()
+    try:
+        from style_rules import run_style_stage
+
+        run_style_stage(cfg)
+    except Exception as exc:  # noqa: BLE001 -- the style stage must never change doctor's exit status
+        print(f"Style rules: the check failed: {exc}")
     return 0
 
 

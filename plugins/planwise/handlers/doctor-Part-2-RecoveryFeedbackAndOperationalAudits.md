@@ -2,7 +2,7 @@
 
 **Part 2 of 3.** This handler spans three files, split by topic because the combined text exceeds the Read-tool page cap. Each Stage keeps its own identifier wherever it lands, so an existing `Stage N` reference still names exactly one section — only the filename that holds it changes. See [`doctor.md`](doctor.md) for the full three-part pointer table, the Config Gate, the Preflight version-state gate, and Stages 8-13.
 
-This file covers **Stages 14-22**: the upgrade recovery-leftover sweep, the settings-grant sweep, the thrifty-sonic env var sweep, the feedback capability and directory probes, the task-tools availability advisory, the backlog body-status and index-shape audits, the lessons index-shape audit, and the plans index-shape audit. **Part 3** ([`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md)) covers Steps 4-8: the Token Saver audits, the capture self-containment scan, and the bookkeeping index read-gate scan.
+This file covers **Stages 14-23**: the upgrade recovery-leftover sweep, the settings-grant sweep, the thrifty-sonic env var sweep, the feedback capability and directory probes, the task-tools availability advisory, the backlog body-status and index-shape audits, the lessons index-shape audit, the plans index-shape audit, and the style-rule audit. **Part 3** ([`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md)) covers Steps 4-8: the Token Saver audits, the capture self-containment scan, and the bookkeeping index read-gate scan.
 
 ---
 
@@ -538,6 +538,160 @@ do". `legacy`: the counts above, then "run `/planwise upgrade` to migrate
 automatically; backups land under `upgrade-backups/`". `unrecognized`: the
 classifier's reason from `detail`, then "left untouched". `absent`: "no plans
 index found".
+
+---
+
+### Stage 23: Style Rules
+
+> [!constraint] Read-Only — audit only reports
+> Stage 23 runs `run_style_stage()` standalone. It READS `config.yaml`, the two
+> `.claude/rules/` trees, the installed copies and the shipped files in
+> `references/`, then prints a report. It writes nothing and removes nothing.
+> It never changes doctor's exit status. To install, refresh or remove a
+> managed copy, run `/planwise upgrade` — doctor never mutates.
+
+Always-on (independent of Token Saver). Two style rules ship with the plugin,
+`plain-language.md` and `plain-presentation.md`. Each has its own switch under
+`style:` in `config.yaml`. Each is on by default, and the stage reports each
+rule in turn.
+
+Procedure, in order, for each of the two rules:
+
+1. Read the rule's key from `style:` in `config.yaml`: `plain_language` for
+   `plain-language.md`, `plain_presentation` for `plain-presentation.md`. An
+   absent key means on. A malformed or unknown `style:` value never turns a
+   rule off. The stage treats the rule as on. It prints one warning on stderr
+   for each malformed value or unknown key, before the report lines. A warning
+   is not a report line.
+2. Look for a same-name copy **anywhere** under the project's `.claude/rules/`
+   and under `~/.claude/rules/`. The search is recursive and ignores case in the
+   file name. It excludes only the install target. The other scope's managed copy
+   (`rules/planwise/<file>` in the other scope) counts as a copy. Every key runs
+   this step, also a key that is off, because a copy that still loads costs
+   tokens whatever the key says. At the `user` scope a copy that exists only in
+   the project tree does not stop the upgrade from installing the global copy.
+   At every other scope any copy stops it.
+3. Find the installed copy under `rules/planwise/` in the install scope's
+   directory: `~/.claude/` for the `user` scope, the project's `.claude/` for
+   every other scope.
+4. Compare the installed copy with the shipped file in `references/`. The copy
+   **differs** when its text is not the shipped text. A `paths:` difference
+   counts as a difference, and a line-ending or BOM difference does not. Doctor
+   uses the same comparison as `/planwise upgrade`, so the state it prints
+   predicts what the upgrade does to the same tree. A stale copy that is an
+   older subset of the shipped file differs, and the upgrade calls it
+   customized.
+5. Measure bytes, lines and tokens. The figures come from the installed copy
+   when one exists, else from the single external copy that stops the upgrade,
+   else from the shipped file.
+
+To confirm a finding by hand, use `Glob` to list the same-name files under the
+two rules trees and `Read` to compare a copy with the shipped file. Use `Grep`
+to locate a line in either.
+
+#### The six states
+
+Each rule reports exactly one `state`. Two or more loading copies give
+`DUPLICATE`. That includes the two managed copies, one global and one in the
+project, because both load and the rule costs its tokens once per copy.
+
+| State | Meaning | Indented line doctor prints |
+|-------|---------|-----------------------------|
+| `OK` | Key on, one loading copy, and it is the managed copy with the shipped text (`copy=present`), or it is the only copy and it stops the upgrade from installing at this scope (`copy=external`). That copy may be any same-name file under either rules tree, including the other scope's managed copy under `rules/planwise/` | none when `copy=present`. When `copy=external`: `  The rule loads from <duplicate_paths[0]>. Planwise installs no second copy.` |
+| `DUPLICATE` | Key on, and two or more copies load | `  Copies that load: <p1>, <p2>[, <p3>…]. Delete all but one. The rule costs its tokens once per copy until you do.` |
+| `CUSTOMIZED` | Key on, the managed copy is the only loading copy, and it differs from the shipped file | `  The installed copy differs from the shipped file. Doctor treats it as your customization, not an error.` |
+| `MISSING` | Key on, and no copy stops the upgrade from installing the rule | `  The key is on but no copy is installed. Run /planwise upgrade.` |
+| `OFF` | Key off, and no managed copy is installed | `  The key is off. Confirm this is intended.` |
+| `MISMATCH` | Key off, and a managed copy is installed | One of the three lines in the list below |
+
+For `DUPLICATE`, `<p1>` is the installed path when a managed copy is installed.
+The entries of `duplicate_paths` follow in order, joined with `, `.
+
+The `MISMATCH` line follows what `/planwise upgrade` does to the installed copy
+of a rule whose key is off. It tests the three cases in this order:
+
+1. The installed copy differs from the shipped file. The upgrade keeps an edited
+   copy:
+   `  The key is off but the installed copy differs from the shipped file. Upgrade keeps an edited copy. Delete it by hand if you no longer want it.`
+2. The installed copy is a symlink. The upgrade never removes a symlink:
+   `  The key is off but the installed copy is a symlink. Upgrade does not remove a symlink. Delete it by hand.`
+3. Otherwise the copy has the shipped text, and the upgrade removes it:
+   `  The key is off but a copy is installed. Run /planwise upgrade to remove an untouched copy.`
+
+A `MISSING` result with copies in `duplicate_paths` happens at the `user` scope
+when the only copies sit in the project tree. The upgrade installs the global
+copy, and the project copies load beside it. Doctor adds this line after the
+`MISSING` line. A key that is off adds a line of its own after the `OFF` or
+`MISMATCH` line when copies in `duplicate_paths` still load:
+
+```
+  Upgrade installs the rule. Copies that will also load: <p1>[, <p2>…].
+  Other copies still load: <p1>[, <p2>…]. Upgrade does not remove them.
+```
+
+Two more extra lines follow, in any state, in this order. They are extra lines,
+not states, so the table above stays at six rows.
+
+```
+  The two managed copies carry different edits: <install path> and <other managed path>. Upgrade leaves both unchanged. Merge them by hand.
+  <path> is a symlink. Upgrade never writes through it.
+```
+
+- The first line prints only when both managed copies carry different edits.
+  Upgrade leaves both copies unchanged, and the user merges them by hand. A key
+  that is off never prints it, because the cross-scope sync runs only for a key
+  that is on.
+- The second line prints once for each symlinked loading copy, because upgrade
+  never writes through a symlink. A key that is off checks every copy that
+  loads, the installed copy included. When the `MISMATCH` line already names
+  the installed copy as a symlink, this line is left out for that copy. Every
+  other symlinked copy keeps its line.
+
+Print verbatim:
+
+```
+planwise doctor — style rules
+
+Style rule <filename>: key=<on|off> copy=<present|absent|external> state=<STATE> bytes=<n> lines=<n> ~tokens=<n>
+{the indented line for the state, then the line for copies that will also load or still load, then the conflict line, then one symlink line per symlinked copy, each only when it applies}
+
+Style rules inject about <sum> tokens in every session, subagents included (global, always-on).
+{the ceiling line, only when config.yaml sets the ceiling to a positive integer:}
+That is <p>% of token_saver_injection_ceiling (<ceiling>).
+```
+
+`copy` is `present` when a managed copy is installed. Otherwise it is `external`
+when the state is `OK`, else `absent`. One main line prints per rule. The
+summary line prints once. `<sum>` is the token total of every loading copy, each
+at its own size and rounded up per copy. A `MISSING` or `OFF` rule with no
+loading copy adds 0. A `MISMATCH` rule adds the installed copy. Any copy in
+`duplicate_paths` adds its own tokens, whatever the key says. The ceiling line
+prints only when the same `config.yaml` that holds the `style:` keys sets
+`context.token_saver_injection_ceiling` to a positive integer. An absent key,
+a value of 0 and a value that is not an integer print no ceiling line. `<p>` is
+`round(100 * sum / ceiling)`, and `<ceiling>` is that value.
+
+The stage never fails doctor. When the check raises an error, the stage prints
+one line and no report, and doctor goes on to its exit:
+
+```
+Style rules: the check failed: <error>
+```
+
+#### Reading the findings
+
+- A key that is off is a finding to confirm, not the normal state. The rules are
+  on by default, so `OFF` and `MISMATCH` ask the user to confirm the choice.
+- A customized copy is never an error. `CUSTOMIZED` records the user's own edit,
+  or a stale copy the upgrade also treats as customized.
+- `MISSING` and `MISMATCH`: run `/planwise upgrade`. It reconciles the style
+  rules on every run, also when the plugin version is already current. It keeps
+  an edited or symlinked copy of a rule whose key is off, so the user deletes
+  that copy by hand.
+- `OFF` or `MISMATCH` with a "still load" line: the copies it lists load beside
+  the managed copy, or alone. The upgrade never removes them.
+- `DUPLICATE`: the user chooses which copies to delete, until one copy remains.
+  Doctor changes nothing.
 
 ---
 

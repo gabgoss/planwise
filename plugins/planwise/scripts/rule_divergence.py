@@ -121,6 +121,19 @@ def _extract_paths_value(content: str) -> str | None:
     return match.group(1).strip()
 
 
+def normalize_pair(installed_text: str, shipped_text: str, norm=normalize_rule_for_diff) -> tuple[str, str]:
+    """Pass an installed rule's text and its shipped text through `norm`.
+
+    Both texts are already read, each as `utf-8-sig`, so the caller owns the read
+    and the error label for the file that failed. The result is `(installed,
+    shipped)`. The two are equal exactly when the installed rule matches its
+    shipped counterpart under `norm`. Three callers share this compare: the
+    doctor sweep that checks installed rules, the style-rule verdict and the
+    style-rule refresh test.
+    """
+    return norm(installed_text), norm(shipped_text)
+
+
 # Unambiguous marker for the degraded not-analyzed stand-in `_classify_diverged`
 # manufactures when structural_compare is unavailable at call time. Checked
 # ONLY by `_verdict_not_analyzed()` — a real verdict (inline or agent-sourced)

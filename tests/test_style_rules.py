@@ -2171,5 +2171,109 @@ class TestReviewFixes(_UpgradeFixtureBase):
         self.assertNotIn("Customizations transferred", out)
 
 
+def _paths_only_bytes(filename: str) -> bytes:
+    """The shipped rule with LF endings and one `paths:` line added to its frontmatter."""
+    text = _lf(_shipped_bytes(filename))
+    assert text.startswith(b"---\n"), "the shipped rule is expected to carry frontmatter"
+    return text.replace(b"---\n", b'---\npaths: "src/**"\n', 1)
+
+
+class TestPathsOnlyEdit(_UpgradeFixtureBase):
+    """A copy whose only edit is a `paths:` line is an edit, whatever the key says."""
+
+    def _install_paths_only_copy(self) -> Path:
+        return _put(self.project_rules_dir / LANGUAGE, _paths_only_bytes(LANGUAGE))
+
+    def test_the_installed_copy_with_only_a_paths_line_reads_as_diverged(self):
+        self._install_paths_only_copy()
+        self.assertEqual(sr.compare_installed(self.cfg, LANGUAGE), "diverged")
+
+    def test_a_key_that_is_off_keeps_a_copy_whose_only_edit_is_a_paths_line(self):
+        copy = self._install_paths_only_copy()
+        self.write_style_config(plain_language="off", plain_presentation="on")
+
+        rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows)[LANGUAGE], "preserved")
+        self.assertTrue(copy.is_file(), "upgrade must not delete the edited copy")
+        self.assertEqual(copy.read_bytes(), _paths_only_bytes(LANGUAGE))
+        self.assertFalse(self.backup_root().joinpath(".claude", "rules", "planwise", LANGUAGE).exists())
+
+    def test_a_key_that_is_on_reports_a_paths_only_copy_as_customized(self):
+        copy = self._install_paths_only_copy()
+        self.write_style_config(plain_language="on", plain_presentation="on")
+
+        rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows)[LANGUAGE], "customized")
+        self.assertTrue(copy.is_file())
+        self.assertEqual(copy.read_bytes(), _paths_only_bytes(LANGUAGE))
+
+    def test_a_paths_only_duplicate_is_not_reported_as_identical(self):
+        copy = self.write_top_level_copy(self.project_root, LANGUAGE, _paths_only_bytes(LANGUAGE))
+
+        found = sr.find_existing_copy(self.cfg, LANGUAGE)
+
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0], copy)
+        self.assertNotEqual(found[1], "identical")
+        # The verdict is one the line formatter renders as an edited copy, never an identical one.
+        line = sr.format_duplicate_line(LANGUAGE, found[0], found[1])
+        self.assertEqual(line, f"Style rule {LANGUAGE}: not installed, a customized copy exists at {copy}.")
+
+    def test_a_duplicate_with_the_shipped_paths_value_and_text_is_still_identical(self):
+        self.write_top_level_copy(self.project_root, LANGUAGE, _lf(_shipped_bytes(LANGUAGE)))
+        found = sr.find_existing_copy(self.cfg, LANGUAGE)
+        self.assertEqual(found[1], "identical")
+
+
+class TestHandoffDetail(_UpgradeFixtureBase):
+    """The `customized` detail names the handoff only when the refresh would run one."""
+
+    def _detail(self, data: bytes) -> str:
+        _put(self.project_rules_dir / LANGUAGE, data)
+        rows = sr.reconcile_style_switches(self.cfg, OLD_VERSION, TARGET_VERSION, True)
+        disposition, detail = next((d, t) for name, d, t in rows if name == LANGUAGE)
+        self.assertEqual(disposition, "customized")
+        return detail
+
+    def test_a_version_change_with_a_paths_only_edit_says_the_copy_is_kept(self):
+        detail = self._detail(_paths_only_bytes(LANGUAGE))
+        self.assertIn("is kept", detail)
+        self.assertNotIn("handoff", detail)
+
+    def test_a_version_change_with_a_body_edit_still_names_the_handoff(self):
+        detail = self._detail(_customized_bytes(LANGUAGE))
+        self.assertIn("customization handoff", detail)
+        self.assertNotIn("is kept", detail)
+
+    def test_a_version_change_with_a_symlinked_body_edited_copy_says_the_copy_is_kept(self):
+        copy = _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+        real = Path.is_symlink
+
+        def fake(path):
+            # A real symlink needs a Windows privilege, so fake the check.
+            return path == copy or real(path)
+
+        with mock.patch.object(Path, "is_symlink", fake):
+            rows = sr.reconcile_style_switches(self.cfg, OLD_VERSION, TARGET_VERSION, True)
+        disposition, detail = next((d, t) for name, d, t in rows if name == LANGUAGE)
+        self.assertEqual(disposition, "customized")
+        self.assertIn("is kept", detail)
+        self.assertNotIn("handoff", detail)
+
+    def test_the_printed_detail_agrees_with_what_the_refresh_does_for_a_paths_only_edit(self):
+        self.write_pin(OLD_VERSION, handoff="report+relocate")
+        copy = _put(self.project_rules_dir / LANGUAGE, _paths_only_bytes(LANGUAGE))
+
+        code, out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        lines = [line for line in _style_lines(out) if line.startswith(f"Style rule {LANGUAGE}: customized")]
+        self.assertEqual(len(lines), 1, out)
+        self.assertIn("is kept", lines[0])
+        self.assertEqual(copy.read_bytes(), _paths_only_bytes(LANGUAGE))
+
+
 if __name__ == "__main__":
     unittest.main()
