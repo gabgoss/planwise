@@ -267,6 +267,11 @@ def _write_backup_preimage(
     printed). Callers MUST treat False as "abort the destructive step; leave
     the file untouched" — the same failed-backup-blocks-destruction contract
     `_run_prune_stale()` already applies to its own removals. Never raises.
+
+    An existing backup is never overwritten. When the target path already holds
+    different bytes, the pre-image goes to `<name>.1`, `<name>.2` and so on, at
+    the first free suffix. When any existing candidate already holds identical
+    bytes, nothing is written and the call returns True.
     """
     backup_root = (
         cfg.project_root / cfg.planwise_root / "upgrade-backups"
@@ -279,7 +284,14 @@ def _write_backup_preimage(
     try:
         backup_path = backup_root / rel
         backup_path.parent.mkdir(parents=True, exist_ok=True)
-        _copy_bytes_exact(dst, backup_path)
+        data = dst.read_bytes()
+        candidate, suffix = backup_path, 0
+        while candidate.exists():
+            if candidate.read_bytes() == data:
+                return True
+            suffix += 1
+            candidate = backup_path.with_name(f"{backup_path.name}.{suffix}")
+        _copy_bytes_exact(dst, candidate)
         return True
     except OSError as exc:
         print(

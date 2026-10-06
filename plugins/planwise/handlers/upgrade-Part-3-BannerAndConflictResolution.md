@@ -214,6 +214,43 @@ Upgrade complete.
 
 If customizations-transferred > 0, list each transferred file and its target path, and point the user at Step 4.1 to promote it into an active rule or Step 4.2 to propose upstreaming it — the file is already safe (moved before the shipped body was adopted); this is a "when convenient" follow-up, not a blocker. If conflicts > 0, append the conflict list verbatim from the script's stdout and direct the user to Step 4 (or Step 4.1 if they want to complete a relocation the automated transfer couldn't). If de-scoped-preserved > 0, surface the re-home notice for each (the action choices: project-local rule / re-scope `paths:` / upstream). If the over-scope advisory is > 0, point the user at `/planwise doctor`.
 
+#### Style rule announcement and reconcile lines
+
+The script prints two kinds of style-rule output. Pass both through verbatim.
+
+**Announcement.** The script prints six lines once, in the run that adds the `style:` block to `config.yaml`. They print after the over-scope advisory and before `Plugin version pinned`. A run that finds the block already present prints none.
+
+```
+Style rules: planwise now installs two global rules, on by default.
+  plain-language.md      about {N1} tokens per session
+  plain-presentation.md  about {N2} tokens per session
+Together they add about {N1+N2} tokens to every session, subagents included.
+To turn one off, set it to off under `style:` in {planwise_root}/config.yaml, then run /planwise upgrade.
+Keys: style.plain_language, style.plain_presentation
+```
+
+The token figures come from the shipped file sizes, and a missing file prints `unknown`. The notice states the default only. The reconcile lines state what happened in this project.
+
+**Reconcile and sync lines.** Each reads `Style rule {filename}: {disposition} — {detail}`. They print on every upgrade run where a switch and a copy disagree, including a run that reports "Already up to date". On that exit they print before the "Already up to date" line. The cross-scope sync lines print on both exits too.
+
+Nine dispositions print, as the table lists. `unchanged` prints nothing. `skipped` prints nothing, with one exception: it prints when its detail names same-name copies that still load although the switch is off.
+
+| Disposition | Meaning |
+|---|---|
+| `installed` | The switch is on and no copy existed. The script wrote the shipped file. |
+| `customized` | The switch is on and the managed copy holds edits. The reconcile writes nothing. |
+| `duplicate` | The switch is on, but a same-name copy exists elsewhere. The detail names its path. |
+| `removed` | The switch is off and the copy matched the shipped file. The script deleted it after a backup. |
+| `preserved` | The switch is off and the copy holds edits, or its backup failed. The script kept it. |
+| `synced` | The script overwrote one scope's copy to match the other, after a backup. |
+| `conflict` | Both managed copies hold different edits. Nothing was overwritten. |
+| `symlink` | The copy is a symlink. The script never writes or deletes through a symlink, and the detail names its path. |
+| `failed` | One file raised an error. The detail names it, and the other rules still run. |
+
+A rule whose managed copy exists in both scopes is written only by the cross-scope sync, never by the version-change refresh. The sync covers two paths only: `~/.claude/rules/planwise/{filename}` and `<project>/.claude/rules/planwise/{filename}`. It never reads or writes a same-name copy anywhere else, and the row detail names such a copy. The sync keeps the edited copy, and otherwise the shipped file. It ignores line endings and a leading BOM when it compares copies. It never writes `config.yaml`. It reports conflicting edits and never overwrites them.
+
+Each backup lands under `{planwise_root}/upgrade-backups/{from}-to-{to}/`. The script never overwrites an earlier backup. A second backup of a different version of the same file carries a numeric suffix such as `.1`. To find one, use Glob on that directory, then Read the file.
+
 ---
 
 ### Step 4 — Resolve conflicts

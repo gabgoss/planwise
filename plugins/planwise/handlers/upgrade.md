@@ -46,6 +46,7 @@ Extract from `config.yaml`:
 - `plugin_root` (config value, distinct from the live `{plugin_root}` above) — the plugin root the last init/upgrade wrote. Display/fallback only — see the Step 1 mismatch note; never substitute it for the live `{plugin_root}` in a script invocation.
 - `plugin_version` — currently-pinned plugin version (treat absent as `"0.0.0"`)
 - `project.planwise_root`, `project.plans_dir`, `project.backlog_dir`, `project.lessons_dir`, `project.index_files.*`
+- `project.install_scope` — the value passed as `--scope "{install_scope}"` in the script invocations below (treat absent as `project`)
 
 ---
 
@@ -56,7 +57,7 @@ Extract from `config.yaml`:
 Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version` — the live root resolved in the Config Gate, always, so this comparison can never be fooled by a stale configured `plugin_root:`. Compare to the user's pinned `plugin_version:`:
 
 > [!gate] Upgrade Gate
-> If `pinned == shipped` **and** the config's stored `plugin_root` matches the live `{plugin_root}` → run the Step 2.4 script invocation, then report "Plugin version: {version} — already up to date." and exit. The script re-checks the backlog, lessons and plans index shapes on this branch too and migrates any hand-authored index automatically; pass its `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` and `Plans index migration:` blocks through verbatim per the Step 3 callout below — the handler names no migration procedure of its own, only the one-word chat-summary label it derives from each block.
+> If `pinned == shipped` **and** the config's stored `plugin_root` matches the live `{plugin_root}` → run the Step 2.4 script invocation, then report "Plugin version: {version} — already up to date." and exit. The script re-checks the backlog, lessons and plans index shapes on this branch too and migrates any hand-authored index automatically; pass its `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` and `Plans index migration:` blocks, plus any `Style rule` lines, through verbatim per the Step 3 callout below — the handler names no migration procedure of its own, only the one-word chat-summary label it derives from each block.
 > If `pinned == shipped` **but** the stored `plugin_root` differs → do NOT exit; skip the comparator fan-out (Steps 2.1–2.3 have nothing to compare — no artifact changed) and run the Step 2.4 script invocation, which repoints the root on its own. Report the result as "Plugin root repointed", not as a version change. See the mismatch note below.
 > If `pinned < shipped` (or `pinned` is absent) → proceed to Step 2.1.
 > If `pinned > shipped` → emit a warning ("Your config pins {pinned} but the installed plugin is {shipped} — did you downgrade?") and ask the user with `AskUserQuestion` whether to proceed. On decline, exit without writing. On approval, continue and append `--allow-downgrade` to the Step 2.4 invocation.

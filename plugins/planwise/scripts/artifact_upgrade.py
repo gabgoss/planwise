@@ -138,6 +138,91 @@ def load_artifact_manifest(plugin_root: Path) -> dict:
     return loaded
 
 
+def _resolve_diverged_rule(
+    cfg, from_version, to_version, filename, dst, shipped_raw, installed_raw,
+    render, verdicts, conflict_dir, relocate_enabled, write_sidecar,
+    refreshed, refreshed_subsets, transferred,
+) -> None:
+    """Dispose of one rule whose installed body differs from the shipped body.
+
+    `render(shipped_raw, installed_raw)` returns the text written on adoption.
+    The lists and `write_sidecar` are the caller's result holders; the
+    dispositions are the ones `upgrade_artifacts` documents.
+    """
+    verdict = _classify_diverged(
+        normalize_rule_for_diff(installed_raw),
+        normalize_rule_for_diff(shipped_raw),
+        override=_load_verdict_override(verdicts, filename, installed_raw, dst),
+    )
+    sidecar_dst = (
+        conflict_dir / ".claude" / "rules" / "planwise" / f"{filename}.new")
+    if is_subset(verdict) and not (getattr(verdict, "notes", "") or ""):
+        # Stale subset — adopt shipped in place, preserve the project
+        # paths:. Non-empty notes = the matcher tolerated installed-only
+        # content (sub-noise-floor fragments) — that flips to the
+        # customization-bearing branch below: an overwrite must not
+        # destroy a short customization without moving it first.
+        # Failed backup = no destructive write.
+        if not _write_backup_preimage(cfg, from_version, to_version, dst):
+            write_sidecar(dst, sidecar_dst, shipped_raw)
+        else:
+            dst.write_text(render(shipped_raw, installed_raw), encoding="utf-8")
+            _append_disposition_log(
+                cfg, from_version, to_version, dst, "auto-adopted shipped",
+                "installed rule body was a stale subset of the grown shipped body")
+            refreshed.append(str(dst))
+            refreshed_subsets.append(str(dst))     # banner sub-count
+            if sidecar_dst.exists():
+                # A prior interrupted run flagged this file — the adoption
+                # resolves that conflict; drop the obsoleted sidecar so a
+                # stale INDEX row cannot invite merging outdated content back.
+                sidecar_dst.unlink()
+    elif _verdict_not_analyzed(verdict):
+        # Degraded stand-in — the file was never analyzed, so the
+        # automated transfer-then-adopt has no verdict evidence to
+        # act on. Preserve in place + shipped sidecar (always safe).
+        write_sidecar(dst, sidecar_dst, shipped_raw)
+    elif not relocate_enabled:
+        # customization_handoff is report/report+issue — conservative
+        # mode: never auto-transfer or adopt over a customization-
+        # bearing verdict. Preserve in place + shipped sidecar.
+        write_sidecar(dst, sidecar_dst, shipped_raw)
+    else:
+        # HAS_UNIQUE or noise-flagged subset — customization-bearing.
+        # Ordering: transfer + verify -> pre-image backup (abort on
+        # failure) -> adoption write -> ONLY on success the
+        # DISPOSITIONS row + transferred bookkeeping. A failed
+        # transfer or backup must never destroy the only copy; a
+        # failed adoption write must never leave a false log row.
+        transfer_path = _transfer_customization(
+            cfg, filename, "rule", installed_raw, verdict,
+            from_version, to_version,
+        )
+        if transfer_path is None or not _write_backup_preimage(
+                cfg, from_version, to_version, dst):
+            write_sidecar(dst, sidecar_dst, shipped_raw)
+        else:
+            try:
+                dst.write_text(render(shipped_raw, installed_raw), encoding="utf-8")
+            except OSError as exc:
+                print(
+                    f"  Warning: could not adopt shipped at {dst}: {exc}; "
+                    f"preserved in place (customization already transferred "
+                    f"to {transfer_path})",
+                    file=sys.stderr,
+                )
+                write_sidecar(dst, sidecar_dst, shipped_raw)
+            else:
+                _append_disposition_log(
+                    cfg, from_version, to_version, dst,
+                    "adopted shipped (customization transferred)",
+                    f"customization transferred to {transfer_path}")
+                refreshed.append(str(dst))
+                transferred.append((str(dst), str(transfer_path)))
+                if sidecar_dst.exists():
+                    sidecar_dst.unlink()
+
+
 def upgrade_artifacts(
     cfg: "InitConfig",
     manifest: dict,
@@ -259,87 +344,12 @@ def upgrade_artifacts(
                 # Bodies match after stripping per-project paths: — no rewrite needed.
                 unchanged.append(str(dst))  # FAST PATH — primitive NOT called
             else:
-                verdict = _classify_diverged(
-                    normalize_rule_for_diff(installed_raw),
-                    normalize_rule_for_diff(shipped_raw),
-                    override=_load_verdict_override(verdicts, filename, installed_raw, dst),
-                )
-                sidecar_dst = (
-                    conflict_dir / ".claude" / "rules" / "planwise" / f"{filename}.new")
-                if is_subset(verdict) and not (getattr(verdict, "notes", "") or ""):
-                    # Stale subset — adopt shipped in place, preserve the project
-                    # paths:. Non-empty notes = the matcher tolerated installed-only
-                    # content (sub-noise-floor fragments) — that flips to the
-                    # customization-bearing branch below: an overwrite must not
-                    # destroy a short customization without moving it first.
-                    # Failed backup = no destructive write.
-                    if not _write_backup_preimage(cfg, from_version, to_version, dst):
-                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                    else:
-                        preserved_paths = (
-                            _extract_paths_value(installed_raw)
-                            or resolve_rule_paths_value(cfg, paths_template))
-                        dst.write_text(
-                            update_frontmatter(shipped_raw, preserved_paths), encoding="utf-8")
-                        _append_disposition_log(
-                            cfg, from_version, to_version, dst, "auto-adopted shipped",
-                            "installed rule body was a stale subset of the grown shipped body")
-                        refreshed.append(str(dst))
-                        refreshed_subsets.append(str(dst))     # banner sub-count
-                        if sidecar_dst.exists():
-                            # A prior interrupted run flagged this file — the adoption
-                            # resolves that conflict; drop the obsoleted sidecar so a
-                            # stale INDEX row cannot invite merging outdated content back.
-                            sidecar_dst.unlink()
-                elif _verdict_not_analyzed(verdict):
-                    # Degraded stand-in — the file was never analyzed, so the
-                    # automated transfer-then-adopt has no verdict evidence to
-                    # act on. Preserve in place + shipped sidecar (always safe).
-                    _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                elif not relocate_enabled:
-                    # customization_handoff is report/report+issue — conservative
-                    # mode: never auto-transfer or adopt over a customization-
-                    # bearing verdict. Preserve in place + shipped sidecar.
-                    _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                else:
-                    # HAS_UNIQUE or noise-flagged subset — customization-bearing.
-                    # Ordering: transfer + verify -> pre-image backup (abort on
-                    # failure) -> adoption write -> ONLY on success the
-                    # DISPOSITIONS row + transferred bookkeeping. A failed
-                    # transfer or backup must never destroy the only copy; a
-                    # failed adoption write must never leave a false log row.
-                    transfer_path = _transfer_customization(
-                        cfg, filename, "rule", installed_raw, verdict,
-                        from_version, to_version,
-                    )
-                    if transfer_path is None or not _write_backup_preimage(
-                            cfg, from_version, to_version, dst):
-                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                    else:
-                        preserved_paths = (
-                            _extract_paths_value(installed_raw)
-                            or resolve_rule_paths_value(cfg, paths_template))
-                        try:
-                            dst.write_text(
-                                update_frontmatter(shipped_raw, preserved_paths),
-                                encoding="utf-8")
-                        except OSError as exc:
-                            print(
-                                f"  Warning: could not adopt shipped at {dst}: {exc}; "
-                                f"preserved in place (customization already transferred "
-                                f"to {transfer_path})",
-                                file=sys.stderr,
-                            )
-                            _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                        else:
-                            _append_disposition_log(
-                                cfg, from_version, to_version, dst,
-                                "adopted shipped (customization transferred)",
-                                f"customization transferred to {transfer_path}")
-                            refreshed.append(str(dst))
-                            transferred.append((str(dst), str(transfer_path)))
-                            if sidecar_dst.exists():
-                                sidecar_dst.unlink()
+                _resolve_diverged_rule(
+                    cfg, from_version, to_version, filename, dst, shipped_raw, installed_raw,
+                    lambda s, i, t=paths_template: update_frontmatter(
+                        s, _extract_paths_value(i) or resolve_rule_paths_value(cfg, t)),
+                    verdicts, conflict_dir, relocate_enabled, _write_conflict_sidecar,
+                    refreshed, refreshed_subsets, transferred)
         except OSError as exc:
             # Per-file containment: a read-only/locked file must not abort the
             # whole refresh mid-loop with earlier dispositions unreported.
@@ -348,8 +358,29 @@ def upgrade_artifacts(
                 file=sys.stderr,
             )
 
+    # --- style rules: an edited managed copy takes the same dispositions ---
+    import style_rules  # lazy: style_rules is a leaf that must not load at import time
+    for filename, _key in style_rules.enabled_style_rules(cfg):
+        dst = style_rules.installed_path(cfg, filename)
+        try:
+            if style_rules.other_managed_path(cfg, filename).is_file() or not dst.is_file() or dst.is_symlink():
+                continue
+            shipped_raw = style_rules.shipped_path(cfg, filename).read_text(encoding="utf-8-sig")
+            installed_raw = dst.read_text(encoding="utf-8-sig")
+            if normalize_rule_for_diff(shipped_raw) != normalize_rule_for_diff(installed_raw):
+                _resolve_diverged_rule(
+                    cfg, from_version, to_version, filename, dst, shipped_raw, installed_raw,
+                    lambda s, i: update_frontmatter(s, p) if (p := _extract_paths_value(i)) else s,
+                    verdicts, conflict_dir, relocate_enabled,
+                    _write_conflict_sidecar, refreshed, refreshed_subsets, transferred)
+        except (OSError, ValueError) as exc:
+            print(f"  Warning: could not upgrade {dst}: {exc}; installed file left untouched",
+                  file=sys.stderr)
+
     # --- Untracked detection ---
-    rule_allowlist = {r[0] for r in INSTALLED_RULES}
+    # Both style filenames are allowed whatever their keys read: an edited copy
+    # kept under an `off` key must not be reported as untracked.
+    rule_allowlist = {r[0] for r in INSTALLED_RULES} | {n for n, _key in style_rules.STYLE_RULES}
 
     for md_file in rules_dst_dir.glob("*.md"):
         if md_file.name not in rule_allowlist:
@@ -863,6 +894,16 @@ def _run_upgrade(
         except Exception as exc:  # noqa: BLE001 -- never change the exit code
             print(f"  Warning: plans index migration step raised unexpectedly: {exc}",
                   file=sys.stderr)
+        # Style rules: act on each switch and keep one copy across scopes. An
+        # edited copy is reported and left alone, and config.yaml is not written.
+        try:
+            import style_rules
+            style_rows = style_rules.reconcile_style_switches(cfg, pinned_version, target_version)
+            style_rows += style_rules.sync_cross_scope(cfg, pinned_version, target_version)
+            for line in style_rules.format_reconcile_lines(style_rows):
+                print(line)
+        except Exception as exc:  # noqa: BLE001 -- never change the exit code
+            print(f"  Warning: style rule step raised unexpectedly: {exc}", file=sys.stderr)
         if needs_repoint:
             _repoint_plugin_root(config_path, cfg.plugin_root)
             print(f"Plugin version: {pinned_version}")
@@ -986,6 +1027,18 @@ def _run_upgrade(
             print(f"  Warning: plans index migration step raised unexpectedly: {exc}",
                   file=sys.stderr)
 
+        # 2g. Style rules: act on each config switch, then keep one copy of an
+        # enabled rule across scopes. Runs before the refresh so an absent copy
+        # is installed first.
+        import style_rules
+        try:
+            style_rows = style_rules.reconcile_style_switches(cfg, pinned_version, target_version, True)
+            style_rows += style_rules.sync_cross_scope(cfg, pinned_version, target_version)
+            for line in style_rules.format_reconcile_lines(style_rows):
+                print(line)
+        except Exception as exc:  # noqa: BLE001 -- never abort an upgrade
+            print(f"  Warning: style rule step raised unexpectedly: {exc}", file=sys.stderr)
+
         # 3. Refresh artifacts.
         manifest = load_artifact_manifest(cfg.plugin_root)
         refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = upgrade_artifacts(
@@ -1100,6 +1153,11 @@ def _run_upgrade(
                 print("      hint: re-scope to code paths or convert to a handler-loaded reference")
             print(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
             print()
+
+        # 5b. One notice when this run added the `style:` block. Silent otherwise.
+        style_notice = style_rules.style_announcement(cfg, added)
+        if style_notice:
+            print("\n".join(style_notice) + "\n")
 
         # 6. Commit point: pin plugin_version AND repoint plugin_root
         # together, in ONE write, LAST — see _commit_upgrade_pin(). Never

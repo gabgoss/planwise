@@ -4,7 +4,9 @@
 Covers the `style:` config reader, the pinned bytes of the two shipped rule
 files, default-on install and the per-key switches, install scope, the
 duplicate check, the config template and `--migrate`, the manifest row, and
-the `init` seam in `init_project.install_rules`.
+the `init` seam in `init_project.install_rules`. The classes from `TestUpgradeInstall`
+on cover the upgrade side: key transitions, the cross-scope sync, the announcement
+and the untracked allowlist, driven through `_run_upgrade` and `upgrade_artifacts`.
 
 Every test class derives from `_StyleFixtureBase`, which redirects
 `pathlib.Path.home` to a temporary directory. `style_rule_dir` and
@@ -27,6 +29,7 @@ import re
 import shutil
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -35,7 +38,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 import config_gen
 import init_project as ip
+
+# isort: split
+# artifact_upgrade must load after init_project: the two import each other, and only that order resolves.
+import artifact_upgrade as au
+import read_limits
+import rule_divergence as rd
 import style_rules as sr
+import upgrade_io
 
 try:
     import yaml
@@ -1030,6 +1040,1135 @@ class TestInitSeam(_StyleFixtureBase):
         self.assertNotIn("Style rules installed to", out)
         for name in BOTH:
             self.assertTrue((self.project_rules_dir / name).is_file(), name)
+
+
+# ---------------------------------------------------------------------------
+# Upgrade side: `reconcile_style_switches`, `sync_cross_scope`, the style loop in
+# `upgrade_artifacts`, the announcement, and `_run_upgrade` at both version pins.
+# ---------------------------------------------------------------------------
+
+OLD_VERSION = "1.0.0"
+TARGET_VERSION = "1.1.0"
+PAIR_DIR = f"{OLD_VERSION}-to-{TARGET_VERSION}"
+CURRENT_PAIR_DIR = f"{TARGET_VERSION}-to-{TARGET_VERSION}"
+UPSTREAM_SECTION = b"\n## An Upstream Section\n- This instruction ships in the new version and is absent from the installed copy.\n"
+ANNOUNCEMENT_FIRST_LINE = "Style rules: planwise now installs two global rules, on by default."
+
+
+def _lf(data: bytes) -> bytes:
+    """Line endings normalised, because a text-mode adoption write follows the platform."""
+    return data.replace(b"\r\n", b"\n")
+
+
+def _grown_bytes(filename: str) -> bytes:
+    """The shipped rule plus a section a newer plugin version adds."""
+    return _shipped_bytes(filename) + UPSTREAM_SECTION
+
+
+def _dispositions(rows) -> dict[str, str]:
+    return {name: disposition for name, disposition, _detail in rows}
+
+
+def _style_lines(out: str) -> list[str]:
+    return [line for line in out.splitlines() if line.startswith("Style rule ")]
+
+
+def _put(path: Path, data: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+@unittest.skipUnless(HAS_YAML, "PyYAML not installed")
+class _UpgradeFixtureBase(_StyleFixtureBase):
+    """A project whose config targets `TARGET_VERSION`, driven through the upgrade entry points.
+
+    `artifact_upgrade.INSTALLED_RULES` is patched to empty so only the two style rules are in
+    play (the four path-scoped rules are not refreshed here). The feedback-dir write and the CLI
+    version refresh are patched out so a config's bytes change only when a test says so.
+    Per-module patching matches the other upgrade tests; `init_project.INSTALLED_RULES` is never read.
+    """
+
+    def make_cfg(self, scope: str = "project", plugin_root: Path | None = None):
+        return ip.InitConfig(
+            project_name="StyleFixture",
+            project_root=self.project_root,
+            plugin_root=plugin_root or PLUGIN_ROOT,
+            install_scope=scope,
+            plugin_version=TARGET_VERSION,
+        )
+
+    def setUp(self):
+        super().setUp()
+        patches = (
+            ("INSTALLED_RULES", []),
+            ("_apply_feedback_dir", lambda *args, **kwargs: None),
+            ("refresh_verified_cli_version", lambda *args, **kwargs: ""),
+        )
+        for name, value in patches:
+            patcher = mock.patch.object(au, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def write_pin(self, pin: str, style: dict | None = None, handoff: str | None = None) -> Path:
+        lines = [f'plugin_version: "{pin}"']
+        if handoff:
+            lines += ["upgrade:", f'  customization_handoff: "{handoff}"']
+        if style:
+            lines.append("style:")
+            lines += [f"  {key}: {value}" for key, value in style.items()]
+        return self.write_config("\n".join(lines) + "\n")
+
+    def run_upgrade(self, cfg=None) -> tuple[int, str, str]:
+        """Call `_run_upgrade` itself, with stdout and stderr captured."""
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = au._run_upgrade(cfg or self.cfg)
+        return code, out.getvalue(), err.getvalue()
+
+    def run_pinned(self) -> str:
+        """Run `_run_upgrade` at a current pin and check what holds for every such run.
+
+        The exit code is 0, the output ends with `Already up to date.`, and `config.yaml` is
+        byte-identical. Returns the stdout.
+        """
+        config = self.project_root / self.cfg.planwise_root / "config.yaml"
+        before = config.read_bytes()
+        code, out, err = self.run_upgrade()
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.rstrip().endswith("Already up to date."), out)
+        self.assertEqual(config.read_bytes(), before)
+        return out
+
+    def backup_root(self, pair: str = PAIR_DIR) -> Path:
+        return self.project_root / self.cfg.planwise_root / "upgrade-backups" / pair
+
+    def reconcile(self, cfg=None):
+        return sr.reconcile_style_switches(cfg or self.cfg, OLD_VERSION, TARGET_VERSION)
+
+    def snapshot(self, path: Path) -> tuple[bytes, int]:
+        return path.read_bytes(), path.stat().st_mtime_ns
+
+
+class TestUpgradeInstall(_UpgradeFixtureBase):
+    """A version-change run installs what the keys ask for and leaves an agreeing state alone."""
+
+    def test_a_version_change_run_on_a_config_with_no_style_block_installs_both_and_writes_the_block(self):
+        config = self.write_pin(OLD_VERSION)
+
+        code, out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        for filename in BOTH:
+            self.assertEqual((self.project_rules_dir / filename).read_bytes(), _shipped_bytes(filename), filename)
+            self.assertIn(f"Style rule {filename}: installed", out)
+        text = config.read_text(encoding="utf-8")
+        self.assertRegex(text, r"(?m)^style:\s*$")
+        self.assertRegex(text, r"(?m)^  plain_language: on\s*$")
+        self.assertRegex(text, r"(?m)^  plain_presentation: on\s*$")
+
+    def test_key_on_and_file_absent_is_installed(self):
+        self.write_style_config(plain_language="on", plain_presentation="on")
+
+        rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "installed", PRESENTATION: "installed"})
+        for filename in BOTH:
+            self.assertEqual((self.project_rules_dir / filename).read_bytes(), _shipped_bytes(filename), filename)
+        self.assertEqual(len(sr.format_reconcile_lines(rows)), 2)
+
+    def test_both_keys_on_and_files_identical_is_unchanged_with_no_write_and_no_printed_line(self):
+        self.write_style_config(plain_language="on", plain_presentation="on")
+        sr.install_style_rules(self.cfg)
+        before = {filename: self.snapshot(self.project_rules_dir / filename) for filename in BOTH}
+
+        rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "unchanged", PRESENTATION: "unchanged"})
+        self.assertEqual(sr.format_reconcile_lines(rows), [])
+        for filename in BOTH:
+            self.assertEqual(self.snapshot(self.project_rules_dir / filename), before[filename], filename)
+        self.assertFalse(self.backup_root().exists())
+
+
+class TestUpgradeSwitches(_UpgradeFixtureBase):
+    """Each key transition reconciles one rule against its switch."""
+
+    def test_on_to_off_with_an_identical_copy_removes_it_after_the_backup_exists(self):
+        sr.install_style_rules(self.cfg)
+        self.write_style_config(plain_language="off", plain_presentation="on")
+        backup = self.backup_root() / ".claude" / "rules" / "planwise" / LANGUAGE
+        seen: list[bool] = []
+        real_unlink = Path.unlink
+
+        def spying_unlink(path, *args, **kwargs):
+            if path.name == LANGUAGE:
+                seen.append(backup.is_file() and backup.read_bytes() == _shipped_bytes(LANGUAGE))
+            return real_unlink(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "unlink", spying_unlink):
+            rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "removed", PRESENTATION: "unchanged"})
+        self.assertEqual(seen, [True], "the backup must exist, with the shipped bytes, when the file is deleted")
+        self.assertFalse((self.project_rules_dir / LANGUAGE).exists())
+        self.assertTrue((self.project_rules_dir / PRESENTATION).is_file())
+        self.assertEqual(backup.read_bytes(), _shipped_bytes(LANGUAGE))
+        log = (self.backup_root() / "DISPOSITIONS.md").read_text(encoding="utf-8")
+        self.assertIn("removed", log)
+        self.assertEqual(
+            [line.split(" — ")[0] for line in sr.format_reconcile_lines(rows)],
+            [f"Style rule {LANGUAGE}: removed"],
+        )
+
+    def test_a_failed_backup_gives_preserved_and_the_file_stays(self):
+        sr.install_style_rules(self.cfg)
+        self.write_style_config(plain_language="off")
+
+        with mock.patch.object(upgrade_io, "_write_backup_preimage", return_value=False):
+            rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows)[LANGUAGE], "preserved")
+        self.assertIn("backup", {name: detail for name, _d, detail in rows}[LANGUAGE])
+        self.assertEqual((self.project_rules_dir / LANGUAGE).read_bytes(), _shipped_bytes(LANGUAGE))
+
+    def test_on_to_off_with_an_edited_copy_is_preserved_and_reported(self):
+        self.project_rules_dir.mkdir(parents=True)
+        edited = _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+        self.write_style_config(plain_language="off", plain_presentation="on")
+
+        rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows)[LANGUAGE], "preserved")
+        self.assertEqual(edited.read_bytes(), _customized_bytes(LANGUAGE))
+        lines = sr.format_reconcile_lines(rows)
+        self.assertTrue(any(line.startswith(f"Style rule {LANGUAGE}: preserved") for line in lines), lines)
+        self.assertFalse(self.backup_root().exists())
+
+    def test_off_to_on_installs_the_rule(self):
+        self.write_style_config(plain_language="off", plain_presentation="off")
+        self.assertEqual(_dispositions(self.reconcile()), {LANGUAGE: "skipped", PRESENTATION: "skipped"})
+        self.assertFalse((self.project_rules_dir / LANGUAGE).exists())
+
+        self.write_style_config(plain_language="on", plain_presentation="off")
+        rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "installed", PRESENTATION: "skipped"})
+        self.assertEqual((self.project_rules_dir / LANGUAGE).read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertFalse((self.project_rules_dir / PRESENTATION).exists())
+
+    def test_both_off_and_both_absent_is_skipped_and_nothing_happens(self):
+        self.write_style_config(plain_language="off", plain_presentation="off")
+
+        rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "skipped", PRESENTATION: "skipped"})
+        self.assertEqual(sr.format_reconcile_lines(rows), [])
+        self.assertFalse(self.project_rules_dir.exists())
+        self.assertFalse(self.backup_root().exists())
+
+    def test_a_version_change_run_keeps_an_edited_copy_whose_key_is_off(self):
+        self.write_pin(OLD_VERSION, style={"plain_language": "off", "plain_presentation": "on"})
+        edited = _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+
+        code, out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(edited.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertIn(f"Style rule {LANGUAGE}: preserved", out)
+        self.assertFalse(self.backup_root().joinpath(".claude", "rules", "planwise", LANGUAGE).exists())
+
+    def test_a_version_change_run_removes_an_identical_copy_whose_key_is_off(self):
+        sr.install_style_rules(self.cfg)
+        self.write_pin(OLD_VERSION, style={"plain_language": "off", "plain_presentation": "on"})
+
+        code, out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        self.assertFalse((self.project_rules_dir / LANGUAGE).exists())
+        self.assertIn(f"Style rule {LANGUAGE}: removed", out)
+        backup = self.backup_root() / ".claude" / "rules" / "planwise" / LANGUAGE
+        self.assertEqual(backup.read_bytes(), _shipped_bytes(LANGUAGE))
+
+    def test_an_os_error_on_one_rule_gives_failed_and_the_other_rule_still_reconciles(self):
+        sr.install_style_rules(self.cfg)
+        (self.project_rules_dir / PRESENTATION).unlink()
+        self.write_style_config(plain_language="off", plain_presentation="on")
+        real_unlink = Path.unlink
+
+        def failing_unlink(path, *args, **kwargs):
+            if path.name == LANGUAGE:
+                raise PermissionError(13, "Permission denied")
+            return real_unlink(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "unlink", failing_unlink):
+            rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "failed", PRESENTATION: "installed"})
+        self.assertIn("Permission denied", {name: detail for name, _d, detail in rows}[LANGUAGE])
+        self.assertTrue((self.project_rules_dir / LANGUAGE).is_file())
+        self.assertTrue((self.project_rules_dir / PRESENTATION).is_file())
+        self.assertTrue(any(line.startswith(f"Style rule {LANGUAGE}: failed") for line in sr.format_reconcile_lines(rows)))
+
+
+class TestUpgradeAtCurrentPin(_UpgradeFixtureBase):
+    """`_run_upgrade` with the pinned version equal to the target: a key change works without a version change."""
+
+    def test_on_to_off_with_an_identical_copy_removes_it(self):
+        sr.install_style_rules(self.cfg)
+        self.write_pin(TARGET_VERSION, style={"plain_language": "off", "plain_presentation": "on"})
+
+        out = self.run_pinned()
+
+        self.assertFalse((self.project_rules_dir / LANGUAGE).exists())
+        self.assertTrue((self.project_rules_dir / PRESENTATION).is_file())
+        self.assertIn(f"Style rule {LANGUAGE}: removed", out)
+        # At a current pin the version pair is the target twice.
+        backup = self.backup_root(CURRENT_PAIR_DIR) / ".claude" / "rules" / "planwise" / LANGUAGE
+        self.assertEqual(backup.read_bytes(), _shipped_bytes(LANGUAGE))
+
+    def test_off_to_on_installs_the_rule(self):
+        self.write_pin(TARGET_VERSION, style={"plain_language": "off", "plain_presentation": "off"})
+        out = self.run_pinned()
+        self.assertEqual(_style_lines(out), [])
+        self.assertFalse(self.project_rules_dir.exists())
+
+        self.write_pin(TARGET_VERSION, style={"plain_language": "on", "plain_presentation": "off"})
+        out = self.run_pinned()
+
+        self.assertEqual((self.project_rules_dir / LANGUAGE).read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertFalse((self.project_rules_dir / PRESENTATION).exists())
+        self.assertIn(f"Style rule {LANGUAGE}: installed", out)
+
+    def test_key_on_and_copy_absent_is_installed(self):
+        self.write_pin(TARGET_VERSION)
+
+        out = self.run_pinned()
+
+        for filename in BOTH:
+            self.assertEqual((self.project_rules_dir / filename).read_bytes(), _shipped_bytes(filename), filename)
+            self.assertIn(f"Style rule {filename}: installed", out)
+
+    def test_an_agreeing_state_writes_no_file_and_prints_no_style_rule_line(self):
+        sr.install_style_rules(self.cfg)
+        self.write_pin(TARGET_VERSION, style={"plain_language": "on", "plain_presentation": "on"})
+        before = {filename: self.snapshot(self.project_rules_dir / filename) for filename in BOTH}
+
+        out = self.run_pinned()
+
+        self.assertNotIn("Style rule", out)
+        for filename in BOTH:
+            self.assertEqual(self.snapshot(self.project_rules_dir / filename), before[filename], filename)
+        self.assertFalse(self.backup_root(CURRENT_PAIR_DIR).exists())
+
+        # Both keys off and both files absent also agree.
+        shutil.rmtree(self.project_rules_dir)
+        self.write_pin(TARGET_VERSION, style={"plain_language": "off", "plain_presentation": "off"})
+        out = self.run_pinned()
+        self.assertNotIn("Style rule", out)
+        self.assertFalse(self.project_rules_dir.exists())
+
+    def test_an_edited_copy_under_an_on_key_is_reported_customized_and_its_bytes_do_not_change(self):
+        self.write_pin(TARGET_VERSION)
+        edited = _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+
+        out = self.run_pinned()
+
+        self.assertIn(f"Style rule {LANGUAGE}: customized", out)
+        self.assertEqual(edited.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertFalse((self.project_root / self.cfg.planwise_root / "upgrade-conflicts").exists())
+
+
+class TestUpgradeRefresh(_UpgradeFixtureBase):
+    """A version-change refresh of a managed copy, against a temporary plugin tree whose shipped copy differs."""
+
+    def setUp(self):
+        super().setUp()
+        self.plugin = self.tmp / "plugin"
+        (self.plugin / "references").mkdir(parents=True)
+        (self.plugin / "references" / LANGUAGE).write_bytes(_grown_bytes(LANGUAGE))
+        (self.plugin / "references" / PRESENTATION).write_bytes(_shipped_bytes(PRESENTATION))
+        self.refresh_cfg = self.make_cfg("project", plugin_root=self.plugin)
+        self.dst = self.project_rules_dir / LANGUAGE
+
+    def refresh(self):
+        return au.upgrade_artifacts(self.refresh_cfg, {"artifacts": []}, OLD_VERSION, TARGET_VERSION)
+
+    def conflict_dir(self) -> Path:
+        return self.project_root / self.cfg.planwise_root / "upgrade-conflicts" / PAIR_DIR
+
+    def test_an_untouched_installed_copy_is_refreshed_to_the_new_shipped_bytes_with_no_paths_line(self):
+        _put(self.dst, _shipped_bytes(LANGUAGE))
+        _put(self.project_rules_dir / PRESENTATION, _shipped_bytes(PRESENTATION))
+
+        refreshed, unchanged, conflicts, untracked, subsets, transferred = self.refresh()
+
+        self.assertEqual(refreshed, [str(self.dst)])
+        self.assertEqual(subsets, [str(self.dst)])
+        # The style loop records only what it changes, so an identical copy is not listed.
+        self.assertEqual(unchanged, [])
+        self.assertEqual((self.project_rules_dir / PRESENTATION).read_bytes(), _shipped_bytes(PRESENTATION))
+        self.assertEqual((conflicts, untracked, transferred), ([], [], []))
+        self.assertEqual(_lf(self.dst.read_bytes()), _lf(_grown_bytes(LANGUAGE)))
+        self.assertNotRegex(self.dst.read_text(encoding="utf-8"), r"(?m)^\s*paths:")
+        backup = self.backup_root() / ".claude" / "rules" / "planwise" / LANGUAGE
+        self.assertEqual(backup.read_bytes(), _shipped_bytes(LANGUAGE))
+
+    def test_an_edited_copy_under_report_and_relocate_is_transferred_and_then_adopted(self):
+        self.write_pin(OLD_VERSION, handoff="report+relocate")
+        _put(self.dst, _customized_bytes(LANGUAGE))
+
+        refreshed, _unchanged, conflicts, _untracked, _subsets, transferred = self.refresh()
+
+        self.assertEqual(conflicts, [])
+        self.assertEqual(refreshed, [str(self.dst)])
+        self.assertEqual(len(transferred), 1)
+        self.assertEqual(transferred[0][0], str(self.dst))
+        transfer = Path(transferred[0][1])
+        self.assertIn("A Local Section", transfer.read_text(encoding="utf-8"))
+        self.assertEqual(_lf(self.dst.read_bytes()), _lf(_grown_bytes(LANGUAGE)))
+        backup = self.backup_root() / ".claude" / "rules" / "planwise" / LANGUAGE
+        self.assertEqual(backup.read_bytes(), _customized_bytes(LANGUAGE))
+
+    def test_an_edited_copy_under_report_gets_a_sidecar_and_the_installed_file_is_unchanged(self):
+        self.write_pin(OLD_VERSION, handoff="report")
+        _put(self.dst, _customized_bytes(LANGUAGE))
+        sidecar = self.conflict_dir() / ".claude" / "rules" / "planwise" / f"{LANGUAGE}.new"
+
+        refreshed, _unchanged, conflicts, _untracked, _subsets, transferred = self.refresh()
+
+        self.assertEqual(conflicts, [(str(self.dst), str(sidecar))])
+        self.assertEqual((refreshed, transferred), ([], []))
+        self.assertEqual(self.dst.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(_lf(sidecar.read_bytes()), _lf(_grown_bytes(LANGUAGE)))
+        index = (self.conflict_dir() / "INDEX.md").read_text(encoding="utf-8")
+        self.assertIn(str(self.dst), index)
+        self.assertIn(str(sidecar), index)
+        self.assertFalse((self.project_root / self.cfg.planwise_root / "upgrade-transfers").exists())
+
+    def test_an_edited_copy_is_never_overwritten_without_a_verified_transfer(self):
+        self.write_pin(OLD_VERSION, handoff="report+relocate")
+        _put(self.dst, _customized_bytes(LANGUAGE))
+
+        with mock.patch.object(au, "_transfer_customization", return_value=None):
+            refreshed, _unchanged, conflicts, _untracked, _subsets, transferred = self.refresh()
+
+        self.assertEqual((refreshed, transferred), ([], []))
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(self.dst.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertTrue(Path(conflicts[0][1]).is_file())
+
+
+class TestUpgradeScopeAndDuplicates(_UpgradeFixtureBase):
+    """The install scope picks the tree, and a same-name copy elsewhere stops the install."""
+
+    def test_user_scope_installs_under_the_redirected_home_and_writes_nothing_under_the_project(self):
+        cfg = self.make_cfg("user")
+
+        rows = self.reconcile(cfg)
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "installed", PRESENTATION: "installed"})
+        for filename in BOTH:
+            self.assertEqual((self.home_rules_dir / filename).read_bytes(), _shipped_bytes(filename), filename)
+        self.assertFalse(self.project_rules_dir.exists())
+        self.assertEqual(list(self.project_root.rglob("*")), [])
+
+    def test_user_scope_removes_under_the_redirected_home_and_writes_nothing_under_the_project_rules_dir(self):
+        cfg = self.make_cfg("user")
+        sr.install_style_rules(cfg)
+        self.write_style_config(plain_language="off", plain_presentation="on")
+
+        rows = self.reconcile(cfg)
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "removed", PRESENTATION: "unchanged"})
+        self.assertFalse((self.home_rules_dir / LANGUAGE).exists())
+        self.assertTrue((self.home_rules_dir / PRESENTATION).is_file())
+        self.assertFalse(self.project_rules_dir.exists())
+        # A path outside the project is backed up under its bare file name.
+        self.assertEqual((self.backup_root() / LANGUAGE).read_bytes(), _shipped_bytes(LANGUAGE))
+
+    def _assert_a_top_level_copy_gives_duplicate(self, base: Path) -> None:
+        existing = self.write_top_level_copy(base, LANGUAGE, _shipped_bytes(LANGUAGE))
+
+        rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "duplicate", PRESENTATION: "installed"})
+        self.assertFalse((self.project_rules_dir / LANGUAGE).exists())
+        self.assertTrue((self.project_rules_dir / PRESENTATION).is_file())
+        self.assertEqual(existing.read_bytes(), _shipped_bytes(LANGUAGE))
+        line = next(line for line in sr.format_reconcile_lines(rows) if LANGUAGE in line)
+        self.assertTrue(line.startswith(f"Style rule {LANGUAGE}: duplicate — "), line)
+        self.assertIn(str(existing), line)
+        self.assertEqual(line.count("Style rule"), 1, "the duplicate line must not repeat its prefix")
+
+    def test_a_same_name_top_level_copy_in_the_project_gives_duplicate_and_no_install(self):
+        self._assert_a_top_level_copy_gives_duplicate(self.project_root)
+
+    def test_a_same_name_top_level_copy_in_the_redirected_home_gives_duplicate_and_no_install(self):
+        self._assert_a_top_level_copy_gives_duplicate(self.home)
+
+    def _style_helper_calls(self, cfg) -> list:
+        """The calls `upgrade_artifacts` makes to the diverged-copy helper."""
+        with mock.patch.object(au, "_resolve_diverged_rule") as helper:
+            au.upgrade_artifacts(cfg, {"artifacts": []}, OLD_VERSION, TARGET_VERSION)
+        return helper.call_args_list
+
+    def _assert_the_managed_copy_reaches_the_helper(self, cfg, managed: Path) -> None:
+        calls = self._style_helper_calls(cfg)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].args[4], managed)
+
+    def test_a_rule_with_a_project_top_level_copy_still_passes_its_managed_copy_to_the_diverged_copy_helper(self):
+        _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+        self.write_top_level_copy(self.project_root, LANGUAGE, _shipped_bytes(LANGUAGE))
+
+        self._assert_the_managed_copy_reaches_the_helper(self.cfg, self.project_rules_dir / LANGUAGE)
+
+    def test_a_rule_with_a_home_top_level_copy_still_passes_its_managed_copy_to_the_diverged_copy_helper(self):
+        _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+        self.write_top_level_copy(self.home, LANGUAGE, _shipped_bytes(LANGUAGE))
+
+        self._assert_the_managed_copy_reaches_the_helper(self.cfg, self.project_rules_dir / LANGUAGE)
+
+    def test_a_user_scope_rule_with_a_project_tree_copy_still_passes_its_managed_copy_to_the_diverged_copy_helper(self):
+        cfg = self.make_cfg("user")
+        _put(self.home_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+        self.write_top_level_copy(self.project_root, LANGUAGE, _customized_bytes(LANGUAGE))
+
+        self._assert_the_managed_copy_reaches_the_helper(cfg, self.home_rules_dir / LANGUAGE)
+
+    def test_a_rule_with_a_managed_copy_in_the_other_scope_is_never_passed_to_the_diverged_copy_helper(self):
+        _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+        _put(self.home_rules_dir / LANGUAGE, _shipped_bytes(LANGUAGE))
+
+        self.assertEqual(self._style_helper_calls(self.cfg), [])
+
+        cfg = self.make_cfg("user")
+
+        self.assertEqual(self._style_helper_calls(cfg), [])
+
+    def test_a_lone_managed_copy_with_no_other_copy_still_reaches_the_diverged_copy_helper(self):
+        _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+
+        calls = self._style_helper_calls(self.cfg)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].args[3], LANGUAGE)
+        self.assertEqual(calls[0].args[4], self.project_rules_dir / LANGUAGE)
+
+
+class TestUpgradeAnnouncement(_UpgradeFixtureBase):
+    """The one-time notice, printed by the run that adds the `style:` block."""
+
+    def _announcement_in(self, out: str) -> list[str]:
+        lines = out.splitlines()
+        start = lines.index(ANNOUNCEMENT_FIRST_LINE)
+        return lines[start:start + 6]
+
+    def test_the_six_lines_appear_once_when_the_block_was_added(self):
+        self.write_pin(OLD_VERSION)
+
+        code, out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.splitlines().count(ANNOUNCEMENT_FIRST_LINE), 1, out)
+        notice = self._announcement_in(out)
+        self.assertEqual(len(notice), 6)
+        self.assertEqual(notice, sr.style_announcement(self.cfg, ["style"]))
+
+    def test_the_lines_carry_both_token_numbers_and_both_key_names(self):
+        tokens = [read_limits.estimate_tokens((REFERENCES / name).stat().st_size) for name in BOTH]
+
+        notice = sr.style_announcement(self.cfg, ["style"])
+
+        self.assertEqual(len(notice), 6)
+        self.assertIn(LANGUAGE, notice[1])
+        self.assertIn(f"about {tokens[0]} tokens per session", notice[1])
+        self.assertIn(PRESENTATION, notice[2])
+        self.assertIn(f"about {tokens[1]} tokens per session", notice[2])
+        self.assertIn(f"about {sum(tokens)} tokens", notice[3])
+        self.assertIn("style.plain_language", notice[5])
+        self.assertIn("style.plain_presentation", notice[5])
+
+    def test_the_config_path_line_uses_the_projects_own_planwise_root_name(self):
+        notice = sr.style_announcement(self.cfg, ["style"])
+        self.assertIn("planwise/config.yaml", notice[4])
+
+        renamed = ip.InitConfig(
+            project_name="StyleFixture",
+            project_root=self.project_root,
+            plugin_root=PLUGIN_ROOT,
+            planwise_root="docs-root",
+            plugin_version=TARGET_VERSION,
+        )
+        notice = sr.style_announcement(renamed, ["style"])
+        self.assertIn("docs-root/config.yaml", notice[4])
+        self.assertNotIn("planwise/config.yaml", notice[4])
+
+    def test_no_announcement_prints_when_the_block_was_already_present(self):
+        self.write_pin(OLD_VERSION, style={"plain_language": "on", "plain_presentation": "on"})
+
+        code, out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        self.assertNotIn(ANNOUNCEMENT_FIRST_LINE, out)
+        self.assertEqual(sr.style_announcement(self.cfg, ["context"]), [])
+        self.assertEqual(sr.style_announcement(self.cfg, None), [])
+
+    def test_no_announcement_prints_on_a_current_pin_run(self):
+        self.write_pin(TARGET_VERSION)
+
+        out = self.run_pinned()
+
+        self.assertNotIn(ANNOUNCEMENT_FIRST_LINE, out)
+
+
+class TestUntrackedAllowlist(_UpgradeFixtureBase):
+    """A style file is never listed as untracked, whatever its key reads."""
+
+    def untracked(self, cfg=None) -> list[str]:
+        return au.upgrade_artifacts(cfg or self.cfg, {"artifacts": []}, OLD_VERSION, TARGET_VERSION)[3]
+
+    def test_an_edited_style_file_kept_under_an_off_key_is_not_listed_as_untracked(self):
+        self.write_style_config(plain_language="off", plain_presentation="on")
+        edited = _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+
+        self.assertEqual(self.untracked(), [])
+        self.assertEqual(edited.read_bytes(), _customized_bytes(LANGUAGE))
+
+    def test_a_stray_unrelated_file_in_the_rules_directory_is_still_listed(self):
+        self.write_style_config(plain_language="off", plain_presentation="on")
+        _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+        stray = _put(self.project_rules_dir / "stray-notes.md", b"# not a planwise rule\n")
+
+        self.assertEqual(self.untracked(), [str(stray)])
+
+    def test_a_project_scope_style_file_in_the_project_planwise_directory_is_not_listed_at_user_scope(self):
+        cfg = self.make_cfg("user")
+        _put(self.project_rules_dir / LANGUAGE, _shipped_bytes(LANGUAGE))
+
+        self.assertEqual(self.untracked(cfg), [])
+
+
+class TestCrossScopeSync(_UpgradeFixtureBase):
+    """One copy of an enabled rule across the project and home trees: edits win, else the shipped file."""
+
+    def sync(self):
+        return sr.sync_cross_scope(self.cfg, OLD_VERSION, TARGET_VERSION)
+
+    def pair(self, project_data: bytes, home_data: bytes) -> tuple[Path, Path]:
+        return (
+            _put(self.project_rules_dir / LANGUAGE, project_data),
+            _put(self.home_rules_dir / LANGUAGE, home_data),
+        )
+
+    def test_exactly_one_edited_copy_reaches_the_other_copy_and_the_overwritten_copy_is_backed_up(self):
+        project_copy, home_copy = self.pair(_customized_bytes(LANGUAGE), _shipped_bytes(LANGUAGE))
+
+        rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "synced"})
+        self.assertEqual(home_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        # The overwritten copy sits outside the project, so its backup carries the bare file name.
+        self.assertEqual((self.backup_root() / LANGUAGE).read_bytes(), _shipped_bytes(LANGUAGE))
+
+    def test_the_edit_also_travels_from_the_home_copy_to_the_project_copy(self):
+        project_copy, home_copy = self.pair(_shipped_bytes(LANGUAGE), _customized_bytes(LANGUAGE))
+
+        rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "synced"})
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(home_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        backup = self.backup_root() / ".claude" / "rules" / "planwise" / LANGUAGE
+        self.assertEqual(backup.read_bytes(), _shipped_bytes(LANGUAGE))
+
+    def test_neither_copy_edited_both_copies_end_with_the_shipped_bytes(self):
+        older = _stale_subset_bytes(LANGUAGE)
+        oldest = _shipped_bytes(LANGUAGE).split(b"\n## Structure")[0] + b"\n"
+        self.assertNotEqual(older, oldest)
+        project_copy, home_copy = self.pair(older, oldest)
+
+        rows = self.sync()
+
+        self.assertEqual([disposition for _name, disposition, _detail in rows], ["synced", "synced"])
+        self.assertEqual(project_copy.read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertEqual(home_copy.read_bytes(), _shipped_bytes(LANGUAGE))
+
+    def test_two_different_edits_change_neither_file_and_the_conflict_names_both_paths(self):
+        project_copy, home_copy = self.pair(
+            _shipped_bytes(LANGUAGE) + b"\n## Project Edit\n- Only the project copy holds this.\n",
+            _shipped_bytes(LANGUAGE) + b"\n## Home Edit\n- Only the home copy holds this.\n",
+        )
+        before = (project_copy.read_bytes(), home_copy.read_bytes())
+
+        rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "conflict"})
+        self.assertEqual((project_copy.read_bytes(), home_copy.read_bytes()), before)
+        self.assertIn(str(project_copy), rows[0][2])
+        self.assertIn(str(home_copy), rows[0][2])
+        self.assertFalse(self.backup_root().exists())
+
+    def test_two_byte_identical_copies_are_not_written(self):
+        project_copy, home_copy = self.pair(_customized_bytes(LANGUAGE), _customized_bytes(LANGUAGE))
+        before = (self.snapshot(project_copy), self.snapshot(home_copy))
+
+        rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "unchanged"})
+        self.assertEqual(sr.format_reconcile_lines(rows), [])
+        self.assertEqual((self.snapshot(project_copy), self.snapshot(home_copy)), before)
+        self.assertFalse(self.backup_root().exists())
+
+    def test_the_sync_runs_at_a_current_pin_through_run_upgrade_and_config_bytes_do_not_change(self):
+        project_copy, home_copy = self.pair(_customized_bytes(LANGUAGE), _shipped_bytes(LANGUAGE))
+        self.write_pin(TARGET_VERSION)
+
+        out = self.run_pinned()
+
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(home_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertIn(f"Style rule {LANGUAGE}: synced", out)
+
+    def test_an_off_key_never_syncs(self):
+        self.write_style_config(plain_language="off", plain_presentation="on")
+        project_copy, home_copy = self.pair(_customized_bytes(LANGUAGE), _shipped_bytes(LANGUAGE))
+
+        self.assertEqual(self.sync(), [])
+
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(home_copy.read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertFalse(self.backup_root().exists())
+
+    def test_same_name_copies_outside_the_managed_paths_are_named_and_never_touched(self):
+        project_copy, home_copy = self.pair(_customized_bytes(LANGUAGE), _shipped_bytes(LANGUAGE))
+        second_project = _put(self.project_root / ".claude" / "rules" / "sub" / LANGUAGE, b"# a second project copy\n")
+        second_home = _put(self.home / ".claude" / "rules" / "elsewhere" / LANGUAGE, b"# a second home copy\n")
+
+        rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "synced"})
+        for path in (second_project, second_home):
+            self.assertIn(str(path), rows[0][2])
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(home_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(second_project.read_bytes(), b"# a second project copy\n")
+        self.assertEqual(second_home.read_bytes(), b"# a second home copy\n")
+
+    def _assert_a_project_tree_edit_survives_a_version_change_run(self, handoff: str) -> None:
+        cfg = self.make_cfg("user")
+        self.write_pin(OLD_VERSION, handoff=handoff)
+        project_copy = self.write_top_level_copy(self.project_root, LANGUAGE, _customized_bytes(LANGUAGE))
+
+        code, out, err = self.run_upgrade(cfg)
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        # The project-tree copy is outside the managed path, so the sync never copies it to the global copy.
+        self.assertEqual((self.home_rules_dir / LANGUAGE).read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertNotIn("Customizations transferred", out)
+        self.assertNotIn("Conflicts", out)
+        transfers = self.project_root / cfg.planwise_root / "upgrade-transfers"
+        self.assertEqual(list(transfers.rglob("*.md")) if transfers.exists() else [], [])
+
+    def test_at_user_scope_a_project_tree_edit_survives_a_version_change_run_under_report(self):
+        self._assert_a_project_tree_edit_survives_a_version_change_run("report")
+
+    def test_at_user_scope_a_project_tree_edit_survives_a_version_change_run_under_report_and_relocate(self):
+        self._assert_a_project_tree_edit_survives_a_version_change_run("report+relocate")
+
+    def test_an_identical_unedited_stale_pair_ends_with_the_shipped_bytes_and_each_overwrite_is_backed_up(self):
+        stale = _stale_subset_bytes(LANGUAGE)
+        project_copy, home_copy = self.pair(stale, stale)
+
+        rows = self.sync()
+
+        self.assertEqual([disposition for _name, disposition, _detail in rows], ["synced", "synced"])
+        self.assertEqual(project_copy.read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertEqual(home_copy.read_bytes(), _shipped_bytes(LANGUAGE))
+        backups = sorted(self.backup_root().rglob(LANGUAGE))
+        self.assertEqual(len(backups), 2, backups)
+        for backup in backups:
+            self.assertEqual(backup.read_bytes(), stale, backup)
+        self.assertEqual(_dispositions(self.sync()), {LANGUAGE: "unchanged"})
+
+    def test_a_failed_sync_backup_gives_failed_and_the_target_is_not_overwritten(self):
+        project_copy, home_copy = self.pair(_customized_bytes(LANGUAGE), _shipped_bytes(LANGUAGE))
+
+        with mock.patch.object(upgrade_io, "_write_backup_preimage", return_value=False):
+            rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "failed"})
+        self.assertEqual(home_copy.read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertTrue(any(line.startswith(f"Style rule {LANGUAGE}: failed") for line in sr.format_reconcile_lines(rows)))
+
+
+class TestReviewFixes(_UpgradeFixtureBase):
+    """Regression tests for ten defects found by an adversarial review of the upgrade seam."""
+
+    def sync(self):
+        return sr.sync_cross_scope(self.cfg, OLD_VERSION, TARGET_VERSION)
+
+    def pair(self, project_data: bytes, home_data: bytes) -> tuple[Path, Path]:
+        return (
+            _put(self.project_rules_dir / LANGUAGE, project_data),
+            _put(self.home_rules_dir / LANGUAGE, home_data),
+        )
+
+    @staticmethod
+    def with_paths(data: bytes) -> bytes:
+        """The rule with a `paths:` key added inside its existing frontmatter block."""
+        text = _lf(data)
+        assert text.startswith(b"---\n"), "the shipped rule is expected to carry frontmatter"
+        return text.replace(b"---\n", b'---\npaths: "src/**"\n', 1)
+
+    @contextlib.contextmanager
+    def symlinked(self, *targets: Path):
+        """Make `Path.is_symlink` report True for `targets`, so the test needs no symlink privilege."""
+        real = Path.is_symlink
+
+        def fake(path):
+            return path in targets or real(path)
+
+        with mock.patch.object(Path, "is_symlink", fake):
+            yield
+
+    def stderr_of(self, call):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            result = call()
+        return result, err.getvalue()
+
+    # -- 1. the sync reads and writes the two managed paths only ----------------
+
+    def test_a_project_tree_copy_outside_the_managed_path_is_never_a_source_for_the_global_copy(self):
+        deep = _put(self.project_root / ".claude" / "rules" / "sub" / LANGUAGE, _customized_bytes(LANGUAGE))
+        home_copy = _put(self.home_rules_dir / LANGUAGE, _shipped_bytes(LANGUAGE))
+
+        rows = self.sync()
+
+        self.assertEqual(rows, [])
+        self.assertEqual(home_copy.read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertEqual(deep.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertFalse(self.backup_root().exists())
+
+    def test_a_home_tree_copy_outside_the_managed_path_is_never_a_target_for_the_project_copy(self):
+        project_copy = _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+        deep = _put(self.home / ".claude" / "rules" / "elsewhere" / LANGUAGE, _shipped_bytes(LANGUAGE))
+
+        self.assertEqual(self.sync(), [])
+
+        self.assertEqual(deep.read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertFalse(self.backup_root().exists())
+
+    def test_other_same_name_copies_are_named_in_the_row_and_do_not_make_a_conflict(self):
+        project_copy, home_copy = self.pair(_customized_bytes(LANGUAGE), _shipped_bytes(LANGUAGE))
+        deep_project = _put(self.project_root / ".claude" / "rules" / "sub" / LANGUAGE, b"# a deep project copy\n")
+        deep_home = _put(self.home / ".claude" / "rules" / "elsewhere" / LANGUAGE, b"# a deep home copy\n")
+
+        rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "synced"})
+        self.assertEqual(home_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(deep_project.read_bytes(), b"# a deep project copy\n")
+        self.assertEqual(deep_home.read_bytes(), b"# a deep home copy\n")
+        self.assertIn(str(deep_project), rows[0][2])
+        self.assertIn(str(deep_home), rows[0][2])
+
+    # -- 2. what counts as an edit ---------------------------------------------
+
+    def test_a_paths_only_edit_counts_as_an_edit_and_reaches_the_other_copy(self):
+        edited = self.with_paths(_shipped_bytes(LANGUAGE))
+        project_copy, home_copy = self.pair(edited, _stale_subset_bytes(LANGUAGE))
+
+        rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "synced"})
+        self.assertEqual(project_copy.read_bytes(), edited)
+        self.assertEqual(home_copy.read_bytes(), edited)
+
+    def test_a_subset_verdict_below_exact_or_contained_confidence_counts_as_an_edit(self):
+        reorg = types.SimpleNamespace(classification="SUBSET", confidence="reorg", notes="", source="inline")
+        project_copy, home_copy = self.pair(_customized_bytes(LANGUAGE), _shipped_bytes(LANGUAGE))
+
+        with mock.patch.object(rd, "_classify_diverged", return_value=reorg):
+            rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "synced"})
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(home_copy.read_bytes(), _customized_bytes(LANGUAGE))
+
+    # -- 3. the refresh keeps an installed paths value --------------------------
+
+    def test_the_style_refresh_keeps_a_user_added_paths_line(self):
+        self.write_pin(OLD_VERSION, handoff="report+relocate")
+        dst = _put(self.project_rules_dir / LANGUAGE, self.with_paths(_stale_subset_bytes(LANGUAGE)))
+
+        code, _out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        text = _lf(dst.read_bytes()).decode("utf-8")
+        self.assertIn('paths: "src/**"', text.split("\n---\n")[0])
+        self.assertIn("## Honesty", text)
+
+    # -- 4. the customized detail tells the truth for each exit -----------------
+
+    def test_a_version_change_run_does_not_say_the_edited_copy_is_kept(self):
+        self.write_pin(OLD_VERSION, handoff="report+relocate")
+        _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+
+        code, out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        lines = [line for line in _style_lines(out) if line.startswith(f"Style rule {LANGUAGE}: customized")]
+        self.assertEqual(len(lines), 1, out)
+        self.assertNotIn("is kept", lines[0])
+        self.assertIn("customization handoff", lines[0])
+
+    def test_a_current_pin_run_says_the_edited_copy_is_kept(self):
+        self.write_pin(TARGET_VERSION)
+        copy = _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+
+        out = self.run_pinned()
+
+        lines = [line for line in _style_lines(out) if line.startswith(f"Style rule {LANGUAGE}: customized")]
+        self.assertEqual(len(lines), 1, out)
+        self.assertIn("is kept", lines[0])
+        self.assertEqual(copy.read_bytes(), _customized_bytes(LANGUAGE))
+
+    # -- 5. a backup is never overwritten ---------------------------------------
+
+    def test_a_second_backup_with_different_bytes_takes_the_first_free_suffix(self):
+        dst = _put(self.project_rules_dir / LANGUAGE, b"first\n")
+        backup = self.backup_root() / ".claude" / "rules" / "planwise" / LANGUAGE
+        args = (self.cfg, OLD_VERSION, TARGET_VERSION, dst)
+
+        self.assertTrue(upgrade_io._write_backup_preimage(*args))
+        self.assertEqual(backup.read_bytes(), b"first\n")
+        before = backup.stat().st_mtime_ns
+
+        dst.write_bytes(b"second\n")
+        self.assertTrue(upgrade_io._write_backup_preimage(*args))
+        self.assertEqual(backup.read_bytes(), b"first\n")
+        self.assertEqual(backup.with_name(f"{LANGUAGE}.1").read_bytes(), b"second\n")
+
+        self.assertTrue(upgrade_io._write_backup_preimage(*args))
+        self.assertFalse(backup.with_name(f"{LANGUAGE}.2").exists())
+
+        dst.write_bytes(b"third\n")
+        self.assertTrue(upgrade_io._write_backup_preimage(*args))
+        self.assertEqual(backup.with_name(f"{LANGUAGE}.2").read_bytes(), b"third\n")
+        self.assertEqual(backup.stat().st_mtime_ns, before)
+
+    def test_a_backup_of_identical_bytes_is_not_rewritten(self):
+        dst = _put(self.project_rules_dir / LANGUAGE, b"same\n")
+        backup = self.backup_root() / ".claude" / "rules" / "planwise" / LANGUAGE
+        self.assertTrue(upgrade_io._write_backup_preimage(self.cfg, OLD_VERSION, TARGET_VERSION, dst))
+        before = backup.stat().st_mtime_ns
+
+        self.assertTrue(upgrade_io._write_backup_preimage(self.cfg, OLD_VERSION, TARGET_VERSION, dst))
+
+        self.assertEqual(backup.stat().st_mtime_ns, before)
+        self.assertEqual(sorted(p.name for p in backup.parent.iterdir()), [LANGUAGE])
+
+    # -- 6. a symlinked copy is never written or deleted ------------------------
+
+    def test_the_sync_does_not_overwrite_a_symlinked_copy_and_reports_it(self):
+        project_copy, home_copy = self.pair(_customized_bytes(LANGUAGE), _shipped_bytes(LANGUAGE))
+
+        with self.symlinked(home_copy):
+            rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "symlink"})
+        self.assertIn(str(home_copy), rows[0][2])
+        self.assertEqual(home_copy.read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertFalse(self.backup_root().exists())
+
+    def test_the_sync_does_not_write_through_a_real_symlink(self):
+        project_copy = _put(self.project_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE))
+        real_target = _put(self.tmp / "elsewhere" / LANGUAGE, _shipped_bytes(LANGUAGE))
+        link = self.home_rules_dir / LANGUAGE
+        link.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.symlink(real_target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("this account cannot create symlinks")
+
+        rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "symlink"})
+        self.assertEqual(real_target.read_bytes(), _shipped_bytes(LANGUAGE))
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+
+    def test_the_removal_does_not_delete_a_symlinked_copy_and_reports_it(self):
+        self.write_style_config(plain_language="off", plain_presentation="on")
+        copy = _put(self.project_rules_dir / LANGUAGE, _shipped_bytes(LANGUAGE))
+
+        with self.symlinked(copy):
+            rows = self.reconcile()
+
+        self.assertEqual(_dispositions(rows)[LANGUAGE], "symlink")
+        self.assertIn(str(copy), {name: detail for name, _d, detail in rows}[LANGUAGE])
+        self.assertTrue(copy.is_file())
+        self.assertFalse(self.backup_root().exists())
+
+    def test_the_style_refresh_does_not_rewrite_a_symlinked_copy(self):
+        self.write_pin(OLD_VERSION, handoff="report+relocate")
+        copy = _put(self.project_rules_dir / LANGUAGE, _stale_subset_bytes(LANGUAGE))
+
+        with self.symlinked(copy):
+            code, out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(copy.read_bytes(), _stale_subset_bytes(LANGUAGE))
+        self.assertNotIn("Customizations transferred", out)
+        self.assertFalse(self.backup_root().exists())
+
+    # -- 7. a malformed switch warns and means on -------------------------------
+
+    def test_a_malformed_value_and_an_unknown_key_each_warn_once_and_mean_on(self):
+        self.write_config("style:\n  plain_language: 0\n  plain_languge: maybe\n  plain_presentation: on\n")
+
+        rows, err = self.stderr_of(self.reconcile)
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "installed", PRESENTATION: "installed"})
+        warnings = [line for line in err.splitlines() if "Warning" in line]
+        self.assertEqual(len(warnings), 2, err)
+        bad_value = [line for line in warnings if "plain_language" in line and "plain_languge" not in line]
+        bad_key = [line for line in warnings if "plain_languge" in line]
+        self.assertEqual((len(bad_value), len(bad_key)), (1, 1), err)
+        self.assertIn("0", bad_value[0])
+        self.assertIn("maybe", bad_key[0])
+        for line in warnings:
+            self.assertIn("treated as on", line)
+
+    def test_a_style_value_that_is_not_a_block_warns_and_means_on(self):
+        self.write_config("style: off\n")
+
+        rows, err = self.stderr_of(self.reconcile)
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "installed", PRESENTATION: "installed"})
+        warnings = [line for line in err.splitlines() if "Warning" in line]
+        self.assertEqual(len(warnings), 1, err)
+        self.assertIn("style", warnings[0])
+        self.assertIn("treated as on", warnings[0])
+
+    def test_accepted_spellings_in_any_case_and_yaml_booleans_print_no_warning(self):
+        self.write_config('style:\n  plain_language: "Off"\n  plain_presentation: false\n')
+
+        rows, err = self.stderr_of(self.reconcile)
+
+        self.assertEqual(err, "")
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "skipped", PRESENTATION: "skipped"})
+
+    def test_a_current_pin_run_warns_once_per_malformed_value(self):
+        self.write_pin(TARGET_VERSION, style={"plain_language": 0, "plain_presentation": "on"})
+
+        code, _out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len([line for line in err.splitlines() if "style.plain_language" in line]), 1, err)
+
+    # -- 8. an off key reports the copies that still load -----------------------
+
+    def test_an_off_key_names_the_other_copies_that_still_load_on_a_removal(self):
+        self.write_style_config(plain_language="off", plain_presentation="on")
+        _put(self.project_rules_dir / LANGUAGE, _shipped_bytes(LANGUAGE))
+        home_copy = _put(self.home_rules_dir / LANGUAGE, _shipped_bytes(LANGUAGE))
+
+        rows = self.reconcile()
+
+        by_name = {name: (disposition, detail) for name, disposition, detail in rows}
+        self.assertEqual(by_name[LANGUAGE][0], "removed")
+        self.assertIn(str(home_copy), by_name[LANGUAGE][1])
+        self.assertIn("still load", by_name[LANGUAGE][1])
+        self.assertTrue(any(str(home_copy) in line for line in sr.format_reconcile_lines(rows)))
+
+    def test_an_off_key_with_no_managed_copy_prints_a_skipped_row_when_another_copy_loads(self):
+        self.write_style_config(plain_language="off", plain_presentation="on")
+        home_copy = _put(self.home_rules_dir / LANGUAGE, _shipped_bytes(LANGUAGE))
+
+        rows = self.reconcile()
+
+        by_name = {name: (disposition, detail) for name, disposition, detail in rows}
+        self.assertEqual(by_name[LANGUAGE][0], "skipped")
+        self.assertIn(str(home_copy), by_name[LANGUAGE][1])
+        lines = [line for line in sr.format_reconcile_lines(rows) if line.startswith(f"Style rule {LANGUAGE}: skipped")]
+        self.assertEqual(len(lines), 1, rows)
+        self.assertIn("still load", lines[0])
+
+    # -- 9. a raising reconcile on the main path never aborts the upgrade -------
+
+    def test_a_raising_reconcile_on_the_version_change_path_warns_and_the_run_continues(self):
+        self.write_pin(OLD_VERSION)
+
+        with mock.patch.object(sr, "reconcile_style_switches", side_effect=RuntimeError("boom")):
+            code, _out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("boom", err)
+        self.assertIn(TARGET_VERSION, (self.project_root / self.cfg.planwise_root / "config.yaml").read_text(encoding="utf-8"))
+
+    # -- 10. the sync ignores line endings and a BOM ----------------------------
+
+    def test_the_same_edit_saved_with_crlf_and_a_bom_is_not_a_conflict(self):
+        edited = _lf(_customized_bytes(LANGUAGE))
+        crlf_bom = b"\xef\xbb\xbf" + edited.replace(b"\n", b"\r\n")
+        project_copy, home_copy = self.pair(crlf_bom, edited)
+
+        rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "unchanged"})
+        self.assertEqual(project_copy.read_bytes(), crlf_bom)
+        self.assertEqual(home_copy.read_bytes(), edited)
+        self.assertFalse(self.backup_root().exists())
+
+    def test_a_copy_whose_line_endings_differ_from_shipped_is_not_rewritten(self):
+        shipped = _lf(_shipped_bytes(LANGUAGE))
+        crlf = shipped.replace(b"\n", b"\r\n")
+        project_copy, home_copy = self.pair(crlf, shipped)
+
+        rows = self.sync()
+
+        self.assertEqual(_dispositions(rows), {LANGUAGE: "unchanged"})
+        self.assertEqual(project_copy.read_bytes(), crlf)
+        self.assertEqual(home_copy.read_bytes(), shipped)
+        self.assertFalse(self.backup_root().exists())
+
+    # -- 3b. the refresh skips only when the sync owns the file -----------------
+
+    def test_an_unmanaged_project_copy_does_not_block_the_refresh_of_a_stale_global_copy_at_user_scope(self):
+        cfg = self.make_cfg("user")
+        self.write_pin(OLD_VERSION, handoff="report+relocate")
+        global_copy = _put(self.home_rules_dir / LANGUAGE, _stale_subset_bytes(LANGUAGE))
+        project_copy = self.write_top_level_copy(self.project_root, LANGUAGE, _customized_bytes(LANGUAGE))
+
+        code, _out, err = self.run_upgrade(cfg)
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(_lf(global_copy.read_bytes()), _lf(_shipped_bytes(LANGUAGE)))
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+
+    def test_the_refresh_leaves_a_copy_to_the_sync_when_the_other_managed_copy_exists(self):
+        self.write_pin(OLD_VERSION, handoff="report+relocate")
+        project_copy, home_copy = (
+            _put(self.project_rules_dir / LANGUAGE, _stale_subset_bytes(LANGUAGE)),
+            _put(self.home_rules_dir / LANGUAGE, _customized_bytes(LANGUAGE)),
+        )
+
+        code, out, err = self.run_upgrade()
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(project_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertEqual(home_copy.read_bytes(), _customized_bytes(LANGUAGE))
+        self.assertNotIn("Customizations transferred", out)
 
 
 if __name__ == "__main__":
