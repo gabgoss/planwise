@@ -629,7 +629,7 @@ def _century_row(lesson_id: int) -> dict:
 def _seed_archive_part(lessons_dir: Path, name: str) -> None:
     (lessons_dir / name).parent.mkdir(parents=True, exist_ok=True)
     (lessons_dir / name).write_bytes(
-        f"[← {IDX}]({IDX})\n\n{sup._LOG_HEADER}\n{sup._LOG_SEP}\n".encode("utf-8"))
+        f"[← {IDX}]({IDX})\n\n{sup._LOG_HEADER}\n{sup._LOG_SEP}\n".encode())
 
 
 def test_the_writer_and_the_migrator_share_one_on_disk_parts_helper():

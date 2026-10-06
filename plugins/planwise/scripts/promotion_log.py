@@ -76,7 +76,6 @@ from migrate_lessons_support import (
     Refusal,
     _existing_archive_parts,
     _promotion_log_filename,
-    century_log_filenames,
     log_destination,
     newline_of,
     render_promotion_logs,

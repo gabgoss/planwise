@@ -902,7 +902,7 @@ def _stray_part(lessons_dir, index_path, which: int) -> str:
     """Create a century file no migrating row routes to; return its hub-relative name."""
     name = sup.century_log_filenames(mig._index_naming(index_path))[which]
     (lessons_dir / name).write_bytes(
-        f"[← {index_path.name}]({index_path.name})\n\n{sup._LOG_HEADER}\n{sup._LOG_SEP}\n".encode("utf-8"))
+        f"[← {index_path.name}]({index_path.name})\n\n{sup._LOG_HEADER}\n{sup._LOG_SEP}\n".encode())
     return name
 
 
@@ -940,7 +940,7 @@ def test_a_stray_century_file_with_no_migrating_rows_at_all_writes_no_hub(tmp_pa
 def _zero_row_hub_listing(index_path, part_names: list, parts_line: str | None = None) -> bytes:
     listing = parts_line if parts_line is not None else "Parts: " + ", ".join(f"[{p}]({p})" for p in part_names)
     return (f"[← {index_path.name}]({index_path.name})\n{listing}\n\n"
-            f"{sup._LOG_HEADER}\n{sup._LOG_SEP}\n").encode("utf-8")
+            f"{sup._LOG_HEADER}\n{sup._LOG_SEP}\n").encode()
 
 
 def test_resume_overwrites_a_zero_row_hub_that_carries_a_parts_line(tmp_path):
