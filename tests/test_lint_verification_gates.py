@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Unit tests for the vacuous-verification-gate linter's seven checks.
+"""Unit tests for the vacuous-verification-gate linter's checks.
 
 This suite is written against `lint_verification_gates.py`, a module that
 does NOT exist yet on this branch. It MUST fail on import/collection when
 this file is first written -- a green run at this point would mean the
 suite is not exercising the module under test, not that the module is
 correct. Sprint-02's later tasks implement the module (the extractor and
-the allowlisted read-only executor, then the seven checks and the CLI)
+the allowlisted read-only executor, then the checks and the CLI)
 against the contract fixed here; this file is not to be edited to make the
 import succeed once they do.
 
@@ -31,7 +31,7 @@ module exists yet to read the contract off of):
       Walks plan_root, extracts every command from task files' Verification
       Commands Before/After blocks and from EI exit criteria, and returns
       one dict per finding:
-        {"check": int (1-7) or None, "severity": "ERROR" | "WARNING" | "UNCERTAIN",
+        {"check": int (a registered check number) or None, "severity": "ERROR" | "WARNING" | "UNCERTAIN",
          "file": str, "message": str}
       Checks 2-6 are static analysis over extracted command text and fire
       identically whether execute is True or False. Checks 1 and 7 require
@@ -40,7 +40,7 @@ module exists yet to read the contract off of):
       never silently treated as passing and never omitted.
 
 Fixture corpus this suite asserts against: `tests/fixtures/verification_gates/`
-(13 self-contained miniature plan trees + README.md, the authoritative
+(self-contained miniature plan trees + README.md, the authoritative
 fixture -> check -> expected-finding -> severity map).
 
 Run with:  python -m pytest tests/test_lint_verification_gates.py -q
@@ -146,6 +146,15 @@ class TestPerCheckShapes(unittest.TestCase):
         self.assertEqual(len(findings), 2)
         self.assertEqual(_severities_for_check(findings, 7), ["ERROR", "ERROR"])
 
+    def test_check8_grep_tool_escaped_pipe_is_warning(self):
+        # Two native Grep calls fire: one in a table row (the shape the
+        # extractor never reads) and one in a fenced block.
+        findings = _lint_fixture("shape_08_grep_tool_escaped_pipe")
+        self.assertEqual(_checks_present(findings), [8, 8])
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(_severities_for_check(findings, 8), ["WARNING", "WARNING"])
+        self.assertEqual(sorted(f["line"] for f in findings), [12, 19])
+
 
 class TestInvariantExemption(unittest.TestCase):
     """The corpus's false-positive guard (README.md Group B). Six of the
@@ -155,6 +164,14 @@ class TestInvariantExemption(unittest.TestCase):
 
     def test_invariant_preservation_fixture_produces_zero_findings(self):
         findings = _lint_fixture("invariant_preservation")
+        self.assertEqual(findings, [])
+
+    def test_grep_literal_pipe_fixture_produces_zero_findings(self):
+        # Check 8's false-positive guard: a table-row anchor, a pipe beside
+        # whitespace, a bare-pipe alternation and a WRONG-marked counter-
+        # example. Without it, "Check 8 fires" and "Check 8 fires on every
+        # Grep call" are indistinguishable.
+        findings = _lint_fixture("grep_literal_pipe_ok")
         self.assertEqual(findings, [])
 
 
@@ -305,6 +322,11 @@ class TestExecutorDisabled(unittest.TestCase):
         findings = _lint_fixture("shape_03_bre_ere_mismatch", execute=False)
         self.assertEqual(_checks_present(findings), [3, 3])
         self.assertEqual(_severities_for_check(findings, 3), ["ERROR", "ERROR"])
+
+    def test_check8_fires_with_executor_disabled(self):
+        findings = _lint_fixture("shape_08_grep_tool_escaped_pipe", execute=False)
+        self.assertEqual(_checks_present(findings), [8, 8])
+        self.assertEqual(_severities_for_check(findings, 8), ["WARNING", "WARNING"])
 
     def test_check4_fires_with_executor_disabled(self):
         findings = _lint_fixture("shape_04_self_matching_sweep", execute=False)

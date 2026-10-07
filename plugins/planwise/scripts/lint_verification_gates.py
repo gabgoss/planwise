@@ -48,8 +48,8 @@ Every allowed executable reads and none writes, so read-only behaviour follows
 from the allowlist itself rather than from anything this module has to remember
 to do at call time.
 
-The seven checks are registered separately; this module supplies the extraction
-and execution substrate they are built on.
+The checks are registered separately in ``CHECK_REGISTRY``; this module
+supplies the extraction and execution substrate they are built on.
 """
 
 import argparse
@@ -602,10 +602,13 @@ def lint_plan(plan_root, execute: bool = True) -> list:
 
 
 # ---------------------------------------------------------------------------
-# The seven checks
+# The checks
 #
 # Checks 2-6 are static: they read extracted command text (and, where a check
 # needs cross-file reasoning, sibling file content) and never run anything.
+# Check 8 is static too, but reads markdown lines directly: a native tool call
+# never becomes an extracted command, because the extractor reads only fenced
+# blocks and lowercase shell verbs.
 # Checks 1 and 7 read the ``result`` the executor already stored on a command
 # in ``_run_gates`` -- they never execute a command themselves, so a refused
 # command they cannot reason about is simply skipped, and its own UNCERTAIN
@@ -1229,6 +1232,64 @@ def _check7_contradicted_before_baseline(context: LintContext) -> list:
     return findings
 
 
+# A native ``Grep`` tool call written as ``Grep  pattern='...'``. The value runs
+# to the matching quote, so a quote of the other kind may sit inside it.
+_GREP_TOOL_CALL_RE = re.compile(r"\bGrep\b[^\n]*?\bpattern\s*=\s*(['\"])(.*?)\1")
+
+# A backslash-pipe with a word character directly on each side, such as
+# ``a\|b``. That is the shape of an alternation. A backslash-pipe beside
+# whitespace, at the pattern start, or after ``^`` anchors a literal pipe in a
+# markdown table row and is not matched. The ``(?<!\\\w)`` guard keeps a class
+# escape such as ``\w\|`` from counting as a word character.
+_ESCAPED_PIPE_ALTERNATION_RE = re.compile(r"(?<=\w)(?<!\\\w)\\\|(?=\w)")
+
+
+def _check8_grep_tool_escaped_pipe_alternation(context: LintContext) -> list:
+    """Check 8 -- a native ``Grep`` call whose pattern writes alternation as a
+    backslash-pipe. The tool uses ripgrep syntax, where that escape matches a
+    literal pipe, so the pattern matches nothing and a negative result reads
+    as a real absence. A table cell forces the escape for a literal pipe,
+    which is how it reaches the agent as raw text.
+
+    Reads markdown lines directly, because a ``Grep`` call in a table row never
+    becomes an extracted command. WARNING, not ERROR: the heuristic reads
+    intent from the characters beside the escape. A line containing the word
+    WRONG is a counter-example, not a gate, and is skipped.
+    """
+    findings = []
+    for path in context.markdown_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = _relative_name(path, context.plan_root)
+        for number, line in enumerate(text.split("\n"), start=1):
+            if "WRONG" in line or _PLACEHOLDER_RE.search(line):
+                continue
+            for call in _GREP_TOOL_CALL_RE.finditer(line):
+                if not _ESCAPED_PIPE_ALTERNATION_RE.search(call.group(2)):
+                    continue
+                findings.append(
+                    make_finding(
+                        check=8,
+                        severity=SEVERITY_WARNING,
+                        file=rel,
+                        line=number,
+                        command=call.group(0),
+                        message=(
+                            "This Grep tool pattern writes alternation as a "
+                            "backslash-pipe. The tool uses ripgrep syntax, "
+                            "where that matches a literal pipe, so the pattern "
+                            "matches nothing. Use a bare pipe outside a table "
+                            "cell, or split it into one Grep call per "
+                            "alternative"
+                        ),
+                    )
+                )
+                break
+    return findings
+
+
 CHECK_REGISTRY.extend(
     [
         _check1_vacuous_after_gate,
@@ -1238,6 +1299,7 @@ CHECK_REGISTRY.extend(
         _check5_stale_ownership,
         _check6_substring_over_own_vocabulary,
         _check7_contradicted_before_baseline,
+        _check8_grep_tool_escaped_pipe_alternation,
     ]
 )
 
@@ -1276,7 +1338,7 @@ def main() -> None:
     parser.add_argument(
         "--no-execute",
         action="store_true",
-        help="Disable the read-only executor; only the five static checks run",
+        help="Disable the read-only executor; only the static checks run",
     )
     args, _ = parser.parse_known_args()
 

@@ -47,6 +47,43 @@ deeper concern: see the read-gate ladder at `references/session-context-budget.m
 
 ---
 
+## Grep Pattern Syntax
+
+`Grep` runs ripgrep, so its patterns use ripgrep regex syntax. Alternation is a
+bare pipe. A backslash before the pipe matches a literal pipe character.
+
+A pattern written `transfer_review\|review:` therefore matches only the text
+`transfer_review|review:`. It finds nothing in a file that holds either word
+alone. A gate that expects a hit then fails on correct work. A gate that
+expects no hit passes over a file it never checked.
+
+A markdown table cell causes this by accident. A table forces `\|` for a
+literal pipe, and a renderer removes the backslash on display. The agent reads
+the raw text, so the backslash reaches `Grep` intact.
+
+- Keep alternation out of table cells. Write the call in a fenced block, or
+  split it into one `Grep` call per alternative.
+- Use `\|` only when the subject is a literal pipe, such as a markdown table
+  row. The anchor `^\| 1[12] ` is correct for that case.
+- Run the pattern once against a line known to match, and confirm one hit
+  before trusting a zero. The section on the real line as a verbatim fixture
+  row in `references/gate-predicate-discrimination.md` carries the full
+  recipe.
+- A shell search command has its own dialect rules. See the "regex dialect"
+  constraint in `references/verification-task-authoring.md`.
+
+> [!constraint] Write alternation as a bare pipe in a `Grep` call
+> WRONG — a backslash before the pipe, copied from a table-cell escape. The call matches the literal text `a|b` and reports zero hits:
+> ```
+> Grep  pattern='STATUS_NOW_UPSTREAM\|now-upstream'  path='scripts/doctor_cli.py'
+> ```
+> CORRECT — a bare pipe, outside a table cell:
+> ```
+> Grep  pattern='STATUS_NOW_UPSTREAM|now-upstream'  path='scripts/doctor_cli.py'
+> ```
+
+---
+
 ## Where the Shell Is Correct
 
 The dedicated tools do not replace the shell generally — only for file-tree

@@ -1,8 +1,9 @@
 # Verification-Gate Linter Fixture Corpus
 
-**Purpose:** Thirteen self-contained fake plan trees that the verification-gate linter
-is measured against. Seven isolate one check each, one asserts a check must *not*
-fire, and five reproduce real defects observed live.
+**Purpose:** Self-contained fake plan trees that the verification-gate linter
+is measured against. Each shape fixture isolates one check, the guard fixtures assert a
+check must *not* fire, and the regression fixtures reproduce real defects observed live.
+The fixture map below is the authoritative list.
 
 Each fixture is a **complete miniature plan tree**. Every command inside a fixture's
 task file resolves **relative to that fixture's own directory** — never into the real
@@ -26,7 +27,9 @@ not intended.
 | `shape_05_stale_ownership/` | 5 | 1 | ERROR |
 | `shape_06_substring_own_vocabulary/` | 6 | 1 | WARNING |
 | `shape_07_contradicted_before_baseline/` | 7 | 2 | ERROR |
+| `shape_08_grep_tool_escaped_pipe/` | 8 | 2 | WARNING |
 | `invariant_preservation/` | 1 and 2 must **NOT** fire | **0** | — |
+| `grep_literal_pipe_ok/` | 8 must **NOT** fire | **0** | — |
 | `regression_R1_count_gate_two/` | 1, plus 2 | 1 + 1 | ERROR + WARNING |
 | `regression_R2_count_gate_eleven/` | 1, plus 2 | 1 + 1 | ERROR + WARNING |
 | `regression_R3_count_gate_four/` | 1, plus 2 | 1 + 1 | ERROR + WARNING |
@@ -64,6 +67,7 @@ fixture tree's live measured value, so neither Check 2 (missing annotation) nor 
 | `shape_05_stale_ownership` | An absence-assertion naming `guides/guide-alpha.md` **and** §8.1, plus a sibling Sprint Plan whose routing table moves all of §8 **out of** that file in the same sprint. Target measures **1** against `expect 0`. |
 | `shape_06_substring_own_vocabulary` | A bare `grep -c 'FAIL'` over a generated report that **passed**. The report measures **3** — its legend, its column header, and a criterion row — all emitted by the sibling `templates/verification-report.md`. |
 | `shape_07_contradicted_before_baseline` | Two Before-block baselines that disagree with the live tree: stated `5` vs measured **2**, and stated `21 lines` vs measured **19**. Check 7 **executes**, so the disagreement is real, not merely asserted. |
+| `shape_08_grep_tool_escaped_pipe` | Two native `Grep` calls whose patterns write alternation as `a\|b`: one in a table row (line 12), one in a fenced block (line 19). Check 8 reads markdown lines, so neither call needs to be an extracted command. The row-7 call is the real gate that first showed the defect. |
 
 ---
 
@@ -86,6 +90,11 @@ preservation gate trains its users to ignore it.
 
 The fixture's *first* gate (`pre-edit: 0 → expect >=1`) is a normal discriminating
 gate, included so the fixture is not trivially finding-free.
+
+`grep_literal_pipe_ok/` is the same guard for Check 8. It carries a table-row anchor
+(`^\| 1[12] `), a pipe beside whitespace, a bare-pipe alternation and a line marked
+WRONG. Each is correct or exempt for the native `Grep` tool, so the suite asserts
+**zero** findings.
 
 ---
 
