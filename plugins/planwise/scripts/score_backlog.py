@@ -976,6 +976,49 @@ def write_route_json(payload) -> str:
     return json_path
 
 
+def load_scored_items(
+    config: dict,
+) -> tuple[list[dict], dict[str, dict], dict[str, ScoreBreakdown], set[str]]:
+    """Load and score every open item; `main()` and `backlog_loop.py --init` are the two callers.
+
+    Returns `(items, frontmatters, scores, open_item_ids)`. Never exits: an
+    empty backlog returns an empty list and the caller decides what to do.
+    """
+    weights = get_scoring_weights(config)
+    index_path = config["_index_path"]
+    backlog_dir = config["_backlog_dir"]
+    archive_dir = config["_archive_dir"]
+
+    # Report modes (--dry-run, --review, --id/--explain, and the no-flag
+    # report) all read the UNION of the hub and every hub overflow leaf -- an
+    # open item living in a leaf must be scored and reported like any hub
+    # item.
+    items = _read_hub_family_items(index_path, backlog_dir)
+
+    # Read frontmatter for each open item
+    frontmatters: dict[str, dict] = {}
+    for item in items:
+        if item["status"] in OPEN_STATUSES:
+            filepath = get_first_file_path(item, backlog_dir)
+            if filepath:
+                frontmatters[item["id"]] = read_item_frontmatter(filepath)
+            else:
+                frontmatters[item["id"]] = {}
+
+    # Count archived items for momentum
+    archive_counts = count_archived_by_abbrev(archive_dir)
+
+    # Compute scores
+    open_item_ids = {item["id"] for item in items if item["status"] in OPEN_STATUSES}
+    scores: dict[str, ScoreBreakdown] = {}
+    for item in items:
+        if item["status"] in OPEN_STATUSES:
+            fm = frontmatters.get(item["id"], {})
+            scores[item["id"]] = compute_score(item, fm, archive_counts, weights, open_item_ids)
+
+    return items, frontmatters, scores, open_item_ids
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compute priority scores for backlog items."
@@ -1002,45 +1045,17 @@ def main():
 
     # Load config
     config = load_config(Path(__file__))
-    weights = get_scoring_weights(config)
     index_path = config["_index_path"]
-    backlog_dir = config["_backlog_dir"]
-    archive_dir = config["_archive_dir"]
 
     if not index_path.exists():
         print(f"Error: Backlog index not found at {index_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Report modes (--dry-run, --review, --id/--explain, and the no-flag
-    # report) all read the UNION of the hub and every hub overflow leaf -- an
-    # open item living in a leaf must be scored and reported like any hub
-    # item.
-    items = _read_hub_family_items(index_path, backlog_dir)
+    items, frontmatters, scores, open_item_ids = load_scored_items(config)
 
     if not items:
         print("No items found in backlog index.", file=sys.stderr)
         sys.exit(1)
-
-    # Read frontmatter for each open item
-    frontmatters: dict[str, dict] = {}
-    for item in items:
-        if item["status"] in OPEN_STATUSES:
-            filepath = get_first_file_path(item, backlog_dir)
-            if filepath:
-                frontmatters[item["id"]] = read_item_frontmatter(filepath)
-            else:
-                frontmatters[item["id"]] = {}
-
-    # Count archived items for momentum
-    archive_counts = count_archived_by_abbrev(archive_dir)
-
-    # Compute scores
-    open_item_ids = {item["id"] for item in items if item["status"] in OPEN_STATUSES}
-    scores: dict[str, ScoreBreakdown] = {}
-    for item in items:
-        if item["status"] in OPEN_STATUSES:
-            fm = frontmatters.get(item["id"], {})
-            scores[item["id"]] = compute_score(item, fm, archive_counts, weights, open_item_ids)
 
     if args.id:
         target = normalize_id(args.id)

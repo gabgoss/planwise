@@ -179,5 +179,7 @@ Two rules follow, and a handler must satisfy both:
 | Review approach (plan.md Step 10 Q1) | `auto-review in this session` (recommended option) |
 | Review context (plan.md Step 10 Q2) | `this session` (unless plan context exceeds heuristic: >3 sprints or >10 task files → `new session`) |
 | Lessons capture acknowledgment | `No` — skip the capture prompt and proceed without confirmation. The user can invoke `/planwise lessons capture` separately. |
-| Triage route confirmation (backlog.md Phase 4) | Accept the Phase-3 recommended route (`DIRECT_FIX` / `TASK_LIST` / `SESSION_PLANNING`) |
+| Triage route confirmation (backlog.md Phase 4) | Accept the Phase-3 recommended route (`DIRECT_FIX` / `TASK_LIST` / `SESSION_PLANNING`) (in loop mode: the recommended route, A or B; C is never inferred) |
 | Follow-up candidate filing (backlog.md Phase 7) | `skip all` — never file a backlog item unattended. The user invokes `/planwise backlog` explicitly to surface candidates. |
+| Loop opt-in (backlog.md Phase 2 Q1) | `No` — a single-item session. Looping is an interactive feature. |
+| Loop mode / count (backlog.md Phase 2 Q2) | Not reached, because Q1 defaults to `No`. |

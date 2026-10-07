@@ -278,6 +278,68 @@ python {plugin_root}/scripts/score_backlog.py [OPTIONS]
 
 `--route` applies the Decision Logic in `handlers/backlog.md` § Routing Decision Tree without modification; the handler's pseudocode is the source and the script follows it. It computes the eight mechanical signals from the index row and the item body it already loaded for scoring. It never runs the pivot check or any pre-routing gate, reports `HAS_CLEAR_FIX` as its mechanical half only, and never adopts a `route_hint:` -- it reports whether the hint agrees and whether `route_dated` predates the item's newest dated evidence line.
 
+### backlog_loop.py
+
+```bash
+python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml <SUBCOMMAND> [OPTIONS]
+```
+
+Run-state writer for `/planwise backlog` loop mode (see `handlers/backlog-Part-2-LoopMode.md`). Give exactly one subcommand. Every subcommand prints short human lines, then one final single-line JSON object.
+
+| Subcommand | Arguments | Description |
+|------------|-----------|-------------|
+| `--init` | `--mode all\|specific\|n` `[--n N]` `[--items 004,009]` `[--priority P]` `[--abbrev A]` `[--status S]` `[--no-check]` | Build the loop queue and write the run file. Route C items go to `excluded`. An empty queue exits 1, prints an `error` JSON line, and writes no run file |
+| `--next` | `--run <run-id>` | Pop the next still-selectable item into `current`. Prints `{"next": id, "remaining": N, "run": ..., "state": ...}`, or `"next": null` on an empty queue (an item skipped as no longer selectable becomes `current`, so `--boundary` can still end the run). Exits 1 on an ended run |
+| `--mark` | `--run <run-id> --id X` and `--phase selected\|acting\|verifying`, or `--outcome COMPLETE\|NOT_STARTED\|SKIPPED` `[--route A\|B]` `[--note "..."]` | Record the item's phase, or close it with an outcome. Exits 1 on an ended run |
+| `--boundary` | `--run <run-id>` | Print the end summary (only when remaining is 0), then the marker line, then a final JSON object with a `marker` field. Idempotent |
+| `--end` | `--run <run-id>` | Set `ended` and print the cross-run summary table |
+| `--status` | `[--run <run-id>]` | Alone: one run's record, or a listing of every run file. Combined with `--init`: a status filter for the queue |
+
+The run id is the file stem `YYYYMMDD-HHMMSS`. An absolute path to the run file is accepted too.
+
+The marker line is built from one constant and is not the last stdout line of `--boundary`:
+
+```
+BACKLOG LOOP: run=<run-id> done=<item-id> remaining=<N> state=<abs path>
+```
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| 0 | ok |
+| 1 | usage or config error |
+| 2 | run file missing or unparseable. The file is never overwritten on this path |
+| 3 | ambiguous resume: `current` carries no outcome, in any phase (none, `selected`, `acting`, `verifying`). `--next` writes nothing |
+
+**Run file** (`{backlog_dir}/Backlog-Runs/{run-id}.json`):
+
+```json
+{
+  "schema_version": 1,
+  "run_id": "20261007-141502",
+  "created": "2026-10-07T14:15:02-04:00",
+  "ended": null,
+  "mode": "n", "n": 2,
+  "filters": {"priority": null, "abbrev": null, "status": null},
+  "no_check": false,
+  "excluded": [{"id": "012", "route": "C", "large_scope": true, "feature": "...", "reason": "plans deferred in loop mode"}],
+  "queue": ["009"],
+  "queue_meta": {"009": {"score": 31, "route_at_init": "A", "feature": "..."}},
+  "known_ids_at_init": ["004", "009", "012"],
+  "current": "004",
+  "items": {
+    "004": {"route_at_init": "A", "score": 31, "phase": "acting", "outcome": null,
+            "route": null, "started": "2026-10-07T14:15:40-04:00", "closed": null, "note": null}
+  },
+  "history": [{"at": "2026-10-07T14:15:02-04:00", "event": "init", "id": null, "detail": "mode=n n=2 queue=2 excluded=1"}]
+}
+```
+
+`queue` holds the ids not yet popped. `items` holds every id that was ever popped. `queue_meta` holds each queued item's score, initial route and feature. `known_ids_at_init` lists every item id present at init, so the end summary can name items filed during the run. `history` events are `init`, `next`, `mark`, `boundary`, `end`.
+
+`Backlog-Runs/` holds `.json` only; every reader globs `*.md` at the top level, so the folder is never an item.
+
 ---
 
 ## Status Flow

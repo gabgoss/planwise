@@ -9,6 +9,9 @@
 - `--abbrev APP` — filter by domain abbreviation
 - `--status IN_PROGRESS` — filter by status
 - `--no-check` — skip both Phase 1 item-file audits, archival drift and body status lines (fast triage)
+- `--loop-resume <run-id>` — re-enter a loop run after the hooks module compacts the session; skips the loop questions and processes exactly one item
+
+Loop mode is offered by Q1 on every interactive no-args run. The full contract is in `handlers/backlog-Part-2-LoopMode.md`.
 
 ---
 
@@ -70,6 +73,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If resolving a BLI cluster (≥ 2 BLIs same Surfaced by + created): Read `references/verify-against-shipped-artifact.md`
 - For the backlog index format, item file schema, scoring formula, script interfaces, status flow, or error handling: Read `references/backlog-schema.md`
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
+- In loop mode, or on `--loop-resume`: Read `handlers/backlog-Part-2-LoopMode.md`
 
 ---
 
@@ -123,6 +127,8 @@ python {plugin_root}/scripts/reconcile_backlog.py --config {planwise_root}/confi
 
 Run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) with the body-status binding (banner `planwise backlog — backlog item body-status drift audit`). The [Backlog item body status](../references/index-drift-audit.md#backlog-item-body-status--reconcile_backlogpy---body-status) binding carries the detect flow, the anomaly classes, the consent prompt and the `--body-status --write` run. This is the same detect pass `/planwise doctor` Stage 19 runs. A consented strip changes no frontmatter, so no index regeneration follows it.
 
+**On `--loop-resume`:** skip both drift audits above (they ran once at init). The `--check` call and the parse still run.
+
 Display the table to the user.
 
 ---
@@ -142,12 +148,24 @@ Display the table to the user.
   - User can select one or more, or type a custom ID
   - Do NOT offer blocked items — they cannot be worked until their blockers are resolved
 
+**Loop questions (interactive, no `$1`, not `--loop-resume`).** Read `handlers/backlog-Part-2-LoopMode.md` § The three questions for the wording. Ask Q1 first, then Q2, then Q3 in `specific` mode only. Then run `backlog_loop.py --init`.
+<!-- AUTO-MODE: convenience -->
+<!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Loop opt-in (backlog.md Phase 2 Q1)". -->
+- Q1 — loop through the backlog this run? (default: No, single session)
+<!-- AUTO-MODE: convenience -->
+<!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Loop mode / count (backlog.md Phase 2 Q2)". -->
+- Q2 — which items should the loop cover? (all / specific / top N)
+
+**On `--loop-resume`:** ask nothing. Run `backlog_loop.py --next --run {run-id}` and read its JSON line. Exit 3 means a halted item, so follow Part 2 § Resume model. Exit 2 means the run file is gone, so continue as a normal single-item run.
+
 **For each selected item**, update status to IN_PROGRESS. After the last one, regenerate the index once:
 
 ```bash
 python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status IN_PROGRESS   # loop, once per item
 python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write                        # once, after the loop
 ```
+
+In loop mode only the one popped item is set IN_PROGRESS. After that write, run `python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --phase selected --run {run-id} --id {item_id}`.
 
 `--status` writes frontmatter only; a non-zero `--write` exit does not undo it — fix what it names and re-run `--write`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
 
@@ -188,6 +206,7 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
       - No hint → the script vector alone.
 
       Never adopt a stored hint bare, and never skip a gate because a route is already stored: a stored route is a dated claim about the repository and rots like every other claim.
+   In loop mode, re-run `--route --id` anyway and note any divergence from the run's `route_at_init` in `Reason:`.
    d. Override the script's route only on a signal it cannot see — a keyword hit you read and classified as self-quotation, edit evidence you judged insufficient, a `##` count inflated by appended coordination flags — and name that signal in `Reason:`. Carry the script's `LARGE_SCOPE` forward unchanged when the route stays C.
 
 <!-- AUTO-MODE: critical — discharged by auto-escalation, not by a prompt. See step 7's Auto Mode paragraph. -->
@@ -259,6 +278,8 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 - Option 1: Recommended route (from Phase 3 assessment)
 - Option 2: Alternative route
 - Option 3: Skip this item
+
+**In loop mode:** Option 2 is the alternative of A or B only, and Route C is never offered. A Route C re-assessment is a Skip, recorded as `backlog_loop.py --mark --run {run-id} --id {item_id} --outcome SKIPPED --note "LOOP: re-assessed to Route C on {date}; plans deferred in loop mode"`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`.
 
 ### Route A: Direct Fix (fix-agent delegation)
 
@@ -402,6 +423,8 @@ directly with item scope only."
 
    If a hit needs repointing, return it to the fix-agent (Route A) or open a follow-up task (Route B) requesting the shell command be repointed. Do NOT proceed to step 4 with unrepointed hits outstanding.
 
+In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`.
+
 <!-- AUTO-MODE: critical -->
 4. Use `AskUserQuestion`:
    - **Approve** — Accept changes, mark COMPLETE
@@ -416,6 +439,7 @@ directly with item scope only."
 **After Route B (Task List):**
 1. Verify all tasks are marked completed
 2. Show summary of changes made
+   In loop mode, before step 3 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`.
 <!-- AUTO-MODE: critical -->
 3. Use `AskUserQuestion`: Approve (COMPLETE) or Revert (NOT_STARTED)
 
@@ -444,6 +468,8 @@ directly with item scope only."
 ```bash
 python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status "{new_status}"
 ```
+
+**In loop mode,** after the `update_backlog.py --status` call, record the outcome with `backlog_loop.py --mark --outcome {COMPLETE|NOT_STARTED|SKIPPED} --run {run-id} --id {item_id}`. Approved or task list done maps to COMPLETE, reverted or planner blocked to NOT_STARTED, skipped to SKIPPED (see Part 2 § Per-iteration contract).
 
 **Regenerate the index once after status changes** (skip if outcome was "Skipped" — nothing changed):
 
@@ -476,11 +502,13 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 > 003 | Add user profile page                | Skipped       | IN_PROGRESS
 > ```
 
+In loop mode this prints the one row of the session. The cross-run table comes from `--end`, which Phase 9 triggers at the last item.
+
 ---
 
 ## Phase 7: FOLLOW-UP BLI CAPTURE
 
-After closing all triaged items, auto-surface actionable recommendations from resolution Outputs as candidate backlog items.
+After closing the triaged items of this session (one, in loop mode), auto-surface actionable recommendations from resolution Outputs as candidate backlog items.
 
 ### Step 7.1: Grep Resolution Outputs
 
@@ -625,13 +653,13 @@ When the number of items filed differs from the number of candidates surfaced, n
 
 ## Phase 8: LESSON CAPTURE
 
-After closing all triaged items, prompt for lessons learned.
+After closing the triaged items of this session (one, in loop mode), prompt for lessons learned.
 
 <!-- AUTO-MODE: convenience -->
 <!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Lessons capture acknowledgment". -->
 **Ask the user:** "Were any lessons learned during this triage session? (y/n)"
 
-**If no:** Skip this phase and finish.
+**If no:** Skip this phase; in loop mode continue to Phase 9, otherwise finish.
 
 **If yes:** Derive the next ID with `python {plugin_root}/scripts/parse_lessons.py --config {planwise_root}/config.yaml --next-id`; take the lesson file template from `templates/lesson.md`. Create a lesson file at `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`; run the generator; append the changelog entry.
 
@@ -642,6 +670,28 @@ After closing all triaged items, prompt for lessons learned.
 | `triage-routing` | Routing decision was non-obvious | "Item appeared simple but required planning due to cross-cutting dependencies" |
 | `scope-assessment` | Scope signals were misleading | "Bug keyword but actual issue was architectural" |
 | `resolution-outcome` | Fix succeeded or failed in a noteworthy way | "Direct fix worked but revealed a related issue" |
+
+---
+
+## Phase 9: LOOP BOUNDARY
+
+Loop mode only. Skip this phase in a single-session run. Run:
+
+```bash
+python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --boundary --run {run-id}
+```
+
+Print its stdout. Copy the line that starts `BACKLOG LOOP:` (or the JSON `marker` field) verbatim. That line MUST be the last line of the final message. Ask no question and write no sentence after it. When remaining is 0, write `Loop complete.` above it. See `handlers/backlog-Part-2-LoopMode.md` § The marker.
+
+> [!constraint] The marker is the last line of the final message
+> WRONG — a paraphrased marker, or any text after it:
+> ```
+> Item 004 is done, 2 items remain. Shall I continue?
+> ```
+> CORRECT — the verbatim `--boundary` line, last:
+> ```
+> BACKLOG LOOP: run=20261007-141502 done=004 remaining=2 state=C:/proj/planwise/Backlog/Backlog-Runs/20261007-141502.json
+> ```
 
 ---
 
@@ -699,7 +749,7 @@ ELSE:
 
 3. Present recommendation via AskUserQuestion (include LARGE_SCOPE in the Scope
    Assessment Block when Route = SESSION_PLANNING)
-4. User can override to any route or skip. If the user overrides TO Route C from a
+4. User can override to any route or skip (except in loop mode, where C is not selectable). If the user overrides TO Route C from a
    different recommended route, LARGE_SCOPE defaults to false (a manual override is,
    by construction, not a signal-driven large-scope match) unless the strong-signal
    conditions above independently hold.
