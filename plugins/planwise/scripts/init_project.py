@@ -41,7 +41,8 @@ from pathlib import Path
 
 # When this file is run directly (`python init_project.py ...`), Python
 # registers it as sys.modules["__main__"], NOT sys.modules["init_project"].
-# The seam 4/5/6 sibling modules below do `from init_project import X` (R1:
+# The sibling modules imported below (rule_descope_migration, artifact_upgrade,
+# doctor_sweeps and doctor_cli) do `from init_project import X` (R1:
 # INSTALLED_RULES/DESCOPED_RULES stay on the residual) -- without this alias,
 # that statement would trigger a SECOND, independent import of this same file
 # under the "init_project" key, which re-executes from the top and collides
@@ -133,7 +134,6 @@ try:
         LessonsBootstrap,  # noqa: F401 -- re-exported for callers of init_project
         _emit_lessons_bootstrap_banner,  # noqa: F401 -- re-exported for callers of init_project
         _lessons_seed_dst_names,
-        _resolve_lessons_index_name,
         _seed_lessons_index,  # noqa: F401 -- re-exported for callers of init_project
         bootstrap_lessons_artifacts,
         render_categorization_file,  # noqa: F401 -- re-exported for callers of init_project
@@ -281,31 +281,6 @@ def create_directories(cfg: InitConfig) -> list[str]:
     return created
 
 
-def _resolve_plans_index_name(cfg: InitConfig) -> str:
-    """Read `project.index_files.plans` from the project's config.yaml,
-    falling back to the generated default when config.yaml does not exist yet
-    (the normal fresh-init ordering: copy_seed_files() runs before
-    generate_config()), is unparsable, or the key is unset.
-    """
-    # Same literal as config_loader's `_plans_index` default (no shared constant).
-    default = "00-Index-Plans.md"
-    if not HAS_YAML:
-        return default
-    config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
-    if not config_path.exists():
-        return default
-    try:
-        full = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError:
-        return default
-    if not isinstance(full, dict):
-        return default
-    # A null or scalar `project:` / `index_files:` block falls back, as config_loader does.
-    project = full.get("project") if isinstance(full.get("project"), dict) else {}
-    index_files = project.get("index_files") if isinstance(project.get("index_files"), dict) else {}
-    return index_files.get("plans") or default
-
-
 def copy_seed_files(cfg: InitConfig) -> list[str]:
     """Copy seed index files. Skips if destination exists. Returns list of copied files.
 
@@ -316,19 +291,23 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
     via `_lessons_seed_dst_names` -- the same naming helpers
     `generate_lessons_index.py`'s own footer links use -- never a second,
     hardcoded pair of companion names. The plans seed is named from
-    `index_files.plans` the same way, via `_resolve_plans_index_name`.
+    `index_files.plans` the same way, via `config_loader.resolve_index_target`.
+    When config.yaml already exists and names the lessons or plans directory,
+    that directory wins over the `cfg` value, as in the upgrade backfill.
     """
     copied = []
+    lessons_dir_rel, lessons_index_name = config_loader.resolve_index_target(cfg, "lessons")
+    plans_dir_rel, plans_index_name = config_loader.resolve_index_target(cfg, "plans")
     lessons_hub_name, lessons_changelog_name, lessons_promotion_name = (
-        _lessons_seed_dst_names(_resolve_lessons_index_name(cfg))
+        _lessons_seed_dst_names(lessons_index_name)
     )
     seeds = [
         ("00-Index-Backlog.md", f"{cfg.planwise_root}/{cfg.backlog_dir}/00-Index-Backlog.md"),
         ("00-Changelog-Backlog.md", f"{cfg.planwise_root}/{cfg.backlog_dir}/00-Changelog-Backlog.md"),
-        ("00-Index-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/{lessons_hub_name}"),
-        ("00-Changelog-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/{lessons_changelog_name}"),
-        ("00-PromotionLog-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/{lessons_promotion_name}"),
-        ("00-Index-Plans.md", f"{cfg.planwise_root}/{cfg.plans_dir}/{_resolve_plans_index_name(cfg)}"),
+        ("00-Index-LessonsLearned.md", f"{lessons_dir_rel}/{lessons_hub_name}"),
+        ("00-Changelog-LessonsLearned.md", f"{lessons_dir_rel}/{lessons_changelog_name}"),
+        ("00-PromotionLog-LessonsLearned.md", f"{lessons_dir_rel}/{lessons_promotion_name}"),
+        ("00-Index-Plans.md", f"{plans_dir_rel}/{plans_index_name}"),
     ]
     seed_dir = cfg.plugin_root / "seed"
     for src_name, dst_rel in seeds:
@@ -339,6 +318,8 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
         except FileNotFoundError:
             print(f"  Warning: seed file not found: {src}", file=sys.stderr)
             continue
+        # A config-named directory may differ from the one create_directories made.
+        dst.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(dst, "xb") as f:
                 f.write(src_content)
@@ -1034,8 +1015,9 @@ def main():
     if _lessons_mig.state == "error" and _lessons_mig.index_path is None:
         pass  # config.yaml's own Skipped row above already reports this fault
     elif _lessons_mig.state in {"deferred", "refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+        _lessons_dir_rel, _lessons_name = config_loader.resolve_index_target(cfg, "lessons")
         index_path = _lessons_mig.index_path or (
-            cfg.project_root / cfg.planwise_root / cfg.lessons_dir / "00-Index-LessonsLearned.md")
+            cfg.project_root / _lessons_dir_rel / _lessons_name)
         skipped.append(SkippedArtifact(
             artifact=str(index_path),
             reason=_lessons_mig.detail,
@@ -1053,8 +1035,9 @@ def main():
     if _plans_mig.state == "error" and _plans_mig.index_path is None:
         pass  # config.yaml's own Skipped row above already reports this fault
     elif _plans_mig.state in {"deferred", "refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+        _plans_dir_rel, _plans_name = config_loader.resolve_index_target(cfg, "plans")
         index_path = _plans_mig.index_path or (
-            cfg.project_root / cfg.planwise_root / cfg.plans_dir / _resolve_plans_index_name(cfg))
+            cfg.project_root / _plans_dir_rel / _plans_name)
         skipped.append(SkippedArtifact(
             artifact=str(index_path),
             reason=_plans_mig.detail,

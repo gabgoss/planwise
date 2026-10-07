@@ -18,6 +18,7 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import config_loader
 import init_project
 from config_gen import InitConfig
 
@@ -148,7 +149,7 @@ class TestCopySeedFilesCustomLessonsHubName(unittest.TestCase):
         try:
             import yaml  # noqa: F401
         except ImportError:
-            self.skipTest("PyYAML required for _resolve_lessons_index_name")
+            self.skipTest("PyYAML required for config_loader.resolve_index_target")
 
         copied = init_project.copy_seed_files(self.cfg)
 
@@ -197,7 +198,7 @@ class TestCopySeedFilesCustomPlansIndexName(unittest.TestCase):
         try:
             import yaml  # noqa: F401
         except ImportError:
-            self.skipTest("PyYAML required for _resolve_plans_index_name")
+            self.skipTest("PyYAML required for config_loader.resolve_index_target")
         self._write_config("00-Plans-Custom.md")
 
         copied = init_project.copy_seed_files(self.cfg)
@@ -225,7 +226,7 @@ class TestCopySeedFilesCustomPlansIndexName(unittest.TestCase):
         try:
             import yaml  # noqa: F401
         except ImportError:
-            self.skipTest("PyYAML required for _resolve_plans_index_name")
+            self.skipTest("PyYAML required for config_loader.resolve_index_target")
         self._write_config("00-Plans-Custom.md")
         dst = self.plans_dir / "00-Plans-Custom.md"
         dst.write_text("existing custom plans index\n", encoding="utf-8")
@@ -240,10 +241,13 @@ class TestCopySeedFilesCustomPlansIndexName(unittest.TestCase):
         try:
             import yaml  # noqa: F401
         except ImportError:
-            self.skipTest("PyYAML required for _resolve_plans_index_name")
+            self.skipTest("PyYAML required for config_loader.resolve_index_target")
         (self.tmp / "planwise" / "config.yaml").write_text(config_text, encoding="utf-8")
 
-        self.assertEqual(init_project._resolve_plans_index_name(self.cfg), "00-Index-Plans.md")
+        self.assertEqual(
+            config_loader.resolve_index_target(self.cfg, "plans"),
+            ("planwise/Plans", "00-Index-Plans.md"),
+        )
 
     def test_null_project_block_falls_back_to_the_default_name(self):
         self._assert_null_block_falls_back_to_default("project:\n")

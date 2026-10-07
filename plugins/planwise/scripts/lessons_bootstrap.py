@@ -29,6 +29,15 @@ except ImportError:
     )
 
 try:
+    from config_loader import resolve_index_name, resolve_index_target
+except ImportError:
+    raise ImportError(
+        "config_loader is required for lessons_bootstrap's index-name and "
+        "directory resolution; the scripts/ directory appears to be partially "
+        "installed"
+    )
+
+try:
     from generate_backlog_index import _changelog_filename, _index_naming
 
     # DEFAULT_CATEGORIZATION is defined beside the companion renderer and
@@ -91,7 +100,8 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
     it. The user can edit the buckets afterwards, or run `--migrate` to add
     the template block to their config for full customisation.
     """
-    dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/{COMPANION_FILENAME}"
+    lessons_dir_rel, _ = resolve_index_target(cfg, "lessons")
+    dst_rel = f"{lessons_dir_rel}/{COMPANION_FILENAME}"
     dst = cfg.project_root / dst_rel
     if dst.exists():
         return ConfigResult.SKIPPED_EXISTS, dst_rel
@@ -103,7 +113,6 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
     config_present = config_path.exists()
     full: dict = {}
     used_default = False
-    lessons_index = "00-Index-LessonsLearned.md"
 
     if config_present:
         try:
@@ -111,14 +120,11 @@ def render_categorization_file(cfg: "InitConfig") -> tuple[ConfigResult, str]:
             loaded = yaml.safe_load(config_text) or {}
             if isinstance(loaded, dict):
                 full = loaded
-            lessons_index = (
-                full.get("project", {})
-                .get("index_files", {})
-                .get("lessons", "00-Index-LessonsLearned.md")
-            )
         except yaml.YAMLError:
             # Bad config — fall through to default, surface via banner.
             pass
+
+    lessons_index = resolve_index_name(full, "lessons")
 
     if not has_categorization_block(full):
         full = dict(full)
@@ -184,28 +190,6 @@ _LESSONS_SEED_SRC_NAMES = (
 )
 
 
-def _resolve_lessons_index_name(cfg: "InitConfig") -> str:
-    """Read `project.index_files.lessons` from the project's config.yaml --
-    the same lookup render_categorization_file performs above -- falling
-    back to the generated default when config.yaml does not exist yet (the
-    normal fresh-init ordering: copy_seed_files() runs before
-    generate_config()), is unparsable, or the key is unset.
-    """
-    default = "00-Index-LessonsLearned.md"
-    if not HAS_YAML:
-        return default
-    config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
-    if not config_path.exists():
-        return default
-    try:
-        full = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError:
-        return default
-    if not isinstance(full, dict):
-        return default
-    return full.get("project", {}).get("index_files", {}).get("lessons") or default
-
-
 def _lessons_seed_dst_names(hub_name: str) -> tuple[str, str, str]:
     """Derive the on-disk destination filenames for the lessons hub and its
     two companions from `hub_name` (the project's configured
@@ -243,10 +227,11 @@ def _seed_lessons_index(cfg: "InitConfig") -> list[tuple[ConfigResult, str]]:
     absent — a project already carrying the index but not yet the two
     companions backfills only the companions.
     """
-    dst_names = _lessons_seed_dst_names(_resolve_lessons_index_name(cfg))
+    lessons_dir_rel, hub_name = resolve_index_target(cfg, "lessons")
+    dst_names = _lessons_seed_dst_names(hub_name)
     results = []
     for src_name, dst_name in zip(_LESSONS_SEED_SRC_NAMES, dst_names):
-        dst_rel = f"{cfg.planwise_root}/{cfg.lessons_dir}/{dst_name}"
+        dst_rel = f"{lessons_dir_rel}/{dst_name}"
         dst = cfg.project_root / dst_rel
         if dst.exists():
             results.append((ConfigResult.SKIPPED_EXISTS, dst_rel))

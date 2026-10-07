@@ -389,6 +389,101 @@ def _coerce(val: str):
     return val
 
 
+# The generated index file name for each index family. `load_config` carries the
+# same literals as its own `.get(...)` defaults.
+INDEX_NAME_DEFAULTS = {
+    "plans": "00-Index-Plans.md",
+    "backlog": "00-Index-Backlog.md",
+    "lessons": "00-Index-LessonsLearned.md",
+}
+
+
+def _nonempty_str(value) -> str | None:
+    """Return `value` when it is a non-empty string, else None."""
+    return value if isinstance(value, str) and value else None
+
+
+def _project_block(config) -> dict:
+    """Return the `project:` mapping of a parsed config, or {} when the config
+    or the block is absent, null, or not a mapping."""
+    project = config.get("project") if isinstance(config, dict) else None
+    return project if isinstance(project, dict) else {}
+
+
+def read_config_mapping(config_path: Path) -> dict:
+    """Parse a config.yaml into a dict without ever raising or exiting.
+
+    Returns {} when PyYAML is unavailable, the file does not exist (a fresh
+    init seeds files before it writes config.yaml), the file cannot be read,
+    the YAML is invalid, or the document is not a mapping. Unlike
+    `load_config`, this never calls sys.exit(), so it is safe to call before
+    config.yaml exists.
+    """
+    if not HAS_YAML:
+        return {}
+    try:
+        parsed = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def resolve_index_name(config, family: str) -> str:
+    """Return the index file name for `family` ("plans", "backlog" or
+    "lessons") from an already-parsed config dict.
+
+    Reads `project.index_files.{family}`. A null or scalar `project:` or
+    `index_files:` block, a missing key, a null, empty or non-string value,
+    and a `config` that is not a dict all return the generated default
+    (INDEX_NAME_DEFAULTS). Pure: it reads no file and never raises on
+    malformed config, so a caller can pass the result of `read_config_mapping`
+    before config.yaml exists.
+    """
+    if family not in INDEX_NAME_DEFAULTS:
+        raise ValueError(
+            f"unknown index family {family!r}; expected one of {sorted(INDEX_NAME_DEFAULTS)}"
+        )
+    index_files = _project_block(config).get("index_files")
+    if not isinstance(index_files, dict):
+        return INDEX_NAME_DEFAULTS[family]
+    return _nonempty_str(index_files.get(family)) or INDEX_NAME_DEFAULTS[family]
+
+
+def resolve_index_dir(config, family: str, default_root: str, default_dir: str) -> str:
+    """Return the directory holding the `family` index, relative to the
+    project root, as "<planwise_root>/<family_dir>".
+
+    `project.planwise_root` and `project.{family}_dir` from the parsed
+    `config` dict win when they are non-empty strings. Otherwise
+    `default_root` / `default_dir` apply (the caller's CLI values).
+    """
+    if family not in INDEX_NAME_DEFAULTS:
+        raise ValueError(
+            f"unknown index family {family!r}; expected one of {sorted(INDEX_NAME_DEFAULTS)}"
+        )
+    project = _project_block(config)
+    root = _nonempty_str(project.get("planwise_root")) or default_root
+    directory = _nonempty_str(project.get(f"{family}_dir")) or default_dir
+    return f"{root}/{directory}"
+
+
+def resolve_index_target(cfg, family: str) -> tuple[str, str]:
+    """Return (directory, file name) for the `family` index of an init/upgrade
+    run, where `cfg` is an InitConfig (any object carrying `project_root`,
+    `planwise_root`, `plans_dir`, `backlog_dir` and `lessons_dir`).
+
+    The directory is relative to `cfg.project_root`. config.yaml is located
+    through `cfg.planwise_root`, since the config lives inside the planwise
+    root and cannot name it. When config.yaml is absent, unparsable, or
+    silent on a value, the `cfg` values and the generated default name apply,
+    which keeps a fresh init (config.yaml not yet written) unchanged.
+    """
+    config = read_config_mapping(Path(cfg.project_root) / cfg.planwise_root / "config.yaml")
+    name = resolve_index_name(config, family)  # validates `family` first
+    directory = resolve_index_dir(config, family, cfg.planwise_root, getattr(cfg, f"{family}_dir"))
+    return directory, name
+
+
 def _get_config_path_from_args() -> Path | None:
     """Parse --config argument from sys.argv without consuming other args."""
     parser = argparse.ArgumentParser(add_help=False)

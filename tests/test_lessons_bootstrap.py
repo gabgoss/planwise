@@ -288,7 +288,7 @@ class TestSeedLessonsIndexCustomHubName(_BootstrapFixture):
         try:
             import yaml  # noqa: F401
         except ImportError:
-            self.skipTest("PyYAML required for _resolve_lessons_index_name")
+            self.skipTest("PyYAML required for config_loader.resolve_index_target")
         self.planwise_dir.mkdir(parents=True, exist_ok=True)
         self.config_path().write_text(
             "project:\n"
