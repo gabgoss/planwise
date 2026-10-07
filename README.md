@@ -228,4 +228,4 @@ To remove the marketplace:
 
 ## License
 
-MIT — Gabriel Gosselin
+GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later) — Copyright (c) 2026 Gabriel Gosselin. See [LICENSE](LICENSE) for the full text.

@@ -5,6 +5,6 @@
   "author": {
     "name": "Gabriel Gosselin"
   },
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "keywords": ["project-management", "planning", "execution", "review", "backlog", "sessions"]
 }
