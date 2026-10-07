@@ -172,8 +172,8 @@ def _check_drift(
 
     A repeated id is quarantined and reported as a single anomaly whether
     the two copies sit in the SAME file (`_read_disk_table`'s own
-    within-file duplicate detection, Finding F2) or in TWO DIFFERENT
-    generated files (Finding F3 -- e.g. a stale hub copy of an item whose
+    within-file duplicate detection) or in TWO DIFFERENT
+    generated files (e.g. a stale hub copy of an item whose
     correct row has already moved to its Archive shard; each file alone
     carries only one clean-looking row for the id, so no single
     `_read_disk_table` call ever sees the collision, and the old
@@ -196,7 +196,7 @@ def _check_drift(
 
     disk_by_id: dict = {}
     disk_file_by_id: dict = {}
-    disk_files_seen: dict = {}  # id -> [rel_path, ...], every file it appeared in (F3)
+    disk_files_seen: dict = {}  # id -> [rel_path, ...], every file it appeared in
     disk_truncated_by_id: dict = {}  # id -> line a split row was found past
     quarantined_ids: set = set()  # duplicate ids -- already anomaly-reported below
     drift: list = []
@@ -246,7 +246,7 @@ def _check_drift(
             disk_by_id[item_id] = cells
             disk_file_by_id[item_id] = rel
 
-    # Cross-file duplicates (Finding F3): an id whose CLEAN (non-within-file
+    # Cross-file duplicates: an id whose CLEAN (non-within-file
     # -duplicated) rows came from more than one generated file. Quarantine
     # and report exactly once, naming every file involved.
     for item_id, files_seen in disk_files_seen.items():
@@ -291,7 +291,7 @@ def _check_drift(
             })
         elif only_score_differs:
             # Score-only, but non-numeric on an OPEN item: missing data, not
-            # aged data -- narrowed out of stale-score (Finding F3b) so a
+            # aged data -- narrowed out of stale-score so a
             # hand-cleared or corrupted Score cell cannot hide behind the
             # carve-out that exists for ordinary time-driven drift.
             drift.append({

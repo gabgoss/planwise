@@ -75,19 +75,19 @@ TITLE_MAX_LEN = 120
 # it is also the fallback naming basis below when no project config is in
 # play (this module's own pure-function tests build fixtures against it
 # directly). The REAL naming a live project uses is derived from its
-# configured `index_files.backlog` path via `_index_naming` below (Finding
-# F5) -- never this hardcoded constant -- so a project whose index is not
+# configured `index_files.backlog` path via `_index_naming` below -- never
+# this hardcoded constant -- so a project whose index is not
 # named "00-Index-Backlog.md" gets a hub/shard/overflow-leaf naming the
 # rest of the toolchain (`config["_index_path"]`, `config["_archive_dir"]`)
 # actually agrees with, instead of one no other script would recognize.
 INDEX_FILE_STEM = "Index-Backlog"
 
-# The hub's pointer to the changelog (Execution Step 4, user decision (a)):
+# The hub's pointer to the changelog:
 # a single byte-identical line on every run, carrying no date, so `--check`
 # compares it like any other generated line instead of it vanishing
 # silently the first time `--write` regenerates the hub. Its filename is
 # derived from `naming` by `_changelog_filename`, defined next to
-# `_hub_filename`/`_shard_filename` below (closeout review Finding 1) --
+# `_hub_filename`/`_shard_filename` below --
 # never a hardcoded constant, so a custom `index_files.backlog` gets a
 # changelog name `migrate_backlog_index.artifact_paths` agrees with,
 # instead of always "00-Changelog-Backlog.md" regardless of project naming.
@@ -109,7 +109,7 @@ _DEFAULT_INDEX_NAMING = IndexNaming(
 def _index_naming(index_path: Path) -> IndexNaming:
     """Derive every generated filename shape from the project's configured
     index path -- the hub name, its overflow-leaf stem, and the Archive
-    shard stem all come from this ONE source (Finding F5), so a custom
+    shard stem all come from this ONE source, so a custom
     `index_files.backlog` in config.yaml (e.g. `Backlog-Index.md`) is
     honored instead of a hardcoded `00-Index-Backlog.md` no other script in
     the project would recognize. `archive_stem` strips a leading `00-`
@@ -130,7 +130,7 @@ def _generated_index_file_pattern(naming: IndexNaming) -> re.Pattern:
     """One regex built from the SAME `naming` the hub/shard namers below
     use, so the scanner's skip-filter and the namers cannot drift apart by
     construction (the property the old hardcoded-constant version claimed
-    but did not fully hold -- Finding F2: the id-range group here is
+    but did not fully hold -- the id-range group here is
     `\\d{3,}`, matching every digit width `_hub_filename`/`_shard_filename`'s
     `:03d` formatting can ever produce, not the too-narrow `\\d{3}` a
     4+-digit id such as 1000 fell outside of).
@@ -180,7 +180,7 @@ def _changelog_filename(naming: IndexNaming) -> str:
     """The one namer for the changelog file: what the hub's footer points
     at, and what `migrate_backlog_index.artifact_paths` creates -- both
     scripts import this function rather than deriving the name twice, so
-    they cannot disagree on it (closeout review Finding 1).
+    they cannot disagree on it.
 
     When the hub follows the `00-Index-{X}{suffix}` shape, the changelog is
     `00-Changelog-{X}{suffix}`. For the default/live project's own

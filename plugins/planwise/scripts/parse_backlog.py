@@ -273,7 +273,7 @@ def resolve_closed_item_shard(item_id: str, config: dict) -> tuple[Path | None, 
     shard's OWN filename-embedded range (a directory listing, never a
     row-by-row content scan) and returns whichever one covers the id --
     reported on stderr rather than silently absorbed, because a missing
-    expected shard is the anomaly Execution Step 4 calls out.
+    expected shard is itself an anomaly.
 
     Returns (path_or_None, used_fallback).
     """
@@ -316,8 +316,8 @@ def build_blocked_by_map(
     (``dependencies``), read-if-present via ``parse_dependencies_table``,
     and each item's own 9-column row-level Blocks cell (``item["blocks"]``,
     from ``_backlog_row_processor``). The generator never writes a
-    ``## Dependencies`` section (Execution Step 5 of the pre-write
-    repairs), so a generated corpus (no such section; ``dependencies`` is
+    ``## Dependencies`` section, so a generated corpus (no such section;
+    ``dependencies`` is
     empty) blocks from the Blocks column alone, exactly as before this
     union was restored. A consumer upgraded from an older release but not
     yet migrated carries a 6/7-column legacy index with no Blocks column at
@@ -527,7 +527,7 @@ def main():
     if args.next_id:
         # Union across the hub, every hub overflow leaf, and every Archive
         # shard -- a hub-only max would reissue an id a shard already
-        # holds (Execution Step 5).
+        # holds.
         all_ids = collect_all_known_ids(config)
         numbers = [n for n in (id_number(i) for i in all_ids) if n is not None]
         max_id = max(numbers, default=0)

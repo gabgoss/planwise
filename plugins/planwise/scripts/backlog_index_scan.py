@@ -173,10 +173,10 @@ def scan_backlog(
     `Backlog/Archive/`) is refused HERE, at scan time, naming both paths and
     the id -- never allowed to reach rendering. Left unrefused, the
     duplicate would render two rows for one id: `--write` would ship both
-    silently, and `--check`'s later duplicate-row quarantine (Finding F2)
+    silently, and `--check`'s later duplicate-row quarantine
     would remove the id from its own fresh-render comparison entirely,
-    surfacing as a `KeyError` rather than a reported anomaly (Finding F1 of
-    the pre-commit review). Refusing before any row renders is the same
+    surfacing as a `KeyError` rather than a reported anomaly. Refusing before any row renders is the
+    same
     "never fabricate, never half-ship" discipline every other GeneratorError
     in this scanner already applies to a missing key or a dangling `blocks:`
     entry.

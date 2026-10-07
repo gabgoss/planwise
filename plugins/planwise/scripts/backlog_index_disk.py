@@ -17,7 +17,7 @@ from reconcile_common import read_text_preserving_newlines
 
 def _list_disk_generated_files(backlog_dir: Path, archive_dir: Path, naming: IndexNaming) -> list:
     """Every on-disk file matching `is_generated_index_file` under `naming`
-    (Finding F5 -- the project's real config-derived naming, never a
+    (the project's real config-derived naming, never a
     hardcoded stem, so a custom `archive_dir` is actually looked in and a
     custom hub name is actually recognized), hub or Archive shard, whether
     or not this run's fresh set still produces it. The stale ones --
@@ -49,7 +49,7 @@ def detect_line_ending(backlog_dir: Path, archive_dir: Path, naming: IndexNaming
 
     Reads the existing hub first via `read_text_preserving_newlines` (no
     universal-newline translation) -- the canonical file, named via
-    `naming.hub_name` (Finding F5). Falls back to the first on-disk file
+    `naming.hub_name`. Falls back to the first on-disk file
     `is_generated_index_file` matches when the hub does not exist yet (a
     shard can exist without a hub only in a transient state). Returns
     `"\\n"` when nothing generated exists at all -- there is no existing

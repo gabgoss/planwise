@@ -705,7 +705,7 @@ def calibrate(
 
     report = parse_context_report(report_text)
 
-    # F2 parse guard: headless `claude -p "/context"` may return conversational
+    # Parse guard: headless `claude -p "/context"` may return conversational
     # text instead of the structured `/context` report (the CLI treats the
     # prompt as a user message, not a slash-command).  Such a reply has no usable
     # category table; a partial/garbled report can also parse to a non-positive

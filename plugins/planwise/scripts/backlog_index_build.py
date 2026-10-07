@@ -83,11 +83,11 @@ def build_shard_files(
 
     Each shard file backlinks to the hub (bidirectional links, Execution
     Step 6). The backlink line is the wrapper `split_items_to_budget` is
-    given a reserve for (Finding F1): without it, the split decision
+    given a reserve for -- without it, the split decision
     measured the bare table body while this function measured body +
     backlink, so a body just under budget could still push the assembled
     file over it, in every mode, with no split ever offered. `naming`
-    (Finding F5) names the hub itself and every shard's own filename stem
+    names the hub itself and every shard's own filename stem
     from the project's actual configured index path, never a hardcoded
     constant. Returns one dict per file: path (relative to backlog_dir,
     "Archive/..."), content, rows, bytes, tokens, basis, budget, headroom,
@@ -151,7 +151,7 @@ def _hub_leaf_entries(leaves: list, naming: IndexNaming) -> list:
     (index > 0) a split produced -- min_id/max_id/path, the same shape
     `build_shard_files` already produces for an Archive shard, so
     `render_shards_section` needs no special-casing to list both kinds in
-    one directory (Finding F4).
+    one directory.
     """
     entries = []
     for index, (subset, _body, _num_bytes, _tokens, _truncated) in enumerate(leaves):
@@ -211,22 +211,22 @@ def build_hub_files(
 
     Leaf 0 carries the '## Shards' directory (after its table), listing
     BOTH the Archive shards (`shard_files`) AND any hub overflow leaf this
-    very split produces (Finding F4) -- without the second half, a
+    very split produces -- without the second half, a
     split-off hub leaf is unreachable from leaf 0, the only file most
     readers ever open, and its rows are silently invisible to anyone who
     never thinks to look for a same-directory sibling file. Any later
     overflow leaf backlinks to leaf 0. Returns entries in the same shape as
     `build_shard_files` (without min_id/max_id, since the hub is one
     logical unit; overflow leaves are still named by id range). `naming`
-    (Finding F5) supplies every filename this function produces or links
+    supplies every filename this function produces or links
     to, from the project's actual configured index path.
 
     The split decision (`split_items_to_budget`) is given a wrapper-token
-    reserve (Finding F1, `hub_wrapper_tokens`) sized from the LARGER of
+    reserve (`hub_wrapper_tokens`) sized from the LARGER of
     leaf 0's wrapper (`Generated:` line + the full `## Shards` directory +
     the changelog footer) and a continuation leaf's short backlink line.
-    Because the directory also depends on the split's OWN leaf boundaries
-    (Finding F4), the directory and the split are iterated to a fixed
+    Because the directory also depends on the split's OWN leaf boundaries,
+    the directory and the split are iterated to a fixed
     point: the first split runs against the Archive-only directory (a leaf
     cannot list its own overflow siblings before the split that creates
     them exists); each later round rebuilds the directory from the current
@@ -297,7 +297,7 @@ def build_hub_files(
             # changes every day by construction, never because an item changed,
             # so comparing it would report drift on every single run regardless
             # of the corpus.
-            # Footer after `## Shards` (Execution Step 4): never between a
+            # Footer after `## Shards`: never between a
             # table heading and its rows, and only on leaf 0 -- the canonical
             # hub, the changelog's one intended pointer. An overflow leaf
             # carries no `## Shards` directory of its own and needs none.
@@ -336,7 +336,7 @@ def build_index_files(
     """Partition, shard, and budget-enforce the full backlog into a hub +
     Archive shard file set, entirely in memory.
 
-    `naming` (Finding F5) is the project's real config-derived naming; it
+    `naming` is the project's real config-derived naming; it
     defaults to the fallback stem (`_DEFAULT_INDEX_NAMING`) for a bare
     pure-function call with no project config in play (this module's own
     tests call it this way).

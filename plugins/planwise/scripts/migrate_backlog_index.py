@@ -133,8 +133,7 @@ def artifact_paths(index_path: Path):
 
     The changelog name comes from `gen._changelog_filename` -- the SAME
     namer `generate_backlog_index.py`'s own hub footer uses, so the two
-    scripts can never disagree on the changelog's name (closeout review
-    Finding 1b).
+    scripts can never disagree on the changelog's name.
     """
     naming = gen._index_naming(index_path)
     changelog = index_path.with_name(gen._changelog_filename(naming))

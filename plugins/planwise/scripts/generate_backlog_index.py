@@ -401,7 +401,7 @@ def _cmd_write(
     # The changelog is not a generated index artifact (it's never in
     # report["files"]), so it's never touched here except this one
     # header-only bootstrap when the footer's own target is missing --
-    # never overwrites an existing changelog (closeout review Finding 1c).
+    # never overwrites an existing changelog.
     changelog_path = backlog_dir / _changelog_filename(naming)
     if not changelog_path.exists():
         files_to_write[changelog_path] = f"[← {naming.hub_name}]({naming.hub_name})\n"
@@ -556,7 +556,7 @@ def main() -> int:
     backlog_dir = config["_backlog_dir"]
     archive_dir = config["_archive_dir"]
     index_path = config["_index_path"]
-    # Finding F5: every generated filename this run produces or recognizes
+    # Every generated filename this run produces or recognizes
     # comes from THIS project's actual configured index path, computed once
     # and threaded through every mode -- never the hardcoded fallback stem
     # a bare pure-function call (this module's own tests) still defaults to.
