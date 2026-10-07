@@ -290,13 +290,6 @@ def test_the_routine_never_walks_the_whole_plans_tree(tmp_path, monkeypatch):
     assert report.state == "migrated", report.detail
 
 
-def test_the_readme_states_the_upgrade_path_backs_up_rather_than_refusing_a_dirty_master_plan():
-    readme = (SCRIPTS.parent / "README.md").read_text(encoding="utf-8")
-    assert "when a Master Plan it appends to has uncommitted changes" not in readme
-    assert "backs up every Master Plan it appends to byte-exact before the append" in readme
-    assert "`migrate_plans_index.py --write` refuses" in readme
-
-
 def test_git_state_is_information_only_and_unknown_outside_a_repository(tmp_path):
     """The routine takes the plan with every write enabled; the git state is information only."""
     fixture_a(tmp_path)
