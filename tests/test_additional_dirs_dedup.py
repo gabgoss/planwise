@@ -21,7 +21,7 @@ from pathlib import Path
 # (python -m unittest scripts/test_...) or from inside scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
+import init_project as ip
 
 
 def _make_cfg(project_root: Path, plugin_root: Path, scope: str = "project") -> ip.InitConfig:
@@ -174,6 +174,19 @@ class TestAdditionalDirsDedup(unittest.TestCase):
             after["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"],
             "1",
         )
+
+    def test_env_todo_tools_var_set(self):
+        """Task-tools env var is always written, alongside Agent Teams, regardless
+        of additionalDirectories state."""
+        _settings_path, _plugin_dir = self._run({})
+
+        after = self._read_settings()
+        self.assertEqual(
+            after["env"]["CLAUDE_CODE_ENABLE_TODO_TOOLS"],
+            "1",
+        )
+        # Both recommended env vars land together, neither displaces the other.
+        self.assertEqual(after["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"], "1")
 
     # ------------------------------------------------------------------
     # Stale pin + unrelated entry: stale removed, unrelated kept

@@ -6,7 +6,12 @@ description: >
   Execution Input fidelity. Use as Phase 2 reviewer in /planwise review teams
   for deep content analysis. Receives a specific review role via spawn prompt.
 tools: Read, Glob, Grep, SendMessage, ToolSearch
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. This is a pure read-and-report
+# role across every review role variant — no Write/Edit/Bash at any spawn site.
+disallowedTools: Write, Edit, Bash, NotebookEdit, WebFetch, WebSearch, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree
 model: sonnet
+effort: high
 maxTurns: 30
 ---
 
@@ -109,7 +114,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 059 — Verification Task Keyword-Proximity Coverage Gate → references/verification-task-authoring.md §4
 - Check 060 — Verification Task Verdict-Arithmetic Contract → references/verification-task-authoring.md §6
 - Check 066 — Fix-Task Execution-Time Fidelity (§7.3a–§7.3d) → references/verify-cross-repo-fix-discipline.md §7.3d
-- Check 067 — Orchestration Delegated Verdict Recompute Gate → references/agent-orchestration-delegated.md §1.16
+- Check 067 — Orchestration Delegated Verdict Recompute Gate → references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.16
 - Check 069 — File Line-Count Finding Requires `wc -l` → references/measurement-discipline.md §8.1
 - Check 070 — Plan Headline Metric vs Fixed Extraction Scope Reconciliation → references/measurement-discipline.md §8.3
 
@@ -131,6 +136,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Identify gaps — requirements mentioned in Master Plan but not addressed by any task
 - Check for redundant tasks that duplicate effort
 - Verify session objectives align with sprint goals
+- Verify that any finding the plan defers on low severity, whose subject is a documented procedure, worked example or recipe, records what running that procedure now returns — and that its attached remedy was checked against the surface the fix will touch, not only against the site that produced the finding (`references/review-classification.md` § The Three Claims in a Finding)
 
 - Check 040 — §15.1 Discovery Count-by-Execution → references/discovery-and-exit-criteria.md §15.1
 - Check 041 — §15.2 Persist IDs Not Just Counts → references/discovery-and-exit-criteria.md §15.2
@@ -138,6 +144,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 043 — §16.3 EI Exit Criteria With Mechanical Anchors → references/exit-criteria-fidelity.md §16.3
 - Check 044 — §16.3 BLI-Cited Audit Anchor Re-Verification → references/exit-criteria-fidelity.md §16.3
 - Check 045 — §15/§16 Cross-Layer Cohort Discovery Scope → references/exit-criteria-fidelity.md §16 / references/discovery-and-exit-criteria.md §15
+- Check 091 — Procedural Finding Deferred on Unassessed Severity → references/review-classification.md § The Three Claims in a Finding
 
 ---
 
@@ -176,17 +183,32 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Verify that any task gate deriving its input from a change set registers untracked files and asserts its input set was non-empty (`references/measurement-discipline.md` §8.7 sub-rule A)
 - Confirm that any task with a compaction/consolidation objective pairs its size gate with a content-conservation gate (`references/measurement-discipline.md` §8.7 sub-rule B)
 - Verify that every task's `git diff` is scoped to a recorded `{ABBREV}_S{NN}_BASE` and path-scoped with `-- <paths>` rather than a `grep` pipe (`references/verification-gates.md` §8)
+- Verify that every After-block gate records its measured pre-edit value beside its post-edit expectation, and that no gate's recorded pre-edit value already satisfies that expectation — such a gate passes with zero work done and is vacuous by construction (`references/verification-task-authoring.md` §10)
+- Verify that every numeric threshold used as a binding gate carries its derivation — the measurement that produced it or a named external basis — and that a derived size/count criterion has not been invalidated by a decision recorded later in the same plan (`references/measurement-discipline.md` §8.9)
+- Verify that a bug-fix deliverable's criteria include one phrased against a fixture reproducing the defect and one requiring the probe to fail on the unfixed artifact — criteria querying live project data pass identically against unfixed code (`references/verification-gates.md` §10 obligation A)
+- Confirm no gate asserts a format or spelling pattern where the property at stake is resolution, and that a gate-repair deliverable's criteria are not satisfiable entirely by fixtures with no live sweep of the guarded tree (`references/verification-gates.md` §10 obligations B and D)
+- Verify that a deliverable containing a move, extraction, consolidation or collapse carries at least one blast-radius gate — a copy-count probe at both ends, a set-difference audit of the deleted copy against the survivor, a test-surface sweep for patches steering the moved symbols, or an execution-stage gate beyond collection (`references/session-execution-protocol.md` §6.1)
+- Confirm every refactor size band carries an inline derivation and the signal-not-target clause, and that the derivation does not subtract the full volume of a region the same plan marks verbatim-frozen, anchor-protected, or subject to in-place replacement (`references/ei-citation-and-token-reconciliation.md` §8.3)
+- Verify every mechanical anchor, exit criterion and EI gate accepts each terminal outcome its owning task's Execution Steps define — enumerate the task's branches first, then the anchor's accepted set, and report a strict subset as WARNING, escalating to ERROR only where no accepted outcome remains for the branch the task will actually produce (`references/verification-task-authoring.md` §10.7 and `references/exit-criteria-fidelity.md` §16.10.6). Zero-hit, nothing-to-do and already-resolved branches are the ones dropped most often. Report a disagreement against the task file, never against whichever copy is in the majority
+- Check each anchor's command against the four semantics traps — `grep -c` counting lines rather than matches, `-B1`/`-A1` emitting the match line itself, a set-membership claim hardened into a count equality, and a path that cannot resolve from the cwd its own table header declares (`references/verification-task-authoring.md` §10.8)
 
 - Check 074 — Diff-Derived Gate Without Input-Set Assertion → references/measurement-discipline.md §8.7
 - Check 075 — Size Gate Without Content-Conservation Gate → references/measurement-discipline.md §8.7
 - Check 077 — Diff-Scoped Gate Not Baseline-Pinned → references/verification-gates.md §8
+- Check 082 — Verification Gate Without a Measured Pre-Edit Baseline → references/verification-task-authoring.md §10
+- Check 095 — Anchor Enumerates Fewer Outcome Branches Than Its Task Produces → references/verification-task-authoring.md §10.7
+- Check 086 — Numeric Gate Stated Without a Derivation → references/measurement-discipline.md §8.9
+- Check 087 — Bug-Fix Criteria With No Fixture and No Unfixed-Artifact Run → references/verification-gates.md §10
+- Check 088 — Gate Asserts Format Where the Property Is Resolution, or Is Fixture-Satisfiable → references/verification-gates.md §10
+- Check 089 — Refactor Deliverable With No Blast-Radius Sweep → references/session-execution-protocol.md §6.1
+- Check 090 — Size Band Stated Without Its Derivation → references/ei-citation-and-token-reconciliation.md §8.3
 
 ## Sub-role: Change-Surface Reviewer (NEW)
 
-- Verify that a plan pairing a new diagnostic with a new repair path also carries a deliverable editing the caller — code or document — that routes between them (`references/measurement-discipline.md` §8.8 sub-rule B)
-- Confirm that any deliverable changing a behavior described by a manifest, schema or frontmatter field also updates that structured field, not only the adjacent free-text prose (`references/measurement-discipline.md` §8.8 sub-rule A)
+- Verify that a plan pairing a new diagnostic with a new repair path also carries a deliverable editing the caller — code or document — that routes between them (`references/measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md` §8.8 sub-rule B)
+- Confirm that any deliverable changing a behavior described by a manifest, schema or frontmatter field also updates that structured field, not only the adjacent free-text prose (`references/measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md` §8.8 sub-rule A)
 
-- Check 076 — Detection + Repair With No Routing Deliverable → references/measurement-discipline.md §8.8
+- Check 076 — Detection + Repair With No Routing Deliverable → references/measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md §8.8
 
 ---
 

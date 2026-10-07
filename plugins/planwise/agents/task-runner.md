@@ -4,8 +4,14 @@ description: >
   Executes individual planned tasks during session execution. Reads task files,
   loads required context, runs execution steps, writes output files, and updates
   recovery state. Use when delegating task execution in /planwise run DELEGATED mode.
-tools: Read, Write, Edit, Glob, Grep, Bash, SendMessage, ToolSearch
+tools: Read, Write, Edit, Glob, Grep, Bash, SendMessage, ToolSearch, NotebookEdit, WebFetch, WebSearch
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. NotebookEdit/WebFetch/WebSearch
+# are kept available even though no current task-file instruction exercises
+# them, since this agent executes arbitrary task-file content.
+disallowedTools: TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree
 model: inherit
+effort: medium
 maxTurns: 50
 ---
 
@@ -14,8 +20,8 @@ maxTurns: 50
 > [!constraint] Foreground Execution Only
 > Task-runner writes output files and updates recovery state — it MUST be launched in foreground mode. Background subagents auto-deny Write/Edit/Bash permissions not pre-approved at launch, and `bypassPermissions` does NOT override this gate. The agent will complete but produce no files.
 >
-> WRONG: `Task(subagent_type: "planwise:task-runner", run_in_background: true, ...)`
-> CORRECT: `Task(subagent_type: "planwise:task-runner", ...)` (foreground is the default)
+> WRONG: `Agent(subagent_type: "planwise:task-runner", run_in_background: true, ...)`
+> CORRECT: `Agent(subagent_type: "planwise:task-runner", ...)` (foreground is the default)
 
 ## 1. READ — Load Task Context
 
@@ -179,8 +185,12 @@ In parallel mode you share the Recovery file with sibling runners dispatched in 
 3. The status block MUST be the last content in your response — no trailing prose, no follow-up paragraphs. The orchestrator parses it by reading your final message.
 4. If you hit a partial-completion ceiling (early stop, edit ceiling, context pressure): emit `TASK_STATUS: PARTIAL` with OUTPUT_FILES listing what was written so far and ISSUES describing what remains. Do NOT write a recovery-style partial-progress note to Recovery — the orchestrator handles partials by re-dispatching from your status block.
 
+> [!constraint] A definition with no production caller is PARTIAL — in either dispatch mode
+> WRONG — `TASK_STATUS: COMPLETE` plus a note that the new function, optional parameter, CLI flag or config key is "dormant until a follow-up task passes the argument / registers the flag". Every presence gate stays green on it, and once the session closes a deferred activation is indistinguishable from a dropped one.
+> CORRECT — `TASK_STATUS: PARTIAL`, with `ISSUES:` naming the missing call site (`{file}:{line}` and the argument or registration it lacks). If that site is inside your own `**Output:**` scope, wire it now and quote the site in `KEY_FINDINGS` instead. In sequential mode the Recovery task row carries the same PARTIAL and a Key Finding names the site. See `references/verify-caller-before-complete.md`.
+
 > [!constraint] Status-Block Return Contract — bound the whole block to 18 lines
-> Full contract, derivation, and the over-tight failure mode: `references/agent-orchestration-delegated.md` §1.28. The status block re-enters the orchestrator's own context window whole on return — it is bounded so that does not accumulate:
+> Full contract, derivation, and the over-tight failure mode: `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.28. The status block re-enters the orchestrator's own context window whole on return — it is bounded so that does not accumulate:
 > - **No re-quoted file content** — cite `OUTPUT_FILES` by path + `LINES_PRODUCED`, never paste an edited file's body into the block.
 > - **No restated task text** — `TASK_ID` is the reference; never re-explain the brief.
 > - **18-line ceiling on the whole block** — derived from enumerating what central reconciliation consumes (status, task id, route/flags, output files, lines produced, verify results, key findings, issues) and capping each field at its worst case; see §1.28 for the per-field table. The ceiling is a floor-preserving cap, not a target to shrink toward — it never cuts a field reconciliation needs.

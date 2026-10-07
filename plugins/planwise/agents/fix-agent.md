@@ -4,7 +4,12 @@ description: >
   Applies targeted code fixes for backlog items. Reads the issue description,
   applies the fix, runs build and test verification, and reports results.
   Use when routing backlog items to direct fix (Route A) via /planwise backlog.
-tools: Read, Write, Edit, Glob, Grep, Bash, SendMessage, ToolSearch
+tools: Read, Write, Edit, Glob, Grep, Bash
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. Every spawn site dispatches
+# this agent as a plain foreground Task with a plain-text Fix Report
+# return — never team mode — so SendMessage/ToolSearch are unneeded.
+disallowedTools: NotebookEdit, WebFetch, WebSearch, SendMessage, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree, ToolSearch
 model: sonnet
 maxTurns: 30
 ---

@@ -19,11 +19,12 @@ except ImportError:
 
 try:
     from config_gen import (
-        InitConfig,  # noqa: F401 -- type-hint only (quoted forward refs)
-        get_upgrade_config,
-        write_config_checked,
-        migrate_config,
+        InitConfig,
         _flip_token_saver_on,
+        get_upgrade_config,
+        migrate_config,
+        refresh_verified_cli_version,
+        write_config_checked,
     )
 except ImportError:
     raise ImportError(
@@ -33,12 +34,13 @@ except ImportError:
 
 try:
     from upgrade_io import (
-        _load_verdicts_cache,
-        _load_verdict_override,
-        _write_backup_preimage,
         _append_disposition_log,
         _load_raw_config,
+        _load_verdict_override,
+        _load_verdicts_cache,
         _transfer_customization,
+        _write_backup_preimage,
+        verdicts_cache_path,
     )
 except ImportError:
     raise ImportError(
@@ -49,11 +51,11 @@ except ImportError:
 
 try:
     from rule_divergence import (
-        is_subset,
         _classify_diverged,
-        normalize_rule_for_diff,
-        _verdict_not_analyzed,
         _extract_paths_value,
+        _verdict_not_analyzed,
+        is_subset,
+        normalize_rule_for_diff,
     )
 except ImportError:
     raise ImportError(
@@ -63,42 +65,50 @@ except ImportError:
     )
 
 try:
-    from rule_descope_migration import migrate_installed_rules
-except ImportError:
-    raise ImportError(
-        "rule_descope_migration is required for artifact_upgrade's post-refresh "
-        "de-scope migration step; the scripts/ directory appears to be "
-        "partially installed"
+    from lessons_bootstrap import (
+        _emit_lessons_bootstrap_banner,
+        bootstrap_lessons_artifacts,
     )
-
-try:
-    from doctor_sweeps import lint_rule_overscope
-except ImportError:
-    raise ImportError(
-        "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "
-        "advisory; the scripts/ directory appears to be partially installed"
-    )
-
-try:
-    from init_project import (
-        INSTALLED_RULES,
-        resolve_rule_paths_value,
-        update_frontmatter,
-    )
-except ImportError:
-    raise ImportError(
-        "init_project is required for artifact_upgrade's INSTALLED_RULES table "
-        "(R1: the tuple stays on the residual) and its rule-write helper "
-        "(seam 8); the scripts/ directory appears to be partially installed"
-    )
-
-try:
-    from lessons_bootstrap import bootstrap_lessons_artifacts, _emit_lessons_bootstrap_banner
 except ImportError:
     raise ImportError(
         "lessons_bootstrap is required for artifact_upgrade's post-refresh "
         "lessons-scaffolding backfill; the scripts/ directory appears to be "
         "partially installed"
+    )
+
+try:
+    from backlog_migration import (
+        _emit_backlog_migration_banner,
+        migrate_backlog_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "backlog_migration is required for artifact_upgrade's post-refresh "
+        "backlog-index retrofit; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
+try:
+    from lessons_migration import (
+        _emit_lessons_migration_banner,
+        migrate_lessons_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "lessons_migration is required for artifact_upgrade's post-refresh "
+        "lessons-index retrofit; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
+try:
+    from plans_migration import (
+        _emit_plans_migration_banner,
+        migrate_plans_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "plans_migration is required for artifact_upgrade's plans-index "
+        "retrofit; the scripts/ directory appears to be partially installed"
     )
 
 
@@ -126,6 +136,91 @@ def load_artifact_manifest(plugin_root: Path) -> dict:
     if not isinstance(loaded, dict):
         return {"artifacts": []}
     return loaded
+
+
+def _resolve_diverged_rule(
+    cfg, from_version, to_version, filename, dst, shipped_raw, installed_raw,
+    render, verdicts, conflict_dir, relocate_enabled, write_sidecar,
+    refreshed, refreshed_subsets, transferred,
+) -> None:
+    """Dispose of one rule whose installed body differs from the shipped body.
+
+    `render(shipped_raw, installed_raw)` returns the text written on adoption.
+    The lists and `write_sidecar` are the caller's result holders; the
+    dispositions are the ones `upgrade_artifacts` documents.
+    """
+    verdict = _classify_diverged(
+        normalize_rule_for_diff(installed_raw),
+        normalize_rule_for_diff(shipped_raw),
+        override=_load_verdict_override(verdicts, filename, installed_raw, dst),
+    )
+    sidecar_dst = (
+        conflict_dir / ".claude" / "rules" / "planwise" / f"{filename}.new")
+    if is_subset(verdict) and not (getattr(verdict, "notes", "") or ""):
+        # Stale subset — adopt shipped in place, preserve the project
+        # paths:. Non-empty notes = the matcher tolerated installed-only
+        # content (sub-noise-floor fragments) — that flips to the
+        # customization-bearing branch below: an overwrite must not
+        # destroy a short customization without moving it first.
+        # Failed backup = no destructive write.
+        if not _write_backup_preimage(cfg, from_version, to_version, dst):
+            write_sidecar(dst, sidecar_dst, shipped_raw)
+        else:
+            dst.write_text(render(shipped_raw, installed_raw), encoding="utf-8")
+            _append_disposition_log(
+                cfg, from_version, to_version, dst, "auto-adopted shipped",
+                "installed rule body was a stale subset of the grown shipped body")
+            refreshed.append(str(dst))
+            refreshed_subsets.append(str(dst))     # banner sub-count
+            if sidecar_dst.exists():
+                # A prior interrupted run flagged this file — the adoption
+                # resolves that conflict; drop the obsoleted sidecar so a
+                # stale INDEX row cannot invite merging outdated content back.
+                sidecar_dst.unlink()
+    elif _verdict_not_analyzed(verdict):
+        # Degraded stand-in — the file was never analyzed, so the
+        # automated transfer-then-adopt has no verdict evidence to
+        # act on. Preserve in place + shipped sidecar (always safe).
+        write_sidecar(dst, sidecar_dst, shipped_raw)
+    elif not relocate_enabled:
+        # customization_handoff is report/report+issue — conservative
+        # mode: never auto-transfer or adopt over a customization-
+        # bearing verdict. Preserve in place + shipped sidecar.
+        write_sidecar(dst, sidecar_dst, shipped_raw)
+    else:
+        # HAS_UNIQUE or noise-flagged subset — customization-bearing.
+        # Ordering: transfer + verify -> pre-image backup (abort on
+        # failure) -> adoption write -> ONLY on success the
+        # DISPOSITIONS row + transferred bookkeeping. A failed
+        # transfer or backup must never destroy the only copy; a
+        # failed adoption write must never leave a false log row.
+        transfer_path = _transfer_customization(
+            cfg, filename, "rule", installed_raw, verdict,
+            from_version, to_version,
+        )
+        if transfer_path is None or not _write_backup_preimage(
+                cfg, from_version, to_version, dst):
+            write_sidecar(dst, sidecar_dst, shipped_raw)
+        else:
+            try:
+                dst.write_text(render(shipped_raw, installed_raw), encoding="utf-8")
+            except OSError as exc:
+                print(
+                    f"  Warning: could not adopt shipped at {dst}: {exc}; "
+                    f"preserved in place (customization already transferred "
+                    f"to {transfer_path})",
+                    file=sys.stderr,
+                )
+                write_sidecar(dst, sidecar_dst, shipped_raw)
+            else:
+                _append_disposition_log(
+                    cfg, from_version, to_version, dst,
+                    "adopted shipped (customization transferred)",
+                    f"customization transferred to {transfer_path}")
+                refreshed.append(str(dst))
+                transferred.append((str(dst), str(transfer_path)))
+                if sidecar_dst.exists():
+                    sidecar_dst.unlink()
 
 
 def upgrade_artifacts(
@@ -249,87 +344,12 @@ def upgrade_artifacts(
                 # Bodies match after stripping per-project paths: — no rewrite needed.
                 unchanged.append(str(dst))  # FAST PATH — primitive NOT called
             else:
-                verdict = _classify_diverged(
-                    normalize_rule_for_diff(installed_raw),
-                    normalize_rule_for_diff(shipped_raw),
-                    override=_load_verdict_override(verdicts, filename, installed_raw, dst),
-                )
-                sidecar_dst = (
-                    conflict_dir / ".claude" / "rules" / "planwise" / f"{filename}.new")
-                if is_subset(verdict) and not (getattr(verdict, "notes", "") or ""):
-                    # Stale subset — adopt shipped in place, preserve the project
-                    # paths:. Non-empty notes = the matcher tolerated installed-only
-                    # content (sub-noise-floor fragments) — that flips to the
-                    # customization-bearing branch below: an overwrite must not
-                    # destroy a short customization without moving it first.
-                    # Failed backup = no destructive write.
-                    if not _write_backup_preimage(cfg, from_version, to_version, dst):
-                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                    else:
-                        preserved_paths = (
-                            _extract_paths_value(installed_raw)
-                            or resolve_rule_paths_value(cfg, paths_template))
-                        dst.write_text(
-                            update_frontmatter(shipped_raw, preserved_paths), encoding="utf-8")
-                        _append_disposition_log(
-                            cfg, from_version, to_version, dst, "auto-adopted shipped",
-                            "installed rule body was a stale subset of the grown shipped body")
-                        refreshed.append(str(dst))
-                        refreshed_subsets.append(str(dst))     # banner sub-count
-                        if sidecar_dst.exists():
-                            # A prior interrupted run flagged this file — the adoption
-                            # resolves that conflict; drop the obsoleted sidecar so a
-                            # stale INDEX row cannot invite merging outdated content back.
-                            sidecar_dst.unlink()
-                elif _verdict_not_analyzed(verdict):
-                    # Degraded stand-in — the file was never analyzed, so the
-                    # automated transfer-then-adopt has no verdict evidence to
-                    # act on. Preserve in place + shipped sidecar (always safe).
-                    _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                elif not relocate_enabled:
-                    # customization_handoff is report/report+issue — conservative
-                    # mode: never auto-transfer or adopt over a customization-
-                    # bearing verdict. Preserve in place + shipped sidecar.
-                    _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                else:
-                    # HAS_UNIQUE or noise-flagged subset — customization-bearing.
-                    # Ordering: transfer + verify -> pre-image backup (abort on
-                    # failure) -> adoption write -> ONLY on success the
-                    # DISPOSITIONS row + transferred bookkeeping. A failed
-                    # transfer or backup must never destroy the only copy; a
-                    # failed adoption write must never leave a false log row.
-                    transfer_path = _transfer_customization(
-                        cfg, filename, "rule", installed_raw, verdict,
-                        from_version, to_version,
-                    )
-                    if transfer_path is None or not _write_backup_preimage(
-                            cfg, from_version, to_version, dst):
-                        _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                    else:
-                        preserved_paths = (
-                            _extract_paths_value(installed_raw)
-                            or resolve_rule_paths_value(cfg, paths_template))
-                        try:
-                            dst.write_text(
-                                update_frontmatter(shipped_raw, preserved_paths),
-                                encoding="utf-8")
-                        except OSError as exc:
-                            print(
-                                f"  Warning: could not adopt shipped at {dst}: {exc}; "
-                                f"preserved in place (customization already transferred "
-                                f"to {transfer_path})",
-                                file=sys.stderr,
-                            )
-                            _write_conflict_sidecar(dst, sidecar_dst, shipped_raw)
-                        else:
-                            _append_disposition_log(
-                                cfg, from_version, to_version, dst,
-                                "adopted shipped (customization transferred)",
-                                f"customization transferred to {transfer_path}")
-                            refreshed.append(str(dst))
-                            transferred.append((str(dst), str(transfer_path)))
-                            if sidecar_dst.exists():
-                                sidecar_dst.unlink()
+                _resolve_diverged_rule(
+                    cfg, from_version, to_version, filename, dst, shipped_raw, installed_raw,
+                    lambda s, i, t=paths_template: update_frontmatter(
+                        s, _extract_paths_value(i) or resolve_rule_paths_value(cfg, t)),
+                    verdicts, conflict_dir, relocate_enabled, _write_conflict_sidecar,
+                    refreshed, refreshed_subsets, transferred)
         except OSError as exc:
             # Per-file containment: a read-only/locked file must not abort the
             # whole refresh mid-loop with earlier dispositions unreported.
@@ -338,8 +358,29 @@ def upgrade_artifacts(
                 file=sys.stderr,
             )
 
+    # --- style rules: an edited managed copy takes the same dispositions ---
+    import style_rules  # lazy: style_rules is a leaf that must not load at import time
+    for filename, _key in style_rules.enabled_style_rules(cfg):
+        dst = style_rules.installed_path(cfg, filename)
+        try:
+            if style_rules.other_managed_path(cfg, filename).is_file() or not dst.is_file() or dst.is_symlink():
+                continue
+            shipped_raw = style_rules.shipped_path(cfg, filename).read_text(encoding="utf-8-sig")
+            installed_raw = dst.read_text(encoding="utf-8-sig")
+            if normalize_rule_for_diff(shipped_raw) != normalize_rule_for_diff(installed_raw):
+                _resolve_diverged_rule(
+                    cfg, from_version, to_version, filename, dst, shipped_raw, installed_raw,
+                    lambda s, i: update_frontmatter(s, p) if (p := _extract_paths_value(i)) else s,
+                    verdicts, conflict_dir, relocate_enabled,
+                    _write_conflict_sidecar, refreshed, refreshed_subsets, transferred)
+        except (OSError, ValueError) as exc:
+            print(f"  Warning: could not upgrade {dst}: {exc}; installed file left untouched",
+                  file=sys.stderr)
+
     # --- Untracked detection ---
-    rule_allowlist = {r[0] for r in INSTALLED_RULES}
+    # Both style filenames are allowed whatever their keys read: an edited copy
+    # kept under an `off` key must not be reported as untracked.
+    rule_allowlist = {r[0] for r in INSTALLED_RULES} | {n for n, _key in style_rules.STYLE_RULES}
 
     for md_file in rules_dst_dir.glob("*.md"):
         if md_file.name not in rule_allowlist:
@@ -397,7 +438,11 @@ def _repoint_plugin_root(config_path: Path, new_root: Path) -> None:
     # Fallback — append the key as text after the existing top-level set.
     data = yaml.safe_load(text) or {}
     if not isinstance(data, dict):
-        raise RuntimeError(f"{config_path} is not a YAML mapping — cannot repoint plugin_root.")
+        # RuntimeError, not TypeError: kept consistent with config_gen's sibling
+        # guards, which callers up the stack catch as RuntimeError specifically.
+        raise RuntimeError(  # noqa: TRY004
+            f"{config_path} is not a YAML mapping — cannot repoint plugin_root."
+        )
     write_config_checked(
         config_path,
         text.rstrip("\n") + f'\n\nplugin_root: "{posix_root}"\n',
@@ -454,6 +499,49 @@ def _same_path(a: "str | Path", b: "str | Path") -> bool:
     writes.
     """
     return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(os.path.normpath(str(b)))
+
+
+def _version_tuple(version: str) -> "tuple[int, ...] | None":
+    """Return a dotted version string as a tuple of ints, or None when it is
+    not purely numeric per component.
+
+    Used to compare a config's pinned `plugin_version` against the executing
+    plugin's own version by DIRECTION, not merely for inequality. The
+    comparison must be per-component and numeric: compared as strings,
+    `"1.0.10" < "1.0.9"` is True, so a lexical test would read a genuine
+    upgrade as a downgrade on the tenth patch release of any minor line.
+
+    Component count varies in the wild (`0.0.0` is the never-pinned sentinel,
+    and a hotfix ships as a four-component `1.0.5.1`), so callers compare the
+    tuples after zero-padding the shorter one — `(1, 0, 5)` and `(1, 0, 5, 1)`
+    must not compare equal, and the four-component form must sort ABOVE the
+    three-component one.
+
+    Returns None for a component that is not a plain non-negative integer (a
+    pre-release suffix, a git describe string, an empty component). A caller
+    that gets None cannot establish a direction and MUST NOT refuse on that
+    basis: an unparseable version is an unknown direction, never a proven
+    backwards one.
+    """
+    parts = str(version).split(".")
+    if not parts or any(not p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def _compare_versions(pinned: str, target: str) -> "int | None":
+    """Return -1 / 0 / 1 for pinned <, ==, > target, or None when either
+    version is not numerically comparable.
+
+    Zero-pads the shorter tuple so component counts may differ.
+    """
+    a, b = _version_tuple(pinned), _version_tuple(target)
+    if a is None or b is None:
+        return None
+    width = max(len(a), len(b))
+    a += (0,) * (width - len(a))
+    b += (0,) * (width - len(b))
+    return (a > b) - (a < b)
 
 
 # Recovery-artifact disposition classes — see _scan_recovery_artifacts() /
@@ -546,6 +634,15 @@ def _emit_recovery_artifacts_banner(surfaces: list[tuple[str, int, str]]) -> Non
     scale with upgrade COUNT never go unreported (see
     RECOVERY_ARTIFACT_CLASSES for what each class means and when it is safe
     to act).
+
+    A populated banner closes with one reassurance line. The classes above
+    say what each surface IS and when it is safe to act, but a user reading
+    an unfamiliar directory list still has to rule out the worse
+    possibility — that one of these is load-bearing and deleting it breaks
+    the install. Nothing here is: the transfer documents live outside
+    `.claude/rules/` by construction, and every other surface is a copy or a
+    spent cache. Saying so once, in the banner, is what lets the whole
+    question be answered without opening the handler.
     """
     print("Recovery artifacts:")
     if not surfaces:
@@ -554,6 +651,10 @@ def _emit_recovery_artifacts_banner(surfaces: list[tuple[str, int, str]]) -> Non
         return
     for path, count, klass in surfaces:
         print(f"  {path} ({count} file(s)) — {klass}: {RECOVERY_ARTIFACT_CLASSES[klass]}")
+    print(
+        "  Nothing above is loaded as a rule or needed for planwise to run — "
+        "keeping or deleting is housekeeping only."
+    )
     print()
 
 
@@ -587,8 +688,96 @@ def _split_formerly_managed(
     return still_untracked, formerly_managed
 
 
-def _run_upgrade(cfg: "InitConfig") -> int:
-    """Execute the --upgrade flow and print a banner. Returns exit code."""
+def _apply_feedback_dir(cfg: "InitConfig", config_path: Path) -> None:
+    """Backfill `project.feedback_dir` and create the resolved directory.
+
+    Delegates the key backfill to init_project's own `_backfill_feedback_dir`
+    (the leave-and-re-point disposition already implements the never-moves
+    guarantee there — this function does not reimplement it) and then closes
+    the second half of the contract that helper does not cover: creating the
+    resolved directory when it is still absent, the same way
+    `create_directories()` does for a fresh `/planwise init`. Runs on every
+    `--upgrade` path that reaches an existing config, including the
+    already-up-to-date early return, so a re-run at a current pin still
+    closes the gap for an install that predates the key.
+
+    Deferred import, not a module-level one: `_backfill_feedback_dir` is
+    defined in init_project.py AFTER the line that imports THIS module
+    (artifact_upgrade), so resolving it at module load time would raise
+    ImportError against a partially-initialized module. By the time this
+    function is actually called, init_project has finished loading.
+    """
+    from init_project import _backfill_feedback_dir
+
+    notice = _backfill_feedback_dir(cfg, config_path)
+    if notice:
+        print(notice)
+
+    try:
+        parsed = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, OSError):
+        parsed = {}
+    project = parsed.get("project") if isinstance(parsed, dict) else None
+    feedback_rel = (project or {}).get("feedback_dir") or cfg.feedback_dir
+    feedback_dir_path = cfg.project_root / cfg.planwise_root / feedback_rel
+    already_present = feedback_dir_path.is_dir()
+    feedback_dir_path.mkdir(parents=True, exist_ok=True)
+    state = "already present" if already_present else "created"
+    print(f"Feedback directory: {state} ({feedback_dir_path})")
+
+
+def _run_upgrade(
+    cfg: "InitConfig",
+    expected_pair: "tuple[str, str] | None" = None,
+    allow_downgrade: bool = False,
+    backlog_reconcile: "str | None" = None,
+    lessons_reconcile: "str | None" = None,
+) -> int:
+    """Execute the --upgrade flow and print a banner. Returns exit code.
+
+    `backlog_reconcile` forwards to `migrate_backlog_if_legacy()`'s own
+    `reconcile` kwarg (None defaults to "index-wins" there) -- the backlog-
+    index retrofit runs on BOTH exits of this function (the already-up-to-
+    date early return and the main upgrade path), shape-triggered rather
+    than version-gated, so a refused migration re-fires on the next run.
+
+    `lessons_reconcile` forwards to `migrate_lessons_if_legacy()`'s own
+    `reconcile` kwarg the same way, on the same two exits, right after the
+    backlog retrofit on each.
+
+    The upgrade version pair (config.yaml's pinned plugin_version -> the
+    installed plugin's plugin.json version) is resolved ONCE, right below,
+    and every pair-scoped path this run touches derives from that single
+    resolution: the verdict cache the artifact refresh and the de-scope
+    migration read, its retirement after the run, and the backup / transfer
+    / conflict directories.
+
+    `expected_pair` is the pair the interactive handler pinned at the start
+    of its own run (``--upgrade-pair FROM-to-TO``). When it is given and
+    disagrees with the live resolution the run is REFUSED before any write
+    (exit 2): the comparator fan-out analyzed the shipped bodies of the
+    pinned pair and wrote its verdicts under that pair's path, so a plugin
+    cache that moved mid-session would otherwise retarget both silently —
+    the cache missed (degrading to the inline primitive), and a shipped body
+    adopted that no comparator analyzed. Headless runs pass None: the pair
+    is still resolved once and recorded in the banner.
+
+    `allow_downgrade` opts a run into the BACKWARDS direction. Without it a
+    run whose pinned version is NEWER than the executing plugin's is refused
+    (exit 2) before any write. This script is a documented, directly-runnable
+    entry point — every handler invokes it as a plain `python …/init_project.py
+    … --upgrade` — so nothing stops a user, a wrapper script, or a session that
+    resolved a superseded plugin root from handing it an older tree, and the
+    interactive front door's own "did you downgrade?" gate protects only
+    handler-mediated invocations. The script is non-interactive, so a
+    backwards run cannot be resolved by asking; the honest shapes are refuse,
+    or proceed on an explicit opt-in. Both are kept: the accidental case is
+    never silent, and the deliberate case stays possible. A sanctioned
+    downgrade takes the ordinary path and therefore reaches the same commit
+    point, writing `plugin_version` and `plugin_root` together in one write —
+    a half-written pair is the defect that pairing exists to prevent, and a
+    downgrade is not an exception to it.
+    """
     if not HAS_YAML:
         print(
             "Upgrade failed: PyYAML is required for --upgrade. Install with `pip install pyyaml`.",
@@ -613,6 +802,49 @@ def _run_upgrade(cfg: "InitConfig") -> int:
     pinned_version = str(user_cfg.get("plugin_version", "0.0.0"))
     target_version = cfg.plugin_version
 
+    # Refusal gate — BEFORE the already-up-to-date branch, which writes too
+    # (root repoint, Token Saver flip, feedback dir): a moved pair means no
+    # write of any kind until the handler re-pins from its Step 1.
+    if expected_pair is not None and (pinned_version, target_version) != tuple(expected_pair):
+        print(
+            "Upgrade refused: the handler pinned upgrade pair "
+            f"{expected_pair[0]}-to-{expected_pair[1]} at the start of this run, but the "
+            f"pair now resolves live as {pinned_version}-to-{target_version} "
+            "(config.yaml plugin_version vs the installed plugin's plugin.json). The "
+            "plugin cache or the version pin moved mid-session; nothing was written. "
+            "Re-run /planwise upgrade from Step 1 so the comparator fan-out and this "
+            "writer agree on one pair.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Direction gate — BEFORE the migrate phase and before the
+    # already-up-to-date branch, so a backwards run writes NOTHING by
+    # default. `pinned != target` was the script's only go-ahead condition
+    # until now, which made an older cache's --upgrade run a full upgrade
+    # backwards with no warning and no prompt. Unparseable versions yield
+    # None: an unknown direction is not a proven backwards one, so the run
+    # proceeds exactly as it did before rather than refusing on a guess.
+    direction = _compare_versions(pinned_version, target_version)
+    if direction == 1:
+        if not allow_downgrade:
+            print(
+                f"Upgrade refused: config.yaml pins plugin_version {pinned_version}, "
+                f"which is NEWER than the plugin executing this run ({target_version} "
+                f"at {cfg.plugin_root}) — this would run the upgrade backwards, "
+                "rewriting installed artifacts from the older tree and repointing "
+                "the config at it. Nothing was written. Either invoke the newer "
+                "plugin's own script, or pass --allow-downgrade to proceed "
+                "deliberately.",
+                file=sys.stderr,
+            )
+            return 2
+        print(
+            f"Downgrade authorized (--allow-downgrade): {pinned_version} -> "
+            f"{target_version} from {cfg.plugin_root}. Installed artifacts are "
+            "refreshed from the OLDER tree and the config is repointed at it."
+        )
+
     if pinned_version == target_version:
         # The version pin is current, but a SEPARATE key — plugin_root — can
         # still be stale: a legacy upgrade run (predating the commit point
@@ -633,6 +865,45 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         # token_saver key at a current version pin is already anomalous and
         # is repaired by the next real upgrade's merge.
         toggled = bool(cfg.token_saver) and _flip_token_saver_on(config_path)
+        # A re-run at a current pin must still close the feedback-dir gap for
+        # an install whose config predates the key — this is the ONLY
+        # opportunity that population gets, since the version pin already
+        # matches and the guarded block below never runs.
+        #
+        # verified_cli_version is deliberately NOT refreshed on this branch:
+        # an "already up to date, nothing else to do" re-run must stay a true
+        # no-op (see test_plugin_root_repoint.py's
+        # TestTokenSaverHonoredOnCurrentVersionBranch) rather than write on
+        # every invocation just because the live CLI build ticked forward.
+        # The refresh happens on an ACTUAL upgrade below (2d) and once at
+        # /planwise init — both real recalibration points.
+        _apply_feedback_dir(cfg, config_path)
+        report = migrate_backlog_if_legacy(
+            cfg, pinned_version, target_version, reconcile=backlog_reconcile)
+        _emit_backlog_migration_banner(report)
+        # 2e. Lessons-index retrofit, same shape and same pair as the backlog
+        # retrofit above -- never changes this branch's return code either.
+        _lessons_report = migrate_lessons_if_legacy(
+            cfg, pinned_version, target_version, reconcile=lessons_reconcile)
+        _emit_lessons_migration_banner(_lessons_report)
+        # 2f. Plans-index retrofit: re-fires on a hand-shaped index, silent on
+        # a generated one, never changes this branch's return code.
+        try:
+            _emit_plans_migration_banner(
+                migrate_plans_if_legacy(cfg, pinned_version, target_version))
+        except Exception as exc:  # noqa: BLE001 -- never change the exit code
+            print(f"  Warning: plans index migration step raised unexpectedly: {exc}",
+                  file=sys.stderr)
+        # Style rules: act on each switch and keep one copy across scopes. An
+        # edited copy is reported and left alone, and config.yaml is not written.
+        try:
+            import style_rules
+            style_rows = style_rules.reconcile_style_switches(cfg, pinned_version, target_version)
+            style_rows += style_rules.sync_cross_scope(cfg, pinned_version, target_version)
+            for line in style_rules.format_reconcile_lines(style_rows):
+                print(line)
+        except Exception as exc:  # noqa: BLE001 -- never change the exit code
+            print(f"  Warning: style rule step raised unexpectedly: {exc}", file=sys.stderr)
         if needs_repoint:
             _repoint_plugin_root(config_path, cfg.plugin_root)
             print(f"Plugin version: {pinned_version}")
@@ -648,6 +919,17 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         return 0
 
     print(f"Plugin upgrade: {pinned_version} -> {target_version}")
+    # The pair is resolved exactly once (above) and every pair-scoped path
+    # below derives from it. `verdicts_path` is the SAME object the cache
+    # readers resolve to and the retirement step (4b) renames — recorded in
+    # the banner so the transcript shows which pair this run consumed under.
+    verdicts_path = verdicts_cache_path(cfg, pinned_version, target_version)
+    cache_state = "present" if verdicts_path.exists() else "absent"
+    pin_note = " — matches --upgrade-pair" if expected_pair is not None else ""
+    print(
+        f"Upgrade pair: {pinned_version}-to-{target_version} "
+        f"(resolved once for this run{pin_note}; verdict cache {cache_state}: {verdicts_path})"
+    )
     print()
 
     # 2. Run additive config merge.
@@ -690,6 +972,72 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         # preserving any user-customised content verbatim.
         lessons_boot = bootstrap_lessons_artifacts(cfg)
         _emit_lessons_bootstrap_banner(lessons_boot)
+
+        # 2c. Backfill project.feedback_dir (leave-and-re-point disposition)
+        # and create the resolved directory if absent. `project` is not one
+        # of MIGRATABLE_TOP_LEVEL_KEYS, so the migrate_config() call above
+        # never touches it and never creates the directory either — this is
+        # the only place in the --upgrade path that closes both gaps.
+        _apply_feedback_dir(cfg, config_path)
+
+        # 2d. Refresh context.verified_cli_version against the CLI build this
+        # run is actually executing under — an upgrade is a natural
+        # recalibration point regardless of which plugin_version pair moved.
+        # A probe failure ("" returned) leaves the existing value untouched.
+        _refreshed_cli = refresh_verified_cli_version(config_path)
+        if _refreshed_cli:
+            print(f"Verified CLI version: {_refreshed_cli} (probed via `claude --version`)")
+            print()
+
+        # Backlog-index retrofit: migrate a hand-authored backlog index
+        # (or re-split an over-budget changelog on an already-generated one)
+        # before the artifact refresh below. migrate_backlog_if_legacy()
+        # never raises and never changes this run's exit code by contract —
+        # wrapped in its own try/except anyway, since a defect in it must
+        # never abort an upgrade that has already started writing.
+        try:
+            _backlog_report = migrate_backlog_if_legacy(
+                cfg, pinned_version, target_version, reconcile=backlog_reconcile)
+            _emit_backlog_migration_banner(_backlog_report)
+        except Exception as exc:  # noqa: BLE001 -- the retrofit must never abort an upgrade
+            print(
+                f"  Warning: backlog index migration step raised unexpectedly: {exc}",
+                file=sys.stderr,
+            )
+
+        # 2e. Lessons-index retrofit, same contract as the backlog retrofit
+        # above -- never raises, never changes this run's exit code -- run
+        # right after it and before the artifact refresh below.
+        try:
+            _lessons_report = migrate_lessons_if_legacy(
+                cfg, pinned_version, target_version, reconcile=lessons_reconcile)
+            _emit_lessons_migration_banner(_lessons_report)
+        except Exception as exc:  # noqa: BLE001 -- the retrofit must never abort an upgrade
+            print(
+                f"  Warning: lessons index migration step raised unexpectedly: {exc}",
+                file=sys.stderr,
+            )
+
+        # 2f. Plans-index retrofit, same contract as 2e: re-fires on a
+        # hand-shaped index, silent on a generated one, never changes the exit code.
+        try:
+            _emit_plans_migration_banner(
+                migrate_plans_if_legacy(cfg, pinned_version, target_version))
+        except Exception as exc:  # noqa: BLE001 -- never abort an upgrade
+            print(f"  Warning: plans index migration step raised unexpectedly: {exc}",
+                  file=sys.stderr)
+
+        # 2g. Style rules: act on each config switch, then keep one copy of an
+        # enabled rule across scopes. Runs before the refresh so an absent copy
+        # is installed first.
+        import style_rules
+        try:
+            style_rows = style_rules.reconcile_style_switches(cfg, pinned_version, target_version, True)
+            style_rows += style_rules.sync_cross_scope(cfg, pinned_version, target_version)
+            for line in style_rules.format_reconcile_lines(style_rows):
+                print(line)
+        except Exception as exc:  # noqa: BLE001 -- never abort an upgrade
+            print(f"  Warning: style rule step raised unexpectedly: {exc}", file=sys.stderr)
 
         # 3. Refresh artifacts.
         manifest = load_artifact_manifest(cfg.plugin_root)
@@ -768,11 +1116,8 @@ def _run_upgrade(cfg: "InitConfig") -> int:
         # against; once this run has consumed it, leaving it in place would
         # let a stale verdict fire on a later re-run or a different pair.
         # Renamed (not deleted) so the analysis remains inspectable next to
-        # INDEX.md.
-        verdicts_path = (
-            cfg.project_root / cfg.planwise_root / "upgrade-conflicts"
-            / f"{pinned_version}-to-{target_version}" / "verdicts.json"
-        )
+        # INDEX.md. `verdicts_path` is the single per-run resolution from the
+        # banner above — the path the readers consumed, never re-derived.
         if verdicts_path.exists():
             try:
                 consumed_path = verdicts_path.with_name("verdicts.json.consumed")
@@ -809,6 +1154,11 @@ def _run_upgrade(cfg: "InitConfig") -> int:
             print(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
             print()
 
+        # 5b. One notice when this run added the `style:` block. Silent otherwise.
+        style_notice = style_rules.style_announcement(cfg, added)
+        if style_notice:
+            print("\n".join(style_notice) + "\n")
+
         # 6. Commit point: pin plugin_version AND repoint plugin_root
         # together, in ONE write, LAST — see _commit_upgrade_pin(). Never
         # split into two writes here: a config left with a bumped version but
@@ -827,5 +1177,38 @@ def _run_upgrade(cfg: "InitConfig") -> int:
             file=sys.stderr,
         )
         raise
+
+
+# These three sit below the definitions: each one reaches init_project, which
+# re-exports names from this module, so the names must exist first.
+try:
+    from init_project import (
+        INSTALLED_RULES,
+        resolve_rule_paths_value,
+        update_frontmatter,
+    )
+except ImportError as exc:
+    raise ImportError(
+        "init_project is required for artifact_upgrade's INSTALLED_RULES table "
+        "(R1: the tuple stays on the residual) and its rule-write helper; "
+        "the scripts/ directory appears to be partially installed"
+    ) from exc
+
+try:
+    from rule_descope_migration import migrate_installed_rules
+except ImportError as exc:
+    raise ImportError(
+        "rule_descope_migration is required for artifact_upgrade's post-refresh "
+        "de-scope migration step; the scripts/ directory appears to be "
+        "partially installed"
+    ) from exc
+
+try:
+    from doctor_sweeps import lint_rule_overscope
+except ImportError as exc:
+    raise ImportError(
+        "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "
+        "advisory; the scripts/ directory appears to be partially installed"
+    ) from exc
 
 

@@ -22,7 +22,7 @@ from pathlib import Path
 # tests/ — mirrors the sibling test modules' self-locating sys.path line.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from conftest import _engine  # noqa: E402
+from conftest import _engine
 
 
 # ---------------------------------------------------------------------------
@@ -56,55 +56,91 @@ class TestReadLimits(unittest.TestCase):
         self.assertEqual(ts.DEFAULT_BYTES_PER_TOKEN, 2.6)
         # Structural pins: opus and fable share a tokenizer (measured — the
         # identical file produced the identical token count), and every
-        # family's densest class (dense-md) is its smallest ratio.
+        # family's densest TEXT class (dense-md) is the no-class fallback.
+        # The structured classes (notebook, json) sit BELOW it — they are
+        # extension-identified, never guessed, so they stay out of the
+        # fallback rather than inflating every markdown estimate.
         self.assertEqual(ts.BYTES_PER_TOKEN["opus"], ts.BYTES_PER_TOKEN["fable"])
+        self.assertEqual(ts.FALLBACK_CONTENT_CLASS, "dense-md")
+        text_classes = ("dense-md", "prose", "code")
         for family, ratios in ts.BYTES_PER_TOKEN.items():
             self.assertEqual(
-                min(ratios.values()), ratios["dense-md"],
-                f"{family}: dense-md must be the gate-conservative (smallest) ratio",
+                min(ratios[c] for c in text_classes), ratios["dense-md"],
+                f"{family}: dense-md must be the gate-conservative text ratio",
             )
-        # The overall most-restrictive measured ratio is the default.
+            for structured in ("notebook", "json"):
+                self.assertIn(structured, ratios, f"{family} lacks the {structured} cell")
+                self.assertLess(
+                    ratios[structured], ratios["dense-md"],
+                    f"{family}: {structured} measured denser than dense-md",
+                )
+        # The overall most-restrictive measured TEXT ratio is the default.
         self.assertEqual(
             ts.DEFAULT_BYTES_PER_TOKEN,
-            min(r for fam in ts.BYTES_PER_TOKEN.values() for r in fam.values()),
+            min(fam["dense-md"] for fam in ts.BYTES_PER_TOKEN.values()),
         )
 
     def test_cross_model_ratio_band(self):
-        """Opus token count must be 1.4–1.55× Sonnet for the same file.
+        """Opus token count must be 1.25–1.45× Haiku for the same file.
+
+        The tokenizer splits by model GENERATION, not by model size: Opus 5,
+        Sonnet 5 and Fable 5 report the same token count for the same file, and
+        Haiku 4.5 alone is lighter. So the drift signal is the Claude 5 family
+        against Haiku (measured 1.31–1.38× across the three content classes),
+        plus exact equality inside the family.
 
         The bytes-per-token ratios are content-class averages — they are NOT
-        expected to match any single fixture exactly. The cross-family band
-        (measured ~1.44–1.54× on same-file A/Bs) is the correct drift signal:
-        assert direction + band, not an absolute per-byte rate.
+        expected to match any single fixture exactly. Assert direction + band,
+        never an absolute per-byte rate.
         """
         ts = _engine()
         path = self._write_lines("ratio_probe.txt", 500)
-        sonnet_tokens = ts.classify_file(path, "sonnet")["tokens"]
+        haiku_tokens = ts.classify_file(path, "haiku")["tokens"]
         opus_tokens = ts.classify_file(path, "opus")["tokens"]
-        ratio = opus_tokens / sonnet_tokens
+        ratio = opus_tokens / haiku_tokens
         self.assertGreaterEqual(
-            ratio, 1.4,
-            f"Opus/Sonnet token ratio must be ≥ 1.4 (got {ratio:.3f})"
+            ratio, 1.25,
+            f"Opus/Haiku token ratio must be ≥ 1.25 (got {ratio:.3f})"
         )
         self.assertLessEqual(
-            ratio, 1.55,
-            f"Opus/Sonnet token ratio must be ≤ 1.55 (got {ratio:.3f})"
+            ratio, 1.45,
+            f"Opus/Haiku token ratio must be ≤ 1.45 (got {ratio:.3f})"
         )
-        # Fable shares the opus tokenizer — identical estimate for the same file.
-        fable_tokens = ts.classify_file(path, "fable")["tokens"]
-        self.assertEqual(fable_tokens, opus_tokens)
+        # Sonnet and Fable share the opus tokenizer — identical estimate for
+        # the same file. A drift here means a family regrouped.
+        for peer in ("sonnet", "fable"):
+            self.assertEqual(
+                ts.classify_file(path, peer)["tokens"], opus_tokens,
+                f"{peer} must estimate identically to opus (same tokenizer)",
+            )
 
     def test_bytes_per_token_helper(self):
         ts = _engine()
         # Unknown/absent model → the overall most-restrictive default.
         self.assertEqual(ts.bytes_per_token(), ts.DEFAULT_BYTES_PER_TOKEN)
         self.assertEqual(ts.bytes_per_token("nonexistent"), ts.DEFAULT_BYTES_PER_TOKEN)
-        # Model without a content class → that family's smallest ratio.
+        # Absent model + named class → that class's most restrictive family
+        # cell, so an auto-detected notebook is never priced as text.
         self.assertEqual(
-            ts.bytes_per_token("sonnet"), min(ts.BYTES_PER_TOKEN["sonnet"].values())
+            ts.bytes_per_token(None, "notebook"),
+            min(fam["notebook"] for fam in ts.BYTES_PER_TOKEN.values()),
+        )
+        self.assertEqual(ts.bytes_per_token(None, "bogus"), ts.DEFAULT_BYTES_PER_TOKEN)
+        # Model without a content class → that family's text fallback
+        # (dense-md), NOT the family minimum: the json cell is smaller and
+        # must stay unreachable without naming it.
+        self.assertEqual(
+            ts.bytes_per_token("sonnet"), ts.BYTES_PER_TOKEN["sonnet"]["dense-md"]
+        )
+        self.assertLess(
+            ts.BYTES_PER_TOKEN["sonnet"]["json"], ts.bytes_per_token("sonnet")
         )
         # Model + content class → the exact cell.
         self.assertEqual(ts.bytes_per_token("opus", "prose"), ts.BYTES_PER_TOKEN["opus"]["prose"])
+        self.assertEqual(ts.bytes_per_token("opus", "json"), ts.BYTES_PER_TOKEN["opus"]["json"])
+        self.assertEqual(
+            ts.bytes_per_token("haiku", "notebook"), ts.BYTES_PER_TOKEN["haiku"]["notebook"]
+        )
         # estimate_tokens rounds up and degrades to 0 on non-positive sizes.
         self.assertEqual(ts.estimate_tokens(0), 0)
         self.assertEqual(ts.estimate_tokens(-5), 0)
@@ -127,16 +163,17 @@ class TestReadLimits(unittest.TestCase):
     def test_per_model_token_gate(self):
         ts = _engine()
         # ~1,148 lines × 61 B/line ≈ 70,028 B — under the byte warn and the
-        # line window, but the opus/fable tokenizer (2.6 B/tok) estimates
-        # ~26.9K tokens (above the 25K page cap) while sonnet (3.7 B/tok)
-        # estimates ~18.9K (below the 22K warn).
+        # line window, but the Claude 5 tokenizer (2.6 B/tok) estimates ~26.9K
+        # tokens (above the 25K page cap) while haiku (3.5 B/tok) estimates
+        # ~20.0K (below the 22K warn). Haiku is the lighter family here;
+        # sonnet shares the opus tokenizer and trips the same gate.
         path = self._write_lines("mid.txt", 1148)
-        sonnet = ts.classify_file(path, "sonnet")
+        haiku = ts.classify_file(path, "haiku")
         opus = ts.classify_file(path, "opus")
         self.assertNotEqual(
-            sonnet["level"],
+            haiku["level"],
             "Critical",
-            "sonnet must stay below the token page-cap for a ~70 KB file",
+            "haiku must stay below the token page-cap for a ~70 KB file",
         )
         self.assertEqual(
             opus["level"],
@@ -219,6 +256,48 @@ class TestReadLimits(unittest.TestCase):
         self.assertEqual(result["bytes"], os.path.getsize(path))
         self.assertGreater(result["tokens"], 0)
         self.assertEqual(result["lines"], 100)
+        # A text file has no extension-identified class → fallback (None).
+        self.assertIsNone(result["content"])
+
+    def test_content_class_for_path_identifies_structured_files_only(self):
+        ts = _engine()
+        self.assertEqual(ts.content_class_for_path("nb/analysis.ipynb"), "notebook")
+        self.assertEqual(ts.content_class_for_path("NB/ANALYSIS.IPYNB"), "notebook")
+        for name in ("data.json", "rows.jsonl", "rows.ndjson"):
+            self.assertEqual(ts.content_class_for_path(name), "json", name)
+        # Text and code extensions stay on the conservative fallback: an
+        # extension cannot tell prose from a dense table index.
+        for name in ("index.md", "notes.txt", "script.py", "README", "a.min.js"):
+            self.assertIsNone(ts.content_class_for_path(name), name)
+
+    def test_classify_file_auto_detects_notebook_and_json_unless_told(self):
+        ts = _engine()
+        # Same bytes under three names: the notebook and json names must
+        # estimate MORE tokens than the text fallback (denser classes), and
+        # an explicit content class must override the detection.
+        payload = b"a" * 52_000
+        txt = self._write_bytes("same.txt", len(payload))
+        nb = self._write_bytes("same.ipynb", len(payload))
+        js = self._write_bytes("same.json", len(payload))
+        fallback = ts.classify_file(txt, "opus")
+        notebook = ts.classify_file(nb, "opus")
+        json_file = ts.classify_file(js, "opus")
+        self.assertEqual(notebook["content"], "notebook")
+        self.assertEqual(json_file["content"], "json")
+        self.assertGreater(notebook["tokens"], fallback["tokens"])
+        self.assertGreater(json_file["tokens"], notebook["tokens"])
+        self.assertEqual(
+            notebook["tokens"], ts.estimate_tokens(len(payload), "opus", "notebook")
+        )
+        # Explicit class wins over the extension.
+        forced = ts.classify_file(nb, "opus", content="prose")
+        self.assertEqual(forced["content"], "prose")
+        self.assertEqual(forced["tokens"], ts.estimate_tokens(len(payload), "opus", "prose"))
+        # The detected class changes the verdict on a file near the cap:
+        # 52 KB is Green as text (2.6 → 20K) and Critical as json (2.0 → 26K).
+        self.assertEqual(fallback["level"], "Green")
+        self.assertEqual(json_file["level"], "Critical")
+        self.assertEqual(json_file["reason"], "read")
 
 
 if __name__ == "__main__":

@@ -29,11 +29,12 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import artifact_upgrade  # noqa: E402 -- patch-target home for the scan/banner/split functions under test
-import doctor_cli  # noqa: E402 -- patch-target home for the prune writer's shutil
+import artifact_upgrade
+import doctor_cli
+import doctor_sweeps
+import init_project as ip
 
-from conftest import _MigrationFixtureBase  # noqa: E402
+from conftest import _MigrationFixtureBase
 
 
 class _RecoveryArtifactFixtureMixin:
@@ -330,7 +331,7 @@ class TestPruneUpgradeLeftoversScope(_RecoveryArtifactFixtureMixin, _MigrationFi
         self.assertIn("## Preserved (3)", log_text)
 
     def _leftovers_log_dir(self, suffix=""):
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         return self._planwise_root() / "upgrade-prune-logs" / f"upgrade-leftovers-{today}{suffix}"
 
     def test_prune_upgrade_leftovers_log_does_not_collide_with_prune_stale_log(self):
@@ -344,7 +345,7 @@ class TestPruneUpgradeLeftoversScope(_RecoveryArtifactFixtureMixin, _MigrationFi
 
         self.assertEqual((stale_exit, leftovers_exit), (0, 0))
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         stale_log = self._planwise_root() / "upgrade-backups" / f"prune-{today}" / "PRUNED.md"
         leftovers_log = self._leftovers_log_dir() / "PRUNED-LEFTOVERS.md"
 
@@ -456,9 +457,9 @@ class TestPruneUpgradeLeftoversScope(_RecoveryArtifactFixtureMixin, _MigrationFi
             return real_rmtree(path, *a, **kw)
 
         buf = io.StringIO()
-        with mock.patch.object(doctor_cli.shutil, "rmtree", rmtree_failing_partway):
-            with contextlib.redirect_stdout(buf):
-                self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        with mock.patch.object(doctor_cli.shutil, "rmtree", rmtree_failing_partway), \
+                contextlib.redirect_stdout(buf):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
 
         log_dir = self._leftovers_log_dir()
         preserved = list(log_dir.rglob("*.md"))
@@ -494,6 +495,124 @@ class TestPruneUpgradeLeftoversScope(_RecoveryArtifactFixtureMixin, _MigrationFi
         self.assertTrue(backup.parent.exists(), "an unconfirmed prunable class must be kept")
         self.assertTrue(transfer.exists(), "review-then-discard is never deletable, even if passed")
         self.assertTrue(sidecar.exists(), "action-required is never deletable, even if passed")
+
+
+class TestBannerAnswersTheHousekeepingQuestion(_RecoveryArtifactFixtureMixin,
+                                               _MigrationFixtureBase):
+    """The class label says what a surface IS and when it is safe to act.
+    It does not rule out the worse possibility a user has to consider when
+    reading an unfamiliar directory list: that one of these is load-bearing
+    and deleting it breaks the install. The banner closes by saying so, so
+    the transfers-vs-backups question is answerable without opening the
+    handler."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def _banner(self, surfaces) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            artifact_upgrade._emit_recovery_artifacts_banner(surfaces)
+        return buf.getvalue()
+
+    def test_populated_banner_closes_with_the_housekeeping_line(self):
+        self.write_backup(self.PAIR)
+        self.write_transfer(self.PAIR)
+
+        stdout = self._banner(artifact_upgrade._scan_recovery_artifacts(self.cfg))
+
+        self.assertIn(
+            "Nothing above is loaded as a rule or needed for planwise to run", stdout
+        )
+        self.assertIn("housekeeping only", stdout)
+
+    def test_the_line_comes_after_every_surface(self):
+        # "Nothing ABOVE" is only true if it is last.
+        self.write_backup(self.PAIR)
+        self.write_transfer(self.PAIR)
+
+        stdout = self._banner(artifact_upgrade._scan_recovery_artifacts(self.cfg))
+        lines = [ln for ln in stdout.splitlines() if ln.strip()]
+
+        self.assertIn("housekeeping only", lines[-1])
+
+    def test_empty_banner_omits_the_line(self):
+        # Nothing to reassure the user about when no surface exists.
+        stdout = self._banner(artifact_upgrade._scan_recovery_artifacts(self.cfg))
+
+        self.assertIn("None found.", stdout)
+        self.assertNotIn("housekeeping", stdout)
+
+
+class TestLeftoverSweepReportsBytes(_RecoveryArtifactFixtureMixin,
+                                    _MigrationFixtureBase):
+    """A file count says how much there is to review. Only a byte total says
+    how much a prune reclaims, and the two do not track each other."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def test_every_finding_carries_a_byte_total_matching_its_files(self):
+        self.write_backup(self.PAIR, content=b"x" * 300)
+        self.write_transfer(self.PAIR, content="y" * 40)
+
+        findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+
+        by_surface = {f["surface"]: f for f in findings}
+        self.assertEqual(by_surface["upgrade-backups"]["bytes"], 300)
+        self.assertEqual(by_surface["upgrade-transfers"]["bytes"], 40)
+
+    def test_count_and_bytes_are_independent(self):
+        # Many tiny files against one large one: a count-only report would
+        # rank these the wrong way round for a caller deciding what to prune.
+        for i in range(5):
+            self.write_consumed_cache(f"1.0.{i}-to-1.1.0")
+        self.write_backup(self.PAIR, content=b"z" * 5000)
+
+        findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+        inert = [f for f in findings if f["klass"] == "inert"]
+        backups = [f for f in findings if f["klass"] == "safe-to-discard"]
+
+        self.assertEqual(sum(f["count"] for f in inert), 5)
+        self.assertEqual(sum(f["count"] for f in backups), 1)
+        self.assertGreater(
+            sum(f["bytes"] for f in backups), sum(f["bytes"] for f in inert),
+            "the single large backup must outweigh five tiny cache markers",
+        )
+
+    def test_a_stat_failure_undercounts_rather_than_aborting(self):
+        # A read-only diagnostic must still report when one file refuses a
+        # stat mid-sweep — specifically the explicit `f.stat().st_size` call
+        # `_bytes_of()` guards with its own try/except OSError.
+        #
+        # On Python 3.13+, Path.is_file() (used by the sweep's own rglob
+        # filter, BEFORE _bytes_of ever runs) routes internally through
+        # self.stat(follow_symlinks=follow_symlinks) -- a bare
+        # mock.patch.object(Path, "stat", ...) intercepts that call too, and
+        # since is_file()'s caller has no try/except, the simulated OSError
+        # escaped uncaught and aborted the whole sweep before the code under
+        # test was ever reached. The discriminator below narrows the mock to
+        # the explicit, no-argument `.stat()` call _bytes_of() makes: pathlib
+        # internals always pass `follow_symlinks` explicitly, so an empty
+        # args/kwargs pair is diagnostic of the guarded call site, never of
+        # is_file()'s internal one.
+        self.write_backup(self.PAIR, content=b"x" * 100)
+        real_stat = Path.stat
+
+        def flaky_stat(self_path, *args, **kwargs):
+            if self_path.name == "somefile.md" and not args and not kwargs:
+                raise OSError("simulated stat failure")
+            return real_stat(self_path, *args, **kwargs)
+
+        with mock.patch.object(Path, "stat", flaky_stat):
+            findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["count"], 1, "the file is still counted")
+        self.assertEqual(findings[0]["bytes"], 0, "its size degrades to zero, not a crash")
+
+    def test_format_bytes_uses_binary_units(self):
+        self.assertEqual(doctor_sweeps.format_bytes(512), "512 B")
+        self.assertEqual(doctor_sweeps.format_bytes(1536), "1.5 KiB")
+        self.assertEqual(doctor_sweeps.format_bytes(3 * 1024 * 1024), "3.0 MiB")
 
 
 if __name__ == "__main__":

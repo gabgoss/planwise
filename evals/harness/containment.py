@@ -19,9 +19,9 @@ different halves of that threat:
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 
 def a4b_scan(parent: Path, case_dir: Path, exclude: Iterable[Path] = ()) -> list[Path]:
@@ -113,6 +113,7 @@ def _run_git_status(repo: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None

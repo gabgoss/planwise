@@ -42,6 +42,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
+from markdown_parser import split_row_cells
 
 BLOCKING = {"M", "D", "R", "T"}  # modify / delete / rename / typechange
 
@@ -69,7 +70,10 @@ def _parse_tracking_table(text: str) -> list[list[str]] | None:
     idx += 1  # skip separator row
     rows = []
     while idx < len(lines) and lines[idx].strip().startswith("|"):
-        cells = [c.strip() for c in lines[idx].strip().strip("|").split("|")]
+        # An unescaped-pipe-aware split: a Summary File or Session cell may
+        # legitimately carry an escaped pipe, and a naive split there would
+        # shift every subsequent column right by one.
+        cells = split_row_cells(lines[idx])
         rows.append(cells)
         idx += 1
     return rows

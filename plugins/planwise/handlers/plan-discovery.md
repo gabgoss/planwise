@@ -139,7 +139,7 @@ Standard checklist applies, plus:
 [ ] Expected Consolidated Context Parts are defined with Scope values
 [ ] Source files are listed by reference in Master Plan
 [ ] Each Consolidated Context Part target is < 22K measured tokens (measure_files.py — OK on all three gates)
-[ ] Plans index updated with new row
+[ ] Plans index regenerated (generate_plans_index.py --write; no hand-written row)
 ```
 
 ## Discovery Step 7: Output Confirmation

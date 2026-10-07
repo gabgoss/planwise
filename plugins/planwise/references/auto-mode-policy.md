@@ -86,15 +86,45 @@ or
 <!-- AUTO-MODE: convenience -->
 ```
 
-Place the comment on the line immediately BEFORE the `AskUserQuestion` call or the
-descriptive block that introduces the question. This placement allows reviewer agents to
-grep for compliance:
+Place the comment on the line immediately BEFORE the `AskUserQuestion` call, or on the
+call line itself. A `<!-- Default: … -->` comment may sit between the marker and the call —
+that is the house style, and the compliance check allows for it.
+
+This placement lets a reviewer agent check compliance mechanically. Run from the plugin
+root:
 
 ```bash
-# Grep: verify every AskUserQuestion has an AUTO-MODE tag on the preceding line
-grep -B1 "AskUserQuestion" handlers/*.md | grep -v "AUTO-MODE:"
-# Output should be empty if all sites are tagged.
+# Every AskUserQuestion mention whose own line, and the two lines above it,
+# carry no AUTO-MODE marker. Run from the plugin root.
+awk '/AskUserQuestion/ && $0 !~ /AUTO-MODE:/ && p1 !~ /AUTO-MODE:/ && p2 !~ /AUTO-MODE:/ {
+       printf "%s:%d: %s\n", FILENAME, FNR, $0
+     }
+     { p2 = p1; p1 = $0 }' handlers/*.md
 ```
+
+**Reading the result.** Each printed line is a **candidate**, not a confirmed violation.
+Disposition every one of them as either:
+
+- a **call site** — an instruction to issue the question. Tag it. This is a defect.
+- a **non-call mention** — a cross-reference to a gate specified elsewhere, a negation
+  ("no `AskUserQuestion` is issued"), a retrospective reference ("the `AskUserQuestion`
+  turn"), or a WRONG/CORRECT exemplar. Leave it untagged. It is not a call site.
+
+The check deliberately does not try to separate those two classes itself. No lexical
+discriminator exists: `via` introduces a real call at one site and a prose aside at
+another, so any verb-based filter that suppressed the asides would also suppress real
+call sites. A compliance gate must fail toward over-reporting — a false positive costs one
+judgement, a false negative ships an untagged gate.
+
+> [!constraint] Prove the check discriminates before trusting a clean run
+> Run it against two fixtures — one where every site is tagged, one identical except that
+> a single site's marker is removed — and require the two runs to **differ**. A gate only
+> ever run against the live tree has never been shown to discriminate, and an empty result
+> from such a gate is not evidence of compliance.
+>
+> The check this replaced used a one-line context window and a line-wise filter. It could
+> not suppress a tagged site, so it returned its hits whether or not the tree was clean:
+> against a fully-tagged fixture it reported every site in the file.
 
 ### § Worked Example
 
@@ -126,8 +156,16 @@ When Auto Mode is active:
 
 ### § Inference Defaults
 
-These defaults apply to all convenience questions across all handlers. Handlers MUST NOT
-re-define these defaults locally — reference this table.
+This table is the single source for every convenience default. A row that names no handler
+applies wherever that variable is inferred. A row that names a handler and phase applies to
+that call site only.
+
+Two rules follow, and a handler must satisfy both:
+
+1. **Never re-define a default that has a row here.** Cite the row from the call site.
+2. **Never leave a default stated only in a handler comment.** Add the row. Otherwise a
+   consumer reading this table sees no default while a consumer reading the handler sees
+   one, which is the drift rule 1 exists to prevent.
 
 | Variable | Inference Rule |
 |----------|----------------|
@@ -140,4 +178,6 @@ re-define these defaults locally — reference this table.
 | Abbreviation | Derive from plan name: collect initial capitals of each word, pad or truncate to 2-4 chars. If collision detected in plans index, ESCALATE TO CRITICAL (cannot infer safely). |
 | Review approach (plan.md Step 10 Q1) | `auto-review in this session` (recommended option) |
 | Review context (plan.md Step 10 Q2) | `this session` (unless plan context exceeds heuristic: >3 sprints or >10 task files → `new session`) |
-| Lessons capture acknowledgment | `proceed without confirmation` |
+| Lessons capture acknowledgment | `No` — skip the capture prompt and proceed without confirmation. The user can invoke `/planwise lessons capture` separately. |
+| Triage route confirmation (backlog.md Phase 4) | Accept the Phase-3 recommended route (`DIRECT_FIX` / `TASK_LIST` / `SESSION_PLANNING`) |
+| Follow-up candidate filing (backlog.md Phase 7) | `skip all` — never file a backlog item unattended. The user invokes `/planwise backlog` explicitly to surface candidates. |

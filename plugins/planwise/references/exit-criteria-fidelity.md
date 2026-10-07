@@ -1,12 +1,12 @@
 ---
-description: Cross-layer enforcement of exit-criteria fidelity — binding-refinement callout echo across plan layers, "surfaces" as an enforceable claim not a mention, sprint-signoff verbatim quoting with a mechanical anchor per row, BLI-cited audit-anchor re-verification, and metric-definition verification before reproduction
+description: Cross-layer enforcement of exit-criteria fidelity — binding-refinement callout echo across plan layers, "surfaces" as an enforceable claim not a mention, sprint-signoff verbatim quoting with a mechanical anchor per row, BLI-cited audit-anchor re-verification, metric-definition verification before reproduction, filling the signoff at sprint close so a mechanical consumer never reads placeholders, and appending rather than inserting into an identifier sequence other files cite
 ---
 
 # Exit-Criteria Fidelity (Cross-Layer Enforcement)
 
-**Purpose:** Binding rules for cross-layer enforcement of exit-criteria fidelity (§16) — binding-refinement callout echo across plan layers, "surfaces" as an enforceable claim rather than a mention, sprint-signoff verbatim quoting with a mechanical anchor per row (including the BLI-Cited Audit-Anchor Re-Verification extension), and metric-definition verification before reproduction. Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
+**Purpose:** Binding rules for cross-layer enforcement of exit-criteria fidelity (§16) — binding-refinement callout echo across plan layers, "surfaces" as an enforceable claim rather than a mention, sprint-signoff verbatim quoting with a mechanical anchor per row (including the BLI-Cited Audit-Anchor Re-Verification extension), and metric-definition verification before reproduction. Two closeout-artifact rules close the section: §16.11 (fill the signoff at sprint close) and §16.12 (append, never insert, into a cited sequence). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
-This file is the §16 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §17-§20 live in [execution-time-binding-rules.md](execution-time-binding-rules.md). Extracted to keep all three files comfortably within a single Read call. Read it before authoring multi-layer binding refinements, BLOCKING-coverage task files, or sprint signoff checklists.
+This file is the §16 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §17-§21 live in [execution-time-binding-rules.md](execution-time-binding-rules.md). Extracted to keep all three files comfortably within a single Read call. Read it before authoring multi-layer binding refinements, BLOCKING-coverage task files, or sprint signoff checklists.
 
 ## Table of Contents
 
@@ -21,6 +21,8 @@ This file is the §16 segment of a 3-way split of `discovery-and-exit-criteria.m
   - [16.8 Sample-Stop Permitted on Converged Validation, With Annotation](#168-sample-stop-permitted-on-converged-validation-with-annotation)
   - [16.9 An Absence Criterion Must Exclude Its Enactor and Prove Its Ownership](#169-an-absence-criterion-must-exclude-its-enactor-and-prove-its-ownership)
   - [16.10 A Mechanical Anchor Checks the Form of the Check, Not the Truth of the Claim](#1610-a-mechanical-anchor-checks-the-form-of-the-check-not-the-truth-of-the-claim)
+  - [16.11 Fill the Signoff at Sprint Close — A Downstream Gate Reads the Artifact, Never the Intent](#1611-fill-the-signoff-at-sprint-close--a-downstream-gate-reads-the-artifact-never-the-intent)
+  - [16.12 Append, Never Insert, Into an Identifier Sequence Other Files Cite](#1612-append-never-insert-into-an-identifier-sequence-other-files-cite)
 
 ---
 
@@ -570,6 +572,111 @@ That combination is worse than a vague criterion, not better. A prose-only row g
 >
 > This is the counterpart to §16.4 and the two should be read together. §16.4 prevents a **false FAIL** — do the arithmetic before declaring a labelling difference a data divergence. §16.10.4 prevents a **false PASS** — no delta is reported until baseline reproduction succeeds against the old number.
 
+#### 16.10.5 A Criterion Counting Deliverables Cites the Table, Never a Copied Total
+
+§16.10.1 requires a literal in a criterion to carry its provenance. This subsection names the one literal whose provenance is almost always another copy of itself: the deliverable total.
+
+> [!constraint] An exit criterion counting deliverables names the table, not a number
+> A sprint's deliverable total belongs in exactly one place — as a caption of the Sprint Plan's `## Deliverables` table, derived by counting its rows. Every other artifact cites the table. An exit criterion that restates the number is a copy, and a copy drifts.
+>
+> - WRONG: `all 11 deliverables landed` — a literal with no derivation, satisfied by whichever copy the runner happens to read
+> - CORRECT: `every row of the Sprint Plan ## Deliverables table landed` — a relationship the table maintains, checkable without predicting a value
+>
+> **A restated decomposition sums where it is written, or it is not written.** If a criterion says "{a} edits + {b} creates", the classes MUST add to the table's total in that same clause. A decomposition stated in one artifact and re-derived in another is two claims, and nothing reconciles them.
+>
+> **Name the ledger treatment of the verified-absent class, or two artifacts reach two totals.** Deliverables in absence form — edits deliberately not taken, verified absent — are counted three defensible ways: one ledger row each, one aggregate row for the class, or a landed deliverable and a ledger row both. The Sprint Plan states which it chose. A criterion or sweep that assumes a different one lands on a different total from the same table.
+
+Why review is the wrong place to catch this: it is arithmetic, not judgement. The label is copied faster than it is checked, and each copy reads as authoritative because the other artifacts agree with it. In the observed instance five artifacts carried one stated total, three of them implied a different one, and the gate-defining criterion was among them. A runner recomputing the ledger had to either halt or manufacture a row to make the stated total true.
+
+Applies to:
+
+- Any exit criterion, Signoff anchor, or sweep task that counts deliverables, files touched, or rows landed.
+- The Sprint Plan `## Deliverables` block, which owns the total and is the only artifact permitted to state it.
+- Enforcement of the caption itself at scaffold time — see `references/scaffolding-hygiene.md` §12.7 and Reviewer Check 094, which check a caption count against the table it captions before the count is carried forward.
+
+#### 16.10.6 An Exit Criterion Is Dry-Run Pre-Change, and Accepts Every Branch Its Task Produces
+
+§16.10 opens with the rule that an anchor checks the form of a check rather than the truth of a claim. This subsection adds the two things that must be true of the check itself before the criterion ships.
+
+**Dry-run against the pre-change tree.** A criterion authored from the expected landed state has never been shown to discriminate. Run it before the work, and record what it returned beside the expectation it is meant to contradict.
+
+> [!constraint] A criterion that PASSES pre-change is a scaffold-time failure
+> The recorded pre-change value is what separates a working gate from one that was green before the sprint started. Where the value already satisfies the expectation, rewrite the criterion — raise the threshold past the measured baseline, or narrow the pattern to what the work introduces. Shipping it with a caveat is not an option, because a criterion that always passes displaces the one that would have caught the failure.
+>
+> The same recorded value is the Before baseline. A criterion asserting "unchanged vs Before" or "Before + 1" with no baseline captured cannot be computed at all, and a runner reports the absolute number and calls it PASS.
+>
+> A preservation criterion, where the value must not move, is exempt — mark it `invariant: {N}` rather than annotating a bare value. The mechanics live in `references/verification-task-authoring.md` §10.
+
+**Accept every terminal branch the owning task produces.** This is the mirror defect, and it fails in the opposite direction: not a gate that cannot fail, but one that cannot pass.
+
+> [!constraint] A criterion's accepted-outcome set equals its task's terminal branch set
+> Enumerate the outcomes from the owning task's Execution Steps, not from the result the criterion's author expects. Zero-hit, nothing-to-do, and already-resolved branches are dropped most often, and are frequently the measured and expected outcome.
+>
+> A criterion accepting a strict subset FAILs a correct execution. The runner must then halt or manufacture an outcome the criterion will take. When the criterion is gate-defining, that failure fails the sprint on correct work.
+>
+> Where the Execution Input, the exit criteria, and the Signoff anchor each state the branch set, the task file's Execution Steps are the source and the other two are copies. Report a disagreement against the source, never against whichever copy is in the majority. See `references/verification-task-authoring.md` §10.7 and Reviewer Check 095.
+
+**Never harden a set-membership claim into a count equality.** A criterion claiming one set contains another is satisfied by a correct superset. Rewritten as an equality of totals, it fails that superset while its actual claim still holds.
+
+Applies to:
+
+- Every EI exit criterion, Signoff Mechanical Anchor row, and Success Criterion carrying a measurable expectation.
+- Scaffold close, which is the last moment the pre-change tree still exists to be measured.
+
+### 16.11 Fill the Signoff at Sprint Close — A Downstream Gate Reads the Artifact, Never the Intent
+
+> [!constraint] A downstream gate reads the artifact, never the intent
+> *"The sprint passed, we just haven't written it up yet"* is a distinction that exists only in the heads of the people who were there. Every mechanical consumer — a release gate, a status rollup, an index reconciler, a future session's preflight — sees a document full of placeholders and correctly cannot distinguish it from a sprint that failed or never ran.
+>
+> A plan's final session gated on every prior sprint's signoff reading PASS, mechanically — judging by eye that a signoff "shows PASS" green-lights a release against sprints that never ran. At session start the gate returned 1, 1, 1, 1 for four sprints and **0** for the first, and halted the plan's last session. That sprint had not failed: its verification report recorded 8/8 PASS, its Recovery read COMPLETE, and it had finished three days earlier. Only the signoff was still on placeholders, marked *"pending user review"*. The mirror case sat in the same plan: a filed PASS signoff beside a sprint plan whose `Status:` still read `PLANNED`, because that sprint ran concurrently with another session and the one line was never advanced. Nothing was wrong with the gate. The defect was an upstream closeout that stopped one artifact short, and the cost landed five sprints and three days downstream, at the last gate before a release.
+>
+> **Rule 1 — fill the signoff as part of sprint close, in the same step that advances the sprint plan's `Status:` field.** Not "pending review". If a human sign-off is genuinely wanted before the verdict is recorded, that is a **review gate on the plan**, and it belongs where a downstream session can see it — in the Master Plan's completion criteria — not as an unfilled document that looks identical to a failure.
+>
+> **Rule 2 — status is recorded in more than one place, so advance every record together.** The sprint plan `Status:`, the signoff verdict, and any index or rollup row answer the same question. When two records disagree, a consumer has to pick, and picking the convenient one is how a release ships against an unverified sprint. Where they already disagree, **resolve against primary evidence** — the verification report and the Recovery — never by preferring whichever record is more convenient.
+
+> [!practice] The repair is a transcription, not a re-judgement — and the gate is not loosened
+> The honest version and the corner-cutting version look identical in a diff, so the difference has to be stated. A signoff filled downstream is **transcribed** from the verification report: each criterion row's result copied from the report's corresponding row, the verdict copied from its verdict line, with a note recorded in the file saying who filled it, when, from what evidence, and why a downstream session was doing it. It is **not** re-judged, and the gate is **not** relaxed to let it through. A gate that halts on a real ambiguity has done its job; the fix is to remove the ambiguity, never to loosen the gate.
+
+**The gate shape.** The signoff template ships its verdict line as the literal placeholder `**Verdict:** {PASS | PARTIAL | FAIL}`, and the word `PASS` appears in the placeholder itself, so a naive substring count returns a false positive on an untouched file. Only the anchored form discriminates:
+
+```
+WRONG — substring count; the placeholder matches:
+  grep -c 'PASS' {signoff}                          # ≥ 1 on an untouched template  ← false positive
+
+CORRECT — anchored to the filled verdict line; the placeholder does not match:
+  grep -cE '^\*\*Verdict:\*\* \**PASS\b' {signoff}   # 1 on a filled PASS signoff, 0 on the placeholder
+```
+
+The optional `\**` admits the bolded form `**Verdict:** **PASS**` that filled signoffs also use. Dry-run both patterns against a filled signoff and an untouched template before annotating the expected value (§16.10.6).
+
+### 16.12 Append, Never Insert, Into an Identifier Sequence Other Files Cite
+
+> [!constraint] When a numbered sequence is cited by identifier from outside the file that owns it, new entries go on the end
+> Contiguity of a logical grouping is a presentation preference. A resolvable citation is a correctness property.
+>
+> A session's write-set widened mid-execution, so two new exit criteria had to enter an Execution Input's numbered list. The tidy move was to insert them as 6-7, keeping the logical grouping contiguous and pushing the existing 6-7 to 8-9 — renumbering two identifiers cited **by name** in three other files, several of them owned by a *different* session that executes later. They were appended as 8-9 instead, leaving a deliberate non-contiguous ownership split. That sprint existed to repair stale citations; renumbering would have created three fresh instances of exactly that defect in the same change.
+>
+> The trade is asymmetric. Appending costs one non-contiguous ownership split and a one-sentence note — local, visible, self-documenting. Inserting costs finding and updating every external citation to a shifted identifier *in the same change*, and any missed one becomes a silent mis-citation pointing at real, wrong content — distributed, invisible on inspection of the owning file, and failing by pointing somewhere plausible rather than by erroring.
+>
+> ```
+> WRONG — insert for contiguity; identifiers cited elsewhere shift underneath their citations:
+>   EI exit criteria: 1 2 3 4 5 [6 7 new] 8 9          ← old 6-7 became 8-9
+>   task file A: "per exit criterion 6"                 ← now names a different criterion
+>   task file B: "per exit criterion 7"                 ← same
+>   signoff quote block: "row 6 … row 7 …"              ← the verbatim quote now mismatches
+>
+> CORRECT — append; every existing citation keeps resolving:
+>   EI exit criteria: 1 2 3 4 5 6 7 [8 9 new]
+>   note at the gap: "…owns 1-5 and 8-9; …owns 6-7. Appended, not inserted, so
+>                     citations to 6-7 keep resolving. The non-contiguous split is intentional."
+> ```
+>
+> **Record the reasoning at the gap, not only in a change log.** Without it the next author sees a gap, assumes an oversight, and "fixes" it, reintroducing the renumber. The note is what makes the choice survive.
+
+**The known exception and its test.** A same-change rename with a full citation sweep is legitimate when the citation set is small and enumerable — a task file renamed to preserve a verify-last convention, four citations, all in one folder, all updated in the change. The test is not *"is renaming ever allowed"* but **"can I enumerate every citation right now, and are they all mine to edit?"**
+
+**Scope.** This is the convention the reviewer-check identifier space already uses — next-free is the maximum across every allocating surface plus one, never a re-pack ([verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) §9.1) — and the one the do-not-renumber contract on the [error-pattern-catalog.md](error-pattern-catalog.md) states. It applies equally to exit criteria, numbered rules, check IDs, reference section numbers cited by siblings, and task numbers. Where a renumbering is nonetheless chosen, [dispatch-edit-surface-sweep.md](dispatch-edit-surface-sweep.md) §5-§6 govern the sweep it obligates. §16.11 is a record left **unwritten** and §16.12 a record **rewritten**; both leave a mechanical consumer resolving to something false, and the signoff's verbatim quote block (§16.3) is the primary consumer of the numbering §16.12 protects.
+
 ---
 
 ## Scaffolding Template 2 — Sprint Signoff Checklist Block (§16.3)
@@ -590,18 +697,26 @@ That combination is worse than a vague criterion, not better. A prose-only row g
 >
 > - [ ] §{N}.{M} row 1: "{verbatim EI exit-criterion text}"
 >       Mechanical: `{verification command + expected result}`.
+>       Pre-change: {measured value} → expect {expectation}
+>       Branches: {accepted}/{terminal branches of task {ID}}
 >       **Deviation:** {design-decision document path}  [omit when matches verbatim]
 >
 > - [ ] §{N}.{M} row 2: "{verbatim EI exit-criterion text}"
 >       Mechanical: `{verification command + expected result}`.
+>       Pre-change: {measured value} → expect {expectation}
+>       Branches: {accepted}/{terminal branches of task {ID}}
 >
 > ... (one row per EI exit-criterion item; row count MUST equal EI item count)
 > ```
 >
 > Authoring rules: (1) verbatim quote at the head; (2) one row per EI criterion;
 > (3) one mechanical anchor per row; (4) `**Deviation:** <path>` annotation
-> whenever the implementation deviates from verbatim text.
+> whenever the implementation deviates from verbatim text; (5) a `Pre-change:`
+> value measured against the pre-change tree, which MUST contradict the
+> expectation — or `invariant: {N}` for a preservation row (§16.10.6);
+> (6) a `Branches:` count whose two numbers are equal, derived from the owning
+> task's Execution Steps (§16.10.6).
 
 ---
 
-*Companion files: [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) (anchor — §15, shared Plan-Review Enforcement Summary, Template 1), [execution-time-binding-rules.md](execution-time-binding-rules.md) (§17-§20), [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols) (parent rule), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Task File Template), [session-plan-requirements.md](session-plan-requirements.md) (signoff sections), [task-content-fidelity.md](task-content-fidelity.md) (Required Context fidelity, verify-before-cite), [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) (companion discipline — same re-verification principle, from the backlog-triage entry point rather than sprint-signoff).*
+*Companion files: [discovery-and-exit-criteria.md](discovery-and-exit-criteria.md) (anchor — §15, shared Plan-Review Enforcement Summary, Template 1), [execution-time-binding-rules.md](execution-time-binding-rules.md) (§17-§21), [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols) (parent rule), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Task File Template), [session-plan-requirements.md](session-plan-requirements.md) (signoff sections), [task-content-fidelity.md](task-content-fidelity.md) (Required Context fidelity, verify-before-cite), [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) (companion discipline — same re-verification principle, from the backlog-triage entry point rather than sprint-signoff).*

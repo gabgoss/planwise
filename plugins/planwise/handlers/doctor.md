@@ -1,6 +1,6 @@
 # Handler: /planwise doctor
 
-**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against each plan's Master Plan status, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
+**Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against a fresh render of each plan's Master Plan, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, report whether this session has the Task checklist tools (`TaskCreate` and siblings) and name the opt-in when it does not, audit the two always-on style rules (each rule's `style:` switch, installed copy, duplicate copies and token cost), always scan the plans/backlog/lessons bookkeeping indexes against the same Read-tool caps regardless of Token Saver, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
 
@@ -9,12 +9,22 @@
 /planwise doctor
 ```
 
+This handler spans **three files**, split by topic because the combined text exceeds the Read-tool page cap. Each Stage/Step keeps its own identifier wherever it lands, so an existing `Stage N` or `Step N` reference still names exactly one section — only the filename that holds it changes.
+
+| Part | File | Stages / Steps | Topic |
+|---|---|---|---|
+| 1 (this file) | `doctor.md` | Preflight, Steps 1-3, Stages 8-13 | Version-state gate, over-scope linter, stale-rule/agent-mirror sweeps, plans/backlog/lessons index drift audits |
+| 2 | [`doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md`](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md) | Stages 14-23 | Upgrade recovery-leftover sweep, settings-grant sweep, thrifty-sonic env var sweep, feedback capability/directory probes, task-tools advisory, backlog body-status and index-shape audits, lessons index-shape audit, plans index-shape audit, style-rule audit (Stage 23) |
+| 3 | [`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md) | Steps 4-8 | Token Saver overhead/read-gate/read-constant audits, capture self-containment scan, bookkeeping index read-gate scan |
+
+`/planwise doctor` reads all three files in sequence — this file first, then Part 2, then Part 3 — to produce one continuous report.
+
 ---
 
 ## Config Gate
 
 1. Resolve config.yaml: a) `planwise/config.yaml`; b) `*/config.yaml` one level down from project root.
-2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.backlog_dir`, `project.lessons_dir` (absent → skip Stage 13), `project.index_files`, and the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`) plus the pinned `plugin_version`.
+2. If found → continue. Extract `plugin_root`, `project.planwise_root`, `project.plans_dir`, `project.backlog_dir`, `project.lessons_dir` (absent → skip Stage 13), `project.feedback_dir` (absent → default `Feedback`), `project.index_files`, and the `context:` Token Saver keys (`token_saver`, `token_saver_runner_overhead`, `token_saver_orchestrator_overhead`, `token_saver_session_target`, `token_saver_overhead_measured_on`, `token_saver_context_breakdown`) plus the pinned `plugin_version`.
 3. If NOT found: this install is **not initialized**. Recommend `/planwise init` and **STOP** — `doctor` is read-only and never initializes on the user's behalf. (This is the same "not initialized" outcome the Preflight version-state gate reports; do not auto-init.)
 
 > [!gate] Config Malformed → diagnose FIRST, then FAIL LOUD
@@ -83,19 +93,36 @@ The families block groups the same flagged rules above by matched glob: every ru
 
 ### Step 3: Explain the why (only when rules were flagged)
 
-Briefly note: a rule scoped to `planwise/Plans/**` is injected into EVERY context that reads a plan brief — including a DELEGATED `task-runner` subagent, whose 200K window can overflow ("Prompt is too long") when the flagged surface is large. The fix is to re-scope the rule's `paths:` to the code directories it actually governs, or to load it on demand (handler / `references/`) rather than installing it path-scoped. The Model-Floor Bridge (see [`references/agent-orchestration-delegated.md §1.19`](../references/agent-orchestration-delegated.md)) is the temporary dispatch safety-net that keeps declared-Sonnet runners alive until the flagged surface is brought down.
+Briefly note: a rule scoped to `planwise/Plans/**` is injected into EVERY context that reads a plan brief — including a DELEGATED `task-runner` subagent, whose 200K window can overflow ("Prompt is too long") when the flagged surface is large. The fix is to re-scope the rule's `paths:` to the code directories it actually governs, or to load it on demand (handler / `references/`) rather than installing it path-scoped. The Model-Floor Bridge (see [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.19`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md)) is the temporary dispatch safety-net that keeps declared-Sonnet runners alive until the flagged surface is brought down.
 
 Nothing here is automatic — the linter only converts an invisible cost into a visible, actionable one. But the visibility is worth acting on: measured up to ~56,000 tokens per affected session on average, and up to ~96,000 tokens in a single turn, on a broad-rule-surface install.
 
 ---
 
+> [!note] What `(post-boundary)` means in this handler
+> The *boundary* is a **version-migration boundary**. A stage labelled
+> `(post-boundary)` is a permanent, always-on diagnostic that catches what a
+> version-gated one-shot migration never reached or can no longer reach —
+> `sweep_stale_descoped_rules()` walks the leftovers `migrate_installed_rules()`
+> missed once its version gate was spent, and `sweep_orphaned_agent_mirrors()`
+> is "a permanent, always-on diagnostic rather than a version-boundary-gated
+> one-shot" because the mirror behavior it cleans up after was dropped outright.
+> Stages 8, 10, 14 and 15 carry the label on that basis.
+>
+> **The label does not mean "implemented in a script."** Stage 9 runs
+> `lint_installed_divergence()` and carries no label, because ongoing divergence
+> has no spent migration behind it. Do not re-derive the label from which stages
+> happen to be script-backed, and do not apply it to a stage — an environment
+> probe, a presence check — whose subject is the current state of the machine
+> rather than the residue of a version change.
+
 ### Stage 8: Stale de-scoped rule sweep (post-boundary)
 
 > [!constraint] Read-Only — bare doctor only recommends
 > Stage 8 runs `sweep_stale_descoped_rules()` standalone. It READS
-> `.claude/rules/**` and the plugin's `references/`, then prints a report. It
-> writes nothing and deletes nothing. The one-shot de-scope migration in
-> `/planwise upgrade` is spent for any install already past the de-scope
+> `.claude/rules/**` and the plugin's shipped `references/`, then prints a
+> report. It writes nothing and deletes nothing. The one-shot de-scope migration
+> in `/planwise upgrade` is spent for any install already past the de-scope
 > boundary; this sweep is the only mechanism that surfaces the leftover
 > rules. To actually remove them, the user opts in with the separate writer
 > `/planwise doctor --prune-stale` (Stage 8b below).
@@ -142,8 +169,9 @@ If the sweep returns nothing: `No stale de-scoped rules found — install is pas
 
 ### Stage 8b: `--prune-stale` (opt-in writer)
 
-When `$ARGUMENTS` contains `--prune-stale`, this is the ONE doctor path that mutates.
-Run the writer:
+When `$ARGUMENTS` contains `--prune-stale`, this is one of the three doctor paths
+that mutate (the others are `--prune-upgrade-leftovers`, Stage 14b, and
+`--create-feedback-dir`, Stage 17b). Run the writer:
 
 ```bash
 python "{plugin_root}/scripts/init_project.py" --prune-stale --project-root "{project_root}"
@@ -273,11 +301,11 @@ planwise doctor — orphaned agent mirror sweep
 Orphaned agent mirrors still installed under .claude/agents/:
   ~ {filename}.md   REMOVABLE
       size:    {N} lines (~{X} tokens)
-      reason:  {untouched shipped agent, orphaned by the dropped mirror | stale/reorganized subset of the shipped agent}
+      reason:  {untouched shipped agent, orphaned by the dropped mirror | byte-exact copy of a previously shipped body of this agent — stale shipped content, not a customization | stale/reorganized subset of the shipped agent}
       action:  remove with /planwise doctor --prune-stale
   ! {filename}.md   PRESERVE
       size:    {N} lines (~{X} tokens)
-      reason:  {genuine customization (unique content) | matcher tolerated installed-only content | shipped reference unavailable/unreadable | installed file unreadable — cannot classify}
+      reason:  {genuine customization (unique content) [; shipped body is smaller than the installed copy — a content-relocating refactor makes a stale copy look customized, and no previously shipped body matched | the shipped agent-history manifest is unavailable] | matcher tolerated installed-only content | shipped reference unavailable/unreadable | installed file unreadable — cannot classify}
       action:  keep in place — customization detected, do NOT delete
 
 Total REMOVABLE orphaned agent mirror(s): {N} of {M} found.
@@ -293,7 +321,9 @@ none of the formerly mirrored agents left, or they already match shipped.`
 > [!constraint] Read-Only — audit only recommends
 > Stage 11 runs `reconcile_plans.py --json` standalone, reading the plans
 > index (`{plans_dir}/{plans_index}`). It writes nothing unless the user
-> explicitly consents to reconcile — the audit itself never mutates.
+> explicitly consents to reconcile — the audit itself never mutates. On
+> consent, `--write` regenerates the whole index through the generator and
+> drops any orphan row.
 
 Always-on (independent of Token Saver) — auditing plans-index consistency is
 doctor's purpose, so this check has **no `--no-check` escape hatch** (contrast
@@ -306,14 +336,41 @@ plans index drift audit`). This is the same detect pass `/planwise list`
 runs, reused here alongside doctor's other health checks — neither handler
 re-implements the comparison.
 
+Read the exit code and the JSON `status`, then report exactly one of these
+outcomes. The exit table is in the canonical's Plans binding.
+
+- **Exit 0 (`ran`) — a real verdict.** Print the canonical banner, then the
+  drift and anomaly lines or `No drift detected`. Only this outcome may print
+  `No drift detected`.
+- **Exit 3 — audit could not run.** Print the script's own lines (`Drift audit
+  could not run: 0 of {total} rows compared` or `Drift audit incomplete:
+  {compared} of {total} rows compared`) under the doctor banner. Never print
+  `No drift detected`. When the JSON `status` is `could-not-run` and `drifts`
+  holds `missing-row` records, offer `reconcile_plans.py --write`, and say
+  that it regenerates the whole file and drops every line the render does not
+  produce. On `incomplete`, offer no write: regenerating would drop the
+  unparsed lines the script listed.
+- **Exit 2 — legacy-shaped plans index.** Print the script's line and name
+  `/planwise upgrade`. Never print `No drift detected`. Offer no write.
+- **Exit 1 — index not found.** In detect mode, print the script's
+  `Error: Plans index not found at {index}` line.
+
+After a consented `reconcile_plans.py --write`, exit 1 has a different
+meaning: the index was written and the tree has an anomaly. Report
+`Reconciled {N} row(s).` and the anomaly, not a failed write.
+
 ---
 
 ### Stage 12: Backlog Index Archival Drift Audit
 
 > [!constraint] Read-Only — audit only recommends
-> Stage 12 runs `reconcile_backlog.py --json` standalone, reading the backlog
-> index (`{backlog_dir}/{backlog_index}`). It writes nothing unless the user
-> explicitly consents to reconcile — the audit itself never mutates.
+> Stage 12 runs `reconcile_backlog.py --json` standalone. It reads each item
+> file's frontmatter status and location under `{backlog_dir}/` and its
+> `Archive/`, never the backlog index. The audit itself never mutates. It moves
+> files only if the user explicitly consents to reconcile. The consented
+> `--write` moves each closed item file into `Archive/` and never writes the
+> index. After a move, run `generate_backlog_index.py --write` so the index
+> links follow the moved files.
 
 Always-on (independent of Token Saver) — auditing backlog-index consistency is
 doctor's purpose, so this check has **no `--no-check` escape hatch** (contrast
@@ -331,10 +388,10 @@ plans-index drift audit; neither re-implements the other's comparison.
 ### Stage 13: Lessons Index Counter Drift Audit
 
 > [!constraint] Read-Only — audit only recommends
-> Stage 13 runs `reconcile_lessons.py --json` standalone, reading the lessons
-> index (`{lessons_dir}/{lessons_index}`), the lesson files in that directory
-> and its `Archive/`. It writes nothing unless the user explicitly consents
-> to reconcile — the audit itself never mutates.
+> Stage 13 runs `generate_lessons_index.py --check --json`, standalone,
+> reading the lessons index (`{lessons_dir}/{lessons_index}`), the lesson
+> files in that directory and its `Archive/`. It writes nothing unless the
+> user explicitly consents to reconcile — the audit itself never mutates.
 
 Always-on (independent of Token Saver) — auditing index consistency is doctor's
 purpose, so this check has **no `--no-check` escape hatch**. Skip the stage
@@ -343,365 +400,16 @@ with no lessons scaffolding has no counter to audit); report
 `Lessons index: not configured — audit skipped`.
 
 Run the index-drift audit procedure in
-[`references/index-drift-audit.md`](../references/index-drift-audit.md)
-against the **lessons** index (`reconcile_lessons.py`, banner `planwise
-doctor — lessons index counter drift audit`) — the lessons-index binding
-there carries the counter-drift specifics (the `next_id` JSON key, the four
-anomaly kinds, forward-only reconcile). This is the lessons-index analogue of
-Stages 11 and 12; none re-implements another's comparison.
+[`references/index-drift-audit.md`](../references/index-drift-audit.md) §
+Lessons against the **lessons** index (`generate_lessons_index.py --check
+--json`, banner `planwise doctor — lessons index drift audit`) — the
+lessons-index binding there carries the drift-class specifics: the
+generator's own classes as it names them, including `stale-counter` (off
+the forward-only counter floor) and the file-level anomalies `extra-row`,
+`missing-row`, and `duplicate-id` that this same `--check --json` run
+reports. This is the lessons-index analogue of Stages 11 and 12; none
+re-implements another's comparison.
 
 ---
 
-### Stage 14: Upgrade recovery-leftover sweep (post-boundary)
-
-> [!constraint] Read-Only — bare doctor only recommends
-> Stage 14 runs `sweep_upgrade_leftovers()` standalone. It READS
-> `{planwise_root}/upgrade-backups/`, `upgrade-transfers/`, and
-> `upgrade-conflicts/` (including the latter's nested `issue-drafts/`
-> subfolder), then prints a report. It writes nothing and deletes nothing.
-> To actually remove what it reports, the user opts in with the separate
-> writer `/planwise doctor --prune-upgrade-leftovers` (Stage 14b below) — a
-> DISTINCT flag from `/planwise doctor --prune-stale` (Stage 8b above):
-> that writer targets a completely different artifact class (de-scoped
-> rules and orphaned agent mirrors under `.claude/rules|agents/`) and
-> already logs into `upgrade-backups/prune-{date}/`; reusing that name
-> here would make one flag mean two unrelated things.
-
-Always-on (independent of Token Saver). The sweep walks every version-pair
-directory a completed `/planwise upgrade` may have left behind — these
-accumulate per upgrade COUNT, not version distance, since nothing purges
-them on its own — and classifies each one (or, for
-`upgrade-conflicts/{pair}/`, each of its three separately-tracked content
-kinds — they never share one class) into one of the four disposition
-classes the `Recovery artifacts:` banner (`/planwise upgrade` Step 3)
-already reports at upgrade time:
-
-- **action-required** — unresolved conflict sidecars (`*.new` files under
-  `upgrade-conflicts/{pair}/`) and the pair's `issue-drafts/` subfolder.
-  *Never offered for deletion here* — resolve per `handlers/upgrade.md`
-  Step 4.
-- **review-then-discard** — transferred customizations under
-  `upgrade-transfers/{pair}/`, awaiting the user's re-homing decision.
-  *Never offered for deletion here.*
-- **safe-to-discard** — pre-change backups under `upgrade-backups/{pair}/`,
-  once the user is satisfied with the upgrade. *Prunable.*
-- **inert** — a consumed verdict cache (`verdicts.json.consumed`) under
-  `upgrade-conflicts/{pair}/`. *Prunable.*
-
-Print verbatim:
-
-```
-planwise doctor — upgrade recovery-leftover sweep
-
-Leftover recovery artifacts across {N} version pair(s):
-  ~ {pair}   {surface}   {klass}
-      path:    {absolute path}
-      size:    {N} file(s), {D}d old
-      meaning: {the class's one-line meaning}
-      action:  {remove with /planwise doctor --prune-upgrade-leftovers | resolve per handlers/upgrade.md Step 4 — never auto-pruned}
-
-Total prunable (inert/safe-to-discard) leftover(s): {N} of {M} found.
-```
-
-If the sweep returns nothing: `No leftover recovery directories found — no
-version-pair backups, transfers, or conflict artifacts on disk.`
-
-### Stage 14b: `--prune-upgrade-leftovers` (opt-in writer)
-
-When `$ARGUMENTS` contains `--prune-upgrade-leftovers`, this is the other
-doctor path that mutates (alongside `--prune-stale`, Stage 8b). Run the
-writer:
-
-```bash
-python "{plugin_root}/scripts/init_project.py" --prune-upgrade-leftovers --project-root "{project_root}"
-```
-
-Before invoking it, ask one `AskUserQuestion` per PRESENT prunable class
-(*inert*, *safe-to-discard* — never per file), tagged
-`<!-- AUTO-MODE: convenience -->` with an inferred default of **skip-all**
-in unattended runs (state the inference inline) — the same per-class
-confirm contract `handlers/upgrade.md` Step 4.3 uses for its own cleanup
-offer. *action-required* and *review-then-discard* findings are never
-offered here at all; they only ever route to Step 4.
-
-It deletes ONLY the *inert* and *safe-to-discard* findings from Stage 14's
-sweep — an *action-required* or *review-then-discard* finding is never
-touched, no matter what. **This is the one-sentence distinction from
-`--prune-stale` (Stage 8b): that writer prunes de-scoped rules and orphaned
-agent mirrors under `.claude/rules|agents/`, logging into
-`{planwise_root}/upgrade-backups/prune-{YYYY-MM-DD}/`; this writer prunes
-version-pair recovery leftovers under `upgrade-backups/`,
-`upgrade-transfers/`, and `upgrade-conflicts/`, logging into its own
-`{planwise_root}/upgrade-prune-logs/upgrade-leftovers-{YYYY-MM-DD}/`
-root — the two logs never collide, and neither opt-in flag is an alias
-for the other.**
-
-> [!constraint] The log root is deliberately OUTSIDE every swept root
-> This writer prunes surfaces that live *inside* `upgrade-backups/`, so a log
-> folder placed there would copy a pruned pair to
-> `upgrade-backups/{log}/upgrade-backups/{pair}` and delete the original —
-> reclaiming no space and hiding the copy from the Stage-14 sweep's `*-to-*`
-> glob permanently, leaving the surface neither gone nor reportable. Keeping
-> the log root disjoint from every swept root is what makes a prune actually
-> prune. Do not "tidy" it back under `upgrade-backups/`.
-
-If an `upgrade-leftovers-{YYYY-MM-DD}/` folder already exists (a second run
-the same day), the run gets its own `-2`, `-3`, ... suffix instead — an
-earlier run's log is never overwritten. A run with nothing prunable creates
-no folder at all.
-
-Every pruned path is first copied into that same run's folder (mirroring
-its original location relative to `{planwise_root}`), so a prune is
-recoverable. A failed **copy** leaves the original in place
-(`REMOVE_FAILED`) rather than risk deleting without a backup. A **removal**
-that fails part-way keeps the copy — `rmtree` is not atomic, and on a
-locked or read-only file it can stop mid-tree, at which point that copy is
-the only surviving record of whatever was already deleted; the log names
-its path so the user restores from it rather than re-running.
-
-Pass `--prune-classes` to narrow the run to the classes the user actually
-confirmed (e.g. `--prune-classes inert` to drop consumed verdict caches
-while keeping backups). It can only narrow: *action-required* and
-*review-then-discard* stay undeletable whatever is passed.
-
-> [!practice] Pruning backups costs the formerly-managed signal
-> The *safe-to-discard* backups double as the pre-image mirrors that the
-> refresh loop's formerly-managed detection uses as its only durable
-> prior-managed-set evidence. After they are pruned, a file the plugin stopped
-> managing reports as generic untracked instead. The copies survive under the
-> prune log root, but the detector does not look there — so when a user is
-> still reconciling what the upgrade changed, offer `--prune-classes inert`
-> and leave the backups for a later pass.
-
-Pass the script's stdout through and point the user at the
-`PRUNED-LEFTOVERS.md` audit log.
-
-### Stage 15: Settings-grant sweep (post-boundary)
-
-> [!constraint] Read-Only — bare doctor only recommends
-> Stage 15 runs `_sweep_settings_grants()` standalone. It READS
-> `.claude/settings.json` and `.claude/settings.local.json` (when present),
-> then prints a report. It writes nothing and rewrites nothing. To actually
-> normalize a grant, run `/planwise upgrade` — its Step 4.4 offer is the only
-> writer; doctor never mutates.
-
-Always-on, independent of Token Saver. **This is DISTINCT from the Preflight
-plugin version-state gate above: that gate reads `config.yaml`'s
-`plugin_root:` pin and checks whether the one root the plugin currently
-resolves scripts through is live and current; this stage instead reads
-`.claude/settings.json`'s `permissions.additionalDirectories` — the
-consumer's own Claude Code read-permission grants — for entries in the
-plugin-cache path family.** It mirrors `handlers/upgrade.md` Step 4.4's
-classification and never restates the target-shape doctrine already
-documented at `handlers/init-fallback.md`'s grant step / `handlers/init.md`:
-
-- **version-agnostic parent** — the entry already grants the plugin-family
-  root. Correct target shape; no finding reported.
-- **version-pinned live** — the entry names a version-pinned child directory
-  that still exists on disk. Reported with a normalization recommendation.
-- **version-pinned dangling or orphan-marked** — the entry names a
-  version-pinned child directory that no longer exists on disk, or that
-  exists but is superseded by the currently-pinned version. Reported with
-  the dangling/orphaned path named and the same normalization
-  recommendation.
-
-Print verbatim:
-
-```
-planwise doctor — settings-grant sweep
-
-Plugin-cache grants needing normalization across {N} settings file(s):
-  ~ {settings_path}   {entry}
-      class:     {klass}
-      detail:    {detail}
-      recommend: run /planwise upgrade (offers normalization to the parent grant) — doctor is read-only and never rewrites settings
-
-Total grant(s) needing normalization: {N} found.
-```
-
-If the sweep returns nothing: `No plugin-cache grants found needing
-normalization — settings already grant the version-agnostic parent, or no
-plugin-cache grant exists yet.`
-
----
-
-### Stage 16: Feedback capability probe (post-boundary)
-
-> [!constraint] Read-Only — probes, never installs
-> Stage 16 runs two capability checks against the environment and reads
-> `config.yaml`'s `feedback:` block. It installs nothing, authenticates
-> nothing, and writes nothing. To install the GitHub CLI, run `/planwise
-> init` or `/planwise upgrade` — their offer steps are the only writers;
-> doctor never mutates.
-
-Always-on, independent of Token Saver. `/planwise feedback` — and the
-upstream options in `upgrade`, `lessons capture`, and `backlog` — post
-through the shared engine at
-[`references/feedback-submission.md`](../references/feedback-submission.md),
-whose gate chain degrades to a local draft when any gate fails. That
-degradation is deliberate and never blocks, which also means a consumer can
-run for a long time without discovering that their reports never left the
-machine. This stage surfaces the gate state up front rather than at the
-moment someone tries to file a report.
-
-Probe all three, in the engine's own gate order:
-
-| Gate | Probe | Reported when unmet |
-|---|---|---|
-| 1 — `feedback.enabled` | Read `feedback.enabled` from `config.yaml` (absent ⇒ `false`, the documented default) | `feedback.enabled is false — /planwise feedback drafts locally and posts nothing` |
-| 3 — `gh` on PATH | Run `gh --version`; a non-zero exit or an unresolvable binary means absent | `gh not found on PATH — install from https://cli.github.com/, or run /planwise upgrade to be offered the install` |
-| 4 — `gh` authenticated | Run `gh auth status`; exit 0 means authenticated | `gh is installed but not authenticated — run: gh auth login` |
-
-Print verbatim:
-
-```
-planwise doctor — feedback capability probe
-
-  feedback.enabled:  {true|false}
-  gh on PATH:        {yes|no}  {gh_version_when_present}
-  gh authenticated:  {yes|no|n/a — gh absent}
-
-  {one remedy line per unmet gate, from the table above}
-
-Upstream posting: {ENABLED — reports post directly | DRAFT-ONLY — reports are saved to {planwise_root}/feedback-drafts/ and must be filed by hand}
-```
-
-Advisory only. Draft-only is a supported configuration, not a fault — this
-stage reports the state so the choice is deliberate, and never fails the
-doctor run.
-
----
-
-## Token Saver Audit
-
-> [!gate] Run only when `context.token_saver` is `true`
-> If `token_saver` is `false` or absent in `config.yaml`, skip this entire section — the project does not run the Token Saver budget engine, so there are no measured overheads to audit and no plan-file read-gate scan to perform. Report "Token Saver: OFF — audit skipped" and stop after the over-scope report above.
-
-When Token Saver is on, append the three audits below to the doctor report. All three are **read-only** — `doctor` reports and recommends a one-command re-capture; it NEVER mutates `config.yaml` itself.
-
-> The `token_saver` value reported here is the **project default** (`config.yaml context.token_saver`). Individual plans MAY override it on/off via their Master-Plan `Token Saver:` field (resolved by `get_effective_token_saver_config` at plan/run/review time); the measured overheads remain project-level and are never overridden per-plan. `doctor` itself stays project-scoped — it audits the project default, not any single plan's effective value.
-
-### Step 4: Overhead audit + staleness check
-
-1. Report the stored measured overheads and the date they were captured:
-
-   ```
-   Token Saver overheads (config.yaml):
-     Runner overhead:       {token_saver_runner_overhead}  tokens
-     Orchestrator overhead: {token_saver_orchestrator_overhead}  tokens
-     Session target:        {token_saver_session_target}  tokens
-     Measured on:           {token_saver_overhead_measured_on}
-     Derived per-task ceiling (critical): ~{available_per_task − 10000} tokens
-   ```
-
-   Derive `available_per_task` and the ceiling per the threshold formulas in [`references/token-saver-profile.md`](../references/token-saver-profile.md) § Token Saver Threshold Derivation; never hardcode the ceiling.
-
-2. **Flag staleness** when EITHER signal fires (the measured overheads no longer reflect this install's real `/context` footprint):
-
-   | Staleness signal | How to detect |
-   |------------------|---------------|
-   | Plugin upgraded since calibration | Folded into the **Preflight version-state gate** — `doctor` stops on `pinned ≠ installed` before this audit runs, so reaching Step 4 guarantees pinned == installed. Do not re-compare versions here. (A version-bumping `/planwise upgrade` may shift the rule/agent surface; re-capture overheads with `/planwise token-saver on` after upgrading.) |
-   | Agent/Skill count changed | The Custom Agents / Skills count in a fresh `/context` differs from the captured `token_saver_context_breakdown` (added/removed agents or skills shift the always-on surface) |
-   | Overheads uncalibrated | `token_saver_runner_overhead` is `0`/empty, or equals the conservative fallback (`~54000` runner / `~60000` orchestrator) with no live capture recorded. **Note:** on some platforms (notably Windows and any headless invocation), the calibration capture always degrades to the conservative fallback because the CLI returns conversational text instead of the structured `/context` report when called non-interactively. This is a platform/capture limitation, not a configuration error — the conservative fallback is safe (over-estimated). To capture real measured numbers, run `/planwise token-saver on` from an **interactive** Claude Code session. |
-
-3. When stale, offer the one-command re-capture (never auto-mutate config without surfacing it):
-
-   ```
-   ! Token Saver overheads may be STALE ({reason}).
-     Re-capture with: /planwise token-saver on
-     (runs token_saver.calibrate(...) → claude -p "/context" → writes measured overheads back into config.yaml)
-     Note: re-capture requires an interactive session; headless invocations may degrade to the conservative fallback.
-   ```
-
-4. List the plan's largest Required-Context files and any tasks over the derived ceiling or flagged `1M-exception`:
-   - Scan the active plan's task files under `{plans_dir}`; for each, sum its Required Context `Est. Tokens` and compare against `critical`.
-   - Report any task at or above `critical` (cost overflow → split / trim) and any task already carrying a `Token Budget:` exception marker of `1M (cost)`.
-
-### Step 5: Read-gate scan
-
-Run `token_saver.classify_file(path, model, projected_added_bytes, thresholds)` (from `scripts/token_saver.py`) across BOTH (a) the active plan's Required-Context files AND (b) the plan's own generated artifacts (task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files). Use each file's **assigned-model** bytes-per-token ratio for the token estimate (`BYTES_PER_TOKEN`, per [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits). Report:
-
-| Finding | Gate | Recommendation |
-|---------|------|----------------|
-| File ≥ 256 KiB (`READ_FILE_BYTE_CAP`) | byte gate (model-independent) | **read-Critical** → paged read (`offset`/`limit`/Grep); refactor + backlog if it is a core/edited dependency |
-| File above the per-assigned-model 25K-token page cap (`READ_PAGE_CAP_TOKENS`) | token gate (model-dependent) | **read-Critical** → paged read; refactor if core/edited |
-| File that WILL cross a gate once its task's edits land | token/byte gate (projected) | pass `projected_added_bytes` so the will-exceed case is flagged pre-emptively; same remedy as above |
-| Task estimate ≥ `critical` (cost) | cost gate | **cost-Critical** → `1M-exception` (raise dispatch to Opus/1M) OR split the task |
-
-> [!constraint] read-Critical → paged-read/refactor, NOT `1M-exception`
-> Applies the read-vs-cost Critical distinction canonical in [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits (full WRONG/CORRECT box there — not restated here): a `read`-reason Critical is a mechanical Read failure, resolved by paging or refactor, never by routing to a larger window. Only a `cost`-reason Critical is `1M-exception`-eligible — see [`references/agent-orchestration-delegated.md §1.20`](../references/agent-orchestration-delegated.md) 1M-Exception Dispatch.
-
-A passing read-gate/cost-gate scan is a necessary signal, not a sufficient one — the general gate-discipline principle canonical in [`references/verification-gates.md`](../references/verification-gates.md) §1: clearing a mechanical check is not proof the plan is runtime-correct.
-
-### Step 6: Read-constant drift tripwire
-
-Report the FIXED Read-tool constants and flag them stale when the harness CLI has moved past the measured version — the analogue of the overhead-staleness check, but for the hardcoded read limits (the harness may have changed the caps):
-
-1. Report the constants' provenance and measured baseline — the values themselves are the read-gate canonical in [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits; this step never restates them:
-
-   ```
-   Fixed Read-tool limits (token_saver.py) — see references/session-context-budget.md § Read-Tool Hard Limits for the current values
-     Measured on:           {READ_LIMITS_MEASURED_ON}
-     Measured CLI:          {READ_LIMITS_MEASURED_CLI}
-   ```
-
-2. Compare the live CLI version against the measured one:
-
-   ```bash
-   claude --version   # → live CLI build
-   ```
-
-   When the live `claude --version` differs from `READ_LIMITS_MEASURED_CLI`, flag drift — the constants were validated against a different harness build and the caps may have changed:
-
-   ```
-   ! Read-limit constants measured on CLI {READ_LIMITS_MEASURED_CLI}; live CLI is {live-version}.
-     The hardcoded Read-tool caps may be stale. Re-probe with the read-limit re-validation
-     procedure (headless `claude -p --model X` probes against synthetic files) and update the
-     constants + READ_LIMITS_MEASURED_ON / READ_LIMITS_MEASURED_CLI in scripts/token_saver.py.
-   ```
-
-   This is the drift tripwire for the hardcoded read constants. It is advisory — `doctor` never edits the constants; it surfaces the mismatch so the one-shot live re-probe can be run.
-
-The read-constant tripwire is paired with a cross-model ratio-band assertion: the plugin's test suite asserts the cross-model ratio band holds for the same file. A ratio drift outside that band signals a tokenizer-weight change in the `BYTES_PER_TOKEN` constants.
-
----
-
-## Capture Self-Containment Scan
-
-> [!constraint] Read-Only — Always Runs
-> This scan is independent of Token Saver; it runs on every `/planwise doctor`. It only READS backlog and lesson files and prints advisory flags — it writes nothing.
-
-A backlog item or lesson whose substantive content is only a pointer to an external or transient source (another repo, an absolute path outside this project, a session-only scratch file, "see the diff in session X") becomes non-executable the moment that source is unavailable. The capture handlers inline this content at capture time ([backlog.md](backlog.md) Step 7.3, [lessons.md](lessons.md) Step 2 / Step 3); this scan is the after-the-fact backstop for captures that predate the discipline or slipped through.
-
-### Step 7: Flag pointer-only captures (advisory)
-
-1. Scan the working-set capture files (exclude `Archive/` — closed items):
-   - Backlog: `{planwise_root}/{backlog_dir}/BB-*.md` and `BLI-*.md`
-   - Lessons: `{planwise_root}/{lessons_dir}/LL-*.md`
-
-2. For each file, compute two signals (both greps case-insensitive, body only — ignore YAML frontmatter):
-
-   | Signal | How to detect |
-   |--------|---------------|
-   | **Has an external/transient pointer** | A line referencing an absolute path outside this project (`[A-Za-z]:\\…`, `/Users/`, `/home/`, `/repos/`), another-repo reference, or a transient-source phrase (`see (the )?(session\|diff\|scratch)`, `session-only`, `in scratch`) |
-   | **Lacks inlined substance** | The body contains NO fenced code block (```` ``` ````) AND no inlined verbatim example, spec, or command output — i.e., nothing the pointer could be standing in for |
-
-3. Soft-flag any file where the pointer signal fires AND the inlined-substance signal is absent:
-
-   ```
-   Capture self-containment (advisory):
-     ~ {backlog_dir}/BB-{NNN}-...md
-         pointer:  {the matched external/transient reference}
-         risk:     substance may live only at that pointer — capture could be
-                   non-executable if it vanishes
-         remedy:   inline the block/spec/evidence the item depends on
-                   (durability test: "executable from this file alone if the origin vanished?")
-   ```
-
-   If nothing fires, report: `Capture self-containment: all scanned captures inline their substance.`
-
-This is advisory only — a pointer that merely *supplements* inlined content is fine; the flag is a prompt to verify, not a failure. It complements the capture-time discipline in the handlers rather than gating anything.
-
----
-
-*Cross-reference: [run.md](run.md) (Step 4.3 Update Plan Status), [`references/agent-orchestration-delegated.md §1.19`](../references/agent-orchestration-delegated.md) (Model-Floor Bridge), [`references/agent-orchestration-delegated.md §1.20`](../references/agent-orchestration-delegated.md) (1M-Exception Dispatch), [upgrade.md](upgrade.md) (post-upgrade over-scope advisory, Token Saver recalibration), [lint + token_saver engine in scripts/](../scripts/init_project.py), [reconcile_plans.py](../scripts/reconcile_plans.py) (plans index drift detect/reconcile, shared with [list.md](list.md)), [reconcile_backlog.py](../scripts/reconcile_backlog.py) (backlog index archival-drift detect/reconcile, shared with [backlog.md](backlog.md)), [reconcile_lessons.py](../scripts/reconcile_lessons.py) (lessons index counter-drift detect/reconcile).*
+**Continued in Part 2** (Stages 14-23) and **Part 3** (Steps 4-8) — see the pointer table above.

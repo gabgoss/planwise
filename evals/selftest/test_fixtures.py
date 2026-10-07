@@ -118,9 +118,9 @@ class TestInitializedTemplate(unittest.TestCase):
     def test_requires_the_plugin_copy_to_exist_first(self):
         bare_scratch = _make_scratch(self.tmp, "no-copy")
 
-        with patch.object(fixtures.invoke, "run_case") as mock_run_case:
-            with self.assertRaises(fixtures.FixtureBuildError):
-                fixtures.FIXTURES["fx-initialized"](bare_scratch)
+        with patch.object(fixtures.invoke, "run_case") as mock_run_case, \
+                self.assertRaises(fixtures.FixtureBuildError):
+            fixtures.FIXTURES["fx-initialized"](bare_scratch)
         mock_run_case.assert_not_called()
 
     def test_drives_init_with_all_six_injected_flags_and_trusts_a_matching_write_set(self):
@@ -177,9 +177,9 @@ class TestInitializedTemplate(unittest.TestCase):
                 target.write_text("seed\n")
             return _ok_invoke_result(_init_envelope_stdout())
 
-        with patch.object(fixtures.invoke, "run_case", side_effect=_fake_run_case):
-            with self.assertRaises(fixtures.FixtureBuildError):
-                fixtures.FIXTURES["fx-initialized"](self.scratch)
+        with patch.object(fixtures.invoke, "run_case", side_effect=_fake_run_case), \
+                self.assertRaises(fixtures.FixtureBuildError):
+            fixtures.FIXTURES["fx-initialized"](self.scratch)
 
     def test_a_non_ok_capture_outcome_refuses(self):
         def _fake_run_case(prompt, plugin_dir, cwd, tier):
@@ -188,15 +188,15 @@ class TestInitializedTemplate(unittest.TestCase):
                 tier="T4", timeout_s=600,
             )
 
-        with patch.object(fixtures.invoke, "run_case", side_effect=_fake_run_case):
-            with self.assertRaises(fixtures.FixtureBuildError):
-                fixtures.FIXTURES["fx-initialized"](self.scratch)
+        with patch.object(fixtures.invoke, "run_case", side_effect=_fake_run_case), \
+                self.assertRaises(fixtures.FixtureBuildError):
+            fixtures.FIXTURES["fx-initialized"](self.scratch)
 
     def test_a_degenerate_envelope_refuses(self):
         with patch.object(fixtures.invoke, "run_case",
-                           return_value=_ok_invoke_result("not-json")):
-            with self.assertRaises(fixtures.FixtureBuildError):
-                fixtures.FIXTURES["fx-initialized"](self.scratch)
+                           return_value=_ok_invoke_result("not-json")), \
+                self.assertRaises(fixtures.FixtureBuildError):
+            fixtures.FIXTURES["fx-initialized"](self.scratch)
 
 
 class TestMutationHelpers(unittest.TestCase):

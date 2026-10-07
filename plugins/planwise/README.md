@@ -7,6 +7,7 @@ planwise is a plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude
 ## Table of contents
 
 - [The problem](#the-problem)
+- [Requirements](#requirements)
 - [1. `init` — set up planwise in your project](#1-planwise-init)
 - [2. `plan` — create a plan](#2-planwise-plan)
 - [3. `review` — review a plan before executing](#3-planwise-review)
@@ -40,6 +41,44 @@ Every command starts with `/planwise` followed by a subcommand. The sections bel
 
 ---
 
+## Requirements
+
+Three dependencies, and only the first is needed to use planwise at all. Each row states what breaks without it, so you can decide rather than install on faith.
+
+| Dependency | Needed for | If absent |
+|---|---|---|
+| **Python 3.8+** | Every script-backed step — backlog scoring, config read/write, `init`, `upgrade`, `doctor` | Most of the plugin does not function |
+| **PyYAML** | Config validation, the artifact manifest, and `/planwise upgrade` | `/planwise upgrade` stops with `PyYAML is required for --upgrade` and changes nothing. Elsewhere planwise degrades quietly: config writes go through unverified, and the artifact manifest reads as empty so categorization falls back to built-in defaults |
+| **[GitHub CLI](https://cli.github.com/) (`gh`), authenticated** | `/planwise feedback` posting upstream, and the optional `upgrade.github_issue` report | **Optional — nothing breaks.** Both flows degrade to a written draft plus the issues URL, so you file it by hand |
+
+**Installing them**
+
+```bash
+python --version        # confirm 3.8 or newer; try python3 --version if that fails
+pip install pyyaml      # or pip3
+```
+
+For `gh`, run the one command matching your platform:
+
+| Platform | Command |
+|---|---|
+| Windows | `winget install --id GitHub.cli` |
+| macOS | `brew install gh` |
+| Linux (Debian 12+ / Ubuntu 23.04+) | `sudo apt install gh` |
+| Linux (Fedora) | `sudo dnf install gh` |
+| Anything else | See the [installation manual](https://cli.github.com/manual/installation) |
+
+Installing `gh` is not the whole job — two more gates stand between the binary and a posted report:
+
+1. `gh auth login` — an interactive browser flow. Run it yourself; planwise never authorizes an account on your behalf.
+2. Set `feedback.enabled: true` in `{planwise_root}/config.yaml`. Posting is opt-in and off by default.
+
+Until both are done, [`/planwise feedback`](#12-planwise-feedback) saves a local draft instead of posting. That is a supported configuration, not a broken install.
+
+> **You do not have to install `gh` up front.** [`/planwise init`](#1-planwise-init) and [`/planwise upgrade`](#10-planwise-upgrade) each probe for it and offer to install it when it is missing — always as a question, never silently, and a declined or failed install never blocks either command. [`/planwise doctor`](#8-planwise-doctor) reports the same three gates any time you want to check.
+
+---
+
 ## 1. `/planwise init`
 
 **Set up planwise in your project — run once per project.**
@@ -67,7 +106,7 @@ your-project/
     LessonsLearned/      <-- where insights are saved
   .claude/
     rules/
-      planwise/          <-- 4 path-scoped rules installed (the rest load on demand from the plugin)
+      planwise/          <-- 4 path-scoped author-time rules + 2 global style rules installed (the rest load on demand from the plugin)
 ```
 
 > **You only need to run `init` once per project.** After that, planwise remembers your setup. `init` also offers to enable [Token Saver mode](#9-planwise-token-saver).
@@ -152,6 +191,7 @@ flowchart LR
 
 ```
 /planwise run
+/planwise run @path/to/Orchestration.md --resume
 ```
 
 This starts working through your planned tasks in order. You get two modes:
@@ -159,7 +199,7 @@ This starts working through your planned tasks in order. You get two modes:
 - **GUIDED mode** — Claude proposes each task and waits for your OK before doing it (recommended for your first time)
 - **DELEGATED mode** — Claude works through tasks automatically using a task-runner agent
 
-If you need to stop mid-session, don't worry — planwise saves a recovery file so you can pick up exactly where you left off.
+If you need to stop mid-session, don't worry — planwise saves a recovery file so you can pick up exactly where you left off. If the session was cleared mid-run, `--resume` re-enters it from the recovery file without asking you to confirm the start again.
 
 #### How `run` works
 
@@ -194,7 +234,7 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 /planwise backlog BUG-042
 ```
 
-**Archival stays in sync.** Closing an item moves its file to `Archive/` and repoints the index link in the same step, and re-runs are safe. If an item was closed by hand and its file left stranded, `backlog` detects the drift on open and offers to reconcile it — nothing is moved without your consent (`--no-check` skips the detect pass for fast triage).
+**Archival stays in sync.** Closing an item moves its file to `Archive/`, and re-runs are safe. The next `generate_backlog_index.py --write` renders the new link from the file's new location. If an item was closed by hand and its file left stranded, `backlog` detects the drift on open and offers to reconcile it — nothing is moved without your consent. It also detects a legacy `**Status:**` line that an older item writer left under an item's title, and offers to strip it, so frontmatter `status:` stays the only status field. `--no-check` skips both detect passes for fast triage.
 
 #### How `backlog` works
 
@@ -215,7 +255,7 @@ flowchart LR
 
 Shows a table of every plan in your project with its status, sprint count, and when it was created.
 
-`list` also cross-checks every index row against its plan's actual Master Plan status and flags any drift before the table, offering to reconcile the index on the spot — nothing is written without your consent (`--no-check` skips the check).
+`list` also cross-checks the index against a fresh render of every Master Plan and flags any drift before the table, offering to reconcile the index on the spot — nothing is written without your consent (`--no-check` skips the check). It prints "No drift detected" only after a full comparison. When the check could not compare every row, it says so instead. When the index is still hand-authored, it points you to [`/planwise upgrade`](#10-planwise-upgrade) and offers no write.
 
 #### How `list` works
 
@@ -254,7 +294,7 @@ Promotion lints what it generates before finalising it: content the new rule/ski
 /planwise lessons curate --phase=promote
 ```
 
-Curate runs two phases against your lesson set. Phase 1 sorts uncategorised lessons into the domain buckets defined in `config.yaml` (Database, Application Code, Process, Tooling — customisable), tags each lesson's promotion target from its own structure (a fenced code block reads as `code`, a MUST/NEVER callout reads as `rule`), and flags a lesson that spans several target types as a split candidate. Phase 2 lands `promoted` lessons whose owning backlog item has shipped — verifying the destination artifact exists and logging each one in the Rule Promotion Log inside your lessons index. Run `--phase=both` (the default) to do both at once, or scope to just one phase.
+Curate runs two phases against your lesson set. Phase 1 sorts uncategorised lessons into the domain buckets defined in `config.yaml` (Database, Application Code, Process, Tooling — customisable), tags each lesson's promotion target from its own structure (a fenced code block reads as `code`, a MUST/NEVER callout reads as `rule`), and flags a lesson that spans several target types as a split candidate. Phase 2 lands `promoted` lessons whose owning backlog item has shipped — verifying the destination artifact exists and logging each one in the Rule Promotion Log, alongside your generated lessons index. Run `--phase=both` (the default) to do both at once, or scope to just one phase.
 
 **Batch-draft promotion plans for a whole bucket:**
 ```
@@ -266,7 +306,7 @@ Curate runs two phases against your lesson set. Phase 1 sorts uncategorised less
 
 Where single-lesson promote acts immediately, `promote-batch` plans the promotion of many lessons at once — grouping them by domain bucket and drafting backlog items (BBs) that describe the rules to be created, with the WRONG/CORRECT examples from each lesson inlined. Execution happens later via `/planwise backlog`. Add `--dry-run` to see the grouping plan without writing any files.
 
-**The lesson lifecycle.** Lessons graduate through four statuses: `documented → promoted → applied | rule`. When `promote-batch` fully captures a lesson into actionable backlog item(s), the lesson flips to the stable `promoted` status and moves to the archive right away — the backlog item becomes the live owner of the work (archived ≠ landed). When that item ships, `curate --phase=promote` lands the lesson as `applied` or `rule`. A lesson promoted one at a time skips the middle state and lands directly.
+**The lesson lifecycle.** Lessons graduate through `documented → promoted → applied | rule` (plus `orphaned` for content whose owning item closed without landing it); the vocabulary is declared as `lesson_statuses:` in `config.yaml`, beside the backlog `statuses:`. When `promote-batch` fully captures a lesson into actionable backlog item(s), the lesson flips to the stable `promoted` status and moves to the archive right away — the backlog item becomes the live owner of the work (archived ≠ landed). When that item ships, `curate --phase=promote` lands the lesson as `applied` or `rule`. A lesson promoted one at a time skips the middle state and lands directly.
 
 > **What are lessons learned?** When something goes wrong (or right!), planwise can capture that insight so you don't repeat mistakes or forget what worked.
 
@@ -295,14 +335,31 @@ flowchart LR
 - **Rule scope** — lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. These inject into every plan-brief read and can overflow a 200K-window task-runner, so `doctor` flags them with their size.
 - **Token Saver overhead staleness** — reports the stored `/context`-measured overheads and flags them stale after a plugin upgrade or a change in your agent/skill count.
 - **Read-gate scan** — checks your active plan's files against the Read-tool limits (the ~25K-token page cap — the binding gate on text — plus the 256 KiB byte cap and the 2,000-line window) and flags any that can't be read in one pass.
-- **Read-limit drift** — flags the fixed read constants if your CLI build has moved past the version they were measured on.
+- **CLI-version drift** — reports when your CLI build has moved past the version `verified_cli_version` in `config.yaml` was last measured against. `/planwise init` probes `claude --version` to set it. `/planwise upgrade` refreshes it on every run. The stage only reports. It never writes.
 - **Stale de-scoped rule sweep** — finds rule copies left behind in `.claude/rules/planwise/` by older versions; those rules are now loaded on demand from the plugin instead.
 - **Installed rule divergence lint** — classifies every still-installed rule against its shipped counterpart: a stale copy of an older shipped version (run [`/planwise upgrade`](#10-planwise-upgrade) — it refreshes it safely), a genuine customization (re-home it — never delete), or not analyzable (diff it manually).
 - **Orphaned agent mirror sweep** — flags agent copies under `.claude/agents/` left behind by older versions that mirrored agents into the project; agents now run directly from the plugin, so copies you never edited are safe to remove.
-- **Index drift audits** — cross-checks the plans index against each Master Plan's actual status, and the backlog index against archival state.
-- **Feedback capability probe** — checks the three gates that decide whether [`/planwise feedback`](#12-planwise-feedback) actually posts (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and names the one-line remedy for each unmet gate. The fallback is silent by design, so without this check a consumer can draft reports for months believing they were filed.
+- **Index drift audits** — compares the plans index with the generator's render of every Master Plan, and says so loudly when nothing could be compared. It also checks the backlog index against archival state, and the lessons index against its ID counter.
+- **Feedback capability probe** — checks the three gates that decide whether [`/planwise feedback`](#12-planwise-feedback) actually posts (`feedback.enabled`, `gh` resolvable on PATH or at a known install location, `gh` authenticated) and names the one-line remedy for each unmet gate. The fallback is silent by design, so without this check a consumer can draft reports for months believing they were filed.
+- **Upgrade recovery-leftover sweep** — walks the backup, transfer, and conflict directories that past [`/planwise upgrade`](#10-planwise-upgrade) runs left behind. They accumulate per upgrade and nothing purges them on its own, so the sweep sorts each one into what still needs you (unresolved conflicts, transferred customizations awaiting a re-homing decision) and what is now discardable (pre-change backups, consumed caches).
+- **Feedback directory presence check** — reports whether the directory your feedback drafts are written to actually exists. A project whose config predates the setting, or whose directory was removed by hand, would otherwise discover the gap only when the first draft failed to write.
+- **Settings-grant sweep** — reads `.claude/settings.json` and `.claude/settings.local.json` for read-permission grants that point into the plugin cache. It never writes. [`/planwise upgrade`](#10-planwise-upgrade) is the only command that normalizes a grant, and only after it asks.
+- **Thrifty-sonic env var sweep** — checks that `CLAUDE_CODE_THRIFTY_SONIC` is `"false"` in both your user and project `settings.json`. It never writes. [`/planwise upgrade`](#10-planwise-upgrade) offers to set it, and `/planwise init` sets it for new projects.
+- **Task-tools advisory** — reports whether the Claude Code Task tools are available in this session. Newer model families omit them, and `/planwise run` then tracks progress in its recovery file only. The report names the setting that turns them on and never edits it.
+- **Backlog item body-status audit** — finds a legacy `**Status:**` line left under an item's title, so the frontmatter `status:` stays the only status field. It strips a line only after you consent.
+- **Backlog index shape audit** — classifies your backlog index as generated, hand-authored, or unrecognized, flags any changelog file over its read budget, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index, or `migrate_backlog_index.py --split-changelog` for an over-budget changelog.
+- **Lessons index shape audit** — classifies your lessons index as generated, hand-authored, or unrecognized, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
+- **Plans index shape audit** — classifies your plans index as generated, hand-authored, or unrecognized, counts what a migration would move, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
 
-**Opt-in cleanup:** `/planwise doctor --prune-stale` is the one doctor invocation that writes. It removes only what the stale-rule sweep and the mirror sweep flagged as provably removable — every deleted file is first backed up next to a `PRUNED.md` audit log under `{planwise_root}/upgrade-backups/`, and anything carrying content of your own is always preserved in place.
+**Opt-in writers:** `doctor` has exactly three invocations that write, and none of them runs unless you ask for it by name. Two clean up; the third creates one missing directory.
+
+| Invocation | What it changes | What it never touches | Backup + audit log |
+|---|---|---|---|
+| `/planwise doctor --prune-stale` | Deletes only what the stale-rule sweep and the mirror sweep flagged as provably removable | Any rule or agent copy carrying content of your own — always preserved in place | `{planwise_root}/upgrade-backups/prune-{date}/`, beside a `PRUNED.md` log |
+| `/planwise doctor --prune-upgrade-leftovers` | Deletes only the leftovers the recovery sweep flagged as discardable — pre-change backups and consumed caches | Unresolved conflict sidecars and transferred customizations — never offered for deletion, no matter what | `{planwise_root}/upgrade-prune-logs/upgrade-leftovers-{date}/`, beside a `PRUNED-LEFTOVERS.md` log |
+| `/planwise doctor --create-feedback-dir` | Creates the feedback drafts directory the presence check reported missing — that one directory, nothing else, and only after you confirm | Any existing directory or its contents; it never renames, never deletes, and never runs when the directory is already there | None — it only adds an empty directory, so there is nothing to back up |
+
+Both pruners copy every path into their run's log folder before removing it, so a prune stays recoverable. A copy that fails leaves the original in place rather than delete without a backup, and a same-day rerun gets its own numbered folder instead of overwriting an earlier run's log. The two prune flags target unrelated artifact classes and write to separate log roots, so one is never a shorthand for the other. `--prune-upgrade-leftovers` confirms with you once per class of leftover before it removes anything, and accepts `--prune-classes` to narrow the run further — `--prune-classes inert` drops the consumed caches and keeps the backups.
 
 Run it any time for a quick health check — especially right after a [`/planwise upgrade`](#10-planwise-upgrade).
 
@@ -323,7 +380,7 @@ Token Saver is an optional budget mode that keeps each task session lean — und
 
 - **Sizes tasks by carrying cost**, warning (or splitting) a task whose Required Context would push a runner past its measured budget.
 - **Flags files that are too large to read in one pass** — a file at or over the Read tool's ~25K-token page cap, 256 KiB byte cap, or 2,000-line window is marked for paged reads (`offset`/`limit`/Grep) or refactor. Measure any file yourself with `scripts/measure_files.py` (KiB + estimated tokens + gate level per file). (This is a separate gate from the budget: a file can fit the budget yet still be unreadable in a single Read.)
-- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (the Opus/Fable-family tokenizer hits the page cap on fewer bytes); it is paged or refactored instead.
+- **Routes a genuinely oversized, indivisible file to the 1M (Opus) window** via a `1M-exception` marker — but only for a *cost*-reason overflow. A file that is too large to *read* is never fixed by the bigger window (the Claude 5 tokenizer hits the page cap on fewer bytes than Haiku 4.5's); it is paged or refactored instead.
 
 **Toggle it anytime** — you don't have to wait for an init or upgrade:
 
@@ -378,11 +435,11 @@ When a new plugin version is published, upgrading happens in two stages:
    /planwise upgrade
    ```
 
-   `/plugin install` does not refresh the rules in `.claude/rules/planwise/` — those were installed during `/planwise init` and are skip-if-exists thereafter. (Agents need no propagation step at all: they run directly from the plugin, invoked as `planwise:<name>`, so Stage 1 alone updates them.) `/planwise upgrade`:
+   `/plugin install` does not refresh the rules in `.claude/rules/planwise/` — those were installed during `/planwise init` and are skip-if-exists thereafter, except the two [style rules](#style-rules), which `/planwise upgrade` installs, refreshes, and removes by config key. (Agents need no propagation step at all: they run directly from the plugin, invoked as `planwise:<name>`, so Stage 1 alone updates them.) `/planwise upgrade`:
 
    - Bumps the pinned `plugin_version:` in your `config.yaml`
    - Adds any new top-level config keys (the additive merge previously available via `--migrate`), including the `upgrade:` block described below
-   - Backfills missing lessons scaffolding — seeds the lessons index and the categorization file that gates `lessons curate` / `promote-batch` when either is absent (idempotent; an existing file, customised or not, is preserved verbatim)
+   - Backfills missing lessons scaffolding — seeds the generated lessons index (hub, overflow leaves, Archive shards) and the categorization file that gates `lessons curate` / `promote-batch` when either is absent (idempotent; an existing file, customised or not, is preserved verbatim)
    - Refreshes installed rules whose local body still matches the previously-shipped body
    - **Auto-adopts stale copies:** a diverged file whose content is a clean structural subset of the newer shipped version (an old copy you never edited, that the plugin has since grown) is refreshed in place — rules keep your `paths:` line. Before any overwrite or removal, the pre-change file is copied under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (with a `DISPOSITIONS.md` log), so every automatic disposition is recoverable even without git
    - **Hands off customisations per `upgrade.customization_handoff`:** under `report+relocate` (the shipped default), a file that carries content of your own is first transferred verbatim — with a provenance header — to `{planwise_root}/upgrade-transfers/<from>-to-<to>/` as a dormant preservation document (outside `.claude/rules/`, never loaded as a rule), the transfer is verified by reading it back, and only then is the shipped body adopted in place. Under `report` / `report+issue` — or whenever a transfer, backup, or adoption write fails, or the verdict isn't analyzable — the file is preserved in place and a `.new` sidecar is written under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Either way, your content is never destroyed
@@ -395,6 +452,74 @@ When a new plugin version is published, upgrading happens in two stages:
 > Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
 
 **A note on "already up to date":** this comparison is entirely local — it checks your pinned `plugin_version:` against the plugin files already sitting in your local cache, never the marketplace source directly. If you haven't run Stage 1's refresh in a while, `/planwise upgrade` can report "already up to date" even though a newer release exists upstream, because fetching new versions into the local cache is Claude Code's own job, not this plugin's. Run `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace` periodically so the comparison has something current to compare against.
+
+### Upgrading from 1.0.5.1: backlog index
+
+Versions before 1.0.5.2 use a hand-authored backlog index: one table, one footer line for the whole changelog, and no generated Archive shards. From 1.0.5.2 on, an open item renders into a generated hub, and a closed item renders into a generated Archive shard. Each item's YAML frontmatter is the single source of truth for its row. The changelog moves into its own file. One item blocks another through the frontmatter `blocks:` key, not a `## Dependencies` table.
+
+`/planwise upgrade` migrates a hand-authored index automatically. Plain `/planwise init` only detects one. Init writes nothing to the index or to any item file. It reports the index as deferred under its Skipped section and names `/planwise upgrade` as the fix. Init still re-splits an over-budget changelog on an already-generated index. The upgrade migration:
+
+- Backs up every file it is about to write, under `{planwise_root}/upgrade-backups/{from}-to-{to}/backlog/`.
+- Moves the changelog footer, the feature-cell prose, and the dependency notes into their new homes.
+- Backfills missing or partial frontmatter.
+- Regenerates the index and checks it.
+- Records what it did in a migration ledger.
+- Parks each ambiguous feature-cell sentence — one that only partly matches its item file — verbatim in that ledger, instead of appending it or refusing. The banner names the parked count.
+
+The migration recognizes only two shapes: hand-authored or generated. An index it recognizes as neither is left untouched and reported through `migrate_backlog_index.py --report` — never migrated silently, and never called hand-authored.
+
+The migration refuses on a data conflict it cannot resolve on its own, such as a reciprocal block edge. When it refuses, nothing is written, and the banner names the exact reason and the exact fix. Re-run `/planwise upgrade` after applying the fix. The migration re-fires. A failed *write*, unlike a refusal, rolls every touched file back to its state before the run. `generate_backlog_index.py --write --replace-legacy` skips the migration and overwrites a hand-authored or unrecognized index directly, WITHOUT a backup.
+
+Backups are first-wins within one `{from}-to-{to}` version pair — the first run in that pair keeps its backup. A later run in the same pair may find the target changed since that kept backup. That run also writes the current file to a numbered sibling, `{name}.{n}.bak`, so its own restore point survives. An identical re-run, one that finds the target unchanged, writes no new sibling.
+
+Pass `--backlog-reconcile index-wins` or `--backlog-reconcile frontmatter-wins` to `/planwise upgrade` to choose how a row/frontmatter disagreement resolves. The default is `index-wins`. This flag applies only together with `--upgrade`. Plain `/planwise init` does not accept it, because init never migrates a hand-authored index.
+
+Pass `--lessons-reconcile index-wins` or `--lessons-reconcile frontmatter-wins` to `/planwise upgrade` for the same choice over the lessons index. The default is `index-wins`. This flag applies only together with `--upgrade`.
+
+Plain `/planwise init` over a hand-authored index leaves it untouched, on a fresh project and on a re-run. A reconcile only has work to do when an index row and an item's frontmatter both exist and disagree, and that needs an earlier planwise version. The Skipped section prints in subroutine mode (`--auto-from`) too, so the fix line always reaches you. A refusal, such as an abbreviation the config does not define, can only happen in `/planwise upgrade`.
+
+Until the migration finishes, both [`/planwise backlog`](#5-planwise-backlog) and the index generator refuse to run against a hand-authored index.
+
+Every index and changelog file stays readable in one call: the hub holds to a 12,500-token budget, and both the Archive shards and the changelog parts hold to a wider 22,000-token budget. When a changelog outgrows that budget after further use, the next `/planwise upgrade` re-splits it into more parts, backing up every file it rewrites first.
+
+### Upgrading from 1.0.5.1: lessons index
+
+Versions before 1.0.5.2 use a hand-authored lessons index: one Master Table, a header changelog block, and a Rule Promotion Log table, all in the same file. From 1.0.5.2 on, the index is generated from each lesson file's frontmatter, the changelog moves into its own file, and the Promotion Log moves into its own files. Directory membership is never a routing input — a lesson's `status:` decides whether it lists in the hub or shards to `Archive/`.
+
+`/planwise upgrade` migrates a hand-authored lessons index automatically. Plain `/planwise init` only detects one. Init writes nothing to the index or to any lesson file. It reports the index as deferred under its Skipped section and names `/planwise upgrade` as the fix. Init still re-splits an over-budget changelog on an already-generated index. The upgrade migration:
+
+- Backs up every file it is about to write, under `{planwise_root}/upgrade-backups/{from}-to-{to}/lessons/`.
+- Relocates the header changelog and the Rule Promotion Log into their own files.
+- Drops a hand-written prose section whose text already matches the seed, and relocates one that differs verbatim into the changelog.
+- Renames a hand-written categorization companion out of the way and regenerates it.
+- Backfills missing or partial frontmatter, and quotes an unquoted title that needs it.
+- Regenerates the index and checks it.
+- Records what it did in a migration ledger.
+
+The migration recognizes only two shapes: hand-authored or generated. An index it recognizes as neither is left untouched and reported through `migrate_lessons_index.py --report` — never migrated silently, and never called hand-authored.
+
+The migration refuses on a data conflict it cannot resolve on its own. When it refuses, nothing is written, and the banner names the exact reason and the exact fix. Re-run `/planwise upgrade` after applying the fix. The migration re-fires. A failed *write*, unlike a refusal, rolls every touched file back to its state before the run. `generate_lessons_index.py --write --replace-legacy` skips the migration and overwrites a hand-authored or unrecognized index directly, WITHOUT a backup.
+
+Until the migration finishes, any `/planwise lessons` mode that writes a lesson file (Capture, Curate, Promote, Batch-Promote), and the index generator itself, refuse to run against a hand-authored index.
+
+### Upgrading from 1.0.5.1: plans index
+
+Versions before 1.0.5.2 use a hand-authored plans index: one table whose rows, statuses and notes you edited by hand. From 1.0.5.2 on, the index is generated from each plan's Master Plan. The Master Plan's `**Status:**` line and dates decide each row, and a row is never edited directly.
+
+`/planwise upgrade` migrates a hand-authored plans index automatically. Plain `/planwise init` only detects one. Init writes nothing to the index or to any Master Plan. It reports the index as deferred under its Skipped section and names `/planwise upgrade` as the fix. The upgrade migration:
+
+- Backs up the index and every Master Plan it appends to, under `{planwise_root}/upgrade-backups/{from}-to-{to}/plans/`.
+- Attaches each note in the index to the row it followed, and appends it to that row's Master Plan without changing any byte already there.
+- Keeps a note it cannot attach, and every row it cannot resolve, verbatim in the migration ledger.
+- Lets the Master Plan's status win when a row and its Master Plan disagree, and counts each change.
+- Regenerates the index and checks it.
+- Records what it did in `{plans_dir}/00-Plans-Migration-Ledger.md`, with a byte accounting that shows no byte of the old index was lost. Any line the generator does not re-render, such as hand-written prose below the table, is listed there verbatim.
+
+The migration recognizes only two shapes: hand-authored or generated. An index it recognizes as neither is left untouched and reported through `migrate_plans_index.py --report`. The index generator refuses to overwrite such an index too.
+
+The migration refuses on a data conflict it cannot resolve, such as an HTML comment that never closes. When it refuses, nothing is written, and the banner names the exact reason and the exact fix. It does not refuse on the git state. `/planwise upgrade` backs up every Master Plan it appends to byte-exact before the append, so uncommitted edits are kept, and the banner reports whether the git tree was dirty. The standalone `migrate_plans_index.py --write` refuses a tree that git cannot vouch for, or a dirty Master Plan in its append set, unless you pass `--allow-untracked-tree` or `--force`. Re-run `/planwise upgrade` after applying the fix. A failed *write* rolls every touched file back to its state before the run. `generate_plans_index.py --write --replace-legacy` skips the migration and overwrites a hand-authored index directly, WITHOUT a backup and without keeping its notes.
+
+Until the migration finishes, `generate_plans_index.py --write` exits 2 against a hand-authored index, and `/planwise plan`, `/planwise run` and `/planwise backlog` tell you to run `/planwise upgrade`.
 
 ---
 
@@ -431,7 +556,7 @@ Walks you through a short prompt — bug, lesson, or idea — and drafts a submi
 
 **Privacy.** The submitted body never contains your file contents, repo paths, or config values — only what you wrote in the prompt. If `gh` isn't installed, isn't authenticated, or you decline the post, your draft is preserved locally and the issues URL is printed so you can file it by hand.
 
-**Needs the [GitHub CLI](https://cli.github.com/) (`gh`) to post directly.** `/planwise init` and `/planwise upgrade` offer to install it when it's missing — always as a question, never silently. Because the draft fallback is silent by design, [`/planwise doctor`](#8-planwise-doctor) also probes all three posting gates (`feedback.enabled`, `gh` on PATH, `gh` authenticated) and tells you whether reports are actually posting or quietly landing in `feedback-drafts/`.
+**Needs the [GitHub CLI](https://cli.github.com/) (`gh`) to post directly** — see [Requirements](#requirements) for the install command and the two gates that follow it. `/planwise init` and `/planwise upgrade` offer to install it when it's missing — always as a question, never silently. Because the draft fallback is silent by design, [`/planwise doctor`](#8-planwise-doctor) also probes all three posting gates (`feedback.enabled`, `gh` resolvable on PATH or at a known install location, `gh` authenticated) and tells you whether reports are actually posting or quietly landing in your local feedback directory (`Feedback/` by default).
 
 #### How `feedback` works
 
@@ -439,6 +564,17 @@ Walks you through a short prompt — bug, lesson, or idea — and drafts a submi
 flowchart LR
     A([Run command]) --> B[Answer bug/lesson/idea<br/>prompt] --> C[Review draft &amp;<br/>duplicates] --> D([Confirm &amp; post/comment,<br/>or save locally])
 ```
+
+#### Checking status and archiving posted drafts
+
+```
+/planwise feedback --status
+/planwise feedback --sweep
+```
+
+`--status` lists every local draft in `Feedback/` and whether it's been posted — a marked draft shows its issue number, state, and title (one read-only lookup per issue); a draft with no marker is listed as not known to have been posted, since it may have been filed by hand instead of through this command. It makes no changes and asks no questions.
+
+`--sweep` finds drafts already marked posted and offers to archive them — move each one, together with its marker, into `Feedback/Archive`. It never deletes anything, and it never touches a draft with no posted marker. It always lists the candidates first; nothing moves until you confirm, and Cancel is the pre-selected default. On a non-interactive session, including Auto Mode, it lists the candidates and stops without moving anything.
 
 ---
 
@@ -485,11 +621,11 @@ flowchart LR
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, feedback capability, Token Saver staleness (`--prune-stale` to clean up) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, backlog/lessons/plans index shape audits, backlog item body status lines, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
-| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream |
+| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (`--status` to check posting state, `--sweep` to archive posted drafts) |
 | `/planwise harvest` | Run the lesson-to-artifact chain end to end, unattended |
 
 ---
@@ -528,6 +664,34 @@ After running `/planwise init`, your settings live in `planwise/config.yaml`. He
 | `context.token_saver` | Token Saver mode default (see [§9](#9-planwise-token-saver)) | `false` |
 | `upgrade.customization_handoff` | How upgrade hands off files you've customised (see [§10](#10-planwise-upgrade)) | `report+relocate` |
 
+### Style Rules
+
+planwise installs two global rules that shape how Claude writes. `plain-language` asks for short sentences, active voice, and one term per concept. `plain-presentation` sets conventions for tables, lists, headings, and code blocks.
+
+Both rules are on by default. `/planwise init` and every `/planwise upgrade` run install them. The location follows the install scope: `~/.claude/rules/planwise/` for `user`, otherwise the project's `.claude/rules/planwise/`.
+
+Each rule has its own key in `config.yaml`:
+
+```yaml
+style:
+  plain_language: on        # style.plain_language
+  plain_presentation: on    # style.plain_presentation
+```
+
+A key accepts `on`, `off`, `true`, or `false`, in any case. A malformed value prints a warning on stderr and counts as `on`.
+
+The two rules cost about 1,400 to 1,600 tokens per session: 1,623 by a conservative byte estimate, 1,418 measured with `/context` in another project. The rules are global, so spawned subagents receive them, except Explore and Plan subagents.
+
+To turn a rule off, set its key to `off` and run `/planwise upgrade`. The change applies on that run, also when the plugin version is already current. The run removes an untouched copy and keeps an edited copy. An added `paths:` line counts as an edit. The run never removes a symlinked copy.
+
+planwise installs no second copy when a file of the same name sits at the top level of `.claude/rules/` or `~/.claude/rules/`. It reports the existing copy.
+
+`/planwise doctor` Stage 23 prints one line per rule and one token summary line. Each rule shows one state: `OK`, `DUPLICATE`, `CUSTOMIZED`, `MISSING`, `OFF`, or `MISMATCH`. It treats an `off` key as a finding to confirm and reports a rule that loads twice.
+
+Evidence for `plain-language`: in a controlled comparison it gave shorter sentences on 10 of 10 test prompts. It won a blinded human read and passed all six correctness guards. A later rerun on one model at one repetition made 5 of 6 answers plainer and dropped a small amount of detail on 3.
+
+Evidence for `plain-presentation`: it follows four published style guides. Structure checks and human review verified it. No prompt campaign tested it.
+
 ### Plugin file structure
 
 ```
@@ -536,9 +700,9 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
     marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 12 subcommand handlers across 15 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
+  handlers/                         # 12 subcommand handlers across 19 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
   agents/                           # 8 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
-  references/                       # Knowledge base documents (4 installed as path-scoped rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
+  references/                       # Knowledge base documents (4 installed as path-scoped rules + 2 installed as global style rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init
   scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py)
@@ -577,7 +741,7 @@ To remove the marketplace:
 
 **Python scripts show errors**
 - Check that Python 3.8+ is installed: `python --version`
-- If you see YAML-related warnings, install PyYAML: `pip install pyyaml` (optional but silences warnings)
+- If you see YAML-related warnings, install PyYAML: `pip install pyyaml`. It is optional for day-to-day use, but `/planwise upgrade` requires it — see [Requirements](#requirements)
 
 **Plans or backlog seem out of date after a plugin update**
 - Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules into your project

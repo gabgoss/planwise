@@ -68,21 +68,70 @@ sprint's write-set can be checked against it, independent of landing order.
      upstream step disposed X") over a literal. If a literal is used, cite the measurement
      that produced it in the same bullet. -->
 
-- [ ] {Measurable criterion 1}
-- [ ] {Measurable criterion 2}
-- [ ] {Measurable criterion 3}
+<!-- DRY-RUN AT SCAFFOLD CLOSE. Run every criterion's check against the PRE-CHANGE tree and
+     record what it returned, inline. A criterion that already PASSES pre-change is a
+     scaffold-time failure — it returns the same verdict on an untouched tree as on a
+     finished sprint. Rewrite it; do not ship it annotated. The recorded value is also the
+     Before baseline any "unchanged vs Before" / "Before + 1" criterion needs to be
+     computable at all. See references/verification-task-authoring.md §10. -->
+
+<!-- BRANCH-SET PARITY. Where a criterion enumerates outcomes, its accepted set MUST equal
+     the terminal branch set of the task that produces them — count them from that task's
+     Execution Steps, not from the outcome you expect. Zero-hit, nothing-to-do and
+     already-resolved branches are the ones dropped most often, and are often the expected
+     result. A criterion accepting fewer FAILs a correct execution. §10.7 of the same file. -->
+
+- [ ] {Measurable criterion 1} <!-- pre-change: {measured} → expect {expectation} -->
+- [ ] {Measurable criterion 2} <!-- pre-change: {measured} → expect {expectation} -->
+- [ ] {Measurable criterion 3} <!-- accepts {a} outcomes; task {ID} defines {a} terminal branches -->
+
+<!-- Before shipping any criterion above, check its command against the four semantics traps
+     in references/verification-task-authoring.md §10.8: grep -c counts matching LINES not
+     matches; -B1/-A1 emit the match line itself; a set-membership claim must not be hardened
+     into a count equality; every path resolves from the cwd its own block declares. -->
+
 
 ---
 
 ## Deliverables <!-- REQUIRED -->
 
 <!-- Removal / retirement deliverables: paste the sweep output that PRODUCED the list and cite
-     the command. Do not enumerate from memory — see scaffolding-hygiene.md §13, and note that
+     the command. Do not enumerate from memory — see scaffolding-hygiene-Part-2-DerivationAndParallelism.md §13, and note that
      the creator artifact (schema/DDL, migration, generator, packaging declaration) is the member
      whose omission silently undoes the retirement. -->
 
-1. **{Deliverable 1}:** {Description of what will be produced}
-2. **{Deliverable 2}:** {Description of what will be produced}
+| # | Deliverable | Class | Description |
+|---|-------------|-------|-------------|
+| 1 | {Deliverable 1} | edit | {What will be produced} |
+| 2 | {Deliverable 2} | create | {What will be produced} |
+| 3 | {Deliverable 3} | verified-absent | {What is deliberately NOT taken, and the check that proves it absent} |
+
+> [!constraint] A row that lands new behaviour names its production caller
+> For a `create` (or `edit`) row that adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch, `Description` also states where production invokes it — the call site that supplies the activating argument, the parser registration, the subscription. At signoff that row anchors on a call-site search over production paths, never on the definition; a definition no production caller reaches is not a landed deliverable, and a runner's "dormant until a follow-up wires it" is PARTIAL, not COMPLETE. See `references/verify-caller-before-complete.md`.
+
+**Total: {N} deliverables** — count the rows above.
+
+Every other artifact cites "every row of this table" rather than repeating {N}. That
+includes the Orchestration, the Execution Input, the exit criteria, the Signoff, and any
+sweep task that reconciles a ledger.
+
+<!-- The total is a CAPTION of the table, derived by counting its rows. It is never an
+     independent claim. Do NOT carry a total in from a source document — a source's own
+     prose caption may disagree with the table it introduces, and that miscount is
+     inherited silently. Count these rows. See references/scaffolding-hygiene.md §12.7. -->
+
+<!-- If you also write a decomposition ("{a} edits + {b} creates"), the classes MUST sum
+     to {N} in this same block. Draw every class name from the Class column above and
+     nowhere else, so the arithmetic is checkable where it is written. -->
+
+**Ledger treatment of the `verified-absent` class:** {one ledger row each | one aggregate
+ledger row for the whole class | a landed deliverable AND a ledger row}. State the choice
+here — a sweep reads this line to know how many rows to expect.
+
+<!-- Why this is stated rather than assumed: a verified-absent set folded into one
+     aggregate row in one artifact, and expanded to one row EACH in another, yields two
+     different totals from the same table. A runner recomputing the ledger then either
+     halts or manufactures a row to make the stated total true. -->
 
 ---
 
@@ -105,14 +154,16 @@ sprint's write-set can be checked against it, independent of landing order.
 
 ---
 
-## Cross-Sprint File Touches <!-- OPTIONAL — include when this sprint edits a file already edited by a prior sprint -->
+## Cross-Sprint File Touches <!-- OPTIONAL — include when this sprint edits a file ANY other sprint of the same plan also edits, ordered or not -->
 
-List every file this sprint edits that was ALSO edited by an earlier sprint of the same plan. Each row pairs the file with the prior sprint's edit so the executor can verify the prior delta landed before applying this sprint's delta.
+List every file this sprint edits that ANOTHER sprint of the same plan also edits. Each row pairs the file with the co-writing sprint's edit so the executor can verify the other delta's state before applying this sprint's delta.
 
-| File | Prior Sprint Task | Prior Delta Marker (grep target) | This Sprint Adds |
-|------|-------------------|----------------------------------|------------------|
-| `{path/to/file.ext}` | {Abbrev}-S{XX_prior}-{YY}-{##} | `{grep-anchor text the prior sprint inserted}` | {delta this sprint adds} |
-| `{path/to/file2.ext}` | {Abbrev}-S{XX_prior}-{YY}-{##} | `{grep-anchor text}` | {delta this sprint adds} |
+**Include a row whether or not the two sprints are ordered.** The unordered case is the more dangerous one: with no ordering edge, the two sprints may run in either order or at once, and nothing else in the plan records that the file has two owners. Per `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16.6, an unordered pair also needs either an ordering edge or a `MUST NOT run concurrently (shared file: …)` row in the Master Plan's Sprint Dependencies table, and the row below goes in BOTH sprints' Sprint Plans.
+
+| File | Co-Writer Task | Co-Writer Delta Marker (content anchor) | Ordering | This Sprint Adds |
+|------|----------------|----------------------------------------|----------|------------------|
+| `{path/to/file.ext}` | {Abbrev}-S{XX_prior}-{YY}-{##} | `{anchor text the prior sprint inserted}` | prior — that sprint runs first | {delta this sprint adds} |
+| `{path/to/file2.ext}` | {Abbrev}-S{XX_other}-{YY}-{##} | `{anchor text the co-writer inserts}` | **none declared** — see Sprint Dependencies | {delta this sprint adds} |
 
 <!-- Declaring a row here mechanically implies three obligations in the consuming task:
      (a) Step-1 prerequisite grep gate — see templates/task-file.md "Cross-Sprint

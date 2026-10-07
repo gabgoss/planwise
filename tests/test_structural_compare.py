@@ -27,7 +27,7 @@ from pathlib import Path
 # root (python -m unittest scripts/test_...) or from inside scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import structural_compare as sc  # noqa: E402
+import structural_compare as sc
 
 
 class TestClassifyBlocks(unittest.TestCase):

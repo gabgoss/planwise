@@ -1,11 +1,16 @@
 ---
-description: Thirteen binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, mega-scaffold review-gate, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, run-time-sound verification commands and context pointers, retirement-deliverables deletion-set derivation, config-editing permission-round-trip scaffolding, first-task sprint diff-baseline recording, and computed write-set intersection for declared-parallel sprints
+description: Nine binding hygiene rules plus three advisory practices for what a multi-sprint scaffold emits — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, mega-scaffold review-gate, and run-time-sound verification commands and context pointers. Part 1 of 2 — the five derivation-and-parallelism rules (§13–§17) live in scaffolding-hygiene-Part-2-DerivationAndParallelism.md
 ---
-# Scaffolding Hygiene
+# Scaffolding Hygiene — Part 1: What the Scaffold Emits
 
-**Purpose:** Enforce thirteen mechanical hygiene rules — and apply three advisory scaffolding practices (§8–§10) — when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
+**Purpose:** Enforce nine mechanical hygiene rules — and apply three advisory scaffolding practices (§8–§10) — when scaffolding any multi-sprint plan (`/planwise plan --scaffold`, `/planwise plan` against Meta-Plan outputs, or hand-authored multi-sprint folders). Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
 
 This file is the §14 expansion referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols). Read it before generating any `Sprint-{XX}-{Name}/` folders.
+
+> [!important] This reference is split across two files — §13–§17 live in Part 2
+> This part carries §1–§12: the rules governing what the scaffold **emits**. The five rules governing what a scaffold must **compute before it closes** — retirement deletion-set derivation (§13), config-editing permission round-trips (§14), the first-task diff baseline (§15), the sprint-level write-set intersection (§16), and the dispatch-layer write-target intersection (§17) — live in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md).
+>
+> Section numbers are continuous across the two files: a section keeps its `§N` wherever it lands, so there is no `§1` in Part 2. Read Part 2 as well before closing a scaffold — §13–§17 are the rules a scaffolder needs at scaffold close.
 
 ## Table of Contents
 
@@ -21,10 +26,6 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 - [10. Pre-Allocate Tokens for Known High-Divergence Cohorts](#10-pre-allocate-tokens-for-known-high-divergence-cohorts)
 - [11. Mega-Scaffold Review-Gate — Non-Skippable for 2+ Sprints In One Pass](#11-mega-scaffold-review-gate--non-skippable-for-2-sprints-in-one-pass)
 - [12. Verification Commands and Context Pointers Must Be Run-Time Sound](#12-verification-commands-and-context-pointers-must-be-run-time-sound)
-- [13. Retirement Deliverables Must Derive the Deletion Set](#13-retirement-deliverables-must-derive-the-deletion-set)
-- [14. Scaffold a Config-Editing Plan for a Permission Round-Trip](#14-scaffold-a-config-editing-plan-for-a-permission-round-trip)
-- [15. First Task of Each Sprint Records the Diff Baseline](#15-first-task-of-each-sprint-records-the-diff-baseline)
-- [16. Declared Parallelism Requires a Computed Write-Set Intersection](#16-declared-parallelism-requires-a-computed-write-set-intersection)
 
 ---
 
@@ -260,13 +261,46 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 >    required (e.g., `**Total Estimated:** ~50K`).
 > 3. **Class C — Scaffold folder absent when scaffolding is done inline.**
 >    `Scaffold-{Abbrev}/` folder missing because scaffolding ran inline rather
->    than in a dedicated session.
+>    than in a dedicated session. **Phase-gated — grade this class only past
+>    Discovery.** `Scaffold-{Abbrev}/` and `Exec-{Abbrev}/` are both created by
+>    the scaffolding pass. A plan still at Discovery has neither by
+>    construction, and cannot acquire them without inventing artifacts its own
+>    phase does not call for — which §7 forbids. **The phase test is the
+>    presence of `Exec-{Abbrev}/`.** Absent ⇒ the plan is at Discovery, and
+>    this class does not apply. Do NOT read the `Meta-{Abbrev}/` Master Plan's
+>    `**Phase:**` field instead: that field records the Meta-Plan's own phase
+>    and keeps reading `1 of 3` after the execution plan exists, so it cannot
+>    separate the two cases. Without the gate, every Discovery-phase review
+>    opens on a phantom BLOCKER, halts at the Phase-1 structural gate, and
+>    reaches no content reviewer.
 >
-> Mitigation hooks:
-> - `/planwise review` Phase 1 structural check runs three greps — one per
->   class — against the plan tree.
-> - The reviewer flags each deviation by class severity (A = WARNING,
->   B = ERROR, C = BLOCKER) and prompts the orchestrator to harmonize.
+> Mitigation hooks, in the order they run:
+>
+> 1. **The scaffolder sweeps its own output — this is the first line of
+>    defence.** After a pass that authors 2+ sprints, or that fans out to 2+
+>    scaffolding subagents, and BEFORE handing the plan to `/planwise review`,
+>    the scaffolder runs the three class sweeps over the files it just wrote
+>    and harmonizes what they surface: section headers restored to the
+>    template's wording, optional formatting lines restored, and the pass's
+>    output-naming scheme applied to every sprint in the pass. The mechanics
+>    live at `handlers/plan.md` Step 9b. The cost asymmetry is the whole
+>    argument — at authoring time a rename has no consumers, while after the
+>    fact the same rename is an edit sweep through every citing task file
+>    across every sprint.
+> 2. **`/planwise review` Phase 1 CONFIRMS that sweep rather than discovering
+>    the drift.** Its structural check runs the same three class sweeps against
+>    the plan tree. Keep them: they are what still catches a hand-authored or
+>    resumed scaffold that skipped Step 9b entirely.
+> 3. The reviewer flags each surviving deviation by class severity
+>    (A = WARNING, B = ERROR, C = BLOCKER) and prompts the orchestrator to
+>    harmonize.
+>
+> **The output-naming scheme is a pass-level decision, not a per-sprint one.**
+> A single-session sprint does not reveal which ordinal its task outputs number
+> by, so a per-sprint choice stays invisible until a later multi-session sprint
+> picks the other one — by which time every consuming task file cites the old
+> names. Choose once for the pass, apply it to every sprint including
+> single-session ones, and state the choice in the Master Plan.
 >
 > WRONG — parallel scaffolders silently produce inconsistent files; the
 > reviewer trusts the variance is intentional.
@@ -278,7 +312,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 #### Reviewer Check 049 — Parallel-Scaffold Deviation Classes
 
 - **Severity / Role:** ERROR/WARNING/BLOCKER (by class) | Scaffolding Hygiene Reviewer | NEW
-- **Detection:** Compare scaffolded sprint outputs against template; classify deviations: A (section-header drift = WARNING), B (optional-formatting omission = ERROR), C (Scaffold-folder absence = BLOCKER).
+- **Detection:** Compare scaffolded sprint outputs against template; classify deviations: A (section-header drift = WARNING), B (optional-formatting omission = ERROR), C (Scaffold-folder absence = BLOCKER). Gate Class C on phase first: Glob for `Exec-{Abbrev}/`, and skip the class entirely when it is absent. A Discovery-phase plan carrying `Meta-{Abbrev}/` alone is correct, not deviant. Grade Class C only when `Exec-{Abbrev}/` exists and `Scaffold-{Abbrev}/` does not.
 - **Finding template:** `[{SEVERITY}] Parallel-scaffold deviation class {A|B|C} | Fix per references/scaffolding-hygiene.md §8`
 
 ---
@@ -425,7 +459,18 @@ See also: `handlers/plan.md` Step 10 (the gate's mechanical enforcement point), 
 
 ## 12. Verification Commands and Context Pointers Must Be Run-Time Sound
 
-Content written into a task file at **scaffold** time can encode an assumption about the on-disk world that is no longer true — or was never true — at **run** time, while every per-task gate still passes because the scaffolded artifact is internally well-formed. Two surfaces are especially prone to this: Required-Context line pointers and verification-command paths. Both must be treated as run-time-derived facts, not scaffold-time constants.
+Content written into a task file at **scaffold** time can encode an assumption about the on-disk world that is no longer true — or was never true — at **run** time, while every per-task gate still passes because the scaffolded artifact is internally well-formed. Six surfaces are prone to this:
+
+| Surface | Subsection |
+|---|---|
+| Required-Context line pointers | §12.1 |
+| Verification-command paths | §12.2 |
+| Rows asserting a state rather than citing a path | §12.3 |
+| A count restated in more than one place in a document that was only partly refreshed | §12.4 |
+| A figure a gate compares against | §12.5 |
+| A convention or landed fix adopted after the sprint was scaffolded | §12.6 |
+
+None of the six may be carried as a scaffold-time constant. Each is re-derived against the live world before it is relied on.
 
 ### 12.1 Required-Context Line Pointers Are Cost Hints — Locate by Symbol Before Reading/Editing
 
@@ -453,6 +498,10 @@ Corollaries:
 
 - Task Step-1 gates and dispatch prompts gate on **symbols** (`grep -c 'def _classify_diverged' …`), never on line numbers.
 - An orchestrator forwarding context to a runner passes the **symbol names** and flags the line numbers as possibly stale.
+
+**A named section is a hypothesis too — and it fails differently.** The discipline above treats a line number as a cost hint and re-locates by symbol. A *named section* (`## Required References`, `### Config Gate`) is equally a hypothesis, but its failure mode is not drift. The section may never have existed in that file at all, because the name was generalised from sibling files that do have it.
+
+Re-locating by symbol cannot rescue that case, which is why it needs stating separately. The locator returns 0, and a runner reads 0 as "my pointer went stale" when it actually means "my premise was wrong" — so the two failures need different responses. A stale line number is re-derived and the row proceeds unchanged. An **absent** section changes what the row must say: the row states the fallback form (inline note vs. new section), and creating the section becomes its own scoped deliverable rather than a side effect. See [verify-before-cite.md](verify-before-cite.md) §9.B.21 for that discipline. This subsection states only the part that belongs here — a named section, exactly like a line number, is verified against the named file before the row ships.
 
 ### 12.2 Scaffolded Verification Commands Derive the Repo Root — Never Assume Directory Depth
 
@@ -487,209 +536,250 @@ Applies to:
 - Scaffolding authoring Verification Commands into task files, wherever the target lives in a nested or cloned sub-repo.
 - Plan review: reviewers spot-check both surfaces — one symbol-vs-line pointer and one `git -C` depth per scaffolded sprint — against the live tree.
 
-## 13. Retirement Deliverables Must Derive the Deletion Set
+### 12.3 State-Asserting Rows Are Cost Hints Too — Re-Derive the Conclusion at Scaffold Close
 
-A Deliverables list that removes a persistent artifact is produced by a sweep, not written from memory: run the sweep first, paste its output into the plan, and let that output be the list. Two sweep passes are needed because they catch different misses, and the hits must then be classified by ROLE — not file type — because exactly one role can silently undo the retirement.
+> [!constraint] A row that asserts a STATE about an artifact is a scaffold-time snapshot, exactly like a line-number pointer — re-derive it at scaffold close, not just its file path
+> §12's opening principle is: content written into a task file at scaffold time can encode an assumption about the on-disk world that is no longer true — or was never true — at run time, while every per-task gate still passes because the artifact is internally well-formed. §12.1 applies this to path pointers (`file — Lxxx-yyy`); §12.2 applies it to directory-depth assumptions in verification commands. This subsection applies the SAME principle to a third surface: a row whose content asserts a STATE — "X is an orphan", "X is cited by nothing", "X has N members", "X is Y lines long", "X is unreferenced" — rather than merely citing a path.
+>
+> A state assertion differs from a path pointer in one important way: nothing in the existing gates re-derives it automatically. A stale line-number pointer fails loudly (the read lands on the wrong content, and a symbol-grep gate catches it). A stale state assertion fails silently — the assertion reads as a settled fact, gets folded into a priority order, an exit criterion, or a Signoff anchor, and nothing downstream re-checks whether it is still true.
+>
+> Mandatory step: for every row whose content asserts a STATE (not just cites a path), scaffolding MUST re-run the assertion against the LIVE artifact at scaffold close and record the measured value inline with a date — the same treatment §12.1 already gives path pointers. "Re-derive at scaffold close" means literally running the grep/count/check the row claims — NOT re-reading the same source document that produced the original claim (re-reading the source re-confirms what the source said, not what is currently true).
+>
+> WRONG — a state assertion is compressed and carried forward without re-derivation:
+> ```
+> Source (Discovery-era): "{file} is cited by nothing."
+> EI row (scaffold time, unchanged): "{file} is a true orphan, cited by nothing."
+> (no grep run against the live tree before this row is written)
+> ```
+> The EI row hardens into a priority order. If the live tree has since gained a citation, the row is false and nothing catches it until execution — or later.
+>
+> CORRECT — the assertion is re-run against the live artifact, and the measured value + date is recorded inline:
+> ```
+> Source (Discovery-era): "{file} is cited by nothing."
+> Scaffold-close re-derivation: `grep -rn "{file}"` → 1 hit (`{citing-file}:{line}`), measured {date}.
+> EI row: "{file} is cited once, by {citing-file}:{line} (measured {date}) — NOT a true orphan; the
+>          Discovery-era 'cited by nothing' claim is superseded."
+> ```
 
-### 13.1 Derive the Deletion Set Before Authoring Deliverables
+Applies to:
 
-> [!constraint] Run the sweep first, paste its output into the plan, and let that output be the list
-> A Deliverables list that **removes** a persistent artifact is produced by a sweep, not written from memory.
+- Any EI row, Deliverable, exit criterion, or Signoff anchor asserting a count ("N members"), a reachability claim ("orphan" / "cited by nothing" / "unreferenced"), a size claim ("X lines"), or any other fact about an artifact's CURRENT state.
+- Scaffolding Step 4 (Create Execution Inputs) of the scaffolding workflow — see `handlers/plan-scaffolding.md`.
+- Companion to §10.4 in `references/ei-source-promise-integrity.md` (cited-authority currency): that subsection covers a claim whose support comes from ANOTHER artifact's conclusion; this subsection covers a claim whose support is a directly-measurable fact about the artifact itself. A row can fail either, both, or neither independently.
 
-```bash
-# Run BEFORE writing the Deliverables section. Two passes, because they miss different things.
-grep -rln --exclude-dir={vcs,cache dirs} "{qualified_artifact_name}" {source_roots} {docs}
-find {source_roots} -name "*{artifact_name}*"   # catches members that never mention the name in prose
+### 12.4 A Count Refresh Sweeps the WHOLE Document — Key the Sweep on Claim Shape, Not on Known Phrasings
+
+> [!constraint] A refresh of any count, inventory, or file list is not complete until every OTHER statement of that same fact in the same document has been re-derived in the same pass
+> Sweep the document's own count claims. Do not spot-fix only the section that prompted the refresh. The failure this prevents states in one line: **after a partial refresh, one document asserts two different values for one fact, and its reader has no way to know which number to trust.**
+>
+> §12.3 governs a single row: re-run its assertion against the live artifact and record the measured value inline. This subsection governs what §12.3 alone never reaches — the *other* copies of the same fact, elsewhere in the same document, that the refresh never visited. A document is re-verified against a moved source, the sections the author was thinking about are correctly updated, and the restatements keep their old values. Nothing re-checks them, because nothing knows they exist.
+>
+> **Key the sweep on the SHAPE of a count claim, never on remembered phrasings.** For each noun under refresh, `Grep` the document for the digit-plus-noun pattern (`[0-9]+ {noun}` and its plural), enumerate **every** occurrence, and reconcile each against the measured value. Do not `Grep` for the specific strings already known to be stale.
+>
+> That distinction is the whole rule, and it is not a refinement: **a sweep keyed to the phrasings you have already found cannot find the ones you have not.** Two sections routinely state one fact in different words. A sweep written against the first section's wording passes silently over the second, which is exactly how a stale copy survives several independent reviewers and a synthesis pass, to be caught later by a verification sweep run after the fixes were already applied.
+>
+> WRONG — the sweep is written from the stale copies already in hand:
+> ```
+> refreshed §{Inventory}: "{N} {artifact-class}"   ← measured, correct
+> Grep '{N_old} {artifact-class}'                  ← finds the copy you already knew about
+> …§{Overview} still reads "{M} {artifact-class-synonym}", phrased differently → never matched
+> ```
+> CORRECT — the sweep is written from the claim's shape, so an unseen phrasing is still enumerated:
+> ```
+> Grep  pattern='[0-9]+ {artifact-class}'          output_mode='content'  -n=true
+> Grep  pattern='[0-9]+ {artifact-class-synonym}'  output_mode='content'  -n=true
+> → reconcile EVERY hit against the measured value, in this same pass
+> ```
+> **Reconcile every hit against the MEASURED value, never against another cell in the same document.** Measure the live source once, then compare each enumerated occurrence to that number. Comparing the occurrences only to each other is not the same check and will report a wholly stale document as consistent.
+>
+> Two shapes escape the `[0-9]+ {noun}` pattern and need reconciling separately, or the sweep leaves the authoritative copy unchecked:
+>
+> - **A two-column inventory table** (`| {noun} | {N} |`) puts the number in its own cell, so no digit ever precedes the noun. This is usually the very section the refresh updated — reconcile it directly against the measurement.
+> - **A file list.** A path named in a table headed "read by task agents" is a claim about the tree, and a renamed or split file leaves it pointing at nothing. Resolve every path, not only the counts.
+
+Applies to:
+
+- Any Master Plan, Sprint Plan, Execution Input, or Consolidated Context part re-verified against a moved or changed source tree.
+- Any document whose header records a re-verification date — the date is a promise about the whole file, not about the sections the author happened to open.
+- Free-prose sections as much as tables. A Vision or Overview paragraph restating a count in its own words is the copy a table-shaped sweep misses.
+
+#### Reviewer Check 081 — State-Asserting Row Re-Derivation at Scaffold Close
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** Every EI row, Deliverable, exit criterion, or Signoff anchor asserting a STATE about an artifact (count, reachability, size, existence) MUST carry a measured value + date recorded inline, re-derived against the live artifact at scaffold close — not merely inherited from the Discovery-era source that first made the claim.
+- **Detection:**
+  1. Grep the EI/Sprint Plan/Orchestration for state-asserting phrasing: "is an orphan", "cited by nothing", "unreferenced", "has {N} members", "is {N} lines", or equivalent count/reachability/size claims.
+  2. For each match, check whether the row carries an inline measured value + date (e.g., "measured {date}: {value}").
+  3. If absent, re-run the assertion against the live artifact yourself and compare to the row's claim.
+  4. If the row lacks a measured value + date, OR the live re-derivation contradicts the row's claim → BLOCKER.
+  5. **§12.4 — document self-consistency.** For each noun whose count the document refreshed, `Grep` the whole file for the claim's shape (`[0-9]+ {noun}`, plural included), not for the phrasings already known to be stale. Two hits giving different values for one fact → BLOCKER, regardless of which one is correct. Check free-prose sections, not only tables: a Vision or Overview paragraph restating a count in its own words is the copy a table-shaped sweep misses.
+- **Finding template:**
+```
+[BLOCKER] State-asserting row not re-derived at scaffold close
+File: {EI/plan file path} | Location: {row/section}
+Issue: row asserts "{claim}" with no measured value + date; live re-derivation shows {measured value}
+Fix: Re-run the assertion against the live artifact and record the measured value + date inline, per references/scaffolding-hygiene.md §12.3 | Confidence: HIGH
 ```
 
-WRONG — the Deliverables section names the files the author remembers touching:
+### 12.5 Re-Measure Every Gate-Bound Figure at Preflight, Before Dispatch
 
-```markdown
-6. **Deletions:** `{path}/refresh_helper.{ext}`, `{path}/driving_notebook.{ext}`
+§12.3 re-derives a row that *asserts* a state. This one covers the figure a gate *compares against*. The two differ in who reads them: a stale assertion misleads a human, while a stale gate figure decides PASS or FAIL with nobody in the loop. A baseline stated lower than live satisfies its gate early and leaves the remainder unswept — a green run over a fraction of the surface, with no symptom.
+
+> [!checklist] Preflight — Gate-Bound Figures
+> Run this after scaffolding and immediately before dispatch, once per session, over every gate whose predicate compares against a stated figure (a pre-edit baseline, a file line count, a symbol or call-site count, an expected file-set size, a size or count band):
+>
+> - [ ] Every such gate identified, and its **Before command re-run** against the live artifact. The gate's own Before command IS the re-measurement — no separate instrument is needed.
+> - [ ] Every disagreeing figure corrected in **all** its copies together — the task file, the Execution Input, and every verbatim quote of it. A partial correction ships two documents that disagree while each claims to be the same figure.
+> - [ ] Each correction records the **cause**, not just the new value ("14 — two sub-rules entered the anchor after scaffolding", not "14, not 3").
+> - [ ] Every figure with **no derivation in its own text** traced to an origin, or demoted to advisory. A figure whose only stated authority is another flag has been forwarded, not verified.
+> - [ ] Any figure that IS derived checked against decisions taken since its as-of date. An approved change that adds mass to the measured artifact invalidates the number without touching it.
+
+The longer the gap between scaffolding and dispatch, the more of the plan is fiction. A plan scaffolded for many sprints in one pass carries the widest gap on its last sprint, which is also the sprint whose figures nobody re-reads.
+
+### 12.6 A Convention Adopted After a Sprint Is Scaffolded Reaches It Only Through a Register
+
+§12.1–§12.5 each govern a *fact* that went stale between scaffold time and run time. This subsection governs a *rule* that arrived late. The signature is identical. The sprint's files stay internally well-formed, every per-task gate passes, and the content is non-conformant to a convention the plan adopted after that sprint was written.
+
+Two classes of late rule exist, and only the first is usually noticed:
+
+- **Scaffold-pass conventions.** A pass adopts a convention — a density measure, a model-assignment rule, a serialization rule. Sprints authored in earlier passes inherit nothing.
+- **Review-landed fixes.** A review finds a defect in one sprint and repairs it at that sprint's own sites. The identical defect survives in every other sprint, because a fix is not filed as a convention and nothing propagates it.
+
+The second class is the sharper one. A fix applied at eight sites in one sprint, and never propagated, reappears unfixed three sprints later. The next reviewer then files it as a fresh finding rather than as a regression against landed precedent.
+
+> [!constraint] A convention or a landed fix is carried by a register entry with a runnable predicate — never by a prose note
+> **Prose does not carry a convention.** A note in the Master Plan reaches a sprint only when a human reads it and acts on it. That is a diagnosis, not a remedy. Once every sprint is on disk there is no future scaffold pass left to catch anything.
+>
+> **Every adopted convention and every review-landed fix earns an entry.** Five fields:
+>
+> | Field | Content |
+> |---|---|
+> | `id` | A stable handle that sprint reviews cite back |
+> | `adopted-at` | The scaffold pass or the review that adopted it |
+> | `requires` | What a conformant sprint must contain |
+> | `predicate` | A runnable check — a `Grep` pattern plus its expected result, or a command plus its expected output |
+> | `basis` | The value measured when the entry was written, plus the date |
+>
+> **A predicate that cannot fail is not a predicate.** Dry-run each one against a known-bad sprint and a known-good sprint before the entry ships. The two runs MUST return different results. An entry only ever run against conformant input has never been shown to discriminate.
+>
+> **Discharge re-measures. It never reads the entry's own claim.** The `basis` field is a scaffold-time snapshot, exactly like the state assertion §12.3 governs, and it expires the same way. A discharge runs the `predicate` against the live sprint and records what came back.
+>
+> **Scope is every sprint that has not yet run** — not only the sprints authored after the adoption. A sprint authored *before* the convention is the whole population the register exists to reach.
+
+**Ownership — adoption registers, the pre-run review discharges.** The adopting side is the mechanical half. A pass or a review that adopts a convention MUST write the entry before it closes, and a prose note stops counting as adoption. The discharging side is each sprint's own pre-run review, which runs every open entry's predicate against that sprint. This puts the discharge on a gate that already runs once per sprint, immediately before that sprint can do harm. The predicate is what makes the choice safe: discharging by reviewer judgment is only as good as the reviewer, and discharging by running a stated command is not.
+
+Two alternatives were considered and are recorded here so the choice is not relitigated:
+
+- **Back-propagate at adoption time** — edit every already-scaffolded sprint the moment a convention is adopted. This is the most coherent option and it is not the default, because it re-opens sprints that are already reviewed or running, and it turns each adoption into an N-sprint edit sweep. Reserve it for an entry a pre-run review cannot repair in place.
+- **A tree-wide scripted sweep** — deferred rather than rejected. It needs tooling that can execute an arbitrary per-entry predicate, which the `predicate` field is designed to feed. Adopt it once that tooling exists.
+
+> [!constraint] Register the convention, or the carrier is a note that can itself go stale
+> WRONG — the convention rides in prose, and the prose expires without anything re-deriving it:
+> ```
+> Master Plan note: "three conventions each reached only the sprints scaffolded
+> after they were adopted — each remaining pre-run review must check all three."
+>
+> …and further down: "every sprint inherits the unscoped gate form; there is no
+> correct instance in the batch to copy, so the fix belongs in the rule."
+>    ← true when written. False two sprints later, once two sprints had landed
+>      the correct form. A reviewer relied on the line and under-classified a
+>      regression as an inherited default.
+> ```
+> Nothing re-derived the note before a reviewer acted on it, because a note is not a check.
+>
+> CORRECT — the entry carries a predicate, and the discharge runs it:
+> ```
+> | id | adopted-at | requires | predicate | basis |
+> | {C3} | {Sprint-N} review | per-task gates path-scoped to the task's own outputs | `Grep` `--name-only -- ` in the sprint's EI → ≥ 1 hit | 0 of {N} sprints conformant, measured {date} |
+>
+> Discharge at {Sprint-M}'s pre-run review:
+>   Grep  pattern='--name-only -- '  path='{Sprint-M EI}'  output_mode='content'
+>   → 0 hits ⇒ NOT conformant. Filed against this sprint, citing {C3}.
+>   dry-run pair: the same Grep returns ≥ 1 on {a conformant sprint's EI}
+> ```
+> The discharge names what it ran and what came back. The `basis` field was never consulted.
+
+Applies to:
+
+- Any multi-sprint plan that adopts a convention, or lands a review fix, after its first scaffold pass — which is every plan scaffolded in more than one pass.
+- Review-landed fixes as much as scaffold-pass conventions. The fix class has no carrier at all until it is registered.
+- Each sprint's pre-run review, which owns the discharge and records the run output beside each entry it discharged.
+
+#### Reviewer Check 092 — Convention Register Not Discharged Against This Sprint
+
+- **Severity / Role:** ERROR — BLOCKER when a discharge is recorded with no re-measurement | Scaffolding Hygiene Reviewer | NEW
+- **What:** A multi-sprint plan that adopted any convention, or landed any review fix, after its first scaffold pass MUST carry a convention register. Each sprint's pre-run review MUST discharge every open entry against that sprint by running the entry's predicate. A prose note in the Master Plan is not a register. A discharge citing the entry's `basis` field instead of a fresh run is not a discharge.
+- **Detection:**
+  1. Read the Master Plan for adopted conventions, and for review findings repaired at one sprint's own sites only. Each one is an owed register entry.
+  2. Assert a register exists carrying `id`, `adopted-at`, `requires`, `predicate` and `basis` per entry. Prose carrier only → ERROR.
+  3. For each open entry, run its `predicate` against the sprint under review and compare the result with the review's recorded discharge.
+  4. A discharge recorded with no run output, or one whose only stated authority is the entry's `basis` field → BLOCKER. The entry's claim is a snapshot and expires exactly as §12.3 describes.
+  5. Dry-run each `predicate` against one conformant and one non-conformant sprint. Identical results → ERROR, because the predicate does not discriminate.
+  6. Confirm the register covers review-landed fixes and not only scaffold-pass conventions. A fix applied at one sprint's own sites with no entry → ERROR.
+- **Finding template:**
+```
+[ERROR] Convention register not discharged against this sprint
+File: {Master Plan or review report} | Location: {register | convention audit}
+Issue: {no register exists — the carrier is a prose note} | {entry {id} has no discharge record for this sprint} | {entry {id} discharged by reading its basis field, not by running its predicate}
+Fix: Register each adopted convention and review-landed fix with a runnable predicate, and discharge every open entry by running it against this sprint, per references/scaffolding-hygiene.md §12.6 | Confidence: HIGH
 ```
 
-Both entries correct; the creator artifact absent; nothing in the plan detects the absence, because every gate the plan wrote checks the work that *was* scheduled.
+### 12.7 A Caption That Counts a Table Is Checked Against That Table Before It Is Carried Forward
 
-CORRECT — the Deliverables section cites the command and pastes what it returned:
+§12.3 re-derives a row that asserts a state. §12.4 sweeps the *other* copies of a count already in the document. This subsection governs the moment earlier than both — the moment a count **enters** the plan tree, read out of a source document's prose.
 
-```markdown
-6. **Deletions** — derived by `grep -rln "{qualified_name}" {roots}` + `find {roots} -name "*{name}*"`
-   (run {date}; full output in `Outputs/{...}-DeletionSweep.md`):
-   - `{path}/schema_definition.{ext}`   ← CREATOR (see §13.2 — omission undoes the retirement)
-   - `{path}/refresh_helper.{ext}`      ← REFRESHER
-   - `{path}/driving_notebook.{ext}`    ← DRIVER
-   - 5 citer-only references listed in §13.3 (edit, do not delete)
+A source document opens a landing surface with a caption: *"nine required edits, one new file"*, above a table. The scaffold reads the caption and carries the number forward. Nothing counts the table. If the caption double-counts a row the table already holds — a row that IS the new file — the scaffold inherits a wrong total and every downstream artifact agrees with it.
+
+> [!constraint] Count the table. Never carry a source's caption forward as the count.
+> **The table is the source of truth. The caption is a derived claim about it.** When a source's prose states a count over a table, count the table's rows before using the number. On disagreement the table wins, and the scaffold records both values plus the date.
+>
+> **A total is stated once, as a caption of the rows beneath it.** Every consuming artifact — the Orchestration, the Execution Input, the exit criteria, the Signoff, the sweep task — cites the table rather than restating the number. See `references/exit-criteria-fidelity.md` §16.10.5 for the exit-criterion half of this rule.
+>
+> **A written decomposition sums in place.** If a plan writes "{a} edits + {b} creates", those classes MUST add to the stated total in the same block. A decomposition whose parts live in one artifact and whose total lives in another is two claims that nothing reconciles.
+>
+> **Deliverables in absence form need a declared home.** An edit deliberately not taken, verified absent, is counted three defensible ways: one ledger row each, one aggregate row for the class, or a landed deliverable and a ledger row both. The Sprint Plan states which it chose. Leave it unstated and two artifacts reach two totals from the same table, with no way to tell which is right.
+>
+> WRONG — the caption is read as the count, and the miscount propagates:
+> ```
+> Source: "Nine required edits, one new file"  ← above a NINE-row table whose row 4 IS the new file
+> Scaffold reads "nine edits" as excluding the new file, adds a second create it found itself
+> → total 11, copied verbatim into six artifacts, one of them a gate-defining exit criterion
+> → the sweep task's own parenthetical enumerates 8 edits; the criterion's trio clause implies 10
+> ```
+> CORRECT — the table is counted, and the caption is reconciled against it:
+> ```
+> Source caption: "Nine required edits, one new file"
+> Table row count (measured {date}): 9 rows, of which row 4 is the create
+> → 8 edits + 1 create = 9. The caption double-counts the create.
+> Scaffold records: "9 source deliverables (8 edits + 1 create) — the source's 'nine edits'
+>                    caption counts the create twice; superseded by the row count."
+> ```
+
+Applies to:
+
+- Scaffolding Step 4.5 (Multi-Tier Discovery Extraction), where a source's caption is first read — see `handlers/plan-scaffolding.md`.
+- Any Sprint Plan, Orchestration, Execution Input, exit criterion, Signoff anchor, or sweep task that states a deliverable total.
+- Any prose count over any table, not deliverables alone — a roster caption, a check-count caption, a file-list caption.
+
+#### Reviewer Check 094 — Deliverable Total Asserted Rather Than Derived
+
+- **Severity / Role / Type:** BLOCKER when the total gates a criterion, ERROR otherwise | Scaffolding Hygiene Reviewer | NEW
+- **What:** A sprint's deliverable total MUST be stated once, as a derived count of the Sprint Plan `## Deliverables` table's rows. Every other artifact cites the table rather than restating the number. A stated decomposition MUST sum to the total in the same block, and the ledger treatment of the verified-absent class MUST be declared.
+- **Detection:**
+  1. Count the rows of the Sprint Plan `## Deliverables` table. This is the total; nothing else is.
+  2. `Grep` the sprint tree for the count's shape (`[0-9]+ deliverables`, the spelled-out form, and `[0-9]+ edits`), not for the phrasing already in hand. Every hit outside the Sprint Plan's own caption is a copy.
+  3. Compare each hit against the measured row count. Two hits giving different values for one fact → BLOCKER, regardless of which is correct.
+  4. For any stated decomposition, add the classes. A sum that misses the stated total → BLOCKER.
+  5. Assert the Sprint Plan declares the ledger treatment of any `verified-absent` row. Undeclared, with a sweep task that reconciles a ledger → ERROR.
+  6. Where the total was read from a source document's caption, count that source's table too. A caption disagreeing with its own table, carried forward unreconciled → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Deliverable total asserted rather than derived from the table
+File: {Sprint Plan / EI / Signoff / sweep task} | Location: {section}
+Issue: {artifact states "{N} deliverables" while the Sprint Plan table holds {M} rows} | {decomposition "{a} edits + {b} creates" sums to {a+b}, not the stated {N}} | {verified-absent rows have no declared ledger treatment; the sweep and the criterion reach different totals}
+Fix: State the total once as a derived caption of the deliverable table, cite the table from every other artifact, and declare the verified-absent class's ledger treatment, per references/scaffolding-hygiene.md §12.7 | Confidence: HIGH
 ```
 
-### 13.2 Classify Sweep Hits by ROLE, Not by File Type
-
-The sweep returns paths. What matters is what each path *does* to the artifact, because exactly one role can undo the retirement:
-
-| Role | What it does | Typical members | Cost of omitting it |
-|---|---|---|---|
-| **Creator** | Re-creates the artifact from nothing | schema DDL, migration, generator script, seed/fixture loader, packaging or re-export declaration | **UNDOES the retirement** — the next routine run resurrects the artifact as an orphan nothing refreshes and nothing drives |
-| Refresher | Populates or updates it | helper module, transform, ETL step | Inert dead code — fails or no-ops |
-| Driver | Invokes the refresher | notebook, CLI entry point, scheduled job | Inert dead code |
-| Citer | Names it in prose | docstrings, comments, docs, index rows, cross-references | Misleads the next reader toward a file that is gone (§13.3) |
-
-The Deliverables list MUST either contain a Creator-role member, or state explicitly which creator is being **kept** and why (a shared file that also defines artifacts staying alive is a legitimate keep — but it must be named as a decision, not omitted as an oversight).
-
-> A deletion list holding a Refresher and a Driver but no Creator is the failure signature. It reads complete — the two things a human remembers touching — and it schedules the artifact's return.
-
-### 13.3 Citers Are Edited, Not Deleted
-
-The same grep that derives the deletion set also finds every Citer. Citers are **edited, not deleted** — a docstring naming a deleted module as a precedent needs the precedent restated or the sentence dropped, not the docstring removed. Enumerate citers in the Deliverables list as a separate group with an explicit count, so the executor can verify the count rather than judge completeness by eye.
-
 ---
 
-## 14. Scaffold a Config-Editing Plan for a Permission Round-Trip
-
-When a plan's deliverable includes editing `.claude/rules/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/commands/**`, or `.claude/settings*.json`, the harness permission classifier gates those writes **independently of planwise authorization**. A task brief, Sprint Plan, and Master Plan that all name the file as the deliverable do **not** pre-clear it, and the classifier's decisions within a single batch are **not deterministic**.
-
-This is a scaffolding obligation, not an execution surprise. Such a plan is predictably going to pause; scaffold it so pausing is cheap rather than destructive.
-
-| # | Obligation | Why |
-|---|---|---|
-| 1 | **Declare the round-trip in the Orchestration.** Treat it the way a DB-touching task treats a connectivity precheck — a known, planned interruption. | A pause the plan predicted is an interrupt; a pause it did not is a BLOCKED cycle. |
-| 2 | **Keep each edit batch to the smallest coherent set.** Do not dispatch many edits to one config file expecting all-or-nothing. | Denials are per-call, so a large batch half-applies and leaves the file internally inconsistent. |
-| 3 | **Record applied-vs-denied state in Recovery immediately on any denial.** | The file can then be completed or reverted deterministically instead of re-derived from a half-remembered batch. |
-| 4 | **On denial, STOP and ask — never retry verbatim.** Surface the precise file and the exact remaining edit list. | A verbatim retry in the same mode re-denies, burning a round-trip and adding nothing. |
-| 5 | **Scope the brief to the minimum required sections.** | Out-of-brief "consistency nicety" edits inflate the edit count against the classifier, and can be the one edit that hits an unclearable block — losing nothing essential while adding interrupts. |
-
-Some denials cannot be cleared by user authorization at all. The plan must be able to record such an edit as a known, non-blocking residual and continue, rather than treating the session as failed.
-
-> [!constraint] Do Not Scaffold a Rule-Editing Task as an Ordinary File Edit
-> WRONG:
-> ```
-> Task 03: edit {rule-file-A} + {rule-file-B}   (no round-trip declared)
-> → 16 Edit calls dispatched; the classifier denies 3 of them
-> → both files half-flipped and internally inconsistent; session blocked;
->   no recorded partial state, so the next attempt cannot tell applied from pending
-> ```
-> CORRECT:
-> ```
-> Orchestration declares the expected permission prompt for Task 03
-> → dispatch brief-scoped edits only, smallest coherent batch
-> → on first denial: write the applied-vs-denied list to Recovery, STOP, ask the user
-> → after the grant: apply the remainder; record any unclearable residual as a
->   known, non-blocking follow-up
-> ```
-
-Note that this applies **in every operating configuration** — the classifier is the gate regardless of mode, so Auto Mode does not bypass it.
-
-Planwise-level self-modification authorization does not pre-clear this harness-level gate: [session-execution-protocol.md](session-execution-protocol.md#claude-self-modification-authorization) §3 (Claude Self-Modification Authorization) authorizes Claude to add Bash permissions to `.claude/settings.json` at the planwise/workflow level, but that authorization is independent of the permission classifier described above (`agent-orchestration.md` constraints table row 12, self-modification writes) — satisfying one does not satisfy the other, and a reader who knows only §3 needs this pointer.
-
----
-
-## 15. First Task of Each Sprint Records the Diff Baseline
-
-A sprint's verification gates are only as trustworthy as the tree state they name, and a gate written as `git diff $..._BASE -- <paths>` is unfalsifiable if no task in the sprint was ever given the job of recording that base. The unset name expands to nothing, the command degrades into a bare whole-tree `diff`, and it still runs, still prints, and still reads as green or red — so the failure is invisible at exactly the moment the report is written. Scaffolding is where that gap is closed: the obligation to pin a baseline is assigned to a task at scaffold time or it does not exist at all.
-
-> [!constraint] Every sprint carries a baseline-recording obligation, assigned to a task at scaffold time
-> **Who.** The first task in the sprint that **touches the target repo** records the baseline — identified by **write-set, not by task number**. The first *numbered* task is routinely a read-only survey, inventory, or discovery pass; the first *touching* task is the one whose Output names a file in that repo. Assign the obligation to that task and state in its brief why it holds it, so a later re-ordering of the task list does not silently move the pin off the front.
->
-> **Precondition.** Before pinning, the sprint's own write scope MUST be clean:
-> ```bash
-> git -C <repo> status --porcelain -- <this sprint's write paths>
-> # MUST be empty. Non-empty → HALT. Not a warning — a halt.
-> ```
-> Uncommitted work inside the sprint's own write-set makes every later gate unfalsifiable in both directions: the base already contains changes this sprint did not make, so a scope gate fails the sprint for someone else's edits, while a self-containment sweep either blames it for a token it never wrote or credits its own leak elsewhere. Scope the precondition with `--` to the sprint's write paths rather than the whole repo — unrelated dirt outside the sprint's area is not this sprint's to stash, and a whole-repo cleanliness demand is the kind of gate sessions learn to override.
->
-> **What.**
-> ```bash
-> {ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)
-> ```
->
-> **Where.** The session Recovery file's Key Findings, as that task's **first** Recovery write — before any file edit, so a compaction or a crash mid-task does not lose the pin. Record the name, the value, and which task recorded it. Every later task in the sprint then **reads the value from Recovery** instead of re-deriving it: a `rev-parse HEAD` taken after the first edit is not the baseline, and a gate scoped to it is blind to every change made before it ran.
->
-> **Series base.** A multi-sprint plan additionally records `{ABBREV}_SERIES_BASE` at the first task of the first sprint, for the release / whole-series battery that needs one base predating every sprint. **First-to-touch contingency:** a sprint that may not run first — any sprint the plan's ordering declares INDEPENDENT — MUST check the plan's Recovery files for an already-recorded series base before minting one, and **adopt that value verbatim** if it finds one. Only when none exists does its own HEAD become the series base.
-
-> [!constraint] Scaffold the pin onto a task, or the sprint's gates measure the wrong tree
-> WRONG — the sprint's gates all name a base, but the scaffold assigned the pin to nobody; and where a task does pin, it pins after it has already started editing:
-> ```
-> {Abbrev}-S{XX}-01   Output: <file A>
->   Step 1: edit <file A>   …   Step 5: {ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)
-> {Abbrev}-S{XX}-02   Verification: git -C <repo> diff $..._BASE -- <paths> | …   # nothing ever recorded this name
-> ```
-> Task 02's gate expands to a whole-tree `diff` and reports every uncommitted file in the repo as this sprint's. Task 01's late pin does not rescue it either: a base taken after its own edit already contains that edit, so a gate scoped to it is blind to the one change it was written to check and reports empty for the reason that makes empty worthless.
->
-> CORRECT — the pin is step 1 of the first task whose write-set touches the repo, behind the clean-scope HALT, written to Recovery before any edit:
-> ```
-> {Abbrev}-S{XX}-01   Output: <file A>
->   Step 1: git -C <repo> status --porcelain -- <this sprint's write paths>   # MUST be empty, else HALT
->           {ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)
->           → Recovery Key Findings, as the session's FIRST Recovery write
->           (first sprint of a series: also check the plan's Recovery files for
->            {ABBREV}_SERIES_BASE and adopt it verbatim, else record it here too)
->   Step 2: edit <file A>
-> {Abbrev}-S{XX}-02   Step 1: read {ABBREV}_S{NN}_BASE from Recovery — do not re-derive
-> ```
-
-This section owns **who** records a baseline, **when**, and **where** it lives; what a gate must then look like once a base exists — the `--` path scoping, the positive allow-list form of a scope test, and the five sub-rules governing each gate shape — belongs to [verification-gates.md](verification-gates.md#8-diff-scoped-gates-pin-a-recorded-baseline) §8, the definition site for `$..._BASE`. Its §8.1 and §8.4 state the pin mechanics and the series-base contingency from the *gate's* side; the scaffolding obligation above is what makes them satisfiable, and neither restates the other. Read §8 before authoring any diff-scoped gate.
-
----
-
-## 16. Declared Parallelism Requires a Computed Write-Set Intersection
-
-A `∥` in a Master Plan's ordering is not a scheduling preference — it is a claim that two sprints never write the same file. The claim is about file sets, so only a file-set operation can support it, and a sprint's *name* is not evidence of one. "Agents vs handlers, disjoint files" describes two clusters; a cluster is not a write-set, and the distance between the two is exactly where concurrent sessions overwrite each other. This section makes the intersection an artifact the plan has to **show**, so that a parallel declaration is either computed or absent — never inferred, and never asserted behind a marker that cannot fail.
-
-> [!constraint] A declared-parallel pair is unsupported until its write-sets are intersected and the result is shown
-> **16.1 — Every sprint declares a write-set.** Each Sprint Plan carries a `## Write-Set` section listing every directory or file the sprint **EDITS** — not the ones it merely reads — as a `| Path | Task |` table naming the task that writes each path. The read/edit distinction is the whole point: nearly every sprint reads broadly while only a handful of paths are ever written to, so an intersection computed over read-sets is meaningless. The `## Write-Set` declaration is distinct from a sequential Cross-Sprint File-Touch declaration, which compares this sprint against a *prior* sprint's already-landed delta; the write-set is the declaration an intersection is computed **from**, independent of landing order.
->
-> **16.2 — Every declared-parallel pair states its computed intersection, with the result shown.** The Master Plan's `## Execution Ordering` section carries the declared-ordering line, a `### Write-Sets` table (`| Sprint | Write-set |`) collected from each Sprint Plan's own declaration, and a `### Computed Write-Set Intersection` table (`| Declared pair | Intersection | Verdict |`) with one row per `∥` pair. `∅` means the parallelism stands as declared. A non-empty intersection permits exactly two dispositions: (1) **serialize the pair, dropping `∥`**; or (2) **qualify the parallelism per-file, naming an explicit task-level ordering edge for each shared file (`S0A-01-0x → S0B-01-0y`)**. "We looked and it seemed fine" is neither disposition: an unshown result is an assertion wearing a computation's clothes, which is the precise shape that survives review. **Recompute the matrix whenever any sprint's write-set changes** — a mid-plan coordination flag that admits one new file into a sprint's scope can turn a `∅` row false, and the row does not re-derive itself.
->
-> **16.3 — A file appearing under two sprints declared `∥` is a BLOCKER-grade contradiction.** When a plan's own file-touch or write-set tables list the same path under two sprints the ordering line joins with `∥`, the plan contradicts itself in writing. That is caught **mechanically**, by the structural reviewer, not by a reviewer happening to notice — the two statements typically sit sections apart, and the whole failure mode is that nobody reads them against each other.
->
-> **16.4 — A gate marker may not be an assumption.** A marker reading `n/a — single-writer per sprint` is not a gate; it is an assertion with no check behind it, and it reports the same result whether or not the property it names holds. A gate marker must be a **runnable command whose failure is possible** against the pre-edit tree — for a write-set concern, typically a baseline-pinned, path-scoped diff whose output must never name the parallel sprint's files (`git -C <repo> diff --name-only $..._BASE -- {dir}/`). Before trusting any marker, confirm it can return the failing result at all: a check that cannot fail is not evidence, it is decoration.
->
-> **16.5 — Cross-sprint coordination flags must be reciprocal.** If sprint A raises a flag about a file sprint B also writes, B's flag chain names A and vice versa. Without the return edge each sprint measures a **shared** threshold — a file-size gate, a line budget — against its own contribution alone, and against a baseline the other sprint has already moved. Both sprints then pass a limit their combined delta breaks, and each one's arithmetic is locally correct.
-
-> [!constraint] Compute the intersection, or the `∥` is an unbacked claim
-> WRONG — the parallelism inferred from cluster names, while the plan's own tables say otherwise:
-> ```
-> **Declared ordering:** `{ S0A ∥ S0B }`   ← marked *binding*
->   rationale: "agents vs handlers — disjoint files"
->
-> Cross-Sprint File-Touch Matrix (same plan, further down):
->   `{path/to/shared-a.ext}`   touched by S0A, S0B
->   `{path/to/shared-b.ext}`   touched by S0A, S0B
-> ```
-> Nothing reconciles the two, because nothing ever intersected the write-sets. Run concurrently, two sessions append to the same two files with no lock. The sharpest detail is where the inference came from: the very document whose own resolution invalidated it — an upstream refactor map decided on a **per-source fold into a shared directory**, then a few sections later called the two sprints disjoint. The fold is what created the overlap; the disjointness claim was authored downstream of the decision that broke it and never re-derived.
->
-> WRONG — the assumption-shaped gate marker:
-> ```
-> | `{shared/dir}/` | S0A → S0B → S0C | n/a (single-writer per sprint) |
-> ```
-> The directory is written by three sprints, two of them declared `∥`. The marker asserts the property the table itself disproves, and it was benign only by accident: the file lists happened not to overlap. A marker that would have read identically had they overlapped is not a gate.
->
-> CORRECT — declared per sprint, intersected, the result shown per pair, and the non-empty pair disposed of explicitly:
-> ```
-> ### Write-Sets
-> | Sprint | Write-set |
-> | {Sprint-N} (A) | `{dir-one}/`, `{path/to/shared-a.ext}`, `{path/to/shared-b.ext}` |
-> | {Sprint-N} (B) | `{dir-two}/`, `{path/to/shared-a.ext}`, `{path/to/shared-b.ext}` |
->
-> ### Computed Write-Set Intersection
-> | Declared pair | Intersection | Verdict |
-> | S0A ∥ S0B | `{path/to/shared-a.ext}`, `{path/to/shared-b.ext}` | ❌ NOT disjoint — qualified per-file: `S0A-01-0x → S0B-01-0y`, `S0A-01-0z → S0B-01-0y` |
-> | S0A ∥ S0C | ∅ | ✅ disjoint — parallel stands |
->
-> gate marker: `git -C <repo> diff --name-only $..._BASE -- {shared/dir}/`
->                must never name the other sprint's files (pre-edit: empty)
-> ```
-> The `∅` row is as much a computation as the `❌` row — it is shown, dated, and recomputed when a write-set changes, not left implicit because the answer was expected.
-
-§8 (Parallel-Scaffold Deviation Classes) and this section address different failures of the same scaffolding shape and neither substitutes for the other: §8 governs the **consistency** of the files parallel scaffolders produce — whether they look alike — while §16 governs the **correctness** of the parallel declaration itself, whether the sprints may run at once at all. A plan can pass §8 with perfectly uniform files and still be wrong here.
-
-The mechanical enforcement of 16.3 is Check S05 in `agents/structural-reviewer.md`, which detects the file-under-two-parallel-sprints contradiction during the structural pass. This section owns **what** must be declared, computed, and shown; that check owns the detection procedure, and neither restates the other.
-
-#### Reviewer Check 078 — Declared Parallelism Without a Computed Intersection
-
-- **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
-- **What:** A Master Plan declaring any sprint pair parallel without a computed write-set intersection shown for that pair; or a sprint named on the ordering line with no declared write-set; or a gate marker that is an assertion rather than a runnable command.
-- **Detection:** Read the Master Plan's `## Execution Ordering` section. For each `∥` pair on the declared-ordering line, assert a matching row exists in the `### Computed Write-Set Intersection` table carrying a shown result (`∅` or the named paths) and a Verdict; assert every sprint named on that line has a `## Write-Set` section in its own Sprint Plan; then Grep the Verdict and gate-marker cells for assertion-shaped text (`n/a`, `single-writer`, `assumed`, `should be`) with no command behind it. Any one → BLOCKER.
-- **Finding template:** `[BLOCKER] Declared-parallel pair {S0A ∥ S0B} has no computed write-set intersection | File: {Master Plan} | Fix per references/scaffolding-hygiene.md §16 | Confidence: HIGH`
-
----
-
-*Thirteen binding hygiene rules plus three advisory practices for multi-sprint plan scaffolding. Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*
+*Nine binding hygiene rules plus three advisory practices for what a multi-sprint scaffold emits — Part 1 of 2. The five derivation-and-parallelism rules (§13–§17) live in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md). Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*

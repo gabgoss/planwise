@@ -24,6 +24,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 from harness import envelope as envelope_mod
 from harness import graders
@@ -166,7 +167,7 @@ class TestA3WriteSetPresent(_TempDirCase):
 # A4
 # ---------------------------------------------------------------------------
 class TestA4WriteSetAbsent(_TempDirCase):
-    CHECKED = ["planwise/config.yaml"]
+    CHECKED: ClassVar[list[str]] = ["planwise/config.yaml"]
 
     def test_pass_pristine_dir(self):
         result = graders.a4_write_set_absent(self.tmp, self.CHECKED)

@@ -20,7 +20,8 @@ except ImportError:
 
 try:
     from config_gen import (
-        InitConfig,  # noqa: F401 -- type-hint only (quoted forward refs)
+        InitConfig,
+        probe_cli_version,
         read_plugin_version,
     )
 except ImportError:
@@ -38,38 +39,13 @@ except ImportError:
     )
 
 try:
-    from doctor_sweeps import (
-        lint_rule_overscope,
-        compute_injection_families,
-        sweep_stale_descoped_rules,
-        sweep_orphaned_agent_mirrors,
-        lint_installed_divergence,
-        sweep_upgrade_leftovers,
-    )
+    from upgrade_io import _copy_bytes_exact
 except ImportError:
     raise ImportError(
-        "doctor_sweeps is required for doctor_cli's report dispatchers; the "
-        "scripts/ directory appears to be partially installed"
+        "upgrade_io is required for doctor_cli's prune pre-image copies "
+        "(_copy_bytes_exact); the scripts/ directory appears to be partially "
+        "installed"
     )
-
-try:
-    from artifact_upgrade import RECOVERY_ARTIFACT_CLASSES
-except ImportError:
-    raise ImportError(
-        "artifact_upgrade is required for doctor_cli's leftover-sweep report "
-        "and prune writer (RECOVERY_ARTIFACT_CLASSES); the scripts/ "
-        "directory appears to be partially installed"
-    )
-
-try:
-    from init_project import INSTALLED_RULES, DESCOPED_RULES
-except ImportError:
-    raise ImportError(
-        "init_project is required for doctor_cli's INSTALLED_RULES/"
-        "DESCOPED_RULES tables (R1: the tuples stay on the residual); the "
-        "scripts/ directory appears to be partially installed"
-    )
-
 
 def _run_prune_stale(cfg: "InitConfig") -> int:
     """WRITER (opt-in): delete ONLY the REMOVABLE stale de-scoped rules and
@@ -104,7 +80,7 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
     removable = [f for f in findings if f["verdict"] == "REMOVABLE"]
     kept = [f for f in findings if f["verdict"] != "REMOVABLE"]
 
-    today = datetime.date.today().isoformat()  # YYYY-MM-DD
+    today = datetime.datetime.now().astimezone().date().isoformat()  # YYYY-MM-DD
     backups_root = cfg.project_root / cfg.planwise_root / "upgrade-backups"
     out_dir = backups_root / f"prune-{today}"
     suffix = 2
@@ -117,7 +93,10 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
     for f in removable:
         try:
             src = Path(f["path"])
-            (out_dir / f["filename"]).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+            # Byte-exact pre-image (same primitive as the upgrade backup):
+            # a text round-trip here rewrote CRLF files LF, so the "pre-image"
+            # was not the bytes the prune removed.
+            _copy_bytes_exact(src, out_dir / f["filename"])
             src.unlink()
             removed.append(f)
         except OSError as exc:
@@ -233,7 +212,7 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
     prunable = [f for f in findings if f["klass"] in prunable_classes]
     kept = [f for f in findings if f["klass"] not in prunable_classes]
 
-    today = datetime.date.today().isoformat()  # YYYY-MM-DD
+    today = datetime.datetime.now().astimezone().date().isoformat()  # YYYY-MM-DD
     planwise_root = cfg.project_root / cfg.planwise_root
 
     if not prunable:
@@ -281,7 +260,7 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
             if src.is_dir():
                 shutil.copytree(src, backup_dst, dirs_exist_ok=True)
             else:
-                backup_dst.write_bytes(src.read_bytes())
+                _copy_bytes_exact(src, backup_dst)
         except OSError as exc:
             kept.append({**f, "klass": "REMOVE_FAILED",
                          "reason": f"could not back up ({exc}) — left in place, not removed"})
@@ -407,6 +386,22 @@ def _read_pinned_plugin_version(config_path: "Path") -> str:
     m = re.search(r'^\s*plugin_version:\s*("([^"]*)"|(\S+))\s*$', text, re.MULTILINE)
     if not m:
         return "0.0.0"
+    return (m.group(2) if m.group(2) is not None else m.group(3)).strip()
+
+
+def _read_verified_cli_version(config_path: "Path") -> str:
+    """Read `context.verified_cli_version` from config.yaml WITHOUT requiring
+    PyYAML, mirroring _read_pinned_plugin_version(). Returns "" (the
+    uncalibrated sentinel) when the key is absent, empty, or the file can't
+    be read -- the field predates any config written before this key shipped,
+    so absence is expected, not an error."""
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    m = re.search(r'^\s*verified_cli_version:\s*("([^"]*)"|(\S+))\s*$', text, re.MULTILINE)
+    if not m:
+        return ""
     return (m.group(2) if m.group(2) is not None else m.group(3)).strip()
 
 
@@ -592,7 +587,8 @@ def _resolve_settings_paths(cfg: "InitConfig") -> list[Path]:
     """Return the project-scope settings files to sweep for plugin-cache
     grants: `.claude/settings.json` and `.claude/settings.local.json`, in
     that order, whichever exist on disk. Read-only — these are the same two
-    files `handlers/upgrade.md` Step 4.4 reads for its normalization offer."""
+    files `handlers/upgrade-Part-3-BannerAndConflictResolution.md` Step 4.4
+    reads for its normalization offer."""
     claude_dir = cfg.project_root / ".claude"
     candidates = (claude_dir / "settings.json", claude_dir / "settings.local.json")
     return [p for p in candidates if p.exists()]
@@ -601,7 +597,8 @@ def _resolve_settings_paths(cfg: "InitConfig") -> list[Path]:
 def _sweep_settings_grants(cfg: "InitConfig") -> list[dict]:
     """Read-only sweep of `.claude/settings*.json` for plugin-cache
     `additionalDirectories` grants, classifying each into one of three
-    classes (mirroring `handlers/upgrade.md` Step 4.4 and the target-shape
+    classes (mirroring `handlers/upgrade-Part-3-BannerAndConflictResolution.md`
+    Step 4.4 and the target-shape
     doctrine at `handlers/init-fallback.md`'s grant step — never restated
     here):
       "version-agnostic parent"                   — already the correct
@@ -613,10 +610,12 @@ def _sweep_settings_grants(cfg: "InitConfig") -> list[dict]:
                                                       on disk.
       "version-pinned dangling or orphan-marked"    — names a version-pinned
                                                       child that no longer
-                                                      exists, or exists but
-                                                      is superseded by the
-                                                      currently-pinned
-                                                      version.
+                                                      exists, still exists but
+                                                      carries an `.orphaned_at`
+                                                      marker (the reaper will
+                                                      collect it), or exists
+                                                      and is superseded by the
+                                                      currently-pinned version.
     Only the latter two are returned — findings needing normalization.
     Entries outside the plugin-cache path family (unrelated user grants) are
     never touched or reported. This is DISTINCT from the Preflight plugin
@@ -644,12 +643,22 @@ def _sweep_settings_grants(cfg: "InitConfig") -> list[dict]:
             if not _grant_covers(family_root, entry):
                 continue  # outside the plugin-cache path family — untouched
             entry_path = Path(entry)
-            if _norm_path(entry) == _norm_path(live_root) and entry_path.exists():
-                klass = "version-pinned live"
-                detail = "still the currently-pinned version"
-            elif not entry_path.exists():
+            # Order matters. Existence first, then the orphan marker, then
+            # liveness. The cache manager marks a superseded version with an
+            # `.orphaned_at` file rather than deleting it at once, so a
+            # marked directory is one the reaper will collect — reporting it
+            # as merely "superseded", or worse as "live" when the config
+            # still pins it, understates a grant that is about to dangle.
+            if not entry_path.exists():
                 klass = "version-pinned dangling or orphan-marked"
                 detail = "path does not exist"
+            elif (entry_path / ".orphaned_at").exists():
+                klass = "version-pinned dangling or orphan-marked"
+                detail = ("carries an .orphaned_at marker — the cache reaper will "
+                          "collect this directory, and the grant dangles when it does")
+            elif _norm_path(entry) == _norm_path(live_root):
+                klass = "version-pinned live"
+                detail = "still the currently-pinned version"
             else:
                 klass = "version-pinned dangling or orphan-marked"
                 detail = f"superseded by the currently-pinned {live_root}"
@@ -659,6 +668,49 @@ def _sweep_settings_grants(cfg: "InitConfig") -> list[dict]:
                 "klass": klass,
                 "detail": detail,
             })
+    return findings
+
+
+def _sweep_thrifty_sonic(cfg: "InitConfig") -> list[dict]:
+    """Read-only sweep of the two settings files that should carry
+    `env.CLAUDE_CODE_THRIFTY_SONIC` set to "false": the project's
+    `.claude/settings.json` and the user-global `~/.claude/settings.json`,
+    whatever the install scope. `settings.local.json` is never read.
+
+    Returns one finding per file that is NOT correct, each a dict with
+    `settings_path`, `klass` and `detail`. Classes:
+      "missing"       — the file, the `env` block, or the key is absent.
+      "wrong value"   — the key holds something other than "false".
+      "invalid JSON"  — the file does not parse; reported, never repaired.
+    A file already holding "false" yields no finding. Never mutates — `/planwise
+    upgrade` Step 4.7 is the only writer, and only on explicit approval.
+    Doctor never imports the writer, so the two target paths are restated here
+    rather than shared with init_project.py.
+    """
+    targets = (
+        cfg.project_root / ".claude" / "settings.json",
+        Path.home() / ".claude" / "settings.json",
+    )
+    findings = []
+    for settings_path in targets:
+        if not settings_path.exists():
+            findings.append({"settings_path": settings_path, "klass": "missing",
+                             "detail": "file does not exist"})
+            continue
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            findings.append({"settings_path": settings_path, "klass": "invalid JSON",
+                             "detail": "file does not parse — fix the JSON by hand"})
+            continue
+        env = settings.get("env") if isinstance(settings, dict) else None
+        value = env.get("CLAUDE_CODE_THRIFTY_SONIC") if isinstance(env, dict) else None
+        if value is None:
+            findings.append({"settings_path": settings_path, "klass": "missing",
+                             "detail": "env.CLAUDE_CODE_THRIFTY_SONIC is absent"})
+        elif value != "false":
+            findings.append({"settings_path": settings_path, "klass": "wrong value",
+                             "detail": f"env.CLAUDE_CODE_THRIFTY_SONIC is {value!r}, expected 'false'"})
     return findings
 
 
@@ -687,8 +739,17 @@ def _run_doctor(cfg: "InitConfig") -> int:
     its report — also always-on; DISTINCT from the Preflight version-state
     gate below (that gate reads config.yaml's plugin_root: pin, this stage
     reads settings.json's additionalDirectories grants), and read-only —
-    normalization is offered only by `/planwise upgrade` Step 4.4. Always
-    exits 0 (diagnostic, not a gate).
+    normalization is offered only by `/planwise upgrade` Step 4.4. Then runs
+    Stage 15b, the thrifty-sonic env var sweep (_sweep_thrifty_sonic()) — also
+    always-on and read-only; the remedy is `/planwise upgrade` Step 4.7. Then
+    runs Stage 16, the verified-CLI-version drift advisory: probes the live
+    `claude --version` and compares it against config.yaml's
+    context.verified_cli_version (populated by init, refreshed by upgrade) —
+    read-only, recommends `/planwise upgrade` on drift or on an uncalibrated
+    ("") value, never writes. Then runs Stage 23, the style-rule check
+    (run_style_stage()): per rule, its config switch, installed copy, copies
+    that also load, and token cost — also always-on and read-only. Always exits
+    0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
     Saver): an uninitialized or version-drifted install is surfaced with a
@@ -717,7 +778,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
     print()
     if not overscoped:
         print("No overscoped rules found.")
-        print("All installed rules are scoped to code paths (.claude/** or narrower).")
+        print("All installed path-scoped rules are scoped to code paths (.claude/** or narrower).")
     else:
         total_tokens = sum(item["approx_tokens"] for item in overscoped)
         print(f"Flagged {len(overscoped)} rule(s) scoped to plan/backlog/lessons globs:")
@@ -831,16 +892,22 @@ def _run_doctor(cfg: "InitConfig") -> int:
             mark = "!" if f["klass"] == "action-required" else "~"
             print(f"  {mark} {f['pair']}   {f['surface']}   {f['klass']}")
             print(f"      path:    {f['path']}")
-            print(f"      size:    {f['count']} file(s), {f['age_days']}d old")
+            print(f"      size:    {f['count']} file(s), {format_bytes(f['bytes'])}, "
+                  f"{f['age_days']}d old")
             print(f"      meaning: {RECOVERY_ARTIFACT_CLASSES[f['klass']]}")
             if f["klass"] in ("inert", "safe-to-discard"):
                 print("      action:  remove with /planwise doctor --prune-upgrade-leftovers")
             else:
-                print("      action:  resolve per handlers/upgrade.md Step 4 — never auto-pruned")
+                print("      action:  resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md Step 4 — never auto-pruned")
         prunable = [f for f in leftovers if f["klass"] in ("inert", "safe-to-discard")]
         print()
+        # The reclaimable total is reported over the PRUNABLE subset only.
+        # A total over every finding would overstate what the prune writer
+        # can actually recover: action-required and review-then-discard
+        # surfaces are never deleted by it, however large they are.
         print(f"Total prunable (inert/safe-to-discard) leftover(s): {len(prunable)} of "
-              f"{len(leftovers)} found.")
+              f"{len(leftovers)} found, "
+              f"{format_bytes(sum(f['bytes'] for f in prunable))} reclaimable.")
 
     # Stage 15: settings-grant sweep — read-only, always-on.
     print()
@@ -862,6 +929,98 @@ def _run_doctor(cfg: "InitConfig") -> int:
                   "the parent grant) — doctor is read-only and never rewrites settings")
         print()
         print(f"Total grant(s) needing normalization: {len(grants)} found.")
+
+    # Stage 15b: thrifty-sonic env var sweep — read-only, always-on. Sits beside
+    # the grant sweep because both read settings files; /planwise upgrade Step
+    # 4.7 is the only writer.
+    print()
+    print("planwise doctor — thrifty-sonic env var sweep")
+    print()
+    thrifty = _sweep_thrifty_sonic(cfg)
+    if not thrifty:
+        print("CLAUDE_CODE_THRIFTY_SONIC=false is set in both the user and project settings files.")
+    else:
+        print(f"CLAUDE_CODE_THRIFTY_SONIC drift in {len(thrifty)} of 2 settings file(s):")
+        for f in thrifty:
+            print(f"  ~ {f['settings_path']}")
+            print(f"      class:     {f['klass']}")
+            print(f"      detail:    {f['detail']}")
+            print("      recommend: run /planwise upgrade (Step 4.7 offers to set it) — "
+                  "doctor is read-only and never rewrites settings")
+
+    # Stage 16: verified-CLI-version drift advisory — read-only, always-on.
+    # Compares the live `claude --version` probe against context.verified_cli_version
+    # (populated by /planwise init, refreshed by /planwise upgrade). Never writes —
+    # /planwise upgrade is the only writer for this field, matching the settings-grant
+    # sweep above's read-only/recommend-only shape.
+    print()
+    print("planwise doctor — verified CLI version drift")
+    print()
+    config_path = _resolve_doctor_config_path(cfg)
+    recorded = _read_verified_cli_version(config_path) if config_path else ""
+    live = probe_cli_version()
+    if not live:
+        print("Could not probe the running CLI version (`claude --version` "
+              "not resolvable) — skipping the drift comparison.")
+    elif not recorded:
+        print(f"Not yet calibrated (context.verified_cli_version is empty). Live CLI: {live}.")
+        print("      recommend: run /planwise upgrade to populate it — doctor is "
+              "read-only and never writes config.yaml")
+    elif recorded != live:
+        print(f"Drift — recorded {recorded} != live {live}.")
+        print("      recommend: run /planwise upgrade to refresh it — doctor is "
+              "read-only and never writes config.yaml")
+    else:
+        print(f"Up to date — recorded {recorded} matches the live CLI.")
+
+    # Stage 23: style rules — read-only, always-on. Reports each always-on style
+    # rule's switch, installed copy, other loading copies and token cost.
+    print()
+    print("planwise doctor — style rules")
+    print()
+    try:
+        from style_rules import run_style_stage
+
+        run_style_stage(cfg)
+    except Exception as exc:  # noqa: BLE001 -- the style stage must never change doctor's exit status
+        print(f"Style rules: the check failed: {exc}")
     return 0
+
+
+# These three sit below the definitions: each one reaches init_project, which
+# re-exports names from this module, so the names must exist first.
+try:
+    from doctor_sweeps import (
+        compute_injection_families,
+        format_bytes,
+        lint_installed_divergence,
+        lint_rule_overscope,
+        sweep_orphaned_agent_mirrors,
+        sweep_stale_descoped_rules,
+        sweep_upgrade_leftovers,
+    )
+except ImportError as exc:
+    raise ImportError(
+        "doctor_sweeps is required for doctor_cli's report dispatchers; the "
+        "scripts/ directory appears to be partially installed"
+    ) from exc
+
+try:
+    from artifact_upgrade import RECOVERY_ARTIFACT_CLASSES
+except ImportError as exc:
+    raise ImportError(
+        "artifact_upgrade is required for doctor_cli's leftover-sweep report "
+        "and prune writer (RECOVERY_ARTIFACT_CLASSES); the scripts/ "
+        "directory appears to be partially installed"
+    ) from exc
+
+try:
+    from init_project import DESCOPED_RULES, INSTALLED_RULES
+except ImportError as exc:
+    raise ImportError(
+        "init_project is required for doctor_cli's INSTALLED_RULES/"
+        "DESCOPED_RULES tables (R1: the tuples stay on the residual); the "
+        "scripts/ directory appears to be partially installed"
+    ) from exc
 
 

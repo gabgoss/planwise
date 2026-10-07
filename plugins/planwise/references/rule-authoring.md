@@ -257,7 +257,7 @@ None currently confirmed. (D1 — YAML array with 2+ items — was listed here a
 
 ### Subagent Rule Loading
 
-Path-specific rules **DO** load in subagents (Task tool spawns). Behavior:
+Path-specific rules **DO** load in subagents (Agent tool spawns). Behavior:
 - **At startup:** Only global rules load (no inherited path triggers from parent session)
 - **After file activity:** Path rules trigger dynamically based on the subagent's own file reads
 

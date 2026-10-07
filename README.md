@@ -45,9 +45,9 @@ This guide walks you through everything from zero. No prior experience with plug
 > If you see something like `Python 3.11.5`, you're good to go.
 > If not, download Python from [python.org](https://www.python.org/downloads/).
 
-### Optional: install PyYAML
+### Install PyYAML
 
-planwise works fine without it, but installing PyYAML gives you slightly better config file parsing.
+Day-to-day commands work without it, but **`/planwise upgrade` requires it** — without PyYAML that command stops and changes nothing. Everywhere else planwise degrades quietly rather than failing, so install it now and skip the surprise later.
 
 ```bash
 pip install pyyaml
@@ -142,6 +142,18 @@ Reinstalling the plugin does **not** refresh the rules in `.claude/rules/planwis
 
 > **Run Stage 2 once per upgrade.** If you skip it, `/planwise init` and `/planwise doctor` both notice the version drift and remind you to run `/planwise upgrade`.
 
+### Upgrading from 1.0.5.1: backlog index
+
+Older installs use a hand-authored backlog index. Newer ones use a generated hub plus Archive shards, with each item's YAML frontmatter as the source of truth and the changelog in its own file. `/planwise upgrade` migrates a hand-authored index automatically, backing up every file it touches under `upgrade-backups/{from}-to-{to}/backlog/` before writing. An ambiguous feature-cell sentence, one that only partly matches its item file, is parked verbatim in the migration ledger rather than appended or refused. A refusal — for a data conflict the migration cannot resolve on its own, or for an index shape it does not recognize — leaves your index untouched and names the fix to apply before you re-run `/planwise upgrade`. Until the migration finishes, `/planwise backlog` and the index generator both refuse to run against a hand-authored index.
+
+### Upgrading from 1.0.5.1: lessons index
+
+Older installs use a hand-authored lessons index — a Master Table, a header changelog block, and a Rule Promotion Log table, all in one file. Newer ones generate the index from lesson frontmatter, with the changelog and the Promotion Log each in their own files. `/planwise upgrade` migrates a hand-authored lessons index automatically, backing up every file it touches under `upgrade-backups/{from}-to-{to}/lessons/` before writing, relocating the changelog and Promotion Log content, renaming a hand-written categorization companion out of the way, and regenerating both. A refusal leaves your index untouched and names the fix to apply before you re-run `/planwise upgrade`. Until the migration finishes, any `/planwise lessons` mode that writes a lesson file, and the index generator itself, refuse to run against a hand-authored index.
+
+### Upgrading from 1.0.5.1: plans index
+
+Older installs use a hand-authored plans index — one table whose rows, statuses and notes you edited by hand. Newer ones generate the index from each plan's Master Plan, whose `**Status:**` line and dates decide each row. `/planwise upgrade` migrates a hand-authored plans index automatically, backing up the index and every Master Plan it appends to under `upgrade-backups/{from}-to-{to}/plans/` before writing, attaching each index note to the row it followed, and regenerating the index. A migration ledger records every note and row it moved or set aside. A refusal leaves your index untouched and names the fix to apply before you re-run `/planwise upgrade`. Until the migration finishes, the index generator refuses to overwrite a hand-authored index.
+
 ---
 
 ## Full user guide
@@ -160,7 +172,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, feedback capability, Token Saver staleness (`--prune-stale` to clean up) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, backlog/lessons/plans index shape audits, backlog item body status lines, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise backlog` | Triage and work on backlog items |
 | `/planwise list` | See all plans and their status |
@@ -216,4 +228,4 @@ To remove the marketplace:
 
 ## License
 
-MIT — Gabriel Gosselin
+GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later) — Copyright (c) 2026 Gabriel Gosselin. See [LICENSE](LICENSE) for the full text.

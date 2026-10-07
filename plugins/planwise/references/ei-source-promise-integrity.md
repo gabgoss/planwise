@@ -4,7 +4,7 @@ description: EI source-promise integrity — body⇄citation presence in Consoli
 
 # EI Source-Promise Integrity
 
-**Segment D of a 4-way split of `ei-fidelity.md`** (934 lines, split 2026-08-10). Carries §10 (+10.1-10.3) and §11 verbatim; original §-numbers are preserved — a citation like "§10.2" names the section, not the file. See the anchor's segment index for the full 4-way map: [ei-fidelity.md](ei-fidelity.md) (§1-§4, this split's segment A), [ei-citation-and-token-reconciliation.md](ei-citation-and-token-reconciliation.md) (§5-§8, segment B), [ei-completeness.md](ei-completeness.md) (§9, segment C).
+**Segment D of a 4-way split of `ei-fidelity.md`** (934 lines, split 2026-08-10). Carries §10 (+10.1-10.4) and §11 verbatim; original §-numbers are preserved — a citation like "§10.2" names the section, not the file. See the anchor's segment index for the full 4-way map: [ei-fidelity.md](ei-fidelity.md) (§1-§4, this split's segment A), [ei-citation-and-token-reconciliation.md](ei-citation-and-token-reconciliation.md) (§5-§8, segment B), [ei-completeness.md](ei-completeness.md) (§9, segment C).
 
 ---
 
@@ -199,6 +199,61 @@ Fix: Add a pre-extraction verification step + fallback hierarchy per references/
 The fallback levels are *priority-ordered, not interchangeable*. Skipping a higher-priority fallback in favor of a lower-priority one is itself a deviation worth recording.
 
 See also: §10.1 (the upstream cause — the cited section is empty because the body⇄citation promise was broken), §10.2 (the verification step that triggers this hierarchy).
+
+---
+
+### 10.4 Cited-Authority Currency — A Citation Names a Position, Not Just a File
+
+> [!constraint] Citing another artifact as the AUTHORITY for a conclusion is a promise that the authority's CURRENT position still supports the conclusion — not merely that the artifact exists and is reachable
+> §10.1-§10.3 audit whether a cited section physically CARRIES the prose a citation promises. This subsection audits a different promise: when a row cites another artifact — a backlog item, a prior review, an audit — as the AUTHORITY that a conclusion is true ("per {authority}, X"), the citation claims the authority's conclusion is still X as of today, not as of whenever the authority was first read. An authority that has since corrected, reversed, or qualified the cited claim is not a source to compress from — encountering one is a HALT, not a footnote.
+>
+> Mandatory steps before compressing a row that cites an authority for a CONCLUSION (as distinct from a citation that merely locates a fact at a page number):
+>
+> 1. **Open the cited authority in full** — including any Corrections, Related, or Acceptance Criteria section, not only the paragraph the row quotes from.
+> 2. **Check whether the authority's current position still matches the claim being compressed.** An authority is current for this purpose if nothing in it revises, reverses, or qualifies the cited claim after the citation's own date.
+> 3. **If the authority still supports the claim:** compress normally, citing the authority's re-confirmed position and the date checked.
+> 4. **If the authority has revised or reversed the claim:** HALT compression of that row. Do not fold the stale conclusion into the EI, an exit criterion, or a Signoff anchor. Either re-derive the claim from the authority's current position, or drop the row and record why.
+> 5. **Record which authority state was checked** — date and section — inline next to the citation, the same way a Required-Context path pointer carries a cost-hint date (see `references/scaffolding-hygiene.md` §12.1 / §12.3).
+>
+> WRONG — a row cites an authority as support without opening its corrections:
+> ```
+> Row: "Wire {target} into {consumer} — {authority} confirms {target} is unreferenced."
+> (authority's own Corrections section, dated one day before this row was compressed,
+>  already reverses "unreferenced" — never opened during compression)
+> ```
+> The row hardens into a priority order; the authority it cites had already said the opposite.
+>
+> CORRECT — the authority's current position is checked before compressing:
+> ```
+> Open {authority} in full, including Corrections.
+> Corrections (dated {date}) reverse the "unreferenced" claim.
+> HALT: do not compress this row as stated. Re-derive from {authority}'s current
+> position, or drop the row with a one-line note citing the correction.
+> ```
+
+Applies to:
+
+- Any EI row, Deliverable, or exit criterion that names a project-side backlog item, a prior review, or an audit as the AUTHORITY for a conclusion (not merely a source of a fact-with-a-locator).
+- Scaffolding Step 4 (Create Execution Inputs) of the scaffolding workflow — see `handlers/plan-scaffolding.md`.
+
+See also: §10.1 (the tier below this one — whether a cited SECTION carries its promised prose), §10.2 (pre-extraction verification for verbatim-copy instructions), §10.3 (the fallback hierarchy this subsection's HALT feeds into when a replacement claim must be authored).
+
+#### Reviewer Check 079 — Cited-Authority Currency Before Compression
+
+- **Severity / Role / Type:** BLOCKER | EI Reviewer | NEW
+- **What:** When an EI row, Deliverable, or exit criterion cites a project-side backlog item, prior review, or audit as the AUTHORITY for a conclusion, the cited authority's current state (including its Corrections/Related/Acceptance-Criteria section) MUST support the claim as compressed. A cited authority that has since revised or reversed the claim, uncontradicted in the compressing row, is a BLOCKER.
+- **Detection:**
+  1. Grep the EI/Sprint Plan/Orchestration for rows citing an authority as support for a conclusion (phrasing like "{authority} confirms", "per {authority}", "{authority} establishes").
+  2. Open each cited authority in full, including any Corrections/Related/Acceptance-Criteria section.
+  3. Compare the authority's current position against the compressed row's claim.
+  4. If the authority's current position contradicts, qualifies, or reverses the claim → BLOCKER.
+- **Finding template:**
+```
+[BLOCKER] Cited-authority currency violated
+File: {EI/plan file path} | Location: {row/section citing the authority}
+Issue: {authority} has since revised/reversed the cited claim ({correction summary}); the row was compressed without reconciling
+Fix: Re-derive from {authority}'s current position or drop the row, per references/ei-source-promise-integrity.md §10.4 | Confidence: HIGH
+```
 
 ---
 

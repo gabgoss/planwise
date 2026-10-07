@@ -158,6 +158,7 @@ def run_case(prompt: str, plugin_dir, cwd, tier: str) -> InvokeResult:
             timeout=timeout_s,
             shell=False,
             stdin=subprocess.DEVNULL,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         # Its own outcome — a timeout kill is a capture failure with a

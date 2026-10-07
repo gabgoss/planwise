@@ -44,8 +44,7 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import check_prior_sprint_outputs  # noqa: E402
-
+import check_prior_sprint_outputs
 
 CONFIG_YAML_FIXTURE = """project:
   name: "CheckPriorSprintOutputsFixtureProject"
@@ -165,7 +164,7 @@ class TestTrackedModificationBlocks(_GitFixtureBase):
         # Mutate the tracked artifact of record after the sprint closed.
         summary_file.write_text("Silently overwritten.\n", encoding="utf-8")
 
-        out, err, code = _run_main(["--config", str(self.config_path)])
+        out, _err, code = _run_main(["--config", str(self.config_path)])
 
         self.assertEqual(code, 1)
         self.assertIn("BLOCKING", out)
@@ -175,6 +174,44 @@ class TestTrackedModificationBlocks(_GitFixtureBase):
             "0 plan(s) had no parseable tracking table.",
             out,
         )
+
+
+@unittest.skipIf(shutil.which("git") is None, "git not on PATH")
+class TestEscapedPipeInTrackingRowDoesNotShiftColumns(_GitFixtureBase):
+    """A Session cell may legitimately carry an escaped pipe (e.g. a shell
+    pipeline named inline). A naive `.split("|")` would shift every column
+    after it one position right, so the Status cell would never read
+    COMPLETE and the guard would silently stop protecting this row."""
+
+    def test_escaped_pipe_in_session_cell_still_matches_and_blocks(self):
+        outputs_dir = (
+            self.plans_dir / "Widgets" / "Exec-TP" / "Sprint-01-Core"
+            / "Session-01-Build" / "Outputs"
+        )
+        outputs_dir.mkdir(parents=True, exist_ok=True)
+        summary_file = outputs_dir / "summary.md"
+        summary_file.write_text("Original summary content.\n", encoding="utf-8")
+
+        plan_dir = self.plans_dir / "Widgets"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        content = (
+            "# Master Plan\n\n"
+            "## Session Completion Tracking\n\n"
+            "| Sprint | Session | Status | Summary File |\n"
+            "|--------|---------|--------|---------------|\n"
+            r"| Sprint-01-Core | Uses \| in a shell pipeline | ✅ COMPLETE "
+            r"| [Summary](Exec-TP/Sprint-01-Core/Session-01-Build/Outputs/summary.md) |"
+            "\n"
+        )
+        (plan_dir / "TP-Master-Plan.md").write_text(content, encoding="utf-8")
+        self._commit_all()
+
+        summary_file.write_text("Silently overwritten.\n", encoding="utf-8")
+
+        out, _err, code = _run_main(["--config", str(self.config_path)])
+
+        self.assertEqual(code, 1)
+        self.assertIn("BLOCKING", out)
 
 
 @unittest.skipIf(shutil.which("git") is None, "git not on PATH")
@@ -195,7 +232,7 @@ class TestUntrackedAddIsAllowed(_GitFixtureBase):
         # A brand-new file, never staged -- untracked.
         (outputs_dir / "new-note.md").write_text("new\n", encoding="utf-8")
 
-        out, err, code = _run_main(["--config", str(self.config_path)])
+        out, _err, code = _run_main(["--config", str(self.config_path)])
 
         self.assertEqual(code, 0)
         self.assertNotIn("BLOCKING", out)
@@ -220,7 +257,7 @@ class TestCurrentSessionExclusion(_GitFixtureBase):
         summary.write_text("v2 -- modified by the session currently closing out\n", encoding="utf-8")
 
         session_dir = self.plans_dir / "Widgets" / "Exec-TP" / "Sprint-01-Core" / "Session-01-Build"
-        out, err, code = _run_main(
+        out, _err, code = _run_main(
             ["--config", str(self.config_path), "--current-session", str(session_dir)]
         )
 
@@ -251,7 +288,7 @@ class TestRenameOutOfOutputsBlocksAsDeletion(_GitFixtureBase):
         original.rename(moved)
         self._git("add", "-A")
 
-        out, err, code = _run_main(["--config", str(self.config_path)])
+        out, _err, code = _run_main(["--config", str(self.config_path)])
 
         self.assertEqual(code, 1)
         self.assertIn("BLOCKING", out)
@@ -268,7 +305,7 @@ class TestNoParseableTrackingTable(_GitFixtureBase):
             encoding="utf-8",
         )
 
-        out, err, code = _run_main(["--config", str(self.config_path)])
+        out, _err, code = _run_main(["--config", str(self.config_path)])
 
         self.assertEqual(code, 0)
         self.assertIn(
@@ -351,7 +388,7 @@ class TestNestedRepoRoot(_NestedGitFixtureBase):
         # Mutate the tracked artifact of record after the sprint closed.
         summary_file.write_text("Silently overwritten.\n", encoding="utf-8")
 
-        out, err, code = _run_main(["--config", str(self.config_path)])
+        out, _err, code = _run_main(["--config", str(self.config_path)])
 
         # (1) Detected -- this is the assertion that fails against the
         # pre-fix plans_dir-based path resolution; it is the point of this
@@ -386,7 +423,7 @@ class TestNestedRepoRoot(_NestedGitFixtureBase):
         summary.write_text("v2 -- modified by the session currently closing out\n", encoding="utf-8")
 
         session_dir = self.plans_dir / "Widgets" / "Exec-TP" / "Sprint-01-Core" / "Session-01-Build"
-        out, err, code = _run_main(
+        out, _err, code = _run_main(
             ["--config", str(self.config_path), "--current-session", str(session_dir)]
         )
 
@@ -413,7 +450,7 @@ class TestNoGitRepo(unittest.TestCase):
             "✅ COMPLETE", "Exec-TP/Sprint-01-Core/Session-01-Build/Outputs/summary.md",
         )
 
-        out, err, code = _run_main(["--config", str(self.config_path)])
+        out, _err, code = _run_main(["--config", str(self.config_path)])
 
         self.assertEqual(code, 0)
         self.assertIn("Not a git repository", out)

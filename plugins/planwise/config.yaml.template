@@ -9,9 +9,13 @@ project:
   plans_dir: "{plans-dir}"
   backlog_dir: "{backlog-dir}"
   lessons_dir: "{lessons-dir}"
+  feedback_dir: "{feedback-dir}"
   index_files:
     plans: "00-Index-Plans.md"
     backlog: "00-Index-Backlog.md"
+    # lessons: the generated hub's filename. The lessons index is a
+    # regenerated build artifact (hub + overflow leaves + Archive shards,
+    # never hand-edited) — see references/lessons-schema.md.
     lessons: "00-Index-LessonsLearned.md"
 
 # Context window tier — used by all handlers to scale token budgets.
@@ -61,6 +65,20 @@ context:
   # CHOSEN OPERATING DEFAULTS derived from the measured accumulation
   # bands -- not a "top-decile onset" threshold.
   token_saver_session_checkpoint: {window: 400000, turns: 194}
+  # Layer-edge stop for /planwise run. off = the shipped loop (never stops
+  # between tasks); on = after each dependency layer's Recovery reconcile the
+  # orchestrator writes the Session Boundary Note, prints one LAYER BOUNDARY
+  # line, and ends its turn. Read by the run handler at Step 3.3.
+  run_layer_stop: off
+  # Last Claude Code CLI build planwise confirmed THIS project's harness
+  # against. Consumer-side, mutable state — never a version pin baked into
+  # shipped plugin source, which would need editing on every CLI point
+  # release. Populated at init (probes `claude --version`), refreshed on
+  # every /planwise upgrade; /planwise doctor reports drift against the live
+  # CLI but never writes here (doctor is read-only throughout). "" is the
+  # uncalibrated sentinel (the probe could not resolve the `claude` binary).
+  verified_cli_version: ""
+  verified_cli_version_measured_on: ""
 
 abbreviations:
   APP: "Application features"
@@ -148,6 +166,21 @@ feedback:
   # No project file contents, paths, or config values are ever attached.
   include_environment: true
 
+style:
+  # Two global, always-on rules that planwise installs into rules/planwise/ under
+  # .claude/ (project or local scope) or ~/.claude/ (user scope).
+  # A key set to `on` installs the rule. An absent key means `on`.
+  # A key set to `off` removes an untouched installed copy on the next /planwise upgrade.
+  # An edited copy is never removed or overwritten.
+  # A rule is not installed when a file of the same name already sits at the top
+  # level of .claude/rules/ or ~/.claude/rules/.
+  # plain_language: sentence-level rules (short sentences, active voice, one term per concept).
+  # Costs about 940 tokens in every session, subagents included.
+  plain_language: on
+  # plain_presentation: rules for tables, lists, headings and code blocks.
+  # Costs about 680 tokens in every session, subagents included.
+  plain_presentation: on
+
 scoring:
   priority_high: 30
   priority_medium: 20
@@ -164,6 +197,42 @@ scoring:
 statuses:
   - NOT_STARTED
   - PLANNING
+  - IN_PROGRESS
+  - BLOCKED
+  - COMPLETE
+  - CLOSED
+
+# Three status vocabularies live side by side here: `statuses:` above is the
+# backlog item lifecycle (parse_backlog.py / update_backlog.py validate
+# against it); `lesson_statuses:` below is the lesson lifecycle; and
+# `plan_statuses:` after it is the Master Plan `**Status:**` vocabulary.
+#
+# `lesson_statuses` is DECLARATIVE. This list is the single place the lesson
+# vocabulary is stated as data; references/lessons-schema.md's Status
+# Definitions table defines what each value MEANS and defers to this list for
+# the values. The lessons workflows (capture, curate, promote-batch) and
+# scripts/flip_lesson_status.py match these literals as written — they do not
+# read this key at run time — so editing it documents an intent rather than
+# renaming a status. The plugin's test suite pins the three surfaces (this
+# list, the reference table, flip_lesson_status.VALID) to each other.
+lesson_statuses:
+  - documented
+  - promoted
+  - applied
+  - rule
+  - orphaned
+
+# Unlike `lesson_statuses`, `plan_statuses` IS read at run time: the plans
+# index generator renders its Status Legend from this list and reports any
+# Master Plan status outside it as unknown. When the key is absent the loader
+# supplies this same ten-value default.
+plan_statuses:
+  - NOT_STARTED
+  - PLANNING
+  - READY_TO_EXECUTE
+  - REVIEWED
+  - APPROVED
+  - NEEDS_FIXES
   - IN_PROGRESS
   - BLOCKED
   - COMPLETE

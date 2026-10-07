@@ -1,11 +1,11 @@
 ---
-description: Empirical verification discipline — measure the live, whole-surface truth instead of trusting a secondary, stale, or projected reading; wc-l line-count authority, broad-gate-over-audit-list authority, metric reconciliation, doctrinal-claim sweeps, markdown-field normalization, idempotent-append safety, gate-input-set verification, and behavior-change surface sweeps
+description: Empirical verification discipline — measure the live, whole-surface truth instead of trusting a secondary, stale, or projected reading; wc-l line-count authority, broad-gate-over-audit-list authority, metric reconciliation, doctrinal-claim sweeps, markdown-field normalization, idempotent-append safety, gate-input-set verification (§8.1-§8.7), and recorded-figure provenance — drift, absent derivation, expired projection (§8.9). Behavior-change surface sweeps (§8.8) live in measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Measurement Discipline — Measure It, Don't Infer It
 
-**Purpose:** §8 Empirical Verification Discipline, split out of [verification-gates.md](verification-gates.md) (§1-§7 stay on that anchor). The cross-cutting "measure it, don't infer it" counterpart to that file's cross-process/build/runtime gate discipline — eight cases where an agent or planner trusted a secondary, stale, or projected representation of reality instead of measuring the live, whole-surface truth.
+**Purpose:** §8 Empirical Verification Discipline, split out of [verification-gates.md](verification-gates.md) (§1-§7 stay on that anchor). The cross-cutting "measure it, don't infer it" counterpart to that file's cross-process/build/runtime gate discipline — eight cases where an agent or planner trusted a secondary, stale, or projected representation of reality instead of measuring the live, whole-surface truth. This file carries §8.1–§8.7 and §8.9; §8.8 and Reviewer Check 076 were split out to [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md) when this file crossed the Read-tool token gate.
 
 ---
 
@@ -195,7 +195,7 @@ Fix: Sanity-check up front per references/measurement-discipline.md §8.3; execu
 
 An empty result from a verification command is **ambiguous**. It means either "I checked and found nothing" or "I checked nothing." Those are opposite facts and the gate renders them identically. Every downstream reader — the verification report, the sprint signoff, the release battery — consumes the empty result as evidence of cleanliness.
 
-This is worse than a missing gate. A missing gate is visible in review; a gate that *cannot fail* is documented as coverage and actively suppresses the search for one. §8.1–§8.6 each measure a live surface rather than trusting a secondary reading. This section turns the same discipline on the gate itself: **verify the gate's input set, then its predicate.** The two sub-rules below are the two ways a gate ends up unable to fail — one where the input never arrived, one where the objective is satisfied by destroying the thing being checked.
+This is worse than a missing gate. A missing gate is visible in review; a gate that *cannot fail* is documented as coverage and actively suppresses the search for one. §8.1–§8.6 each measure a live surface rather than trusting a secondary reading. This section turns the same discipline on the gate itself: **verify the gate's input set, then its predicate.** The sub-rules below are the ways a gate ends up unable to fail. Five of them concern the gate's **input**: the input never arrived (A), the filter excluded it by construction (C, with D on keeping C's unfiltered counterpart usable against a mature tree), the pin that selected it was never proven to span the work (E), or a step the gate silently depends on was reported rather than asserted (F). One concerns the **objective**: B, where the input is fine and the goal is satisfied by destroying the very thing being checked.
 
 > [!constraint] A — A change-set-derived gate silently excludes whatever the change set omits
 > WRONG — the canonical shape. It reports the same empty result whether it inspected everything or nothing:
@@ -208,12 +208,13 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > 2. **`^\+` filtering hides everything predating the base.** A defect older than `$BASE` is a context line, not an added line, so it is invisible by construction — and stays invisible across every later session reusing the shape.
 > 3. **A pattern narrower than the forms it must catch misses them even unfiltered.** A pattern written as `{PREFIX}-[0-9]` matches only the citation spelling; the same identifier glued into a file name (`…-{PREFIX}SomeTopicName.md` — no hyphen, no digit) slips straight through, so widening the scope without widening the pattern still returns empty on a visibly leaking file.
 >
-> CORRECT — four remedies, all of them cheap:
+> CORRECT — five remedies, all of them cheap:
 >
 > **1. Register new files before diffing.** Intent-to-add puts the path in the index without staging content or creating a commit:
 > ```bash
 > git add -N <each new file>       # then run the gate
 > ```
+> This remedy is scoped to a **pattern-presence** gate — one asking whether a forbidden token appears in the added lines. It inverts a **diff-property** gate — one asserting the change was comment-only, logic-identical, or exactly N lines. Intent-to-add records the path against an empty blob, so every pre-existing line renders as an addition and the gate fails correct work. See [`gate-baseline-independence.md`](gate-baseline-independence.md) §2 for the class test, and §3 there for the recorded-baseline form that discriminates.
 >
 > **2. Assert the gate's input was non-empty.** A gate over a diff must prove the diff covered the intended file set — never trust the pattern result alone:
 > ```bash
@@ -225,7 +226,11 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 >
 > **4. Dry-run every gate against known-bad input before trusting it.** Run it once against a file that genuinely carries the pattern and once against a clean file; the two runs MUST produce different results. Each of the three defects above would have surfaced in one such run. A gate that has only ever been run against clean input has never been shown to discriminate.
 >
+> **5. A parameterised pattern must name what binds its parameter in every context it runs.** A gate written around a placeholder — the executing plan's abbreviation, the live sprint name, a task id — is well-defined only in the context that supplies the value. Everywhere else the placeholder is skipped, or filled with whatever the previous run left behind, and the gate returns empty because it tested a token nobody was using. That empty result is the same shape as a clean one, so it reads as coverage. Either state the binding for each context the gate must run in, or give the unbound contexts a companion form that binds the variable **structurally** — matching the *shape* of the forbidden name rather than one known value — paired with a lookup that classifies what the wider pattern returns. A release battery, a whole-tree audit, and any cross-plan sweep are all unbound contexts by construction, and they are where the gate matters most.
+>
 > **Generalisation:** the class is broader than git. Any check deriving its input from a *change set* — a diff, a changelog, a CI touched-files list, a migration delta — silently excludes whatever the change set omits, and inherits this whole failure mode.
+>
+> Sub-rules C–F extend this one rather than restating it: C and D on the filter and the on-disk sweep that answers the existence question, E on proving the baseline pin is live and spanning, F on asserting the preconditions the four remedies above silently depend on.
 
 > [!constraint] B — A size objective is satisfied by destroying the content the gate was meant to protect
 > A pointer's value is not its description — it is the **location**: file + section number + exact heading name. A summary that keeps a rule's topic but drops its section number converts a jump into a search through a long target; one that renames the heading breaks even the search. The pointer no longer points.
@@ -251,6 +256,79 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > **4. Require the gate output in the completion report, and re-run it independently.** In the originating incident the runner did not paste its gate output and reported COMPLETE in good faith; the loss was found only when the orchestrator ran the gate itself. **A conservation claim verified by the same agent that made the cut is not verification.**
 >
 > **Generalisation:** applies to any consolidation carrying a size objective — merging docs, deduping rules, collapsing config, summarising logs, compressing prompts. Ask what the artifact's *payload* is as distinct from its *prose*, and gate on the payload.
+
+> [!constraint] C — A `^\+`-filtered gate is a regression gate; it cannot answer an existence claim
+> The filter is not an implementation detail. It changes the question the gate asks. A gate that reads only added lines answers *"did this change introduce one?"* — and is structurally incapable of answering *"does one exist?"*, because everything predating the baseline is a context line and is invisible by construction.
+>
+> The two gates are not redundant, and neither substitutes for the other. **Regression** — the input is a change set, so the shell is correct here (the search consumes git's output, not a file tree):
+> ```bash
+> # did THIS change add one? (diff-pinned, ^\+ filtered)
+> git diff $BASE -- <paths> | grep -E '^\+' | grep -E '<pattern>'
+> ```
+> **Existence** — the input is files on disk, so this half is a dedicated-tool search, not a shell one:
+> ```
+> # does one exist AT ALL? (no diff, no filter — reads the tree as it stands)
+> Grep  pattern='<pattern>'  path='<paths>'  output_mode='content'
+> ```
+>
+> Any audit whose claim is that **the artifact is clean** — a release battery, a pre-ship sweep, a compliance check, a whole-tree audit — needs the second. A regression gate alone supports only the weaker claim that *this change did not make it worse*, and reporting that as cleanliness is the substitution this sub-rule exists to block.
+>
+> The failure is patient, which is why it survives review. A genuine violation can sit behind two green regression gates indefinitely, because every later session that reuses the shape re-asks the same regression question and gets the same honest empty answer. In the originating case it surfaced only by coincidence: an unrelated refactor relocated the enclosing section, which re-emitted a long-untouched line as an added line and finally exposed it to the filter.
+
+> [!practice] D — The unfiltered sweep's output is a ledger, not a verdict
+> An existence sweep over a mature tree returns legitimate matches — template placeholders, declared exemptions, the tool's own generic vocabulary, and the rule text that necessarily spells out the forbidden forms in order to forbid them. A sweep wired to fail on any hit therefore fails from the day it is added and never stops, and a gate that always fails gets softened, commented out, or quietly deleted. Blanket-fail and no gate at all arrive at the same destination by different roads.
+>
+> Treat the sweep's output as a **ledger**:
+>
+> 1. **Record every hit with its classification and the reason for it** — genuine violation, or benign and why.
+> 2. **Store the ledger where the next audit reads it**, so the classifications are inherited rather than re-litigated. A classification re-derived from scratch each run is a classification that will eventually be decided differently.
+> 3. **Gate on the delta, not on the count being zero.** A hit that is not in the ledger fails the gate; an unchanged set passes. This is what makes the sweep a check that can fail for exactly one reason.
+>
+> A representative sweep returned 8 hits: 1 genuine leak and 7 benign matches of the tool's own vocabulary. Failing on 8 conveys nothing a reader can act on; classifying once and then gating on the delta turns the identical command into a live check.
+>
+> **Never reword a benign match to quiet the gate.** The placeholder, the example, and the rule text naming the forbidden form are all there on purpose — editing them so they stop matching corrupts the artifact *and* destroys the gate's signal at once, because the ledger then describes a tree that was bent to fit the pattern rather than a pattern that describes the tree.
+
+> [!constraint] E — Pair every pinned gate with a positive liveness proof
+> A gate pinned to a baseline variable degrades **silently** when the variable is unset. `git diff $BASE -- <paths>` with an empty `$BASE` is not an error — it is a valid, zero-exit, warning-free `git diff -- <paths>` against HEAD. Once the prior session has committed, that degraded form excludes precisely the files the gate exists to validate. Measured across one session's three task files, occurrences of the variable every gate was pinned to came to 6, 6, and **0** — and the task carrying 0 was the one defining the sprint's verdict.
+>
+> WRONG — the guard that looks sufficient and is not:
+> ```bash
+> test -n "$BASE" || exit 1
+> ```
+> Three things it does not prove:
+> 1. **Non-empty is not resolvable.** An unsubstituted literal placeholder token is non-empty and passes this guard; one shipped that way.
+> 2. **Non-empty is not *spanning*.** A perfectly resolvable commit that post-dates the work covers none of it.
+> 3. **A pin can be set, resolvable, and still wrong** — the right shape aimed at the wrong point in history.
+>
+> CORRECT — resolve it, then prove it spans the work:
+> ```bash
+> BASE=<literal SHA>
+> test -n "$BASE" || { echo 'HALT: baseline missing'; exit 1; }
+> git -C <repo> cat-file -e $BASE^{commit} || { echo 'HALT: baseline does not resolve'; exit 1; }
+> # The load-bearing one — prove the pin SPANS the work it must inspect:
+> git -C <repo> diff --name-only $BASE -- <scope> | wc -l    # MUST be >= <expected file count>
+> git -C <repo> status --porcelain <scope> | grep -c '^??'   # MUST be 0
+> ```
+> **Record that spanned-file count in the verification report, beside the gate's own result.** A real empty sweep and an empty sweep over an empty input set produce byte-identical output; the count is the only thing that tells them apart afterwards, and afterwards is when every reader arrives.
+>
+> **Generalisation beyond git.** A variable used inside a command that remains *valid without it* is an unexploded failure — `git diff $BASE …` silently becomes a comparison against HEAD, `rm -rf "$PREFIX/"` silently targets the root, `curl "$BASE_URL/health"` silently probes a relative path. Where the degraded form fails **loudly**, a presence guard is proportionate. Where it fails in the **passing** direction, it is not: the whole risk is that nothing announces the degradation, and `test -n` is a check against the one failure mode that would have announced itself anyway.
+
+> [!constraint] F — Assert a precondition's observable state, never its self-report
+> Some steps exist only so that a later gate means something: registering untracked files before a diff gate, exporting a pinned baseline before running pinned diffs, installing a fixture before asserting on it, clearing a cache before measuring a cold path. None of them leaves a trace in the deliverable — and that absence is exactly what makes a false report of one undetectable.
+>
+> | | Observable in the deliverable? | Caught by a deliverable check? |
+> |---|---|---|
+> | Deliverable content | yes | yes |
+> | Verification gate result | reported, not observable | no — the report *is* the claim |
+> | Mechanical precondition | **no** | **no** |
+>
+> A falsely-reported precondition does not produce a wrong answer. It produces a **vacuous right answer**, which is worse, because it arrives carrying a green gate that suppresses the search for the problem. In the originating case a runner logged the registration step as done while the file it had just authored was still untracked; both of that task's gates would have returned empty having never inspected the 151 lines it wrote. Note what this is *not*: the deliverable existed and was correct, so no deliverable check could have caught it.
+>
+> Assert the state rather than accepting the report, before trusting any change-set-derived gate:
+> ```bash
+> git status --porcelain <scope> | grep -c '^??'   # MUST be 0
+> ```
+> Require it at **both** layers — in the runner's own verification block and again in the session's verification task — and treat a non-zero result as a FAIL, never an advisory. The general form: for any step shaped *"do X so that gate Y means something"*, Y's result is evidence only if X's **observable state** was asserted. X having been reported is not evidence about X.
 
 #### Reviewer Check 074 — Diff-Derived Gate Without Input-Set Assertion
 
@@ -289,113 +367,136 @@ Fix: Add a pre-edit-derived conservation gate (`for s in '<coordinate>' '<exact 
 
 ### 8.8 After a behavior change, sweep the surfaces that describe and call it
 
-A behavior change lands on surfaces beyond the code that implements it. **The tests cover the code. Nothing covers the metadata that *describes* the code, or the document that *invokes* it.** Both can therefore be left asserting the old behavior with the suite fully green — and both are read as authoritative: the metadata by tooling and by the next author, the document by the user following it.
+**Moved.** §8.8 and Reviewer Check 076 now live in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md), split out when this file crossed the Read-tool token gate. The content is unchanged: sub-rules A–C (update the structured field, not just the prose beside it; a detection plus a repair is not a remediation until something routes between them; a previously-unreachable branch is unproven code) and sub-rules D–E, their data-cleanup counterpart (Grep for the instruction that regenerates the defect, not only for its instances; migrate the value FORM, not just the key).
 
-§8.7 asks whether a gate can fail. This section asks a prior question: whether the change was even applied everywhere it is stated. The three sub-rules below are one sweep, in causal order — C only ever arises as a consequence of acting on B, so they are not separable.
+§8.7 above asks whether a gate can fail. §8.8 asks the prior question — whether the change was even applied everywhere it is stated.
 
-> [!constraint] A — Update the field, not just the prose beside it
-> WRONG — the fix updates the human-readable half and leaves the machine-readable half asserting the old behavior. The row now asserts two contradictory things about the same key, and the authoritative half is the false one:
-> ```yaml
->   - id: <some_key>
->     <field>: <old_value>        # ← still says the old behavior
->     notes: >
->       … the commit point now rewrites this key in the SAME write …   # ← says the opposite
-> ```
->
-> CORRECT — the field moves too, a truthful value is **added** when none exists, and the siblings are swept:
-> ```yaml
-> # (enum gains a definition comment in the file's own style)
-> #   <new_value>: <definition of what this actually means>
->
-> <enum_key>: [<existing values>, <new_value>]
->
->   - id: <some_key>
->     <field>: <new_value>
->   - id: <paired_key>
->     <field>: <new_value>   # ← sibling audit: was false before this fix, too
-> ```
->
-> Three ordered steps:
->
-> **(a) Find the field, not just the prose.** Grep the manifests, schemas and frontmatter for the artifact you changed, and read the **structured** values. Free-text `notes:` / `description:` are the easy half — they read as commentary and an author updates them by reflex. The enum, boolean or path-glob two lines above is the half that reads as authoritative to tooling and to the next author, and it is the half that gets left behind.
->
-> **(b) If no legal value is true, add one — do not round to the nearest.** Check what consumes the field first: a value that is inert to code but wrong to a reader is a documentation defect; one that drives a loop is a runtime defect. Then add the value to the declared enum **and** write its definition comment in the file's established style. Picking the least-wrong existing value is not a smaller fix than adding one — it encodes a second, subtler lie in a field that now looks deliberately chosen.
->
-> **(c) Audit every sibling row carrying the value you just abandoned.** The reason your row was wrong usually applies to its neighbours. **This is the step that pays.** A sibling written by the same mechanism can have been false since before your change existed — no current task owns it, no test covers it, and nothing but this sweep will surface it. Your fix did not cause it; your fix created the occasion to notice it.
->
-> When nothing in code validates the field, verify it by hand:
-> ```bash
-> python -c "
-> import yaml; d=yaml.safe_load(open('<manifest>',encoding='utf-8'))
-> enum=set(d['<enum_key>'])
-> print('off-enum:', [a['id'] for a in d['artifacts'] if a.get('<field>') not in enum] or 'NONE')
-> print('grouped:', {v: [a['id'] for a in d['artifacts'] if a.get('<field>')==v] for v in enum})
-> "
-> ```
-> The **grouped** half matters as much as the off-enum half. Off-enum catches a value that is illegal; grouped catches a value that is legal and false — it puts an inherited wrong value directly beside its correct peers, which is the only cheap way to see it.
+### 8.9 A gate's recorded figure needs its own verification, separate from its reading
 
-> [!constraint] B — A detection plus a repair is not a remediation until something routes between them
-> Whenever a change adds "X detects a bad state" and "Y can fix it", the deliverable is **not done** until the path from X's recommendation to Y's execution has been traced end to end and shown to be walkable. State the trace explicitly. Do not infer it from the fact that both halves exist and both are tested — that is exactly the evidence that is available when the loop is still open.
->
-> **Where the caller is a document** — a handler, a runbook, a README command sequence — the document is part of the change surface, and its gate conditions are as load-bearing as an `if`. A prose gate that exits on the very condition the new repair path exists to serve is a dead end that no test can fail: the user is told they are already fine and left broken, twice.
->
-> WRONG — the gate exits on the condition the repair serves, and a nearby note merely *describes* the capability:
-> ```
-> > If `pinned == shipped` → report "already up to date" and exit.
-> …
-> > [!practice] A stale root is upgrade-indicating
-> > …re-running the script resolves the mismatch…      ← nothing routes here
-> ```
->
-> CORRECT — the gate itself carries the routing, and names what is skipped and why:
-> ```
-> > If `pinned == shipped` **and** the stored value matches the live one → report and exit.
-> > If `pinned == shipped` **but** the stored value differs → do NOT exit; skip the
-> >   comparison stages (nothing changed to compare) and run the writer invocation,
-> >   which repairs the value on its own. Report it as a repair, not a version change.
-> ```
+Every verification gate compares two things: a **live reading** of an artifact and a **recorded figure** the reading is compared against. §8.1–§8.8 harden the left-hand side — measure with `wc -l` rather than a Read-output line number, prefer the broad gate to an audit's enumerated list, assert the input set before trusting the predicate, sweep every surface the change touches. None of them touches the right-hand side. **Re-measuring the artifact validates the reading and says nothing about the figure.**
 
-> [!constraint] C — A previously-unreachable branch is unproven code, regardless of its age or test count
-> Fixing a gate per sub-rule B makes a dormant branch live. That is a **behavioral change to everything the branch touches** — the branch's age and the suite's green status say nothing about it, because until now it never ran.
+The figure fails in three independent ways, and their remedies do not substitute for each other:
+
+| Sub-rule | The figure was… | What catches it |
+|---|---|---|
+| A | right when written, and drifted | re-measuring it at execution time |
+| B | never derived at all | tracing its provenance to an origin |
+| C | derived correctly, then invalidated by a later decision | checking its as-of date against decisions since |
+
+Re-measurement fixes A and is useless against B and C. A fabricated threshold is never stale, and staleness is what re-measurement detects. A documented derivation stays internally consistent while the world it modelled moves on. Write the three to compose; a merged "check your numbers" rule loses exactly the distinction that makes them worth stating.
+
+> [!constraint] Sub-rule A — Re-measure every scaffold-time figure a gate depends on, at execution time
+> **Scope: figures a command compares against**, not figures in prose — a pre-edit baseline, a file line count, a symbol or call-site count, an expected file-set size, a size or count band. A narrating figure is harmless when stale. A figure a predicate reads decides PASS or FAIL.
 >
-> Before declaring it done, walk the branch line by line against every input the newly-routed caller can supply — flags, options, environment — and ask what the branch does with each. **Anything set up after the point where that branch returns is, by construction, not applied there.**
-> ```python
->     if pinned_version == target_version:
->         # This branch is now reachable. Everything below the gate — the opt-in
->         # flag application, the backfills — never runs here. Anything a caller
->         # can pass must be honored on THIS path or explicitly declared a no-op.
->         toggled = bool(cfg.opt_in_flag) and _apply_opt_in(config_path)
+> The drift is not symmetric, and the silent direction is the common one:
+>
+> | Drift direction | Symptom | Detected? |
+> |---|---|---|
+> | Stated baseline **higher** than live | Gate demands work that does not exist | Loud — the task cannot satisfy it |
+> | Stated baseline **lower** than live | Gate is satisfied early; the remainder is never swept | **Silent — reads as PASS** |
+>
+> A baseline of 3 against a live 14 produces a green run that inspected 21% of the surface. Both figures were measured correctly on the day the plan was scaffolded.
+>
+> **The gate's own Before command IS the re-measurement.** Run it at preflight, before dispatch — not at execution, where the task is already committed to the number. When a figure disagrees with the live artifact, correct the task file, the execution input, and every verbatim quote of the figure **together**. A partial correction creates a second defect: two documents that disagree while each claims to be the same figure.
+>
+> Record the **cause**, not just the new number.
+>
+> WRONG — a corrected number with no auditable reason:
+> ```
+> Baseline: 14, not 3.
+> ```
+> CORRECT — the correction carries what moved, so the next reader can check it:
+> ```
+> Baseline: 14 — two sub-rules entered the anchor after the plan was scaffolded.
+> Measure live before relying on it.
 > ```
 >
-> The mechanical check is a set difference — enumerate what the caller can request, enumerate what the branch performs before it returns, and subtract:
-> ```bash
-> # 1. what the caller can ask for: every flag/option the entry point accepts
-> grep -nE 'add_argument|opt_in|--[a-z-]+' <entry_point> | sed 's/.*--//' | sort -u
-> # 2. what the newly-live branch actually does before returning
-> sed -n '<branch_start>,<return_line>p' <module> | grep -nE '_apply_|_backfill_|write|=' 
+> Two corollaries:
+>
+> - **Exposure scales with the scaffold-to-execution gap.** The longer a plan waits between scaffolding and dispatch, the more of it is fiction. A plan scaffolded for many sprints in one pass carries the widest gap on its last sprint — which is also the sprint whose figures nobody re-reads.
+> - **When the drift ADDED structure, conserve by NAME, not by count.** A size band passes a result that silently dropped two sections and gained two others, because a band only knows totals. Diff the name set — heading names, section numbers, symbol names — against the pre-image. That is the only check that sees a substitution.
+
+> [!constraint] Sub-rule B — A threshold that cites no derivation cannot be caught by re-measurement
+> The tell is **not an old figure — an underived one.** Every reading of the artifact can be accurate, every reading recorded, and every one compared against a number nobody ever measured. Three sessions measured one file at 553, then 646, then 717 lines; all three readings were correct, and all three missed that the `≤700` they were compared against had a single origin — one scaffold-time courtesy carve-out — and no measurement behind it anywhere.
+>
+> The two kinds read identically in running prose. One sentence can carry four numbers, two traceable to a measured tool constant and two traceable to nothing:
+>
 > ```
-> A non-empty difference is either a bug or a decision that needs stating — never a silent no-op.
+> "Keep the file under 700 lines; the reader refuses above 262,144 bytes and
+>  its page caps at 25,000 tokens, so split anything past 2,000 lines."
+>   ^^^ underived        ^^^^^^^ measured        ^^^^^^ measured   ^^^^^ underived
+> ```
+>
+> Ask of any threshold: **what measurement produced this, and can I re-run it?** If the answer is "it has always been the number", it is a habit, not a gate.
+>
+> 1. **A threshold ships with its derivation, or it is labelled advisory.** One clause naming the measurement is enough. Without it the figure is an opinion wearing a gate's clothes.
+> 2. **Trace provenance BEFORE escalating a breach** — always before proposing a structural change or putting a decision to the user. Splitting a file cited from three handlers is expensive; proving the number that demanded the split is not.
+> 3. **A flag citing a previous flag is not provenance.** Follow the chain to a measurement or to the origin sentence. A number forwarded three times has been verified zero times, and by the fourth forward it carries three sprints of apparent authority, all of it circular.
+> 4. **When a real gate sits beside an invented one, prefer the real one.** Report the advisory overshoot **with its headroom** — "17 lines over the advisory target, with 78% byte and 57% token headroom against the binding gates" — never as a bare count. A bare count invites the next session to re-escalate the same non-problem.
+> 5. **Correct the propagation, not just the instance.** Mark every superseded flag, so downstream inherits the correction instead of re-litigating it.
+>
+> One cheap sanity check closes most breaches: if a sibling artifact 526 lines larger has been shipping untouched the whole time, the threshold is not the constraint anyone believes it is.
 
-**Applies-to surface.** Any change to behavior that a manifest, schema, frontmatter field or capability table also describes — **including when the field is documentation-only and no test can fail.** Any change pairing a new diagnostic with a new remediation. Any change relaxing a gate, guard or early return so a previously-dead branch begins executing. And any codebase where prose — a handler, a runbook, a documented command sequence — is the caller of record for a script: there the document's conditions must be edited in the same change as the code's, or the code's new capability is unreachable in practice.
+> [!constraint] Sub-rule C — A projection promoted to a criterion expires on the next decision
+> Distinguish this from sub-rule B in one line: **there the derivation never existed; here it was documented and correct when written.**
+>
+> Three ordered questions for a missed numeric criterion:
+>
+> 1. **Is it a constraint or a projection?** A *constraint* has an external basis — a context-window size, a byte cap, an API limit. A *projection* is arithmetic over the thing being built. The tell is a derivation in the criterion's own text (`543 measured + 73-line head + re-export block`). **A projection cannot be violated, only wrong.**
+> 2. **What is its as-of date, and what has been decided since?** Any approved change that adds mass to the measured artifact silently invalidates it — replacing silent fallbacks with loud failure guards, added logging, a stricter error-handling convention. Nobody re-derives an estimate once it has been promoted to a criterion.
+> 3. **Is the overshoot explained by that decision quantitatively?** Measuring that 7 guarded blocks span 138 lines where plain imports would run ~25 accounts for ~110 lines of residual — the entire overshoot. That step converts an argument into arithmetic.
+>
+> Handling rules once the answer is in:
+>
+> - **Present options with the causal finding, never the bare miss.** "Over by 110" invites trimming. "Over by 110, all of it the loud-failure guard convention approved three days after the band was computed" invites a decision.
+> - **Never let a runner improvise against a stale number.** A frozen interface contract outranks every size target.
+> - **Amend the narrowest clause actually invalidated.** A residual figure can move while a per-module ceiling does not.
+> - **Record provenance inline at every echoing site**, in the amended figure itself:
+>
+>   WRONG — the amended number, alone, at one of five echoing sites:
+>   ```
+>   # Residual target ~810 lines
+>   ```
+>   CORRECT — the amendment carries what moved it, at every site that echoes it:
+>   ```
+>   # Residual target ~810 lines (was ~700; +110 for the loud-failure guard
+>   # convention approved {date} — 7 guarded blocks, 138 lines vs ~25 plain).
+>   ```
 
-#### Reviewer Check 076 — Detection + Repair With No Routing Deliverable
+> [!verify] Trace a threshold to its origin before acting on it
+> ```
+> # 1. ORIGIN. Search the shipped artifact and the plan tree for the figure.
+> #    The FIRST appearance is the origin — read its whole sentence, because a
+> #    derivation is a clause, not a number.
+> Grep  pattern='{threshold}'  path='{artifact root}'  output_mode='content'  -n=true
+> Grep  pattern='{threshold}'  path='{plan tree}'      output_mode='content'  -n=true
+>
+> # 2. COMPARISON. Measure the same artifact against the gates that DO carry a
+> #    derivation, and report headroom rather than a bare overshoot.
+> python "{plugin_root}/scripts/measure_files.py" --model {model} --content dense-md {file}
+>
+> # 3. SANITY. Is a larger sibling already shipping without incident?
+> wc -l {sibling files}
+> ```
+> A figure whose step 1 returns only forwarding citations — each one pointing at the last — has no origin. Derive it or label it advisory. A figure whose step 2 shows the binding gates with headroom is an advisory target, not a breach.
 
-- **Severity / Role / Type:** WARNING | Plan Reviewer | NEW
-- **What:** When a plan's deliverables include BOTH a new diagnostic (a check, warning, doctor stage, lint, drift detector) AND a new repair path (a fixer, migration, self-heal, reconcile-on-consent branch), it MUST also carry a deliverable that edits the **caller** which routes from the diagnostic's recommendation to the repair's execution. Without it, both halves ship, both are tested, the suite is green — and the loop is still open: the diagnostic's advice is a dead end. **The caller is frequently a document**, not code. Where a handler, runbook or documented command sequence is the caller of record, its gate conditions are as load-bearing as an `if`, and a prose gate that exits on the very condition the repair path serves cannot be caught by any test. A secondary signal: a plan that makes a previously-unreachable branch live without a deliverable auditing that branch against every input the newly-routed caller can supply — the branch's age and test count are not evidence, since until now it never ran.
+#### Reviewer Check 086 — Numeric Gate Stated Without a Derivation
+
+- **Severity / Role / Type:** WARNING | Task Reviewer | NEW
+- **What:** A numeric threshold a plan uses as a **binding gate** MUST carry its derivation — the measurement that produced it, or a named external basis (a tool's documented cap, a byte limit, an API limit) — in its own text. A threshold whose text cites only a previous flag, a previous sprint, or nothing at all is underived, and no amount of re-measurement can detect that: re-measurement compares live state against the recorded figure and validates only the live state. The same check covers the expiry case — a size or count criterion that DOES carry a computed derivation, but whose as-of date precedes a decision recorded later in the same plan that adds mass to the measured artifact. Both ship a number no correct execution can be judged against.
 - **Detection:**
-  1. Classify each deliverable as diagnostic (detects/reports a bad state), repair (corrects it), or routing (connects a recommendation to an invocation).
-  2. If the plan has ≥1 diagnostic and ≥1 repair but zero routing deliverables → WARNING.
-  3. Where a routing deliverable exists, check it names the caller **and** its gate condition. A deliverable that only adds a note *describing* the repair capability alongside an unchanged gate does not route — flag it.
-  4. Check the handler / runbook / command-sequence docs among the plan's touched files. If the documented flow exits early on the state the repair addresses and no deliverable edits that gate → WARNING.
-  5. If any deliverable relaxes a gate, guard or early return so a dormant branch begins executing, require a deliverable that walks that branch against the caller-suppliable inputs (flags, options, environment). Anything set up after the branch's return point is not applied there. Absent → WARNING.
+  1. Collect every numeric threshold the plan states as a gate — a Success Criterion predicate, an Expected Output band, a "MUST be under N" clause, a cross-sprint flag carrying a figure.
+  2. For each, read the sentence carrying it. Present derivation (`{N} measured + {M} added`), or a named external basis? Absent both → WARNING.
+  3. Where the only stated authority is another flag or a prior sprint, follow the chain. A chain terminating in another citation rather than a measurement → WARNING (name the forwarding depth).
+  4. For a threshold that DOES carry a derivation: compare its as-of date against decisions recorded later in the plan. A later approved change that adds mass to the same artifact, with the figure unamended → WARNING.
+  5. Check that a stated overshoot against an advisory threshold is reported with headroom against the binding gates, not as a bare count. Bare count → WARNING.
 - **Finding template:**
 ```
-[WARNING] Detection and repair ship with nothing routing between them
-File: {plan or sprint file path} | Location: Deliverables / Sprint scope
-Issue: Plan adds {diagnostic} and {repair} but no deliverable edits the caller ({handler|runbook|entry point}) that routes between them; documented flow exits on {condition} — the repair path is unreachable and the diagnostic's recommendation is a dead end
-Fix: Add a deliverable editing the caller's gate to route the detected state to the repair (naming what is skipped and why), and audit the newly-reachable branch against every caller-suppliable input per references/measurement-discipline.md §8.8 | Confidence: MEDIUM
+[WARNING] Numeric gate stated without a derivation
+File: {plan or task file path} | Location: {Success Criteria | Expected Output | coordination flag}
+Issue: Threshold {N} used as a binding gate carries {no derivation | only a citation of {prior flag}, forwarded {depth} times | a derivation dated {date}, superseded by {decision} recorded later in this plan}
+Fix: Trace the figure to a measurement or to its origin sentence and inline the derivation; where no origin exists, label it advisory and gate on the thresholds that carry one, reporting overshoot with headroom per references/measurement-discipline.md §8.9 | Confidence: MEDIUM
 ```
-
 ---
 
 *Cross-references: [verification-gates.md](verification-gates.md) (§1-§7 — cross-process/build/runtime gate discipline this section generalizes from; split anchor, keeps the original filename).*

@@ -11,8 +11,8 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 **Agent:** {Haiku|Sonnet|Opus}
 **Estimated Tokens:** ~{X}K
 **Token Budget:** ~{X}K (exception: {none | 1M (cost) | paged-read (read) | refactor-pending})  <!-- OPTIONAL — Token Saver only. Add only when the warning engine flags this task. `1M (cost)` raises the dispatch to Opus/1M (cost-reason Critical, oversized indivisible file); `paged-read (read)` means a Required Context file trips a Read gate and the runner pages it (read-reason Critical — NOT 1M-resolvable); `refactor-pending` means a core/edited file must be split before this task is safe. -->
-**Depends On:** {task numbers, or "cross-sprint: {Abbrev}-S{XX}-{YY}-{##}", or "-"}
-**Cross-Sprint Refs:** {list of cross-sprint files in Required Context, or "None"}  <!-- Add only when Required Context cites cross-sprint files (per task-file-and-tracking-requirements.md cross-sprint dependency convention) -->
+**Depends On:** {task numbers for same-session producers; "cross-session: {Abbrev}-S{XX}-{YY}-{##}" for a file from an earlier session of the SAME sprint; "cross-sprint: {Abbrev}-S{XX}-{YY}-{##}" for a file from an earlier sprint; or "-"}  <!-- Every Required Context row that cites another task's output is mirrored here with that producer's full Task ID and the prefix its class requires (task-file-and-tracking-requirements.md §9 mirroring table). A same-sprint prior-session read is `cross-session:`, never `cross-sprint:` — the reviewer's Check 038 matches on the literal prefix. Listing the file in Cross-Sprint Refs below does not replace the mirror. -->
+**Cross-Sprint Refs:** {list of cross-sprint files in Required Context, or "None"}  <!-- Add only when Required Context cites cross-sprint files (per task-file-and-tracking-requirements.md cross-sprint dependency convention). This field names the FILES; the producer Task IDs still go in Depends On. -->
 **Output:** {path where deliverable should be saved, e.g., Outputs/{Abbrev}-{description}.md}
 
 ---
@@ -29,14 +29,56 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 |----------|------|----:|--------:|---------|
 | 1 | {file path} | {K} | ~{X}K | {why needed} {⚠ PAGED ≥25K {model}-tok / ⚠ REFACTOR ≥256 KiB — OPTIONAL read-handling annotation, Token Saver only} |
 | 2 | {file path} | {K} | ~{X}K | {why needed} |
+| 3 | {file path} §{X}–§{Y} ({§Y} runs to EOF) | {K} | ~{X}K | {why needed} — span row, see the resolution comment below |
+| 4 | Grep {family} over {scope} — {N} lines / {B} bytes returned | {K} | ~{X}K | {why needed} — command-corpus row, priced from the dry-run below |
+
+<!-- Row-grain measurement (per references/task-content-fidelity.md §9.A.14) — every row's figure is measured
+     against the span THAT ROW cites, in a sweep at scaffold close, after all task files exist:
+     - Span row (`§X`–`§Y`): resolve BOTH headings in the live file and measure the range they bound. Where the
+       last cited section runs to EOF, the span runs to EOF — not to an assumed next heading. Record the
+       resolution:   Span resolved {YYYY-MM-DD}: §{X} at :{start} → §{Y} runs to EOF = {N} lines / {B} bytes
+       A span covering most of its file is a full read: say `full read` and budget it as one.
+     - Command-corpus row: a command's OUTPUT is not a file and no file measurement prices it. Dry-run it once
+       at its declared scope and price the returned volume; price each command family as its own row. Record it:
+       Dry-run {YYYY-MM-DD}: {family} over {scope} → {N} matched lines / {B} bytes
+     - No unmeasured size adjective: `small`, `full (small)`, `read in full`, `scoped`, `brief`, `large` may not
+       stand in place of a number in a size cell, a Purpose column, or a Notes for Agent line. The adjective is
+       fine beside its measured figure; the adjective without it is a scaffold-close failure. -->
+<!-- Delete rows 3 and 4 above when the task cites no span and no command corpus. -->
+
 
 <!-- OPTIONAL read-handling annotation (Token Saver only): append to a row's Purpose for any file the doctor read-gate scan flagged.
      `⚠ PAGED ≥25K {model}-tok` — file is above the per-assigned-model 25K-token page cap; the runner MUST page it (offset/limit/Grep), it does NOT all arrive in one Read.
      `⚠ REFACTOR ≥256 KiB` — file is at/over the 256 KiB byte gate; Read refuses it without offset/limit — page it, and refactor + backlog if it is a core/edited dependency.
-     Both are read-reason flags — NOT resolved by the 1M-exception (the Opus/Fable tokenizer trips the page cap on fewer bytes). -->
+     Both are read-reason flags — NOT resolved by the 1M-exception (the Claude 5 tokenizer trips the page cap on fewer bytes than Haiku 4.5's). -->
 
-**Context subtotal:** ~{X}K tokens (reads) + ~{X}K (output) = ~{X}K total
-<!-- Reconciliation: this total MUST match the Estimated Tokens in this task's header. -->
+**Context subtotal:** ~{R}K (reads — the sum of the ~Tokens column) + ~{O}K (output) + ~{W}K (working) = **~{T}K total**
+
+> [!constraint] The Context subtotal is a strict identity, not a prose estimate
+> `sum(Required Context ~Tokens) + output + working` **equals** the header's `**Estimated Tokens:**`, with the addends shown as above. No qualifier may close a gap between the two. When the sum moves, the **header follows** — and the session Orchestration total and the Sprint Plan figure re-roll with it.
+>
+> A genuine discount — a targeted read, a re-read allowance — is **its own addend carrying a value**, never prose attached to the total. "Rounding" covers the ±0.5K a rounded header actually implies. It does not cover a 5% shortfall.
+>
+> WRONG — the gap is closed by a qualifier that performs no arithmetic:
+> ```markdown
+> **Estimated Tokens:** ~34K
+> **Context subtotal:** ~33.3K reads + ~5.9K output = ~39.2K
+> <!-- netted to ~34K by the targeted-read discipline (the open-row extraction is the ceiling, typically less) -->
+> ```
+> The qualifier reads as a justification while calculating nothing, and 39.2 ≠ 34.
+>
+> CORRECT — the discount is an addend with a value, so the header equals the sum:
+> ```markdown
+> **Estimated Tokens:** ~34K
+> **Context subtotal:** ~33.3K reads − ~5.2K (targeted-read discount, rows 3 + 5: ~{X}K → ~{Y}K)
+>                       + ~5.9K output = ~34.0K total
+> ```
+>
+> **Where a consolidation multiplier applies**, it is an explicit factor on the reads term — `~{R}K reads × {M} (consolidation overhead)` per `references/task-content-fidelity.md` §9.A.5 — and the identity holds with the factor applied. Apply it **once**: a multiplier stated in the formula plus a second allowance folded into `working` double-counts the same overhead.
+>
+> **Budget the ceiling, not the hope.** Where a row's cost is a range, the row carries the ceiling. An under-budget task costs nothing; an over-budget one stalls mid-run.
+>
+> **One formula per task.** If two derivations appear in one file, the file has no single answer and a reader cannot tell which is authoritative. Two derivations can also disagree with each other while landing on the same total — so the totals agreeing is not evidence that either derivation is right.
 <!-- Populate KiB/~Tokens with `python "{plugin_root}/scripts/measure_files.py" {files...} --model {assigned Agent} --md` — tokens are measured bytes ÷ the assigned model's bytes-per-token ratio, never lines × a rate. See reference.md Token Estimation Reference for output costs. -->
 <!-- Shared-context rule: a file cited by MULTIPLE tasks MUST carry the same measured KiB/~Tokens (from measure_files.py on the live file) in every task — it is a single source of truth, not a per-task guess. -->
 
@@ -83,9 +125,9 @@ Missing Schema Pin for SQL-emitting tasks = BLOCKER at `/planwise review`.
 
 When this task edits a file that an earlier sprint of the same plan also edited (per the Sprint Plan's `## Cross-Sprint File Touches` section), Step 1 MUST be a grep gate that verifies the prior sprint's delta marker is present in the file. The gate makes the cross-sprint dependency mechanical: the executor cannot proceed against an outdated baseline.
 
-```bash
+```
 # Step 1: Cross-sprint prerequisite — verify {prior-sprint-task-id} delta landed
-grep -c '{prior-delta-marker}' {path/to/cross-sprint-file.ext}
+Grep  pattern='{prior-delta-marker}'  path='{path/to/cross-sprint-file.ext}'  output_mode='count'
 # Expected: ≥1 (marker inserted by {prior-sprint-task-id}). If 0 → HALT, prior sprint incomplete.
 ```
 
@@ -97,6 +139,25 @@ Authoring rules:
 - The gate is Step 1 (before any read of the file's "Current state" anchor) — anchor reads against an outdated baseline produce false matches that mask the real defect.
 
 Missing prerequisite grep gate when the Sprint Plan declares a Cross-Sprint File Touch for this file = BLOCKER at `/planwise review`.
+
+**When the two sprints have NO declared ordering**, there is no "prior" delta to gate on, and the gate above cannot be authored as written. That case is more dangerous, not exempt: emit the gate into the first writing task of BOTH sprints, and write it to accept either observed state rather than to HALT on absence.
+
+```
+# Step 1: Co-writer state — {other-sprint-task-id} also edits this file, no ordering declared
+Grep  pattern='{co-writer-delta-marker}'  path='{path/to/shared-file.ext}'  output_mode='count'
+# 1 → the co-writer landed first. Edit ON TOP of its delta; do NOT re-baseline from the EI anchor.
+# 0 → this task is first. Record that in Recovery, and do NOT whole-file Write this file.
+```
+
+**A shared file also needs a co-writer content assertion, not only a diff count.** A path-scoped diff verifies the presence of *this* task's edit and can never show the absence of *another* writer's loss — it is the right discipline aimed at the wrong question, so applying it more rigorously does not close the gap. Any task editing a file another task also writes therefore adds, to its Verification Commands, a content grep for a literal the co-writer authored (or that literal's documented absence when this task ran first), alongside its diff count.
+
+```
+# After: this task's own delta landed AND the co-writer's delta survived
+Grep  pattern='{this-task-delta-marker}'  path='{path/to/shared-file.ext}'  output_mode='count'   # expect: 1
+Grep  pattern='{co-writer-delta-marker}'  path='{path/to/shared-file.ext}'  output_mode='count'   # expect: the value Step 1 observed
+```
+
+Never whole-file `Write` a file listed under `## Cross-Sprint File Touches`. A targeted `Edit` applies against the file's current content, so a disjoint-region edit landing second preserves the first; a whole-file write silently discards it. Stage this file by explicit path at closeout, so a co-writer's uncommitted change is not swept into this sprint's commit and misattributed.
 
 **Mapping Disambiguation:** When a task creates X→Y mapping logic (enum→domain, type→template, event→category), include either:
 - A complete mapping table in the task file, OR
@@ -159,12 +220,18 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > **After:**
 > ```
 > {cmd_after_1}    # e.g., {lint-cmd} on files from git diff $..._BASE -- <paths> (expect: pass)
+> # pre-edit: {measured value} → expect {post-edit expectation}
 > {cmd_after_2}    # e.g., {test-cmd} or specific test
+> # pre-edit: {measured value} → expect {post-edit expectation}
 > {cmd_after_3}    # e.g., {test-cmd} on the touched module
+> # pre-edit: {measured value} → invariant: {value}   (mark invariant only if this gate must NOT move)
 > ```
 > If one of the three command types (connectivity/precondition, lint/format, exec/smoke)
 > does not apply to this task, replace that type's `{cmd_after_N}` line above with
 > `<!-- NEEDS-COMMAND -->` so the gap stays visible at review time — never leave the line blank.
+> Every `{cmd_after_N}` line carries the `# pre-edit: {value} → expect {expectation}` annotation
+> immediately beneath it (or `→ invariant: {value}` for a preservation gate) — see the constraint
+> below.
 
 ### Per-File-Type Commands
 
@@ -200,6 +267,29 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > CORRECT — scoped to the recorded base and to this sprint's own paths:
 > ```bash
 > git diff $<ABBREV>_S<NN>_BASE -- <paths> | grep -E '<pattern>'   # expect empty
+> ```
+
+> [!constraint] Every Before/After Gate Records Its Measured Pre-Edit Value
+> Each command in the Before/After blocks MUST carry an inline annotation recording the value
+> it measured **against the live pre-edit tree**, immediately beside the expectation it is meant
+> to contradict — never inferred from intent, memory, or a sibling gate. A gate whose recorded
+> pre-edit value already satisfies its post-edit expectation is vacuous by construction: it
+> passes with zero work done, so it cannot answer whether the work happened, and MUST be
+> rewritten before it ships — not relaxed, not shipped with a caveat. A gate asserting a value
+> must NOT move (a count a refactor must preserve, a block that must survive untouched) is
+> exempt from this finding, but only when marked `invariant:` in place of `expect` on the
+> annotation line — an unmarked gate whose pre-edit value already satisfies `expect` is not
+> exempt, whatever the surrounding prose claims. See `references/verification-task-authoring.md`
+> §10 for the full doctrine; this block states the requirement, the reference carries the rule.
+>
+> WRONG — the expectation stands alone; nothing records what the value was before the edit:
+> ```bash
+> grep -c '{token}' {file}   # expect >=1
+> ```
+> CORRECT — the measured pre-edit value sits inline, immediately beside the expectation:
+> ```bash
+> grep -c '{token}' {file}
+> # pre-edit: 0 → expect >=1
 > ```
 
 ---

@@ -175,9 +175,9 @@ class TestPluginSubtreeManifest(unittest.TestCase):
                     shutil.copy2(path, target)
             return dst
 
-        with patch.object(scratch.shutil, "copytree", side_effect=_partial_copytree):
-            with self.assertRaises(scratch.ScratchContainmentError):
-                self.scratch.copy_plugin_subtree(self.source)
+        with patch.object(scratch.shutil, "copytree", side_effect=_partial_copytree), \
+                self.assertRaises(scratch.ScratchContainmentError):
+            self.scratch.copy_plugin_subtree(self.source)
 
 
 class TestCaseDirUniqueness(unittest.TestCase):
@@ -268,9 +268,9 @@ class TestTeardown(unittest.TestCase):
         case_dir = self._make_case_dir("stuck-case")
 
         with patch.object(scratch.shutil, "rmtree", side_effect=OSError("stuck")), \
-             patch.object(scratch.time, "sleep", return_value=None):
-            with self.assertRaises(scratch.ScratchContainmentError):
-                scratch.teardown(case_dir, self.scratch.root, retries=2, backoff_s=0.01)
+                patch.object(scratch.time, "sleep", return_value=None), \
+                self.assertRaises(scratch.ScratchContainmentError):
+            scratch.teardown(case_dir, self.scratch.root, retries=2, backoff_s=0.01)
 
 
 class TestTranscriptDelta(unittest.TestCase):

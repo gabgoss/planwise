@@ -15,15 +15,72 @@ description: Backlog Schema Reference for /planwise backlog -- the backlog index
 
 ### Table Columns
 
-| Column | Type | Description |
-|--------|------|-------------|
-| ID | 3-digit zero-padded (001-999) | Unique backlog item number; both bare (`002`) and prefixed (`PFX-002`) ID-cell forms are accepted, matched on the numeric component (leading zeros and any alpha prefix are ignored) — a new row's written form follows the index's predominant existing form, or an explicit `id_format` config key (`"prefixed" \| "bare"`) |
-| Feature | Free text | Short description of the item |
-| Priority | High, Medium, Low | Item priority level |
-| Status | See status values below | Current item state |
-| Abbrev | 2-4 chars | Category domain (defined in `config.yaml`) |
-| Score | Integer or `-` | Computed priority score (open items only; `-` for COMPLETE/CLOSED) |
-| Files | Markdown links | Reference files: `[01](path.md) [02](path2.md)` |
+The generated index is a 9-column table. Position matters as much as content:
+more than one script reads a cell by its numeric index rather than by header
+text, so a column that moved position would break them silently.
+
+| Column | Position | Type | Description |
+|--------|----------|------|-------------|
+| ID | 0 | 3-digit zero-padded (001-999) | Unique backlog item number; both bare (`002`) and prefixed (`PFX-002`) ID-cell forms are accepted, matched on the numeric component (leading zeros and any alpha prefix are ignored) — a new row's written form follows the index's predominant existing form, or an explicit `id_format` config key (`"prefixed" \| "bare"`) |
+| Title | 1 | ≤120 characters | One-line title; the narrative lives in the item file, never in this cell. A title over the cap is truncated at a word boundary in the rendered row and reported on stderr; scoring reads the item's raw, untruncated title |
+| Priority | 2 | High, Medium, Low | Item priority level |
+| Status | 3 | See status values below | Current item state. Read at this literal index by a downstream reader |
+| Domain | 4 | 2-4 chars | Category domain (defined in `config.yaml`) |
+| Created | 5 | date (YYYY-MM-DD) | Item creation date, from frontmatter |
+| Blocks | 6 | List of item IDs or blank | IDs of open items this item blocks; the generated projection of the item's own `blocks:` frontmatter (single source of truth — see the frontmatter table below) |
+| Score | 7 (second-to-last) | Integer or `-` | Computed priority score (open items only; `-` for COMPLETE/CLOSED) |
+| File | 8 (last) | One markdown link | Reference file: `[003](path.md)` |
+
+> [!note] A generated index's File cell always resolves against `backlog_dir`
+> A `generate_backlog_index.py`-produced hub, hub overflow leaf, or Archive
+> shard renders its single File cell as a link relative to `backlog_dir` --
+> never relative to the row's own containing file. A reader resolves every
+> File cell as `backlog_dir / <cell>`, even inside an Archive shard, whose
+> own file lives one directory deeper (`backlog_dir/Archive/...`). The
+> accepted cost: a human clicking that link from inside a shard lands one
+> directory too deep. This is recorded, not fixed.
+
+### Hub, Overflow Leaves, and Archive Shards
+
+The generator partitions every item by status: an open item renders into the
+hub; a closed item (COMPLETE/CLOSED) renders into an Archive shard. A closed
+item's shard is `shard = (id - 1) // 100` -- a pure function of the id alone,
+so there is no lookup table to maintain and no way for an id's shard to be
+ambiguous.
+
+Every generated file -- the hub, and any hub overflow leaf -- is kept under
+a **12,500-token budget**. That is half the 25,000-token page cap, so a
+growing hub keeps headroom before a table can outrun a single Read call.
+Every Archive shard is kept under a separate, wider **22,000-token
+budget**: a shard is written once and closed, so it does not need the same
+headroom a growing hub does. The generator *enforces* both budgets rather
+than merely reporting them: at `--write` time, a table that would exceed
+its budget is split further before anything is written (the hub into
+numbered overflow leaves, a shard century into more than one shard file),
+so a file that would breach either budget is never produced in the first
+place. `--check` reports a budget breach found on disk as drift. Every
+file is measured on its shipped-bytes basis: UTF-8 bytes plus one byte per
+line ending, the CRLF worst case. A byte count taken from a Windows
+checkout, which writes CRLF and so adds one extra byte per line, therefore
+never reads as larger than the count the generator enforced against.
+Links are bidirectional: the hub's `## Shards` directory lists every
+Archive shard and every hub overflow leaf, and each of those backlinks to
+the hub. The open set a reader pages through can therefore span the hub
+plus its own overflow leaves.
+
+This replaces a retired idea: a manual rotation trigger keyed on line count.
+A line count was never the real constraint -- a live hub can sit at a few
+hundred lines and well under 250 KB while individual item titles and links
+still push a table's real cost, in bytes and tokens, past what a single Read
+call can return. The token budget above targets that real constraint
+directly, and unlike a threshold that lived only in this reference's prose
+with nothing checking it, the generator enforces this one structurally: there
+is no step where an author has to remember to run a cleanup script before the
+threshold is silently exceeded. A later doctor read-gate extension
+independently re-checks the same budget across the backlog, lessons, and
+plans indexes from outside the generator -- useful for anything the generator
+itself does not own, such as a hand-authored item file that grows past
+budget on its own.
 
 ### Status Values
 
@@ -44,27 +101,67 @@ description: Backlog Schema Reference for /planwise backlog -- the backlog index
 |-----------|-------------|---------|
 | `BB` | Fixed prefix | `BB` |
 | `ID` | Backlog index number (3-digit, zero-padded) | `003` |
-| `SB` | Sub-backlog number; split when the file approaches the one-read token budget (~22K measured tokens) | `01`, `02` |
+| `SB` | Sub-backlog number; split when the file approaches the ~22K-token one-read budget. Advisory only — no checker enforces this threshold | `01`, `02` |
 | `Domain` | Category domain (defined in `config.yaml`) | `APP` |
 | `Topic` | Descriptive name (PascalCase) | `UserProfilePage` |
 
-**YAML frontmatter:**
+**YAML frontmatter is the single source of truth for the item's index row.**
+The generator reads it and renders the row; it never writes an item file,
+and it never invents a value for a missing required key -- a missing key is
+reported and the run aborts rather than silently patching the gap.
 
 ```yaml
 ---
+id: 003
 title: "Item title"
-created: 2026-01-15
+priority: High
 status: NOT_STARTED
+abbrev: APP
+created: 2026-01-15
 blocks: []
 ---
 ```
 
-| Field | Type | Used By |
-|-------|------|---------|
-| `title` | string | Display |
-| `created` | date (YYYY-MM-DD) | Scoring factor 8 (age) |
-| `status` | string | Synced by `update_backlog.py` |
-| `blocks` | list of item IDs | Scoring factor 6 (blocks count) |
+| Field | Type | Required | Used By |
+|-------|------|----------|---------|
+| `id` | integer | Yes | Row identity; Score/File cell derivation |
+| `title` | string | Yes | Display -- ≤120 characters; the narrative belongs in the item file's body, never here |
+| `priority` | enum (`High`\|`Medium`\|`Low`) | Yes | Scoring factor 1 |
+| `status` | string | Yes | Hub-vs-shard partitioning; scoring factors 3 and 5 |
+| `abbrev` | string | Yes | Scoring factor 2 (Bug/Fix); rendered as the row's Domain cell |
+| `created` | date (YYYY-MM-DD) | Yes | Scoring factor 8 (age) |
+| `blocks` | list of item IDs | Yes (may be `[]`) | Scoring factor 6 (blocks count); the generated projection is the row's Blocks cell |
+| `route_hint` | enum (`A`\|`B`\|`C`) | No | The filing author's provisional triage route (Direct Fix / Task List / Session Planning) |
+| `route_evidence` | string | No | One line: why that route, from what the author verified live at filing time |
+| `route_dated` | date (YYYY-MM-DD) | No | The date the route was judged -- a stored route is a dated claim that rots like any other, and this date makes that staleness visible at triage |
+
+The three `route_*` fields are optional and non-binding: an item without
+them is valid and scores normally, and triage always runs its own gates
+regardless of what a hint says.
+
+**Migrating a hand-authored index.** An index that still uses the
+pre-generation table shape -- one table, one footer line for the whole
+changelog -- is hand-authored. `/planwise upgrade` and `/planwise init`
+both recognize that shape and migrate it: backfilling missing or partial
+frontmatter, moving the changelog footer and dependency notes into their
+own files, then regenerating and checking the index. An ambiguous
+feature-cell sentence, one that only partly matches its item file, is
+parked verbatim in the migration ledger, never appended and never refused.
+`generate_backlog_index.py
+--write` refuses to overwrite a hand-authored index until that migration
+has run. Pass `--replace-legacy` to overwrite it directly instead, WITHOUT
+a backup. An index the migration recognizes as neither hand-authored nor
+generated is left untouched and reported through `migrate_backlog_index.py
+--report`.
+
+**Changelog layout.** The changelog lives in its own file, not in the
+index footer.
+
+- Part 1, `00-Changelog-Backlog.md`, is the file the hub links to.
+- Later entries go to `00-Changelog-Backlog-Part-NN.md` files.
+- Every file stays at or under the read budget.
+- A grown changelog is re-split by `/planwise upgrade`, or directly by
+  `migrate_backlog_index.py --split-changelog`.
 
 ---
 
@@ -79,9 +176,9 @@ Items are ranked by a computed priority score using 8 weighted factors. All weig
 | # | Factor | Default Points | Source |
 |---|--------|---------------|--------|
 | 1 | Priority | High=30, Med=20, Low=10 | `config.yaml: scoring.priority_*` |
-| 2 | Bug/Fix keyword | +15 | Index: Feature contains "Bug" or "Fix" |
+| 2 | Bug/Fix classification | +15 | `bug_fix_bonus`, applied when `abbrev == "BUG"`. Resolved from the item frontmatter's `abbrev:` field first, falling back to the index row's Domain cell when frontmatter carries none -- the title is never consulted |
 | 3 | IN_PROGRESS boost | +10 | Index: Status column |
-| 4 | File count | +5 per extra file (beyond 1) | Index: Files column |
+| 4 | File count | +5 per extra file (beyond 1) | Index: File column (last cell) -- the number of links in it |
 | 5 | PLANNING penalty | -5 | Index: Status = PLANNING |
 | 6 | Blocks count | +20 per open item blocked | Item YAML: `blocks` field |
 | 7 | Abbrev momentum | +5 | Archive: same-abbrev item recently completed |
@@ -144,7 +241,8 @@ Two modes: **status update** (default) and **create** (`--create`).
 # Update an existing item's status
 python {plugin_root}/scripts/update_backlog.py --id ID --status STATUS
 
-# Create a new backlog item (writes the BLI file from the template + appends an index row)
+# Create a new backlog item (writes the BLI file from the template only; the
+# caller regenerates the index with generate_backlog_index.py --write)
 python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATURE \
   --priority PRIORITY --abbrev ABBREV --files FILES [--status STATUS]
 ```
@@ -154,12 +252,12 @@ python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATUR
 | `--id ID` | Yes | Item ID (e.g., 002); in create mode, the new item's ID |
 | `--status STATUS` | Update: Yes — Create: No | New status (NOT_STARTED, PLANNING, IN_PROGRESS, BLOCKED, COMPLETE, CLOSED). In `--create` mode it is optional and defaults to NOT_STARTED |
 | `--create` | No | Create a new backlog item instead of updating an existing item's status |
-| `--feature FEATURE` | Create only | Feature / recommendation summary (required with `--create`) |
+| `--feature FEATURE` | Create only | Feature / recommendation summary, 120 characters or fewer once escaped for frontmatter storage — `--create` rejects a value that overflows the cap after escaping and writes nothing (required with `--create`) |
 | `--priority PRIORITY` | Create only | Priority — High, Medium, or Low (required with `--create`) |
 | `--abbrev ABBREV` | Create only | Domain abbreviation (required with `--create`) |
 | `--files FILES` | Create only | Affected files, semicolon-separated; the first is written as the new BLI file from `templates/backlog-item.md` (required with `--create`) |
 
-**Automatic archival (COMPLETE/CLOSED):** Moves item files to `{backlog_dir}/Archive/` and updates index links.
+**Automatic archival (COMPLETE/CLOSED):** Moves the item file to `{backlog_dir}/Archive/`. It never edits the index. The next `generate_backlog_index.py --write` renders the new link from the file's new location.
 
 ### score_backlog.py
 
@@ -169,16 +267,14 @@ python {plugin_root}/scripts/score_backlog.py [OPTIONS]
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `--dry-run` | No | Compute and print scores without writing to the index |
+| `--dry-run` | No | Compute and print scores; every mode is report-only and never writes to the index |
 | `--review` | No | Output a priority review report (no index writes) |
+| `--id ID` | No | Look up one item's score by ID (bare or prefixed, matched on the numeric component) |
+| `--explain` | No | With `--id`, print the per-factor score derivation instead of just the total |
+| `--route` | No | Report the mechanical half of the triage routing signals and the provisional route for every open item; with `--id`, one item's full vector, keyword hit lines, and `route_hint` verdict. Report-only |
+| `--json` | No | With `--route`, also write the report to a JSON temp file and print `JSON: {path}` on the last line |
 
-### cleanup_backlog.py
-
-```bash
-python {plugin_root}/scripts/cleanup_backlog.py --target {index|archive|both}
-```
-
-Run when the index approaches the one-read token budget (~22K measured tokens — check with `measure_files.py`) to remove COMPLETE/CLOSED rows. `--target archive` deletes archived files; `--target both` does both operations.
+`--route` applies the Decision Logic in `handlers/backlog.md` § Routing Decision Tree without modification; the handler's pseudocode is the source and the script follows it. It computes the eight mechanical signals from the index row and the item body it already loaded for scoring. It never runs the pivot check or any pre-routing gate, reports `HAS_CLEAR_FIX` as its mechanical half only, and never adopts a `route_hint:` -- it reports whether the hint agrees and whether `route_dated` predates the item's newest dated evidence line.
 
 ---
 
@@ -196,8 +292,15 @@ NOT_STARTED --[select in Phase 2]--> IN_PROGRESS
             +-----+                       |                       |
             |     |                       v                       v
    Approved v  Reverted v         All done --> COMPLETE    Plan --> PLANNING
-         COMPLETE  NOT_STARTED
+         COMPLETE  NOT_STARTED                                      |
+                                              /planwise run closeout, Master Plan
+                                              COMPLETE, item listed in the Master
+                                              Plan's `**Resolves:**` field
+                                                                    v
+                                                                COMPLETE
 ```
+
+A `PLANNING` item is closed by `/planwise run` closeout (`handlers/run.md` Step 4.3), never by a backlog route. The Master Plan's `**Resolves:**` header field is what links the two.
 
 ---
 

@@ -28,8 +28,8 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import config_loader  # noqa: E402
-import init_project as ip  # noqa: E402
+import config_loader
+import init_project as ip
 
 
 # ---------------------------------------------------------------------------
@@ -38,17 +38,7 @@ import init_project as ip  # noqa: E402
 class TestFindContextBlock(unittest.TestCase):
 
     def test_locates_block_with_commented_subkeys(self):
-        lines = (
-            "project:\n"
-            "  name: X\n"
-            "# Context window tier.\n"
-            "context:\n"
-            "  plan_tier: pro\n"
-            "  # measured overhead\n"
-            "  token_saver: false\n"
-            "scoring:\n"
-            "  priority_high: 30\n"
-        ).split("\n")
+        lines = ["project:", "  name: X", "# Context window tier.", "context:", "  plan_tier: pro", "  # measured overhead", "  token_saver: false", "scoring:", "  priority_high: 30", ""]
         result = config_loader.find_context_block(lines)
         self.assertIsNotNone(result)
         header_idx, end, indent = result
@@ -58,24 +48,12 @@ class TestFindContextBlock(unittest.TestCase):
         self.assertEqual(lines[end], "scoring:")
 
     def test_indent_taken_from_first_indented_member_not_a_comment(self):
-        lines = (
-            "context:\n"
-            "    # over-indented comment first\n"
-            "  plan_tier: pro\n"
-            "next_key:\n"
-        ).split("\n")
+        lines = ["context:", "    # over-indented comment first", "  plan_tier: pro", "next_key:", ""]
         _header_idx, _end, indent = config_loader.find_context_block(lines)
         self.assertEqual(indent, "  ", "a comment line must not set the subkey indent")
 
     def test_trailing_blank_and_comment_lines_trimmed_from_block_end(self):
-        lines = (
-            "context:\n"
-            "  plan_tier: pro\n"
-            "\n"
-            "# a comment introducing the NEXT key\n"
-            "scoring:\n"
-            "  priority_high: 30\n"
-        ).split("\n")
+        lines = ["context:", "  plan_tier: pro", "", "# a comment introducing the NEXT key", "scoring:", "  priority_high: 30", ""]
         _header_idx, end, _indent = config_loader.find_context_block(lines)
         # block ends right after plan_tier, not swallowing the blank/comment run.
         self.assertEqual(lines[end - 1], "  plan_tier: pro")
@@ -83,12 +61,12 @@ class TestFindContextBlock(unittest.TestCase):
     def test_block_at_end_of_file_has_no_following_top_level_key(self):
         # No trailing newline, so the split produces no trailing blank element
         # to trim — end lands exactly at len(lines).
-        lines = "project:\n  name: X\ncontext:\n  plan_tier: pro".split("\n")
+        lines = ["project:", "  name: X", "context:", "  plan_tier: pro"]
         _header_idx, end, _indent = config_loader.find_context_block(lines)
         self.assertEqual(end, len(lines))
 
     def test_absent_context_block_returns_none(self):
-        lines = "project:\n  name: X\nscoring:\n  priority_high: 30\n".split("\n")
+        lines = ["project:", "  name: X", "scoring:", "  priority_high: 30", ""]
         self.assertIsNone(config_loader.find_context_block(lines))
 
 
@@ -295,6 +273,7 @@ class TestGetTokenSaverExtensionConfigDefaults(unittest.TestCase):
             result["token_saver_session_checkpoint"],
             {"window": 400000, "turns": 194},
         )
+        self.assertEqual(result["run_layer_stop"], "off")
 
     def test_absent_keys_within_a_present_context_block_use_defaults(self):
         config = {"context": {"plan_tier": "pro"}}
@@ -311,6 +290,7 @@ class TestGetTokenSaverExtensionConfigMalformedBlock(unittest.TestCase):
         self.assertEqual(
             result["token_saver_session_checkpoint"], {"window": 400000, "turns": 194}
         )
+        self.assertEqual(result["run_layer_stop"], "off")
 
     def test_null_context_falls_back_to_all_defaults(self):
         result = config_loader.get_token_saver_extension_config({"context": None})
@@ -397,6 +377,56 @@ class TestGetTokenSaverExtensionConfigCoercion(unittest.TestCase):
             result["token_saver_session_checkpoint"],
             {"window": 400000, "turns": 194},
         )
+
+    def test_run_layer_stop_absent_key_defaults_to_off(self):
+        config = {"context": {"plan_tier": "pro"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "off")
+
+    def test_run_layer_stop_accepts_on(self):
+        config = {"context": {"run_layer_stop": "on"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "on")
+
+    def test_run_layer_stop_accepts_off(self):
+        config = {"context": {"run_layer_stop": "off"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "off")
+
+    def test_run_layer_stop_normalizes_case_and_whitespace(self):
+        config = {"context": {"run_layer_stop": " On "}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "on")
+
+    def test_run_layer_stop_unrecognized_value_falls_back(self):
+        config = {"context": {"run_layer_stop": "maybe"}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "off")
+
+    def test_run_layer_stop_yaml_boolean_maps_onto_enum(self):
+        # PyYAML (YAML 1.1) reads a bare `on` / `off` scalar as a boolean, so
+        # the documented `run_layer_stop: on` reaches the accessor as True.
+        # The boolean maps onto the enum; it is not a malformed value.
+        on = config_loader.get_token_saver_extension_config({"context": {"run_layer_stop": True}})
+        off = config_loader.get_token_saver_extension_config({"context": {"run_layer_stop": False}})
+        self.assertEqual(on["run_layer_stop"], "on")
+        self.assertEqual(off["run_layer_stop"], "off")
+
+    def test_run_layer_stop_bare_yaml_scalars_round_trip(self):
+        # The exact text a consumer writes in config.yaml, parsed the way the
+        # loader parses it, must reach the enum value the text names.
+        import yaml
+
+        for text, expected in (("on", "on"), ("off", "off"), ('"on"', "on")):
+            config = yaml.safe_load(f"context:\n  run_layer_stop: {text}\n")
+            result = config_loader.get_token_saver_extension_config(config)
+            self.assertEqual(result["run_layer_stop"], expected, text)
+
+    def test_run_layer_stop_non_bool_non_string_falls_back(self):
+        # An int is neither a YAML boolean nor a string; it is malformed.
+        config = {"context": {"run_layer_stop": 1}}
+        result = config_loader.get_token_saver_extension_config(config)
+        self.assertEqual(result["run_layer_stop"], "off")
 
 
 # ---------------------------------------------------------------------------

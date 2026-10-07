@@ -195,7 +195,7 @@ Task file Required Context sections and Execution Steps are subject to the rules
 **§9.A Required Context Fidelity (summary — see full rules in task-content-fidelity.md):**
 - §9.A.1: Update Required Context when project file structure changes
 - §9.A.2: No `~?` placeholders — token estimates MUST be concrete integers
-- §9.A.3: Derive tokens from measured bytes ÷ the content-class bytes-per-token ratio (dense markdown ~2.6, prose ~3.0, code ~3.3; conservative default 2.6 when unsure) — never from a line count
+- §9.A.3: Derive tokens from measured bytes ÷ the content-class bytes-per-token ratio (Claude 5 family: dense markdown ~2.6, prose ~2.9, code ~2.7, cleared notebook ~2.3, raw JSON ~2.0; conservative text default 2.6 when unsure, notebook/json auto-detected by extension) — never from a line count
 - §9.A.4: Re-glob live file counts before authoring (counts >1 hour old are stale)
 - §9.A.5: Budget 1.5-2× for multi-source consolidation tasks (dedup overhead)
 - §9.A.6: Use generator-script pattern for tasks walking ≥100 files
@@ -324,7 +324,8 @@ A related code-generation discipline applies when the LSP reports a diagnostic t
 > underlying cause. Inline suppression directives — illustratively, an
 > ignore-comment or an allow-attribute in whatever language is in use — are not a
 > substitute for either. (Verify stale-vs-real per the verify-before-acting LSP
-> discipline in `agent-orchestration-delegated.md` §1.18.)
+> discipline in `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`
+> §1.18.)
 
 ### Completion Tracking (BINDING)
 
@@ -332,19 +333,21 @@ A related code-generation discipline applies when the LSP reports a diagnostic t
 1. Update Session status to COMPLETE in Orchestration
 2. Update Sprint Plan's Sessions table to mark session COMPLETE
 3. Create Summary file in Outputs/
-4. Document lessons learned in `LessonsLearned/LL-{NNN}-{Domain}-{Name}.md` (use template from 00-Index-LessonsLearned.md, update master table)
-5. Update `LessonsLearned/00-Index-LessonsLearned.md` master table with new entries
+4. Document lessons learned in `LessonsLearned/LL-{NNN}-{Domain}-{Name}.md` (use `templates/lesson.md`; get the next id from `parse_lessons.py --next-id`)
+5. Regenerate `LessonsLearned/00-Index-LessonsLearned.md` with `generate_lessons_index.py --write`
 6. If lesson severity is HIGH or lesson recurs 2+ times, consider promoting to `.claude/rules/` (update lesson status to `rule` and set `applied-as` path)
 
 **After each Sprint completes:**
 1. Update Sprint Plan status to COMPLETE
 2. Update Master Plan's Sprint Overview table to mark sprint COMPLETE
 3. Update Master Plan's Session Completion Tracking table
+4. Fill the Sprint Signoff verdict in this same step — never leave it "pending review" — and advance the Sprint Plan `Status:`, the signoff verdict, and every index or rollup row together. Where two of them already disagree, resolve against the verification report and the Recovery, never against the more convenient record (`exit-criteria-fidelity.md` §16.11)
 
 **After entire Plan completes:**
 1. Update Master Plan status to COMPLETE
-2. Final git commit with "Complete {PlanName} project"
-3. *If Meta-Plan was used:* Meta, Scaffold, and Exec Master Plans marked COMPLETE
+2. Close every backlog item in the Master Plan's `**Resolves:**` header field: a dated resolution note in the item file, then `update_backlog.py --status COMPLETE`, then regenerate the backlog index (run handler Step 4.3)
+3. Final git commit with "Complete {PlanName} project"
+4. *If Meta-Plan was used:* Meta, Scaffold, and Exec Master Plans marked COMPLETE
 
 ### Module Split Threshold
 

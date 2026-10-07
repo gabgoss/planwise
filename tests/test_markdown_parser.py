@@ -21,25 +21,26 @@ also pin the guard that makes a short read loud rather than silent.
 Run with:  python -m pytest tests/test_markdown_parser.py -q
 """
 
-import io
 import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from markdown_parser import (  # noqa: E402
+from markdown_parser import (
     count_cells,
+    find_row_by_id,
     is_section_boundary,
+    pad_cell,
     parse_markdown_table,
     split_row_cells,
     split_row_raw,
     warn_on_unparsed_rows,
 )
-from markdown_parser import find_row_by_id, pad_cell  # noqa: E402
-
 
 CLEAN_ROW = (
     "| 062 | Diff-scoped gates must name a reason "
@@ -130,6 +131,17 @@ class TestSplitRowCells(unittest.TestCase):
 
     def test_count_cells_agrees_with_split(self):
         self.assertEqual(count_cells(ESCAPED_ROW), len(split_row_cells(ESCAPED_ROW)))
+
+
+class TestWritePathContract(unittest.TestCase):
+    """The module docstring's contract: a write-back loop must rebuild a row
+    from `split_row_raw`, never from `split_row_cells`. Rejoining the cells
+    view is NOT round-trip-safe -- it silently drops the author's escaping
+    and reflows the row's padding."""
+
+    def test_raw_round_trips_but_cells_do_not_for_an_escaped_row(self):
+        self.assertEqual("|".join(split_row_raw(ESCAPED_ROW)), ESCAPED_ROW)
+        self.assertNotEqual("|".join(split_row_cells(ESCAPED_ROW)), ESCAPED_ROW)
 
 
 class TestRaggedRowGuard(unittest.TestCase):
@@ -351,14 +363,7 @@ class TestFindRowById(unittest.TestCase):
     leading zeros stripped, and hand back the first match's index and cell
     view."""
 
-    LINES = (
-        "## Backlog Items\n"
-        "\n"
-        "| ID  | Feature | Priority | Status | Abbrev | Files |\n"
-        "|-----|---------|----------|--------|--------|-------|\n"
-        "| 001 | first | High | NOT_STARTED | DOC | [01](BB-001.md) |\n"
-        "| 002 | second | Low | COMPLETE | DOC | [01](BB-002.md) |\n"
-    ).split("\n")
+    LINES: ClassVar[list[str]] = ["## Backlog Items", "", "| ID  | Feature | Priority | Status | Abbrev | Files |", "|-----|---------|----------|--------|--------|-------|", "| 001 | first | High | NOT_STARTED | DOC | [01](BB-001.md) |", "| 002 | second | Low | COMPLETE | DOC | [01](BB-002.md) |", ""]
 
     def test_found_row_returns_index_and_cells(self):
         result = find_row_by_id(self.LINES, "002")
@@ -374,7 +379,7 @@ class TestFindRowById(unittest.TestCase):
     def test_leading_zeros_normalize_on_both_sides(self):
         # A caller passing "02" must still match a row whose own ID cell reads
         # "002" — both sides are compared with leading zeros stripped.
-        index, cells = find_row_by_id(self.LINES, "02")
+        _index, cells = find_row_by_id(self.LINES, "02")
         self.assertEqual(cells[0], "002")
 
     def test_not_found_returns_none(self):
@@ -402,7 +407,7 @@ class TestFindRowById(unittest.TestCase):
             "",
             "| 001 | fine | High | NOT_STARTED | DOC | [01](x.md) |",
         ]
-        index, cells = find_row_by_id(lines, "001")
+        index, _cells = find_row_by_id(lines, "001")
         self.assertEqual(index, 2)
 
     def test_escaped_pipe_row_is_found_with_cells_correctly_aligned(self):
@@ -439,8 +444,8 @@ class TestFindRowById(unittest.TestCase):
 
 
 class TestIsSectionBoundary(unittest.TestCase):
-    """The shared boundary predicate `parse_markdown_table` and
-    `write_scores_to_index`'s walker both terminate a table section on."""
+    """The shared boundary predicate a table-walking parser terminates a
+    table section on, exercised here directly against `parse_markdown_table`."""
 
     def test_blank_line_is_not_a_boundary(self):
         self.assertFalse(is_section_boundary(""))

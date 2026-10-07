@@ -24,7 +24,7 @@ from pathlib import Path
 # tests/ — mirrors the sibling test modules' self-locating sys.path line.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import measure_files as mf  # noqa: E402
+import measure_files as mf
 
 
 class TestMeasureFiles(unittest.TestCase):
@@ -91,12 +91,52 @@ class TestMeasureFiles(unittest.TestCase):
     def test_model_ratio_changes_estimate(self):
         path = self._write_lines("probe.md", 500)
         default_tokens = mf.measure_file(path)["tokens"]
+        haiku_tokens = mf.measure_file(path, model="haiku")["tokens"]
         sonnet_tokens = mf.measure_file(path, model="sonnet")["tokens"]
         opus_prose_tokens = mf.measure_file(path, model="opus", content="prose")["tokens"]
-        # Sonnet-family tokenizes lighter → fewer estimated tokens than the
-        # conservative default; a looser content class lowers it too.
-        self.assertLess(sonnet_tokens, default_tokens)
+        # Haiku 4.5 is the one family that tokenizes lighter → fewer estimated
+        # tokens than the conservative default; a looser content class lowers
+        # it too. Sonnet 5 shares the Claude 5 tokenizer, so it sits exactly AT
+        # the default — asserting it lower is what the 2026-09-07 re-measurement
+        # falsified.
+        self.assertLess(haiku_tokens, default_tokens)
         self.assertLess(opus_prose_tokens, default_tokens)
+        self.assertEqual(sonnet_tokens, default_tokens)
+
+    def test_notebook_and_json_are_auto_detected_and_overridable(self):
+        # Same bytes under three names. The notebook and json classes are
+        # denser than the text fallback, so with NO flags the estimate must
+        # rise with the extension; an explicit --content must override it.
+        payload = 60_000
+        txt = self._write_bytes("same.txt", payload)
+        nb = self._write_bytes("same.ipynb", payload)
+        js = self._write_bytes("same.json", payload)
+        text = mf.measure_file(txt)
+        notebook = mf.measure_file(nb)
+        json_file = mf.measure_file(js)
+        self.assertIsNone(text["content"])
+        self.assertEqual(notebook["content"], "notebook")
+        self.assertEqual(json_file["content"], "json")
+        self.assertLess(notebook["ratio"], text["ratio"])
+        self.assertLess(json_file["ratio"], notebook["ratio"])
+        self.assertGreater(notebook["tokens"], text["tokens"])
+        self.assertGreater(json_file["tokens"], notebook["tokens"])
+        # 60 KB: WARN as text (2.6 → ~23.1K) but OVER as a notebook (2.3 → ~26.1K).
+        self.assertEqual(text["level"], "WARN")
+        self.assertEqual(notebook["level"], "OVER")
+        # Override: --content code on the notebook uses the code cell.
+        forced = mf.measure_file(nb, model="sonnet", content="code")
+        self.assertEqual(forced["content"], "code")
+        self.assertEqual(forced["ratio"], mf.bytes_per_token("sonnet", "code"))
+        # The plain report names the per-file ratio when detection diverges
+        # from the run-level header.
+        report = mf.format_report(mf.measure_files([txt, nb]))
+        self.assertIn("content=notebook auto-detected", report)
+        # The CLI accepts the new classes.
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(mf.main([js, "--model", "opus", "--content", "json"]), 0)
+        self.assertIn("content=json", buf.getvalue())
 
     # -- multi-file + errors -------------------------------------------------
     def test_multi_file_summary_and_missing_file(self):

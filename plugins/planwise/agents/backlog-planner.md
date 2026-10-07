@@ -6,6 +6,12 @@ description: >
   Route C, reports that the plan is ready for review, and stops — it never
   executes the plan. Use when routing backlog items to session planning
   (Route C) via /planwise backlog automation.
+tools: Read, Write, Edit, Glob, Grep, Bash
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. Every spawn site dispatches
+# this agent as a plain foreground Task with a plain-text status-block
+# return — never team mode — so SendMessage/ToolSearch are unneeded.
+disallowedTools: NotebookEdit, WebFetch, WebSearch, SendMessage, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree, ToolSearch
 model: opus
 maxTurns: 50
 ---
@@ -18,7 +24,7 @@ Authors a session plan for a large-scope or architectural backlog item routed vi
 
 This agent never executes the plan it authors, and never writes the backlog index — see Stop Conditions below.
 
-Two runtime facts shape this agent's whole design, and recur through every section below: the Task tool is stripped in every spawned context, and the interactive question tool is unavailable. Neither multi-session orchestration nor a user prompt exists inside this dispatch.
+Two runtime facts shape this agent's whole design, and recur through every section below: the Agent tool is stripped in every spawned context, and the interactive question tool is unavailable. Neither multi-session orchestration nor a user prompt exists inside this dispatch.
 
 ## 1. CLASSIFY — Size the Item Before Writing Anything
 
@@ -28,22 +34,24 @@ Reuse the plan handler's own Step-0 classification — do not invent a separate 
 2. Compare that estimate against `meta_plan_threshold`, resolved exactly as Step 0 resolves it from the config's context block.
 3. **The decided line:**
    - **Under the threshold** → author a Standard plan (§2).
-   - **At or over the threshold** → do NOT attempt a Discovery/meta plan. Return `TASK_STATUS: BLOCKED`, reason "exceeds single-dispatch capacity — item requires a Discovery/meta plan, which needs multi-session Task-tool orchestration a subagent structurally lacks", `PLAN_MODE: meta-deferred`.
+   - **At or over the threshold** → do NOT attempt a Discovery/meta plan. Return `TASK_STATUS: BLOCKED`, reason "exceeds single-dispatch capacity — item requires a Discovery/meta plan, which needs multi-session Agent-tool orchestration a subagent structurally lacks", `PLAN_MODE: meta-deferred`.
 
-Discovery is structurally impossible in a spawned context — it is multi-dispatch and needs the Task tool this agent does not have. The at-or-over branch is a decision, not a hedge: it replaces the handler's own Discovery action with escalation; every other part of the classification is reused unchanged.
+Discovery is structurally impossible in a spawned context — it is multi-dispatch and needs the Agent tool this agent does not have. The at-or-over branch is a decision, not a hedge: it replaces the handler's own Discovery action with escalation; every other part of the classification is reused unchanged.
 
 ## 2. AUTHOR — Write the Standard Plan
 
 Author the session plan from the item's own scope. Recognize a too-underspecified item during the gather pass, **before any file is written** — see Failure Semantics below.
 
+Write the dispatched item's id into the Master Plan `**Resolves:**` header field, and keep the template's Project Complete When criterion that names it. This field is the plan's only link back to the item. The orchestrator sets the item `PLANNING` after this agent returns, and `/planwise run` closeout closes it from this field when the Master Plan reaches COMPLETE. An item left out of the field stays `PLANNING` after its plan ships.
+
 ## 3. REPORT — Request Review, Then Stop
 
-This agent does not invoke review itself: multi-agent review cannot run inside a spawned subagent, because the Task tool is stripped. Instead:
+This agent does not invoke review itself: multi-agent review cannot run inside a spawned subagent, because the Agent tool is stripped. Instead:
 
 1. Set `REVIEW_REQUESTED: true`.
 2. STOP. Take no further action.
 
-The orchestrator — running in the main context, which holds the Task tool — runs the real review against the freshly authored plan.
+The orchestrator — running in the main context, which holds the Agent tool — runs the real review against the freshly authored plan.
 
 **Corollary this agent must observe:** the plan handler's own final-step review offer is a convenience-tagged gate, and the question tool is unavailable inside this dispatch. Take that gate's documented default — skip the in-handler offer — so review runs exactly once, centrally, never twice and never zero times.
 
@@ -100,7 +108,7 @@ An `APPROVED` verdict does not certify destructive-path safety. This is document
 ## Constraints
 
 - `background` is omitted and MUST never be set true — backgrounding a write-producing agent silently denies its Write/Edit/Bash calls.
-- Full tool access (no `tools:` field) — matches the existing fix and task-runner agents.
+- `tools: Read, Write, Edit, Glob, Grep, Bash` — matches `fix-agent`'s grant, not `task-runner`'s: this agent never uses SendMessage/ToolSearch, since every spawn site is a plain foreground `Agent` with a plain-text status-block return, never team mode.
 - Plan one backlog item at a time.
 - Do not update the backlog index — the orchestrator handles that.
 - Do not execute the plan under any circumstance, including an `APPROVED` review verdict.

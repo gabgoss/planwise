@@ -28,9 +28,9 @@ import types
 from pathlib import Path
 
 import pytest
+from harness import tiers
 
 import conftest as eval_conftest
-from harness import tiers
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # cloned-repos/planwise
 _SELECTED_RE = re.compile(r"EVALS SELECTED: (\d+) / declared (\d+|None)")
@@ -123,6 +123,7 @@ def _run_pytest_marker(marker_expr: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
 
 

@@ -57,6 +57,11 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 
 ---
 
+> [!practice] Session-Level Effort for Large Plans
+> This handler executes inline in the calling session — there is no dispatched planner agent to carry an `effort:` frontmatter field. For a large or multi-sprint scaffold, consider running `/effort high` (or your project's measured preference) before invoking this command, or set a standing default in *your own project's* `.claude/settings.json` (`effortLevel`, or a per-model entry under `modelSettings`). The plugin pins `effort:` only on the agents it dispatches and measured (`references/agent-authoring.md` § Shipped Effort Levels); nothing it ships changes the session level. This recommendation is advisory only.
+
+---
+
 ## Required References
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
@@ -75,8 +80,11 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
-- If planning a scaffolded multi-sprint plan (Discovery → Scaffolding workflow): Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md`
+- If planning a scaffolded multi-sprint plan (Discovery → Scaffolding workflow): Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§17) — the hygiene reference is split across two files, and Part 2 carries the rules a scaffold must satisfy before it closes
 - If the plan contains verification tasks (grep/awk match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
+- If a task's deliverable is a gate (guard, hook, linter, validation pass), or an acceptance criterion cites a gate run as proof: Read `references/verification-gate-evidence.md`
+- If a task's Verification Commands assert a property of a diff (comment-only, no-logic-change, N-files-touched), or the task creates or relocates the file it then gates: Read `references/gate-baseline-independence.md` — an untracked target makes the gate vacuous and `git add -N` inverts it, so pin a baseline copy before the first edit (Step 8e)
+- If a task's Verification Commands include a match pattern, a count, or a diff filter: Read `references/gate-predicate-discrimination.md` — write each anchor so it can be paired against a known-bad state, scope a negative claim to a query whose positive would be believed, and anchor a diff filter on the sign alone (Step 8e)
 - If planning a task with DB writes (SQL INSERT/UPDATE/MERGE): Read `references/schema-pin-requirement.md`
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 - If a task's deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec): Read `references/verification-gates.md` before populating that task's Verification Commands (Step 8e)
@@ -190,12 +198,28 @@ Use `AskUserQuestion` to collect:
 - What is the name of your plan? (e.g., "UserAuthentication", "DataMigration") — pre-fill from `$1` if provided
 - What is the 2-4 character abbreviation? (e.g., "UA", "DM")
 - Briefly describe the vision (1-2 sentences)
+- Which backlog item(s) does this plan resolve, if any? (item ids, or "none")
 
 **Question 2: Scope**
 - How many sprints do you anticipate? (1-5)
 - For EACH sprint in that count, what is its name and purpose? (e.g., "Sprint 1: CoreAuth — login and registration; Sprint 2: AdvancedAuth — SSO and MFA")
+- For EACH sprint, how many sessions does it need, and what is each session's name? (default: 1 session per sprint)
 
-**Every sprint named here gets fully scaffolded in this pass** (Steps 3-9 below) — this handler does not stop after Sprint 1.
+**Bind the answers before leaving this step.** Later steps consume them by name, so record them explicitly rather than leaving the count in the conversation:
+
+| Bound value | From | Consumed by |
+|-------------|------|-------------|
+| `{sprint_count}` | the sprint count above | Step 3 (folder tree), Steps 5-7 (per-sprint cardinality), the Validation Checklist |
+| `{sprint_names[XX]}` | each sprint's name | Step 3, Step 4's Sprint Overview table |
+| `{session_count[XX]}` | sessions in sprint `{XX}` | Step 3, Steps 6-8 (per-session cardinality), the Validation Checklist |
+| `{session_names[XX][YY]}` | each session's name | Step 3, Step 9's confirmation block |
+| `{resolves}` | the backlog item ids above, or `none` | Step 4's Master Plan `**Resolves:**` header field and its Project Complete When criterion — `/planwise run` closeout closes these items when the plan reaches COMPLETE |
+
+Under Auto Mode, or when the answer is empty, bind `{resolves}` to `none` unless the invoking context names an item. A `/planwise backlog` Route C dispatch always names one.
+
+**Every sprint AND every session named here gets fully scaffolded in this pass** (Steps 3-9 below) — this handler does not stop after Sprint 1, and it does not stop after each sprint's Session-01. `sum({session_count[XX]})` over all sprints is the number of Orchestration files this pass must produce.
+
+If some sprints are deliberately left unauthored, that is legitimate but MUST be declared — see [Deferred Authoring](#deferred-authoring) before proceeding.
 
 ### Step 2: Validate
 
@@ -238,33 +262,36 @@ If validation fails, ask user to correct.
 
 ### Step 3: Create Folder Structure
 
-Create the following structure under the configured `{plans_dir}`, repeating the `Sprint-{XX}-{SprintName}/` block for **every** sprint gathered in Step 1 (`{XX}` = `01`, `02`, ... up to the sprint count) — do not stop after the first sprint:
+Create the following structure under the configured `{plans_dir}`. **Two nested loops, both bound in Step 1:** repeat the `Sprint-{XX}-{SprintName}/` block for every sprint (`{XX}` = `01` … `{sprint_count}`), and inside each one repeat the `Session-{YY}-{SessionName}/` block for every session of that sprint (`{YY}` = `01` … `{session_count[XX]}`). Do not stop after the first sprint, and do not stop after each sprint's first session.
+
+```
+{plans_dir}/{PlanName}/
+├── {Abbrev}-Master-Plan.md
+└── Sprint-{XX}-{sprint_names[XX]}/                    # for XX = 01 … {sprint_count}
+    ├── {Abbrev}-S{XX}-Sprint-Plan.md                  # one per sprint
+    └── Session-{YY}-{session_names[XX][YY]}/          # for YY = 01 … {session_count[XX]}
+        ├── {Abbrev}-S{XX}-{YY}-Orchestration.md       # one per SESSION
+        ├── {Abbrev}-S{XX}-{YY}-Recovery.md            # one per SESSION
+        ├── {Abbrev}-S{XX}-{YY}-{##}-{Agent}-{Task}.md # one per task in that session
+        └── Outputs/
+            └── .gitkeep                               # Required so Outputs/ is tracked by git
+```
+
+Worked example — 2 sprints, the second with 2 sessions (`{sprint_count}` = 2, `{session_count}` = `[1, 2]`, so 3 Orchestrations):
 
 ```
 {plans_dir}/{PlanName}/
 ├── {Abbrev}-Master-Plan.md
 ├── Sprint-01-{Sprint1Name}/
 │   ├── {Abbrev}-S01-Sprint-Plan.md
-│   └── Session-01-{Sprint1SessionName}/
-│       ├── {Abbrev}-S01-01-Orchestration.md
-│       ├── {Abbrev}-S01-01-Recovery.md
-│       ├── {Abbrev}-S01-01-{##}-{Agent}-{Task}.md   # One file per task
-│       └── Outputs/
-│           └── .gitkeep                              # Required so Outputs/ is tracked by git
-├── Sprint-02-{Sprint2Name}/
-│   ├── {Abbrev}-S02-Sprint-Plan.md
-│   └── Session-01-{Sprint2SessionName}/
-│       ├── {Abbrev}-S02-01-Orchestration.md
-│       ├── {Abbrev}-S02-01-Recovery.md
-│       ├── {Abbrev}-S02-01-{##}-{Agent}-{Task}.md   # One file per task
-│       └── Outputs/
-│           └── .gitkeep
-├── ...                                                # same shape for every remaining sprint
-└── Sprint-{N}-{SprintNName}/
-    └── Session-01-{SprintNSessionName}/ ...
+│   └── Session-01-{Name}/  → {Abbrev}-S01-01-Orchestration.md, -Recovery.md, task files, Outputs/.gitkeep
+└── Sprint-02-{Sprint2Name}/
+    ├── {Abbrev}-S02-Sprint-Plan.md
+    ├── Session-01-{Name}/  → {Abbrev}-S02-01-Orchestration.md, -Recovery.md, task files, Outputs/.gitkeep
+    └── Session-02-{Name}/  → {Abbrev}-S02-02-Orchestration.md, -Recovery.md, task files, Outputs/.gitkeep
 ```
 
-**Every sprint gathered in Step 1 gets its own folder here.** A plan with 3 anticipated sprints creates `Sprint-01/`, `Sprint-02/`, and `Sprint-03/` in this same pass, not just `Sprint-01/`.
+**Every sprint AND every session bound in Step 1 gets its own folder here.** A plan with 3 sprints creates `Sprint-01/`, `Sprint-02/` and `Sprint-03/` in this same pass; a sprint declaring 4 sessions creates `Session-01/` through `Session-04/` inside it. `{YY}` is a loop variable, not the literal `01`.
 
 **Task File Naming:** `{##}` = two-digit task number (01, 02, 03...) matching the task list.
 
@@ -285,16 +312,16 @@ Use templates from `{plugin_root}/templates/`:
 
 | Step | Template | Output File | Cardinality |
 |------|----------|-------------|-------------|
-| 4 | [master-plan.md](../templates/master-plan.md) | `{Abbrev}-Master-Plan.md` | Once — Sprint Overview table lists **all** sprints gathered in Step 1 |
-| 5 | [sprint-plan.md](../templates/sprint-plan.md) | `{Abbrev}-S{XX}-Sprint-Plan.md` | **Once per sprint** (`{XX}` = `01`..sprint count) |
-| 6 | [orchestration.md](../templates/orchestration.md) | `{Abbrev}-S{XX}-01-Orchestration.md` | **Once per sprint** |
-| 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S{XX}-01-Recovery.md` | **Once per sprint** |
+| 4 | [master-plan.md](../templates/master-plan.md) | `{Abbrev}-Master-Plan.md` | Once — Sprint Overview lists **all** `{sprint_count}` sprints; **Total Sessions** equals `sum({session_count[XX]})` |
+| 5 | [sprint-plan.md](../templates/sprint-plan.md) | `{Abbrev}-S{XX}-Sprint-Plan.md` | **Once per sprint** (`{XX}` = `01` … `{sprint_count}`) — its Sessions table lists all `{session_count[XX]}` sessions |
+| 6 | [orchestration.md](../templates/orchestration.md) | `{Abbrev}-S{XX}-{YY}-Orchestration.md` | **Once per SESSION** (`{YY}` = `01` … `{session_count[XX]}`, for every sprint) |
+| 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S{XX}-{YY}-Recovery.md` | **Once per SESSION** |
 
-Steps 5-7 repeat for every sprint gathered in Step 1 — do not stop after Sprint-01.
+Step 5 repeats for every sprint; Steps 6-7 repeat for every session of every sprint. Their cardinality is **not** the sprint count — a 3-sprint plan whose second sprint has 3 sessions produces 3 Sprint Plans and **5** Orchestration/Recovery pairs. Do not stop after Sprint-01, and do not stop after each sprint's Session-01.
 
 ### Step 8: Generate Task Files
 
-**Steps 8 through 8e repeat for every sprint's Session-01 Orchestration file created in Step 6** — finish one sprint's task files before moving to the next. Step 8d (Update Plans Index) is the one exception: it runs once, after every sprint has been scaffolded.
+**Steps 8 through 8e repeat for EVERY Orchestration file created in Step 6 — every session of every sprint, not one per sprint.** Finish one session's task files before moving to the next, and one sprint's sessions before moving to the next sprint. Step 8d (Update Plans Index) is the one exception: it runs once, after every sprint has been scaffolded.
 
 **Search the lessons index for the artifact classes this plan will touch, before authoring task files.**
 
@@ -314,7 +341,7 @@ The payoff scales with repetition: a plan that repeats one task chain across sev
 
 For each task, create a file using the [task-file.md](../templates/task-file.md) template.
 
-**File name pattern:** `{Abbrev}-S{XX}-01-{##}-{Agent}-{TaskName}.md` (`{XX}` = the current sprint being processed)
+**File name pattern:** `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md` (`{XX}` = the sprint being processed, `{YY}` = the session being processed — both loop variables, neither a literal `01`)
 
 After creating task files, update the Orchestration file's Task Files table with links.
 
@@ -324,14 +351,14 @@ Each Orchestration file created MUST include this item in its post-session check
 
 ```
 [ ] Document lessons learned in {lessons_dir}/LL-{NNN}-{Domain}-{Name}.md
-    - Get next NNN from master table in {lessons_dir}/{lessons_index}
-    - Use Lesson File Template from {lessons_dir}/{lessons_index}
+    - Get next NNN from `parse_lessons.py --config {config} --next-id`
+    - Use the lesson file template from templates/lesson.md
     - Required frontmatter: id, title, date, source (session ID), category, severity,
       language, technology, domain, status, applied-as
-    - Add row to master table in {lessons_dir}/{lessons_index}
+    - Run the generator; append the changelog entry
 ```
 
-Where `{lessons_dir}` and `{lessons_index}` come from `config.yaml`.
+Where `{lessons_dir}` comes from `config.yaml`.
 
 ### Step 8c: Validate Token Estimates (Bottom-Up)
 
@@ -353,7 +380,19 @@ Resolve the **effective** Token Saver value for THIS plan ONCE here — it gates
 
 When the effective `token_saver` is `true`, after the bottom-up estimate above, run a per-file large-file scan over **every** Required Context file in **every** task. This is the plan-author-time instance of the per-file warning ladder anchored in `references/task-content-fidelity.md` §9.A.8 (levels, formulas, and the `reason=cost|read` contract live there — read it before authoring the scan output). The scan folds the carrying-cost ladder and the two FIXED Read-tool gates into one verdict, so it also catches files that are unreadable in a single Read — including files a task will push past a gate once it edits them.
 
-1. **Derive the cost thresholds** from the measured overhead (never hardcode):
+**Run the scan — do not hand-annotate it.** The scan is a shipped tool, not a procedure to reproduce by judgement:
+
+```bash
+python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config} [--json]
+```
+
+It walks every task file under `{plan_path}`, reads each task's assigned **Agent**, resolves every Required Context row to a path, classifies it, prints one recommendation block per Warn-or-worse file with the citing tasks, prints the backlog filing worklist, and **exits non-zero when any file lands Warn or worse**. Add `--projected {path}={bytes}` for a file this plan will grow. Rows that are not files — a command corpus, a not-yet-written output, a glob — are reported by reason rather than classified.
+
+Run it rather than reproducing it by judgement. Why a *correct* hand-written annotation is the worst case, with the WRONG/CORRECT pair, is [`references/task-content-fidelity.md`](../references/task-content-fidelity.md) §9.A.15.
+
+The contract the tool implements, for reference when reading its output:
+
+1. **Cost thresholds** are derived from the measured overhead, never hardcoded:
 
    ```
    thresholds = token_saver.derive_thresholds(
@@ -362,7 +401,7 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
    # → {available_per_task, critical, warn}
    ```
 
-2. **Classify each Required Context file** against the runner that will read it (the task's assigned **Agent** — tokens = bytes ÷ that model family's bytes-per-token ratio; the byte cap and line window are model-independent). For a file the **same task will modify**, pass the projected byte delta (projected added lines × the file's observed average bytes/line) so a file that *will* cross a gate post-edit is flagged pre-emptively:
+2. **Each Required Context file is classified** against the runner that will read it (the task's assigned **Agent** — tokens = bytes ÷ that model family's bytes-per-token ratio; the byte cap and line window are model-independent). For a file the **same task will modify**, the projected byte delta (projected added lines × the file's observed average bytes/line) is passed so a file that *will* cross a gate post-edit is flagged pre-emptively:
 
    ```
    verdict = token_saver.classify_file(
@@ -373,17 +412,19 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
    # → {level, reason, bytes, tokens, lines}; level = max(cost_level, read_level)
    ```
 
+   Token figures come from **bytes ÷ the reading model's ratio**. Never derive one from a line count: measured per-line rates range 7–365 tokens/line by content, so a per-line band under-reports exactly the dense index files this scan exists to catch.
+
 3. **Emit a recommendation block per file** at **Notice / Warn / Critical** (Green files are silent), naming the driving `reason`:
    - **Notice** — advisory only. Docs/specs → note a Multi-Part split is advisable; code → note for awareness. No backlog item.
    - **Warn** (`reason=cost` ≥ `warn`, or `reason=read` ≥ 240 KiB / ≥ 22K model-tok) — recommend the remedy by file type (below) **and file a backlog item** via the consumer project's backlog mechanism (`handlers/backlog.md` Phase 7 create flow — generic, no project identifiers).
    - **Critical / `reason=cost`** (≥ `critical`) — warn + file a backlog item + flag the task **`1M-exception`** (dispatch on Opus / 1M) so the plan still completes; the file won't fit a lean task even alone.
-   - **Critical / `reason=read`** (≥ 25K model-tok page cap OR ≥ 256 KiB byte cap OR ≥ 2,000 lines) — warn + file a backlog item + recommend a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. Do **NOT** flag `1M-exception`: the 1M window does not raise the per-Read page cap, and the Opus/Fable-family tokenizer trips it on *fewer bytes* than Sonnet/Haiku's.
+   - **Critical / `reason=read`** (≥ 25K model-tok page cap OR ≥ 256 KiB byte cap OR ≥ 2,000 lines) — warn + file a backlog item + recommend a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. Do **NOT** flag `1M-exception`: the 1M window does not raise the per-Read page cap, and the Claude 5 tokenizer trips it on *fewer bytes* than Haiku 4.5's.
    - The scan is **never a hard stop** — a source-file Critical advises and files an item; it does not abort planning.
 
 4. **Differentiate the remedy by file type** in the recommendation:
    - **Code** → refactor into smaller modules.
    - **Doc / spec / Execution Input** → Multi-Part split (existing [Multi-Part Output Convention](../references/session-context-budget.md#file-size-limits)).
-   - **Dense (notebook / minified / compressed JSON)** → measure precisely (`measure_files.py`, conservative ratio) and extract only the needed sections.
+   - **Dense (notebook / minified / compressed JSON)** → measure precisely (`measure_files.py` auto-detects the notebook and json classes from the extension; minified files take the conservative text ratio) and extract only the needed sections.
 
 5. **Generated artifacts the plan itself authors** that a runner MUST read — task files, Orchestration, Recovery, Consolidated Context parts, Execution Inputs, task Output files — carry a **HARD** read-gate ceiling (MUST Multi-Part split to stay readable), NOT advisory, per `references/session-context-budget.md` [§ File Size Limits — Generated Artifacts](../references/session-context-budget.md#file-size-limits--generated-artifacts-binding). External source files the runner reads but does not generate stay advisory (warn + backlog + read tactics).
 
@@ -392,7 +433,7 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
 > ```
 > # 280 KiB external doc → classify_file → {level: Critical, reason: read}
 > Task flagged: 1M-exception   ← WRONG: the per-Read page cap is unchanged by the window,
->                                and the Opus/Fable tokenizer trips the token gate on FEWER bytes than Sonnet's
+>                                and the Claude 5 tokenizer trips the token gate on FEWER bytes than Haiku 4.5's
 > ```
 > CORRECT — `reason=read` Critical recommends a paged read / refactor and files a backlog item; only `reason=cost` Critical earns `1M-exception`:
 > ```
@@ -404,17 +445,17 @@ When the effective `token_saver` is `true`, after the bottom-up estimate above, 
 
 **Runs once, after every sprint has been scaffolded** (not per-sprint like 8/8a-8c/8e).
 
-Add a row to the plans index so `/planwise list` reflects the new plan:
+The plans index is generated from each plan's Master Plan, so `/planwise list` reflects the new plan once the generator runs. The Master Plan written earlier in this handler already carries `**Status:** READY_TO_EXECUTE` and its dates. Nothing writes a row by hand, and no Path is composed.
 
-1. Read `{plans_dir}/{plans_index}` (path from `config.yaml`)
-2. Add a row to the table:
-   - **Abbrev:** `{ABBREV}`
-   - **Name:** `{PlanName}`
-   - **Status:** `NOT_STARTED`
-   - **Created:** `{today's date}`
-   - **Last Updated:** `{today's date}`
-   - **Path:** `{plans_dir}/{PlanName}/`
-3. Write the updated index back to disk
+Run the generator once, after every sprint is scaffolded:
+
+```bash
+python "{plugin_root}/scripts/generate_plans_index.py" --config "{planwise_root}/config.yaml" --write
+```
+
+Exit 2 means the index is still hand-authored or unrecognized, and nothing was written. Tell the user to run `/planwise upgrade`, which migrates it. If upgrade reports the index as unrecognized, name `migrate_plans_index.py --report`.
+
+To change a plan's row later, edit the Master Plan's `**Status:**` line (and its footer date), then run `generate_plans_index.py --write`. See [`references/plans-schema.md`](../references/plans-schema.md) § The One-Writer Rule.
 
 ### Step 8e: Populate Verification Commands (Per-File-Type Map)
 
@@ -504,14 +545,16 @@ PLAN CREATED: {PlanName}
 
 **Files Created:**
 - {Abbrev}-Master-Plan.md
-- Sprint-01-{Sprint1Name}/{Abbrev}-S01-Sprint-Plan.md
-- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-Orchestration.md
-- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-Recovery.md
-- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/{Abbrev}-S01-01-{##}-{Agent}-{Task}.md (x{N1} task files)
-- Sprint-01-{Sprint1Name}/Session-01-{Sprint1SessionName}/Outputs/ (folder)
-- ... (same block repeated for Sprint-02 through Sprint-{count}, using each sprint's own name/session/task files)
+- Sprint-{XX}-{sprint_names[XX]}/{Abbrev}-S{XX}-Sprint-Plan.md            (x{sprint_count})
+- Sprint-{XX}-.../Session-{YY}-.../{Abbrev}-S{XX}-{YY}-Orchestration.md   (one per session)
+- Sprint-{XX}-.../Session-{YY}-.../{Abbrev}-S{XX}-{YY}-Recovery.md        (one per session)
+- Sprint-{XX}-.../Session-{YY}-.../{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{Task}.md (one per task)
+- Sprint-{XX}-.../Session-{YY}-.../Outputs/.gitkeep                       (one per session)
+- ... enumerate the real path of every file, for every sprint AND every session
 
-**Task Files Created:** {N} files total across all {count} sprints (one per task, per sprint)
+**Sprints Authored:** {sprint_count}   **Sessions Authored:** {sum of session_count}
+**Task Files Created:** {N} files total (one per task, per session)
+{If any sprint or session was deliberately not authored, name it here and point at the Master Plan's `## Deferred Authoring` section.}
 
 **Next Steps:**
 1. Review and refine the Master Plan
@@ -520,9 +563,63 @@ PLAN CREATED: {PlanName}
 4. Execute Sprint-01/Session-01 using `/planwise run` or manually following READ-CONFIRM-ACT
 ```
 
+### Step 9a: Emit the Cross-Sprint File-Touch Declarations
+
+**Runs when this invocation authored 2+ Sprint Plan files.** It runs after every sprint's files exist — the matrix cannot be built before then — and before Step 9b.
+
+Build the file-touch matrix across the sprints this pass authored: for every path named as an edit target, the set of `(sprint, task)` writers. Take it from each Sprint Plan's `## Write-Set` section, which [`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16.1 already requires. **Intersect every sprint pair, not only the pairs the ordering line joins with `∥`.**
+
+For each path with two or more writing sprints, emit all three of these — none is optional, and §16.6 owns the full rule:
+
+| Emit | Into | Content |
+|------|------|---------|
+| A `## Cross-Sprint File Touches` row | **each** involved Sprint Plan | the file, every writing task, and the region each one touches |
+| A Step-1 prerequisite gate | the first writing task of the later sprint — or, where the pair has no declared ordering, of **both** sprints | read the live file and record its observed co-writer state before editing |
+| An ordering edge, **or** a `MUST NOT run concurrently (shared file: {path})` row | the Master Plan's Sprint Dependencies table | whichever disposition the pair takes; a blank cell is not a third option |
+
+> [!constraint] An Unordered Shared File Is the Dangerous Case, Not the Exempt One
+> The sequential rule speaks of "the *later* sprint". A pair with no declared ordering has no later sprint, so a matrix walked only for ordered pairs skips it — while that pair is precisely the one free to run in either order or at once. Emit into both sprints and close the ordering explicitly.
+>
+> Add the co-writer content assertion to each writing task's Verification Commands as well: a path-scoped diff count verifies the presence of that task's own edit and can never show the absence of another writer's loss, so it cannot be the control for a shared file no matter how rigorously it is applied.
+
+Record the matrix's outcome — the shared paths found and how each pair was closed, or `no shared paths` — in the Step 9 confirmation block.
+
+### Step 9b: Post-Pass Harmonization
+
+**Runs when this invocation authored 2+ Sprint Plan files** — the same `n_sprints_scaffolded_this_pass` count Step 10 uses — **or fanned out to 2+ scaffolding subagents.** Skip it for a single-sprint pass. It runs after every sprint's files exist and **before** the Step-10 review gate.
+
+The three deviation classes in [`references/scaffolding-hygiene.md`](../references/scaffolding-hygiene.md) §8 accumulate whenever plan files are authored in parallel from one template set. The scaffolder is the cheapest place to catch them, because it still holds every file it just wrote: at authoring time a rename has no consumers, while after the fact the same rename is an edit sweep through every citing task file across every sprint.
+
+Sweep this pass's own output for all three classes, then harmonize what surfaces:
+
+| Class | Sweep | Harmonize to |
+|-------|-------|--------------|
+| **A — section-header drift** | `Grep` each template-mandated `##` / `###` heading across every Orchestration, Sprint Plan and task file this pass authored. A heading whose hit count is below the file count is missing from the remainder | The template's exact wording, restored in every file that dropped it |
+| **B — optional formatting lines omitted** | `Grep` the same file set for the template's non-structural lines — the `**Total Estimated:**` line after the Session Task List, the `**Mode:**` line in Execution Strategy | The line restored wherever it is absent |
+| **C — `Scaffold-{Abbrev}/` absent** | `Glob` for `Exec-{Abbrev}/` first: absent ⇒ the plan is still at Discovery and this class does not apply. Present ⇒ `Glob` for `Scaffold-{Abbrev}/` | The folder created, per §8 Class C |
+
+> [!constraint] The Output-Naming Scheme Is a Pass-Level Decision, Not a Per-Sprint One
+> Task-output filenames may number by **task** ordinal or by **session** ordinal. Either is fine. Mixing the two across sprints in one pass is not.
+>
+> WRONG — each sprint picks its own scheme, and the single-session sprint hides which one it used:
+> ```
+> Sprint-01 (1 session):  {Abbrev}-S01-01-{Topic} … {Abbrev}-S01-05-{Topic}   ← numbered by TASK
+> Sprint-02 (3 sessions): {Abbrev}-S02-02-{TopicA/B/C}                        ← numbered by SESSION
+> ```
+> Read across sprints, `{Abbrev}-S01-02-…` parses as sprint-session when it is in fact sprint-task. A single-session sprint never reveals which scheme it used, so the ambiguity stays invisible until a later multi-session sprint picks the other one — by which time every consuming task file cites the old names and harmonizing means editing every citation.
+>
+> CORRECT — one scheme, chosen for the pass and applied to every sprint in it:
+> ```
+> Sprint-01 … Sprint-{N}: all task outputs numbered by the SAME ordinal,
+>                         with the topic disambiguating within a number
+> ```
+> Choose the scheme once, apply it uniformly including to single-session sprints, and state the choice in the Master Plan rather than leaving it implicit.
+
+Record the outcome — the classes found and what was harmonized, or `clean` — in the Step 9 confirmation block. Step 10's review then **confirms** the sweep instead of discovering the drift. The review-side checks stay in force regardless: they are what still catches a hand-authored or resumed scaffold that skipped this step.
+
 ### Step 10: Plan Review Gate
 
-After outputting the Step 9 confirmation, offer plan review options.
+After outputting the Step 9 confirmation and running Step 9b, offer plan review options.
 
 **Mega-Scaffold Gate — count sprints authored this pass.**
 
@@ -557,10 +654,10 @@ Use `AskUserQuestion` with:
 
 **If auto-review + this session:**
 
-Spawn the review as a Task subagent:
+Spawn the review as an Agent subagent:
 
 ```
-Task(
+Agent(
   subagent_type: "general-purpose",
   description: "Plan review for {Abbrev}",
   prompt: "Run /planwise review {plan-folder-path}. Return: verdict, finding counts
@@ -591,7 +688,14 @@ Before completing `/planwise plan`, verify:
 ```
 [ ] Abbreviation is 2-4 chars and unique
 [ ] Master Plan has Vision and Sprint Overview
-[ ] Sprint Plan has Objective and Sessions table
+[ ] COMPLETENESS — Sprint Plan files on disk == Sprint Overview rows in the Master Plan
+    (minus any sprint listed under `## Deferred Authoring`). Count both; a mismatch FAILS.
+[ ] COMPLETENESS — Session folders on disk == Sessions-table rows summed across all Sprint
+    Plans (minus any session listed under `## Deferred Authoring`). Count both; a mismatch FAILS.
+    Both checks are counts that can fail, not prose to affirm. Run them by Glob-ing
+    `Sprint-*/` and `Sprint-*/Session-*/` and comparing against the declared tables — a plan
+    that declares 6 sprints and authored 1 must FAIL here and name the 5 it did not author.
+[ ] Every Sprint Plan has Objective and Sessions table
 [ ] Orchestration has Task List
 [ ] Orchestration has Task Files table with links
 [ ] Task files exist (one per task, numbered 01, 02, 03...)
@@ -599,7 +703,7 @@ Before completing `/planwise plan`, verify:
 [ ] Recovery file initialized
 [ ] Outputs/ folder created
 [ ] All files follow naming conventions
-[ ] Plans index updated with new row (Abbrev, Name, Status, Created, Last Updated, Path)
+[ ] Plans index regenerated (generate_plans_index.py --write; no hand-written row)
 [ ] Session token estimates validated (< `practical_session_limit` per session — 100K on Pro, 400K on Max; see `references/session-context-budget.md` §5)
 [ ] Each task has a bottom-up estimate: (Required Context tokens) + (output tokens) <= task estimate
 [ ] If DELEGATED: each task estimate + 54K overhead < `context_window` (200K on Pro, 1M on Max)
@@ -607,13 +711,40 @@ Before completing `/planwise plan`, verify:
 [ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED
 [ ] If DELEGATED: Orchestration Required Context = plan files only
 [ ] If DELEGATED: Context Boundary subsection lists what orchestrator never reads
-[ ] If effective Token Saver on (plan Master-Plan `Token Saver:` field over the project `context.token_saver` default) — Token Saver large-file scan run over every task's Required Context (Step 8c); Warn+ files have a backlog item; cost-reason Critical tasks flagged 1M-exception (read-reason → paged-read/refactor, never 1M-exception); generated artifacts a runner reads are under the line/byte/token read gates
+[ ] If effective Token Saver on (plan Master-Plan `Token Saver:` field over the project `context.token_saver` default) — the Step 8c large-file scan was **run, not reproduced by hand**, and its exit code recorded: `python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}`. **Exit 0 ticks this box.** A non-zero exit names the Warn+ files: each needs a backlog item, a cost-reason Critical needs its task flagged `1M-exception`, and a read-reason Critical needs a paged-read/refactor note — never `1M-exception`. Re-run until it exits 0, or record per remaining file why it stands. Generated artifacts a runner reads must also be under the line/byte/token read gates. This item is the tool's exit code, not a judgement — a ticked box with no run behind it is the failure the scan exists to prevent
 [ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
 [ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
 [ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
 [ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
 [ ] Scope favors the coherent treatment — no known-partial fix is planned without a recorded constraint and a named residual defect (see the callout below)
 ```
+
+### Deferred Authoring
+
+Authoring a later sprint is sometimes correctly postponed — a sprint whose design depends on what an earlier sprint finds cannot be written honestly up front. Deferral is legitimate. **Silent deferral is not**, because an unauthored sprint and a forgotten sprint look identical on disk.
+
+Declare it in the Master Plan, so the two completeness checks above can pass against a declared subset instead of forcing every plan to author everything:
+
+```markdown
+## Deferred Authoring
+
+| Sprint / Session | Not authored because | Unblocked when |
+|------------------|----------------------|----------------|
+| Sprint-{XX} ({Name}) | {why its design depends on an earlier sprint's finding} | {the concrete trigger} |
+| Sprint-{XX} Session-{YY} | {reason} | {trigger} |
+```
+
+Each row names a concrete trigger, not "later" — the trigger is what a future session tests to know the deferral has expired.
+
+> [!pitfall] Read the Deferral Set From the FIRST Column Only
+> The "Unblocked when" cell routinely names another sprint (*"Sprint-01 Recovery shows COMPLETE"*). A check that scans the whole section for `Sprint-NN` counts those trigger mentions as deferrals, over-counts the deferred set, and can subtract away a sprint that was never declared deferred at all — masking the shortfall the check exists to catch. Parse the **Sprint / Session column** only.
+
+> [!constraint] A Deferral Is Declared or It Is a Shortfall
+> WRONG — the Master Plan declares 6 sprints, the pass authors 1, the checklist is affirmed as prose, and the plan reports success. Every later session has to be authored mid-execution, in a session whose context budget was sized for running tasks rather than writing them.
+>
+> CORRECT — either author all `{sprint_count}` sprints and all `sum({session_count[XX]})` sessions, or list the unauthored ones under `## Deferred Authoring` with a trigger apiece. The completeness checks subtract the declared rows and still fail on anything undeclared.
+
+An absent instruction reads as a boundary: without this section, an authoring agent that produced one session of one sprint can pass the checklist and assert the shortfall was prescribed. The counts above are what make that claim testable.
 
 > [!practice] Plan the Right Fix, Not the Easy Fix
 > When scoping reveals two treatments — a complete one that touches more surface (a full renumber, a schema migration, propagating a change through every consumer) and a narrower patch that leaves known incoherence behind — scope the complete treatment and cost it honestly. Budget pressure is answered by SPLITTING the coherent fix across tasks or sessions (see `references/session-context-budget.md` § Task-Level Estimation / Task Sizing Categories), never by shrinking it into a partial fix that is cheaper to execute. If a real constraint genuinely forces the partial path (an interface external consumers depend on, an irreversible boundary, a user-set deadline), record the constraint and the residual defect in the plan so the gap is a visible decision, not an accident. Overall project quality comes from doing the hard thing once, not the easy thing twice. Full principle, exception clause, and stage table: [do-the-hard-things.md](../references/do-the-hard-things.md).

@@ -20,16 +20,16 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import rule_descope_migration  # noqa: E402 -- patch-target home for migrate_installed_rules()
-import artifact_upgrade  # noqa: E402 -- patch-target home for upgrade_artifacts()/_run_upgrade()
-import doctor_sweeps  # noqa: E402 -- patch-target home for one cross-seam _classify_diverged degraded-fallback case
+import artifact_upgrade
+import doctor_sweeps
+import init_project as ip
+import rule_descope_migration
 
-from conftest import (  # noqa: E402
+from conftest import (
     _MigrationFixtureBase,
-    _UpgradeArtifactsFixtureBase,
     _report_section,
     _snapshot_tree,
+    _UpgradeArtifactsFixtureBase,
     _verdict,
 )
 
@@ -48,7 +48,7 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         with mock.patch.object(
             artifact_upgrade, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+            refreshed, _unchanged, conflicts, _untracked, refreshed_subsets, _transferred = (
                 self.run_upgrade()
             )
 
@@ -85,7 +85,7 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
             artifact_upgrade, "_classify_diverged",
             return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+            refreshed, _unchanged, conflicts, _untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
@@ -139,7 +139,7 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
             artifact_upgrade, "_classify_diverged",
             return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
         ), mock.patch.object(artifact_upgrade, "_transfer_customization", return_value=None):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+            refreshed, _unchanged, conflicts, _untracked, _refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
@@ -168,7 +168,7 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         )
         self.addCleanup(setattr, artifact_upgrade, "_classify_diverged", original)
 
-        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+        _refreshed, unchanged, conflicts, _untracked, refreshed_subsets, _transferred = (
             self.run_upgrade()
         )
 
@@ -874,7 +874,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
             artifact_upgrade, "_classify_diverged",
             return_value=_verdict("SUBSET", "exact", notes=notes_text),
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+            refreshed, _unchanged, conflicts, _untracked, refreshed_subsets, transferred = (
                 self.run_upgrade()
             )
 
@@ -915,7 +915,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         with mock.patch.object(
             artifact_upgrade, "_classify_diverged", return_value=_verdict("SUBSET", "reorg")
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+            refreshed, _unchanged, conflicts, _untracked, refreshed_subsets, _transferred = (
                 self.run_upgrade()
             )
 
@@ -942,7 +942,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         )
         self.addCleanup(setattr, artifact_upgrade, "_classify_diverged", original)
 
-        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+        refreshed, unchanged, conflicts, _untracked, _refreshed_subsets, _transferred = (
             self.run_upgrade()
         )
 
@@ -959,7 +959,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         shipped_raw = shipped_dst.read_text(encoding="utf-8")
         installed = self.write_installed_rule(installed_body, custom_paths)
 
-        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+        refreshed, _unchanged, conflicts, _untracked, refreshed_subsets, _transferred = (
             self.run_upgrade()
         )
 
@@ -1013,7 +1013,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         with mock.patch.object(
             artifact_upgrade, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
         ):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+            refreshed, _unchanged, _conflicts, _untracked, _refreshed_subsets, _transferred = (
                 self.run_upgrade()
             )
 
@@ -1033,7 +1033,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         index_path = conflict_dir / "INDEX.md"
         index_path.write_text("# stale index from a prior resolved run\n", encoding="utf-8")
 
-        refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+        _refreshed, _unchanged, conflicts, _untracked, _refreshed_subsets, _transferred = (
             self.run_upgrade()
         )
 
@@ -1062,7 +1062,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
                 encoding="utf-8",
             )
 
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+            refreshed, _unchanged, _conflicts, _untracked, _refreshed_subsets, _transferred = (
                 self.run_upgrade()
             )
 
@@ -1083,7 +1083,7 @@ class TestUpgradeArtifactsVerdictNotesAndGates(_UpgradeArtifactsFixtureBase):
         before_rule = installed_rule.read_bytes()
 
         with mock.patch.dict(sys.modules, {"structural_compare": None}):
-            refreshed, unchanged, conflicts, untracked, refreshed_subsets, transferred = (
+            refreshed, _unchanged, conflicts, _untracked, refreshed_subsets, _transferred = (
                 self.run_upgrade()
             )
 

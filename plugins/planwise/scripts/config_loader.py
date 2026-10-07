@@ -22,29 +22,88 @@ except ImportError:
     HAS_YAML = False
 
 
-def find_config_upward(start_path: Path) -> Path | None:
-    """Walk upward from start_path to find config.yaml.
+# The Master Plan `**Status:**` vocabulary: exactly the values shipped writers
+# emit. `load_config` supplies it as `plan_statuses` when the config has no
+# such list, so the plans index generator always has a vocabulary to check
+# against.
+DEFAULT_PLAN_STATUSES = (
+    "NOT_STARTED",
+    "PLANNING",
+    "READY_TO_EXECUTE",
+    "REVIEWED",
+    "APPROVED",
+    "NEEDS_FIXES",
+    "IN_PROGRESS",
+    "BLOCKED",
+    "COMPLETE",
+    "CLOSED",
+)
+
+
+# Every planwise config.yaml opens with a top-level `project:` mapping (the
+# first block config.yaml.template renders). It is the discriminator the
+# upward walk uses to tell this project's config from an unrelated file that
+# merely shares the name.
+_PLANWISE_CONFIG_MARKER = re.compile(r"^project:[ \t]*(#.*)?$", re.MULTILINE)
+
+
+def _is_planwise_config(candidate: Path) -> bool:
+    """True when `candidate` is a planwise config.yaml, not a foreign one.
+
+    find_config_upward() reads directories this project does not own — every
+    ancestor of the invocation directory, and each ancestor's immediate
+    children. Any `config.yaml` an unrelated tool left in that chain would
+    otherwise be resolved and read as this project's, which then reports
+    another project's plans with no warning. A file without the marker is
+    skipped and the walk continues, so the outcome of "no planwise config
+    here" is load_config()'s fail-loud error, never a plausible wrong answer.
+    An unreadable candidate is treated as foreign for the same reason.
+    """
+    try:
+        text = candidate.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return _PLANWISE_CONFIG_MARKER.search(text) is not None
+
+
+def find_config_upward(start_path: Path, stop_at: Path | None = None) -> Path | None:
+    """Walk upward from start_path to find this project's config.yaml.
 
     At each directory level, checks:
     1. Direct: {dir}/config.yaml
     2. One level down: {dir}/*/config.yaml (finds planwise/config.yaml)
 
+    A candidate is accepted only when _is_planwise_config() recognises it —
+    the walk crosses directories this project does not own, and a foreign
+    `config.yaml` there must never be read as this project's. `stop_at`
+    bounds the walk (inclusive) so a caller that knows its tree — a test, a
+    tool with a known project root — never leaves it; production callers
+    leave it None and walk to the filesystem root.
+
     Returns the Path to config.yaml if found, or None if not found.
     """
     current = start_path.resolve()
-    while current != current.parent:
+    stop = stop_at.resolve() if stop_at is not None else None
+    while True:
         # Direct check
         candidate = current / "config.yaml"
-        if candidate.exists():
+        if candidate.is_file() and _is_planwise_config(candidate):
             return candidate
         # One level down (e.g., planwise/config.yaml)
-        for subdir in current.iterdir():
-            if subdir.is_dir() and not subdir.name.startswith("."):
-                candidate = subdir / "config.yaml"
-                if candidate.exists():
-                    return candidate
+        try:
+            children = sorted(
+                p for p in current.iterdir()
+                if p.is_dir() and not p.name.startswith(".")
+            )
+        except OSError:
+            children = []
+        for subdir in children:
+            candidate = subdir / "config.yaml"
+            if candidate.is_file() and _is_planwise_config(candidate):
+                return candidate
+        if current == stop or current == current.parent:
+            return None
         current = current.parent
-    return None
 
 
 class ConfigWriteError(RuntimeError):
@@ -330,6 +389,101 @@ def _coerce(val: str):
     return val
 
 
+# The generated index file name for each index family. `load_config` carries the
+# same literals as its own `.get(...)` defaults.
+INDEX_NAME_DEFAULTS = {
+    "plans": "00-Index-Plans.md",
+    "backlog": "00-Index-Backlog.md",
+    "lessons": "00-Index-LessonsLearned.md",
+}
+
+
+def _nonempty_str(value) -> str | None:
+    """Return `value` when it is a non-empty string, else None."""
+    return value if isinstance(value, str) and value else None
+
+
+def _project_block(config) -> dict:
+    """Return the `project:` mapping of a parsed config, or {} when the config
+    or the block is absent, null, or not a mapping."""
+    project = config.get("project") if isinstance(config, dict) else None
+    return project if isinstance(project, dict) else {}
+
+
+def read_config_mapping(config_path: Path) -> dict:
+    """Parse a config.yaml into a dict without ever raising or exiting.
+
+    Returns {} when PyYAML is unavailable, the file does not exist (a fresh
+    init seeds files before it writes config.yaml), the file cannot be read,
+    the YAML is invalid, or the document is not a mapping. Unlike
+    `load_config`, this never calls sys.exit(), so it is safe to call before
+    config.yaml exists.
+    """
+    if not HAS_YAML:
+        return {}
+    try:
+        parsed = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def resolve_index_name(config, family: str) -> str:
+    """Return the index file name for `family` ("plans", "backlog" or
+    "lessons") from an already-parsed config dict.
+
+    Reads `project.index_files.{family}`. A null or scalar `project:` or
+    `index_files:` block, a missing key, a null, empty or non-string value,
+    and a `config` that is not a dict all return the generated default
+    (INDEX_NAME_DEFAULTS). Pure: it reads no file and never raises on
+    malformed config, so a caller can pass the result of `read_config_mapping`
+    before config.yaml exists.
+    """
+    if family not in INDEX_NAME_DEFAULTS:
+        raise ValueError(
+            f"unknown index family {family!r}; expected one of {sorted(INDEX_NAME_DEFAULTS)}"
+        )
+    index_files = _project_block(config).get("index_files")
+    if not isinstance(index_files, dict):
+        return INDEX_NAME_DEFAULTS[family]
+    return _nonempty_str(index_files.get(family)) or INDEX_NAME_DEFAULTS[family]
+
+
+def resolve_index_dir(config, family: str, default_root: str, default_dir: str) -> str:
+    """Return the directory holding the `family` index, relative to the
+    project root, as "<planwise_root>/<family_dir>".
+
+    `project.planwise_root` and `project.{family}_dir` from the parsed
+    `config` dict win when they are non-empty strings. Otherwise
+    `default_root` / `default_dir` apply (the caller's CLI values).
+    """
+    if family not in INDEX_NAME_DEFAULTS:
+        raise ValueError(
+            f"unknown index family {family!r}; expected one of {sorted(INDEX_NAME_DEFAULTS)}"
+        )
+    project = _project_block(config)
+    root = _nonempty_str(project.get("planwise_root")) or default_root
+    directory = _nonempty_str(project.get(f"{family}_dir")) or default_dir
+    return f"{root}/{directory}"
+
+
+def resolve_index_target(cfg, family: str) -> tuple[str, str]:
+    """Return (directory, file name) for the `family` index of an init/upgrade
+    run, where `cfg` is an InitConfig (any object carrying `project_root`,
+    `planwise_root`, `plans_dir`, `backlog_dir` and `lessons_dir`).
+
+    The directory is relative to `cfg.project_root`. config.yaml is located
+    through `cfg.planwise_root`, since the config lives inside the planwise
+    root and cannot name it. When config.yaml is absent, unparsable, or
+    silent on a value, the `cfg` values and the generated default name apply,
+    which keeps a fresh init (config.yaml not yet written) unchanged.
+    """
+    config = read_config_mapping(Path(cfg.project_root) / cfg.planwise_root / "config.yaml")
+    name = resolve_index_name(config, family)  # validates `family` first
+    directory = resolve_index_dir(config, family, cfg.planwise_root, getattr(cfg, f"{family}_dir"))
+    return directory, name
+
+
 def _get_config_path_from_args() -> Path | None:
     """Parse --config argument from sys.argv without consuming other args."""
     parser = argparse.ArgumentParser(add_help=False)
@@ -338,7 +492,7 @@ def _get_config_path_from_args() -> Path | None:
     return known.config
 
 
-def load_config(script_path: Path | None = None) -> dict:
+def load_config(script_path: Path | None = None, *, config_path: Path | None = None) -> dict:
     """Load config.yaml for the current project.
 
     Config search order:
@@ -349,6 +503,10 @@ def load_config(script_path: Path | None = None) -> dict:
     Args:
         script_path: Path to the calling script. Used as fallback search root.
                      If None, uses __file__.
+        config_path: The config.yaml to load, for an in-process caller that
+                     has no argv of its own. When given, sys.argv and both
+                     upward searches are skipped, and a missing file raises
+                     FileNotFoundError instead of exiting the process.
 
     Returns:
         Parsed config dict with resolved paths.
@@ -356,8 +514,13 @@ def load_config(script_path: Path | None = None) -> dict:
     if script_path is None:
         script_path = Path(__file__)
 
-    # 1. Explicit --config argument
-    explicit_config = _get_config_path_from_args()
+    if config_path is not None:
+        explicit_config = Path(config_path)
+        if not explicit_config.resolve().exists():
+            raise FileNotFoundError(f"config.yaml not found at {explicit_config.resolve()}")
+    else:
+        # 1. Explicit --config argument
+        explicit_config = _get_config_path_from_args()
     if explicit_config is not None:
         config_path = explicit_config.resolve()
         if not config_path.exists():
@@ -391,6 +554,10 @@ def load_config(script_path: Path | None = None) -> dict:
     else:
         config = _parse_yaml_simple(raw)
 
+    # A document that is not a mapping (a list or a scalar) carries no keys.
+    if not isinstance(config, dict):
+        config = {}
+
     # Planwise root is the directory containing config.yaml
     planwise_root = config_path.parent
 
@@ -399,11 +566,13 @@ def load_config(script_path: Path | None = None) -> dict:
     config["_project_root"] = planwise_root.parent
 
     # Resolve paths relative to planwise root
-    project = config.get("project", {})
+    # A null or scalar `project:` block reads as an empty mapping, so every
+    # directory below falls back to its default.
+    project = _project_block(config)
 
     # Validate project.name when config was found via upward search
     if explicit_config is None:
-        project_name = project.get("name", "")
+        project_name = _nonempty_str(project.get("name")) or ""
         if not project_name or "{" in project_name:
             print(
                 f"Warning: config at {config_path} has placeholder or missing "
@@ -411,11 +580,12 @@ def load_config(script_path: Path | None = None) -> dict:
                 file=sys.stderr,
             )
 
-    backlog_rel = project.get("backlog_dir", "Backlog")
+    # A directory key that is null, empty or not a string falls back to its
+    # default, the way `resolve_index_dir` reads the same keys.
+    backlog_rel = _nonempty_str(project.get("backlog_dir")) or "Backlog"
     config["_backlog_dir"] = planwise_root / backlog_rel
-    config["_archive_dir"] = planwise_root / project.get("archive_dir", f"{backlog_rel}/Archive")
-    index_files = project.get("index_files", {}) if isinstance(project.get("index_files"), dict) else {}
-    config["_index_path"] = config["_backlog_dir"] / index_files.get("backlog", "00-Index-Backlog.md")
+    config["_archive_dir"] = planwise_root / (_nonempty_str(project.get("archive_dir")) or f"{backlog_rel}/Archive")
+    config["_index_path"] = config["_backlog_dir"] / resolve_index_name(config, "backlog")
 
     # Resolve plugin root (fall back if config value is missing or stale)
     plugin_root_val = config.get("plugin_root")
@@ -426,17 +596,39 @@ def load_config(script_path: Path | None = None) -> dict:
         config["_plugin_root"] = fallback
 
     # Resolve plans path
-    plans_rel = project.get("plans_dir", "Plans")
+    plans_rel = _nonempty_str(project.get("plans_dir")) or "Plans"
     config["_plans_dir"] = planwise_root / plans_rel
+    config["_plans_index"] = config["_plans_dir"] / resolve_index_name(config, "plans")
+
+    # The simple parser turns an empty top-level key into {}, so anything that
+    # is not a non-empty list of strings counts as absent.
+    plan_statuses = config.get("plan_statuses")
+    if isinstance(plan_statuses, list) and plan_statuses and all(isinstance(s, str) for s in plan_statuses):
+        config["plan_statuses"] = list(plan_statuses)
+    else:
+        if isinstance(plan_statuses, list):
+            for entry in plan_statuses:
+                if not isinstance(entry, str):
+                    print(
+                        f"Warning: plan_statuses entry {entry!r} is not a string, "
+                        "so the default plan statuses apply. Quote the value in config.yaml.",
+                        file=sys.stderr,
+                    )
+                    break
+        config["plan_statuses"] = list(DEFAULT_PLAN_STATUSES)
 
     # Resolve lessons paths (optional)
-    lessons_dir = project.get("lessons_dir", "")
+    lessons_dir = _nonempty_str(project.get("lessons_dir"))
     if lessons_dir:
         config["_lessons_dir"] = planwise_root / lessons_dir
-        config["_lessons_index"] = config["_lessons_dir"] / index_files.get("lessons", "00-Index-LessonsLearned.md")
+        config["_lessons_index"] = config["_lessons_dir"] / resolve_index_name(config, "lessons")
     else:
         config["_lessons_dir"] = None
         config["_lessons_index"] = None
+
+    # Resolve feedback path
+    feedback_rel = _nonempty_str(project.get("feedback_dir")) or "Feedback"
+    config["_feedback_dir"] = planwise_root / feedback_rel
 
     return config
 
@@ -526,6 +718,22 @@ def _as_bool_flag(value, default: bool) -> bool:
     return default
 
 
+def _as_str_flag(value, default: str) -> str:
+    """Coerce a config string flag, stripping surrounding whitespace.
+
+    Mirrors `_as_bool_flag`'s convention for the string-valued keys: non-str
+    or blank (including all-whitespace) falls back to the documented
+    default; otherwise the value is returned STRIPPED, never verbatim. A
+    YAML folded/literal scalar or a hand-edited config commonly carries
+    invisible leading/trailing whitespace, so returning the raw value would
+    silently pass a malformed-looking string on to a consumer that compares
+    it against an exact enum or interpolates it into a shell command.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return default
+    return value.strip()
+
+
 def get_upgrade_config(config: dict) -> dict:
     """Extract the `upgrade:` block from config, with conservative defaults.
 
@@ -565,9 +773,7 @@ def get_upgrade_config(config: dict) -> dict:
     upgrade = config.get("upgrade", {})
     if not isinstance(upgrade, dict):
         upgrade = {}
-    handoff = upgrade.get("customization_handoff", "report")
-    if not isinstance(handoff, str) or not handoff.strip():
-        handoff = "report"
+    handoff = _as_str_flag(upgrade.get("customization_handoff", "report"), "report")
     return {
         "customization_handoff": handoff,
         "github_issue": _as_bool_flag(upgrade.get("github_issue"), False),
@@ -575,6 +781,9 @@ def get_upgrade_config(config: dict) -> dict:
             upgrade.get("descope_preserve_paths_edits"), True
         ),
     }
+
+
+_REPO_SHAPE_RE = re.compile(r"[\w.-]+/[\w.-]+")
 
 
 def get_feedback_config(config: dict) -> dict:
@@ -588,12 +797,21 @@ def get_feedback_config(config: dict) -> dict:
       * enabled             -> False                  (opt-in, interactive only)
       * repo                -> "gabgoss/planwise"      (upstream target)
       * include_environment -> True                    (auto-filled Environment block)
+
+    `repo` additionally must match an `owner/name` shape (see `_REPO_SHAPE_RE`):
+    the value is interpolated directly into a `gh` invocation by the feedback
+    engine, and a value carrying flags, shell metacharacters, or missing the
+    owner/name slash would alter that invocation rather than name a
+    repository. A value that fails the shape check falls back to the same
+    documented default as an absent or blank value; the feedback handler's
+    own docs note this fallback at the point of use, since the engine's
+    failure posture is to degrade silently otherwise.
     """
     feedback = config.get("feedback", {})
     if not isinstance(feedback, dict):
         feedback = {}
-    repo = feedback.get("repo", "gabgoss/planwise")
-    if not isinstance(repo, str) or not repo.strip():
+    repo = _as_str_flag(feedback.get("repo", "gabgoss/planwise"), "gabgoss/planwise")
+    if not _REPO_SHAPE_RE.fullmatch(repo):
         repo = "gabgoss/planwise"
     return {
         "enabled": _as_bool_flag(feedback.get("enabled"), False),
@@ -628,6 +846,7 @@ def get_effective_token_saver_config(config: dict, plan_override=None) -> dict:
 
 
 _TOKEN_SAVER_ADVISORY_VALUES = ("measured", "off")
+_RUN_LAYER_STOP_VALUES = frozenset({"off", "on"})
 
 
 def _as_int_default(value, default: int) -> int:
@@ -667,7 +886,7 @@ def _as_int_subkey_dict(value, default: dict, keys: tuple) -> dict:
 def get_token_saver_extension_config(config: dict) -> dict:
     """Extract the Token Saver extension keys, with defaults.
 
-    These five `context.token_saver_*` keys are additive to the six
+    These six `context.token_saver_*` keys are additive to the six
     `get_token_saver_config` already reads. They live in their own accessor
     rather than being folded into that function, because that function's
     docstring and existing callers assume exactly the original six-key
@@ -692,6 +911,12 @@ def get_token_saver_extension_config(config: dict) -> dict:
         (chosen operating defaults derived from the measured
         accumulation bands, NOT a "top-decile onset" threshold; read by the
         run-handler's session-length checkpoint lever)
+      * run_layer_stop                      -> "off"
+        (enum "off" | "on"; a YAML boolean maps True -> "on", False -> "off"
+        because PyYAML reads a bare `on`/`off` scalar as a bool; any other
+        value falls back to "off". off = the shipped loop; on = the run
+        handler stops at each dependency layer's Recovery reconcile instead
+        of continuing to the next layer)
     """
     context = config.get("context", {})
     if not isinstance(context, dict):
@@ -702,6 +927,17 @@ def get_token_saver_extension_config(config: dict) -> dict:
         advisory = advisory.strip().lower()
     else:
         advisory = "measured"
+
+    run_layer_stop = context.get("run_layer_stop", "off")
+    if isinstance(run_layer_stop, bool):
+        # YAML 1.1 (PyYAML) parses a bare `on` / `off` scalar as a boolean,
+        # so an unquoted `run_layer_stop: on` reaches us as True. Map the
+        # boolean back onto the enum rather than treating it as malformed.
+        run_layer_stop = "on" if run_layer_stop else "off"
+    elif isinstance(run_layer_stop, str) and run_layer_stop.strip().lower() in _RUN_LAYER_STOP_VALUES:
+        run_layer_stop = run_layer_stop.strip().lower()
+    else:
+        run_layer_stop = "off"
 
     return {
         "token_saver_injection_ceiling": _as_int_default(
@@ -721,4 +957,5 @@ def get_token_saver_extension_config(config: dict) -> dict:
             {"window": 400000, "turns": 194},
             ("window", "turns"),
         ),
+        "run_layer_stop": run_layer_stop,
     }

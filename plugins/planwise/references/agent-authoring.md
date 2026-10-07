@@ -28,9 +28,10 @@ An agent definition is a Markdown file in `.claude/agents/` with YAML frontmatte
 |-------|------|----------|---------|-------------|
 | `name` | string | **Yes** | N/A | Lowercase, hyphens, max 64 chars. Must match filename. |
 | `description` | string | **Yes** | N/A | Max 1024 chars. Drives delegation decisions. |
-| `tools` | string | No | All tools | Comma-separated allowlist. `Task(agent_type)` restricts spawning. |
+| `tools` | string | No | All tools | Comma-separated allowlist. `Agent(agent_type)` restricts spawning. |
 | `disallowedTools` | string | No | None | Comma-separated denylist. Removed from `tools` set (or all tools). |
 | `model` | string | No | `inherit` | `haiku`, `sonnet`, `opus`, or `inherit` |
+| `effort` | string | No | Inherits the session's level (Claude Code's default is `high` on every current model; Opus 4.7 alone defaults to `xhigh`) | `low`, `medium`, `high`, `xhigh`, `max` — availability depends on the dispatched model |
 | `permissionMode` | string | No | `default` | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` |
 | `maxTurns` | number | No | unlimited | Max agentic turns before agent stops |
 | `skills` | list | No | None | Skill names to preload. Full SKILL.md injected at startup. |
@@ -87,6 +88,33 @@ disallowedTools: Edit   # Result: Read, Grep, Glob
 | `sonnet` | Code modification | Balanced cost/quality |
 | `opus` | Full access or complex decisions | Reserve for high-stakes reasoning |
 
+**`effort`** — `low`, `medium`, `high`, `xhigh`, `max`. Independent of `model:` — sets the reasoning-effort parameter for this agent's own dispatches, overriding the session's effort for that subagent only. Changing effort mid-session invalidates prompt cache, so pick a value for an agent's whole run rather than varying it turn-to-turn.
+
+| Effort | Recommended Scope | Rationale |
+|--------|--------------------|-----------|
+| `low` | Not recommended for any dispatch that writes code or judges quality | Measured (see below): on the smaller model `low` passed 6 of 32 baseline runs against 20 of 28 at `high` (Fisher p = 0.0002) |
+| `medium` | Task execution against a written brief (single- or multi-file edits, scripted verification) | Measured: indistinguishable from `high` on baseline pass rate on both models (19/28 vs 20/28, p = 1.0000; 28/28 vs 28/28) at 0.705× / 0.757× the cost |
+| `high` | Review and judgment (defect finding, design decisions, ambiguous scope) | Claude Code's own default. Measured: the review floor — `medium` lost on the worst repetition (6 vs 7 defects found) and on one model's median (7.0 vs 8.0) |
+| `xhigh` | No measured gain over `high` on either arm | Two to four times the thinking spend; execution 20/28 vs 24/28 (p = 0.3290) and 28/28 vs 28/28 — no significant difference |
+| `max` | Reserved — not recommended for routine subagent dispatch | Highest cost; unmeasured |
+
+### Shipped Effort Levels
+
+The plugin pins `effort:` on the agents it measured and leaves the rest inheriting the session level.
+
+| Agent | `effort:` | Basis |
+|-------|-----------|-------|
+| `task-runner` | `medium` (pinned) | Execution arm, measured 2026-09 |
+| `plan-reviewer` | `high` (pinned) | Review arm, measured 2026-09 |
+| `structural-reviewer` | `high` (pinned) | Review arm, measured 2026-09 |
+| `fix-agent`, `backlog-author`, `backlog-planner`, `review-discovery`, `rule-comparator` | inherited (not set) | Not yet measured |
+
+**How the values were measured.** Seven execution tasks with scripted graders (a newline round-trip, a diff-gate baseline, shell quoting, test-collection scope, an aggregate filter, and two under-specified briefs — one parse, one merge), 4 repetitions per cell, on Sonnet 5 and Opus 5, at each of `low`, `medium`, `high`, `xhigh`. The execution arm dispatched `claude --agent task-runner -p` against a frozen copy of the shipped agent file with only its `effort:` line changed. The review arm dispatched a reviewer against a document carrying eight seeded defects, 4 repetitions per cell at the same four levels, and counted defects found. Verdicts use one rule: a cheaper level HOLDS when its pass rate is at least the dearer level's, else it REGRESSES. The figures in the table above are the pooled baseline-run pass rates and the review medians from that grid.
+
+**What a pinned value does.** An agent's `effort:` overrides the session's `/effort` setting and the `effortLevel` in `settings.json` for that agent's dispatches only. The Agent tool has no effort parameter, and a plugin-namespaced agent cannot be shadowed by a project-local copy, so a pinned value is the effective value on every dispatch of that agent. A session-level setting still governs everything that runs inline — the orchestrator in `/planwise run`, the planner in `/planwise plan`, and every agent in the inherited row.
+
+**When to re-measure.** A pinned effort value is a cost claim about the models and the agent body it was measured on. Re-measure before changing a pinned value, and re-measure when the model family changes, when an agent's tool set or role changes class, or when a consumer's task mix differs from the corpus above. The review cells were n=4 per level, below the 20-per-level bar the measurement set for lowering a review floor. A consumer who wants `medium` on a reviewer should run 16 more review repetitions per cell at `medium` and `high` before changing it.
+
 **`permissionMode`** — `default` (prompt on sensitive ops), `acceptEdits` (auto-accept edits), `dontAsk` (auto-deny prompts), `bypassPermissions` (skip all checks), `plan` (read-only planning).
 
 **`maxTurns`** — Maximum API round-trips. No value = unlimited.
@@ -133,6 +161,7 @@ hooks:
 
 - `name` must match filename without `.md` extension
 - YAML booleans must be lowercase: `true` / `false`
+- `effort` values are lowercase, same as `model`
 - Use 2-space indentation (not tabs) in hooks YAML
 - `memory: any` auto-enables Read/Write/Edit regardless of `tools`
 - Parent `bypassPermissions` overrides subagent `permissionMode` — cannot be narrowed
@@ -145,7 +174,7 @@ description: One-line summary of what this agent does and when to use it
 ---
 ```
 
-**Full example (all 13 fields):**
+**Full example (all 14 fields):**
 ```yaml
 ---
 name: code-reviewer
@@ -153,6 +182,7 @@ description: Reviews pull request diffs for style violations and logic errors. U
 tools: Read, Grep, Glob, Bash(git *)
 disallowedTools: Write, Edit
 model: sonnet
+effort: high
 permissionMode: dontAsk
 maxTurns: 30
 background: false
@@ -288,7 +318,7 @@ visual-fix-agent    # Workflow-based
 An agent definition file maps to runtime behavior in two modes:
 
 1. **`claude --agent <name>`** — Agent definition configures a **Main Session**: full context, all tools, can spawn subagents.
-2. **`subagent_type: "<name>"` in Task tool** — Agent definition configures a **Subagent**: fresh context, 18 tools, Task tool absent (no further spawning).
+2. **`subagent_type: "<name>"` in Agent tool** — Agent definition configures a **Subagent**: fresh context, 18 tools, Agent tool absent (no further spawning).
 
 > [!practice] Empirically Verified
 > **Custom agents created mid-session are NOT dynamically registered.** If you write a new agent definition to `.claude/agents/` during an active session, it will NOT be discoverable as a `subagent_type` value in that session. Agent discovery happens at session startup only.

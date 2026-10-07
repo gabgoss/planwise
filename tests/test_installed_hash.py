@@ -41,7 +41,7 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from upgrade_io import _installed_hash, _load_verdict_override  # noqa: E402
+from upgrade_io import _installed_hash, _load_verdict_override
 
 INIT_PROJECT = (
     Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts" / "init_project.py"

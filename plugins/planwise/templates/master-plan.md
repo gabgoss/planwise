@@ -11,10 +11,18 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 **Status:** READY_TO_EXECUTE
 **Created:** {today's date}
 **Token Saver:** inherit   <!-- optional; "inherit" (or omit) = use config.yaml context.token_saver; "on"/"off" overrides Token Saver for THIS plan only. Overhead numbers are always project-level. -->
+**Resolves:** none   <!-- BLI-{NNN}, comma-separated, or "none": the backlog items this plan was authored to close. `/planwise run` closeout (Step 4.3) closes each one when Status reaches COMPLETE. An item left out of this field stays PLANNING after the plan ships. -->
 
 ---
 
 ## Vision <!-- REQUIRED -->
+<!-- Counts stated here (handler files, references, agents, open backlog rows, test files)
+     are the copies a later refresh forgets: they are prose, so a sweep written against the
+     Sprint Overview or an inventory table's wording never matches them. When any count in
+     this file is refreshed against a live source, re-derive EVERY other statement of that
+     same fact in the same pass — keyed on the claim's shape (`[0-9]+ {noun}`), not on the
+     phrasings already known to be stale. See scaffolding-hygiene.md §12.4. -->
+
 
 {User's vision statement - 2-3 sentences describing what this plan accomplishes and why it matters}
 
@@ -28,6 +36,19 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 
 **Total Sessions:** {sum of all sessions} <!-- REQUIRED -->
 **Prerequisite For:** {next plan or "None - standalone project"}
+
+---
+
+## Deferred Authoring <!-- OPTIONAL — include ONLY when a declared sprint or session was deliberately not authored this pass -->
+
+<!-- Omit this section entirely when every declared sprint and session was authored.
+     When present, the plan-completeness checks subtract these rows before comparing
+     declared counts against what is on disk, so an undeclared shortfall still fails.
+     Each trigger must be concrete — something a future session can test — not "later". -->
+
+| Sprint / Session | Not authored because | Unblocked when |
+|------------------|----------------------|----------------|
+| Sprint-{XX} ({SprintName}) | {why its design depends on an earlier sprint's finding} | {the concrete trigger} |
 
 ---
 
@@ -111,6 +132,7 @@ recomputed: {today's date}.
 ### Project Complete When:
 - [ ] All sprints complete
 - [ ] {Final deliverable criterion}
+- [ ] Every item in **Resolves:** is COMPLETE with a dated resolution note (or Resolves is "none")
 
 ---
 
@@ -130,4 +152,7 @@ recomputed: {today's date}.
 ---
 
 *Last Updated: {today's date}*
+<!-- Bump to today's date with a short parenthetical (≤120 characters) naming what changed.
+     **Replace the previous value — do not preserve it.** History belongs in a changelog
+     file, not in this line. -->
 ```

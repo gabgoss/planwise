@@ -68,6 +68,8 @@ How to apply during scaffolding:
 2. For each file edited by ≥2 sprints, walk the sprints in order. For each later sprint, the EI "Current state" anchor block MUST reflect the post-prior-sprint state, not the source's pre-plan snapshot.
 3. The Sprint Plan for the later sprint SHOULD include a `## Cross-Sprint File Touches` section listing the file and the prior sprint that already edited it (see `templates/sprint-plan.md`).
 4. The task file for the first session that touches a previously-touched file MUST include a Step-1 prerequisite grep gate.
+5. **When the two sprints have no declared ordering, there is no "later" sprint — and that case is strictly more dangerous, not exempt.** Steps 2-4 are written for an ordered pair. A shared file whose sprints the Master Plan leaves unordered may run in either order or concurrently, with nothing recording the shared ownership. Close it: the scaffolder MUST either introduce an ordering edge between the two sprints, or add a `MUST NOT run concurrently (shared file: {path})` row to the Sprint Dependencies table. Until one of the two lands, emit the `## Cross-Sprint File Touches` row into **both** Sprint Plans and the Step-1 gate into **both** sprints' first writing task, each reading the live file and recording its observed state before editing. The emission rule and its WRONG/CORRECT pair live at `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16.6.
+6. **A path-scoped diff count is not the control for a shared file.** It verifies the presence of this task's own edit and can never show the absence of another writer's loss. Every task that shares a file with another writer asserts, alongside its diff count, a **content grep for a literal the other writer authored** — or for that literal's documented absence when this task is the one expected to run first.
 
 Red flags during review:
 
@@ -84,6 +86,8 @@ Red flags during review:
   2. For each file edited by ≥2 sprints: extract the later sprint's `Current state` anchor quote and grep the earlier sprint's `Proposed change` block for the same content. If the later sprint's "Current state" matches the pre-plan baseline (i.e., does NOT include the earlier sprint's appended rows/lines) → BLOCKER.
   3. For each file edited by ≥2 sprints: open the later sprint's Sprint Plan; grep `## Cross-Sprint File Touches`. Absent → BLOCKER (the prerequisite-gate authoring rule cannot fire without the declaration).
   4. For each file edited by ≥2 sprints: open the first task file in the later sprint that edits it; grep Step 1 for a prerequisite grep gate naming the prior task ID. Absent → BLOCKER.
+  5. **Steps 2-4 select "the later sprint", so an unordered pair falls through them entirely — check it separately.** For each file edited by ≥2 sprints, read the Master Plan's Sprint Dependencies table for an ordering edge between those sprints. If none exists: assert a `MUST NOT run concurrently (shared file: …)` row for the pair, a `## Cross-Sprint File Touches` row in **both** Sprint Plans, and a Step-1 gate in **both** sprints' first writing task. Any one absent → BLOCKER.
+  6. For each file edited by ≥2 sprints: read the writing tasks' Verification Commands. A task whose only shared-file assertion is a path-scoped diff count → BLOCKER; it must also assert a content grep for a literal the co-writer authored, or that literal's documented absence.
 - **Finding template:**
 ```
 [BLOCKER] EI multi-sprint cumulative state not reconciled

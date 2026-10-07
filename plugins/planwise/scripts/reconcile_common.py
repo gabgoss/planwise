@@ -35,10 +35,11 @@ Stdlib-only.
 import argparse
 import json
 import os
+import stat
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 
 def read_text_preserving_newlines(path: Path) -> str:
@@ -55,9 +56,27 @@ def read_text_preserving_newlines(path: Path) -> str:
 def write_text_preserving_newlines(path: Path, content: str) -> None:
     """Write text verbatim with newline="" so no os.linesep translation
     occurs, preserving the file's original CRLF/LF exactly.
+
+    Atomic: the content goes to a temp file in the same directory, named
+    `.{name}.tmp-*` so no `*.md` glob matches it, and `os.replace` then
+    swaps it onto the target. A failure at any step removes the temp file
+    and re-raises, leaving the target's original bytes untouched.
     """
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(content)
+    path = Path(path)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
+    try:
+        with open(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(content)
+        if path.exists():
+            # mkstemp creates the temp file owner-only; keep the target's mode.
+            os.chmod(tmp_name, stat.S_IMODE(path.stat().st_mode))
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def write_json_result(result: dict, prefix: str) -> str:
@@ -129,14 +148,15 @@ def run_reconcile_cli(
     reconcile: Callable[[dict], int],
     format_report: Callable[[dict], str],
     json_prefix: str,
+    write_message: Callable[[int], str] = lambda n: f"Reconciled {n} row(s).",
 ) -> None:
     """Shared CLI scaffold for a reconcile script's `main()`.
 
     Builds the `--config`/`--write`/`--json` argparse surface, resolves
     the index path, exits 1 with `missing_index_message(index_path)` on
     stderr if it does not exist, then dispatches: `--write` reconciles
-    (printing the written count, plus a fresh `--json` detect_drift dump
-    if requested); otherwise runs `detect_drift` and prints
+    (printing `write_message(count)`, plus a fresh `--json` detect_drift
+    dump if requested); otherwise runs `detect_drift` and prints
     `format_report(result)` (plus `--json` if requested).
 
     Domain logic stays with the caller: `load_config`,
@@ -147,7 +167,9 @@ def run_reconcile_cli(
     surface and so an explicit `--config <path>` on the command line does
     not trip `parse_known_args`; `load_config` itself is responsible for
     reading it back out of `sys.argv` (matching `config_loader.load_config`'s
-    own contract), not this scaffold.
+    own contract), not this scaffold. `write_message` is optional. It
+    defaults to "Reconciled N row(s).", and a caller whose `--write` does
+    not reconcile rows passes its own noun.
     """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
@@ -178,7 +200,7 @@ def run_reconcile_cli(
 
     if args.write:
         written = reconcile(config)
-        print(f"Reconciled {written} row(s).")
+        print(write_message(written))
         if args.json:
             result = detect_drift(config)
             json_path = write_json_result(result, json_prefix)

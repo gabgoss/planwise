@@ -1,10 +1,10 @@
 {
   "name": "planwise",
   "description": "Agentic project management — plan, execute, review, and track projects with structured workflows",
-  "version": "1.0.5.1",
+  "version": "1.0.5.2",
   "author": {
     "name": "Gabriel Gosselin"
   },
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "keywords": ["project-management", "planning", "execution", "review", "backlog", "sessions"]
 }

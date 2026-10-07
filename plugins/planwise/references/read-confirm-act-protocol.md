@@ -1,5 +1,5 @@
 ---
-description: Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags
+description: Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags (sender §1.3, receiver-side reconciliation §1.4)
 ---
 
 # READ-CONFIRM-ACT Protocol
@@ -7,7 +7,7 @@ description: Mandatory READ-CONFIRM-ACT pattern — confirmation block, structur
 > [!binding] Enforcement
 > These are not guidelines. Violations cause context loss and incomplete work.
 
-**Purpose:** Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags.
+**Purpose:** Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags (sender §1.3, receiver-side reconciliation §1.4).
 **Extracted from session-execution-protocol.md; that file keeps the operational session rules (§2-§7).**
 
 ---
@@ -231,14 +231,22 @@ A Coordination Flag Row is either **informational** — safe to deliver as conte
 
 #### Propagating the Flag (At Closeout)
 
-At Phase 4 closeout, the orchestrator MUST add each flag to the downstream consumer's task file (preferred) or orchestration file. The destination depends on who the consumer is:
+A flag reaches an executing task in **two hops**, and each hop has exactly one owner. At Phase 4 closeout the closing orchestrator (the **sender**) MUST deliver each flag to the downstream consumer's **front door** — an orchestration file, a sprint plan, or a Master Plan — and never into another session's task files. The downstream session's orchestrator (the **receiver**) routes each flag the last hop into its own task files at its Phase-1 Flag-Reconciliation Preflight ([handlers/run.md](../handlers/run.md) Step 1.1a): it is the single writer of its own decomposition, it already reads every task file, and it re-derives every value the flag supplies before acting on it. The destination depends on who the consumer is:
 
 | Downstream Consumer | Propagate To |
 |---------------------|--------------|
-| A specific named task in a later session | That task's file under a `## Pre-Known Cross-Task Coordination Flags` section |
+| A specific named task in a later session that is already scaffolded on disk | That session's orchestration file under a `## Pre-Known Cross-Task Coordination Flags` section, naming the consuming task — the receiver routes it into that task's file at Step 1.1a |
 | A whole session (consumer task unclear) | That session's orchestration file under a `## Pre-Known Cross-Task Coordination Flags` section |
-| A future sprint (consumer task not yet authored) | The sprint plan's `## Carried-Forward Coordination Flags` section, to be re-propagated when tasks are scaffolded |
+| A future sprint (downstream session not yet scaffolded on disk) | The sprint plan's `## Carried-Forward Coordination Flags` section, to be re-propagated when tasks are scaffolded |
 | A follow-up plan not yet written | The current Master Plan's `## Carried-Forward Coordination Flags` section + the rollup/handoff task file |
+
+> [!constraint] The sender delivers to the front door; the receiver routes the last hop and stamps it
+> WRONG — the closing session writes the flag straight into a downstream task file. That bypasses the receiving orchestrator's dispatch-time validation entirely: nothing re-derives the flag's counts, scope forecast or supplied gate when the gap finally clears (in one measured case every authoring-time consumer had already completed and the corpus figures had turned over before the flag reached a runner), and a concurrent session editing the same task files is raced.
+> CORRECT — the sender writes the entry at the front door, tagged as below. At its Step 1.1a the receiver routes it into the task file(s) and stamps the entry in place, so the delivery is auditable from either end:
+> ```
+> ✅ ROUTED {YYYY-MM-DD} into {task file} § Pre-Known Cross-Task Coordination Flags
+> ```
+> An entry with no stamp after the receiving session's Phase 1 is an unrouted flag, and the receiver's Recovery routing table (Step 1.1a) is where the miss is recorded.
 
 Each propagated entry MUST be tagged with the source session ID and the surface date so the downstream agent recognizes it as orchestrator-validated context (do NOT re-derive) and can age it for staleness.
 
@@ -269,7 +277,7 @@ The reserved placeholder for later sources is intentional — it tells future cl
 >
 > The return edge goes to the **same destinations the propagation table above already defines** — the named task's file, the session's orchestration file, the sprint plan's `## Carried-Forward Coordination Flags` section, or the Master Plan — applied in **both** directions, each entry tagged with its own source session ID and surface date. Propagating one direction and leaving the other for a downstream orchestrator to infer fails the same way as not propagating at all: the writer who was never named has no reason to go looking, and a threshold nobody was told they share is measured by each of them alone.
 >
-> The plan-level counterpart is [scaffolding-hygiene.md](scaffolding-hygiene.md) §16.5, which imposes the same reciprocal requirement on cross-sprint flags at scaffold time, where the write-sets that make a file shared are first declared. This section governs the same reciprocity at flag-propagation time.
+> The plan-level counterpart is [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16.5, which imposes the same reciprocal requirement on cross-sprint flags at scaffold time, where the write-sets that make a file shared are first declared. This section governs the same reciprocity at flag-propagation time.
 
 #### Audit-Trail Requirement
 
@@ -311,6 +319,234 @@ Mirror requirement is the same as §1.2: a flag recorded only in Recovery and ne
 
 > [!practice] Default to Propagation
 > If the consumer is ambiguous between a specific task and a whole session, propagate to BOTH — the task file for the agent that will act on it, the orchestration file for the orchestrator who will dispatch. Cost of duplication is two short paragraphs; cost of misrouting is a missed constraint.
+
+### 1.4 Reconciling an Inherited Flag (Receiver Side)
+
+§1.3 governs the sender — how a flag is recorded, authored and propagated. This section governs the receiver: the session that inherits a flag and has to act on it. The two failure modes are symmetric. The receiver reads too few sources, and it trusts the ones it does read too much.
+
+#### 1.4.A Enumerate the input set before reading any of it
+
+The preflight's first step is to enumerate its sources, not to open one file. A preflight that reads its single named source, finds nothing missing there, and reports success has proved nothing. The failure is silent in the passing direction.
+
+> [!checklist] The four flag sources — read ALL of them
+> - [ ] This session's own orchestration file, `## Pre-Known Cross-Task Coordination Flags`
+> - [ ] **Every immediately-upstream session's Recovery `Cross-Task Coordination Flags` table** — the session(s) named in this session's `Prerequisite:` field
+> - [ ] The sprint plan's `## Carried-Forward Coordination Flags` section
+> - [ ] The Master Plan's `## Carried-Forward Coordination Flags` section
+>
+> Then **diff that union against what actually appears in the task files**, and route the difference. Record the routing as a table, one row per flag, so the count is auditable rather than asserted:
+>
+> | Flag | Source file | Destination task | Disposition |
+> |---|---|---|---|
+> | {headline} | {upstream Recovery / sprint plan / orchestration / Master Plan} | {task-id}, or "none — no consumer in this session" | routed / already present / resolved-with-measurement / no consumer |
+>
+> **A flag with no task-file hit is unrouted, however many plan files mention it.** Presence in a plan file is not routing.
+
+The upstream Recovery table is the source most often left out, and it carries the highest-value class: flags discovered by doing the work, which no planner could have written at scaffold time. In one measured preflight nine flags had reached zero task files. Five of them — every flag raised by the immediately preceding session — lived only in that session's Recovery. One of the five recorded a measurement that **resolved** a conditional blocker; without it the downstream battery would have recorded a passing criterion as BLOCKED against a user decision that was never required. Another assigned a fourth work item no task owned, against criteria reading "all 3 sites".
+
+#### 1.4.B The scaffold-vs-execute seam
+
+A sprint-plan `Carried-Forward` entry reaches a session only at *that session's scaffold time*. Once the session exists on disk it never re-reads the sprint plan. A flag dropped there afterwards is invisible. The sender did its job, the receiver never looks again, and the flag dies in a file both parties consider correct.
+
+So the upstream Recovery sweep in §1.4.A is not a convenience. It is the only path an execution-time flag has into an already-scaffolded session.
+
+#### 1.4.C Treat the location as reliable and every value as expired
+
+> [!constraint] The flag tells you where to look, never what you will find
+> A flag's **location** — the file, the symbol, the section it points at — is usually still good. Every **value** it carries is expired by the time you read it. Three things go stale independently, and each needs its own re-derivation:
+>
+> 1. **The defect may already be gone.** Grep for the **defect**, not for the fix. An unrelated sweep can close a flagged problem without ever touching the flag. One flag reporting five identifier leaks measured **0** tree-wide.
+> 2. **A supplied count may be wrong — and the flag's own verify command may encode it.** Re-derive every count a flag hands you, including one that looks freshly written. A flag asserting "the handler count is now 10" measured **13**, and shipped a gate returning 10.
+> 3. **A scope forecast may be wrong in MEMBERSHIP, not only in size.** Compute the final set from measurements. **Never sum the forecasts.** Two flags each forecasting the final write-set produced a *different* seven than either had predicted.
+>
+> Item 2 is the expensive direction. A stale gate that fails correct work reads as *"your fix is broken"*, not as *"my number is old"* — so the reader debugs a fix that was right.
+>
+> WRONG — run the flag's supplied gate against the fix and believe the result:
+> ```
+> flag: "handler count is now 10; verify with the count gate below"
+> → apply the fix → run the flag's gate → returns 13, expected 10 → FAIL
+> → conclude the fix is broken and start debugging correct work
+> ```
+> CORRECT — re-derive the count first, then reconcile the two readings:
+> ```
+> → measure the live tree BEFORE trusting the gate → 13 handlers
+> → the flag's 10 was correct on the day it was written; 3 landed since
+> → both numbers are real and mean different things
+> → update the gate to 13; write text that contradicts neither reading
+> ```
+
+#### 1.4.D Re-derive the CONCLUSION, not just the count
+
+> [!constraint] A flag's classification and its prescribed remedy are claims too
+> §1.4.C expires a flag's *magnitudes*. This expires its *judgements*. A flag's classification of a finding, and the fix it prescribes, are each still plausible on their face and each capable of being wrong once traced.
+>
+> Two worked shapes:
+>
+> - **The classification does not survive tracing.** A finding correctly identified a concrete identifier, and prescribed rewriting it as a placeholder. Tracing showed the surrounding fields of that structured example are concrete **by design** — demonstrating their composition is the example's whole purpose — so the prescribed rewrite would have left the example internally incoherent.
+> - **The count is wrong in the direction that inverts the remedy.** At one outlier against a canonical form, "make the outlier conform" is right. At three of six call sites, each carrying real distinguishing meaning, the correct fix is the opposite one: widen the canonical. The same remedy is right or backwards depending on a number the flag supplied.
+>
+> **Where a flag says "this is a defect, fix it thus", verify both halves** — that it is a defect, and that the prescribed fix does not degrade the artifact.
+>
+> Both failing flags came from sessions that had done real work and written carefully. Diligence at write time is not what expires. The corpus moving underneath the flag is.
+
+#### 1.4.E Preserve the sender's text; record the correction beside it
+
+> [!constraint] Never silently rewrite a flag to match reality
+> The sender's wording is the trace a later reviewer needs to understand why the executed scope differs from the recorded plan. A quietly edited flag destroys the evidence that reality moved — it leaves a plan that looks like it always said the right thing, and no record of the correction. Keep the original text and record the re-derived value, the classification change, or the retraction **beside** it, with the measurement that settled it.
+>
+> Routing corollary: a **conditional** flag whose condition was measured and **not** met is routed as *resolved, with its measurement*, not dropped and not left open. "Flag exists" and "flag is open" are different facts. A downstream runner that re-evaluates stale conditional text from scratch can reach the opposite conclusion.
+
+#### 1.4.F Verify a claim before laundering it into a flag
+
+> [!constraint] A maintenance note asserting a defect elsewhere is a citation, and rots identically
+> A precise, confidently-worded note is not evidence. In one measured case every factual claim in such a note was false: the cited symbol existed nowhere in the tree except the note itself, the line locator pointed at a different section, the named catalog row was about a different file, and the real row already cited correctly. Of three forward-references examined in one session, two were defective.
+>
+> Three checks, before the claim goes anywhere:
+>
+> 1. **Grep for the cited symbol tree-wide**, not only at the named location. If the only hit is the note itself, the claim is dead. This one command settles most cases.
+> 2. **Check the locator independently.** Line numbers drift with every edit above them, so a locator is a hint, never an address.
+> 3. **Check whether the defect was already fixed.** This is the most common failure mode and the easiest to mistake for live work.
+>
+> Then dispose of it:
+>
+> | Verdict | Disposition |
+> |---|---|
+> | Claim false | Delete the false clause. Keep any load-bearing instruction sitting beside it — the note may be wrong about the defect and still right about the procedure. |
+> | Claim true | Act on it, and record the **generic condition** ("until a transfer flow exists"), never a schedule naming a specific plan or session. |
+>
+> **Do not launder an unverified claim into a coordination flag.** A flag carries institutional authority: the receiving session treats it as established fact and routes it straight into a task file. Recording "the note says X" as "do X" moves a rotted citation into a plan artifact, where it is harder to challenge and further from the evidence than it was in the note.
+>
+> Verify in **both** directions. When a subordinate agent challenges a flag, re-derive from primary evidence rather than deferring to either party's confidence.
+
+#### 1.4.G Resolve the claim's REFERENT before re-deriving its truth
+
+> [!constraint] A check confirms a true statement about whichever object it was pointed at
+> §1.4.C expires a flag's values. §1.4.D expires its judgements. Both assume the claim's **referent** is unambiguous, and that only its truth value can drift. When the referent is the thing that is wrong, running the check harder converges on the same wrong answer.
+>
+> Nothing in a reproducing measurement reports which object it measured. The confirmation therefore reads identically whether the referent was right or wrong.
+>
+> ```bash
+> # WRONG — confirms the claim inside the scope the claim chose:
+> grep -n '<positional-label>' <the-one-file-the-claim-named>   # → nothing. Claim "confirmed".
+>
+> # CORRECT — asks whether the SUBJECT is referenced anywhere at all:
+> grep -rn '<subject-symbol>' <whole-tree> | grep -v '<subject-own-file>'
+> ```
+>
+> Both greps are correct. Both return what they should. The referent table is what makes the failure legible:
+>
+> | | The claim | What was checked | Verdict |
+> |---|---|---|---|
+> | Referent | "the agent is dispatched from nowhere" | the one handler the claim named | correctly identified as dispatching nothing |
+> | Referent actually needed | the same agent | the *other* handler, carrying its own route of the same name | never looked at |
+>
+> **The CORRECT grep excludes the subject's own file, and that exclusion is load-bearing.** A definition site is not a caller. The subject's own file always contains the symbol, so leaving it in the result set guarantees at least one hit — which turns an absence check into a tautology.
+
+Three corollaries follow.
+
+- **An absence claim is only as wide as the search that produced it.** Grep for the thing alleged to be orphaned, never for the container alleged to be empty.
+- **A short, positional identifier is a warning sign.** `Route C`, `Step 3`, `Phase 2` and `stage 4` are labels that recur across files by construction. An inherited claim hinging on one must have its referent resolved before anything acts on it.
+- **Where an inherited claim prescribes a fix, check the fix against the live tree, not just the claim.** "Wire X so the citation becomes true" is falsified the moment X turns out already wired. That check is one grep, and it holds independently of whether the claim itself reproduces. §1.4.D requires verifying that a prescribed fix does not degrade the artifact. This requires verifying that the fix is still needed at all.
+
+The same shape appears wherever a coordination artifact hands forward a defect *description* rather than a defect *location* — a section number that exists in two files, a step number two handlers both use, a config key present in a template and in an instance. The receiving session re-measures faithfully inside the frame it was handed, and the frame is the error.
+
+The cost is not tidiness. In the measured case, acting on the confirmed claim would have added a second dispatcher for an already-dispatched agent. That manufactures the exact defect the work existed to remove, and reports the row closed.
+
+#### 1.4.H Availability is not applicability — verify the source covers the scope it is cited for
+
+> [!practice] A presence check measures the wrong property, and reads exactly like measuring the right one
+> ```
+> WRONG — the dependency check that shipped:
+> file exists?  ✅   wc -l → 2,325   → record "Present", assign to the PreToolUse cluster
+>
+> CORRECT — one additional question, answerable in a single call:
+> file exists?  ✅   does it REGISTER for the event I am citing it for?
+>   grep -nE '"(PreToolUse|PostToolUse|Stop)"' hooks.json   → no PreToolUse key → NOT ground truth
+> ```
+>
+> A source can be genuinely rich and still be rich about the wrong thing. That asymmetry is the whole point:
+>
+> | Fact class | Transfers to the cited event? | Why |
+> |---|---|---|
+> | `tool_input` shapes | **Yes** | the same object is passed at both events |
+> | `tool_response` shapes (`stdout`/`stderr`/`interrupted`, no `exit_code`) | **No** | `tool_response` does not exist before the tool runs |
+
+Ask the applicability question of every cited source. It generalises by artifact class:
+
+| Citing a… | Availability check | Applicability check |
+|---|---|---|
+| Hook script, for an event's contract | file exists | its manifest registers **that event** |
+| Test file, as coverage for a behaviour | file exists | a test in it actually exercises that behaviour |
+| Doc page, as the spec for a field | page loads | the page documents **that** field, not a sibling |
+| Reference implementation, for a version | repo present | it targets the version under discussion |
+
+Three guardrails govern what you do with the answer.
+
+- **A presence check produces a concrete measurement of the wrong property**, and that reads exactly like a concrete measurement of the right one. `2,325 lines` and `✅ Present` feel like verification.
+- **A rich source that fails the applicability check is re-scoped, not discarded.** It stops being the second independent implementation a criterion counted on. It remains excellent evidence for the events it does register.
+- **Label the event, version or platform on every extracted fact.** Once one source spans several, an unlabelled fact is un-auditable, and downstream readers will silently promote it into the wrong contract.
+
+The cost asymmetry is stark. The applicability check above was one grep of a 96-line manifest at plan time. Skipping it surfaced the problem inside the session's largest task, where it cost a coordination flag, a re-brief and a weakened exit criterion.
+
+This check is deliberately not written as one universal command. It is artifact-class-specific — a manifest for a hook, a test body for a test file, a version target for a reference implementation. A one-size command would be exactly the concrete measurement of the wrong property this section warns about.
+
+#### 1.4.I An existence claim expires differently from a count — deliver the RESULT, not the claim
+
+> [!constraint] Counts get re-measured by habit — existence claims rot
+> §1.4.C item 1 already requires grepping for the defect rather than for the fix. This section governs what you owe **downstream** when that grep returns zero on a claim you are about to relay.
+>
+> Nothing in a flag's own text changes when the tree does. So run both commands before relaying any carried ABSENT / EXISTS / UNVERIFIED claim:
+>
+> ```bash
+> # does the thing still exist?
+> grep -rn '<the string>' <tree>
+> # if not, WHEN did it stop existing — the answer belongs in the handoff
+> git log -S'<the string>' -- <the named files>
+> ```
+>
+> Then deliver the **result**, not the claim: `DISCHARGED, closed by <commit>`. Never silently drop it — the next scaffold re-adds it from the sprint plan. Never pass it on unqualified either.
+
+**The danger inverts on relay.** As a *prohibition* an expired scope boundary is harmless, forbidding an action nobody can take. As an *open item* delivered downstream it is actively dangerous, because **a "fix this absence" instruction handed to an agent whose job is filling absences can produce the defect it was written to prevent.**
+
+Three tells identify the class before it bites.
+
+- A flag phrased as a scope boundary ("do NOT fix X") is a latent existence claim.
+- A flag whose recorded date precedes any refactor commit touching its named files is suspect by construction.
+- A runner's politely-framed disagreement ("returns zero, before and after my edit") is a finding, not noise.
+
+Preflight figures save real work and should keep being handed down. One standing clause is what makes handing them down safe, and every spawn prompt carrying a preflight figure MUST carry it verbatim:
+
+> **"if a live measurement disagrees, the live measurement wins — report the disagreement."**
+
+The clause earns its place only when runners actually exercise it. Recovering the case above depended on a runner doing exactly that.
+
+#### 1.4.J The refresh you produce is itself a derived artifact — dry-run its own claims before dispatch
+
+> [!constraint] A successor map feels like ground truth because it was just measured
+> A refresh exists to protect downstream agents from stale claims. It is produced by the same inference shortcuts it exists to protect against, and every downstream agent consumes it as authoritative. **A wrong entry is worse than a stale task file, because the task file announces its age while the map announces freshness.**
+>
+> Four entries in one ten-file refresh were wrong. Each came from treating a cheap proxy as the fact:
+>
+> | Asserted in the refresh | Live reality | The proxy that produced the error |
+> |---|---|---|
+> | pointer "ends near §1.15" | reads `§1.1–§1.18` | read the **shipped cache** copy, not the dev tree |
+> | "both files carry section X" | one hosts it; the other merely *mentions* it | counted `grep` hits without checking for a **heading** |
+> | "the subcommand count is no longer N" | still N — a retirement changed a row's **disposition** | inferred a count change from a file deletion |
+> | "symbol moved out of `<module>`" | still **defined** there; others **import** it | read a `grep -l` filename list as evidence of relocation |
+>
+> Distinguish all four explicitly, in their generic form:
+>
+> - definition vs **import** — `Grep` the symbol with `output_mode='content'`, never a `files_with_matches` filename list
+> - heading vs **mention** — `Grep` for `^#+.*X`, not for a bare `X`
+> - existence vs **disposition** — a row can survive with new behaviour
+> - dev tree vs **shipped cache** — they diverge, so name which one you read
+
+The dispatching side carries two obligations.
+
+- **Tell the runners the map is fallible, and require corrections as an explicit status-block field** rather than an afterthought. All four errors above were caught only because that field existed. It is what makes shipping an unverified map safe.
+- **Verify each correction yourself before propagating it.** A runner's correction is also a derived claim. Two of these were confirmed only after an independent heading dump and a definition-vs-import check.
+
+One authoring rule follows. Prefer stating the *generic condition* over a specific number wherever the runner will re-derive anyway. An unnecessary figure in a brief is a liability with no upside.
 
 ---
 

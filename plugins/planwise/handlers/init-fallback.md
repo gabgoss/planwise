@@ -35,8 +35,15 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 | Source (read from plugin) | Destination |
 |---------------------------|-------------|
 | [../seed/00-Index-Backlog.md](../seed/00-Index-Backlog.md) | `{planwise_root}/{backlog_dir}/00-Index-Backlog.md` |
+| [../seed/00-Changelog-Backlog.md](../seed/00-Changelog-Backlog.md) | `{planwise_root}/{backlog_dir}/00-Changelog-Backlog.md` |
 | [../seed/00-Index-LessonsLearned.md](../seed/00-Index-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md` |
-| [../seed/00-Index-Plans.md](../seed/00-Index-Plans.md) | `{planwise_root}/{plans_dir}/00-Index-Plans.md` |
+| [../seed/00-Changelog-LessonsLearned.md](../seed/00-Changelog-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-Changelog-LessonsLearned.md` |
+| [../seed/00-PromotionLog-LessonsLearned.md](../seed/00-PromotionLog-LessonsLearned.md) | `{planwise_root}/{lessons_dir}/00-PromotionLog-LessonsLearned.md` |
+| [../seed/00-Index-Plans.md](../seed/00-Index-Plans.md) | `{planwise_root}/{plans_dir}/{plans_index}` |
+
+`{plans_index}` is `project.index_files.plans` from `config.yaml` when that file already names one, else `00-Index-Plans.md`. The plans seed is the generator's own output over an empty plans directory. After init, the index's only writer is `generate_plans_index.py --write`, per [../references/plans-schema.md](../references/plans-schema.md).
+
+Never overwrite an existing `00-Index-Backlog.md`; if it is hand-authored, run `/planwise upgrade` after init — the migration is automatic. Never overwrite a hand-shaped lessons index; run `/planwise upgrade` after init — the lessons migration is likewise automatic.
 
 ---
 
@@ -65,7 +72,7 @@ The plugin's `seed/` folder contains starter index files. For each seed file:
 
 ### Step 6 — Install rules to `.claude/rules/planwise/` (fallback)
 
-The plugin installs 4 author-time reference files as path-scoped rules. These are the only rules copied into `.claude/rules/planwise/` — they trigger on `.claude/**` file activity and stay small. For each rule:
+The plugin installs two groups of rules into `.claude/rules/planwise/`. Group one is four author-time reference files, installed as path-scoped rules. They trigger on `.claude/**` file activity and stay small. Group two is two global style rules, `plain-language.md` and `plain-presentation.md`. They are installed by default, and each is switchable under `style:` in `config.yaml`. No other rules are copied. For each rule:
 
 1. Use **Glob** to check if the destination already exists — **skip if it does**
 2. Use **Read** to read the source file from the plugin (links below)
@@ -83,6 +90,10 @@ The plugin installs 4 author-time reference files as path-scoped rules. These ar
 | 2 | [../references/skill-authoring.md](../references/skill-authoring.md) | `.claude/rules/planwise/skill-authoring.md` | `.claude/skills/**` |
 | 3 | [../references/rule-authoring.md](../references/rule-authoring.md) | `.claude/rules/planwise/rule-authoring.md` | `.claude/rules/**` |
 | 4 | [../references/artifact-self-containment.md](../references/artifact-self-containment.md) | `.claude/rules/planwise/artifact-self-containment.md` | `.claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md` |
+| 5 | [../references/plain-language.md](../references/plain-language.md) | `.claude/rules/planwise/plain-language.md` | none (global) |
+| 6 | [../references/plain-presentation.md](../references/plain-presentation.md) | `.claude/rules/planwise/plain-presentation.md` | none (global) |
+
+A style rule (rows 5 and 6) is copied unchanged, with no frontmatter edit. Skip it when its key under `style:` is `off`. Its destination follows the install scope, so `user` scope writes to `~/.claude/rules/planwise/`. Skip it also when a same-name file already exists at the top level of `.claude/rules/` or `~/.claude/rules/`, using **Glob** to check.
 
 Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with actual values from Step 1 where they appear in `paths:` values.
 
@@ -91,9 +102,9 @@ Replace `{planwise_root}`, `{plans_dir}`, `{backlog_dir}`, `{lessons_dir}` with 
 
 ---
 
-### Step 7 — Configure Agent Teams (fallback)
+### Step 7 — Configure recommended environment variables (fallback)
 
-Enable Agent Teams by adding the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environment variable to the settings file determined by `{install_scope}`:
+Enable Agent Teams and the Task checklist tools (`TaskCreate`/`TaskUpdate`/`TaskGet`/`TaskList`, the `Ctrl+T` list — absent by default on Opus 4.8/Sonnet 5/Fable 5/Mythos 5 and newer since Claude Code 2.1.233 unless a project opts in) by adding both environment variables to the settings file determined by `{install_scope}`:
 
 | Scope | Settings file |
 |-------|---------------|
@@ -107,13 +118,16 @@ Enable Agent Teams by adding the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environm
    ```json
    {
      "env": {
-       "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+       "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+       "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
      }
    }
    ```
 4. **Write** the updated JSON back to the same file
 
-**Important:** Preserve all existing settings in the file. Only add/update the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` key within the `env` object.
+**Important:** Preserve all existing settings in the file. Only add/update the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and `CLAUDE_CODE_ENABLE_TODO_TOOLS` keys within the `env` object.
+
+Then repeat the read-merge-write for `"CLAUDE_CODE_THRIFTY_SONIC": "false"` on BOTH `.claude/settings.json` and `~/.claude/settings.json`, whatever `{install_scope}` is. This variable is a session-behavior toggle meant to apply everywhere, so it is not scoped to one install. Treat each file independently: if one does not parse as JSON, warn, leave it untouched, and still write the other. Never write it to `.claude/settings.local.json`.
 
 ---
 

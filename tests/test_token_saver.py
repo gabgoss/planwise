@@ -50,11 +50,10 @@ from pathlib import Path
 # (python -m unittest scripts/test_...) or from inside scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import config_loader  # noqa: E402
-import init_project as ip  # noqa: E402
+import config_loader
+import init_project as ip
 
-from conftest import _engine  # noqa: E402
-
+from conftest import _engine
 
 # The six config keys, under `context:`, that the Token Saver surface adds.
 TOKEN_SAVER_KEYS = (
@@ -348,6 +347,35 @@ class TestMigration(_ProjectFixtureBase):
         self.assertTrue(context, "migrate must add a context block when absent")
         for key in TOKEN_SAVER_KEYS:
             self.assertIn(key, context)
+
+    def test_existing_context_block_gains_run_layer_stop_key(self):
+        # run_layer_stop rides the same nested merge as the Token Saver keys
+        # (MIGRATABLE_CONTEXT_SUBKEYS in config_gen.py) but is not itself a
+        # Token Saver key. A pre-migration config missing it must gain it
+        # with the documented "off" default.
+        #
+        # Assert on the raw written text, not a yaml.safe_load() round-trip:
+        # PyYAML (YAML 1.1) parses an unquoted `off` scalar as the boolean
+        # False, so `context.get("run_layer_stop")` would read back as
+        # `False` rather than the string "off" even though the file is
+        # correct — config_loader.py:784-793 documents and normalizes this
+        # same coercion on the read path.
+        self.write_config(
+            "project:\n"
+            "  name: Mig\n"
+            "context:\n"
+            "  plan_tier: pro\n"
+            "  context_window: 200000\n"
+        )
+        ip.migrate_config(self.cfg)
+        written = self.config_path().read_text(encoding="utf-8")
+        self.assertIn(
+            "run_layer_stop: off",
+            written,
+            "migrate must add `run_layer_stop: off` to an existing context block",
+        )
+        context = self._read_context()
+        self.assertIn("run_layer_stop", context)
 
 
 # ---------------------------------------------------------------------------

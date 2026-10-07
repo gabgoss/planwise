@@ -8,6 +8,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 # Recovery State - {ABBREV}-S{XX}-{YY}
 
 **Last Updated:** {timestamp}
+*Bump to today's date with a short parenthetical (≤120 characters) naming what changed. **Replace the previous value — do not preserve it.** History belongs in a changelog file, not in this line.*
 **Current Step:** NOT STARTED
 **Session Status:** NOT_STARTED
 
@@ -22,6 +23,24 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 | 3 | {Task 3} | {Agent} | PENDING | - | - | - |
 
 `Dispatch ID` and `Tokens (self-reported, per-window)` cite the Consumption Record field definitions in [summary-template.md § Consumption Record](summary-template.md#consumption-record) (`dispatch_ids` and the per-window token fields) — semantics are not restated here. The `per-window` label is deliberate: this cell is one dispatched agent's own window, never summed across rows into a session total.
+
+---
+
+## Session Boundary Note
+
+**Next Dispatch:** none
+**Resume State:** incomplete
+**Written At:** -
+
+*Written by the run handler at each dependency-layer edge when `context.run_layer_stop` is `on`, and by the session-length checkpoint when it offers a boundary. `--resume` accepts a session only when `Resume State` reads `complete`.*
+
+**Field reference:**
+
+| Line | Content |
+|------|---------|
+| Next Dispatch | `task {n} ({Agent}), layer L{k}` — the exact next dispatch, or `none` |
+| Resume State | `complete` only when every box of the Resume-State Completeness checklist holds (`references/session-execution-protocol.md` § Session-Length Checkpoint); otherwise `incomplete` |
+| Written At | timestamp of the last write, or `-` |
 
 ---
 
@@ -91,6 +110,16 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 | Date | Step | Status | Notes |
 |------|------|--------|-------|
 | {today} | - | CREATED | Recovery file initialized |
+
+---
+
+## Task List Map
+
+*Track B only. Harness task ids minted by `TaskCreate` for this session's steps. Rewritten in full when the run handler re-hydrates the list after a `/clear`. Under Track A this section stays as shipped.*
+
+| Step | Task ID |
+|------|---------|
+| - | - |
 ```
 
 ---

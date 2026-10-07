@@ -17,6 +17,8 @@
 - [Phase 0: Plan Discovery](#phase-0-plan-discovery)
 - [Scale Detection](#scale-detection)
 - [Measurement Phase: The Review Discovery Fact Sheet](#measurement-phase-the-review-discovery-fact-sheet)
+- [Gate Lint Phase: Mechanical Verification-Gate Scan](#gate-lint-phase-mechanical-verification-gate-scan)
+- [Strategy Phase: Resolve the DELEGATED Reviewer Block](#strategy-phase-resolve-the-delegated-reviewer-block)
 - [No-Team Path (Trivial / Small)](#no-team-path-trivial--small)
 - [Team Path (Medium / Large / Very Large)](#team-path-medium--large--very-large)
 - [Reviewer Prompt Template](#reviewer-prompt-template)
@@ -61,16 +63,31 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
-- If reviewing a scaffolded multi-sprint plan: Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md`
+- If reviewing a scaffolded multi-sprint plan: Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§17) — the hygiene reference is split across two files, and Checks 078, 083 and 093 live in Part 2
 - If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
 - If reviewing IPC/protocol/codec sessions: Read `references/verification-gates.md`
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
+- If reviewing a gate anchor, a named landing zone, a lifted `§N` citation, a cross-plan status assertion, or a projected set size: Read `references/verify-anchor-against-artifact.md` — an anchor derived from the criterion it verifies inherits every false premise that criterion holds, and the two then corroborate each other
 - If reviewing a plan with verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
-- If reviewing a DELEGATED-orchestration plan: Read `references/agent-orchestration-delegated.md`
+- If reviewing a plan whose deliverable is a gate (guard, hook, linter, validation pass), or whose acceptance criteria cite a gate run as proof: Read `references/verification-gate-evidence.md` — check that the gate was exercised in the direction that fires, that the reported proof states what its fixture set does not cover, and, where a task's content is a live gate's subject, that the dispatch brief pre-classifies the collision (§13)
+- If a plan's Verification Commands assert a property of a diff (comment-only, no-logic-change, N-files-touched): Read `references/gate-baseline-independence.md` — check each named target is tracked, that no `git add -N` precedes such a gate, and that any baseline was recorded before the first edit (§5 is the pre-dispatch checklist)
+- If a plan's acceptance criteria, or a runner's status block, cite a match pattern, a count, or a diff filter as evidence: Read `references/gate-predicate-discrimination.md` — check the anchor was shown to move between a known-bad and the current state, that a negative claim rests on a query whose positive result would have been believed, and that no diff filter puts a character class immediately after `^[+-]`
+- If reviewing a DELEGATED-orchestration plan: Read all three parts of the DELEGATED dispatch discipline — `references/agent-orchestration-delegated.md` (§1.1–§1.13), `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` (§1.14–§1.22), and `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` (§1.23–§1.31). The orchestration checks draw on all three. Each part sits under the Read-tool page cap; the combined text does not, which is why it ships split.
 - If the **effective** Token Saver value is `true` for the plan under review (its Master-Plan `Token Saver:` field over the project `context.token_saver` default — `get_effective_token_saver_config(config, plan_override)`): Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](../references/review-classification.md#token-saver-compliance-check))
 - When citing Error Pattern Catalog rows during synthesis or in a finding's Fix field: Read `references/error-pattern-catalog.md` (on demand -- not loaded up front)
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 - If the plan under review authors or promotes content into a rule, agent, skill, handler, or CLAUDE.md callout (promoting lesson/backlog content): Read `references/artifact-self-containment.md`
+- If a plan or its outputs state a total, a labelled aggregate, or a count in prose as a finding or a criterion: Read `references/measure-aggregate-provenance.md` — an exact match on a derived aggregate is weak evidence, and a figure whose population is unstated cannot be audited
+- If a plan's hypothesis, baseline, or evidence-gap statement rests on one dispatch, one project, or one swept corpus: Read `references/measure-scope-and-sample.md` — check that the sample size, the project boundary, and the corpus boundary are written into the sentence that states the finding
+- If a plan grades probes or dry-runs, or its evidence names the control that produced a result: Read `references/measure-from-the-record.md` — a correct verdict is not evidence the attribution was correct, and a permission result scored on `is_error` alone cannot separate a denial from a downstream failure
+- If a plan schedules a re-measure as its closing sprint, states only a method criterion for a headline figure, or bounds probe spend with a cumulative guard: Read `references/measure-instrument-placement.md` — a window opening at the install is empty by construction, a method criterion is satisfied by an empty window, and a between-calls guard cannot catch an overrun inside the first call
+- If reviewing task briefs, a spawn-prompt skeleton, a fix instruction that names a target figure, or a plan whose central question has several enumerated outcomes: Read `references/dispatch-brief-neutrality.md` — classify each brief sentence as context or premise, check that every anti-inference guardrail is symmetric, and confirm each outcome branch has a concrete route rather than an enum slot
+- If a plan's verification tasks can return ABSENT, a finding arrives pre-confirmed by a second agent, or a batch of runner status blocks is the evidence for a whole-set property: Read `references/verify-verdict-source.md` — a negative rests on a symbol-level search of the code, a confirmation names the primary source it re-opened, severity does not rise on agreement, and cross-artifact invariants are recomputed from the artifacts on disk
+- If a brief changes a count, a section number, a selector or an enum member bound to many sites, renumbers headings, or a flag asserts an upstream change was applied in place: Read `references/dispatch-edit-surface-sweep.md` — the brief names the quantity and hands over the locator instead of naming a line, the runner reports how many occurrences it found, the renumbering gate carries its true expected count, and an in-place edit is re-derived by one search for the old value
+- If an orchestration's prose, flag block or Binding Constraints state a mandate, or a session produced an artifact outside its planned task list (a repair, a hotfix, a supplementary output): Read `references/dispatch-mandate-routing.md` — join each mandate to the numbered gate step that tests it, check the step can both fail and pass, and confirm the out-of-band artifact is in its consumer's Required Context by explicit path with the counts that named the old set updated
+- If a plan names a cause from one observed instance, or its hypothesis proposes adding something to the system whose failure it explains: Read `references/verify-cause-before-remedy.md` — a contradiction between two copies of one fact is counted across the population before it is diagnosed, and a remedy is checked against the artifact's own source for whether the failure was already measured with it in force
+- If a deliverable adds a function, an optional parameter, a CLI flag, a config key, an event subscription or a guarded branch, or a criterion's only anchor is a definition search or the deliverable's own unit test: Read `references/verify-caller-before-complete.md` — a definition is not a caller; the anchor is a call-site search over production paths naming the activating argument, the closing-sweep ledger quotes a call site per such deliverable, and "dormant until a follow-up wires it" is PARTIAL, never COMPLETE
+- If a task's job is to merge, dedupe, reconcile or cross-reference across a boundary, or a DELEGATED plan's dispatch layers are under review: Read `references/dispatch-decomposition-graph.md` — a task whose steps can identify an amendment must be able to apply it or name who will, a "may be absent" flag is checked before remediation is scheduled, and the declared layer is a floor on what can run, gated by verified-on-disk dependencies and disjoint outputs
 
 ---
 
@@ -112,7 +129,7 @@ Runs on **both** paths, after Scale Detection and **before any reviewer is spawn
 2. Spawn the discovery pass and WAIT for it to return before continuing:
 
 ```
-Task(
+Agent(
   subagent_type: "planwise:review-discovery",
   description: "Review discovery for {Abbrev}",
   prompt: |
@@ -143,16 +160,103 @@ Task(
 
 ---
 
+## Gate Lint Phase: Mechanical Verification-Gate Scan
+
+Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. One mechanical pass over the plan tree; the findings it writes are then consumed by whichever reviewer owns verification gates on the path Scale Detection selected.
+
+1. Bind `{GateLintPath}` = `{PlanPath}/Reviews/{Abbrev}-GateLint-{YYYY-MM-DD}.md`. Create `{PlanPath}/Reviews/` if it does not exist.
+
+2. Run the linter over the plan tree, capturing its findings:
+
+```bash
+python "{plugin_root}/scripts/lint_verification_gates.py" "{PlanPath}" > "{GateLintPath}"
+```
+
+The plan tree is a single positional argument; there is no output-path flag, so stdout is redirected to `{GateLintPath}`. Add `--no-execute` to disable the read-only executor — that skips the two checks that decide by running a command and leaves the five static checks — when the plan tree sits on a slow or untrusted mount.
+
+3. Read the exit code as a findings verdict, not a success flag:
+
+| Exit | Meaning | Disposition |
+|------|---------|-------------|
+| 0 | No findings | Continue; the sheet records a clean scan |
+| 1 | Findings present, none at ERROR severity | Continue; the findings are advisory |
+| 2 | At least one ERROR-severity finding, **or** the plan tree path did not resolve | Continue; tell the two apart by whether any finding was written |
+
+Exit `1` and exit `2` are the **normal findings-present outcomes**. Neither is a failure of this step and neither halts the review — a linter that exits non-zero because it found something is doing its job. A plan tree that does not resolve also exits `2` but writes nothing, so a `2` over an empty findings file is the unavailable case below, not an ERROR case.
+
+4. If the script could not be run at all, or exit `2` produced no findings, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did.
+
+5. Pass `{GateLintPath}` into the spawn prompt of the reviewer that owns verification gates on the selected path: the No-Team Path's combined content reviewer, or the Team Path's Verification-Gate Reviewer.
+
+> [!practice] Lint once, classify rather than re-derive
+> A verification gate is vacuous when its measured pre-edit value already satisfies its stated post-edit expectation — it then passes with zero work done, and no amount of reading detects that without measuring the gate against the live tree. That decision is mechanical work, so a reviewer's job here is to classify and report what the scan already found, not to re-derive the same findings by hand. Only the roles that own verification gates receive the path; handing it to every reviewer would be noise.
+
+---
+
+## Strategy Phase: Resolve the DELEGATED Reviewer Block
+
+Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. The Required References list above makes the three-part DELEGATED dispatch discipline (`references/agent-orchestration-delegated.md` and its Part-2 and Part-3 siblings) a **conditional** read for the lead. The lead does not run the delegated checks — spawned reviewers do, in fresh context windows that inherit nothing the lead resolved. This phase resolves the condition once and pushes the result into the prompts, so the rows that cite those references are actually evaluated rather than merely indexed (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.2).
+
+1. Grep the Master Plan and every Orchestration file for `Execution Strategy:\s*DELEGATED`. This is the same Grep Error Pattern Catalog row 66 already requires for the named-trigger check; run it once and reuse the result here.
+
+2. Bind `{DelegatedReviewBlock}`:
+
+   | Grep result | `{DelegatedReviewBlock}` |
+   |---|---|
+   | No match — the plan declares DIRECT throughout | Empty. Omit the line from every prompt. |
+   | One or more matches | The literal block in step 3. |
+
+3. On a match, the block is:
+
+```markdown
+This plan declares Execution Strategy: DELEGATED in {matching file paths}.
+The DELEGATED dispatch discipline ships in three parts. Read each one and
+verify every Orchestration file against the sections that part holds:
+  - references/agent-orchestration-delegated.md
+      -> §1.1-§1.4, §1.8-§1.13
+  - references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md
+      -> §1.16
+  - references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md
+      -> §1.23-§1.27
+Report each miss against its Error Pattern Catalog row, not as a free-form
+observation.
+```
+
+4. Append `{DelegatedReviewBlock}` to the spawn prompt of every reviewer that receives Orchestration or task files: the No-Team Path's combined content reviewer, and the Team Path's Task Reviewer, Dependency Reviewer and Design-Extension Reviewer. Those four roles own every catalog row that cites the delegated reference. Phase 1's structural reviewer and the EI/Coverage reviewers do not receive it — they hold no Orchestration file, so the block would be an instruction they cannot act on.
+
+> [!constraint] A catalog row whose reference no prompt names is never evaluated
+> A conditional reference in the lead's Required References list loads the file into the *lead*. The reviewer that runs the check starts fresh and sees only its own definition plus its prompt. Nothing in between carries the condition across.
+>
+> WRONG — the condition is resolved in the lead and the check is delegated, with no prompt connecting them:
+> ```
+> Required References:  "If reviewing a DELEGATED-orchestration plan: Read
+>                        references/agent-orchestration-delegated.md and its
+>                        Part-2 and Part-3 siblings"
+> Task Reviewer prompt: role, plan type, file paths — no execution strategy,
+>                        no reference, no sections.
+> # The rows are present, indexed, and never evaluated. Every review of every
+> # DELEGATED plan misses the same class.
+> ```
+> CORRECT — the lead resolves the condition and pushes the resolved instruction into the prompt:
+> ```
+> Lead: Grep for `Execution Strategy:\s*DELEGATED` → matched
+>       → bind {DelegatedReviewBlock} → append it to the four owning prompts
+> ```
+>
+> **Audit by reading prompts, not by counting mentions.** To verify this stays true, take each catalog row citing a reference and confirm some spawn prompt causes it to be evaluated. A mention in a synthesis step or a lead-side conditional list is not a loader. Extending one prompt by hand for one review does not fix it either — the next review reverts to the shipped prompt and the blind spot returns.
+
+---
+
 ## No-Team Path (Trivial / Small)
 
 For plans with 0-1 EIs and 1-2 sprints, use sequential subagent spawns with no team overhead.
 
 ### Step 1: Structural Review
 
-Spawn `structural-reviewer` agent via Task tool:
+Spawn `structural-reviewer` agent via Agent tool:
 
 ```
-Task(
+Agent(
   subagent_type: "planwise:structural-reviewer",
   description: "Structural review for {Abbrev}",
   prompt: |
@@ -179,10 +283,10 @@ Read the subagent output. If BLOCKERs found, write report with blockers only and
 
 ### Step 2: Content Review
 
-If no blockers, spawn `plan-reviewer` agent via Task tool:
+If no blockers, spawn `plan-reviewer` agent via Agent tool:
 
 ```
-Task(
+Agent(
   subagent_type: "planwise:plan-reviewer",
   description: "Content review for {Abbrev}",
   prompt: |
@@ -198,6 +302,12 @@ Task(
     byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
+    Gate lint findings: {GateLintPath absolute path} -- mechanical verification-gate
+    findings from scripts/lint_verification_gates.py, already measured against the live
+    pre-edit tree. Read them and classify each one into your finding format rather than
+    re-deriving the same gates by hand. If the path reads `unavailable`, derive them
+    yourself and say explicitly that you did.
+    {DelegatedReviewBlock}
 
     Global numbering note: Spec numbers are assigned globally across all sprints.
     Non-sequential numbers within a single EI are expected, not errors.
@@ -220,7 +330,7 @@ Task(
 
 1. Collect findings from both subagent outputs
 2. Deduplicate: same file + same issue = merge; keep higher severity
-3. Recompute delegated verdicts: for each subagent that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated.md` §1.16)
+3. Recompute delegated verdicts: for each subagent that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16)
 4. Cross-check `[UNCERTAIN]` findings against Known Patterns Whitelist
 5. Assign finding IDs: BLOCKERs -> [B1], [B2]...; ERRORs -> [E1], [E2]...; WARNINGs -> [W1]...; INFO -> [I1]...
 6. Classify systemic findings (see [Systemic Finding Classification](../references/review-classification.md#systemic-finding-classification))
@@ -240,7 +350,7 @@ For plans with 2+ EIs, use full team with phase gating.
 2. Spawn `structural-reviewer` as teammate:
 
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "structural-reviewer",
   subagent_type: "planwise:structural-reviewer",
@@ -288,13 +398,13 @@ Task(
 > | LARGE (4-5 EIs) | 3 (+2 optional) | ei-reviewer, task-reviewer, dependency-reviewer (+ scaffolding-hygiene-reviewer, design-extension-reviewer) |
 > | VERY LARGE (6+ EIs) | 4 (+2 optional) | ei-reviewer (batched), task-reviewer, dependency-reviewer, coverage-reviewer (+ both sub-role reviewers) |
 
-6. Spawn ALL Phase 2 reviewers in parallel -- issue all Task calls together in a single batch (do not wait between spawns):
+6. Spawn ALL Phase 2 reviewers in parallel -- issue all Agent calls together in a single batch (do not wait between spawns):
 
 **Role assignments for each reviewer:**
 
 **EI Reviewer(s):**
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "ei-reviewer-{N}",
   subagent_type: "planwise:plan-reviewer",
@@ -332,7 +442,7 @@ For VERY LARGE plans, batch 2 EIs per ei-reviewer (max 3 ei-reviewers). If a rev
 
 **Task Reviewer:**
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "task-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -351,6 +461,7 @@ Task(
     byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
+    {DelegatedReviewBlock}
 
     Execute the Task Reviewer checklist from your protocol.
 
@@ -362,7 +473,7 @@ Task(
 
 **Dependency Reviewer** (LARGE / VERY LARGE only):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "dependency-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -379,6 +490,7 @@ Task(
     byte, and token counts, heading map, and check anchors for every plan file. Cite its
     row for any count you report; if your own reading contradicts it, re-measure
     and say explicitly that you re-measured.
+    {DelegatedReviewBlock}
 
     Execute the Dependency Reviewer checklist from your protocol.
 
@@ -390,7 +502,7 @@ Task(
 
 **Coverage Reviewer** (VERY LARGE only):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "coverage-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -419,7 +531,7 @@ Task(
 
 **Scaffolding Hygiene Reviewer** (MEDIUM/LARGE/VERY LARGE — Meta-Plan only):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "scaffolding-hygiene-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -434,7 +546,7 @@ Task(
 
 **Design-Extension Reviewer** (LARGE/VERY LARGE — when audit/design-extension findings expected):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "design-extension-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -442,6 +554,7 @@ Task(
     First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
 
     Your assigned role: Design-Extension Reviewer
+    {DelegatedReviewBlock}
     Execute Checks 051-054 and 062 from your protocol.
     ...
 )
@@ -449,7 +562,7 @@ Task(
 
 **Destructive-Path Reviewer** (LARGE/VERY LARGE — when destructive-path or config-gated-change findings expected):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "destructive-path-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -464,7 +577,7 @@ Task(
 
 **Verification-Gate Reviewer** (LARGE/VERY LARGE — when verification-gate findings expected):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "verification-gate-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -472,14 +585,19 @@ Task(
     First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.
 
     Your assigned role: Verification-Gate Reviewer
-    Execute Checks 074-075 from your protocol.
+    Execute Checks 074-075, 077 and 082 from your protocol.
+    Gate lint findings: {GateLintPath absolute path} -- mechanical verification-gate
+    findings from scripts/lint_verification_gates.py, already measured against the live
+    pre-edit tree. Read them and classify each one into your finding format rather than
+    re-deriving the same gates by hand. If the path reads `unavailable`, derive them
+    yourself and say explicitly that you did.
     ...
 )
 ```
 
 **Change-Surface Reviewer** (LARGE/VERY LARGE — when change-surface findings expected):
 ```
-Task(
+Agent(
   team_name: "plan-review-{abbrev}",
   name: "change-surface-reviewer",
   subagent_type: "planwise:plan-reviewer",
@@ -498,7 +616,7 @@ Task(
 ### Phase 3: Synthesis
 
 9. **Deduplicate:** same file + same issue = merge; keep higher severity.
-10. **Recompute delegated verdicts:** For each reviewer that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated.md` §1.16).
+10. **Recompute delegated verdicts:** For each reviewer that returned a verdict label (GREEN/YELLOW/RED, NEEDS_FIXES/APPROVED, READY/READY-WITH-NOTES, or equivalent), recompute the classification from the reported finding counts using the task's stated classification rule. If the recomputed verdict differs from the reported label, use the recomputed verdict and log a meta-finding -- do NOT accept a verdict label without verifying it against the agent's own evidence. For cross-file control-flow claims ("symbol X never used in this file -> feature Y is broken"), trace the full consumer call path before accepting OR rejecting the finding -- single-file grep proves local non-use, not global inertness (`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.16).
 11. **Cross-check [UNCERTAIN] findings:**
     - Check against [Known Patterns Whitelist](../references/review-classification.md#known-patterns-whitelist)
     - Cross-check against other reviewers' findings

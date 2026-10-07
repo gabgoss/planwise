@@ -42,10 +42,10 @@ All paths resolve from `config.yaml` (`project.planwise_root`, `project.lessons_
 | File | Role | Read | Write |
 |------|------|------|-------|
 | `{lessons_dir}/00-Categorization-By-Domain.md` | Source of truth for which lesson belongs to which bucket | Yes | No (this workflow does not modify categorisation) |
-| `{lessons_dir}/{lessons_index}` | Master table; lesson statuses; cross-check against categorisation | Yes | Phase 4 — for each captured lesson, set its Status column to `promoted` and repoint its File link to `Archive/` ([Part-2 §6.6](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#66-capture-the-in-scope-lessons-archive-on-capture) step 3). NOT the Rule Promotion Log — those rows record a *landing* and are written later by [lessons-curate-workflow.md](lessons-curate-workflow.md) Phase 2 |
-| `{lessons_dir}/LL-{NNN}-*.md` | Lesson body — promoted content is INLINED into BB rule designs from these files. **Read in full during Phase 1** for every non-archived in-scope lesson before any grouping decision (§3.4). | Yes (in full, Phase 1) | Phase 4 — archive-on-capture ([Part-2 §6.6](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#66-capture-the-in-scope-lessons-archive-on-capture)): set `status: promoted`, populate `promoted-to:` with every owning backlog item id, then `git mv` the file to `Archive/`. Skipped entirely under `--dry-run` |
-| `{lessons_dir}/Archive/LL-{NNN}-*.md` | Archived (already-promoted) lesson bodies. Skip as candidates — these are not promotion candidates. Also the **destination** of the Phase-4 capture move. | No | Phase 4 — receives each captured lesson via `git mv` ([Part-2 §6.6](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#66-capture-the-in-scope-lessons-archive-on-capture) step 2) |
-| `{backlog_dir}/{backlog_index}` | Backlog master table; **also the BB ownership index** for cross-checking whether a lesson is already named in any active BB's title or row (§3.2 step 5). | Yes | Phase 4 — append a row per new BB, bump `Last Updated`, then overwrite the Score column via `score_backlog.py` (§6.3-§6.4) |
+| `{lessons_dir}/{lessons_index}` | Generated index; lesson statuses; cross-check against categorisation | Yes — via `parse_lessons.py` output | Phase 4 — no direct write; each captured lesson flips `status: promoted` in its own frontmatter and `generate_lessons_index.py --write` regenerates the index once for the whole batch ([Part-2 §6.5](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture) steps 3-4). NOT the Rule Promotion Log — those rows record a *landing* and are written later by [lessons-curate-workflow.md](lessons-curate-workflow.md) Phase 2, into whichever log file the lesson's id resolves to |
+| `{lessons_dir}/LL-{NNN}-*.md` | Lesson body — promoted content is INLINED into BB rule designs from these files. **Read in full during Phase 1** for every non-archived in-scope lesson before any grouping decision (§3.4). | Yes (in full, Phase 1) | Phase 4 — archive-on-capture ([Part-2 §6.5](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture)): set `status: promoted`, populate `promoted-to:` with every owning backlog item id, then `git mv` the file to `Archive/`. Skipped entirely under `--dry-run` |
+| `{lessons_dir}/Archive/LL-{NNN}-*.md` | Archived (already-promoted) lesson bodies. Skip as candidates — these are not promotion candidates. Also the **destination** of the Phase-4 capture move. | No | Phase 4 — receives each captured lesson via `git mv` ([Part-2 §6.5](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#65-capture-the-in-scope-lessons-archive-on-capture) step 2) |
+| `{backlog_dir}/{backlog_index}` | Backlog master table; **also the BB ownership index** for cross-checking whether a lesson is already named in any active BB's title or row (§3.2 step 5). | Yes | Phase 4 — regenerated once, after the last BB is filed, via `generate_backlog_index.py --write` (§6.3) |
 | `{backlog_dir}/BB-*-*.md` | Active BB files. **Grep all of them for `LL-{NNN}` mentions** to detect lessons already owned by an active BB (regardless of status: `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`). | Yes (Grep, Phase 1) | No |
 | `{backlog_dir}/Archive/BB-*-*.md` | Archived (COMPLETE/CLOSED) BB files. **Also greppable** — a lesson named in an archived COMPLETE BB is already promoted; do not re-bundle. | Yes (Grep, Phase 1) | No |
 | `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md` | New BB files | No | Yes (one per planned promotion grouping) |
@@ -53,7 +53,7 @@ All paths resolve from `config.yaml` (`project.planwise_root`, `project.lessons_
 | `CLAUDE.md` | Force-read binding callouts pointing to the new rules | Yes | No (BB describes the CLAUDE.md edit; the BB executor performs it) |
 | `config.yaml: categorization` | Bucket schema, slug list, sub-bucket structure | Yes | No |
 
-**Pre-condition:** `00-Categorization-By-Domain.md` must be up to date. If new lessons exist in the master index but not in the categorisation file, this workflow MUST stop and tell the user to run `/planwise lessons curate --phase=categorize` first. See [lessons-curate-workflow.md](lessons-curate-workflow.md) for the upstream sync mechanism.
+**Pre-condition:** `00-Categorization-By-Domain.md` must be up to date. The halt condition is specified **once**, in [`handlers/lessons.md`](../handlers/lessons.md#pre-condition-gates) § Batch-Promote Mode → Pre-condition Gates, **Gate 2**. It is corpus-wide — any lesson in the master index but in no bucket table halts the run — and it is evaluated before this workflow is entered. Do not restate it here or anywhere below; cite it. See [lessons-curate-workflow.md](lessons-curate-workflow.md) for the upstream sync mechanism.
 
 ---
 
@@ -61,9 +61,9 @@ All paths resolve from `config.yaml` (`project.planwise_root`, `project.lessons_
 
 > [!protocol] Four-Phase BB Drafting
 > 1. **Phase 1 — Resolve scope AND read every in-scope lesson body in full.** Parse `$ARGUMENTS`. Read the categorisation file and the master index. Validate each lesson against the five-step gate in §3.2 (file exists, NOT archived, status is `documented`, categorised, NOT cited by any BB in `{backlog_dir}/` or `{backlog_dir}/Archive/`). Then **read every surviving in-scope lesson body in full** — Context, Lesson, Applies To. Grouping cannot be decided from index summaries alone; multi-part lessons (Part-2 §9) require body content to detect decomposition opportunities.
-> 2. **Phase 2 — Group lesson fragments into BBs.** Group by destination artifact using the decision tree in §4. A single lesson MAY be decomposed across multiple BBs when its body covers content for multiple distinct rules (Part-2 §9). Each group becomes one BB. Default grouping = one BB per top-level bucket (or per sub-bucket if `--category=C1` targets a sub-bucket id). **No-limbo principle (§4.2):** every in-scope `documented` lesson MUST land in at least one BB deliverable — `documented` is not a valid resting state for a lesson the workflow has accepted into scope.
+> 2. **Phase 2 — Group lesson fragments into BBs.** Group by destination artifact using the decision tree in §4. A single lesson MAY be decomposed across multiple BBs when its body covers content for multiple distinct rules (Part-2 §9). Each group becomes one BB. Default grouping = one BB per root-cause cluster inside the scoped bucket or sub-bucket (§4.1), which collapses to one BB for the whole bucket only when that bucket yields a single cluster. **No-limbo principle (§4.2):** every in-scope `documented` lesson MUST land in at least one BB deliverable — `documented` is not a valid resting state for a lesson the workflow has accepted into scope.
 > 3. **Phase 3 — Draft each BB.** Use the lesson bodies already in context from Phase 1 (no re-read). Decide each lesson fragment's promotion strategy (rule / applied-to-code / applied-to-settings / CLAUDE.md addition / decomposed across N BBs), and draft deliverables — including the rule's outline with content INLINED (no `see LL-XXX` references) and a CLAUDE.md binding callout when relevant.
-> 4. **Phase 4 — Write files, then capture the lessons.** Write each BB to `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md`, append rows to `{backlog_index}`, run `score_backlog.py` to compute scores, bump the index `Last Updated` line. Then **capture every in-scope lesson** (Part-2 §6.6): flip it to `status: promoted`, populate `promoted-to:`, `git mv` it to `{lessons_dir}/Archive/`, and update its Master Table row. Report summary to chat. Full write scope: §1.
+> 4. **Phase 4 — Write files, then capture the lessons.** Write each BB to `{backlog_dir}/BB-{ID}-{SB}-DOC-PromoteLessons{BucketSlug}.md`, then regenerate the backlog index once with `generate_backlog_index.py --write`. Then **capture every in-scope lesson** (Part-2 §6.5): flip it to `status: promoted`, populate `promoted-to:`, `git mv` it to `{lessons_dir}/Archive/`, then regenerate the lessons index once with `generate_lessons_index.py --write`. Report summary to chat. Full write scope: §1.
 
 If the user only wants Phase 1+2 (a grouping plan without draft BBs), accept `--dry-run` and skip Phase 3+4. **Phase 1 lesson-body reads still happen under `--dry-run`** — without them, the grouping plan is just an index re-shuffle and misses decomposition opportunities.
 
@@ -89,15 +89,17 @@ For each resolved lesson ID, run all five checks:
 
 1. **File exists.** Confirm `{lessons_dir}/LL-{NNN}-*.md` exists. If missing, flag as anomaly and exclude from this run.
 2. **NOT archived.** Confirm the file is in `{lessons_dir}/` (active) and NOT in `{lessons_dir}/Archive/`. Archived lessons are already promoted; exclude with the note *"already in {lessons_dir}/Archive/; skipping"*.
-3. **Frontmatter status check.** Read the YAML frontmatter (body load is deferred to §3.4 after this gate). If `status` is already `applied` or `rule`, exclude with the note *"already promoted to {applied-as}; skipping"*. If `status` is already `promoted`, exclude with the note *"already captured via {promoted-to}; awaiting landing; skipping"* — the lesson is fully owned by a drafted backlog item and needs no further promotion work. If `status` is `orphaned`, **include it in scope** — its prior owner closed without landing it, so it is a re-bundle candidate; capture (§6.6 mirrors this on the Part-2 side) flips it `orphaned → promoted` under the new owning item.
-4. **Categorised.** Verify the lesson is listed in `00-Categorization-By-Domain.md` under its expected bucket (or sub-bucket). If not, flag as anomaly: *"LL-NNN is not in `00-Categorization-By-Domain.md`; run `/planwise lessons curate --phase=categorize` first."*
+3. **Frontmatter status check.** Read the YAML frontmatter (body load is deferred to §3.4 after this gate). If `status` is already `applied` or `rule`, exclude with the note *"already promoted to {applied-as}; skipping"*. If `status` is already `promoted`, exclude with the note *"already captured via {promoted-to}; awaiting landing; skipping"* — the lesson is fully owned by a drafted backlog item and needs no further promotion work. If `status` is `orphaned`, **include it in scope** — its prior owner closed without landing it, so it is a re-bundle candidate; capture (§6.5 mirrors this on the Part-2 side) flips it `orphaned → promoted` under the new owning item.
+4. **Categorised under the expected bucket.** Gate 2 has already proved the lesson appears in *some* bucket table, so presence is not in question here. This step checks the lesson sits under the bucket the scope resolution expects (or its sub-bucket). A lesson filed under an unexpected bucket is an anomaly, not a halt — flag it as *"LL-NNN is categorised under {actual_bucket} but was resolved as {expected_bucket}; verify the bucketing"* and continue.
 5. **NOT owned by an existing BB (fragment-aware).** Run `Grep 'LL-{NNN}' {backlog_dir}/` (recursive — covers active + Archive). If any BB cites this lesson, determine ownership at the fragment level — a lesson may have some fragments owned and others not (see §4.4 decomposition):
    - **Fully-owned** (every fragment of the lesson is cited by an active BB): exclude with the note *"already owned by BB-{NNN} ({status}); will be promoted via that BB"*.
    - **Partially-owned** (an active BB cites only some fragment(s) of the lesson; other fragment(s) are un-cited): include the lesson in scope, but restrict Phase 2 grouping to the un-owned fragment(s) — the owned fragment stays with its existing BB. Note in the scope report (§3.3): *"LL-{NNN}: fragment {X} owned by BB-{NNN} ({status}); fragment {Y} in scope"*.
    - **Archived BB whose owning item is COMPLETE** (`COMPLETE` / `CLOSED`, in `{backlog_dir}/Archive/`): if the lesson's frontmatter was never flipped to `rule`/`applied`/`promoted`, this is an **owner-anomaly**. Do not merely flag it in chat: set `status: orphaned`, write the `owner-anomaly:` frontmatter key with the evidence (owner id, absence evidence, date), and surface it in the scope report (§3.3) so it sorts as actionable work rather than hiding.
 
 > [!gate] Categorisation Gate
-> If any in-scope lesson is missing from `00-Categorization-By-Domain.md`, STOP. Tell the user to run `/planwise lessons curate --phase=categorize` first. Do NOT attempt to grouping-decision a lesson whose bucket is unknown — silent default-bucketing distorts the BB clustering.
+> The halt condition lives in [`handlers/lessons.md`](../handlers/lessons.md#pre-condition-gates) **Gate 2** and has already run before this workflow was entered. A run cannot reach §3.2 with an uncategorised lesson anywhere in the master index. Never attempt a grouping decision on a lesson whose bucket is unknown — silent default-bucketing distorts the clustering.
+>
+> **Do NOT restate this gate scope-relatively.** §3.1 resolves a bucket scope to the lessons *listed under that bucket in the categorisation file*, so an uncategorised lesson sits in no bucket and is excluded from scope by construction. A scope-relative test therefore reports clean on exactly the lessons it exists to catch: the run proceeds on a silently shrunken scope instead of stopping. Narrowing scope must never route around this gate.
 
 > [!gate] BB Ownership Gate
 > A lesson cited in any active or archived BB is already accounted for. Do NOT re-bundle. The grep in step 5 is mandatory — silent re-bundling produces conflicting promotion paths and corrupts the Rule Promotion Log.
@@ -142,13 +144,36 @@ Under `--dry-run`, this read still happens — the dry-run output is meaningless
 
 ### 4.1 Default grouping rule
 
+The grouping unit is the **root-cause cluster**, not the bucket. Partition each bucket's in-scope lessons into clusters that share one root cause (§4.3), then draft one BB per cluster. A bucket that yields a single cluster produces a single BB. That outcome is the degenerate case of this rule, not the standing default.
+
 > [!decide] Grouping Strategy
 > | Scope | Default grouping |
 > |-------|------------------|
-> | One top-level bucket (e.g., `--category=A`) | One BB for the whole bucket |
-> | One sub-bucket (e.g., `--category=C1`) | One BB for that sub-bucket; sub-buckets cluster more loosely than top-level buckets |
-> | Mixed buckets (`--all-documented`) | One BB per top-level bucket; never bundle a database lesson with a tooling lesson into one BB |
-> | A specific list of LL IDs | If the IDs span buckets, ask the user whether to merge or split via `AskUserQuestion` |
+> | One top-level bucket (e.g., `--category=A`) | One BB per root-cause cluster inside the bucket. A bucket yielding one cluster produces one BB. |
+> | One sub-bucket (e.g., `--category=C1`) | One BB per root-cause cluster inside the sub-bucket. Sub-buckets cluster more loosely, so they yield fewer clusters, never one by default. |
+> | Mixed buckets (`--all-documented`) | Cluster inside each top-level bucket separately. Never merge clusters across buckets, and never bundle a database lesson with a tooling lesson into one BB. |
+> | A specific list of LL IDs | If the IDs span buckets, ask the user whether to merge or split via `AskUserQuestion`. Within one bucket, cluster as above. |
+
+**Precedence.** Where this section and §4.3 give different groupings, **§4.3 wins** — a one-BB-per-bucket grouping carries no mechanism to satisfy the file-size rule in [Part-2 §6.2](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#62-write-each-bb-file), so at scale it produces the failure §4.4 describes.
+
+**Sizing.** A cluster of roughly 2-5 lessons is the working band. Project each cluster's BB against the [Part-2 §6.2](lessons-promote-batch-workflow-Part-2-DraftAndWrite.md#62-write-each-bb-file) token budget before Phase 3 begins. Split any cluster whose BB is projected to exceed that budget, along its next-strongest shared cause. Merge two clusters only when their root causes turn out to be one cause. The projection is an estimate — §6.2's measured check at write time stays the binding gate.
+
+**Reporting.** A run that produces more than one BB for a bucket states the clustering basis in its Phase 2 chat report: one line per cluster, naming that cluster's shared root cause and its lesson count. Report the resulting BB count to the user before Phase 3 rather than letting Phase 4 reveal it.
+
+> [!constraint] Size the Groups Before Drafting, Not After
+> WRONG — a bucket holding 30 lessons across several root causes is drafted as one BB, because the bucket was treated as the grouping unit:
+> ```markdown
+> ## Deliverables
+> 1. Rule: {name}.md — content of all 30 in-scope lessons inlined
+> ```
+> The receiving BB either breaches the Part-2 §6.2 budget or silently summarises most of those lessons away. That is the §4.4 failure one level up, at bucket grain rather than lesson grain.
+>
+> CORRECT — the same bucket is partitioned by root cause first, and each cluster becomes its own BB, sized against the budget before drafting:
+> ```markdown
+> Cluster 1 (4 lessons) — shared cause: {cause}  → BB 1
+> Cluster 2 (3 lessons) — shared cause: {cause}  → BB 2
+> Cluster 3 (5 lessons) — shared cause: {cause}  → BB 3
+> ```
 
 ### 4.2 Sub-grouping inside a BB — by destination artefact
 
@@ -191,6 +216,8 @@ Most lessons are single-purpose and promote 1:1 (a single `promotion-target:` va
 > WRONG — LL-X has content covering four distinct fragments (a)/(b)/(c)/(d) that map to different destination rules. The workflow bundles all of LL-X into one BB (say, the C1 bucket BB). The receiving BB either inflates past the one-read token budget OR the (c)/(d) fragments get summarised away because they don't fit C1's narrative.
 >
 > CORRECT — LL-X is decomposed: the (a) fragment lands in the C1 BB; the (c) fragment lands in a tooling/agent-extension BB; the (d) fragment lands in a CLAUDE.md hooks BB. Each BB's Evidence table cites LL-X with the specific fragment it owns; each BB's rule design inlines ONLY the WRONG/CORRECT examples relevant to its destination. `promoted-to:` on the lesson accumulates ALL owning backlog item ids — one per fragment's BB — not just the first.
+
+**Where this failure comes from.** The inflate-or-summarise outcome above is what §4.1's grouping produces whenever more than one root cause is forced into a single BB. At lesson grain that means a multi-destination lesson routed whole, as in the WRONG case above. At bucket grain it means a whole bucket drafted as one BB — which is why §4.1 makes the root-cause cluster the grouping unit rather than the bucket. The mechanism is identical at both grains: the receiving BB inflates past its token budget, or the content that does not fit its narrative is summarised away.
 
 Decomposition signal: during Phase 1 full-body reads (§3.4), an LL whose Context section names ≥2 distinct rule files OR whose "Applies To" lists ≥2 distinct file domains is a decomposition candidate. Flag in the Phase 2 grouping output: *"LL-X decomposes across BBs P, Q, R — fragments listed below."*
 

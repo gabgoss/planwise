@@ -12,20 +12,22 @@ monolith was split into; those live in conftest.py.
 Run with:  python -m unittest tests/test_doctor_sweeps.py
 """
 
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import doctor_sweeps  # noqa: E402 -- patch-target home for the doctor sweeps
+import doctor_sweeps
+import init_project as ip
 
-from conftest import (  # noqa: E402
+from conftest import (
     _MigrationFixtureBase,
-    _UpgradeArtifactsFixtureBase,
     _snapshot_tree,
+    _UpgradeArtifactsFixtureBase,
     _verdict,
 )
 
@@ -325,7 +327,7 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         self.assertFalse(removable.exists(), "A REMOVABLE finding must be unlinked")
         self.assertTrue(preserve.exists(), "A PRESERVE finding must never be unlinked")
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         pruned = (
             self.project_root / self.cfg.planwise_root
             / "upgrade-backups" / f"prune-{today}" / "PRUNED.md"
@@ -379,9 +381,8 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         buf = io.StringIO()
         with mock.patch.object(
             doctor_sweeps, "_classify_diverged", side_effect=_classify_side_effect
-        ):
-            with contextlib.redirect_stdout(buf):
-                exit_code = ip._run_doctor(self.cfg)
+        ), contextlib.redirect_stdout(buf):
+            exit_code = ip._run_doctor(self.cfg)
 
         stdout = buf.getvalue()
         self.assertEqual(exit_code, 0)
@@ -452,7 +453,7 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         self.assertTrue(
             installed.exists(), "A notes-flagged subset must survive --prune-stale"
         )
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         pruned = (
             self.project_root / self.cfg.planwise_root
             / "upgrade-backups" / f"prune-{today}" / "PRUNED.md"
@@ -489,7 +490,7 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         self.assertEqual(result, 0)
         self.assertFalse(installed.exists(), "A REMOVABLE finding must be unlinked")
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         backup = (
             self.project_root / self.cfg.planwise_root
             / "upgrade-backups" / f"prune-{today}" / filename
@@ -559,7 +560,7 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         self.assertEqual(result, 0)
         self.assertTrue(installed.exists(), "A failed unlink must leave the file in place")
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         out_dir = (
             self.project_root / self.cfg.planwise_root
             / "upgrade-backups" / f"prune-{today}"
@@ -604,7 +605,7 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         result2 = ip._run_prune_stale(self.cfg)
         self.assertEqual(result2, 0)
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         backups_root = self.project_root / self.cfg.planwise_root / "upgrade-backups"
         first_dir = backups_root / f"prune-{today}"
         second_dir = backups_root / f"prune-{today}-2"
@@ -837,9 +838,8 @@ class TestInstalledDivergenceLint(_UpgradeArtifactsFixtureBase):
         buf = io.StringIO()
         with mock.patch.object(
             doctor_sweeps, "_classify_diverged", return_value=_verdict("SUBSET", "contained")
-        ):
-            with contextlib.redirect_stdout(buf):
-                exit_code = ip._run_doctor(self.cfg)
+        ), contextlib.redirect_stdout(buf):
+            exit_code = ip._run_doctor(self.cfg)
 
         stdout = buf.getvalue()
         self.assertEqual(exit_code, 0)
@@ -925,3 +925,56 @@ class TestVerdictOverrideShapeAndFreshness(unittest.TestCase):
         )
 
 
+
+
+class TestCheckInstalledAgainstShipped(unittest.TestCase):
+    """check_installed_against_shipped(): the installed file is read once, and an error names its file."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="srd_sweeps_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.src = self.tmp / "shipped.md"
+        self.dst = self.tmp / "installed.md"
+        self.src.write_text("---\nname: x\n---\nBody one.\n", encoding="utf-8")
+        self.dst.write_text("---\nname: x\n---\nBody one.\nExtra line.\n", encoding="utf-8")
+
+    def _check(self, fail_read_of=None, after_reads=0):
+        """Run the check with `Path.read_text` counted. Reads of `fail_read_of` after `after_reads` raise."""
+        real = Path.read_text
+        reads: list[Path] = []
+
+        def counting(path, *args, **kwargs):
+            if fail_read_of is not None and path == fail_read_of and reads.count(path) >= after_reads:
+                reads.append(path)
+                raise OSError("simulated read failure")
+            reads.append(path)
+            return real(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", counting):
+            finding = doctor_sweeps.check_installed_against_shipped(
+                self.dst, self.src, "rule", doctor_sweeps.normalize_rule_for_diff
+            )
+        return finding, reads
+
+    def test_the_installed_file_is_read_exactly_once(self):
+        finding, reads = self._check()
+        self.assertIsNotNone(finding)
+        self.assertEqual(reads.count(self.dst), 1, reads)
+        self.assertEqual(reads.count(self.src), 1, reads)
+
+    def test_a_second_read_of_the_installed_file_never_happens_so_it_cannot_be_blamed_on_the_shipped_file(self):
+        finding, reads = self._check(fail_read_of=self.dst, after_reads=1)
+        self.assertEqual(reads.count(self.dst), 1, reads)
+        self.assertNotEqual(finding["classification"], "UNVERIFIABLE", finding)
+
+    def test_an_installed_side_read_error_is_labelled_installed(self):
+        finding, _reads = self._check(fail_read_of=self.dst, after_reads=0)
+        self.assertEqual(finding["classification"], "UNVERIFIABLE")
+        self.assertTrue(finding["recommendation"].startswith("unreadable (simulated read failure)"), finding)
+
+    def test_a_shipped_side_read_error_is_labelled_shipped(self):
+        finding, _reads = self._check(fail_read_of=self.src, after_reads=0)
+        self.assertEqual(finding["classification"], "UNVERIFIABLE")
+        self.assertTrue(
+            finding["recommendation"].startswith("shipped reference unreadable (simulated read failure)"), finding
+        )

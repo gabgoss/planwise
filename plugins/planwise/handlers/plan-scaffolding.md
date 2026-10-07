@@ -65,6 +65,7 @@ For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extracti
 4. From cross-sprint reference parts, extract ONLY the decisions/conventions this sprint needs
 5. Add Cross-References table tracing each section back to its source
 6. If at/over 22K measured tokens (`python "{plugin_root}/scripts/measure_files.py" {EI file}`), split into parts: `{Abbrev}-S{XX}-Execution-Input-Part-{N}-{Topic}.md`
+7. **Before finalizing each section (binding):** (a) for any row citing a project-side backlog item or prior review as authority for a conclusion, read that authority's corrections/acceptance-criteria before compressing — a cited authority that has revised the claim is a HALT, not a footnote (`references/ei-source-promise-integrity.md` §10.4); (b) preserve hedge language verbatim, or record what was measured to resolve it (`references/ei-fidelity.md` §4.5); (c) for any row asserting a state (not just citing a path), re-run the assertion against the live artifact and record the measured value + date inline (`references/scaffolding-hygiene.md` §12.3).
 
 **Output:** One `{Abbrev}-S{XX}-Execution-Input.md` per sprint, placed in the sprint folder.
 
@@ -90,8 +91,9 @@ When extracting from Meta-Plan Discovery outputs, scaffolding agent MUST consume
 2. Tier 1 raw outputs carry detail that Tier 2/3 consolidated parts shed; skipping Tier 1 is BLOCKER.
 3. Every sprint's EI MUST include a **Deferred / Out-of-Scope Log** at `{Abbrev}-S{XX}-Deferred-OutOfScope-Log.md` enumerating:
    - Content from Tier 1/2/3 NOT extracted into this sprint's EI
-   - Rationale for deferral (e.g., "covered by Sprint-03", "out of scope per Master Plan §X")
+   - Rationale for deferral (e.g., "covered by Sprint-{XX}", "out of scope per Master Plan §X")
    - Target sprint or "Out of scope"
+4. **Where a source's prose states a count over a table, count the table before carrying the number forward.** A caption is a derived claim about the rows beneath it, and it can disagree with them. A caption reading "nine required edits, one new file" above a nine-row table whose fourth row IS the new file double-counts that row. The scaffold that trusts the caption inherits a total the table never supported, and every artifact built from it agrees with the wrong number. On disagreement the table wins: record the measured row count with its date, and note that the caption is superseded. See `references/scaffolding-hygiene.md` §12.7 for the full rule, both shapes, and Reviewer Check 094.
 
 **Deferred / Out-of-Scope Log template:**
 
@@ -145,7 +147,7 @@ Use standard templates for all other files (sprint plans, orchestrations, recove
 
 **Status rule:** Set ALL Sprint Plan files to `**Status:** PLANNED`. Only the Master Plan gets `READY_TO_EXECUTE`. Do NOT copy the Master Plan's status into Sprint Plans — each Sprint Plan starts as PLANNED and transitions to IN_PROGRESS → COMPLETE during execution.
 
-**Write-set declaration and computed intersection (per `references/scaffolding-hygiene.md` §16):** A `∥` on the Master Plan's declared-ordering line is not a scheduling preference — it is a claim that two sprints never write the same file. The claim is about file sets, so only a file-set operation supports it. Compute it here, at sprint-design time, rather than leaving it for a reviewer to catch:
+**Write-set declaration and computed intersection (per `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16):** A `∥` on the Master Plan's declared-ordering line is not a scheduling preference — it is a claim that two sprints never write the same file. The claim is about file sets, so only a file-set operation supports it. Compute it here, at sprint-design time, rather than leaving it for a reviewer to catch:
 
 - **Collect each sprint's write-set as the Step 3 decomposition settles.** A write-set is the directories and files that sprint **EDITS** — never the ones it merely reads. Write it into that Sprint Plan's `## Write-Set` section as a `| Path | Task |` table naming the task that writes each path.
 - **Compute the pairwise intersection for every `∥` pair** the declared-ordering line joins, and write each result into the Master Plan's `## Execution Ordering` → `### Computed Write-Set Intersection` table (`| Declared pair | Intersection | Verdict |`). Show **the intersection itself** — the named shared paths, or `∅` — and not only a verdict. A shown `∅` is as much a computation as a non-empty row; a verdict standing alone, with no result beside it, is an assertion wearing a computation's clothes.
@@ -153,7 +155,28 @@ Use standard templates for all other files (sprint plans, orchestrations, recove
 - **Never infer disjointness from sprint names, cluster names, or subsystem labels.** "Agents vs handlers, disjoint files" names two clusters, and a cluster is not a write-set; the distance between the two is exactly where two concurrent sessions overwrite each other. This inference is the originating failure the rule exists to prevent, and no degree of apparent obviousness licenses it.
 - **Recompute the whole matrix whenever any sprint's write-set changes during scaffolding,** and stamp the `Last recomputed:` date beneath the table on every recomputation. A mid-plan coordination flag that admits one new file into a sprint's scope can turn a `∅` row false, and the row does not re-derive itself.
 
-See `references/scaffolding-hygiene.md` §16 for the full rule, both WRONG shapes, and the reviewer check that enforces it.
+See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16 for the full rule, both WRONG shapes, and the reviewer check that enforces it.
+
+**Convention register (per `references/scaffolding-hygiene.md` §12.6):** A convention adopted at this pass reaches only the sprints authored after it. Sprints already on disk inherit nothing, and a note in the Master Plan is not a carrier — it reaches a sprint only when a human reads it and acts. Register the convention here, at adoption:
+
+- **Write an entry the moment a convention is adopted,** and write one again for every review fix repaired at a single sprint's own sites. That second class has no carrier at all until it is registered, and it is the class that reappears three sprints later as an apparent new finding.
+- **Give each entry five fields:** `id`, `adopted-at` (this pass, or the review that adopted it), `requires`, a runnable `predicate`, and the `basis` value measured when the entry was written plus its date.
+- **Dry-run each predicate against a known-bad sprint and a known-good sprint before the entry ships.** The two runs MUST return different results. A predicate that reads the same either way is decoration, not a gate.
+- **Do not discharge the register here.** Each sprint's pre-run review runs every open entry's predicate against that sprint and records what came back. Adoption owns writing the entry, and review owns running it.
+- **A discharge never reads the `basis` field in place of re-running the predicate.** The basis is a scaffold-time snapshot and expires exactly like the state claims §12.3 governs — a stale entry misleads the reviewer in the very act of applying it.
+
+See `references/scaffolding-hygiene.md` §12.6 for the full rule, the recorded ownership reasoning, and Reviewer Check 092.
+
+**Roster-change enumeration surfaces (per `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §13.4):** A landing surface derived once, for the artifact type the sprint set out to add, goes stale the moment a create of a *second* type joins the deliverable list. The deliverable list is derived per artifact and the enumeration hunt per artifact type, and nothing connects the two:
+
+- **Re-derive on the deliverable list changing, not at scaffold start.** A second create is normally discovered *after* the first surface was derived, so a check that runs at scaffold start runs before the fact it needs. Re-run the hunt whenever a deliverable of a type not already in scope enters or leaves the list, including when a review adds one.
+- **Group the sprint's creates and deletes by parent directory.** Two or more distinct directories means the sprint spans more than one artifact type, and every type present owes its own derivation.
+- **Sweep the doc tree per directory** with `Grep` on the directory name, on the digit-plus-noun count shape, on the spelled-out-number count shape, and on the roster's existing member names. Prose states a roster count in words more often than in digits, so the digit pattern alone under-reaches.
+- **Expand every hit to its enclosing section before scoping the edit.** A roster table states membership with no count of its own, and an invocation list beside it names commands rather than members, so no pattern reaches either — but both sit beside a matched prose count and both go stale on the same change.
+- **Classify each hit current-roster or historical-roster before editing it.** Only current-roster surfaces move. A frozen historical list — a "formerly X" set that some sweep walks — is correct precisely while it disagrees with the live roster, and updating it breaks the sweep it feeds. Record such a hit as verified-not-owed rather than skipping it silently.
+- **Removal is the same rule as addition.** State the trigger as *the roster changed*, never as *an artifact was added*.
+
+See §13.4 for the full derivation, the frozen-list counter-example, and Reviewer Check 093.
 
 **`.gitkeep` emission (mirrors standard [Step 3](plan.md#step-3-create-folder-structure)):** For EVERY session folder created during scaffolding, write an empty `Outputs/.gitkeep` placeholder file inside the session's `Outputs/` directory. Empty directories are not tracked by git, so a missing `.gitkeep` means the `Outputs/` folder disappears on clone and downstream `/planwise run` cannot write summary or task-output files into the expected path. Apply to every sprint × every session — same per-session `.gitkeep` rule as the standard Step 3 constraint. Also populate each task file's Verification Commands per the [Step 8e per-file-type command map](plan.md#step-8e-populate-verification-commands-per-file-type-map) — scaffolded plans must NOT ship with blank verification placeholders any more than standard plans do.
 
@@ -201,6 +224,10 @@ Same checklist as standard mode, plus:
 [ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
 [ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint
 [ ] If Discovery → Scaffolding: Retention threshold ≥ 80 % per EI section (auto-reject below)
+[ ] Every convention adopted at this pass, and every review fix repaired at one sprint's own sites, has a register entry carrying id / adopted-at / requires / predicate / basis (per `references/scaffolding-hygiene.md` §12.6)
+[ ] Each register predicate dry-run against a known-bad and a known-good sprint — the two results differ
+[ ] Sprint creates/deletes grouped by parent directory, and each artifact type's landing surface derived separately (per `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §13.4)
+[ ] Every current-roster enumeration surface is in some task's edit scope; every historical-roster hit recorded as verified-not-owed
 [ ] If Discovery has user-action gates outside /planwise run: Master Plan Status is IN_PROGRESS with `awaiting {user action}` note (per `references/session-execution-protocol.md` Discovery / Meta-Plan Status section)
 [ ] If effective Token Saver on (plan Master-Plan `Token Saver:` field over the project `context.token_saver` default) — Token Saver large-file scan run over each task's cited EI sections + code refs; Warn+ files have a backlog item; cost-reason Critical tasks flagged 1M-exception (read-reason → paged-read/refactor, never 1M-exception); each sprint EI under the line/byte/token read gates (split into Parts if not)
 ```
@@ -218,7 +245,7 @@ Sprints created: {N}
 
 For a complete scaffolding example, see [sample-scaffolding-output.md](../examples/sample-scaffolding-output.md).
 
-After the scaffolding confirmation, proceed to [handlers/plan.md Step 10: Plan Review Gate](plan.md#step-10-plan-review-gate).
+After the scaffolding confirmation, run [handlers/plan.md Step 9a: Emit the Cross-Sprint File-Touch Declarations](plan.md#step-9a-emit-the-cross-sprint-file-touch-declarations) and then [Step 9b: Post-Pass Harmonization](plan.md#step-9b-post-pass-harmonization) — a `--scaffold` pass authors 2+ sprints by construction, so both steps always apply here — and then proceed to [handlers/plan.md Step 10: Plan Review Gate](plan.md#step-10-plan-review-gate).
 
 ---
 

@@ -360,4 +360,4 @@ This file covers §1-§5 — the core SDK/identifier verification recipes, the p
 
 ---
 
-*Companion files: [verify-discovery-consolidation.md](verify-discovery-consolidation.md), [verify-cross-repo-fix-discipline.md](verify-cross-repo-fix-discipline.md), [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md), [verification-gates.md](verification-gates.md), [scaffolding-hygiene.md](scaffolding-hygiene.md), [ei-fidelity.md](ei-fidelity.md), [task-content-fidelity.md](task-content-fidelity.md), [agent-orchestration.md](agent-orchestration.md).*
+*Companion files: [verify-discovery-consolidation.md](verify-discovery-consolidation.md), [verify-cross-repo-fix-discipline.md](verify-cross-repo-fix-discipline.md), [verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md), [verification-gates.md](verification-gates.md), [scaffolding-hygiene.md](scaffolding-hygiene.md), [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md), [ei-fidelity.md](ei-fidelity.md), [task-content-fidelity.md](task-content-fidelity.md), [agent-orchestration.md](agent-orchestration.md).*

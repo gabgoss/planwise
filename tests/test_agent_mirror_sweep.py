@@ -24,10 +24,10 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-import init_project as ip  # noqa: E402
-import doctor_sweeps  # noqa: E402 -- patch-target home for sweep_orphaned_agent_mirrors()
+import doctor_sweeps
+import init_project as ip
 
-from conftest import _snapshot_tree, _verdict  # noqa: E402
+from conftest import _snapshot_tree, _verdict
 
 
 class _AgentMirrorFixtureBase(unittest.TestCase):
@@ -325,7 +325,7 @@ class TestOrphanedAgentMirrorPrune(_AgentMirrorFixtureBase):
             installed.exists(), "a REMOVABLE orphaned agent mirror must be unlinked"
         )
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         out_dir = (
             self.project_root / self.cfg.planwise_root
             / "upgrade-backups" / f"prune-{today}"
@@ -362,7 +362,7 @@ class TestOrphanedAgentMirrorPrune(_AgentMirrorFixtureBase):
         self.assertEqual(result, 0)
         self.assertTrue(installed.exists(), "a failed unlink must leave the file in place")
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         out_dir = (
             self.project_root / self.cfg.planwise_root
             / "upgrade-backups" / f"prune-{today}"
@@ -400,7 +400,7 @@ class TestOrphanedAgentMirrorPrune(_AgentMirrorFixtureBase):
         result2 = ip._run_prune_stale(self.cfg)
         self.assertEqual(result2, 0)
 
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now().astimezone().date().isoformat()
         backups_root = self.project_root / self.cfg.planwise_root / "upgrade-backups"
         first_dir = backups_root / f"prune-{today}"
         second_dir = backups_root / f"prune-{today}-2"

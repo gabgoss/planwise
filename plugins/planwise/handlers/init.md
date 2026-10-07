@@ -90,7 +90,7 @@ Omit the trailing `--token-saver` flag when `{token_saver}` is `no` — the gene
 
 If `python` is not found, try `python3`.
 
-**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML), run **Step 8.5** (Token Saver calibration capture), and skip to **Step 9** (team sharing).
+**If the script succeeds:** Check its output for any skipped files (e.g., config.yaml already exists). If config was skipped, <!-- AUTO-MODE: critical --> ask the user if they want to overwrite — if yes, delete the existing file and re-run the script. If the output carries a `Backlog index migration:` block, pass it through verbatim; a `DEFERRED` or `REFUSED` block is an action-required item, shown under Step 10's Skipped section. A `DEFERRED` block means init found a hand-authored index and left it untouched. Its fix is `/planwise upgrade`. Likewise, if the output carries a `Lessons index migration:` block, pass it through verbatim, with the same DEFERRED and REFUSED disposition. The same holds for a `Plans index migration:` block. A plans index that init seeds itself is rendered through the plans index generator, so its Status Legend follows the config's `plan_statuses:`, and an index that already exists is never overwritten. Then run **Step 5.1** (idempotent — the Glob check skips when the categorization file already exists; required because the script silently skips this step on systems without PyYAML), run **Step 8.5** (Token Saver calibration capture), and skip to **Step 9** (team sharing).
 
 **If the script fails** (Python not available or any error): Read [handlers/init-fallback.md](init-fallback.md) and follow Steps 3-8 there, then return here and continue at **Step 8.5**.
 
@@ -98,39 +98,34 @@ If `python` is not found, try `python3`.
 
 ### Step 5.1 — Seed Categorisation file (fallback)
 
-Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` from the plugin template, populated with the user's `categorization:` block. This produces the companion file referenced by `{lessons_dir}/00-Index-LessonsLearned.md` and consumed by `/planwise lessons curate` and `/planwise lessons promote-batch`.
+Render `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` in the generated companion's own shape, populated with the user's `categorization:` block. This produces the companion file referenced by `{lessons_dir}/00-Index-LessonsLearned.md` and consumed by `/planwise lessons curate` and `/planwise lessons promote-batch`.
 
-> **Note:** This step runs in both the fast-path (after Step 2's script succeeds) and the fallback path. The script in `{plugin_root}/scripts/init_project.py` renders the categorization file when PyYAML is available; if PyYAML is missing the script falls through to this step and Claude renders the file via Read+Write. The Glob check in step 1 below makes the step idempotent — if the file already exists (either from a prior init or from the script just running) the step is a no-op.
+> **Note:** This step runs in both the fast-path (after Step 2's script succeeds) and the fallback path. The script in `{plugin_root}/scripts/init_project.py` renders the companion through `generate_lessons_index.render_companion_file` when PyYAML is available; if PyYAML is missing (that call needs a real YAML parse of `config.yaml`), the script falls through to this step and Claude renders the file directly via Read+Write, matching the same shape. The Glob check in step 1 below makes the step idempotent — if the file already exists (either from a prior init or from the script just running) the step is a no-op.
 
 > [!practice] Missing `categorization:` Block — Render From Defaults
-> When the user's `config.yaml` has no `categorization:` block (or the block is empty), the script falls back to a built-in default that mirrors the 4-bucket template (database / code / process / tooling) and surfaces an INFO line in the Step 10 banner naming the missing block. The downstream skill (`/planwise lessons curate`) still works against the rendered file. Suggest the user run `python init_project.py --migrate` to seed the block into their `config.yaml` for full customisation.
+> When the user's `config.yaml` has no `categorization:` block (or the block is empty), the script falls back to a built-in default that mirrors the 4-bucket shape in [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md) (database / code / process / tooling) and surfaces an INFO line in the Step 10 banner naming the missing block. The downstream skill (`/planwise lessons curate`) still works against the rendered file. Suggest the user run `python init_project.py --migrate` to seed the block into their `config.yaml` for full customisation.
 >
 > If Claude runs Step 5.1 in fallback mode (because PyYAML is unavailable), apply the same rule: if the user's `config.yaml` lacks the block, use the bucket list from `config.yaml.template` as the default and add a banner line noting it.
 
 1. Use **Glob** to check if `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` already exists — **skip this step if it does**.
 2. **Read** `{planwise_root}/config.yaml` (written in Step 5) and extract the `categorization:` block. The block has these keys: `buckets` (list), `decision_tree_order` (list), `default_bucket` (string), `edge_cases_section` (bool). Each bucket has `id`, `slug`, `name`, `description`, and optionally `triggers` (object with `technology` and/or `domain` lists), `sub_buckets` (list of `{id, name}` objects), and `code_bucket` (bool). `triggers` and `code_bucket` are not used by this rendering step — they are consumed by `/planwise lessons curate` and only need to round-trip cleanly through the read.
-3. **Read** the template: [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md).
-4. Render the template by substituting placeholders and expanding the iteration directives:
-
-   | Placeholder | Substitute With |
-   |-------------|-----------------|
-   | `{lessons_dir}` | `{lessons_dir}` from Step 1 |
-   | `{lessons_index}` | `00-Index-LessonsLearned.md` (from `config.yaml: project.index_files.lessons`) |
-   | `{TODAY}` | Today's date in ISO format (`YYYY-MM-DD`) |
-   | `{SCOPE_PARAGRAPH}` | Default sentence: `Lessons captured during {project_name} sessions.` (substitute `{project_name}` from Step 1) |
-
-5. Expand `{FOR EACH BUCKET in config.yaml: categorization.buckets:} ... {END}` once per bucket in `decision_tree_order`. For each bucket render:
+3. **Read** [../templates/categorization-by-domain.md](../templates/categorization-by-domain.md) as a worked example of the target shape — it is the generator's own zero-lesson output for the ship-default config, not a fill-in-the-blanks template. Match its shape rather than substituting into it.
+4. Render the header block:
+   - `# Lessons Learned — Categorization by Domain`
+   - `Generated: <today's date>` (ISO format `YYYY-MM-DD`)
+   - `**Companion to:** [{lessons_index}]({lessons_index})` (`{lessons_index}` from `config.yaml: project.index_files.lessons`, default `00-Index-LessonsLearned.md`)
+   - `## Scope` heading, then `config.yaml: categorization.scope` if set, else `Lessons captured during {project_name} sessions.` (substitute `{project_name}` from Step 1)
+5. For each bucket in `decision_tree_order`, render:
    - `## {BUCKET_ID}. {BUCKET_NAME} (0)` heading (the `(0)` is a per-bucket lesson count, initialised to 0)
    - `{BUCKET_DESCRIPTION}` paragraph
    - Empty table:
      - Default 3-column schema: `| ID | Title | Severity |`
      - If the bucket has `code_bucket: true` in `config.yaml`, render 4 columns: `| ID | Title | Module | Severity |`
-6. Inside each bucket block, expand `{IF bucket has sub_buckets:} ... {END}` once per sub-bucket (skip entirely if `sub_buckets` is empty or absent). For each sub-bucket render:
+6. Inside each bucket block, for each sub-bucket (skip entirely if `sub_buckets` is empty or absent), render:
    - `### {SUB_ID}. {SUB_NAME} (0)` heading
    - Empty table with the same column schema as the parent bucket
-7. Preserve the `## Cross-cutting observations` section with its placeholder bullet and the `## Classification edge cases` section with its 3-column header (no rows).
-8. Strip the header HTML comment (lines 3-8 of the template) and the inline `<!-- Column schema: ... -->` comments inside each bucket — those are template-authoring notes, not output content.
-9. Use **Write** to create `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` with the rendered result.
+7. Close with a `---` rule, then the footer pointers: `[Notes](00-Categorization-Notes-LessonsLearned.md)` and `[Changelog](...)` (the changelog filename derived from `{lessons_index}` the same way the generator derives it — `00-Changelog-LessonsLearned.md` for the default hub name). Do NOT render a `## Cross-cutting observations` or `## Classification edge cases` section — those now live in `00-Categorization-Notes-LessonsLearned.md`, never in the companion.
+8. Use **Write** to create `{planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md` with the rendered result.
 
 ---
 
@@ -196,18 +191,54 @@ Use `AskUserQuestion`:
 <!-- AUTO-MODE: convenience -->
 <!-- Default: No — an unattended run NEVER invokes a package manager. SUPPRESSED ENTIRELY when --auto-from flag is set (subroutine mode). -->
 
-Probe for the GitHub CLI by running `gh --version`. If it resolves, skip this step
-silently — there is nothing to offer.
+> [!note] Where this step's three contracts are defined
+> **The gates.** The two checks below are gates 3 and 4 of the submission engine's
+> Gate Chain ([`references/feedback-submission.md`](../references/feedback-submission.md)).
+> This step evaluates them to decide whether to offer the install; it owns the
+> offer, never the gate definitions.
+>
+> **The Auto-Mode log line.** The convenience-site contract — skip the question,
+> apply the inferred default, log the inference — is stated once in
+> [`references/auto-mode-policy.md`](../references/auto-mode-policy.md)
+> § Convenience Question Behavior, and applies here by that policy. No call site
+> in this plugin restates the log line's format, and this one does not either.
+>
+> **The population the suppression skips.** Suppressing under `--auto-from` is
+> correct: eight handlers invoke init as a subroutine, and an install prompt
+> firing mid-`/planwise backlog` would be wrong. Nobody is stranded by it —
+> [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) Step 4.5 makes the same offer to every install that
+> only ever auto-inits, and
+> [doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md)
+> Stage 16 reports the gate state on demand.
 
-If it does not resolve, use `AskUserQuestion`:
+Resolve the GitHub CLI by the engine's own order — PATH first, then the known install
+locations ([`references/feedback-submission.md`](../references/feedback-submission.md)
+§ Resolving `gh`). Do not probe PATH alone: a `gh` installed after this session started
+works by full path and is invisible to a bare `gh` until a new terminal opens. Three
+outcomes, reported distinctly — the installed-but-unauthenticated case is the one most likely to
+confuse, because the binary is present and posting still will not happen:
+
+**If it resolves,** probe the auth state with `"{gh_path}" auth status`. On exit 0 skip this
+step silently — there is nothing to offer. On any non-zero exit, print one line and
+continue (no question, no install, never blocking):
+
+```
+gh installed ({version}) but not authenticated — /planwise feedback will save a
+local draft instead of posting.
+  remediation: run `gh auth login` (an interactive browser/device flow), and set
+               feedback.enabled: true in {planwise_root}/config.yaml
+```
+
+**If it does not resolve,** use `AskUserQuestion`:
 
 > "The GitHub CLI (`gh`) isn't installed. planwise uses it so `/planwise feedback` can
 > file your bugs, lessons, and ideas upstream directly. Without it feedback still works —
 > your report is saved as a draft file that you paste into the issues page yourself.
 > Install it now? (Yes / No)"
 
-**If Yes:** run the install command for the detected platform, then re-probe with
-`gh --version` and report the result:
+**If Yes:** run the install command for the detected platform, then re-resolve `gh` by
+the same order and report the result. The re-resolution is what finds a fresh install,
+because the session's PATH does not yet carry it:
 
 | Platform | Command |
 |---|---|
@@ -260,12 +291,24 @@ Directories created:
   ✓ {planwise_root}/{plans_dir}/
   ✓ {planwise_root}/{backlog_dir}/
   ✓ {planwise_root}/{lessons_dir}/
+  ✓ {planwise_root}/{feedback_dir}/
 
 Seed files installed:
-  ✓ {planwise_root}/{plans_dir}/00-Index-Plans.md
+  ✓ {planwise_root}/{plans_dir}/{plans_index}
   ✓ {planwise_root}/{backlog_dir}/00-Index-Backlog.md
   ✓ {planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md
+  ✓ {planwise_root}/{lessons_dir}/00-Changelog-LessonsLearned.md
+  ✓ {planwise_root}/{lessons_dir}/00-PromotionLog-LessonsLearned.md
   ✓ {planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md  (rendered from config.yaml: categorization)
+
+Backlog index:
+  ✓ generated shape (or no backlog index yet)   (one of: "✓ generated shape (or no backlog index yet)" / "! deferred — hand-authored index left untouched; {fix}" / "! refused — {fix}"; the script prints nothing for either of the first case's two sub-states, since both mean there was nothing to migrate)
+
+Lessons index:
+  ✓ generated shape (or no lessons index yet)   (one of: "✓ generated shape (or no lessons index yet)" / "! deferred — hand-authored index left untouched; {fix}" / "! refused — {fix}"; the script prints nothing for either of the first case's two sub-states, since both mean there was nothing to migrate)
+
+Plans index:
+  ✓ generated shape (or no plans index yet)   (one of: "✓ generated shape (or no plans index yet)" / "! deferred — hand-authored index left untouched; {fix}" / "! refused — {fix}"; the script prints nothing for either of the first case's two sub-states, since both mean there was nothing to migrate)
 
 Configuration:
   ✓ {planwise_root}/config.yaml (scope: {install_scope}, plan tier: {plan_tier} → {context_window} context window)
@@ -276,6 +319,9 @@ Token Saver:
 Agent Teams:
   ✓ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 → {settings_file}
 
+Session env var (user + project settings):
+  ✓ CLAUDE_CODE_THRIFTY_SONIC=false → ~/.claude/settings.json and {project_root}/.claude/settings.json   (per file: added / corrected / unchanged / skipped — invalid JSON)
+
 Plugin permissions:
   ✓ additionalDirectories: {plugin_root} → {settings_file}
 
@@ -284,6 +330,10 @@ Rules installed to .claude/rules/planwise/:
   ✓ skill-authoring.md              (paths: .claude/skills/**)
   ✓ rule-authoring.md               (paths: .claude/rules/**)
   ✓ artifact-self-containment.md    (paths: .claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md)
+  ✓ plain-language.md               (global style rule, no paths: line)
+  ✓ plain-presentation.md           (global style rule, no paths: line)
+
+  (With user install scope the script adds one line: "Style rules installed to {style_rule_dir}.")
 
   (Plan/backlog/lessons reference rules are handler-loaded on demand from the
    plugin's references/ directory — not installed as path-scoped rules.)
@@ -353,7 +403,7 @@ python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --migrate
 
 1. Resolves `{planwise_root}/config.yaml` (must already exist — otherwise it errors and instructs you to run plain `/planwise init`).
 2. Reads `config.yaml.template`, replaces the placeholders, and parses both files.
-3. For each top-level key in the script's `MIGRATABLE_TOP_LEVEL_KEYS` list (`plugin_root`, `context`, `categorization`):
+3. For each top-level key in the script's `MIGRATABLE_TOP_LEVEL_KEYS` list (defined in `scripts/config_gen.py`):
    - If the key is **absent** in the user's config → copies the template value in.
    - If the key is **present** → leaves it untouched, no value overwriting.
 4. Re-emits the merged config preserving the user's leading comment header.
@@ -390,3 +440,4 @@ Auto-Init Fallback, the init handler runs in **subroutine mode**:
   active, Step 1 runs interactively as normal.
 - After the subroutine returns, the calling handler RE-RESOLVES `config.yaml` and
   resumes at its own Step 1.
+- The backlog index migration (Step 10's `Backlog index:` line group) also runs in subroutine mode; the replacement banner above replaces nothing about it.

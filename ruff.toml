@@ -1,0 +1,40 @@
+# Lint scope for the planwise plugin repository.
+#
+# Decision (2026-09-08): the whole repository is linted, tests included.
+# `python -m ruff check .` from this directory MUST report zero findings.
+#
+#   plugins/planwise/   the shipped subtree — clean with no allowance
+#   tests/              the dev-only suite — ALSO linted; an unlinted test tree
+#                       is where dead imports and shadowed names accumulate
+#   evals/              the paid eval harness (own pytest.ini) — linted too;
+#                       only its conftest's sys.path-then-import shape is
+#                       exempted, per file, below
+#
+# There is no "known baseline" allowance any more: a release battery asserts
+# the command above is clean, not "equal to N recorded findings".
+
+# Pin the ruff version this repo lints against. `[lint]` below selects no
+# rules explicitly, so the enforced rule set is ruff's own version-dependent
+# default set -- a different ruff version can silently change which findings
+# this gate reports. Pinning makes a mismatched ruff refuse to run instead of
+# quietly changing the gate.
+required-version = "==0.16.8"
+
+[lint]
+
+[lint.per-file-ignores]
+# evals/conftest.py must set sys.dont_write_bytecode and extend sys.path
+# BEFORE importing the modules under plugins/planwise/scripts; E402 is the
+# cost of that ordering, not a defect. E402 is not in ruff 0.16.8's default
+# rule set, so an inline `# noqa: E402` in a test file is dead and RUF100
+# flags it -- tests/*.py carry no such inline suppression any more. This
+# per-file-ignore is likewise dead under the current default rule set; it is
+# kept in place as a no-op rather than removed, so the ignore reactivates on
+# its own if a future ruff default set re-enables E402.
+"evals/conftest.py" = ["E402"]
+# tests/conftest.py imports init_project before artifact_upgrade/doctor_sweeps
+# on purpose: artifact_upgrade -> rule_descope_migration -> init_project is a
+# circular import that only resolves when init_project is the FIRST of the
+# three cold-imported here. `ruff --fix` alphabetizing this block (I001) once
+# silently broke that ordering and failed the whole test collection.
+"tests/conftest.py" = ["I001"]

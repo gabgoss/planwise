@@ -48,10 +48,16 @@ Available subcommands:
   plan [name]                  Create a new plan
   plan --scaffold [abbrev]     Scaffold from Discovery phase
   review [plan-path]           Review plan before execution
-  run [@orchestration-file]    Execute a planned session
+  run [@orchestration-file] [--resume]  Execute a planned session
+                               --resume skips the start approval on a proven mid-session resume
   upgrade                      Refresh installed rules/agents after a plugin update
-  doctor                       Audit rule scope + (Token Saver) overhead staleness, read-gate scan, read-limit drift
+  doctor                       Audit install health — version gate, rule scope,
+                               stale/diverged rules, orphaned agent mirrors, index drift,
+                               feedback capability, upgrade leftovers, and (Token Saver)
+                               overhead staleness, read-gate scan, read-limit drift
   doctor --prune-stale         Delete stale de-scoped rules flagged REMOVABLE (writer; opt-in)
+  doctor --prune-upgrade-leftovers  Delete past-upgrade backups and caches flagged prunable (writer; opt-in)
+  doctor --create-feedback-dir Create the missing feedback drafts directory (writer; opt-in)
   token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
   backlog [item-id]            Triage backlog items; capture follow-up BLIs from resolution outputs
   list                         List all plans with status
@@ -61,6 +67,8 @@ Available subcommands:
   lessons curate [--phase=X]   Categorise lessons and track promotions
   lessons promote-batch <scope>  Batch-draft promotion BBs
   feedback [bug|lesson|idea]   Report a planwise bug, lesson, or idea upstream
+  feedback --status            Show each local draft and whether it was posted
+  feedback --sweep             Archive drafts already posted (asks first; never deletes)
   harvest [<scope>] [--dry-run] [--resume] [--max-items=N] [--include-existing] [--no-auto-approve]
           Run the lesson-to-artifact chain end to end, unattended.
   help                         Show this help message
@@ -95,7 +103,8 @@ ARGUMENTS: $ARGUMENTS
 
 **Loaded on demand, NOT pre-injected** — each is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. Key references (not exhaustive — handlers own the full set):
 
-- [Scaffolding hygiene](../../references/scaffolding-hygiene.md)
+- [Scaffolding hygiene](../../references/scaffolding-hygiene.md) — §1–§12, what the scaffold emits
+- [Scaffolding hygiene — Part 2: derivation and parallelism](../../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) — §13–§17, what the scaffold must compute before it closes
 - [Discovery and exit criteria](../../references/discovery-and-exit-criteria.md)
 - [Exit-criteria fidelity](../../references/exit-criteria-fidelity.md)
 - [Execution-time binding rules](../../references/execution-time-binding-rules.md)

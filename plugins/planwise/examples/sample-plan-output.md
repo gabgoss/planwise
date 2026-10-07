@@ -16,6 +16,7 @@ This is an example of the output produced by the `/planwise plan` command.
 - Name: "UserAuthentication"
 - Abbreviation: "UA"
 - Vision: "Implement secure user authentication with login, registration, and password reset functionality."
+- Resolves: none
 
 **Question 2: Scope**
 - Sprints: 2
@@ -93,6 +94,7 @@ PLAN CREATED: UserAuthentication
 
 **Plan Abbreviation:** UA
 **Status:** READY_TO_EXECUTE
+**Resolves:** none
 **Created:** 2026-02-02
 
 ---
@@ -131,4 +133,5 @@ Implement secure user authentication with login, registration, and password rese
 ### Project Complete When:
 - [ ] All sprints complete
 - [ ] User can login, register, and reset password
+- [ ] Every item in **Resolves:** is COMPLETE with a dated resolution note (or Resolves is "none")
 ```

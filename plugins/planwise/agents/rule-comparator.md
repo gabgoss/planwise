@@ -13,6 +13,10 @@ description: >
 # in the spawn prompt (see Inputs below); this agent compares exactly one named
 # pair and must not walk the tree, so it never needs directory search.
 tools: Read, Grep, SendMessage, ToolSearch
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context (Glob's own omission is
+# explained above — this agent compares exactly one named pair).
+disallowedTools: Write, Edit, Glob, Bash, NotebookEdit, WebFetch, WebSearch, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree
 model: sonnet
 maxTurns: 12
 ---

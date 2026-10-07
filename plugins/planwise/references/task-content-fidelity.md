@@ -113,30 +113,33 @@ Fix: Measure with measure_files.py and write the numeric value per references/ta
 >
 > CORRECT — one measured figure, produced by the script, cited consistently:
 > ```markdown
-> | 1 | {notebook-dir}/{notebook-file} | {K} (JSON) | ~{T}K | Source for Analysis — measured via measure_files.py (conservative 2.6 B/tok; dense single-line JSON tokenizes heavy) |
+> | 1 | {notebook-dir}/{notebook-file} | {K} (cleared .ipynb) | ~{T}K | Source for Analysis — measured via measure_files.py (notebook class auto-detected, 2.3 B/tok on the Claude 5 family) |
 >
 > ## Notes for Agent
-> - Notebook measured at {K} KiB → ~{T}K tokens (conservative ratio).
+> - Notebook measured at {K} KiB → ~{T}K tokens (notebook ratio, cleared file).
 >   Subagent budget: ~{task_T}K + 54K overhead = ~{total_T}K, well within 200K.
 > ```
 >
-> Content-class ratio guide (Opus/Fable-family; the Sonnet/Haiku family
-> tokenizes ~1.44× lighter — more bytes per token):
+> Content-class ratio guide (Claude 5 family — Opus, Sonnet and Fable share
+> one tokenizer; Haiku 4.5 alone is ~1.31–1.38× lighter, so it carries more
+> bytes per token. The split is by model generation, not by model size):
 >
 > | Content class | Bytes/token | Heuristic |
 > |---------------|-------------|-----------|
 > | Dense markdown (tables, link-heavy rows) | ~2.6 | Gate-conservative default — use when unsure |
-> | Prose / typical markdown | ~3.0 | |
-> | Docs with code blocks / source code | ~3.3 | |
+> | Prose / typical markdown | ~2.9 | |
+> | Docs with code blocks / source code | ~2.7 | Code tokenizes DENSER than prose, not lighter |
 > | Wide-line reference docs | ~4.1+ | Light — measure, never assume |
-> | Compressed JSON / minified JS / notebook JSON | ~1.9–2.6 | Dense structures tokenize heavy; keep the conservative default |
+> | Jupyter notebook (`.ipynb`, outputs cleared) | ~2.3 | Auto-detected by extension. The Read tool renders a notebook as cells and counts tokens on the rendering; an uncleared notebook's large outputs are elided, so measure the cleared file |
+> | Raw JSON (`.json`, `.jsonl`, `.ndjson`) | ~2.0 | Auto-detected by extension; the densest measured class |
+> | Minified JS / CSV | dense-md default | No measured class of their own; the conservative text default applies |
 >
 > The `KiB`/`~Tokens` values MUST come from `measure_files.py` (or `wc -c` ÷ ratio) on the actual file — NOT from eyeballing a `Read` tool output. A single `Read` page is capped (~25K tokens hard, ~21K delivered, 2,000-line window); a partial read produces a lower number that underestimates the cost and silently misroutes the file in the §9.A.8 Large-File Ladder.
 
 #### Reviewer Check 017 — Task Byte-Ratio Band Conformance
 
 - **Severity / Role / Type:** WARNING | Task Reviewer | NEW
-- **What:** Per-file ratio (measured bytes ÷ `~Tokens`) MUST fall within the measured band for the assigned model family — `[2.4, 3.5]` Opus/Fable, `[3.5, 5.0]` Sonnet/Haiku (conservative-default estimates land in the Opus/Fable band).
+- **What:** Per-file ratio (measured bytes ÷ `~Tokens`) MUST fall within the measured band for the assigned model family — `[2.0, 3.5]` for the Claude 5 family (Opus, **Sonnet**, Fable), `[2.7, 5.0]` for Haiku 4.5 (conservative-default estimates land in the Claude 5 band). The lower bounds are the json cells (2.0 / 2.7); a `.json` or `.ipynb` row sits at the low end of its band by construction, not by error. Sonnet moved into the Claude 5 band on 2026-09-07; a correctly-measured Sonnet task rated against the Haiku band false-fires.
 - **Detection:** For each Required Context row, compute `bytes ÷ tokens`. Outside the assigned family's band → WARNING.
 - **Finding template:**
 ```
@@ -329,6 +332,31 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan.m
 
 **Canonical homes — do not restate.** The cost-threshold derivation formulas (`available_per_task`, `critical`, `warn`) are computed by `token_saver.derive_thresholds()`; see [token-saver-profile.md](token-saver-profile.md) § Token Saver Threshold Derivation for the formulas and the `40,000`-guaranteed-warn-ceiling explanation. The Read tool's three FIXED mechanical gates — `READ_PAGE_CAP_TOKENS` / `READ_FILE_BYTE_CAP` / `READ_LINE_CAP`, their values and warn bands, the per-model bytes-per-token ratios, and the `measure_files.py` measurement discipline — live in [session-context-budget.md](session-context-budget.md) § Read-Tool Hard Limits. All are module-level constants in `scripts/read_limits.py` (re-exported by `scripts/token_saver.py`), NOT `/context`-measured.
 
+> [!constraint] Measure because the hard read gate depends on the number — not merely for budget accuracy
+> Every `~Tokens` figure feeds two consumers, and they fail differently. As a **budget** input, an under-estimate costs margin: the task runs, tighter than planned. As a **gate** input, the hard read gate is computed from that same figure — it decides `read_level` — and an under-estimate routes a file that *cannot* be read in one Read into a row asserting that it can. The runner then follows an instruction impossible to execute: the Read returns a silently truncated first page, or hard-errors with zero content.
+>
+> That asymmetry is why §9.A.3's "derive from measured bytes, never a line count" is a MUST and not a preference, and why it MUST NOT be softened to "measure if uncertain" at the point where the figure reaches this ladder. An escape hatch phrased as a suggestion is read as optional by exactly the author whose file needs it. The row carries a plausible number, the gate conclusion is computed from that same number and agrees with it, and every step followed the rule as written.
+>
+> So state the dependency wherever the derivation is stated. A rule that says "measure" without saying **what breaks when you do not** is the one that gets skipped.
+>
+> WRONG — a dense reference doc priced from a per-line rate, with the gate conclusion drawn from that same figure:
+> ```markdown
+> | 1 | {dense-reference}.md | — | ~{N}K | {purpose} |
+>
+> ## Notes for Agent
+> - One Read covers ~{L} lines at {r} tok/line ≈ ~{N}K — under the 25K page cap.
+> ```
+> The file measures 2–3× that figure, the Read refuses it, and the task has named no `offset`/`limit` fallback for its primary edit target.
+>
+> CORRECT — measured bytes ÷ the §9.A.3 content-class ratio, the gate conclusion drawn from the measurement, and the read tactic named in the row:
+> ```markdown
+> | 1 | {dense-reference}.md | {K} | ~{N}K | {purpose} — ⚠ PAGED ≥25K {model}-tok |
+>
+> ## Notes for Agent
+> - Measured {B} bytes ÷ 2.6 ≈ ~{N}K — OVER the 25K page cap. Page it:
+>   Read(offset=1, limit={L}) → check the `PARTIAL view` header → continue to the next page.
+> ```
+
 `level = max(cost_level, read_level)`; `reason` records the driver:
 
 | Level | Cost threshold | Read threshold (per assigned model) | Action |
@@ -339,7 +367,7 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan.m
 | Critical / `read` | — | ≥ 25K model-tok OR ≥ 256 KiB OR ≥ 2,000 lines | warn + backlog + **paged read / refactor**; **NOT** `1M-exception` |
 
 > [!constraint] A `read`-reason Critical Is NOT `1M-Exception`-Resolvable
-> A **cost-reason** Critical earns the `1M-exception` flag — the file is simply too big for a lean per-task budget, and the 1M window absorbs it. A **read-reason** Critical does NOT: the per-Read page cap is unchanged by the window, and the Opus/Fable-family tokenizer trips the token gate on *fewer bytes* than Sonnet/Haiku's. The remedy is a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. A source-file Critical is never a hard stop — it advises and files an item.
+> A **cost-reason** Critical earns the `1M-exception` flag — the file is simply too big for a lean per-task budget, and the 1M window absorbs it. A **read-reason** Critical does NOT: the per-Read page cap is unchanged by the window, and the Claude 5 tokenizer trips the token gate on *fewer bytes* than Haiku 4.5's. The remedy is a **paged read** (`offset`/`limit`/Grep) for read-only context, or **refactor/split + backlog item** for a core or to-be-edited dependency. A source-file Critical is never a hard stop — it advises and files an item.
 
 **Single oversized file vs. per-task sum.** On a default/light install the cost bands sit *above* the FIXED 25K read cap (`warn` is 40K, derived `critical` higher still), so any single file large enough to be cost-Warn/Critical has already crossed the read gate — it classifies `reason=read` (paged-read/refactor), **never** cost-`1M-exception`. Cost-`1M-exception` therefore surfaces for a single file only on a **heavy** install where derived `critical` drops below 25K; otherwise it fires on a **per-task sum** of several mid-size files whose combined estimate trips `critical` while no single file trips the read cap. Do **not** expect a lone giant file to be `1M-exception`'d on a default install — that is the intended `max(cost, read)` + ties-go-to-`read` behavior, not a miss.
 
@@ -354,11 +382,11 @@ This subsection is the **per-task-file enforcement anchor** the `handlers/plan.m
   2. **Warn+ file with no backlog item** (WARNING) — a Required Context file classifies Warn or Critical (cost or read) but the task records no large-file recommendation / backlog item.
   3. **`1M-exception` on a 200K-window agent** (ERROR) — a `1M-exception` task is declared `Agent: Sonnet`/`Haiku` without the run-time override note (the flag dispatches on Opus/1M).
   4. **Uncovered read-gate crossing** (WARNING) — a Required Context file crosses a FIXED read gate (measured bytes ≥ 256 KiB, OR `bytes ÷ {assigned-model B/tok}` ≥ 25K tokens, OR ≥ 2,000 lines) and the task records neither a paged-read note (`offset`/`limit`/Grep) nor a refactor+backlog item.
-  5. **Read-reason Critical mis-flagged `1M-exception`** (ERROR) — a file classifying Critical with `reason=read` is flagged `1M-exception`. The 1M window does not raise the per-Read page cap / byte refusal, and the Opus/Fable-family tokenizer trips the token gate on *fewer bytes* than Sonnet/Haiku's — read-Critical is paged or refactored, never `1M-exception`'d. Only `reason=cost` Critical earns the flag.
+  5. **Read-reason Critical mis-flagged `1M-exception`** (ERROR) — a file classifying Critical with `reason=read` is flagged `1M-exception`. The 1M window does not raise the per-Read page cap / byte refusal, and the Claude 5 tokenizer trips the token gate on *fewer bytes* than Haiku 4.5's — read-Critical is paged or refactored, never `1M-exception`'d. Only `reason=cost` Critical earns the flag.
   6. **Oversized generated artifact not split** (ERROR) — a plan-generated artifact a runner MUST read (task file, Orchestration, Recovery, Consolidated Context part, Execution Input, task Output file) exceeds the HARD read ceiling (≥ 25K tokens at the reading model's ratio, OR ≥ 256 KiB, OR ≥ 2,000 lines) without a Multi-Part split. External source files the runner reads but does not generate stay advisory (sub-checks 2 and 4).
 - **Detection:**
   1. Read `context.token_saver` from `config.yaml`. If false → emit no findings (no-op).
-  2. Derive ceilings (never hardcode): `available_per_task = token_saver_session_target − token_saver_runner_overhead − 6000`; `critical = available_per_task − 10000`; `warn = min(40000, round(0.5 × available_per_task))`. Read gates are FIXED: token page-cap ≥ 25,000 model-tok (warn 22,000), `tokens = bytes ÷ {model-family B/tok — opus/fable 2.6, sonnet/haiku 3.7 gate-conservative}`; byte ≥ 262,144 (warn 245,760); line ≥ 2,000 — measure with `measure_files.py --model {assigned} --json`.
+  2. Derive ceilings (never hardcode): `available_per_task = token_saver_session_target − token_saver_runner_overhead − 6000`; `critical = available_per_task − 10000`; `warn = min(40000, round(0.5 × available_per_task))`. Read gates are FIXED: token page-cap ≥ 25,000 model-tok (warn 22,000), `tokens = bytes ÷ {model-family B/tok — Claude 5 family (opus/sonnet/fable) 2.6, haiku 3.5 gate-conservative text fallback; a .ipynb or .json row uses its auto-detected notebook/json cell}`; byte ≥ 262,144 (warn 245,760); line ≥ 2,000 — measure with `measure_files.py --model {assigned} --json`.
   3. For each task: recompute the bottom-up estimate and apply sub-check 1.
   4. For each Required Context file: classify against the task's assigned-Agent tokenizer (`level = max(cost_level, read_level)`, with `reason`); apply sub-checks 2, 4, 5.
   5. Apply sub-check 3 to any task flagged `1M-exception`.
@@ -502,6 +530,100 @@ Cross-reference: `measurement-discipline.md` §8.6 covers cross-route APPEND saf
 Catalog row: "Duplicate assertion label within a task file" → ERROR.
 Catalog row: "Assert-vs-report disposition mismatch for one label across two files" → ERROR.
 
+### 9.A.14 Measure every Required Context row at scaffold close
+
+> [!constraint] Measurement is applied at ROW grain, in a sweep at scaffold close — never per file at authoring time
+> A measurement convention applied per *file*, at the moment its author is thinking about that file, reaches the surfaces in view and defaults silently everywhere else. The default is invisible: the unmeasured rows carry the same cell shape as the measured ones. It recurs within a single task, and across tasks of one sprint written by one author in one sitting.
+>
+> The convention is therefore applied as a **sweep over every row**, run at scaffold close — after every task file exists, before the plan is committed. Each row's `KiB` / `~Tokens` cells come from `measure_files.py` (or `wc -c` ÷ the §9.A.3 content-class ratio) run against **the span that row actually cites**. Not from a rate applied to a guessed size. Not from a figure carried across from a sibling row.
+>
+> Nothing in this sweep is a judgement call. Every figure is one measurement away, and the sweep is complete when every row has one.
+
+**Rows citing a section span are measured as a span, not as a section-sized guess.** A row reading `§X + §Y` names a byte range, not a file. Resolve both headings against the live file and measure the range they bound. The case that produces the largest misses is a span whose last section **runs to EOF**: an author assumes it ends at the next heading, no next heading exists, and the row is priced at a fraction of the real span.
+
+The error runs in both directions, so the check is symmetric. A span measured at most of its file is a full-file read under another name — and on a plan whose discipline is scoped reading, a row that says "scoped" while costing a full read defeats the discipline it appears to honour. Say so in the row instead.
+
+> [!constraint] Span rows carry their resolution
+> WRONG — a two-section span priced from an assumed section length, with nothing recording how the figure was reached:
+> ```markdown
+> | 1 | {reference-file} §8.7 + §8.8 | ~4 | ~1.6K | {purpose} |
+> ```
+> CORRECT — both headings resolved against the live file, the span measured, and the EOF case named so a reviewer can repeat the resolution:
+> ```markdown
+> <!-- Span resolved {YYYY-MM-DD}: §8.7 at :{start} → §8.8 runs to EOF = {N} lines / {B} bytes -->
+> | 1 | {reference-file} §8.7–§8.8 (§8.8 runs to EOF) | {K} | ~{T}K | {purpose} |
+> ```
+> When the resolved span covers most of the file, the row says **full read** and is budgeted as one — an "~{N} of {N+16} lines scoped" row is a full read with a scoped label.
+
+**A command corpus is its own row type, and the only way to price it is to run it.** A row whose subject is a command's *output* — a `Grep` family, a loop over a file set, a script's report — is not a file, and no file measurement prices it. It MUST be dry-run once at scaffold close and priced from the volume that run actually returned.
+
+This row type has no size intuition to fall back on, which is why it is the one most often left unmeasured. A classification pass over a mid-size tree routinely returns several times what an author would guess, and such rows habitually bundle several command families behind a single figure — so the under-estimate is multiplied by the number of families hidden in the row. A row of this shape lands most often on the highest-risk task in a sprint, where the budget margin matters most.
+
+> [!constraint] Command-corpus rows are dry-run and decomposed
+> WRONG — one figure covering five command families, none of them run:
+> ```markdown
+> | 1 | Grep-family outputs (F1 + F2 + F3 + F4 + F5) | — | ~6K | {purpose} |
+> ```
+> CORRECT — each family dry-run at its own declared scope, priced from the returned volume, with the run recorded so a reviewer can repeat it:
+> ```markdown
+> <!-- Dry-run {YYYY-MM-DD}: F1 over {scope} → {N} matched lines / {B} bytes -->
+> | 1 | Grep F1 over {scope} — {N} lines / {B} bytes returned | {K} | ~{T}K | {purpose} |
+> | 1 | Grep F2 over {scope} — {N} lines / {B} bytes returned | {K} | ~{T}K | {purpose} |
+> ```
+> Where one figure genuinely covers several families, the row states the per-family breakdown. A bundled total a reviewer cannot decompose is not a measurement.
+
+**An unmeasured size adjective is a scaffold-close failure.** `small`, `full (small)`, `read in full`, `scoped`, `brief`, `large` — standing in a `KiB` / `~Tokens` cell, a Purpose column, or a Notes-for-Agent line **in place of** a number — are the recurring tell that the row was never measured. Each MUST carry its measured figure beside it, or be replaced by it. The adjective is not forbidden; the adjective without the number is.
+
+The label decays independently of the file, which is what makes it worse than a stale number: a stale number can be compared against a fresh measurement and found wrong, while "small" stays plausible at any size. Two files carrying the same "full (small)" label routinely differ by 3×.
+
+#### Reviewer Check 084 — Required Context Rows Measured at Row Grain
+
+- **Severity / Role / Type:** WARNING (ERROR when the task's bottom-up estimate crosses a dispatch ceiling once corrected) | Task Reviewer | NEW
+- **What:** Every Required Context row MUST carry a measured figure for the span it cites. Four failure modes:
+  1. **Unmeasured row** — a row's `KiB` / `~Tokens` disagrees with a live `measure_files.py` measurement of the cited span by more than ±10%, while a sibling row in the same task is measured accurately (the half-applied-convention signature).
+  2. **Unresolved span** — a row citing `§X`/`§X + §Y` carries no span-resolution comment, or its figure matches a section-sized guess rather than the measured heading-to-heading range.
+  3. **Un-run command corpus** — a row whose subject is command output carries no dry-run record, or bundles multiple command families behind one undecomposed figure.
+  4. **Unmeasured size adjective** — a size adjective appears in a size cell, Purpose column, or Notes-for-Agent line with no measured figure beside it.
+- **Detection:**
+  1. For each row naming a file path: run `measure_files.py --model {assigned Agent}` on it and compare against the row's cells.
+  2. For each row naming a `§` anchor: resolve the heading(s) in the live file, measure the bounded range (to EOF where no next heading exists), and compare.
+  3. For each row whose subject is command output: check for a dry-run comment recording scope, returned line count and byte count.
+  4. Grep the task file for `\b(small|large|brief|scoped|full)\b` within Required Context rows and Notes-for-Agent; each hit must have a numeric figure on the same line.
+- **Finding template:**
+```
+[{WARNING|ERROR}] Required Context row not measured at row grain
+File: {task file path} | Location: Required Context row {N}
+Issue: {row cites {file} at {stated} against a measured {actual} (±{pct}%) while row {M} is measured | span {§X–§Y} unresolved — measured {N} lines to EOF against a stated ~{stated} | command-corpus row bundles {K} families with no dry-run | size adjective "{adj}" carries no measured figure}
+Fix: Re-run the row-grain sweep per references/task-content-fidelity.md §9.A.14 | Confidence: HIGH
+```
+
+### 9.A.15 The large-file scan is run, not reproduced by hand
+
+The per-file ladder above has a shipped driver. `handlers/plan.md` Step 8c invokes it:
+
+```bash
+python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}
+```
+
+It classifies every Required Context row in every task against that task's assigned model and **exits non-zero while any file lands Warn or worse**. Reproducing its judgement by hand is a defect even when the judgement is right.
+
+> [!constraint] A hand-written annotation and a computed one are indistinguishable
+> WRONG — the author reads the ladder, decides a file is oversized, and types the marker into the row:
+> ```
+> | 1 | `{some/large/index.md}` | 233 | ~88K | ⚠ PAGED ≥25K sonnet-tok   ← typed from judgement
+> ```
+> A **correct** annotation reached this way is the worst case, not the acceptable one. It produces no symptom, so nothing prompts a second look; no thresholds were derived, no sibling file was classified, and no Warn+ backlog item was filed. Every checklist box still ticks, because the item was a checkbox over prose.
+>
+> CORRECT — the marker is the tool's output and the exit code is the evidence the scan ran:
+> ```bash
+> python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}
+> # → per-file blocks + backlog filing worklist; exit 1 while any Warn+ file is unaddressed
+> ```
+
+Two of the scan's outputs are decisions rather than documentation, which is why skipping it is not merely untidy. A cost-reason Critical that is never computed is never flagged `1M-exception`, so the task dispatches under-budgeted. Warn+ backlog items are how oversized context files enter the queue at all, so a skipped scan silently absorbs files that should have generated follow-up work.
+
+**Token figures come from bytes, never from lines.** The scan defines no band of its own; it delegates to `classify_file`, which computes `bytes ÷ the reading model's bytes-per-token ratio`. Measured per-line rates range 7–365 tokens/line depending on content, so a per-line model under-reports worst on exactly the dense index files the scan exists to catch.
+
 ---
 
 ## Plan-Review Enforcement Summary
@@ -519,9 +641,11 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 7 | Action tier contradicts its own evidence tier | A derived status cell in the action tier disagrees with the evidence section's recorded observation for the same item | §9.A.11 |
 | 8 | Comparison task sized without reference coverage | A comparison/reconciliation task brief omits the reference-side coverage measurement that should set its size and shape | §9.A.12 |
 | 9 | Assertion label and validation cell not 1:1 | A task file enumerating validation cells carries no assertion-label ↔ cell-ID table; or a label appears twice within one task file; or one label's assert-vs-report disposition differs between two files | §9.A.13 |
+| 10 | Required Context row not measured at row grain | A row disagrees with a live measurement of the span it cites while a sibling row is measured; or a `§` span row carries no resolution; or a command-corpus row was never dry-run; or a size adjective stands in place of a number | §9.A.14 |
+| 11 | Large-file scan hand-reproduced | `context.token_saver: true` AND a task carries a `⚠ PAGED` / `⚠ REFACTOR` annotation with no recorded scan run behind it; or the Step 8c checklist item is ticked with no exit code recorded | §9.A.15 |
 
 For the Verify-Before-Cite checks (§9.B: cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / Pre-SQL verification), see [verify-before-cite.md](verify-before-cite.md)'s Plan-Review Enforcement Summary.
 
 ---
 
-*Companion files: [session-plan-requirements.md](session-plan-requirements.md), [verify-before-cite.md](verify-before-cite.md), [agent-orchestration-delegated.md](agent-orchestration-delegated.md) §1.1–§1.3 (DELEGATED triggers, task-file error recovery, orchestration context boundary) and §1.4–§1.22 (DELEGATED dispatch protocols).*
+*Companion files: [session-plan-requirements.md](session-plan-requirements.md), [verify-before-cite.md](verify-before-cite.md), [agent-orchestration-delegated.md](agent-orchestration-delegated.md) §1.1–§1.3 (DELEGATED triggers, task-file error recovery, orchestration context boundary) and §1.4–§1.13 (dispatch-prompt construction), [agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) §1.14–§1.22 (dispatch mechanics and returns).*

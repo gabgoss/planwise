@@ -103,7 +103,7 @@ class ScratchRoot:
         run_id: str | None = None,
         base_temp: Path | str | None = None,
         transcripts_root: Path | str | None = None,
-    ) -> "ScratchRoot":
+    ) -> ScratchRoot:
         """Choose (and validate) a fresh scratch root; does not create the
         plugin copy or any case dir — call `copy_plugin_subtree()` /
         `new_case_dir()` for those.

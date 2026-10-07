@@ -6,7 +6,12 @@ description: >
   Use as Phase 1 reviewer in /planwise review teams to catch structural blockers
   before content review begins.
 tools: Read, Glob, Grep, SendMessage, ToolSearch
+# disallowedTools denies the rest of the default subagent tool set so those
+# schemas never load into this agent's context. This is a pure read-and-report
+# role in both No-Team and Team dispatch — no Write/Edit/Bash at any spawn site.
+disallowedTools: Write, Edit, Bash, NotebookEdit, WebFetch, WebSearch, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree
 model: sonnet
+effort: high
 maxTurns: 20
 ---
 
@@ -61,7 +66,7 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - [ ] Session numbers are sequential within sprints (01, 02, ...)
 - [ ] Task numbers are sequential within sessions (01, 02, ...)
 - [ ] Token estimate sums in orchestration match individual task estimates
-- [ ] Sequential-sprint prerequisite declaration: each Sprint Plan where sprint number > 01 declares prior-sprint prerequisite (S03)
+- [ ] Sequential-sprint prerequisite declaration: each sequential sprint's first-session Orchestration (sprint number > 01) carries a `**Prerequisite:**` line naming the prior sprint's completion (S03)
 - [ ] Declared-parallel (`∥`) sprint pairs have a computed, disjoint or explicitly-dispositioned write-set intersection; no shared path under two `∥` sprints (S05)
 
 ---
@@ -79,14 +84,17 @@ See `references/review-finding-format.md` for the Finding Report Format template
 - **Severity:** BLOCKER
 - **Source:** `references/scaffolding-hygiene.md` §5
 - **Type:** NEW
-- **What:** Sum of physical `Sprint-XX-*/Session-YY-*/` folders MUST equal sum of Sessions-table row counts across all Sprint Plans AND equal Master Plan Sprint Overview row count summed across sprints.
-- **Detection:** Glob `Sprint-*/Session-*/`; sum rows in each Sprint Plan Sessions table; cross-check Master Plan. Mismatch → BLOCKER.
+- **What:** Two counts, both of which must hold. (a) Sprint Plan **files** on disk MUST equal Master Plan Sprint Overview rows. (b) Physical `Sprint-XX-*/Session-YY-*/` folders MUST equal the sum of Sessions-table row counts across all Sprint Plans. A plan that declares 6 sprints and authored 1 fails (a) even when every folder it did author is internally consistent.
+- **Detection:** Glob `Sprint-*/*-Sprint-Plan.md` and count Master Plan Sprint Overview rows; Glob `Sprint-*/Session-*/` and sum the rows of every Sprint Plan's Sessions table. **Subtract any sprint or session declared under the Master Plan's `## Deferred Authoring` section before comparing** — a declared deferral is legitimate and passes; an undeclared shortfall fails. Read that set from the section's **first column only**: the "Unblocked when" cell routinely names another sprint, and scanning the whole section over-counts the deferred set and can subtract away a sprint nobody declared, masking the very shortfall this check exists to catch. Either mismatch → BLOCKER, and name the specific missing sprints or sessions.
 - **Finding template:**
 ```
-[BLOCKER] Folder-count inconsistency
-File: {Plan root path} | Location: Sprint Plan Sessions tables vs disk folders
-Issue: Disk has {N_disk} sessions; Sprint Plans declare {N_declared}
-Fix: Reconcile per references/scaffolding-hygiene.md §5 | Confidence: HIGH
+[BLOCKER] Plan-completeness shortfall
+File: {Plan root path} | Location: Sprint Overview / Sessions tables vs disk
+Issue: Master Plan declares {N_declared_sprints} sprints and {N_declared_sessions} sessions;
+       disk has {N_disk_sprints} Sprint Plans and {N_disk_sessions} session folders;
+       {N_deferred} declared deferred. Missing and undeclared: {names}
+Fix: Author the missing sprints/sessions, or declare them under `## Deferred Authoring`
+     with a trigger apiece, per handlers/plan.md Deferred Authoring | Confidence: HIGH
 ```
 
 ### Check S02 — Per-Session Outputs/ with .gitkeep
@@ -109,14 +117,14 @@ Fix: Create Outputs/.gitkeep per references/scaffolding-hygiene.md §5 | Confide
 - **Severity:** ERROR
 - **Source:** `references/scaffolding-hygiene.md` §6
 - **Type:** NEW
-- **What:** Each Sprint Plan where sprint number > 01 MUST declare prior-sprint prerequisite in Prerequisites section.
-- **Detection:** For each Sprint-NN Sprint Plan where NN > 01, grep `Prerequisite:\s*Sprint\s+(\d+)\s+COMPLETE`. Absent → ERROR.
+- **What:** Each sequential sprint's first-session Orchestration where sprint number > 01 MUST carry an explicit `**Prerequisite:**` line at the top naming the prior sprint's completion. §6 binds the Orchestration, because that is the file the executor opens; a Sprint Plan `## Prerequisites` bullet is not what §6 requires and does not satisfy this check on its own.
+- **Detection:** For each `Sprint-NN-*/Session-01-*/{Abbrev}-SNN-01-Orchestration.md` where NN > 01, `Grep` for `\*\*Prerequisite:\*\*.*COMPLETE`. Either form passes: the §6 form `**Prerequisite:** Sprint {NN-1} session COMPLETE — …` or a session-ID form `**Prerequisite:** {Abbrev}-S{NN-1}-{YY} COMPLETE (…)`. Absent → ERROR. Do NOT run this `Grep` over the Sprint Plan: a plan whose Sprint Plan reads `- Sprint-{NN-1} COMPLETE: …` while its Orchestration carries the line is compliant, and a plan whose Sprint Plan carries it but whose Orchestration does not is the defect §6 describes.
 - **Finding template:**
 ```
 [ERROR] Sequential-sprint prerequisite declaration missing
-File: {Sprint Plan path} | Location: Prerequisites section
-Issue: Sprint {NN} > 01 lacks "Prerequisite: Sprint {NN-1} COMPLETE"
-Fix: Add prerequisite per references/scaffolding-hygiene.md §6 | Confidence: HIGH
+File: {Orchestration path} | Location: header, above Session Objective
+Issue: Sprint {NN} > 01 Orchestration lacks a "**Prerequisite:** … COMPLETE" line
+Fix: Add `**Prerequisite:** Sprint {NN-1} session COMPLETE — {what must exist}` at the top of the Orchestration per references/scaffolding-hygiene.md §6 | Confidence: HIGH
 ```
 
 ### Check S04 — Master Plan Sole READY_TO_EXECUTE Status
@@ -137,7 +145,7 @@ Fix: Set Sprint Plan Status: PLANNED per references/scaffolding-hygiene.md §4 |
 ### Check S05 — Declared-Parallel Sprint Pair With Intersecting Write-Sets
 
 - **Severity:** BLOCKER
-- **Source:** `references/scaffolding-hygiene.md` §16
+- **Source:** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16
 - **Type:** NEW
 - **What:** A file listed under two sprints that the Master Plan's `## Execution Ordering` section declares `∥` is a contradiction between the ordering statement and the plan's own write-set declarations. Also BLOCKER: a `∥` pair with no `### Computed Write-Set Intersection` row at all, and a sprint named in a `∥` pair with no `## Write-Set` section in its own Sprint Plan.
 - **Detection:** Locate the Master Plan's `## Execution Ordering` section; extract every `∥` pair from the declared-ordering line. For each pair: (1) assert a matching row exists in the `### Computed Write-Set Intersection` table with a shown result; (2) read each named sprint's `## Write-Set` table; (3) compute the set intersection of the two path lists; (4) any shared path whose Verdict cell does not read as non-disjoint-and-dispositioned (serialized, or qualified per-file with an explicit task-level ordering edge) → BLOCKER. A sprint named in a `∥` pair with no `## Write-Set` section → BLOCKER.
@@ -146,5 +154,5 @@ Fix: Set Sprint Plan Status: PLANNED per references/scaffolding-hygiene.md §4 |
 [BLOCKER] Declared-parallel sprints share a write-set path
 File: {Master Plan path} | Location: Execution Ordering vs {Sprint Plan} Write-Set
 Issue: `{path}` appears under both {S0A} and {S0B}, declared `∥`, with no disjoint/dispositioned Verdict
-Fix: Serialize the pair or qualify per-file per references/scaffolding-hygiene.md §16 | Confidence: HIGH
+Fix: Serialize the pair or qualify per-file per references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §16 | Confidence: HIGH
 ```

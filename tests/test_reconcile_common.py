@@ -31,7 +31,7 @@ from pathlib import Path
 # Allow imports whether pytest is launched from the repo root or scripts/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-from reconcile_common import (  # noqa: E402
+from reconcile_common import (
     format_drift_report,
     read_text_preserving_newlines,
     run_reconcile_cli,
@@ -145,16 +145,16 @@ class _CliFixtureBase(unittest.TestCase):
 
     def run_cli(self, argv, **overrides):
         sys.argv = ["test_reconcile_common"] + argv
-        kwargs = dict(
-            description="Test CLI",
-            load_config=lambda: {},
-            resolve_index_path=lambda config: self.index_path,
-            missing_index_message=lambda p: f"Error: index not found at {p}",
-            detect_drift=lambda config: {"drifts": [], "anomalies": []},
-            reconcile=lambda config: 0,
-            format_report=lambda result: "report",
-            json_prefix="reconcile-common-cli-test-",
-        )
+        kwargs = {
+            "description": "Test CLI",
+            "load_config": dict,
+            "resolve_index_path": lambda config: self.index_path,
+            "missing_index_message": lambda p: f"Error: index not found at {p}",
+            "detect_drift": lambda config: {"drifts": [], "anomalies": []},
+            "reconcile": lambda config: 0,
+            "format_report": lambda result: "report",
+            "json_prefix": "reconcile-common-cli-test-",
+        }
         kwargs.update(overrides)
         run_reconcile_cli(**kwargs)
 
@@ -200,6 +200,19 @@ class TestRunReconcileCliWriteMode(_CliFixtureBase):
             self.run_cli(["--write"], reconcile=lambda config: 3)
 
         self.assertIn("Reconciled 3 row(s).", out.getvalue())
+
+    def test_write_message_override_replaces_the_row_noun(self):
+        self.index_path.write_text("x", encoding="utf-8")
+
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.run_cli(
+                ["--write"],
+                reconcile=lambda config: 2,
+                write_message=lambda n: f"Moved {n} file(s) to Archive/.",
+            )
+
+        self.assertIn("Moved 2 file(s) to Archive/.", out.getvalue())
+        self.assertNotIn("row(s)", out.getvalue())
 
     def test_write_plus_json_dumps_a_fresh_detect_after_reconcile(self):
         self.index_path.write_text("x", encoding="utf-8")

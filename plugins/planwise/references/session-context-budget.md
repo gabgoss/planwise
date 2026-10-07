@@ -239,7 +239,7 @@ Run `/context` to measure your project's domain rule costs. Add rows with your p
 
 Task token estimates MUST be computed bottom-up from measured file sizes, not just matched to qualitative categories (Small/Medium/Large). The `/planwise plan` handler's Step 8c enforces this.
 
-**Measurement:** run `measure_files.py` over every Required Context file — tokens = bytes ÷ the assigned model's bytes-per-token ratio (see [Read-Tool Hard Limits](#read-tool-hard-limits)). For a file that does not exist yet, estimate its byte size and divide: ≈ bytes ÷ 3.0 for prose/code, ÷ 2.6 for dense markdown (tables, link-heavy rows). Never derive a token figure from a line count.
+**Measurement:** run `measure_files.py` over every Required Context file — tokens = bytes ÷ the assigned model's bytes-per-token ratio (see [Read-Tool Hard Limits](#read-tool-hard-limits)). For a file that does not exist yet, estimate its byte size and divide: on the Claude 5 family ≈ bytes ÷ 2.9 for prose, ÷ 2.7 for code, ÷ 2.6 for dense markdown (tables, link-heavy rows), ÷ 2.3 for a cleared notebook, ÷ 2.0 for raw JSON. Never derive a token figure from a line count.
 
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
 **DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Sonnet/Haiku 200K, Opus 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
@@ -265,11 +265,13 @@ Use these tables to compute bottom-up token estimates for each task.
 
 | Operation | Approx. Tokens | Heuristic |
 |-----------|----------------|-----------|
-| Read file | bytes ÷ 2.6–3.3 | Measure with `measure_files.py`; ratio set by reading model + content class |
+| Read file | bytes ÷ 2.0–4.0 | Measure with `measure_files.py`; ratio set by reading model + content class (json 2.0 … Haiku prose 4.0) |
 | Read 5 KiB file | ~2K | Small config, helper |
 | Read 15 KiB file | ~5-6K | Medium file |
 | Read 30 KiB file | ~10-12K | Large reference doc or entity |
 | Read 60 KiB file | ~20-23K | At/near the 22K token warn — page it or split it |
+| Read a section span (`§X`–`§Y`) | bytes of the resolved range ÷ 2.6–3.3 | Resolve both headings in the live file first; where the last section runs to EOF the span is the range to EOF, not to an assumed next heading |
+| Consume a command corpus (`Grep` family, file-set loop, script report) | returned bytes ÷ 2.6–3.3 | **Not a file — no file measurement prices it.** Dry-run the command once at its declared scope and price the volume it returned; price each command family separately |
 
 **Output Generation Costs:**
 
@@ -315,11 +317,16 @@ Figures are labelled by the tree they were measured on — **dev** (the tree the
 > [!constraint] This is an upper bound on what the instruction text MANDATES — not a measurement of what loads
 > The line counts above say what the shipped text *instructs* an invocation to read. Whether every mandated read actually issues is a separate, empirical question, and predictions have missed in both directions: on one minimal handler the predicted floor over-shot the measured cost ~2.9×, while a heavier handler over-shot in the opposite direction.
 >
-> **Current verdict, from the most recent probe:** `mandated-loads-issue (measured +32,692 tok [dev tree] ≥ predicted floor 15,873 tok [dev tree]; measured is ~2.06× the prediction)` — the mandated base-context reads DO issue. (That probe predicted the floor for a *light* subcommand — 1,221 lines of skill + base context + handler body — so its 15,873 is not the whole-path figure in the table above; the comparison that matters is measured-vs-predicted *within one invocation*.)
->
-> **Caveat, carried from the probe:** the excess above the floor is confounded with that subcommand's own live runtime work — real project-file reads plus a reconciliation script — so the measurement confirms compliance but cannot cleanly isolate the static floor from handler-specific runtime cost. Treat these figures as a planning upper bound on mandated text, not as a per-invocation cost prediction, and do not store one as a calibrated budget input.
+> **Current verdict: the base-context references do NOT load.** A superseded reading — `mandated-loads-issue (measured +32,692 tok ≥ predicted floor 15,873 tok; ~2.06× the prediction)` — inferred compliance from an aggregate `messages` delta exceeding a prediction. Per-Read attribution of that same transcript refutes it: the invocation read its handler body and one handler-directed reference, and the rest of the delta was the subcommand's own runtime work (real project-file reads plus a reconciliation script). The earlier ~2.9× over-prediction on a minimal handler has the same cause — both predictions counted a base context that never loaded.
 
-**Future work, gated on the compliance answer above:** conditional loading of references a given subcommand cannot reach — an estimated 10–20K per invocation, unvalidated. It would have to be a per-reference reachability pass, never a blanket change: the failure mode is a handler silently losing a convention it depended on. Not landed.
+> [!hazard] "Pre-injected with this skill" is a claim no component implements
+> The skill body is injected. It **links** the base-context references rather than inlining them, and each handler's *Required References* note then states those references are already pre-injected — so no handler reads them either. Nobody loads them.
+>
+> Measured three ways, across two CLI versions: zero Read calls against any base-context reference, and the H1 title string of each of those files appears **zero times** in the transcripts. A zero-runtime-tool-call subcommand measured **6.2K tokens** of `messages` against a **24.7K** prediction that assumed the base context loaded.
+>
+> **What actually loads per invocation:** the skill body, the handler body, and the handler's own *always load* references. Budget those. Do not budget the linked base context, and do not store it as a calibrated input — `scripts/context_calibration.py`'s `derive_structural_floor()` excludes it for this reason.
+
+**Superseded: the conditional-loading opportunity.** An earlier note estimated 10–20K per invocation recoverable by making unreachable references conditional. That saving is **not available, because it is not being spent** — the set costs zero per invocation today. The live set measures 1,215 lines / 67,418 bytes (≈22.5K tokens), which is what it *would* cost if the "pre-injected" claim were true. The open question is therefore the opposite one: decide per reference whether it *should* load, then make the wiring match the claim. Any such change is still a per-reference reachability pass, never a blanket one — the failure mode is a handler silently losing a convention it depended on, and that failure is already live rather than hypothetical.
 
 ### Agent Assignment
 
@@ -438,19 +445,28 @@ The read-gate canonical: the Read tool's fixed mechanical limits, the discipline
 
 ### Read-Tool Hard Limits
 
-The Read tool has three mechanical limits, SEPARATE from the carrying-cost budget — a file can fit the session budget yet be unreadable in one Read. These constants are **FIXED harness facts** (empirically re-measured 2026-08-26 across four models; re-validate via headless `claude -p --model X`), defined as module-level constants in `scripts/read_limits.py` (re-exported by `scripts/token_saver.py`) — they are **NOT** `/context`-measured and are **NOT** written by `calibrate()`. Measure any file against them with `scripts/measure_files.py`.
+The Read tool has three mechanical limits, SEPARATE from the carrying-cost budget — a file can fit the session budget yet be unreadable in one Read. These constants are **FIXED harness facts** (every cell empirically re-measured 2026-09-07 across four models; re-validate via headless `claude -p --model X`), defined as module-level constants in `scripts/read_limits.py` (re-exported by `scripts/token_saver.py`) — they are **NOT** `/context`-measured and are **NOT** written by `calibrate()`. Measure any file against them with `scripts/measure_files.py`. No shipped file pins the CLI build these were measured against; the build a project's harness was last confirmed against is consumer-side state in that project's own `config.yaml` (`context.verified_cli_version`), tracked per [`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](../handlers/doctor-Part-3-TokenSaverAndBookkeepingReadGates.md) § Step 6.
 
 Gate priority: **tokens first, then bytes, then lines — whichever comes first.** The caps and warn thresholds are identical on every model; only the tokenizer weight (bytes-per-token) differs.
 
-| Model family | Token cap (hard) | Token warn | Byte cap (hard) | Byte warn | Line gate | Bytes-per-token (measured) |
+| Model family | Token cap (hard) | Token warn | Byte cap (hard) | Byte warn | Line gate | Bytes-per-token (text measured 2026-09-07; notebook and json 2026-09-23) |
 |---|---|---|---|---|---|---|
-| Haiku | 25,000 | 22,000 | 262,144 (256 KiB) | 245,760 (240 KiB) | 2,000 (defensive) | prose ~4.7 |
-| Sonnet | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | ~3.7–4.7 (derived from the family ratio; worst measured case — synthetic filler — 2.15) |
-| Opus | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | dense markdown 2.6 · prose 3.0 · docs+code 3.3 |
-| Fable | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | tokenizer identical to Opus (same file → same token count): dense markdown 2.6 · prose 3.0 |
+| Opus 5 | 25,000 | 22,000 | 262,144 (256 KiB) | 245,760 (240 KiB) | 2,000 (defensive) | dense markdown 2.6 · prose 2.9 · code 2.7 · notebook 2.3 · json 2.0 |
+| Sonnet 5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | same tokenizer as Opus: 2.6 · 2.9 · 2.7 · 2.3 · 2.0 |
+| Fable 5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | same tokenizer as Opus: 2.6 · 2.9 · 2.7 · 2.3 · 2.0 |
+| Haiku 4.5 | 25,000 | 22,000 | 262,144 | 245,760 | 2,000 (defensive) | dense markdown 3.5 · prose 4.0 · code 3.6 · notebook 3.3 · json 2.7 |
+
+The two structured classes are selected by file extension, never by guessing: `measure_files.py` and `classify_file()` price a `.ipynb` at the **notebook** ratio and a `.json` / `.jsonl` / `.ndjson` at the **json** ratio unless an explicit content class overrides them. Every other extension takes the dense-markdown fallback. The notebook ratio is on-disk bytes per token of the Read tool's *rendered cell view* of an outputs-cleared notebook — the tool renders a notebook rather than returning its raw JSON, and counts tokens on the rendering (the same bytes measured 31,395 tokens as `.ipynb` and 37,176 as `.json`). For a notebook that still carries outputs the renderer elides large ones, so the estimate is an upper bound; measure the cleared file.
+
+> [!constraint] The tokenizer splits by model GENERATION, not by model size
+> Opus 5, Sonnet 5 and Fable 5 return the **same** token count for the same file — measured to within 1–2 tokens over ~54K. Haiku 4.5 alone is lighter, by ~1.31–1.38×. Do not group models by size or by cost tier when estimating.
+>
+> A superseded reading placed Sonnet in a *"~1.44× lighter Haiku/Sonnet family"*. That grouping is measured false, and it under-estimated Sonnet's token cost by **~42%** — the unsafe direction, because it returns a passing verdict for a file the harness then refuses to read whole. A 90 KB dense-markdown file rated "Warn, readable" under the old Sonnet ratio actually measures ~34.5K tokens and hard-errors.
+>
+> Note also that **code tokenizes denser than prose** (2.7 vs 2.9 on the Claude 5 family), not lighter. Each cell is rounded DOWN from its measurement, because a smaller ratio estimates more tokens and so fires the gate sooner.
 
 - **Token page-cap gate (PRIMARY; model-dependent ratio):** a file above **~25,000 tokens** (`READ_PAGE_CAP_TOKENS`) does not return whole. Without an explicit `limit`, the Read soft-truncates to a first page of **~21,200 tokens (~85% of the cap)** plus a `PARTIAL view` banner reporting the file's exact total; with an explicit `limit` spanning more than the cap it **hard-errors with zero content** (the error still reports the exact token count — a zero-cost measurement oracle). Warn at **~22,000 tokens** (`READ_TOKEN_WARN`) — the warn threshold produces **no runtime marker**, so it MUST be checked proactively (`measure_files.py`), never waited for.
-- **Byte gate (model-independent):** a file ≥ **262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused outright unless `offset`/`limit` is passed — no partial page, no pointer. Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
+- **Byte gate (model-independent):** a file **larger than 262,144 bytes (256 KiB)** (`READ_FILE_BYTE_CAP`) is refused outright unless `offset`/`limit` is passed — no partial page, no pointer, and the error reads `exceeds maximum allowed size (256KB)`. The boundary is strictly greater-than, measured at one-byte resolution: 262,145 bytes refuses, 262,144 does not. `classify_file` compares with `>=` and so flags the one exact-cap size a byte early; that conservatism is unreachable in practice, because 256 KiB of text is already Critical on the token gate (a measured 100,610 tokens). Warn at **245,760 bytes (240 KiB)** (`READ_BYTE_WARN`).
 - **Line gate (DISTANT THIRD, defensive):** **2,000 lines** (`READ_LINE_CAP`) — the first-page line window; a per-model total-read ceiling of roughly 10–20 pages is reported but UNCONFIRMED (measured sessions returned 3,000+-line single pages). Treat < 2,000 lines as the defensive target for generated artifacts; it binds alone only on many-short-line files that pass the token and byte gates.
 
 **Estimating tokens:** `tokens ≈ bytes ÷ bytes-per-token` for the READING model, gate-conservative — unknown reader or content class → **2.6 B/tok** (the densest measured content on the heaviest tokenizer). Line-based token rates are unreliable and MUST NOT be used: measured per-line rates ranged 7–365 tokens/line depending on content; bytes predict the gate, lines do not.
@@ -462,7 +478,7 @@ These FOLD into the per-file warning ladder. `token_saver.classify_file()` compu
 > ```
 > classify_file(...) → {level: Critical, reason: read}   → "route to Opus, the 1M window fixes it"  ← FALSE
 > ```
-> CORRECT — routing to Opus does NOT raise the per-Read page cap, and the Opus/Fable-family tokenizer trips the token gate on FEWER bytes (~65 KB of dense markdown vs ~92 KB for the Sonnet/Haiku family). The remedy is **paged reads** (`offset`/`limit`/Grep), and for a core or to-be-edited dependency, **refactor + backlog**:
+> CORRECT — routing to Opus does NOT raise the per-Read page cap, and the Claude 5 tokenizer (Opus, Sonnet and Fable alike) trips the token gate on FEWER bytes than Haiku 4.5 — ~65 KB of dense markdown against ~87 KB. The remedy is **paged reads** (`offset`/`limit`/Grep), and for a core or to-be-edited dependency, **refactor + backlog**:
 > ```
 > classify_file(...) → {level: Critical, reason: read}
 >   → page it: Read(offset/limit) or Grep the needed section

@@ -14,7 +14,8 @@ diagnostics), and lessons_bootstrap
 (the categorization schema + lessons-scaffolding routine).
 
 Creates directories, copies seed files, generates config.yaml,
-and installs reference files as path-scoped rules.
+installs reference files as path-scoped rules, and installs two global style
+rules.
 
 Usage:
     python init_project.py --name "MyProject" [options]
@@ -25,6 +26,7 @@ Options:
     --plans-dir     Plans subdirectory name (default: Plans)
     --backlog-dir   Backlog subdirectory name (default: Backlog)
     --lessons-dir   Lessons subdirectory name (default: LessonsLearned)
+    --feedback-dir  Feedback subdirectory name (default: Feedback)
     --scope         Install scope: project, user, or local (default: project)
     --plan-tier     Claude plan tier: pro (200K) or max (1M). Default: pro.
 """
@@ -39,7 +41,8 @@ from pathlib import Path
 
 # When this file is run directly (`python init_project.py ...`), Python
 # registers it as sys.modules["__main__"], NOT sys.modules["init_project"].
-# The seam 4/5/6 sibling modules below do `from init_project import X` (R1:
+# The sibling modules imported below (rule_descope_migration, artifact_upgrade,
+# doctor_sweeps and doctor_cli) do `from init_project import X` (R1:
 # INSTALLED_RULES/DESCOPED_RULES stay on the residual) -- without this alias,
 # that statement would trigger a SECOND, independent import of this same file
 # under the "init_project" key, which re-executes from the top and collides
@@ -55,14 +58,14 @@ from constants import InstallScope
 
 try:
     from upgrade_io import (
-        _load_verdicts_cache,  # noqa: F401 -- re-exported for callers of init_project
-        _load_verdict_override,  # noqa: F401 -- re-exported for callers of init_project
-        _installed_hash,
-        _write_backup_preimage,  # noqa: F401 -- re-exported for callers of init_project
         _append_disposition_log,  # noqa: F401 -- re-exported for callers of init_project
-        _record_disposition,  # noqa: F401 -- re-exported for callers of init_project
+        _installed_hash,
         _load_raw_config,  # noqa: F401 -- re-exported for callers of init_project
+        _load_verdict_override,  # noqa: F401 -- re-exported for callers of init_project
+        _load_verdicts_cache,  # noqa: F401 -- re-exported for callers of init_project
+        _record_disposition,  # noqa: F401 -- re-exported for callers of init_project
         _transfer_customization,  # noqa: F401 -- re-exported for callers of init_project
+        _write_backup_preimage,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
@@ -72,24 +75,25 @@ except ImportError:
 
 try:
     from config_gen import (
-        PLAN_TIER_WINDOWS,
-        MIGRATABLE_TOP_LEVEL_KEYS,  # noqa: F401 -- re-exported for callers of init_project
         MIGRATABLE_CONTEXT_SUBKEYS,  # noqa: F401 -- re-exported for callers of init_project
-        _existing_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
-        _context_subkeys_delta,  # noqa: F401 -- re-exported for callers of init_project
-        merge_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
-        extract_top_level_block,  # noqa: F401 -- re-exported for callers of init_project
+        MIGRATABLE_TOP_LEVEL_KEYS,  # noqa: F401 -- re-exported for callers of init_project
+        PLAN_TIER_WINDOWS,
         ConfigResult,
         InitConfig,
-        get_plugin_root,
-        read_plugin_version,
-        generate_config,
-        migrate_config,
         _bump_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
+        _context_subkeys_delta,  # noqa: F401 -- re-exported for callers of init_project
+        _existing_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
         _flip_token_saver_on,  # noqa: F401 -- re-exported for callers of init_project
-        get_upgrade_config,  # noqa: F401 -- re-exported for callers of init_project
-        write_config_checked,  # noqa: F401 -- re-exported for callers of init_project
+        extract_top_level_block,  # noqa: F401 -- re-exported for callers of init_project
         find_context_block,  # noqa: F401 -- re-exported for callers of init_project
+        generate_config,
+        get_plugin_root,
+        get_upgrade_config,  # noqa: F401 -- re-exported for callers of init_project
+        merge_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
+        migrate_config,
+        read_plugin_version,
+        refresh_verified_cli_version,
+        write_config_checked,
     )
 except ImportError:
     raise ImportError(
@@ -99,24 +103,24 @@ except ImportError:
 
 try:
     from rule_divergence import (
-        is_subset,  # noqa: F401 -- re-exported for callers of init_project
-        is_safe_to_remove,  # noqa: F401 -- re-exported for callers of init_project
-        HAS_STRUCTURAL_COMPARE,  # noqa: F401 -- re-exported for callers of init_project
-        classify_blocks,  # noqa: F401 -- re-exported for callers of init_project
-        StructuralVerdict,  # noqa: F401 -- re-exported for callers of init_project
-        structural_compare,  # noqa: F401 -- re-exported for callers of init_project
-        _destructively_removable,  # noqa: F401 -- re-exported for callers of init_project
-        normalize_rule_for_diff,  # noqa: F401 -- re-exported for callers of init_project
-        _FALLBACK_PATHS_LINE_RE,  # noqa: F401 -- re-exported for callers of init_project
-        _split_frontmatter_fallback,  # noqa: F401 -- re-exported for callers of init_project
-        _extract_paths_value,  # noqa: F401 -- re-exported for callers of init_project
-        _DEGRADED_VERDICT_SOURCE,  # noqa: F401 -- re-exported for callers of init_project
-        _classify_diverged,  # noqa: F401 -- re-exported for callers of init_project
-        _FM_KEY_LINE_RE,  # noqa: F401 -- re-exported for callers of init_project
         _BOM_CHAR,  # noqa: F401 -- re-exported for callers of init_project
-        _split_frontmatter_block,  # noqa: F401 -- re-exported for callers of init_project
+        _DEGRADED_VERDICT_SOURCE,  # noqa: F401 -- re-exported for callers of init_project
+        _FALLBACK_PATHS_LINE_RE,  # noqa: F401 -- re-exported for callers of init_project
+        _FM_KEY_LINE_RE,  # noqa: F401 -- re-exported for callers of init_project
+        HAS_STRUCTURAL_COMPARE,  # noqa: F401 -- re-exported for callers of init_project
+        StructuralVerdict,  # noqa: F401 -- re-exported for callers of init_project
+        _classify_diverged,  # noqa: F401 -- re-exported for callers of init_project
+        _destructively_removable,  # noqa: F401 -- re-exported for callers of init_project
+        _extract_paths_value,  # noqa: F401 -- re-exported for callers of init_project
         _parse_frontmatter_map,  # noqa: F401 -- re-exported for callers of init_project
+        _split_frontmatter_block,  # noqa: F401 -- re-exported for callers of init_project
+        _split_frontmatter_fallback,  # noqa: F401 -- re-exported for callers of init_project
         _verdict_not_analyzed,  # noqa: F401 -- re-exported for callers of init_project
+        classify_blocks,  # noqa: F401 -- re-exported for callers of init_project
+        is_safe_to_remove,  # noqa: F401 -- re-exported for callers of init_project
+        is_subset,  # noqa: F401 -- re-exported for callers of init_project
+        normalize_rule_for_diff,  # noqa: F401 -- re-exported for callers of init_project
+        structural_compare,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
@@ -127,17 +131,55 @@ except ImportError:
 try:
     from lessons_bootstrap import (
         DEFAULT_CATEGORIZATION,  # noqa: F401 -- re-exported for callers of init_project
-        _render_bucket_section,  # noqa: F401 -- re-exported for callers of init_project
-        render_categorization_file,  # noqa: F401 -- re-exported for callers of init_project
-        _seed_lessons_index,  # noqa: F401 -- re-exported for callers of init_project
         LessonsBootstrap,  # noqa: F401 -- re-exported for callers of init_project
-        bootstrap_lessons_artifacts,
         _emit_lessons_bootstrap_banner,  # noqa: F401 -- re-exported for callers of init_project
+        _lessons_seed_dst_names,
+        _seed_lessons_index,  # noqa: F401 -- re-exported for callers of init_project
+        bootstrap_lessons_artifacts,
+        render_categorization_file,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
         "lessons_bootstrap is required for init_project's lessons-scaffolding "
         "bootstrap; the scripts/ directory appears to be partially installed"
+    )
+
+try:
+    from backlog_migration import (
+        _emit_backlog_migration_banner,
+        migrate_backlog_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "backlog_migration is required for init_project's backlog-index "
+        "retrofit on a fresh init; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
+try:
+    from lessons_migration import (
+        _emit_lessons_migration_banner,
+        migrate_lessons_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "lessons_migration is required for init_project's lessons-index "
+        "retrofit on a fresh init; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
+try:
+    import config_loader
+    import generate_plans_index
+    from plans_migration import (
+        _emit_plans_migration_banner,
+        migrate_plans_if_legacy,
+    )
+except ImportError:
+    raise ImportError(
+        "plans_migration and generate_plans_index are required for "
+        "init_project's plans-index retrofit and seed render on a fresh "
+        "init; the scripts/ directory appears to be partially installed"
     )
 
 try:
@@ -161,6 +203,8 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # `.claude/**` file activity, and stay small. The sixteen plan/backlog/lessons
 # rules that used to be installed here are now handler-loaded on demand from
 # references/ — see DESCOPED_RULES below and migrate_installed_rules().
+# The two global style rules are installed separately by
+# `style_rules.install_style_rules` and are not in this table.
 INSTALLED_RULES: list[tuple[str, str]] = [
     ("agent-authoring.md", ".claude/agents/**"),
     ("skill-authoring.md", ".claude/skills/**"),
@@ -228,6 +272,7 @@ def create_directories(cfg: InitConfig) -> list[str]:
         cfg.project_root / cfg.planwise_root / cfg.plans_dir,
         cfg.project_root / cfg.planwise_root / cfg.backlog_dir,
         cfg.project_root / cfg.planwise_root / cfg.lessons_dir,
+        cfg.project_root / cfg.planwise_root / cfg.feedback_dir,
         cfg.project_root / ".claude" / "rules" / "planwise",
     ]
     for d in dirs:
@@ -237,12 +282,32 @@ def create_directories(cfg: InitConfig) -> list[str]:
 
 
 def copy_seed_files(cfg: InitConfig) -> list[str]:
-    """Copy seed index files. Skips if destination exists. Returns list of copied files."""
+    """Copy seed index files. Skips if destination exists. Returns list of copied files.
+
+    The lessons hub and its two companions are named from the project's
+    configured `index_files.lessons` (defaulting to
+    `00-Index-LessonsLearned.md` when config.yaml does not exist yet -- the
+    normal fresh-init ordering, since this runs before generate_config())
+    via `_lessons_seed_dst_names` -- the same naming helpers
+    `generate_lessons_index.py`'s own footer links use -- never a second,
+    hardcoded pair of companion names. The plans seed is named from
+    `index_files.plans` the same way, via `config_loader.resolve_index_target`.
+    When config.yaml already exists and names the lessons or plans directory,
+    that directory wins over the `cfg` value, as in the upgrade backfill.
+    """
     copied = []
+    lessons_dir_rel, lessons_index_name = config_loader.resolve_index_target(cfg, "lessons")
+    plans_dir_rel, plans_index_name = config_loader.resolve_index_target(cfg, "plans")
+    lessons_hub_name, lessons_changelog_name, lessons_promotion_name = (
+        _lessons_seed_dst_names(lessons_index_name)
+    )
     seeds = [
         ("00-Index-Backlog.md", f"{cfg.planwise_root}/{cfg.backlog_dir}/00-Index-Backlog.md"),
-        ("00-Index-LessonsLearned.md", f"{cfg.planwise_root}/{cfg.lessons_dir}/00-Index-LessonsLearned.md"),
-        ("00-Index-Plans.md", f"{cfg.planwise_root}/{cfg.plans_dir}/00-Index-Plans.md"),
+        ("00-Changelog-Backlog.md", f"{cfg.planwise_root}/{cfg.backlog_dir}/00-Changelog-Backlog.md"),
+        ("00-Index-LessonsLearned.md", f"{lessons_dir_rel}/{lessons_hub_name}"),
+        ("00-Changelog-LessonsLearned.md", f"{lessons_dir_rel}/{lessons_changelog_name}"),
+        ("00-PromotionLog-LessonsLearned.md", f"{lessons_dir_rel}/{lessons_promotion_name}"),
+        ("00-Index-Plans.md", f"{plans_dir_rel}/{plans_index_name}"),
     ]
     seed_dir = cfg.plugin_root / "seed"
     for src_name, dst_rel in seeds:
@@ -253,6 +318,8 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
         except FileNotFoundError:
             print(f"  Warning: seed file not found: {src}", file=sys.stderr)
             continue
+        # A config-named directory may differ from the one create_directories made.
+        dst.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(dst, "xb") as f:
                 f.write(src_content)
@@ -260,6 +327,40 @@ def copy_seed_files(cfg: InitConfig) -> list[str]:
             continue
         copied.append(dst_rel)
     return copied
+
+
+def render_new_plans_index(cfg: InitConfig, seeds: list[str]) -> str | None:
+    """Re-render a plans index this run seeded, so its legend follows the
+    configured `plan_statuses:`.
+
+    The seed carries the default ten-value legend, so a config that sets a
+    different `plan_statuses:` would fail `generate_plans_index.py --check` the
+    moment init finished. This writes through the generator's own render, and
+    only for an index `copy_seed_files()` created in this run: an index that
+    already existed, in any shape, is never touched. A seed that already equals
+    the render (the default statuses) keeps its seed bytes. Never raises.
+    Returns a one-line note when it wrote, else None.
+    """
+    try:
+        config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
+        if not config_path.is_file():
+            return None
+        config = config_loader.load_config(Path(__file__), config_path=config_path)
+        index_path = Path(config["_plans_index"])
+        seeded = {(cfg.project_root / rel).resolve() for rel in seeds}
+        if index_path.resolve() not in seeded:
+            return None
+        disk = index_path.read_text(encoding="utf-8", newline="")
+        render = generate_plans_index.render_plans_index(config)
+        if generate_plans_index.index_matches_render(disk, render):
+            return None
+        result = generate_plans_index.write_plans_index(config)
+        if not result.written:
+            return None
+        return f"Plans index: {index_path} rendered with the configured plan_statuses"
+    except Exception as exc:  # noqa: BLE001 -- the seed copy stands if the render fails
+        print(f"  Warning: plans index render skipped: {exc}", file=sys.stderr)
+        return None
 
 
 def update_frontmatter(content: str, paths_value: str) -> str:
@@ -300,12 +401,12 @@ except ImportError:
 
 try:
     from artifact_upgrade import (
-        upgrade_artifacts,  # noqa: F401 -- re-exported for callers of init_project
-        load_artifact_manifest,
-        _repoint_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
         _commit_upgrade_pin,  # noqa: F401 -- re-exported for callers of init_project
-        _same_path,  # noqa: F401 -- re-exported for callers of init_project
+        _repoint_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
         _run_upgrade,
+        _same_path,  # noqa: F401 -- re-exported for callers of init_project
+        load_artifact_manifest,
+        upgrade_artifacts,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
@@ -316,11 +417,11 @@ except ImportError:
 
 try:
     from doctor_sweeps import (
-        lint_rule_overscope,  # noqa: F401 -- re-exported for callers of init_project
-        sweep_stale_descoped_rules,  # noqa: F401 -- re-exported for callers of init_project
-        sweep_orphaned_agent_mirrors,  # noqa: F401 -- re-exported for callers of init_project
-        lint_installed_divergence,  # noqa: F401 -- re-exported for callers of init_project
         FORMERLY_MIRRORED_AGENTS,  # noqa: F401 -- re-exported for callers of init_project
+        lint_installed_divergence,  # noqa: F401 -- re-exported for callers of init_project
+        lint_rule_overscope,  # noqa: F401 -- re-exported for callers of init_project
+        sweep_orphaned_agent_mirrors,  # noqa: F401 -- re-exported for callers of init_project
+        sweep_stale_descoped_rules,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
@@ -330,17 +431,17 @@ except ImportError:
 
 try:
     from doctor_cli import (
+        _detect_orphaned_block_signature,  # noqa: F401 -- re-exported for callers of init_project
+        _doctor_config_parse_check,  # noqa: F401 -- re-exported for callers of init_project
+        _doctor_version_gate,  # noqa: F401 -- re-exported for callers of init_project
+        _list_diverged_rows,  # noqa: F401 -- re-exported for callers of init_project
+        _read_configured_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
+        _read_pinned_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
+        _resolve_doctor_config_path,  # noqa: F401 -- re-exported for callers of init_project
         _run_doctor,
+        _run_list_diverged,
         _run_prune_stale,
         _run_prune_upgrade_leftovers,
-        _run_list_diverged,
-        _list_diverged_rows,  # noqa: F401 -- re-exported for callers of init_project
-        _doctor_version_gate,  # noqa: F401 -- re-exported for callers of init_project
-        _resolve_doctor_config_path,  # noqa: F401 -- re-exported for callers of init_project
-        _read_pinned_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
-        _read_configured_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
-        _doctor_config_parse_check,  # noqa: F401 -- re-exported for callers of init_project
-        _detect_orphaned_block_signature,  # noqa: F401 -- re-exported for callers of init_project
     )
 except ImportError:
     raise ImportError(
@@ -374,6 +475,13 @@ def install_rules(cfg: InitConfig) -> list[str]:
             continue
         installed.append(filename)
 
+    from style_rules import format_duplicate_line, install_style_rules
+
+    style_installed, style_skipped = install_style_rules(cfg)
+    installed.extend(style_installed)
+    for duplicate in style_skipped:
+        print(format_duplicate_line(*duplicate))
+
     return installed
 
 
@@ -390,7 +498,8 @@ def get_settings_path(cfg: InitConfig) -> Path:
 def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None]:
     """Apply all settings.json mutations in a single read-write cycle.
 
-    Configures Agent Teams env var and plugin read permissions.
+    Configures the Agent Teams env var, the Task checklist tools env var,
+    and plugin read permissions.
     Returns (settings_path, plugin_dir) — either may be None if skipped.
     """
     settings_path = get_settings_path(cfg)
@@ -408,6 +517,11 @@ def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None]:
     # Agent Teams
     env = settings.setdefault("env", {})
     env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
+
+    # Task checklist tools (Ctrl+T) — absent by default on Opus 4.8/Sonnet 5/
+    # Fable 5/Mythos 5 and newer since Claude Code 2.1.233 unless a project
+    # opts in.
+    env["CLAUDE_CODE_ENABLE_TODO_TOOLS"] = "1"
 
     # Plugin permissions
     # Grant the version-agnostic plugin-family root (cfg.plugin_root.parent) rather
@@ -441,6 +555,54 @@ def configure_settings(cfg: InitConfig) -> tuple[str | None, str | None]:
     return str(settings_path), plugin_dir
 
 
+THRIFTY_SONIC_KEY = "CLAUDE_CODE_THRIFTY_SONIC"
+THRIFTY_SONIC_VALUE = "false"
+
+
+def get_thrifty_sonic_paths(cfg: InitConfig) -> list[Path]:
+    """Return the settings files that carry the standing session-behavior var.
+
+    Always the project's .claude/settings.json and the user-global
+    ~/.claude/settings.json, whatever the install scope: the var is a
+    session toggle meant to apply everywhere, not to one install. The
+    settings.local.json file is never a target.
+    """
+    return [
+        cfg.project_root / ".claude" / "settings.json",
+        Path.home() / ".claude" / "settings.json",
+    ]
+
+
+def configure_thrifty_sonic(cfg: InitConfig) -> list[tuple[Path, str]]:
+    """Set env.CLAUDE_CODE_THRIFTY_SONIC="false" in every target settings file.
+
+    Each file is read, merged and written independently, so one malformed file
+    never blocks the other. Every other key is preserved. Returns one
+    (path, status) pair per target, status being "added", "corrected",
+    "unchanged" or "skipped" (invalid JSON — a warning is printed).
+    """
+    results: list[tuple[Path, str]] = []
+    for path in get_thrifty_sonic_paths(cfg):
+        try:
+            settings = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            settings = {}
+        except json.JSONDecodeError:
+            print(f"  Warning: {path} contains invalid JSON — skipping {THRIFTY_SONIC_KEY}.", file=sys.stderr)
+            results.append((path, "skipped"))
+            continue
+        env = settings.setdefault("env", {})
+        current = env.get(THRIFTY_SONIC_KEY)
+        if current == THRIFTY_SONIC_VALUE:
+            results.append((path, "unchanged"))
+            continue
+        env[THRIFTY_SONIC_KEY] = THRIFTY_SONIC_VALUE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+        results.append((path, "added" if current is None else "corrected"))
+    return results
+
+
 def _print_skipped_banner(skipped: list[SkippedArtifact]) -> None:
     """Emit the Step 10 SKIPPED section if any artifact was not produced.
 
@@ -455,8 +617,56 @@ def _print_skipped_banner(skipped: list[SkippedArtifact]) -> None:
         print(f"  ! {s.artifact}")
         print(f"      reason:      {s.reason}")
         print(f"      affects:     {s.consumer}")
-        print(f"      remediation: {s.remediation}")
+        # Indent a remediation's continuation lines to the "remediation: " value
+        # column (19 chars: 6 leading spaces + "remediation:" + one space) so a
+        # multi-line fix (e.g. a refused backlog migration's action + re-run line)
+        # stays visually aligned instead of falling back to column 0.
+        remediation = s.remediation.replace("\n", "\n" + " " * 19)
+        print(f"      remediation: {remediation}")
     print()
+
+
+def _backfill_feedback_dir(cfg: InitConfig, config_path: Path) -> str | None:
+    """Backfill `project.feedback_dir` into a config that predates the key.
+
+    Purely additive, mirroring migrate_config's own contract: runs only when
+    the key is absent from the config already on disk, and never overwrites
+    an existing value. When a pre-existing `feedback-drafts/` directory is
+    found non-empty, the key is pointed at it instead of the new default —
+    nothing is ever moved, renamed, copied, or deleted. Returns a one-line
+    notice to print for that re-point case, or None when no notice is
+    warranted (including when the key was already present).
+    """
+    if not HAS_YAML or not config_path.exists():
+        return None
+    try:
+        parsed = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return None
+    project = parsed.get("project") if isinstance(parsed, dict) else None
+    if not isinstance(project, dict) or "feedback_dir" in project:
+        return None
+
+    legacy_dir = cfg.project_root / cfg.planwise_root / "feedback-drafts"
+    notice = None
+    if legacy_dir.is_dir() and any(legacy_dir.iterdir()):
+        value = "feedback-drafts"
+        notice = (
+            f"Found an existing '{legacy_dir.name}/' directory — pointed "
+            f"project.feedback_dir at it instead of the new default."
+        )
+    else:
+        value = "Feedback"
+
+    text = config_path.read_text(encoding="utf-8")
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        match = re.match(r"^(\s*)lessons_dir:", line)
+        if match:
+            lines.insert(i + 1, f'{match.group(1)}feedback_dir: "{value}"')
+            write_config_checked(config_path, "\n".join(lines))
+            break
+    return notice
 
 
 def _run_migrate(cfg: InitConfig) -> int:
@@ -470,6 +680,8 @@ def _run_migrate(cfg: InitConfig) -> int:
         print(f"Migration failed: {exc}", file=sys.stderr)
         return 2
 
+    feedback_notice = _backfill_feedback_dir(cfg, Path(path))
+
     print(f"Migration target: {path}")
     if added:
         print("Top-level keys added:")
@@ -481,6 +693,8 @@ def _run_migrate(cfg: InitConfig) -> int:
         print("Top-level keys already present (preserved):")
         for key in present:
             print(f"  = {key}")
+    if feedback_notice:
+        print(feedback_notice)
     print()
     print("Migration complete.")
     return 0
@@ -495,6 +709,7 @@ def main():
     parser.add_argument("--plans-dir", default="Plans", help="Plans subdirectory name")
     parser.add_argument("--backlog-dir", default="Backlog", help="Backlog subdirectory name")
     parser.add_argument("--lessons-dir", default="LessonsLearned", help="Lessons subdirectory name")
+    parser.add_argument("--feedback-dir", default="Feedback", help="Feedback subdirectory name")
     parser.add_argument("--scope", default=InstallScope.PROJECT,
                         choices=[s.value for s in InstallScope],
                         help="Install scope: project, user, or local (default: project)")
@@ -521,6 +736,36 @@ def main():
     parser.add_argument("--upgrade", action="store_true",
                         help="Refresh installed rules and bump plugin_version: in "
                              "config.yaml after a plugin update.")
+    parser.add_argument("--upgrade-pair", default=None, metavar="FROM-to-TO",
+                        help="With --upgrade: the version pair the invoking handler "
+                             "resolved and pinned at the start of its run (e.g. "
+                             "1.0.4-to-1.0.5). The upgrade is refused (exit 2, nothing "
+                             "written) when the pair it resolves live differs — a "
+                             "plugin cache that moved mid-session must not silently "
+                             "retarget the comparator fan-out's verdicts.json or adopt "
+                             "a different shipped body than the one analyzed.")
+    parser.add_argument("--allow-downgrade", action="store_true",
+                        help="With --upgrade: proceed even when config.yaml pins a "
+                             "NEWER plugin_version than the plugin executing this "
+                             "run. Without it such a run is refused (exit 2, nothing "
+                             "written) — invoking an older plugin cache's script "
+                             "would otherwise run the upgrade backwards silently. A "
+                             "sanctioned downgrade still writes plugin_version and "
+                             "plugin_root together in one commit.")
+    parser.add_argument("--backlog-reconcile", default=None,
+                        choices=["index-wins", "frontmatter-wins"],
+                        help="With --upgrade: how the backlog-index retrofit "
+                             "resolves a row/frontmatter disagreement. Default "
+                             "(omit the flag) is index-wins. frontmatter-wins "
+                             "drops the mismatched index cell instead of "
+                             "rewriting the item file.")
+    parser.add_argument("--lessons-reconcile", default=None,
+                        choices=["index-wins", "frontmatter-wins"],
+                        help="With --upgrade: how the lessons-index retrofit "
+                             "resolves a row/frontmatter disagreement. Default "
+                             "(omit the flag) is index-wins. frontmatter-wins "
+                             "drops the mismatched index cell instead of "
+                             "rewriting the lesson file.")
     parser.add_argument("--doctor", action="store_true",
                         help="Read-only diagnostic: scan installed rules and report any "
                              "still scoped to plan/backlog/lessons globs (always-on context "
@@ -562,6 +807,31 @@ def main():
                              "with this flag to be trusted. Does not require --name.")
     args = parser.parse_args()
 
+    # --upgrade-pair is validated up front so a malformed value is a parser
+    # error, never a half-run: it is the handler's pinned pair, and the
+    # writer's refusal gate depends on it being well-formed.
+    expected_pair = None
+    if args.upgrade_pair is not None:
+        if not args.upgrade:
+            parser.error("--upgrade-pair only applies together with --upgrade")
+        parts = args.upgrade_pair.split("-to-")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            parser.error("--upgrade-pair must be FROM-to-TO (e.g. 1.0.4-to-1.0.5), "
+                         f"got {args.upgrade_pair!r}")
+        expected_pair = (parts[0], parts[1])
+
+    # Same up-front shape as --upgrade-pair: a flag that only means anything
+    # on the --upgrade path is a parser error elsewhere, never a silent no-op
+    # that leaves the caller believing a guard was waived.
+    if args.allow_downgrade and not args.upgrade:
+        parser.error("--allow-downgrade only applies together with --upgrade")
+
+    if args.backlog_reconcile and not args.upgrade:
+        parser.error("--backlog-reconcile requires --upgrade")
+
+    if args.lessons_reconcile and not args.upgrade:
+        parser.error("--lessons-reconcile requires --upgrade")
+
     if args.hash_installed:
         # The upgrade handler interpolates an absolute path here once per verdict
         # entry, so a typo'd or moved path must surface as a one-line error, not a
@@ -592,6 +862,7 @@ def main():
         plans_dir=args.plans_dir,
         backlog_dir=args.backlog_dir,
         lessons_dir=args.lessons_dir,
+        feedback_dir=args.feedback_dir,
         install_scope=args.scope,
         plan_tier=args.plan_tier,
         plugin_version=read_plugin_version(_plugin_root),
@@ -615,7 +886,10 @@ def main():
     if args.upgrade:
         if args.migrate:
             print("Note: --migrate is redundant when --upgrade is used (upgrade internally calls migrate).", file=sys.stderr)
-        sys.exit(_run_upgrade(cfg))
+        sys.exit(_run_upgrade(cfg, expected_pair=expected_pair,
+                              allow_downgrade=args.allow_downgrade,
+                              backlog_reconcile=args.backlog_reconcile,
+                              lessons_reconcile=args.lessons_reconcile))
 
     if args.migrate:
         sys.exit(_run_migrate(cfg))
@@ -654,12 +928,29 @@ def main():
             consumer="all handlers (config gate)",
             remediation="Re-install the planwise plugin or run /planwise init from a clean plugin checkout.",
         ))
+    if result == ConfigResult.CREATED:
+        probed = refresh_verified_cli_version(
+            cfg.project_root / cfg.planwise_root / "config.yaml"
+        )
+        if probed:
+            print(f"Verified CLI version: {probed} (probed via `claude --version`)")
+        else:
+            print("Verified CLI version: not probed (claude binary not resolvable) — "
+                  "left at the uncalibrated sentinel; /planwise upgrade will retry.")
     print()
 
-    # Lessons scaffolding (index seed + categorization file) via the shared
-    # idempotent routine — the SAME entry point _run_upgrade() backfills from.
-    # copy_seed_files() above already seeded the lessons index, so that
-    # sub-step is a no-op here; the categorization banner below is unchanged.
+    # A plans index seeded in this run is re-rendered once config.yaml exists,
+    # so its legend follows `plan_statuses:`.
+    _plans_render_note = render_new_plans_index(cfg, seeds)
+    if _plans_render_note:
+        print(_plans_render_note)
+        print()
+
+    # Lessons scaffolding (index + companions + categorization file) via the
+    # shared idempotent routine — the SAME entry point _run_upgrade()
+    # backfills from. copy_seed_files() above already seeded the lessons
+    # index and its two companions, so that sub-step is a no-op here; the
+    # categorization banner below is unchanged.
     _lessons = bootstrap_lessons_artifacts(cfg)
     cat_result, cat_rel = _lessons.cat_result, _lessons.cat_rel
     if cat_result == ConfigResult.CREATED:
@@ -677,21 +968,93 @@ def main():
             consumer="/planwise lessons curate, /planwise lessons promote-batch",
             remediation="Install PyYAML (`pip install pyyaml`), or run /planwise init and let the handler's Step 5.1 fallback render the file via Read+Write.",
         ))
-    else:  # SKIPPED_NO_TEMPLATE or SKIPPED_BAD_CONFIG (defensive)
-        print("Categorization: skipped (config.yaml unparseable)")
+    else:  # SKIPPED_NO_TEMPLATE or SKIPPED_BAD_CONFIG
+        print("Categorization: skipped (config.yaml unparseable or its categorization: block is invalid)")
         skipped.append(SkippedArtifact(
             artifact=cat_rel,
-            reason="config.yaml could not be parsed (YAML error or unexpected structure)",
+            reason="config.yaml could not be parsed, or its categorization: block failed validation (a bucket without an id, a duplicate id, or an unresolved default_bucket/decision_tree_order entry)",
             consumer="/planwise lessons curate, /planwise lessons promote-batch",
-            remediation=f"Fix YAML errors in {cfg.planwise_root}/config.yaml, then re-run /planwise init or `python init_project.py --migrate`.",
+            remediation=f"Fix {cfg.planwise_root}/config.yaml (`generate_lessons_index.py --companion --check` names the offending entry), then re-run /planwise init or `python init_project.py --migrate`.",
         ))
+    if _lessons.notes_result == ConfigResult.CREATED:
+        print(f"Categorization notes: + {_lessons.notes_rel}")
     print()
+
+    # Backlog-index retrofit: migrate a hand-authored backlog index (or
+    # re-split an over-budget changelog on an already-generated one) via the
+    # SAME idempotent routine _run_upgrade() calls on both of its exits. A
+    # hand-authored index is only DETECTED here (defer_legacy): the rewrite,
+    # and the row/frontmatter reconcile choice, belong to /planwise upgrade,
+    # which accepts --backlog-reconcile. A first init has no item frontmatter
+    # to disagree with, and plain init never applies a reconcile mode the
+    # caller could not choose. The deferred state lands in the Skipped section.
+    _backlog = migrate_backlog_if_legacy(cfg, "init", cfg.plugin_version, defer_legacy=True)
+    _emit_backlog_migration_banner(_backlog)
+    if _backlog.state == "error" and _backlog.index_path is None:
+        pass  # config.yaml's own Skipped row above already reports this fault
+    elif _backlog.state in {"deferred", "refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+        index_path = _backlog.index_path or (
+            cfg.project_root / cfg.planwise_root / cfg.backlog_dir / "00-Index-Backlog.md")
+        skipped.append(SkippedArtifact(
+            artifact=str(index_path),
+            reason=_backlog.detail,
+            consumer="/planwise backlog, /planwise harvest, backlog-author",
+            remediation=_backlog.fix or "re-run /planwise upgrade",
+        ))
+
+    # Lessons-index retrofit: migrate a hand-authored lessons index (or
+    # re-split an over-budget changelog on an already-generated one) via the
+    # SAME idempotent routine _run_upgrade() calls on both of its exits,
+    # immediately after the backlog retrofit above. Like the backlog, a
+    # hand-authored index is only detected here (defer_legacy) and migrates
+    # on /planwise upgrade. Runs after bootstrap_lessons_artifacts() above, so
+    # the migrator meets the openers the bootstrap already seeded rather than
+    # their absence.
+    _lessons_mig = migrate_lessons_if_legacy(cfg, "init", cfg.plugin_version, defer_legacy=True)
+    _emit_lessons_migration_banner(_lessons_mig)
+    if _lessons_mig.state == "error" and _lessons_mig.index_path is None:
+        pass  # config.yaml's own Skipped row above already reports this fault
+    elif _lessons_mig.state in {"deferred", "refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+        _lessons_dir_rel, _lessons_name = config_loader.resolve_index_target(cfg, "lessons")
+        index_path = _lessons_mig.index_path or (
+            cfg.project_root / _lessons_dir_rel / _lessons_name)
+        skipped.append(SkippedArtifact(
+            artifact=str(index_path),
+            reason=_lessons_mig.detail,
+            consumer="/planwise lessons, /planwise run Step 4.2, /planwise doctor Stage 13",
+            remediation=_lessons_mig.fix or "re-run /planwise upgrade",
+        ))
+
+    # Plans-index retrofit: detect a hand-authored plans index via the SAME
+    # idempotent routine _run_upgrade() calls on both of its exits, right after
+    # the lessons retrofit above. A hand-authored index is only detected here
+    # (defer_legacy) and migrates on /planwise upgrade. A fresh seed is already
+    # generator-shaped, so the routine stays silent on it.
+    _plans_mig = migrate_plans_if_legacy(cfg, "init", cfg.plugin_version, defer_legacy=True)
+    _emit_plans_migration_banner(_plans_mig)
+    if _plans_mig.state == "error" and _plans_mig.index_path is None:
+        pass  # config.yaml's own Skipped row above already reports this fault
+    elif _plans_mig.state in {"deferred", "refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+        _plans_dir_rel, _plans_name = config_loader.resolve_index_target(cfg, "plans")
+        index_path = _plans_mig.index_path or (
+            cfg.project_root / _plans_dir_rel / _plans_name)
+        skipped.append(SkippedArtifact(
+            artifact=str(index_path),
+            reason=_plans_mig.detail,
+            consumer="/planwise list, /planwise doctor Stage 11",
+            remediation=_plans_mig.fix or "re-run /planwise upgrade",
+        ))
 
     rules = install_rules(cfg)
     if rules:
         print("Rules installed to .claude/rules/planwise/:")
         for r in rules:
             print(f"  + {r}")
+        if cfg.install_scope == InstallScope.USER:
+            from style_rules import STYLE_RULES, style_rule_dir
+
+            if any(name in rules for name, _key in STYLE_RULES):
+                print(f"Style rules installed to {style_rule_dir(cfg)}.")
     else:
         print("Rules: already exist, skipped")
     print()
@@ -710,6 +1073,19 @@ def main():
             consumer="Agent Teams + plugin permissions (all handlers)",
             remediation=f"Fix the JSON in {get_settings_path(cfg)} and re-run /planwise init.",
         ))
+    print()
+
+    thrifty_results = configure_thrifty_sonic(cfg)
+    print(f"Session env var {THRIFTY_SONIC_KEY}={THRIFTY_SONIC_VALUE} (user + project settings):")
+    for thrifty_path, thrifty_status in thrifty_results:
+        print(f"  {thrifty_status}: {thrifty_path}")
+        if thrifty_status == "skipped":
+            skipped.append(SkippedArtifact(
+                artifact=str(thrifty_path),
+                reason="settings.json contains invalid JSON",
+                consumer=THRIFTY_SONIC_KEY,
+                remediation=f"Fix the JSON in {thrifty_path} and re-run /planwise init.",
+            ))
     print()
 
     # Manifest-driven post-checks: load manifests/artifacts.yaml and surface
@@ -832,10 +1208,13 @@ def main():
             ),
         ))
 
+    # The Skipped section prints in subroutine mode too: it is the only place a
+    # deferred or refused migration names its remediation, and the calling
+    # handler would otherwise resume with a legacy index and no fix line.
+    _print_skipped_banner(skipped)
     if args.auto_from:
         print(f"Init complete — resuming /planwise {args.auto_from}…")
     else:
-        _print_skipped_banner(skipped)
         print("Done!")
 
 

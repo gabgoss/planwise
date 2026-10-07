@@ -10,11 +10,15 @@ rather than re-deriving it.
 """
 
 import datetime
+import hashlib
+import json
 import re
-from pathlib import Path  # noqa: F401 -- used by the nested _check() helper below
+from pathlib import Path
 
 try:
-    from config_gen import InitConfig  # noqa: F401 -- type-hint only (quoted forward refs)
+    from config_gen import (
+        InitConfig,
+    )
 except ImportError:
     raise ImportError(
         "config_gen is required for doctor_sweeps's InitConfig type "
@@ -23,13 +27,14 @@ except ImportError:
 
 try:
     from rule_divergence import (
-        normalize_rule_for_diff,
         _classify_diverged,
         _destructively_removable,
-        is_subset,
-        is_safe_to_remove,
-        _verdict_not_analyzed,
         _extract_paths_value,
+        _verdict_not_analyzed,
+        is_safe_to_remove,
+        is_subset,
+        normalize_pair,
+        normalize_rule_for_diff,
     )
 except ImportError:
     raise ImportError(
@@ -46,16 +51,6 @@ except ImportError:
         "estimates; the scripts/ directory appears to be partially installed"
     )
 
-try:
-    from init_project import DESCOPED_RULES, INSTALLED_RULES
-except ImportError:
-    raise ImportError(
-        "init_project is required for doctor_sweeps's DESCOPED_RULES/"
-        "INSTALLED_RULES tables (R1: the tuples stay on the residual); the "
-        "scripts/ directory appears to be partially installed"
-    )
-
-
 # Frozen filename list for the post-boundary orphaned-mirror sweep: the agent
 # files formerly mirrored into .claude/agents/ on init. No live install list
 # remains after the mirror drop; this frozen copy lets the sweep recognize an
@@ -67,6 +62,56 @@ FORMERLY_MIRRORED_AGENTS = [
     "task-runner.md",
     "rule-comparator.md",
 ]
+
+# Shipped manifest of every body each formerly-mirrored agent has EVER shipped
+# with, as sha256 digests of the normalized text. The divergence classifier
+# assumes shipped files only ever grow — "installed ⊆ shipped means stale" —
+# and a release that relocates content OUT of an agent (a check-body fold, a
+# split) inverts that: every pre-existing mirror becomes a SUPERSET of shipped,
+# which is exactly the signature of a user customization, so the sweep returns
+# PRESERVE/unique for provably stale shipped content and the orphan is never
+# cleanable. The discriminator that resolves it — "does this installed body
+# match any version we ever shipped?" — needs history a consumer install does
+# not carry, so the history ships as data. Regenerate with
+# tools/gen_agent_history.py (dev repo only) whenever a listed agent changes;
+# tests/test_agent_history.py fails until the current body is listed.
+AGENT_HISTORY_MANIFEST = Path("manifests") / "agent-history.json"
+
+
+def _history_normalize(text: str) -> str:
+    """The one normalization the history digests use: CRLF → LF. A mirror
+    copied on Windows may carry CRLF where the shipped body carries LF; nothing
+    else (whitespace, BOM handling beyond utf-8-sig on read) is folded, so a
+    match stays byte-exact in every respect that could carry a customization."""
+    return text.replace("\r\n", "\n")
+
+
+def history_digest(text: str) -> str:
+    """sha256 hex of the normalized body — the key both the manifest generator
+    and the sweep compute, so the two can never disagree on normalization."""
+    return hashlib.sha256(_history_normalize(text).encode("utf-8")).hexdigest()
+
+
+def load_agent_history(plugin_root: Path) -> dict[str, set[str]]:
+    """Return {agent filename: {digest of every body ever shipped}}.
+
+    An absent, unreadable or malformed manifest returns {} — the sweep then
+    degrades to its pre-manifest verdicts (a superset stays PRESERVE), never a
+    confident REMOVABLE on incomplete evidence.
+    """
+    path = plugin_root / AGENT_HISTORY_MANIFEST
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    agents = doc.get("agents") if isinstance(doc, dict) else None
+    if not isinstance(agents, dict):
+        return {}
+    history: dict[str, set[str]] = {}
+    for filename, digests in agents.items():
+        if isinstance(digests, list):
+            history[filename] = {d for d in digests if isinstance(d, str)}
+    return history
 
 
 def lint_rule_overscope(cfg: "InitConfig") -> list[dict]:
@@ -342,21 +387,30 @@ def sweep_orphaned_agent_mirrors(cfg: "InitConfig") -> list[dict]:
        [, unique_blocks]}
 
     REMOVABLE requires EITHER a byte-identical installed/shipped pair (fast
-    path — the primitive is never consulted) OR a high-confidence subset
-    verdict from `_classify_diverged()` that clears `_destructively_removable`
+    path — the primitive is never consulted), OR a body whose normalized
+    digest matches a PREVIOUSLY shipped body of the same agent in the
+    shipped agent-history manifest (confidence "historical-exact" — also a
+    fast path; this is what makes a stale copy classifiable after a release
+    that shrank the agent), OR a high-confidence subset verdict from
+    `_classify_diverged()` that clears `_destructively_removable`
     (is_subset AND is_safe_to_remove AND an empty verdict.notes field) —
     non-empty notes means the matcher tolerated installed-only content it
     could not prove was noise, which flips the disposition to PRESERVE
     rather than risk deleting a genuine short customization. A missing
     shipped reference, an unreadable installed/shipped file, and a degraded
     (structural_compare unavailable) verdict all PRESERVE — never a
-    confident recommendation on incomplete evidence.
+    confident recommendation on incomplete evidence. When the shipped body
+    is smaller than the installed one and no historical body matched, the
+    PRESERVE reason says so, because "shipped shrank" is the one shape that
+    makes stale content look like a customization.
     """
     agents_dir = cfg.project_root / ".claude" / "agents"
     agents_src_dir = cfg.plugin_root / "agents"
     findings: list[dict] = []
     if not agents_dir.exists():
         return findings
+
+    history = load_agent_history(cfg.plugin_root)
 
     for filename in FORMERLY_MIRRORED_AGENTS:
         dst = agents_dir / filename
@@ -400,11 +454,39 @@ def sweep_orphaned_agent_mirrors(cfg: "InitConfig") -> list[dict]:
                                        "mirror"})
             continue
 
+        # Historical-exact fast path: the body is not the CURRENT shipped one,
+        # but it is byte-exact (modulo CRLF) to a body this agent shipped with
+        # before. A user could not have produced that by editing, so it is
+        # stale shipped content — removable regardless of whether the current
+        # shipped body grew or shrank since.
+        if history_digest(installed_raw) in history.get(filename, ()):
+            findings.append({**base, "verdict": "REMOVABLE",
+                             "confidence": "historical-exact",
+                             "reason": "byte-exact copy of a previously shipped body of "
+                                       "this agent — stale shipped content, not a "
+                                       "customization"})
+            continue
+
         v = _classify_diverged(installed_raw, shipped_raw)
         # `v.notes` (set by classify_blocks) flags sub-noise-floor installed-only
         # content tolerated during matching — surface it in the reason whenever
         # present so a human sees the caveat before acting on the verdict.
         notes_suffix = f" ({v.notes})" if getattr(v, "notes", "") else ""
+        # The shrink case: a content-relocating release makes every stale
+        # mirror a superset of shipped, which reads as a customization. Say so
+        # in the reason so a consumer can tell "PRESERVE because you edited it"
+        # from "PRESERVE because the classifier cannot see past a refactor".
+        shipped_lines = shipped_raw.count("\n") + (0 if shipped_raw.endswith("\n") else 1)
+        shrink_suffix = ""
+        if shipped_lines < line_count:
+            shrink_suffix = (f"; shipped body is smaller than the installed copy "
+                             f"({shipped_lines} vs {line_count} lines) — a "
+                             f"content-relocating refactor makes a stale copy look "
+                             f"customized, and ")
+            shrink_suffix += ("no previously shipped body matched"
+                              if filename in history else
+                              "the shipped agent-history manifest is unavailable, so a "
+                              "stale older copy cannot be ruled out")
         if _destructively_removable(v):
             findings.append({**base, "verdict": "REMOVABLE", "confidence": v.confidence,
                              "reason": "stale/reorganized subset of the shipped agent"})
@@ -423,8 +505,94 @@ def sweep_orphaned_agent_mirrors(cfg: "InitConfig") -> list[dict]:
             findings.append({**base, "verdict": "PRESERVE", "confidence": v.confidence,
                              "unique_blocks": v.unique_blocks,
                              "reason": "genuine customization (unique content) — keep or "
-                                       "upstream, do NOT delete" + notes_suffix})
+                                       "upstream, do NOT delete" + notes_suffix
+                                       + shrink_suffix})
     return findings
+
+
+def check_installed_against_shipped(dst: Path, src: Path, kind: str, norm) -> dict | None:
+    """Compare one installed file with its shipped reference. Read-only.
+
+    Returns `None` when `dst` is not installed (not a broken install) or when
+    both sides are identical after `norm` is applied. Otherwise returns one
+    finding dict `{path, kind, classification, line_count, approx_bytes,
+    approx_tokens, recommendation}` whose `classification` is `SUBSET`,
+    `HAS_UNIQUE`, `NOT_ANALYZED` or `UNVERIFIABLE`. An unreadable installed or
+    shipped file, or a missing shipped file, is an `UNVERIFIABLE` row, never an
+    exception and never a silent skip. Both sides are read as `utf-8-sig`.
+    """
+    if not dst.is_file():
+        return None   # not installed — nothing to check, not a broken install
+
+    # utf-8-sig: mirrors the artifact refresh writer's own read encoding
+    # (see upgrade_artifacts()) so a leading BOM cannot defeat the
+    # frontmatter-anchored comparison and falsely report a divergence.
+    try:
+        installed_raw = dst.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        # A non-UTF-8 (or otherwise unreadable) installed file must
+        # never crash the always-exit-0 doctor path — report it as
+        # unverifiable instead of letting the exception escape.
+        return {"path": str(dst), "kind": kind, "classification": "UNVERIFIABLE",
+                "line_count": 0, "approx_bytes": 0, "approx_tokens": 0,
+                "recommendation": f"unreadable ({exc}) — cannot verify divergence"}
+
+    line_count = installed_raw.count("\n") + (0 if installed_raw.endswith("\n") else 1)
+    num_bytes = len(installed_raw.encode("utf-8"))
+    base = {"path": str(dst), "kind": kind,
+            "line_count": line_count, "approx_bytes": num_bytes,
+            "approx_tokens": estimate_tokens(num_bytes)}
+
+    if not src.is_file():
+        # Missing shipped reference = a broken/partial install — an
+        # explicit unverifiable row, never a silent skip that would let
+        # the caller's all-clear line print over it.
+        return {**base, "classification": "UNVERIFIABLE",
+                "recommendation": "shipped reference unavailable — cannot verify divergence"}
+    try:
+        shipped_raw = src.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        return {**base, "classification": "UNVERIFIABLE",
+                "recommendation": f"shipped reference unreadable ({exc}) — cannot verify divergence"}
+    inst_norm, ship_norm = normalize_pair(installed_raw, shipped_raw, norm)
+
+    if inst_norm == ship_norm:
+        return None
+
+    v = _classify_diverged(inst_norm, ship_norm)
+    notes = getattr(v, "notes", "") or ""
+
+    if _verdict_not_analyzed(v):
+        # Degraded stand-in (structural_compare unavailable at call
+        # time) — no analysis actually ran. Must NOT be reported as a
+        # confident HAS_UNIQUE recommendation; mirrors the migrate/
+        # upgrade NOT-analyzed notice convention.
+        return {**base, "classification": "NOT_ANALYZED",
+                "recommendation": "NOT analyzed — structural comparison unavailable; "
+                                   "diff it against references/ before acting manually"}
+
+    if is_subset(v):
+        if notes:
+            # Non-empty notes = the matcher tolerated installed-only
+            # content (e.g. sub-noise-floor fragments) — the writer's
+            # own auto-adopt gate (`is_subset(verdict) and not
+            # verdict.notes`) does NOT fire here; /planwise upgrade
+            # instead routes this file through the customization-bearing
+            # transfer-then-adopt (or preserve) gate, never an
+            # unconditional auto-adopt.
+            recommendation = (
+                "recommend /planwise upgrade — installed-only content flagged "
+                f"({notes}); upgrade will transfer it (or preserve it in place, "
+                "depending on upgrade.customization_handoff) before adopting "
+                "shipped, not auto-adopt unconditionally"
+            )
+        else:
+            recommendation = "recommend /planwise upgrade (auto-adopts shipped)"
+        return {**base, "classification": "SUBSET", "recommendation": recommendation}
+
+    # HAS_UNIQUE — re-home per the rule decide-callout.
+    recommendation = 're-home per the "Choosing a Home for a Rule Customization" decide callout'
+    return {**base, "classification": "HAS_UNIQUE", "recommendation": recommendation}
 
 
 def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
@@ -483,83 +651,10 @@ def lint_installed_divergence(cfg: "InitConfig") -> list[dict]:
     rules_dst_dir = cfg.project_root / ".claude" / "rules" / "planwise"
     refs_dir = cfg.plugin_root / "references"
 
-    def _check(dst: Path, src: Path, kind: str, norm) -> dict | None:
-        if not dst.is_file():
-            return None   # not installed — nothing to check, not a broken install
-
-        # utf-8-sig: mirrors the artifact refresh writer's own read encoding
-        # (see upgrade_artifacts()) so a leading BOM cannot defeat the
-        # frontmatter-anchored comparison and falsely report a divergence.
-        try:
-            installed_raw = dst.read_text(encoding="utf-8-sig")
-        except (OSError, UnicodeDecodeError) as exc:
-            # A non-UTF-8 (or otherwise unreadable) installed file must
-            # never crash the always-exit-0 doctor path — report it as
-            # unverifiable instead of letting the exception escape.
-            return {"path": str(dst), "kind": kind, "classification": "UNVERIFIABLE",
-                    "line_count": 0, "approx_bytes": 0, "approx_tokens": 0,
-                    "recommendation": f"unreadable ({exc}) — cannot verify divergence"}
-
-        line_count = installed_raw.count("\n") + (0 if installed_raw.endswith("\n") else 1)
-        num_bytes = len(installed_raw.encode("utf-8"))
-        base = {"path": str(dst), "kind": kind,
-                "line_count": line_count, "approx_bytes": num_bytes,
-                "approx_tokens": estimate_tokens(num_bytes)}
-
-        if not src.is_file():
-            # Missing shipped reference = a broken/partial install — an
-            # explicit unverifiable row, never a silent skip that would let
-            # the caller's all-clear line print over it.
-            return {**base, "classification": "UNVERIFIABLE",
-                    "recommendation": "shipped reference unavailable — cannot verify divergence"}
-        try:
-            shipped_raw = src.read_text(encoding="utf-8-sig")
-        except (OSError, UnicodeDecodeError) as exc:
-            return {**base, "classification": "UNVERIFIABLE",
-                    "recommendation": f"shipped reference unreadable ({exc}) — cannot verify divergence"}
-
-        inst_norm, ship_norm = norm(installed_raw), norm(shipped_raw)
-        if inst_norm == ship_norm:
-            return None
-
-        v = _classify_diverged(inst_norm, ship_norm)
-        notes = getattr(v, "notes", "") or ""
-
-        if _verdict_not_analyzed(v):
-            # Degraded stand-in (structural_compare unavailable at call
-            # time) — no analysis actually ran. Must NOT be reported as a
-            # confident HAS_UNIQUE recommendation; mirrors the migrate/
-            # upgrade NOT-analyzed notice convention.
-            return {**base, "classification": "NOT_ANALYZED",
-                    "recommendation": "NOT analyzed — structural comparison unavailable; "
-                                       "diff it against references/ before acting manually"}
-
-        if is_subset(v):
-            if notes:
-                # Non-empty notes = the matcher tolerated installed-only
-                # content (e.g. sub-noise-floor fragments) — the writer's
-                # own auto-adopt gate (`is_subset(verdict) and not
-                # verdict.notes`) does NOT fire here; /planwise upgrade
-                # instead routes this file through the customization-bearing
-                # transfer-then-adopt (or preserve) gate, never an
-                # unconditional auto-adopt.
-                recommendation = (
-                    "recommend /planwise upgrade — installed-only content flagged "
-                    f"({notes}); upgrade will transfer it (or preserve it in place, "
-                    "depending on upgrade.customization_handoff) before adopting "
-                    "shipped, not auto-adopt unconditionally"
-                )
-            else:
-                recommendation = "recommend /planwise upgrade (auto-adopts shipped)"
-            return {**base, "classification": "SUBSET", "recommendation": recommendation}
-
-        # HAS_UNIQUE — re-home per the rule decide-callout.
-        recommendation = 're-home per the "Choosing a Home for a Rule Customization" decide callout'
-        return {**base, "classification": "HAS_UNIQUE", "recommendation": recommendation}
-
     findings: list[dict] = []
     for filename, _paths_template in INSTALLED_RULES:
-        row = _check(rules_dst_dir / filename, refs_dir / filename, "rule", normalize_rule_for_diff)
+        row = check_installed_against_shipped(
+            rules_dst_dir / filename, refs_dir / filename, "rule", normalize_rule_for_diff)
         if row:
             findings.append(row)
     return findings
@@ -598,9 +693,16 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
       {pair (the "{from}-to-{to}" directory name), surface
        ("upgrade-backups" | "upgrade-transfers" | "upgrade-conflicts" |
        "upgrade-conflicts/issue-drafts" | "upgrade-conflicts (consumed
-       verdict cache)"), path, count (file(s) at that surface), age_days
-       (days since the surface's directory/file was last modified),
-       klass (a RECOVERY_ARTIFACT_CLASSES key)}
+       verdict cache)"), path, count (file(s) at that surface), bytes
+       (total on-disk size of those files), age_days (days since the
+       surface's directory/file was last modified), klass (a
+       RECOVERY_ARTIFACT_CLASSES key)}
+
+    `bytes` is carried alongside `count` because the two answer different
+    questions and a caller deciding what to prune needs the second one. A
+    file count says how much there is to review; only a byte total says how
+    much a prune reclaims, and the two do not track each other — one
+    transferred rule body can outweigh a hundred spent cache markers.
 
     A surface with zero matching files is omitted entirely — report what
     exists, never assume all surfaces are present (backups fire on every
@@ -608,7 +710,7 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
     sidecars only on an unresolved divergence).
     """
     root = cfg.project_root / cfg.planwise_root
-    today = datetime.date.today()
+    today = datetime.datetime.now().astimezone().date()
     findings: list[dict] = []
 
     def _age_days(target: Path) -> int:
@@ -616,41 +718,58 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
             mtime = target.stat().st_mtime
         except OSError:
             return 0
-        return (today - datetime.date.fromtimestamp(mtime)).days
+        return (today - datetime.datetime.fromtimestamp(mtime).astimezone().date()).days
+
+    def _bytes_of(files: "list[Path]") -> int:
+        """Total on-disk size of `files`, skipping any that vanish or refuse
+        a stat mid-sweep. A read-only diagnostic must never abort on one
+        unreadable file — an under-count is a lesser failure than no report
+        at all, and the count column still shows what was found."""
+        total = 0
+        for f in files:
+            try:
+                total += f.stat().st_size
+            except OSError:
+                continue
+        return total
 
     backups_root = root / "upgrade-backups"
     for pair_dir in sorted(p for p in backups_root.glob("*-to-*") if p.is_dir()):
-        count = sum(
-            1 for f in pair_dir.rglob("*") if f.is_file() and f.name != "DISPOSITIONS.md"
-        )
-        if count:
+        files = [
+            f for f in pair_dir.rglob("*") if f.is_file() and f.name != "DISPOSITIONS.md"
+        ]
+        if files:
             findings.append({"pair": pair_dir.name, "surface": "upgrade-backups",
-                             "path": str(pair_dir), "count": count,
+                             "path": str(pair_dir), "count": len(files),
+                             "bytes": _bytes_of(files),
                              "age_days": _age_days(pair_dir), "klass": "safe-to-discard"})
 
     transfers_root = root / "upgrade-transfers"
     for pair_dir in sorted(p for p in transfers_root.glob("*-to-*") if p.is_dir()):
-        count = sum(1 for f in pair_dir.rglob("*") if f.is_file())
-        if count:
+        files = [f for f in pair_dir.rglob("*") if f.is_file()]
+        if files:
             findings.append({"pair": pair_dir.name, "surface": "upgrade-transfers",
-                             "path": str(pair_dir), "count": count,
+                             "path": str(pair_dir), "count": len(files),
+                             "bytes": _bytes_of(files),
                              "age_days": _age_days(pair_dir), "klass": "review-then-discard"})
 
     conflicts_root = root / "upgrade-conflicts"
     for pair_dir in sorted(p for p in conflicts_root.glob("*-to-*") if p.is_dir()):
-        sidecar_count = sum(1 for f in pair_dir.rglob("*.new") if f.is_file())
-        if sidecar_count:
+        sidecars = [f for f in pair_dir.rglob("*.new") if f.is_file()]
+        if sidecars:
             findings.append({"pair": pair_dir.name, "surface": "upgrade-conflicts",
-                             "path": str(pair_dir), "count": sidecar_count,
+                             "path": str(pair_dir), "count": len(sidecars),
+                             "bytes": _bytes_of(sidecars),
                              "age_days": _age_days(pair_dir), "klass": "action-required"})
 
         issue_drafts_dir = pair_dir / "issue-drafts"
         if issue_drafts_dir.is_dir():
-            draft_count = sum(1 for f in issue_drafts_dir.rglob("*") if f.is_file())
-            if draft_count:
+            drafts = [f for f in issue_drafts_dir.rglob("*") if f.is_file()]
+            if drafts:
                 findings.append({"pair": pair_dir.name,
                                  "surface": "upgrade-conflicts/issue-drafts",
-                                 "path": str(issue_drafts_dir), "count": draft_count,
+                                 "path": str(issue_drafts_dir), "count": len(drafts),
+                                 "bytes": _bytes_of(drafts),
                                  "age_days": _age_days(issue_drafts_dir),
                                  "klass": "action-required"})
 
@@ -659,8 +778,35 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
             findings.append({"pair": pair_dir.name,
                              "surface": "upgrade-conflicts (consumed verdict cache)",
                              "path": str(consumed_cache), "count": 1,
+                             "bytes": _bytes_of([consumed_cache]),
                              "age_days": _age_days(consumed_cache), "klass": "inert"})
 
     return findings
+
+
+def format_bytes(total: int) -> str:
+    """Render a byte total as a short human-readable string.
+
+    Binary units, one decimal above the KiB threshold. Used by the doctor
+    report so a size column reads at a glance rather than as a raw integer
+    the reader has to divide in their head.
+    """
+    if total < 1024:
+        return f"{total} B"
+    if total < 1024 * 1024:
+        return f"{total / 1024:.1f} KiB"
+    return f"{total / (1024 * 1024):.1f} MiB"
+
+
+# Below the definitions: init_project reaches artifact_upgrade, which imports
+# names from this module, so they must exist before init_project loads.
+try:
+    from init_project import DESCOPED_RULES, INSTALLED_RULES
+except ImportError as exc:
+    raise ImportError(
+        "init_project is required for doctor_sweeps's DESCOPED_RULES/"
+        "INSTALLED_RULES tables (R1: the tuples stay on the residual); the "
+        "scripts/ directory appears to be partially installed"
+    ) from exc
 
 

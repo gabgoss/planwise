@@ -32,18 +32,18 @@ import os
 import re
 import shutil
 import subprocess
-from datetime import date
+from datetime import datetime
 
 try:
     from config_loader import splice_context_block, write_config_checked
 except ImportError:  # pragma: no cover - partial-install tolerance
-    def write_config_checked(config_path, text: str) -> None:   # noqa: D103
+    def write_config_checked(config_path, text: str) -> None:
         # Degraded fallback: the post-write parse check lives in config_loader,
         # so a half-synced scripts tree writes unverified rather than failing to
         # import. Same spirit as the no-PyYAML no-op in the real helper.
         config_path.write_text(text, encoding="utf-8")
 
-    def splice_context_block(text: str, values: dict) -> str:   # noqa: D103
+    def splice_context_block(text: str, values: dict) -> str:
         # Unlike write_config_checked's degraded-but-safe no-op above, this
         # helper's own job IS config.yaml write correctness. Duplicating (and
         # risking drift from) the locate/splice/block-extent logic here would
@@ -60,7 +60,7 @@ try:
 except ImportError:  # pragma: no cover - partial-install tolerance
     _UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
 
-    def split_row_cells(line: str) -> list:   # noqa: D103
+    def split_row_cells(line: str) -> list:
         # Degraded fallback mirroring markdown_parser.split_row_cells. It must
         # stay escape-aware: a naive split on `\|` shifts every column right by
         # one, which is the whole defect this helper exists to prevent.
@@ -105,7 +105,7 @@ def _normalize_tokens(raw: str) -> int:
         number *= 1_000
     elif suffix == "m":
         number *= 1_000_000
-    return int(round(number))
+    return round(number)
 
 
 def parse_context_report(text: str) -> dict:
@@ -346,6 +346,7 @@ def capture_context(plugin_root, cwd) -> str | None:
             timeout=120,
             shell=False,
             stdin=subprocess.DEVNULL,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -353,6 +354,182 @@ def capture_context(plugin_root, cwd) -> str | None:
         return None
     out = proc.stdout
     return out if out and out.strip() else None
+
+
+# ---------------------------------------------------------------------------
+# Per-subcommand structural floor (derived from the tree, not from /context)
+# ---------------------------------------------------------------------------
+# Every subcommand invocation carries instruction text that a runtime /context
+# snapshot structurally cannot observe: it arrives as transcript content during
+# the invocation and lands in `messages`, never in a static category.
+# Calibration measures a FRESH session, so this block is invisible to it by
+# construction and must be derived from the shipped tree instead.
+#
+# WHAT THIS COUNTS, and why it is not the whole mandated set
+# ----------------------------------------------------------
+# Counted:     the skill body (injected with the skill), the handler body (read
+#              by the router), and that handler's own "always load" references
+#              (read because the handler body instructs it).
+# NOT counted: the base-context references the skill links under "Pre-injected
+#              with this skill".
+#
+# The exclusion is MEASURED, not assumed. Per-Read attribution of three probe
+# transcripts -- an original floor probe plus a fresh subcommand/help pair on a
+# later CLI -- records ZERO reads of any base-context reference, and the H1
+# title string of each of those files appears zero times in all three
+# transcripts. The harness injects the skill body, which LINKS those references
+# rather than inlining them; each handler's Required References note then states
+# they are already pre-injected, so no component loads them. Counting them here
+# would write ~22.5K tokens per invocation into a live budget input for text
+# that never enters the window.
+#
+# This supersedes the earlier verdict that read a measured +32,692 tok against a
+# predicted floor of 15,873 tok as ~2.06x evidence of compliance. That verdict
+# inferred compliance from an aggregate delta; per-Read attribution of the SAME
+# session shows the delta was carried by that subcommand's own drift-audit reads
+# (real project files plus a reconciliation script), not by mandated floor
+# reads. It equally supersedes the ~2.9x-over-predicting figure from the earlier
+# minimal-handler probe, which over-predicted for the same reason: it counted a
+# base context that never loaded.
+#
+# Tokens come from BYTES, never from a per-line rate -- measured per-line rates
+# range 7-365 tok/line by content, so bytes predict the gate and lines do not.
+# Line counts are still derived and reported, because the file set and its
+# extent are what package time can pin.
+STRUCTURAL_FLOOR_BYTES_PER_TOKEN = 2.6
+
+_ALWAYS_LOAD_RE = re.compile(
+    r"\*\*[^*]*references \(always load\):\*\*(.*?)(?:\n\*\*|\n---)", re.DOTALL
+)
+_REF_TOKEN_RE = re.compile(r"`?references/([A-Za-z0-9._-]+\.md)`?")
+
+
+def _file_extent(path) -> tuple:
+    """Return `(lines, bytes)` for one file, or `(0, 0)` when it is absent.
+
+    Lines are newline counts, matching `wc -l` — the same convention the
+    published floor tables were measured with.
+    """
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read()
+    except OSError:
+        return 0, 0
+    return data.count(b"\n"), len(data)
+
+
+def always_load_references(handler_text: str) -> list:
+    """Extract a handler's own "always load" reference basenames, in order.
+
+    Reads the `**<name>-specific references (always load):**` block that each
+    handler declares under Required References. A handler with no such block
+    (most of them) yields an empty list — its conditional references are, by
+    definition, not part of the floor.
+    """
+    match = _ALWAYS_LOAD_RE.search(handler_text or "")
+    if not match:
+        return []
+    return list(dict.fromkeys(_REF_TOKEN_RE.findall(match.group(1))))
+
+
+def derive_structural_floor(plugin_root) -> dict:
+    """Derive the per-subcommand structural floor from the plugin tree.
+
+    Pure filesystem read, no subprocess and no `/context` capture, so it is
+    derivable at package time and stays correct when a capture fails.
+
+    Returns a tree-labelled dict::
+
+        {
+          "tree": "<plugin_root>",
+          "derived_on": "YYYY-MM-DD",
+          "bytes_per_token": 2.6,
+          "excludes_base_context": True,
+          "skill": {"lines": int, "bytes": int},
+          "subcommands": {
+              "<name>": {"lines": int, "bytes": int, "tokens": int,
+                         "always_load": [str, ...]},
+              ...
+          },
+        }
+
+    Every figure is labelled with the tree it came from: dev-tree and
+    installed-tree line counts differ, so a floor figure without its tree label
+    is unusable.
+    """
+    empty = {
+        "tree": str(plugin_root) if plugin_root else "",
+        "derived_on": datetime.now().astimezone().date().isoformat(),
+        "bytes_per_token": STRUCTURAL_FLOOR_BYTES_PER_TOKEN,
+        "excludes_base_context": True,
+        "skill": {"lines": 0, "bytes": 0},
+        "subcommands": {},
+    }
+    if not plugin_root:
+        return empty
+
+    root = str(plugin_root)
+    handlers_dir = os.path.join(root, "handlers")
+    references_dir = os.path.join(root, "references")
+    skill_path = os.path.join(root, "skills", "planwise", "SKILL.md")
+
+    skill_lines, skill_bytes = _file_extent(skill_path)
+    empty["skill"] = {"lines": skill_lines, "bytes": skill_bytes}
+
+    try:
+        handler_files = sorted(
+            name for name in os.listdir(handlers_dir) if name.endswith(".md")
+        )
+    except OSError:
+        return empty
+
+    subcommands = {}
+    for name in handler_files:
+        handler_path = os.path.join(handlers_dir, name)
+        handler_lines, handler_bytes = _file_extent(handler_path)
+        try:
+            with open(handler_path, "r", encoding="utf-8") as handle:
+                handler_text = handle.read()
+        except OSError:
+            handler_text = ""
+
+        refs = always_load_references(handler_text)
+        ref_lines = ref_bytes = 0
+        for ref in refs:
+            r_lines, r_bytes = _file_extent(os.path.join(references_dir, ref))
+            ref_lines += r_lines
+            ref_bytes += r_bytes
+
+        total_lines = skill_lines + handler_lines + ref_lines
+        total_bytes = skill_bytes + handler_bytes + ref_bytes
+        subcommands[name[:-3]] = {
+            "lines": total_lines,
+            "bytes": total_bytes,
+            "tokens": round(total_bytes / STRUCTURAL_FLOOR_BYTES_PER_TOKEN),
+            "always_load": refs,
+        }
+
+    empty["subcommands"] = subcommands
+    return empty
+
+
+def _format_floor(floor: dict) -> str:
+    """Render a structural-floor dict as a compact single-line YAML flow mapping.
+
+    Mirrors `_format_breakdown`'s single-line flow style so the value
+    round-trips under PyYAML and stays on one line for the targeted regex
+    write-back. Emits per-subcommand token figures plus the tree label, so a
+    stored floor can never be read without knowing which tree produced it.
+    """
+    subs = (floor or {}).get("subcommands") or {}
+    if not subs:
+        return "{}"
+    parts = [
+        f"{re.sub(r'[^0-9a-zA-Z]+', '_', name).strip('_')}: {int(data['tokens'])}"
+        for name, data in sorted(subs.items())
+    ]
+    parts.append(f"excludes_base_context: {str(floor.get('excludes_base_context', True)).lower()}")
+    return "{" + ", ".join(parts) + "}"
 
 
 def _format_breakdown(categories: dict) -> str:
@@ -459,19 +636,34 @@ def calibrate(
           "token_saver_overhead_measured_on": str,
           "token_saver_session_start_range": {"min": int, "median": int, "max": int},
           "token_saver_injected_rules_estimate": int,
+          "token_saver_structural_floor": dict,   # tree-derived, see below
           "calibrated": bool,
           "uncalibrated": bool,   # convenience inverse
         }
+
+    `token_saver_structural_floor` is derived from the plugin tree rather than
+    from the capture (see `derive_structural_floor`), so it is populated on the
+    fallback path too — a failed capture says nothing about how much instruction
+    text an invocation carries. It excludes the base-context references, which
+    per-Read transcript attribution shows do not load.
     """
     capture_fn = capture if capture is not None else capture_context
 
     report_text = None
     try:
         report_text = capture_fn(plugin_root, cwd)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- capture_fn is an injectable callable
+        # (a test double or the real CLI-invoking capture_context); any
+        # failure it raises must fall back to the structural-floor-only
+        # path, per this function's own docstring above.
         report_text = None
 
-    measured_on = date.today().isoformat()
+    measured_on = datetime.now().astimezone().date().isoformat()
+
+    # Derived from the tree, not from the capture, so it stays correct on the
+    # fallback path too — a failed /context capture says nothing about how much
+    # instruction text a subcommand invocation carries.
+    structural_floor = derive_structural_floor(plugin_root)
 
     def _write_fallback():
         """Write the conservative fallback overheads back into config.yaml."""
@@ -489,6 +681,10 @@ def calibrate(
                         + "  # uncalibrated-range (capture failed)"
                     ),
                     "token_saver_injected_rules_estimate": 0,
+                    "token_saver_structural_floor": (
+                        _format_floor(structural_floor)
+                        + "  # tree-derived; excludes the non-loading base context"
+                    ),
                 },
             )
         return {
@@ -498,6 +694,7 @@ def calibrate(
             "token_saver_overhead_measured_on": measured_on,
             "token_saver_session_start_range": dict(fallback_range),
             "token_saver_injected_rules_estimate": 0,
+            "token_saver_structural_floor": structural_floor,
             "calibrated": False,
             "uncalibrated": True,
         }
@@ -508,7 +705,7 @@ def calibrate(
 
     report = parse_context_report(report_text)
 
-    # F2 parse guard: headless `claude -p "/context"` may return conversational
+    # Parse guard: headless `claude -p "/context"` may return conversational
     # text instead of the structured `/context` report (the CLI treats the
     # prompt as a user message, not a slash-command).  Such a reply has no usable
     # category table; a partial/garbled report can also parse to a non-positive
@@ -530,6 +727,7 @@ def calibrate(
         "token_saver_overhead_measured_on": measured_on,
         "token_saver_session_start_range": overheads["session_start_range"],
         "token_saver_injected_rules_estimate": overheads["injected_rules_estimate"],
+        "token_saver_structural_floor": structural_floor,
         "calibrated": True,
         "uncalibrated": False,
     }
@@ -547,6 +745,10 @@ def calibrate(
                     + "  # uncalibrated-range (single capture)"
                 ),
                 "token_saver_injected_rules_estimate": overheads["injected_rules_estimate"],
+                "token_saver_structural_floor": (
+                    _format_floor(structural_floor)
+                    + "  # tree-derived; excludes the non-loading base context"
+                ),
             },
         )
 
