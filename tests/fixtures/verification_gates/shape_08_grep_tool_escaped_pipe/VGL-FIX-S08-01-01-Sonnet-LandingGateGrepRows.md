@@ -18,3 +18,11 @@ Run the second call from a fenced block. The same escape is wrong here, because 
 ```
 Grep  pattern='STATUS_NOW_UPSTREAM\|now-upstream'  path='scripts/doctor_cli.py'
 ```
+
+## Placeholder Row
+
+A template slot in the output cell must not hide the defect in the call cell. This row is reproduced verbatim from a finished plan's probe table. Its output cell carries `{plans-dir}` style slots.
+
+| # | Probe | Output | Expected |
+|---|-------|--------|----------|
+| 3 | `Grep pattern='plans_dir\|backlog_dir\|lessons_dir' path='plugins/planwise/config.yaml.template'` | `9:   plans_dir: "{plans-dir}"`; `10:   backlog_dir: "{backlog-dir}"` | all three |

@@ -105,11 +105,25 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 
 ---
 
+## Session Commit Pin
+
+| Field | Value |
+|-------|-------|
+| Session commit | - |
+| Push state | not pushed |
+| Recorded At | - |
+
+*The run handler writes this row immediately after the session commit and again after the push. `-` means no commit has been recorded. On resume, a `-` here is not evidence that no commit exists: compare it with the git tree (`handlers/run.md` Step 1.1).*
+
+---
+
 ## Change Log
 
 | Date | Step | Status | Notes |
 |------|------|--------|-------|
 | {today} | - | CREATED | Recovery file initialized |
+
+*A runner's planned stop is recorded as a row with Status `GATE_PENDING` and the `ROUTE/FLAGS` value in Notes, before the user gate is asked. The user's answer is recorded verbatim in a later row.*
 
 ---
 
@@ -139,3 +153,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Recovery.md`.
 | `PENDING` | Task not yet started |
 | `IN_PROGRESS` | Currently working on task |
 | `COMPLETE` | Task finished successfully |
+
+## Change Log Status Values
+
+`GATE_PENDING` is a Change Log status only. It marks a runner's planned stop at a user gate the orchestrator owns. It is not a Step status and not a Session status. `Session Status` stays `NOT_STARTED | IN_PROGRESS | COMPLETE`.

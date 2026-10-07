@@ -1,5 +1,5 @@
 ---
-description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics) for planwise task files and DELEGATED dispatch prompts
+description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, and tracing each hazard a guard names to a mechanism in code before the guard is retired) for planwise task files and DELEGATED dispatch prompts
 ---
 
 # Verify-Before-Cite
@@ -554,6 +554,8 @@ Applies to tasks that fetch from web pages, paginated APIs, large remote documen
 > block, confirm the mechanism, then edit. If the brief's stated location
 > disagrees with the live artifact, the live artifact wins and the brief is
 > corrected in the same change.
+>
+> To retire a guard rather than edit a workaround, see §9.B.23.
 
 ### 9.B.12 Split a ratification item rather than widening it
 
@@ -772,6 +774,63 @@ File: {plan or task file path} | Location: row {id} / Execution Step {N}
 Issue: {row specifies "{phrase}" against {target}, which has no {structure} (live locator → 0; present in {M} of {N} siblings) | row records no locator evidence for the named target | locator returns 0 and no fallback form is stated}
 Fix: Run the locator against the named target and state the fallback form per references/verify-before-cite.md §9.B.21 | Confidence: HIGH
 ```
+
+### 9.B.22 An exemplar's data claims expire independently of its shape
+
+> [!constraint] An exemplar is a shape plus a set of data claims. Judge each against its own source
+> An exemplar is a shape (section order, table columns, wording conventions) and a set of data claims (this key, these neighbours, this consumer exists). The shape is stable. Each data claim is a reading of a live source at one moment. It expires when that source moves, silently, without touching the exemplar file.
+
+A hand-written consumer plan was the exemplar for a regeneration comparison. It said key `<K>` goes "after `<N1>`" in `<file>`. The brief carried that neighbour as the expected placement, with the instruction "a different placement is a finding, not a fixture to adjust". The tool placed the key between `<N1>` and `<N2>`. The runner diffed the two answers and, before recording a finding against the tool, read the live inventory file. It had gained four `<prefix>_*` rows since the exemplar was written the previous day. The tool was right.
+
+A second divergence had the same shape from the other side. The exemplar prescribed a local edit to a file, and the tool's JSON input marked that path `exists: false`, so the tool rendered it external. The exemplar's premise and the JSON entry disagreed, and the brief did not say which one the tool answers to.
+
+> [!constraint] On a data divergence, re-read the source the exemplar read, then classify
+> WRONG — treat every exemplar line as the expected value and every divergence as a tool defect:
+> ```
+> Expected: after `<N1>`     (exemplar, written <date>)
+> Observed: between `<N1>` and `<N2>`
+> -> record finding against the tool
+> ```
+> CORRECT — re-read the live source, then classify:
+> ```
+> Expected: after `<N1>`     (exemplar, written <date>)
+> Observed: between `<N1>` and `<N2>`
+> Source:   <file> now holds `<N2>` (+4 rows since <date>)
+> -> verdict: live-file drift; tool correct; exemplar claim expired
+> ```
+
+- **Split the comparison table by claim kind.** Judge shape rows against the exemplar: a heading is present, a table has these columns, a "needs a human" line exists. Judge data rows against the live source, with the exemplar as the prior reading: a key's neighbours, a consumer's existence.
+- **Date the exemplar's data claims and expect the shortest-lived to be wrong first.** A sorted inventory that receives rows on every build changes between any two runs. State the condition next to the claim, as a cost claim states its authoring-time condition.
+- **Name the tiebreaker before dispatch where two authoritative inputs disagree.** Otherwise a runner either silently "fixes" the wrong side or files a finding against correct code. A runner that cannot settle it records both readings and routes the question.
+
+Applies to any regenerate-against-exemplar task (a hand-written report, a golden file, a reference render). It applies to any comparison that runs more than one build, one day or one data refresh after the exemplar was written. Any briefing that says "a different result is a finding" should add "after re-reading the live source".
+
+### 9.B.23 Before retiring a guard, find in code the mechanism that removed its hazard
+
+> [!constraint] A guard's rationale for retirement is a claim about a mechanism. Verify the mechanism in code, not in the decision that asserts it
+> A decision table records what its author believed at planning time. The code records what happens. When a guard names two hazards, check each one separately. Retiring a compound guard on the strength of one half is the common failure. This extends §9.B.11 ("Locate the mechanism before editing it") from editing a workaround to retiring a protection.
+
+An agent definition carried a guard: "Never dispatch two of these agents concurrently… race on the index file and on `--next-id`." A decision retired it. Its rationale said the index was now regenerated, regeneration is idempotent, and "`--next-id` derives from live files rather than a contested row append". Three task files, a success criterion and an exit criterion were written from that sentence.
+
+The runner assigned to remove the guard traced `--next-id` first. The id collector reads the generated hub, its overflow leaves and the archive shards. It never reads an item file. Those files change only when the generator runs with `--write`. So two concurrent dispatches still receive the same next id. Half the hazard was gone (the index-file race) and half was alive (the id race). The brief would have shipped a false safety claim ("concurrent dispatch is now safe") into a shipped agent.
+
+> [!constraint] Trace each hazard the guard names, and keep what survives with its reason
+> WRONG — retire the guard because the decision says the race is gone:
+> ```
+> <decision>: "--next-id derives from live files" -> delete "Never dispatch two" -> state "concurrent dispatch is safe"
+> ```
+> CORRECT — trace each hazard the guard names, and keep what survives with its reason:
+> ```
+> index-file race    -> --create writes item files only; --write is atomic          -> retired
+> id-allocation race -> the id collector reads generated files only                 -> KEPT, re-grounded, with a retirement condition
+> ```
+
+Two checks apply before a guard is removed.
+
+1. **Name the code path that now makes the hazard impossible, and open it.** "Regeneration is idempotent" removed the index-file race. Nothing removed the id race, and the claimed mechanism ("derives from live files") did not exist.
+2. **Keep the surviving half with its real reason, and state when it can retire.** The agent now says the guard exists only for the id race. It says the guard can go once id allocation stops depending on the regenerated index. A future reader can then retire it correctly instead of guessing.
+
+**Applies to** any concurrency guard, lock, ordering constraint or "never do X" rule being removed because a redesign supposedly made it unnecessary. A false rationale here removes protection rather than failing a gate. That is why the severity is higher than for a stale count.
 
 ---
 

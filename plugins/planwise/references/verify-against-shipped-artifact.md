@@ -1,5 +1,5 @@
 ---
-description: Plan/EI/BLI/task-spec citations of third-party SDK identifiers, type names, enum members, delegate shapes, framework presence, destination file paths under scoped-rule triggers, AND BLI motivating drivers (runtime symptoms cited as multi-phase plan rationale) MUST be verified against the shipped artifact (DLL reflection, vendor XML index, package on disk, current src/ code, recent session summaries) or the relevant project-scoped rule before being authored as prescriptive snippets, routed to a multi-session plan, or delegated to a fix-agent
+description: Plan/EI/BLI/task-spec citations of third-party SDK identifiers, type names, enum members, delegate shapes, framework presence, destination file paths under scoped-rule triggers, AND BLI motivating drivers (runtime symptoms cited as multi-phase plan rationale) MUST be verified against the shipped artifact (DLL reflection, vendor XML index, package on disk, current src/ code, recent session summaries) or the relevant project-scoped rule before being authored as prescriptive snippets, routed to a multi-session plan, or delegated to a fix-agent; and a declared host-API signature (a declaration stand-in) expires with the build, so it is regenerated and type-checked on every build change before any run is graded
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -22,6 +22,8 @@ paths: {planwise_root}/{plans_dir}/**
   - [3f. Vendored Harness API Surface](#3f-vendored-harness-api-surface)
   - [3g. Internal Placement / Scoped-Rule Constraints](#3g-internal-placement--scoped-rule-constraints)
   - [3j. Live-Verify Spawn-Prompt Tool-Name Drift](#3j-live-verify-spawn-prompt-tool-name-drift)
+  - [3k. A Declared API Drifts Between Builds: Regenerate the Declarations and Type-Check on Every Build Change](#3k-a-declared-api-drifts-between-builds-regenerate-the-declarations-and-type-check-on-every-build-change)
+  - [3l. Probe a Parser You Are Told to Reuse on the Corpus's Own Values](#3l-probe-a-parser-you-are-told-to-reuse-on-the-corpuss-own-values)
 - [4. Plan-Authoring Pre-Flight Checklist](#4-plan-authoring-pre-flight-checklist)
 - [5. Applies To](#5-applies-to)
 - [Segment Index](#segment-index)
@@ -314,6 +316,68 @@ A live-verify spawn prompt or task spec is a spec-like artifact. Any tool NAME i
 
 This extends §3d (tool / framework already wired in the project) from build-time framework drift to **runtime tool-name drift** in live-verify orchestration.
 
+### 3k. A Declared API Drifts Between Builds: Regenerate the Declarations and Type-Check on Every Build Change
+
+A host API's declared signature is a recorded claim that expires with the build. Nothing at runtime tells you when it has. JavaScript does not fail on `Promise - Promise`. It yields `NaN`, which JSON writes as `null`, which every "row present" predicate accepts. The regenerated declaration file is the only artifact that carries the new truth, and a type-check against it is the only gate that reads it. §3f (vendored harness API surface) covers the plan-time check of a surface. This subsection covers the surface changing after the check.
+
+A module compiled clean against a declaration stand-in captured on build N, where `<host>.clock.now()` returned `number`. The module wrapped the call and did arithmetic on it in seven places: span timers, "milliseconds since turn complete", and a `savedAt` stamp used to sort a persisted per-session store before pruning. Three probe runs later, on builds N+3 and N+4, every `span_ms` field in the module's own log read `null`. All runs graded PASS, because no predicate read a timing field.
+
+The store sort compared two Promises and returned `NaN`, so the pruning order was undefined. That is a decision path, not a log field. The defect surfaced at the last task of the sprint. A type-check ran against declarations that a grading task had regenerated on build N+3. It reported one error, `Promise<number>` is not assignable to `number`, on a line no task in the sprint had touched.
+
+> [!constraint] Regenerate on the build change and type-check before the first grade
+> WRONG — compile once against a stand-in from an earlier build, then grade three runs on later builds:
+> ```
+> tsc (build N .d.ts)  -> clean
+> RUN-01, RUN-02, RUN-03 on builds N+3 / N+4 -> PASS, PASS, PASS
+> module.log.jsonl: "span_ms":null on every span-close row   # unread by any predicate
+> store sort: (Promise ?? 0) - (Promise ?? 0) -> NaN            # pruning order undefined
+> ```
+> CORRECT — regenerate on the build change, type-check before the first grade, fail on null:
+> ```
+> <cli> --version -> N+3 != <version-file>.cli -> regenerate declarations -> tsc --noEmit
+> register.ts(76): Promise<number> is not assignable to number -> fix -> tsc clean
+> grader: span_ms is null -> FAIL "timing field unmeasured", not PASS
+> ```
+
+Three consequences follow.
+
+1. **Regenerate the declarations on every build change and type-check before grading.** A pin such as `cli: <version>` in a version file is a claim about which build the declaration file describes. When `<cli> --version` moves, regenerate, re-pin, and run the type-check before any run on the new build is graded. Put the gate before the first grade task, not after the last.
+2. **Read a new error outside the task's scope as evidence, not as noise.** Ask two questions. Is the line unchanged since `HEAD`, so the drift is in the environment and not the diff? Does the runtime log show the symptom, such as a `null` where a number belongs? With both answered, the finding becomes an Option A / Option B gate with a one-line fix on the table.
+3. **A pin in a version file governs when to regenerate and re-check, not only what to record.**
+
+This is the API-shaped form of the pinned-command rule: a command pinned in a spec is untested until it runs once, and a signature pinned in a declaration file is untested until the file is regenerated on the build in use. A grader must also fail on the symptom. See `verification-gates-Part-2-RunSheetControl.md` § "A Grader Treats a Null Numeric Field as a Failed Measurement". The probe-sheet side of a build change lives in [dispatch-preflight-claim-expiry.md](dispatch-preflight-claim-expiry.md) § "A User-Run Probe Sheet Pins the Build at Its Head, and the First Run on a New Build Re-Verifies the Design".
+
+### 3l. Probe a Parser You Are Told to Reuse on the Corpus's Own Values
+
+A typed YAML load is a parser with opinions, and its opinions are YAML 1.1's. A corpus that uses zero-padded numeric strings shows the effect. One key parses to three different types, depending on its digits. A task that says "reuse the existing parser" is right to name one parser. It may be wrong about which layer of that parser to call.
+
+> [!constraint] Never hand a zero-padded identifier through a typed load. Read it as text
+> Convert with `int()` only at the point of arithmetic. Keep the padded string for display and equality.
+>
+> WRONG — a typed load on a padded id:
+> ```
+> >>> yaml.safe_load("id: 061")
+> {'id': 49}
+> >>> yaml.safe_load("blocks: [007, 009]")
+> {'blocks': [7, '009']}
+> >>> yaml.safe_load("created: 2026-01-01")
+> {'created': datetime.date(2026, 1, 1)}
+> ```
+> CORRECT — text-level extraction over the shared split layer:
+> ```
+> fm = parse_frontmatter_map(split_frontmatter_block(text))     # {key: raw string}
+> item_id = fm["id"].strip().strip('"\'')                       # "061", stays a string
+> blocks = [b.strip().strip('"\'') for b in fm["blocks"].strip("[]").split(",") if b.strip()]
+> ```
+
+Three consequences follow.
+
+1. **Probe before you reuse.** Run three one-line probes against values from the real corpus before reusing the parser. The probes cost under a minute. The three above are an id with a leading zero, a list that mixes valid and invalid octal digits, and an unquoted date.
+2. **A caller that never compares values cannot see the corruption.** A caller that only counts list lengths works on the wrong types, and so the defect survives. A new caller that compares ids, ages, or edge lists will fail. Route the finding to the owner of the wrapper. Add a test that `id: 061` yields the string `"061"`.
+3. **Check the shipped code with a test, not by reading it.** Run the test that pins the text-level path. Add code only when that test is missing or failing.
+
+Applies to any frontmatter or config reader over values that look numeric but are identifiers. Examples are zero-padded ids, version strings such as `1.10` (read as the float `1.1`), ticket numbers, and dates meant as text. Read them as text or quote them at the source.
+
 ---
 
 ## 4. Plan-Authoring Pre-Flight Checklist
@@ -325,6 +389,8 @@ This extends §3d (tool / framework already wired in the project) from build-tim
 > - [ ] **Tool / framework**: presence in the project's existing build / test config confirmed via grep; deferral signals applied if the project disagrees
 > - [ ] **SDK delegate signatures**: `typeof(Delegate).GetMethod("Invoke")`-equivalent printed and compared to the sketch
 > - [ ] **Vendored harness**: exported types and inheritance chain reflected; package namespace order verified against the reflected `FullName`
+> - [ ] **Declaration stand-in**: a declaration stand-in names its build and is regenerated when the build changes (§3k)
+> - [ ] **Reused parser**: a task that says "reuse the existing parser" has the parser probed on three values from the real corpus, and a padded identifier is read as text (§3l)
 > - [ ] **File paths**: each named destination cross-checked against **the project's own scoped-rules registry** (CLAUDE.md "Force-read when" or equivalent) — if any rule fires, the rule has been read AND either the path was re-picked OR the rule's relevant section inlined into the spawn prompt
 > - [ ] **Cross-sprint codebase symbols** (when EI cites a "Sprint-N already-shipped" handler / service / helper): `grep -rln "{SymbolName}" src/` returns ≥1 match; if zero matches, re-spec the EI section to use the actual API surface OR add a precursor task that produces the symbol
 > - [ ] **BLI cluster recheck** (when triaging a BLI from a currently-IN_PROGRESS originating session OR ≥2 BLIs share `Surfaced by:` + `created:`): two-part driver-recheck per `verify-backlog-citation-freshness.md` §3h.cluster before any fresh routing; cluster-batch close option surfaced when Recovery confirms shared fix

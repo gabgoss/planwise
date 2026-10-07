@@ -147,13 +147,14 @@ class TestPerCheckShapes(unittest.TestCase):
         self.assertEqual(_severities_for_check(findings, 7), ["ERROR", "ERROR"])
 
     def test_check8_grep_tool_escaped_pipe_is_warning(self):
-        # Two native Grep calls fire: one in a table row (the shape the
-        # extractor never reads) and one in a fenced block.
+        # Three native Grep calls fire: one in a table row (the shape the
+        # extractor never reads), one in a fenced block, and one in a row whose
+        # output cell carries template slots, which must not exempt the line.
         findings = _lint_fixture("shape_08_grep_tool_escaped_pipe")
-        self.assertEqual(_checks_present(findings), [8, 8])
-        self.assertEqual(len(findings), 2)
-        self.assertEqual(_severities_for_check(findings, 8), ["WARNING", "WARNING"])
-        self.assertEqual(sorted(f["line"] for f in findings), [12, 19])
+        self.assertEqual(_checks_present(findings), [8, 8, 8])
+        self.assertEqual(len(findings), 3)
+        self.assertEqual(_severities_for_check(findings, 8), ["WARNING"] * 3)
+        self.assertEqual(sorted(f["line"] for f in findings), [12, 19, 28])
 
 
 class TestInvariantExemption(unittest.TestCase):
@@ -325,8 +326,8 @@ class TestExecutorDisabled(unittest.TestCase):
 
     def test_check8_fires_with_executor_disabled(self):
         findings = _lint_fixture("shape_08_grep_tool_escaped_pipe", execute=False)
-        self.assertEqual(_checks_present(findings), [8, 8])
-        self.assertEqual(_severities_for_check(findings, 8), ["WARNING", "WARNING"])
+        self.assertEqual(_checks_present(findings), [8, 8, 8])
+        self.assertEqual(_severities_for_check(findings, 8), ["WARNING"] * 3)
 
     def test_check4_fires_with_executor_disabled(self):
         findings = _lint_fixture("shape_04_self_matching_sweep", execute=False)

@@ -104,9 +104,10 @@ ARGUMENTS: $ARGUMENTS
 **Loaded on demand, NOT pre-injected** — each is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. Key references (not exhaustive — handlers own the full set):
 
 - [Scaffolding hygiene](../../references/scaffolding-hygiene.md) — §1–§12, what the scaffold emits
-- [Scaffolding hygiene — Part 2: derivation and parallelism](../../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) — §13–§17, what the scaffold must compute before it closes
+- [Scaffolding hygiene — Part 2: derivation and parallelism](../../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) — §13–§19, what the scaffold must compute before it closes
 - [Discovery and exit criteria](../../references/discovery-and-exit-criteria.md)
 - [Exit-criteria fidelity](../../references/exit-criteria-fidelity.md)
+- [Exit-criteria fidelity, Part 2 — a decision rewrites the criteria that depend on it](../../references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md)
 - [Execution-time binding rules](../../references/execution-time-binding-rules.md)
 - [EI fidelity](../../references/ei-fidelity.md)
 - [EI citation and token reconciliation](../../references/ei-citation-and-token-reconciliation.md)
@@ -117,6 +118,7 @@ ARGUMENTS: $ARGUMENTS
 - [Verify-before-cite](../../references/verify-before-cite.md)
 - [Verification gates](../../references/verification-gates.md)
 - [Measurement discipline](../../references/measurement-discipline.md)
+- [Measurement discipline, Part 3 — recorded delta and pinned count](../../references/measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md)
 - [Verify against shipped artifact](../../references/verify-against-shipped-artifact.md)
 - [Verify discovery-phase consolidation](../../references/verify-discovery-consolidation.md)
 - [Cross-repo fix-task discipline](../../references/verify-cross-repo-fix-discipline.md)

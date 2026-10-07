@@ -209,7 +209,7 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 > git status --porcelain plugins/planwise/ | grep -c '^??'      # 2. MUST be 0
 > git diff --name-only plugins/planwise/ | wc -l                # 3. MUST equal the expected file count
 > git diff plugins/planwise/ | grep -E '^\+' | grep -E '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9]|\b(LL|BB|BLI|PLG)([A-Z][a-z]|[0-9]))'
-> git diff plugins/planwise/ | grep -E '^\+' | grep -E 'Sprint-[0-9]|{PLAN_ABBREV}-'
+> git diff plugins/planwise/ | grep -E '^\+' | grep -E 'Sprint-[0-9]|Session-[0-9]|{PLAN_ABBREV}-'
 > ```
 > `{PLAN_ABBREV}` is the executing plan's abbreviation, parameterised per plan (substitute the live abbreviation before running).
 >
@@ -220,7 +220,8 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 **Gate semantics:**
 
 - `{PLAN_ABBREV}-` hits are **always** leaks — a plan abbreviation resolves only inside the authoring repo.
-- `Sprint-[0-9]` hits are leaks **unless** the line is demonstrably the plugin's own template/example vocabulary — `templates/`, `examples/`, and `handlers/plan.md` legitimately show resolved sprint folder names (e.g. `Sprint-NN-{Name}`) as sample output of the tool itself. Inspect every hit; never ignore one silently.
+- `Sprint-[0-9]` and `Session-[0-9]` hits are leaks **unless** the line is demonstrably the plugin's own template/example vocabulary — `templates/`, `examples/`, and `handlers/plan.md` legitimately show resolved sprint and session folder names (e.g. `Sprint-NN-{Name}`) as sample output of the tool itself. Inspect every hit; never ignore one silently. The detection-pattern lines in this file match their own pattern: classify those hits as the pattern, not a leak.
+- The predicate widens from a term list toward a shape. The leak is any `<Word>-<digits>` structure name that resolves only in an authoring repo. When a review finds a phrasing the pattern missed, add that shape to every copy of the battery.
 - The `{Sprint-N}` template placeholder (no digit after the dash) stays legal — the pattern targets resolved numerals, not the placeholder.
 - For plan sessions editing non-template plugin files (scripts, handlers, agents, references), expect strictly EMPTY.
 
@@ -230,7 +231,7 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 > ```bash
 > # Whole-tree / release use. Reads the working tree, so pre-existing leaks are visible.
 > grep -rnE '(LL-[0-9]|BB-[0-9]|BLI-[0-9]|PLG-[0-9]|\bD-[0-9]|\b(LL|BB|BLI|PLG)([A-Z][a-z]|[0-9]))' plugins/planwise/
-> grep -rnE 'Sprint-[0-9]|{PLAN_ABBREV}-' plugins/planwise/
+> grep -rnE 'Sprint-[0-9]|Session-[0-9]|{PLAN_ABBREV}-' plugins/planwise/
 > ```
 > This sweep is expected to return hits, and a non-empty result is NOT automatically a failure. Classify every hit into exactly one bucket before deciding:
 >

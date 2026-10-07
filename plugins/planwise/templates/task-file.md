@@ -207,6 +207,12 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
      here as an explicit checklist. State that the post-dispatch acceptance step greps the
      produced file for these headings/columns before accepting it. -->
 
+### References Moved That May Now Be False (Required when the task moves or splits text)
+
+Where the task moves, splits or relocates text (a module split, a file move, a section relocation), the output MUST carry a short slot named "references I moved that may now be false". List each comment, docstring or prose pointer the task moved but did not fix, in the form `{symbol or location} — "{quoted text}" — {why it may now be false}`. Write `none` when there are none. A blank slot reads as work not done.
+
+The later stale-reference sweep task lists this slot in its `## Required Context` and seeds each entry as a candidate, in addition to its own search terms (per `references/dispatch-edit-surface-sweep.md` §11). Route the entries through the Recovery file's `## Cross-Task Coordination Flags` table, with the sweep task as the Downstream Consumer.
+
 ---
 
 ## Verification Commands <!-- CONDITIONAL — required if task touches code, tests, or schemas -->

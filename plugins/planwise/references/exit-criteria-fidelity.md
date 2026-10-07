@@ -1,5 +1,5 @@
 ---
-description: Cross-layer enforcement of exit-criteria fidelity — binding-refinement callout echo across plan layers, "surfaces" as an enforceable claim not a mention, sprint-signoff verbatim quoting with a mechanical anchor per row, BLI-cited audit-anchor re-verification, metric-definition verification before reproduction, filling the signoff at sprint close so a mechanical consumer never reads placeholders, and appending rather than inserting into an identifier sequence other files cite
+description: Cross-layer enforcement of exit-criteria fidelity — binding-refinement callout echo across plan layers, "surfaces" as an enforceable claim not a mention, sprint-signoff verbatim quoting with a mechanical anchor per row, BLI-cited audit-anchor re-verification, metric-definition verification before reproduction, filling the signoff at sprint close so a mechanical consumer never reads placeholders, appending rather than inserting into an identifier sequence other files cite, an anchor that runs a writer naming a scratch copy and comparing two writes with each other (§16.10.7), and a decision that leaves a known verifier failure rewriting every criterion pinned to that verifier's exit code (§16.13, held in the Part-2 file), and a size constant derived from the headline criterion (§16.14, Part-2 file)
 ---
 
 # Exit-Criteria Fidelity (Cross-Layer Enforcement)
@@ -21,8 +21,11 @@ This file is the §16 segment of a 3-way split of `discovery-and-exit-criteria.m
   - [16.8 Sample-Stop Permitted on Converged Validation, With Annotation](#168-sample-stop-permitted-on-converged-validation-with-annotation)
   - [16.9 An Absence Criterion Must Exclude Its Enactor and Prove Its Ownership](#169-an-absence-criterion-must-exclude-its-enactor-and-prove-its-ownership)
   - [16.10 A Mechanical Anchor Checks the Form of the Check, Not the Truth of the Claim](#1610-a-mechanical-anchor-checks-the-form-of-the-check-not-the-truth-of-the-claim)
+    - [16.10.7 An Anchor That Runs a Writer Names a Scratch Copy and Compares Two Writes With Each Other](#16107-an-anchor-that-runs-a-writer-names-a-scratch-copy-and-compares-two-writes-with-each-other)
   - [16.11 Fill the Signoff at Sprint Close — A Downstream Gate Reads the Artifact, Never the Intent](#1611-fill-the-signoff-at-sprint-close--a-downstream-gate-reads-the-artifact-never-the-intent)
   - [16.12 Append, Never Insert, Into an Identifier Sequence Other Files Cite](#1612-append-never-insert-into-an-identifier-sequence-other-files-cite)
+  - 16.13 A Decision That Leaves a Known Verifier Failure Rewrites Every Criterion Pinned to Its Exit Code — held in [exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md](exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md)
+  - 16.14 A Size or Rate Constant Is Derived From the Headline Criterion — held in [the Part-2 file](exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md)
 
 ---
 
@@ -623,6 +626,46 @@ Applies to:
 - Every EI exit criterion, Signoff Mechanical Anchor row, and Success Criterion carrying a measurable expectation.
 - Scaffold close, which is the last moment the pre-change tree still exists to be measured.
 
+#### 16.10.7 An Anchor That Runs a Writer Names a Scratch Copy and Compares Two Writes With Each Other
+
+§16.10.6 requires a dry run of the criterion against the pre-change tree. This subsection adds a second dry run: the anchor's command text against the session's write constraints.
+
+> [!constraint] A gate anchor that runs a writer is a write, whatever the gate is for
+> Pin the anchor to a scratch copy in the anchor text itself. A read-only `--check` can run live.
+
+**Scenario.** A sprint signoff pinned anchor 1 for a generated plans index: "`--write` twice, then `git status --porcelain -- <index>` is empty". The anchor proves the generator is idempotent. The same session carried a binding constraint that no migrator, generator `--write` or upgrade ever runs against the live tree. The signoff also said to re-run every anchor at signoff time.
+
+The runner followed the anchor as written and ran `--write` on the live index. The generator stamps the run date, so the live file changed from `Generated: 2026-09-29` to `Generated: 2026-09-30`. The porcelain was not empty. The runner reverted the file with `git checkout --`. It then proved idempotency again on a scratch copy of the plans directory, with the same sha256 after two writes.
+
+Two defects in the anchor caused this:
+
+- It ran a writer on the live tree, which the session's own constraint forbids. Two binding texts disagreed, and the more specific one, the anchor's command, won at execution time.
+- Its expected result held on one day only, because the writer stamps today's date.
+
+```
+WRONG — the anchor writes the live tree, and its expected result depends on the date:
+<writer> --write ; <writer> --write
+git status --porcelain -- <index>   → empty
+
+CORRECT — the anchor copies the tree and compares two writes with each other:
+copy <live-dir>/ to <scratch>/<dir>/ ; point a scratch config at it
+<writer> --config <scratch config> --write ; sha256 → H1
+<writer> --config <scratch config> --write ; sha256 → H2
+H1 == H2 ; then remove <scratch> ; live: <writer> --check → exit 0
+```
+
+Three rules:
+
+- **Check an anchor against the session's write constraints when you author it.** An anchor command with `--write`, `--fix`, `--apply` or an upgrade flag needs a scratch target. A read-only `--check` can run live.
+- **Compare two writes with each other, not with the committed file.** Do this whenever the writer stamps a date, a run id or any other value that changes per run.
+- **When a runner finds that an anchor conflicts with a constraint, it stops and reports.** It does not choose one of them. The safe order is: report, then the orchestrator rewrites the anchor.
+
+Applies to:
+
+- Sprint Signoff Mechanical Anchors, session gate files and task Verification Commands that prove idempotency of a generator, migrator or formatter.
+- Any session whose orchestration forbids writes to a live data tree.
+- The sibling case of a writer's own pre-release test: seed its fixture from the live artifact and dry-run it twice on a copy (`references/verification-gate-evidence.md` §7.1). That case covers a tool's pre-release test. This subsection covers an anchor's own command text.
+
 ### 16.11 Fill the Signoff at Sprint Close — A Downstream Gate Reads the Artifact, Never the Intent
 
 > [!constraint] A downstream gate reads the artifact, never the intent
@@ -649,6 +692,8 @@ CORRECT — anchored to the filled verdict line; the placeholder does not match:
 
 The optional `\**` admits the bolded form `**Verdict:** **PASS**` that filled signoffs also use. Dry-run both patterns against a filled signoff and an untouched template before annotating the expected value (§16.10.6).
 
+A filled signoff reports each measurement against the plan's headline criterion, not only the implementation's constant: see "A Size or Rate Constant Is Derived From the Headline Criterion" (§16.14, Part-2 file).
+
 ### 16.12 Append, Never Insert, Into an Identifier Sequence Other Files Cite
 
 > [!constraint] When a numbered sequence is cited by identifier from outside the file that owns it, new entries go on the end
@@ -673,9 +718,19 @@ The optional `\**` admits the bolded form `**Verdict:** **PASS**` that filled si
 >
 > **Record the reasoning at the gap, not only in a change log.** Without it the next author sees a gap, assumes an oversight, and "fixes" it, reintroducing the renumber. The note is what makes the choice survive.
 
+A newest-first numbered record renumbers itself on each append: §16.15, Part-2 file.
+
 **The known exception and its test.** A same-change rename with a full citation sweep is legitimate when the citation set is small and enumerable — a task file renamed to preserve a verify-last convention, four citations, all in one folder, all updated in the change. The test is not *"is renaming ever allowed"* but **"can I enumerate every citation right now, and are they all mine to edit?"**
 
 **Scope.** This is the convention the reviewer-check identifier space already uses — next-free is the maximum across every allocating surface plus one, never a re-pack ([verify-backlog-citation-freshness.md](verify-backlog-citation-freshness.md) §9.1) — and the one the do-not-renumber contract on the [error-pattern-catalog.md](error-pattern-catalog.md) states. It applies equally to exit criteria, numbered rules, check IDs, reference section numbers cited by siblings, and task numbers. Where a renumbering is nonetheless chosen, [dispatch-edit-surface-sweep.md](dispatch-edit-surface-sweep.md) §5-§6 govern the sweep it obligates. §16.11 is a record left **unwritten** and §16.12 a record **rewritten**; both leave a mechanical consumer resolving to something false, and the signoff's verbatim quote block (§16.3) is the primary consumer of the numbering §16.12 protects.
+
+### 16.13 A Decision That Leaves a Known Verifier Failure Rewrites Every Criterion Pinned to Its Exit Code
+
+**Moved.** This section lives in [exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md](exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md), split out when this file neared the Read-tool token gate. A decision that leaves a known failure in a verifier's input set makes every "`<verifier>` exits 0" criterion false at the decision. The decision enumerates those criteria with `Grep`, rewrites each into a scoped clause, and routes a flag that names and supersedes the old wording.
+
+### 16.14 A Size or Rate Constant Is Derived From the Headline Criterion, and Every Closeout Reports Against the Criterion
+
+**Moved** to [the Part-2 file](exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md).
 
 ---
 

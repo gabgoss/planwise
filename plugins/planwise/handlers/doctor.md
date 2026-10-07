@@ -359,6 +359,9 @@ After a consented `reconcile_plans.py --write`, exit 1 has a different
 meaning: the index was written and the tree has an anomaly. Report
 `Reconciled {N} row(s).` and the anomaly, not a failed write.
 
+> [!constraint] A status disagreement does not name the side to edit
+> A `stale-row` for `status` names a Master Plan value and an index value. It does not say the Master Plan is the side to edit. Offer `reconcile_plans.py --write` (regenerate the index). Never offer an edit to a Master Plan `**Status:**` line to clear drift. When the user asks whether a Master Plan status is stale, run the read-the-writers check in `references/index-drift-audit.md` ("A Disagreeing Pair Is Read Through Its Writers Before Any Source File Is Edited") and present both options with the evidence.
+
 ---
 
 ### Stage 12: Backlog Index Archival Drift Audit

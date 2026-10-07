@@ -1,5 +1,5 @@
 ---
-description: Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags (sender §1.3, receiver-side reconciliation §1.4)
+description: Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags (sender §1.3, including an ordering flag read against the pinned command, a produce-flag reconciled against the write-set, and a Key Finding that names another session's file re-filed as a flag; receiver-side reconciliation §1.4), attributing a dirty path before choosing a remedy (§1.5), probing a commit-shaped criterion's paths in `git log` at CONFIRM so history satisfies it (§1.6), and reading two disagreeing representations through their writers before calling either stale (§1.7)
 ---
 
 # READ-CONFIRM-ACT Protocol
@@ -7,7 +7,7 @@ description: Mandatory READ-CONFIRM-ACT pattern — confirmation block, structur
 > [!binding] Enforcement
 > These are not guidelines. Violations cause context loss and incomplete work.
 
-**Purpose:** Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags (sender §1.3, receiver-side reconciliation §1.4).
+**Purpose:** Mandatory READ-CONFIRM-ACT pattern — confirmation block, structural-findings gate, cross-task coordination flags (sender §1.3, receiver-side reconciliation §1.4), dirty-path attribution (§1.5), commit-shaped criteria satisfied by history (§1.6), and disagreeing representations read through their writers before either is called stale (§1.7).
 **Extracted from session-execution-protocol.md; that file keeps the operational session rules (§2-§7).**
 
 ---
@@ -186,7 +186,7 @@ Apply this rule whenever an upstream task's output names a sequencing constraint
 - **Release-quality wins beyond scope:** "Doing this restructure also unlocks a base-context token reduction — flag as a candidate even though it wasn't the proximate goal."
 - **Cross-plan flow-through:** an upstream plan's findings constrain the scope or sequencing of a follow-up plan that hasn't been written yet.
 
-A flag is NOT a scope-expansion (§1.2 governs that — work done outside the literal scope) and is NOT a generic finding (those go in `Key Findings`). A flag specifically names a DOWNSTREAM consumer who needs to ACT on the observation.
+A flag is NOT a scope-expansion (§1.2 governs that — work done outside the literal scope) and is NOT a generic finding (those go in `Key Findings`, unless the observation names a file or task another session owns — see "A Key Finding That Names Another Session's File Is a Flag" below). A flag specifically names a DOWNSTREAM consumer who needs to ACT on the observation.
 
 #### Recording the Flag (At Surface Time)
 
@@ -198,6 +198,10 @@ When a task surfaces a coordination flag during execution, the orchestrator adds
 > |--------|-------------|---------------------|-------------|---------------------|
 > | 1      | {abbrev}-S{XX}-{YY}-{##} | {abbrev}-S{XX}-{YY}-{##} or {sprint} or {plan} | {one-paragraph description of the constraint / dependency / opportunity} | {what the downstream agent should do — sequence, route, resolve, evaluate} |
 > ```
+
+#### A Key Finding That Names Another Session's File Is a Flag
+
+**Moved.** This subsection lives in [read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md](read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md), split out when this file neared the Read-tool token gate. The test for a flag is whether the observation names a file or task that a different session owns and that session must act on it. If so, re-file the `Key Findings` bullet as a `Cross-Task Coordination Flags` row at the moment it is written, because closeout propagates only that table.
 
 #### Checking the Lessons Index Before Recording
 
@@ -222,7 +226,17 @@ When a task surfaces a coordination flag during execution, the orchestrator adds
 >
 > The distinguishing test: does the flag tell the runner something, or tell it to do something differently? If the second, it must name the step.
 
-A Coordination Flag Row is either **informational** — safe to deliver as context; spawn-prompt injection alone suffices — or a **binding contract**, which must be reconciled against the receiving task's own Execution Steps, Success Criteria, and Schema Pins before dispatch, and must be authored as a spec delta per the callout above. See [handlers/run.md](../handlers/run.md) Step 1.1a's Flag-Reconciliation Preflight — its "a binding contract belongs in the task file so it survives session resumption and is visible to reviewers" sentence is the vocabulary source for this distinction; it is not re-derived here.
+The test applies to the write-set as well as to the steps. A flag that makes the task produce three artifacts where the brief declares one tells the runner to do something differently, even when no step forbids it. See "A Produce-Flag Is a Write-Set Delta" below.
+
+A Coordination Flag Row is either **informational** — safe to deliver as context; spawn-prompt injection alone suffices — or a **binding contract**, which must be reconciled against the receiving task's own Execution Steps, Success Criteria, Schema Pins, `**Output:**` line, and the orchestration's write-target row before dispatch, and must be authored as a spec delta per the callout above. See [handlers/run.md](../handlers/run.md) Step 1.1a's Flag-Reconciliation Preflight — its "a binding contract belongs in the task file so it survives session resumption and is visible to reviewers" sentence is the vocabulary source for this distinction; it is not re-derived here.
+
+#### A Produce-Flag Is a Write-Set Delta
+
+**Moved.** This subsection lives in the Part-2 file named above. A flag that tells a task to file, write or create something changes the task's write-set. Reconcile it against the `**Output:**` line, the orchestration's write-target row and the sprint write-set, and count produce-verbs against the `Output:` artifact count before CONFIRM.
+
+#### An Ordering Flag Reads the Pinned Command First
+
+**Moved.** This subsection lives in the Part-2 file named above. Before writing "run X before Y", read X's pinned command and ask what Y produces. State the intent beside the order. A receiver resolves a contradiction through a spec delta, never a quiet reorder.
 
 #### Conditional Spec Branches Are Flags
 
@@ -547,6 +561,98 @@ The dispatching side carries two obligations.
 - **Verify each correction yourself before propagating it.** A runner's correction is also a derived claim. Two of these were confirmed only after an independent heading dump and a definition-vs-import check.
 
 One authoring rule follows. Prefer stating the *generic condition* over a specific number wherever the runner will re-derive anyway. An unnecessary figure in a brief is a liability with no upside.
+
+### 1.5 Attribute a Dirty Path Before Choosing a Remedy
+
+> [!constraint] A whole-tree gate and a revert authority both assume one writer
+> Gates that read a whole tree assume one writer. So does any revert authority. The first moment to find a second writer is Phase 1, before a base is pinned. After the pin, the peer's edits are indistinguishable from this session's. A remedy aimed at this session's mistakes then lands on someone else's work.
+>
+> A plan's clean-tree precondition was written against the tree at authoring time. At session start, an idle peer session had left four modified files in the tree. Dispatched as-is, the first task would HALT on its clean-tree gate. Had the tree been accepted dirty, a later gate task holding revert authority (`git checkout -- <path>`) would have destroyed the peer's finished work.
+>
+> WRONG — dispatch the first task and let its clean-tree gate find the peer work:
+> ```
+> Phase 1 CONFIRM -> dispatch Task 1 -> gate: tree dirty -> HALT
+>   (or, with a looser gate: pin base = HEAD over a dirty tree
+>    -> gate task: "never-edit file changed" -> git checkout -- <peer's file>)
+> ```
+> CORRECT — read every repo at Phase 1, attribute each dirty path, decide before dispatch:
+> ```
+> git status --porcelain                              # outer repo
+> git -C <nested repo> status --porcelain             # nested repo
+> # a dirty path the plan did not write -> find its owner (backlog item, peer session)
+> # surface as a structural finding: commit it as its own work item / wait for the owner / stop
+> # if committing: verify first (suite + pinned linter), stage by name, commit by pathspec,
+> #   and only then let Task 1 pin the base
+> ```
+
+Three operative rules follow.
+
+1. **Read every repo at Phase 1.** The Phase 1 READ includes `git status --porcelain` on every repo the session touches, nested repos included.
+2. **Attribute before you remedy.** A dirty path is foreign until this session's Files Modified list claims it. HALT, revert, and override are remedies for this session's own changes only.
+3. **Committing a peer's finished work is the user's decision.** Surface it in the CONFIRM block as a structural finding (§1.2) with explicit options: commit the peer's work here after verification, the owner commits it, or dispatch literally and HALT. Record the approval reference and name the peer's item in the commit message.
+
+**Closeout counterpart.** The session-end form of the same hazard is a bare commit that sweeps another session's staged entries, and a prior-sprint guard finding that accuses the closing session of a change a peer made. [session-execution-protocol.md](session-execution-protocol.md) §7 carries the commit-by-pathspec rule, and the run handler's Step 4.0 carries the foreign-mutation disposition.
+
+### 1.6 A Commit-Shaped Criterion Is Probed at CONFIRM and Satisfied by History, Not by Re-Committing
+
+> [!constraint] A criterion "make commit X" is a recorded claim about the tree, and any session that shares the tree can commit first
+> The criterion decays like every other recorded claim. When a peer commits first, the criterion is not failed and not blocked. History satisfies it. The task that owns the criterion records that evidence. It does not manufacture an empty commit and does not halt forever.
+>
+> A plan ended with a commit task. It asked for two commits on the outer repository: a reference file with its index row first, then a proof-of-concept folder, with `git status --porcelain` showing nothing else changed. The task pinned the expected status entries (`??` for the two new paths, ` M` for the index) and halted on any deviation. The master plan and the sprint plan each carried the same criterion.
+>
+> Two days later an external commit titled "Commit" swept both reference files, the folder's README and a large batch from another plan into history. By the next session's start the tree was clean, the folder was tracked (87 files), and `git log --oneline -- <the two paths>` named two commits. The task as written halted at step 1 with nothing to stage. The session surfaced it at CONFIRM as a structural finding. The user chose one commit of the session's own deliverables (the finalized README and a new memo). The commit proof recorded the history evidence for the content the first commit would have carried. The plan criterion was amended at closeout.
+>
+> WRONG — execute the task as pinned against a tree another session already committed:
+> ```
+> git status --porcelain             -> (empty)
+> git add -- <two reference paths>   -> nothing staged
+> git diff --cached --name-only      -> (empty) != the two paths -> HALT
+> # criterion "two commits" stays unmet; the session's own README and memo stay uncommitted
+> ```
+> CORRECT — probe at CONFIRM, commit the session's own work, cite history for the rest:
+> ```
+> git log --oneline -- <two reference paths>   -> <hash-a>, <hash-b>
+> Option A: one commit of README.md + <memo>.md, staged by path, proven
+> Commits proof, "Original criterion" heading: the clause quoted + "first commit's content is in history at <hash-a> / <hash-b>"
+> master plan criterion amended with the three hashes
+> ```
+
+Three operative rules follow.
+
+1. **Probe history at CONFIRM, before dispatch.** For every path a commit task pins, run `git status --porcelain` and `git log --oneline -- <paths>` during READ. A clean tree with the paths already in history is a structural finding for the Option A / Option B gate (§1.2). It is not a runtime halt three tasks later.
+2. **Rewrite the task to commit what this session produced.** The session's own deliverables are still uncommitted at that point. Scope the commit to them. Keep the by-path staging and the `git diff --cached --name-only` proof. Put the history hashes for the overtaken content in the proof file beside the original criterion, quoted.
+3. **Amend the plan criterion at closeout, with the hashes.** "Two commits" becomes "deliverables in history: <paths> via <hash>, <paths> via <hash>". A criterion left unamended reads as unmet to the next reviewer. Amend it in the master plan and the sprint plan both.
+
+**Sibling note.** The gate-side failure is a concurrent session's sweep making every `HEAD`-relative diff gate under-inspect. This rule is the criterion side: the same sweep makes a commit-shaped criterion unsatisfiable by action. The remedy is evidence, not action. [measure-artifact-identity.md](measure-artifact-identity.md) § "Commit Only What This Session Wrote" carries the shared-tree commit-scope rule, and §1.5 above carries the attribution of a dirty path.
+
+### 1.7 Two Disagreeing Representations Are Read Through Their Writers Before Either Is Called Stale
+
+> [!constraint] A disagreement names the writers, not the wrong side
+> When two representations of one fact disagree (an index row and its source file, a plan status and a narrative note, a record and the tree), the disagreement says something about their writers. It does not say which side is wrong. A status line that reads as lagging may be a reset mechanism's deliberate restored state. A "fix" at source is then overwritten at the next reset, and the real stale side (often a derived index row the reset never restored) stays stale.
+>
+> Before calling a status line stale, take three steps:
+> 1. **Read the file's declared writers.** `Grep` its decisions for "writer", "reset", "restore", "fixture".
+> 2. **Read the line's git history.** `git log -L<line>,<line>:<file>` shows whether the current value was restored on purpose after the "newer" value.
+> 3. **Present both options with that evidence in the CONFIRM block**, as an Option A / Option B pair (§1.2). Recommend "accept as-is" when a reset mechanism owns the line. The user decides.
+>
+> WRONG — index row says IN_PROGRESS, Master Plan says READY_TO_EXECUTE; call the Master Plan stale and edit it:
+> ```
+> read both values -> the index and a narrative note agree -> edit <plan> Status line to IN_PROGRESS
+> (the next reset restores READY_TO_EXECUTE and the edit is lost; the index row stays out of sync)
+> ```
+> CORRECT — read the writers and the line's history before proposing any edit:
+> ```
+> Grep "writer|reset|restore|fixture" in <plan>'s decisions
+>   -> a decision names <reset script> as the only writer outside /planwise run
+> git log -L4,4:<plan>/Master-Plan.md
+>   -> commit A set line 4 to IN_PROGRESS; the next commit deliberately restored READY_TO_EXECUTE
+> present Option A (edit the Master Plan) and Option B (accept as-is, regenerate the index row)
+>   with that evidence; recommend Option B; the user decides
+> ```
+
+**Scope.** The rule applies to status reconciliation between an index and its source files, including cutovers, migrations, and drift audits. It also applies to any plan tree that holds test fixtures beside real plans. A reset script is one declared writer. A hook, a generator, and a migration are others.
+
+**Where it is applied.** [index-drift-audit.md](index-drift-audit.md) § "A Disagreeing Pair Is Read Through Its Writers Before Any Source File Is Edited" carries the audit-side form. [plans-schema.md](plans-schema.md) § "The One-Writer Rule" names the writers of a Master Plan's `**Status:**` line.
 
 ---
 

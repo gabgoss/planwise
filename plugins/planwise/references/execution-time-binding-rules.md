@@ -1,12 +1,12 @@
 ---
-description: Execution-time binding rules — design-extension traceability with inline What/Why/Source documentation, cross-tier audit-finding triage into Remediation vs pre-emptive-flag buckets, the bounded-temp-fix that seeds a deferred Discovery, spike-instrument synthetic-fixture verdict partitioning, and re-homing a standing mechanism's post-gate qualification out of the plan artifacts that expire and into the artifact that governs the mechanism
+description: Execution-time binding rules — design-extension traceability with inline What/Why/Source documentation, cross-tier audit-finding triage into Remediation vs pre-emptive-flag buckets, the bounded-temp-fix that seeds a deferred Discovery, spike-instrument synthetic-fixture verdict partitioning, and re-homing a standing mechanism's post-gate qualification out of the plan artifacts that expire and into the artifact that governs the mechanism, and reading both sides of a run-time pair from the tool's own output instead of pinning the derived side from the plan
 ---
 
 # Execution-Time Binding Rules
 
-**Purpose:** Binding rules covering plan-fidelity concerns that surface during execution rather than at Discovery or signoff time — design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), spike-instrument verdict discipline (§20), and re-homing a post-gate qualification about a standing mechanism (§21). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
+**Purpose:** Binding rules covering plan-fidelity concerns that surface during execution rather than at Discovery or signoff time — design-extension traceability (§17), cross-tier audit-finding triage (§18), the bounded-temp-fix that seeds a deferred Discovery (§19), spike-instrument verdict discipline (§20), and re-homing a post-gate qualification about a standing mechanism (§21), and reading both sides of a run-time pair from the tool (§22). Each rule has been re-derived in independent sessions; review-cycle tokens are wasted relitigating the same issues.
 
-This file is the §17-§21 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §16 lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md). Extracted to keep all three files comfortably within a single Read call. Read it before authoring design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
+This file is the §17-§22 segment of a 3-way split of `discovery-and-exit-criteria.md` (the anchor, which keeps §15 and the shared 11-row Plan-Review Enforcement Summary — see the anchor for how each of that table's rows now resolves across the three files); §16 lives in [exit-criteria-fidelity.md](exit-criteria-fidelity.md). Extracted to keep all three files comfortably within a single Read call. Read it before authoring design-extension documentation, cross-tier audit triage, bug-fix sessions that surface a recurring defect class, or de-risk spikes that run on synthetic fixtures.
 
 ## Table of Contents
 
@@ -16,6 +16,7 @@ This file is the §17-§21 segment of a 3-way split of `discovery-and-exit-crite
 - [20. Spike Instrument Verdict Discipline](#20-spike-instrument-verdict-discipline-binding)
   - [20.1 Synthetic-Fixture Verdict Partitioning](#201-synthetic-fixture-verdict-partitioning)
 - [21. Re-Home a Standing Mechanism's Qualification Into the Artifact That Governs It](#21-re-home-a-standing-mechanisms-qualification-into-the-artifact-that-governs-it-binding)
+- [22. Both Sides of a Run-Time Pair Come From the Tool, Never From the Plan](#22-both-sides-of-a-run-time-pair-come-from-the-tool-never-from-the-plan-binding)
 
 ---
 
@@ -250,6 +251,38 @@ Applies to:
 - Any finding about a guard, hook, deny rule, linter or other standing control that surfaces AFTER that control's verification gate has passed.
 - Any qualification whose subject outlives the plan that discovered it — the test is the mechanism's lifetime, not the finding's severity.
 - Closeout of any plan that installed or modified a standing control.
+
+---
+
+## 22. Both Sides of a Run-Time Pair Come From the Tool, Never From the Plan (BINDING)
+
+A plan can make one value run-time-read because it moves, such as the new build in a diff pair. The old side of that pair is defined relative to the new side ("the two highest located versions"). It changes whenever a build lands anywhere the locator looks. **A plan that pins the old side has pinned a derived value and left its input free.**
+
+A plan's decision said the real pair is `<v1> -> <the installed build at run time>`, and every brief said "read `<new>` at task start, never copy it from a plan file". That half held. The tool read `<v4>` at session start, three versions past the planning-time `<v3>`. The other half was hard-coded. `<old>` was written as `<v1>` in a `--check` expectation ("names `<v1>` as the newest snapshot"), in `file-items <v1> <new>`, in a grep, and in a pathspec commit list.
+
+Forty-eight minutes before the plan went READY_TO_EXECUTE, an unrelated commit archived and snapshotted two more builds. The decision's defence, "`<v2>` was never archived and cannot be snapshotted", was already false when the reviewer read it. Run literally, the first task would have halted at Step 1, or the dry run would have exited 1 on a missing `<v1>__<v4>` diff twin.
+
+**The second layer.** At dispatch the orchestrator resolved `<old>` to "the newest snapshot `--check` names" (`<v3>`). The acceptance run of `watch --dry-run` then showed `locate` had found a `<v4>` build on disk as well, so the tool would archive two builds and diff `<v4> -> <v5>`. The correct definition was "the old side of the `diff ok:` step line", a value only the tool produces.
+
+> [!constraint] Read both ends from the tool's own output line
+> WRONG — pin the derived side and defend it with a state observation:
+> ```
+> | D3 | The real pair is `<v1> -> <the installed build at run time>`. `<v2>` was never archived and cannot be snapshotted. |
+> Step 5: file-items <v1> <new> --dry-run
+> ```
+> CORRECT — both sides read from the tool's own output, and the defence names the line that carries them:
+> ```
+> Step 3: ... `diff ok: <old> -> <new>` — record BOTH values from this line.
+> Step 5: file-items <old> <new> --dry-run   # never a literal version
+> ```
+
+Three rules:
+
+1. **Every version, id or baseline in a run brief comes from the tool, never from the plan.** Name the exact tool line it comes from (`diff ok: <old> -> <new>`). Do not name a proxy such as another command's "newest snapshot". A proxy has its own definition and drifts separately.
+2. **A "cannot happen" defence in a decision table has a date.** It is a reading of a directory on one afternoon. Re-read it at CONFIRM, not at review.
+3. **Grep the briefs for every pinned value at CONFIRM.** One `Grep` for the literal version across the session folder finds every site in a single call. That made the re-routing a fifteen-minute edit instead of a mid-run halt.
+
+Applies to any brief that pins one end of a relative pair while treating the other end as live: a diff base, a "previous" snapshot, a baseline commit, a prior release.
 
 ---
 

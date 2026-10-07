@@ -1,5 +1,5 @@
 ---
-description: A brief that names the likely answer gets that answer back, and hedging it does not help. Covers separating context from premise in a dispatch brief, supplying the discriminator instead of the destination, fix instructions that name a target number, directional guardrails, routing every branch of a plan's central question, inviting the contradiction, and what to do when the premise is refuted mid-run. Consult while writing a spawn prompt, a task brief, a repair instruction, or a plan's anti-inference guardrail, and at every reconciliation point where new evidence lands.
+description: A brief that names the likely answer gets that answer back, and hedging it does not help. Covers separating context from premise in a dispatch brief, supplying the discriminator instead of the destination, fix instructions that name a target number, directional guardrails, routing every branch of a plan's central question, inviting the contradiction, what to do when the premise is refuted mid-run, checking each HARD CONSTRAINTS prohibition against every step of the brief, and naming every branch of a task's decision rule when a scope boundary narrows a write permission. Consult while writing a spawn prompt, a task brief, a repair instruction, or a plan's anti-inference guardrail, and at every reconciliation point where new evidence lands.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Brief Neutrality — A Brief That Supplies the Answer Gets the Answer Back
@@ -24,6 +24,8 @@ One neighbouring rule owns the quantitative half of this discipline. [`dispatch-
 - [6. Invite the Contradiction, in the Prompt](#6-invite-the-contradiction-in-the-prompt)
 - [7. When the Evidence Base Changes — Retract Explicitly, Stop the Primed Agent, Resume the Builder](#7-when-the-evidence-base-changes--retract-explicitly-stop-the-primed-agent-resume-the-builder)
 - [8. Record the Refutation, and Keep the Real Defect the Wrong Diagnosis Found](#8-record-the-refutation-and-keep-the-real-defect-the-wrong-diagnosis-found)
+- [9. A Prohibition Claims That No Step Needs the Prohibited Thing — Enumerate Before Adding One](#9-a-prohibition-claims-that-no-step-needs-the-prohibited-thing--enumerate-before-adding-one)
+- [10. A Scope Boundary That Narrows a Write Permission Names Every Branch of the Task's Own Decision Rule](#10-a-scope-boundary-that-narrows-a-write-permission-names-every-branch-of-the-tasks-own-decision-rule)
 
 ---
 
@@ -155,6 +157,69 @@ The cost is concrete. The branch that fired did not merely fill a slot, it chang
 > When a diagnosis is refuted, the corrected causal account is worth more than the arithmetic that prompted it — the account of three cluster-level rows plus two further prefix effects that cancel now stands in the artifact as a warning against prefix-keyed verification. And when a wrong diagnosis nonetheless surfaced a real defect, fix it on its own merits: the compressed rows were not the cause and *were* a genuine grain violation, so they were expanded anyway rather than dropped because the theory failed.
 
 §3 and §8 both concern a refuted diagnosis and are deliberately separate. §3 is *how to write the instruction so the refutation is possible*. §8 is *what to do with the artifact once the refutation lands*. A merged section loses the second, which is the half that keeps a real defect from being dropped along with the wrong theory.
+
+---
+
+## 9. A Prohibition Claims That No Step Needs the Prohibited Thing — Enumerate Before Adding One
+
+> [!constraint] A HARD CONSTRAINTS block is the orchestrator's text, not the brief's, and every prohibition in it is a checkable claim
+> Each prohibition (no `<cli>` launch, no network, no subprocess, no write under a path) claims that none of the brief's Execution Steps needs the prohibited thing. The orchestrator can check that claim before dispatch. Read the steps and list what each one launches, writes, or fetches.
+
+Two operative rules follow.
+
+- **Enumerate before prohibiting.** For each Execution Step, note its launches, network calls, and write paths. A prohibition names only what no step needs. Some steps need the very thing the task's purpose forbids elsewhere. A hook must not spawn the CLI, and a backfill must. Then the constraint names the permitted site.
+- **A runner-reported deviation from a constraint is a spec conflict, not a runner fault.** Record it as an orchestrator issue in Recovery. Fix the constraint on the next dispatch of any task with the same shape.
+
+The failure in practice: the orchestrator copied a prohibition from the brief's headline purpose into HARD CONSTRAINTS. A step in the same brief needed the prohibited launch. The runner met the constraint by not doing the step as written. It patched the output by hand, and the step's idempotency proof moved to a later task. The orchestrator saw the design choice only at the return.
+
+> [!constraint] Enumerate the steps' launches first, then scope the prohibition
+> WRONG — add the prohibition from the task's purpose and dispatch:
+> ```
+> Brief purpose: "the hook never spawns <cli>; the full run is a later task's"
+> Constraint:    "<cli> --version is the only <cli> launch you make"
+> Brief Step 2:  "re-run <tool> capture --force on both archive builds"   # spawns <cli> x3 per build
+> # The runner meets the constraint by not doing Step 2 as written.
+> ```
+> CORRECT — list what each step launches, then scope the prohibition to what no step needs:
+> ```
+> Step 1:    <cli> --version                (banner)
+> Step 2:    <tool> capture --force x2      (help text, a slash command, the init record) <- needs <cli>
+> Steps 5-7: --check, hook, --dry-run       (no launches)
+> Constraint: "<cli> launches permitted: --version, and the ones capture --force
+>              makes in Step 2. Never the full run, never the live-marked tests."
+> ```
+
+**Mirror case.** An over-broad permission ("you may edit anything under `<dir>/`") gets the same check, against the write sets of the runner's layer-mates in the same parallel layer.
+
+**Applies to** every DELEGATED spawn prompt's HARD CONSTRAINTS and SCOPE BOUNDARY blocks. It matters most for briefs whose steps include a capture, a build, a fetch, a migration, or any step that legitimately does the thing the task's headline rule forbids in another component.
+
+---
+
+## 10. A Scope Boundary That Narrows a Write Permission Names Every Branch of the Task's Own Decision Rule
+
+> [!constraint] A boundary written for the expected branch silently blocks the other branch
+> A task file often carries a conditional rule with two outcomes. For example: "same cost class: comment-block edit only. Changed class: restate the value." If the dispatch's scope boundary says "comment-block edit only" and does not name the second outcome, the boundary becomes a hard block on it. The task file specified both branches. The dispatch carried only one.
+
+**Operative instruction.** When a dispatch narrows a runner's write permission to fit one anticipated outcome of a documented decision rule, state each outcome's permission explicitly. Or state that a divergent outcome is an escalation, not a silent HALT. Naming the branch costs one line. Not naming it costs a full runner round trip plus an orchestrator decision cycle that could have been loaded up front.
+
+> [!constraint] Name both branches and their authorization
+> WRONG — scope the write permission to only the branch you expect to fire:
+> ```
+> Files you may write: <test file> (comment-block edit ONLY, do not change the constant's value)
+> # The task's own Step 7 has a "changed class" branch that restates the value.
+> # If that branch fires, the runner is blocked from doing what its own brief says to do.
+> ```
+> CORRECT — name both branches and their authorization:
+> ```
+> Files you may write: <test file>
+>   - if the corroborating run lands in the SAME cost class: comment-block edit only, value unchanged
+>   - if it lands in a CHANGED class: STOP before touching the constant's value and escalate to the
+>     orchestrator with the reading and the class-rule verdict — do not decide the new number yourself
+> ```
+
+**Measured cost.** The divergent branch fired: the measured value was `0.0994585` against a ceiling of `0.05`. The runner stopped short of the unauthorized edit, which was correct. The recovery still took two user questions (what the ceiling is for, then which value) and one resume of the same runner.
+
+**Applies to** any DELEGATED dispatch that narrows a write set to match one branch of a documented decision rule: a class-change check, a same-versus-different resolution, an idempotency check. The scope statement carries every branch the task file defines, not only the one the orchestrator expects.
 
 ---
 

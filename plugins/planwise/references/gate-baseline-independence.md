@@ -1,12 +1,12 @@
 ---
-description: A gate that asserts a property of a diff — comment-only, no-logic-change, N-files-touched — measures nothing when its target is untracked, and reports the file's entire body as additions once `git add -N` registers it. Covers why an untracked target makes such a gate vacuous, why intent-to-add inverts it instead of repairing it, the recorded-baseline form that discriminates, why a baseline taken from version control outranks one the executor made, and why a chained `grep -c` skips the clean case. Consult before writing or accepting any gate whose subject is a diff.
+description: A gate that asserts a property of a diff — comment-only, no-logic-change, N-files-touched — measures nothing when its target is untracked, and reports the file's entire body as additions once `git add -N` registers it. Covers why an untracked target makes such a gate vacuous, why intent-to-add inverts it instead of repairing it, the recorded-baseline form that discriminates, why a baseline taken from version control outranks one the executor made, why a before/after audit's PRE must come from the generation being replaced rather than from the new tool already installed, and why a chained `grep -c` skips the clean case. Consult before writing or accepting any gate whose subject is a diff, or any audit that compares a before state with an after state.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Gate Baseline Independence — a Diff-Property Gate Needs a Baseline It Can Reach, and One It Did Not Make
 
 **Purpose:** Name the corpus before writing the check. Every verification command reads some set of files. The gate is evidence only when that set is the set the claim is about. This file covers the case where the two differ silently, because git cannot see the target at all.
 
-**Read this when** a gate asserts a property of a diff — the change was comment-only, no logic moved, exactly N files were touched. Read it also when you accept such a gate's result from someone else.
+**Read this when** a gate asserts a property of a diff — the change was comment-only, no logic moved, exactly N files were touched. Read it also when you accept such a gate's result from someone else. Read §4 when you write a before/after audit of a migration or regeneration, and the new tool is already installed when PRE is captured.
 
 `git diff` answers one question. It reports how the working tree differs from **the index**. An untracked file has no index entry, so the honest answer is *nothing*. A `grep -c`-shaped gate cannot tell that answer apart from *no violations found*. Both print `0`.
 
@@ -17,8 +17,9 @@ This is the baseline half of a three-part problem. [`measurement-discipline.md`]
 - [1. An Untracked Target Makes a Diff-Property Gate Vacuous](#1-an-untracked-target-makes-a-diff-property-gate-vacuous)
 - [2. `git add -N` Inverts a Diff-Property Gate Rather Than Repairing It](#2-git-add--n-inverts-a-diff-property-gate-rather-than-repairing-it)
 - [3. Record a Baseline Before the First Edit, and Prefer One You Did Not Make](#3-record-a-baseline-before-the-first-edit-and-prefer-one-you-did-not-make)
-- [4. A Chained `grep -c` Gate Skips the Case It Most Needs to Confirm](#4-a-chained-grep--c-gate-skips-the-case-it-most-needs-to-confirm)
-- [5. Pre-Dispatch Checklist for Verification Commands](#5-pre-dispatch-checklist-for-verification-commands)
+- [4. A PRE/POST Audit's PRE Must Come From the Generation Being Replaced](#4-a-prepost-audits-pre-must-come-from-the-generation-being-replaced)
+- [5. A Chained `grep -c` Gate Skips the Case It Most Needs to Confirm](#5-a-chained-grep--c-gate-skips-the-case-it-most-needs-to-confirm)
+- [6. Pre-Dispatch Checklist for Verification Commands](#6-pre-dispatch-checklist-for-verification-commands)
 
 ---
 
@@ -105,7 +106,40 @@ Dry-run the finished gate once against known-bad input and once against known-go
 
 ---
 
-## 4. A Chained `grep -c` Gate Skips the Case It Most Needs to Confirm
+## 4. A PRE/POST Audit's PRE Must Come From the Generation Being Replaced
+
+§3 covers the base of a diff. This section covers the PRE reference of a before/after audit. A conservation audit tests a change only if its PRE reference came from the thing being changed away from.
+
+When the new tool is already installed, running it before the write does not produce a "before". It produces the new behaviour applied to old inputs. PRE equals POST by construction. The gate then passes on every item. A correct change gives the same result, so nothing looks wrong.
+
+A cutover regenerated a derived index. One scoring change was deliberate: a bonus now keyed off an item's `abbrev` field instead of a title keyword. The plan predicted 139 score changes. The audit took PRE with `<new-scorer> --dry-run` and POST with the same command after the write. The new rule had shipped into that scorer weeks earlier. The scorer reads item frontmatter and never prints the index's stored Score cells. PRE and POST ran the same computation over the same inputs. The audit would have reported 0 deltas on all 182 items and passed its "every delta is 0 or ±15" gate. It would not have examined one of the 139 changes it existed to explain.
+
+A pre-dispatch read caught it. The PRE task was re-specified to capture three sets on the same day: the stored Score cells, the installed previous release's scorer (old rule), and the new scorer. The audit then compared the old-rule scores with the generated cells. It found 138 × −15, 1 × +15 and one out-of-band −5 that came from a stray link in a legacy row.
+
+> [!constraint] Take PRE with the tool generation that wrote the legacy artifact
+> WRONG — PRE and POST come from the same program, so the audit is a tautology:
+> ```
+> PRE  = <new-tool> --dry-run   (before --write)
+> POST = <new-tool> --dry-run   (after  --write)
+> audit: every delta in {0, +-15}  -> 182 x 0 -> PASS   # tested nothing
+> ```
+> CORRECT — PRE comes from the rule being replaced, and the new tool becomes a separate consistency check:
+> ```
+> PRE_old  = <previous-release-tool> --dry-run     # the rule being replaced
+> PRE_new  = <new-tool> --dry-run                  # consistency reference
+> POST     = generated <artifact> cells
+> primary audit:     PRE_old -> POST   (expect the predicted deltas, each attributed by an --explain mode)
+> consistency check: PRE_new -> POST   (expect 0 everywhere)
+> ```
+
+- **Source the PRE from the legacy generation.** Use the installed previous release, or the stored values in the artifact itself.
+- **Keep a new-tool run as a separate consistency check.** Its expected delta is 0.
+- **Ask one question of every before/after audit.** Which program produced PRE, and did that program already contain the change? If the answer is the new tool, the audit is a tautology. The checklist in §6 carries this as a row.
+- **This applies to** any before/after audit of a migration, regeneration or refactor where the new code path is already installed when PRE is captured. Examples are score tables, derived columns, computed indexes and rendered outputs.
+
+---
+
+## 5. A Chained `grep -c` Gate Skips the Case It Most Needs to Confirm
 
 `A && B`, where `A` is a `grep -c`, runs `B` only when `A` succeeds. `grep` exits non-zero when it matches nothing, so a count of `0` short-circuits the chain. That is exactly the clean case the gate was written to confirm.
 
@@ -123,7 +157,7 @@ Dry-run the finished gate once against known-bad input and once against known-go
 
 ---
 
-## 5. Pre-Dispatch Checklist for Verification Commands
+## 6. Pre-Dispatch Checklist for Verification Commands
 
 Run this over a task file's Verification Commands before dispatch, and over a runner's returned evidence before accepting it.
 
@@ -132,7 +166,8 @@ Run this over a task file's Verification Commands before dispatch, and over a ru
 - [ ] No `git add -N` sits in front of a diff-property gate. It belongs only in front of a pattern-presence gate (§2).
 - [ ] Any baseline the gate diffs against was recorded **before** the first edit, and its provenance is stated.
 - [ ] Any orchestrator accepting a runner's self-graded verification prefers a baseline the runner did not produce (§3).
-- [ ] No counted check is chained behind another with `&&` (§4).
+- [ ] Any before/after audit names the program that produced its PRE, and that program did not already contain the change under audit. A new tool's dry run is a consistency check with an expected delta of 0, never the PRE (§4).
+- [ ] No counted check is chained behind another with `&&` (§5).
 - [ ] Any "nothing leaked into the shipped tree" claim uses a filesystem walk over an **absolute** path, not a git query. A git query cannot see an ignored path, and packaging does not apply the ignore file. A relative path from the wrong directory errors to stderr and leaves stdout empty, which a "MUST be empty" gate reads as a pass.
 - [ ] Any `§`-anchor or line-number citation crossing a two-copy boundary — an installed copy and the source tree that ships next — resolves in the tree the claim's tense names. Present tense names the installed copy. Future tense names the source tree.
 

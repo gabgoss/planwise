@@ -38,7 +38,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}`.
 ---
 
 > [!practice] Session-Level Effort for Large Runs
-> This handler executes inline in the calling session — there is no dispatched orchestrator agent to carry an `effort:` frontmatter field. The session's `/effort` setting (or `effortLevel` in *your own project's* `.claude/settings.json`) therefore governs the orchestrator: for a large DELEGATED session or a multi-sprint run, consider `/effort high` before invoking this command. It does NOT reach `planwise:task-runner`: that agent ships `effort: medium`, pinned in its frontmatter from a measured grid, and a frontmatter value overrides the session setting for that agent's dispatches. See `references/agent-authoring.md` § Shipped Effort Levels for the values, the measurement, and when to re-measure. This recommendation is advisory only.
+> This handler executes inline in the calling session, so the session's `/effort` setting governs the orchestrator. For a large DELEGATED session or a multi-sprint run, consider `/effort high` before invoking this command. It does NOT reach `planwise:task-runner`, which pins `effort: medium` in its frontmatter. See `references/agent-authoring.md` § Shipped Effort Levels. This recommendation is advisory only.
 
 ---
 
@@ -58,17 +58,17 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If a task creates or modifies rules: Read `references/rule-authoring.md`
 - If a task involves DB writes or MERGE/upsert briefs: Read `references/task-content-fidelity.md`, `references/schema-pin-requirement.md`
 - If a session is IPC/protocol/codec: Read `references/verification-gates.md`
-- If executing in DELEGATED mode (orchestrator dispatches task-runner subagents): Read all three parts of the DELEGATED dispatch discipline — `references/agent-orchestration-delegated.md` (§1.1–§1.13, foundations and spawn-prompt construction), `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` (§1.14–§1.22, dispatch mechanics and returns), and `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` (§1.23–§1.31, cross-cutting discipline). An orchestrator needs all three: Part 1 to build a spawn prompt, Part 2 to handle what comes back, Part 3 for the constraints that bind every dispatch. Each part sits under the Read-tool page cap; the combined text does not, which is why it ships split.
-- If the plan was authored before today — held behind an external gate, scaffolded many sprints in one pass, or waiting on an upstream that has since closed: Read `references/dispatch-preflight-claim-expiry.md` — re-take the premises on the surfaces no gate reads, and reconcile Required Context against the upstream's output directory before dispatch
+- If executing in DELEGATED mode (orchestrator dispatches task-runner subagents): Read all three parts of the DELEGATED dispatch discipline — `references/agent-orchestration-delegated.md` (§1.1–§1.13, foundations and spawn-prompt construction), `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` (§1.14–§1.22, dispatch mechanics and returns), and `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` (§1.23–§1.32, cross-cutting discipline). An orchestrator needs all three: Part 1 to build a spawn prompt, Part 2 to handle what comes back, Part 3 for the constraints that bind every dispatch.
+- If the plan was authored before today — held behind an external gate, scaffolded many sprints in one pass, or waiting on an upstream that has since closed: Read `references/dispatch-preflight-claim-expiry.md` — re-take the premises on the surfaces no gate reads before dispatch
 - If a session runs verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
-- If a session authors a gate (guard, hook, linter, validation pass) or is about to report a gate's result as evidence: Read `references/verification-gate-evidence.md` — run the positive control before citing the pass, preserve evidence a wrong-but-passing run could not have produced, and when correct work and a gate's annotated value disagree, the artifact wins (§10-§13)
-- If a session runs or reports a gate asserting a property of a diff — comment-only, no-logic-change, N-files-touched: Read `references/gate-baseline-independence.md` — confirm the target is tracked before trusting an empty result, never put `git add -N` in front of such a gate, and prefer a baseline the runner did not produce (§2-§3)
-- If a session is about to cite a match pattern, a count, or a diff filter as proof — in a status block, a briefing figure, or a closeout: Read `references/gate-predicate-discrimination.md` — pair every anchor against its known-bad state from git and report it as `known-bad → current`, never assert an absence from a pattern shaped for a different positive, and anchor a diff filter on `^[+-]` with the headers stripped by name
-- If a session writes or accepts a count, a coverage ratio, a `no X survives` criterion, or an `N in = N out` balance gate: Read `references/gate-denominator-integrity.md` — take the denominator from outside the artifact being gated, never assert an aggregate count over a file another task also writes, and scope a balance gate's equality to the sourced class
+- If a session authors a gate (guard, hook, linter, validation pass) or is about to report a gate's result as evidence: Read `references/verification-gate-evidence.md` — run the positive control before citing the pass, and when correct work and a gate's annotated value disagree, the artifact wins (§10-§13)
+- If a session runs or reports a gate asserting a property of a diff — comment-only, no-logic-change, N-files-touched: Read `references/gate-baseline-independence.md` (§2-§3)
+- If a session is about to cite a match pattern, a count, or a diff filter as proof — in a status block, a briefing figure, or a closeout: Read `references/gate-predicate-discrimination.md` — pair every anchor against its known-bad state from git
+- If a session writes or accepts a count, a coverage ratio, a `no X survives` criterion, or an `N in = N out` balance gate: Read `references/gate-denominator-integrity.md` — take the denominator from outside the artifact being gated
 - If a task authors or modifies a content-bearing artifact (a rule, agent, skill, or handler): Read `references/artifact-self-containment.md` — content-bearing artifacts must inline content from their source rather than cite it; see Step 3.3's self-containment grep gate
-- If a session reports a total, a labelled aggregate, or a count stated in prose — in a Recovery file, a summary, or a handler doc: Read `references/measure-aggregate-provenance.md` — verify the addends, state the population beside the figure, and name the members inline where the count is load-bearing
-- If a task measures model or harness behaviour, tests a hypothesis whose magnitude could differ in a consuming project, or reports that the record does not capture something: Read `references/measure-scope-and-sample.md` — declare n per cell before looking at any result, return a conditional verdict with the deciding property named, and name which record-keeping layers were swept
-- If a task runs a did-the-figure-fall re-measure or dispatches probes under a budget guard: Read `references/measure-instrument-placement.md` — assert the traffic precondition before measuring, report n = 0 as a data gap with an owner, and put a verified per-call ceiling on every probe
+- If a session reports a total, a labelled aggregate, or a count stated in prose — in a Recovery file, a summary, or a handler doc: Read `references/measure-aggregate-provenance.md` — verify the addends and state the population beside the figure
+- If a task measures model or harness behaviour, tests a hypothesis whose magnitude could differ in a consuming project, or reports that the record does not capture something: Read `references/measure-scope-and-sample.md` — declare n per cell before looking at any result
+- If a task runs a did-the-figure-fall re-measure or dispatches probes under a budget guard: Read `references/measure-instrument-placement.md` — assert the traffic precondition before measuring
 
 ---
 
@@ -130,7 +130,7 @@ Read the Master Plan. Check the `Status:` field.
 
 Read these files completely (not skim):
 1. Orchestration file (already read in Phase 0)
-2. Recovery file -- check for resumption state
+2. Recovery file -- check for resumption state. Distrust a `-` commit pin or missing `GATE_PENDING` row: check `git log`, fix Recovery first ([protocol](../references/session-execution-protocol.md))
 3. All task files listed in the Task Files table (read file headers, objectives, agents)
 
 While reading, watch for structural findings beyond the literal task scope -- latent defects in adjacent sections, anchors, or enumerations that the directive did not name but that the minimum coherent fix requires touching. See [read-confirm-act-protocol.md §1.2](../references/read-confirm-act-protocol.md#12-structural-findings-beyond-literal-scope) for the full rule.
@@ -152,7 +152,8 @@ While reading, watch for structural findings beyond the literal task scope -- la
 > - [ ] **Re-derive every value the flag supplies before acting on it** — its counts, its scope forecast, its classification, and its prescribed remedy. The location is usually still good; the values are expired. A flag's own supplied verify gate is the most dangerous artifact it carries, because a stale gate fails correct work and reads as "your fix is broken". See [read-confirm-act-protocol.md §1.4.C–§1.4.D](../references/read-confirm-act-protocol.md#14-reconciling-an-inherited-flag-receiver-side)
 > - [ ] Record the routing as a **table** in Recovery — one row per flag: `Flag | Source file | Destination task | Disposition` — so the count is auditable rather than asserted. Add the Change Log row alongside it ("flag preflight — N flags routed to tasks X, Y")
 > - [ ] Keep the sender's original wording; record any correction beside it with the measurement that settled it. A conditional flag whose condition was measured and NOT met is routed as *resolved, with its measurement* — never dropped, never left open
-> - [ ] If a routed flag CONTRADICTS an **Execution Step**, **Success Criterion**, or **Schema Pin** stated in a task file → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first
+> - [ ] If a routed flag CONTRADICTS an **Execution Step**, **Success Criterion**, **Schema Pin**, `Output:` line, or orchestration write-target row → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first
+> - [ ] A file / write / create flag is a write-set delta: count its produce-verbs against the `Output:` artifact count, and a mismatch is the finding. Read an ordering flag ("X before Y") against X's pinned command. See [flag authoring surfaces](../references/read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md)
 > - [ ] A flag whose text is an unresolved fork must be pinned before dispatch — leaving a "pick one and say so" open means each runner resolves it ad hoc, with no recorded decision for downstream sessions to inherit
 
 **The two-hop propagation model (why the receiver routes the last hop):**
@@ -163,6 +164,13 @@ A coordination flag reaches an executing task in two hops, and each hop has exac
 - **Hop 2 — downstream session start (receiver, THIS preflight).** This session routes each flag the final hop into its own task files, because it already reads every task file, knows its own decomposition, and is the single writer of its own files.
 
 Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the flag MUST say so explicitly (e.g. "the LIVE implementation supersedes EI §N"). A runner copying a "verbatim" spec has no reason to doubt it otherwise. Spawn-prompt injection alone (without the task-file write) is acceptable ONLY for informational flags; a binding contract belongs in the task file so it survives session resumption and is visible to reviewers.
+
+### Step 1.1b: PEER-WORK READ
+
+> [!binding] Read every repo's status before CONFIRM, and attribute each dirty path
+> Run `git status --porcelain` in every repo the session touches, nested repos included (`git -C <nested repo> status --porcelain`). A dirty path the plan did not write is **foreign** until this session's Files Modified list claims it. Find its owner before dispatch. HALT, revert, and override are remedies for this session's own changes only.
+>
+> Surface a foreign path in the CONFIRM block as a structural finding (Step 1.2a). Options: commit the peer's finished work here after verification, the owner commits it, or dispatch literally and HALT. Committing a peer's work is the user's decision, never the session's. Log the approval as a Scope-Expansion Decisions row. See [read-confirm-act-protocol.md §1.5](../references/read-confirm-act-protocol.md#15-attribute-a-dirty-path-before-choosing-a-remedy) for the verify-stage-commit order.
 
 ### Step 1.2: CONFIRM
 
@@ -291,13 +299,13 @@ You are the ORCHESTRATOR. Choose dispatch mode for the current dependency layer 
 Before dispatching, read the DELEGATED dispatch discipline for the sections each part holds:
 
 - `references/agent-orchestration-delegated.md` — §1.3 (context boundary), §1.6 (path-rule injection), §1.8 (HARD CONSTRAINTS skeleton), §1.13 (shared-edit-target strategy; parallel-dispatch Recovery contract).
-- `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` — §1.17 (classify every return before consuming it — a `completed` status alone is not a deliverable check), §1.19 (Model-Floor Bridge), §1.20 (1M-Exception Dispatch), §1.21 (Background vs Foreground Gate), §1.22 (Anti-Patterns checklist).
-- `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` — §1.29 (a subagent's world is its definition plus its prompt — name the delivery channel, and push every lead-resolved condition into the prompt).
-- `references/parallel-layer-shared-objects.md` — before composing the layer: the allocation namespace or entity decomposition two members share but neither writes, and the spawn-prompt clause that defers the number and not merely the write.
-- `references/dispatch-batch-gate.md` — after the batch returns green and before consolidating: run each session criterion at the first task that makes it runnable, cross-check claims appearing in two outputs, and diff the emitted label sets.
-- `references/dispatch-boundary-evidence.md` — while writing the prompt and while reading the return: withhold any figure the task exists to re-derive, confirm each inbound flag actually arrived (§5) before resolving its named consumer against the partition key (§2), attribute the cumulative diff yourself, and recover a reply that did not route.
-- `references/measure-from-the-record.md` — when a recovered reply is being synthesised, or a probe's cause or a permission result is being graded: file the transcript-recovered synthesis as provisional and re-diff it on delivery, confirm which control fired rather than accept the narrated one, and score a denial on `permission_denials` captured from the child's stdout, never on `is_error` alone.
-- `references/measure-artifact-identity.md` — when a runner and the orchestrator disagree about what a file says, or a read-only layer runs while another session may be writing the tree: settle the dispute by triangulating line numbers across the installed copy, `HEAD` and the live tree, pin content hashes before dispatch and on return (the runner pins first and last), and at session close commit only what this session wrote.
+- `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` — §1.17 (classify every return before consuming it), §1.19 (Model-Floor Bridge), §1.20 (1M-Exception Dispatch), §1.21 (Background vs Foreground Gate), §1.22 (Anti-Patterns checklist).
+- `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` — §1.29 (a subagent's world is its definition plus its prompt — name the delivery channel).
+- `references/parallel-layer-shared-objects.md` — before composing the layer: the allocation namespace two members share but neither writes.
+- `references/dispatch-batch-gate.md` — after the batch returns green and before consolidating: the cross-checks only the orchestrator can run.
+- `references/dispatch-boundary-evidence.md` — while writing the prompt and reading the return: confirm each inbound flag arrived (§5) before resolving its consumer (§2).
+- `references/measure-from-the-record.md` — when a recovered reply is synthesised or a permission result is graded: the synthesis is provisional, and a denial is scored on `permission_denials`, never on `is_error` alone.
+- `references/measure-artifact-identity.md` — when a runner and the orchestrator disagree about what a file says, or a read-only layer runs while another session may write the tree: triangulate line numbers, pin content hashes, and at close commit only what this session wrote.
 
 The spawn prompt states the single-task scope in three positions — the opener, a hard-constraint line, and the return instruction — so the scope is stated even against a session-scoped identity that would otherwise outrank a single mention. When the project declares an isolated environment (Config Gate), it also adds an environment-discipline block naming interpreter/linter/runner paths in the platform-matched form (POSIX `./.venv/bin/{tool}` or Windows `.\.venv\Scripts\{tool}.exe` — emit the one matching the project's platform, never both), and on the session's FIRST dispatch only, a one-line interpreter diagnostic:
 
@@ -348,7 +356,7 @@ Agent(
 
 **Model override:** The `model:` parameter in the Agent tool call MUST match the Agent field declared in the task file (e.g., if task file says `Agent: Haiku`, use `model: "haiku"`) — except when `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.19 (Model-Floor Bridge) or §1.20 (1M-Exception Dispatch) raises it for this dispatch only; log the raise per those sections, never silent.
 
-**Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Agent tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. After all runners return, classify each per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
+**Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Agent tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. Before dispatch, repeat the called-symbol grep on each brief, routed flags included (`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §17.4): a layer-mate's symbol makes the layer sequential. After all runners return, classify each per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
 
 Every parallel spawn prompt names the **delivery channel** as well as the block's format. A named or teammate-style runner's plain-text final message does not route to you — only an idle notification arrives — so a prompt giving the shape alone produces a block nobody receives (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1). Add these two lines above the Status Block format in each parallel spawn prompt:
 
@@ -376,16 +384,17 @@ If a tool-permission prompt denies a write during dispatch or execution (DIRECT 
 > [!binding] Recovery Update After EVERY Task
 > Update the recovery file AFTER EACH TASK completes -- never batch updates.
 >
-> **Parallel-dispatch exception:** When dispatching 3+ task-runners in parallel within a DELEGATED session, the runners do NOT write Recovery — the orchestrator (you) reconciles Recovery centrally after the parallel batch returns. See Phase 3 Step 3.2's DELEGATED Mode (Parallel dispatch) above and `references/agent-orchestration-delegated.md` §1.13 Recovery-file subsection. The "after EVERY task" rule still holds at batch granularity: reconcile Recovery once before dispatching the next dependency layer.
+> **Parallel-dispatch exception:** With 3+ task-runners in parallel in a DELEGATED session, the runners do NOT write Recovery. The orchestrator (you) reconciles it centrally once after the batch returns, before dispatching the next dependency layer. See Step 3.2's DELEGATED Mode (Parallel dispatch) and `references/agent-orchestration-delegated.md` §1.13 Recovery-file subsection.
 
 After each task completes (DIRECT or DELEGATED, sequential):
 
 1. **Recovery file** -- update immediately:
    - Mark task COMPLETE with timestamp
-   - Add key findings to "Key Findings" section
+   - Add key findings to "Key Findings" section (re-file a bullet naming another session's file as a `Cross-Task Coordination Flags` row before the next dispatch)
    - Add files modified to "Files Modified" section
    - Add Change Log entry: date, step number, status, notes
    - Update "Current Step" to next task number
+   - User-gate `ROUTE/FLAGS`: log `GATE_PENDING: {value}` before any commit, push, or question
 2. **(Track B) Task list** -- update status: `TaskUpdate(taskId: "{id}", status: "completed")`
 3. **Verify output** -- confirm expected output files were written (if applicable), then measure them: `python "{plugin_root}/scripts/measure_files.py" {output files...}` -- compare against the task's declared output token budget (>20% deviation is a review signal per `references/agent-orchestration-delegated.md` §1.4), and any runner-read generated artifact reporting WARN/OVER is split per the Multi-Part convention before the task is accepted
 4. **Verify structure** -- if the task's Expected Output declared required headings or table-column headers, grep the produced file for every one of them; on a miss, re-dispatch the same runner with a single corrective instruction rather than accepting and reconciling downstream
@@ -393,13 +402,8 @@ After each task completes (DIRECT or DELEGATED, sequential):
    ```bash
    grep -nEi "if the probe|expect .* if|unless|otherwise|print rather than assert|if .* found" {session_dir}/*-Task-*.md
    ```
-   (3) resolve each hit from the landed measurement and write the resolved branch in as a binding contract, with the evidence inline. Cheap, and it survives a session halt -- a routed branch sits in the downstream task file until the session resumes.
-6. **Self-containment grep gate (BINDING when the task authored or modified a content-bearing artifact):** if the task's declared output touches a rule, agent, skill, or handler file, run the grep from [`references/artifact-self-containment.md` §4](../references/artifact-self-containment.md#4-mechanical-verification) on the produced files:
-   ```bash
-   grep -rnE '(LL-[0-9]{3}|BB-[0-9]{3})' {task-output-artifact-paths}
-   # MUST return zero matches.
-   ```
-   If matches -- do NOT mark the task complete; re-dispatch the runner with the grep output requesting the cited content be inlined, or open a follow-up task. See [§4.1](../references/artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover) for the exempt zones. A task whose output touches ONLY bookkeeping artifacts skips this gate.
+   (3) resolve each hit from the landed measurement and write the resolved branch in as a binding contract, with the evidence inline. The routed branch survives a session halt.
+6. **Self-containment grep gate (BINDING when the task authored or modified a content-bearing artifact):** if the task's declared output touches a rule, agent, skill, or handler file, run the grep from [`references/artifact-self-containment.md` §4](../references/artifact-self-containment.md#4-mechanical-verification) on the produced files. It MUST return zero matches. On a match, do NOT mark the task complete: re-dispatch the runner with the grep output requesting the cited content be inlined, or open a follow-up task. A task whose output touches ONLY bookkeeping artifacts skips this gate (exempt zones: [§4.1](../references/artifact-self-containment.md#41-what-the-grep-deliberately-does-not-cover)).
 7. **Session-length checkpoint** -- evaluate the configured thresholds now that Recovery is current, and on a trip recommend a session boundary. See [Step 3.5](#step-35-session-length-checkpoint). It observes and recommends; it never halts the loop on its own.
 8. **THEN** proceed to next task — after the layer-edge stop gate below, when it applies.
 
@@ -410,10 +414,11 @@ After a **parallel batch** of 3+ task-runners returns:
 3. Verify referenced OUTPUT_FILES exist on disk for every COMPLETE row
 4. **Recovery file** -- write ONCE for the entire batch:
    - One Step Completion row per task in the batch, all with the reconciliation timestamp
-   - Append every runner's KEY_FINDINGS to the "Key Findings" section
+   - Append every runner's KEY_FINDINGS to the "Key Findings" section (same re-file screen; a `FLAG:` bullet is a flag row)
    - Append every runner's OUTPUT_FILES to the "Files Modified" section
    - One Change Log row per task (or one batch row noting the parallel group)
    - Update "Current Step" to the next dependency layer
+   - Log `GATE_PENDING` for any planned stop (as above)
 5. **(Track B) Task list** -- mark every batch task `completed`
 6. **Session-length checkpoint** -- evaluate ONCE for the whole batch, after the central Recovery reconciliation above. See [Step 3.5](#step-35-session-length-checkpoint). A batch boundary is the safest place in a delegated session to take a split, because no runner is in flight.
 7. **THEN** dispatch the next dependency layer (sequential task, or next parallel batch) — after the layer-edge stop gate below, when it applies.
@@ -442,16 +447,16 @@ After a **parallel batch** of 3+ task-runners returns:
 
 **Unreported silence** — nothing arrives at all. This is a different branch, and it is the one where you must act on inference rather than on a report. A runner produces no observable output between dispatch and its final status block, so silence alone does not distinguish *working* from *dead* from *stalled*.
 
-1. **Do NOT re-dispatch yet.** Re-dispatching onto a live runner puts two writers on one task's declared output set. Where the task writes machine-global state under inventory-and-restore, two concurrent restore sequences can leave a global file holding fixture content with no clean rollback and no error raised.
-2. **Run the liveness check** in `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30: sample the runner's own transcript twice, a minute apart, and compare its last-entry timestamp against now. A timestamp seconds old means alive. Minutes old **with no line growth across both samples** is a genuine stall. Do not substitute an agent listing — it may not show in-process subagents at all, so absence there proves nothing. Do not substitute a disk inventory either: a half-built output tree is equally consistent with a live agent mid-write.
+1. **Do NOT re-dispatch yet.** Re-dispatching onto a live runner puts two writers on one task's declared output set (rationale: Part-3 §1.30, cited in step 2).
+2. **Run the liveness check** in `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30: sample the runner's own transcript twice, a minute apart. A last-entry timestamp seconds old means alive. Minutes old **with no line growth across both samples** is a genuine stall. Do not substitute an agent listing or a disk inventory: neither shows whether a writer is still attached (§1.30 gives the measurement).
 3. **Alive** → wait, or steer the existing runner with a message (§1.7, §1.10). Do not replace it, and do not write to anything it owns (§1.26).
 4. **Stalled** → resume the SAME agent per §1.17, never a fresh one.
-5. **Genuinely dead** → re-dispatch, and put two things in the replacement's brief: an inventory of what the dead runner left on disk marked **UNVERIFIED** (a partial artifact reads as a complete one to the next consumer), and the frozen-snapshot self-check from §1.30 — the replacement compares that inventory against live modification times before its first write, and HOLDs if anything moved between the snapshot and its own first tool call.
+5. **Genuinely dead** → re-dispatch, and put two things in the replacement's brief: an inventory of what the dead runner left on disk marked **UNVERIFIED**, and the frozen-snapshot self-check from §1.30 (compare the inventory against live modification times before the first write, and HOLD if anything moved).
 6. Record which branch fired in Recovery, with the measurement that settled it — not the conclusion alone.
 
 ### Step 3.5: Session-Length Checkpoint
 
-The orchestrator's context window grows monotonically across a session — nothing in the task loop resets it, and compaction is rare (observed once in 99 measured sessions). The driver is session **length in turns**, not task count: the task-count correlation is weak, while every measured session above 500,000 tokens ran at least 194 turns and every session below 150,000 ran at most 89. This checkpoint is the one place the run flow observes that growth and offers to act on it.
+The orchestrator's context window grows monotonically across a session — nothing in the task loop resets it, and compaction is rare (observed once in 99 measured sessions). The driver is session **length in turns**, not task count: the task-count correlation is weak, while every measured session above 500,000 tokens ran at least 194 turns and every session below 150,000 ran at most 89.
 
 **Evaluate at each task boundary** — sequential Step 3.3 item 7, or once per parallel batch at the batch list's item 6 — and trip on whichever threshold is reached first:
 
@@ -460,10 +465,10 @@ The orchestrator's context window grows monotonically across a session — nothi
 | Projected window size | `context.token_saver_session_checkpoint.window` | 400,000 |
 | Turn count | `context.token_saver_session_checkpoint.turns` | 194 |
 
-Read both values through `scripts/config_loader.py::get_token_saver_extension_config()` — never hardcode them. The numbers above are the shipped defaults; a project may configure its own, and the configured value is the one that governs. The projected window is the same figure the orchestrator-window advisory reports (see [token-saver-profile.md](../references/token-saver-profile.md) "Orchestrator-Window Expectation"). When `context.token_saver_orchestrator_advisory` is `off`, skip the evaluation entirely.
+Read both values through `scripts/config_loader.py::get_token_saver_extension_config()` — never hardcode them. The projected window is the same figure the orchestrator-window advisory reports (see [token-saver-profile.md](../references/token-saver-profile.md) "Orchestrator-Window Expectation"). When `context.token_saver_orchestrator_advisory` is `off`, skip the evaluation entirely.
 
 > [!constraint] State the defaults' provenance accurately — they are chosen operating points, not a statistical boundary
-> Both figures are operating defaults derived from measured accumulation bands, and the prose that ships with them must not upgrade that claim. **194** is the measured minimum turn count of the above-500,000 band (22 of the 99 sessions), not a decile boundary. **400,000** is a level the heaviest sessions *cross*, not their onset — the measured 90th percentile is 565,189 across all sessions and 586,726 across delegated ones. 400,000 is chosen because the delegated median of roughly 455,000 is already too late to act on.
+> Never describe 194 or 400,000 as a decile or an onset. The measured basis is in [session-execution-protocol.md](../references/session-execution-protocol.md#session-length-checkpoint) and [token-saver-profile.md](../references/token-saver-profile.md) "Orchestrator-Window Expectation".
 
 **On a trip, in order:**
 
@@ -473,11 +478,11 @@ Read both values through `scripts/config_loader.py::get_token_saver_extension_co
    <!-- AUTO-MODE: convenience -->
    <!-- Default: Continue (log the advisory and proceed). A split is disruptive, and an unattended run must not self-truncate on an advisory. -->
    Use `AskUserQuestion`: "Projected window is {current} against a {threshold} checkpoint ({which} tripped). Continue this session, or split here?" — options **Continue** and **Split here**.
-4. **Log the carrying-cost arithmetic either way** — the projected window, the threshold that tripped, and the break-even below — in Recovery's Key Findings. Both branches get logged; a declined split is evidence too.
+4. **Log the carrying-cost arithmetic either way** — the projected window, the threshold that tripped, and the break-even below — in Recovery's Key Findings, on both branches.
 
 **Break-even.** A split is not free: the next session pays a fresh session-start load, measured at medians of 43,724 and 68,224 tokens in two corpora. One split per session therefore breaks even at roughly 200,000 tokens, so splitting a light session is a net loss. A boundary taken where the heaviest sessions crossed 400,000 would roughly halve their peaks.
 
-**Risk.** This is the highest-risk lever in the loop, and the risk sits entirely in the handoff: a boundary mid-plan is safe only when resume state is genuinely complete, and an incomplete handoff costs more than the tokens it saved. The checkpoint therefore **recommends and records** — it never force-terminates, and the only writes it mandates are the resume-state writes the Recovery protocol already requires.
+**Risk.** The checkpoint **recommends and records** — it never force-terminates. A boundary is safe only when resume state is complete (see [session-execution-protocol.md](../references/session-execution-protocol.md#session-length-checkpoint)).
 
 ---
 
@@ -508,12 +513,13 @@ BLOCKING: modified file under a COMPLETE sprint's Outputs/
 
 **On a clean result** — continue to Step 4.1.
 
-**On a BLOCKING result** — do NOT proceed to Step 4.1. Present the findings to the user and resolve one of two ways:
+**On a BLOCKING result** — do NOT proceed to Step 4.1. Present the findings to the user and resolve one of three ways. Restore and override are correct only for a mutation this session made. The guard reads the whole tree and the index and cannot tell which session produced a change.
 
 | Resolution | Action |
 |---|---|
 | The mutation was unintended | Restore the file (`git checkout -- {path}`), fix the producer so it no longer writes to that path, and re-run the guard. Closeout resumes only after a clean run. |
 | The mutation is a genuine correction to a past artifact | Record the override in the Recovery file (format below), then proceed. The override is never silent and never inferred — it requires explicit user acknowledgement. |
+| The mutation is foreign: staged or modified by a concurrent session | Record it in Recovery as foreign. Leave the file untouched. Surface it to the user. Do not restore. Do not override. Evidence: the session's own Files Modified list against the flagged path. |
 
 Recovery file override entry:
 
@@ -656,16 +662,20 @@ If the session produced code changes and `/code-review` has not already been run
 > [!binding] Destructive-Diff Pre-Commit Review Gate
 > - [ ] If this session's diff adds or widens a destructive disposition (delete / overwrite / migrate / prune / sweep): a pre-commit adversarial multi-agent code review was run as a gate DISTINCT from script verification, its findings fixed, and regression tests added in the same session. (A green suite + clean lint + passing smoke does NOT satisfy this gate.)
 >
-> "Run script verification" and "run code review" are DIFFERENT gates; the second is mandatory when the diff touches destructive dispositions, even when the first is fully green — a fresh feature's tests are written by the same mind that wrote its bugs, so a green suite says nothing about the inputs nobody imagined (BOMs, block-style YAML, non-dict JSON cache entries, retry-after-crash staleness, filename collisions).
+> "Run script verification" and "run code review" are DIFFERENT gates; the second is mandatory when the diff touches destructive dispositions, even when the first is fully green. Why: [destructive-change-requirements.md](../references/destructive-change-requirements.md).
 
 ```bash
-git add {specific files changed during session}
-git commit -m "{type}: {description}"
+git add -- {this session's paths}
+git commit -m "{type}: {description}" -- {the same paths}   # only the named paths enter the commit
+git show --stat HEAD                                         # zero foreign paths: verify, do not assume
 git push
 ```
 
 **Rules:**
 - Stage specific files -- never use `git add .` or `git add -A`
+- After the push, record SHA and push state in the Session Commit Pin, before any user gate
+- `git add` by path alone does not protect the commit. A bare `git commit` commits the whole index, including entries another session staged. `git commit -- {paths}` costs nothing on a clean index and prevents the sweep on a dirty one
+- Re-verify any allocated id (lesson or backlog) is still free at write time. A concurrent session can take the next id between this session's read and its write
 - Include: task output files, recovery file, orchestration file, summary file, lesson files (if created), the regenerated plans index, the backlog item files closed in Step 4.3 and the regenerated backlog index (if any), **any downstream plan files that received propagated coordination flags in Step 4.4**
 - Commit types: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
 - Step 4.0's prior-sprint Outputs guard MUST have passed (or carry a recorded Recovery override) before staging — a commit is what makes a silent overwrite of a completed sprint's artifact of record permanent
@@ -703,6 +713,8 @@ Next: {next session from summary, or "Sprint complete"}
 | Error encountered | YES | Add to Issues section with severity |
 | Partial progress | YES | Add to Key Findings what was done |
 | **Cross-task coordination flag surfaced** | **YES** | **Add row to `Cross-Task Coordination Flags` section IMMEDIATELY (not at closeout) — see [references/read-confirm-act-protocol.md §1.3](../references/read-confirm-act-protocol.md#13-cross-task-coordination-flags)** |
+| Planned stop returned | YES | `GATE_PENDING` Change Log row |
+| Commit or push | YES | Session Commit Pin |
 | Session complete | YES | Final status, completion timestamp |
 | Before any break | YES | Ensure current state is saved |
 
@@ -748,7 +760,7 @@ When errors occur:
 
 If you lose context mid-session:
 
-1. **READ** recovery file FIRST -- find "Current Step" and last COMPLETE task
+1. **READ** recovery file FIRST -- find "Current Step" and last COMPLETE task. A `-` commit pin against a committed tree: fix it first
 2. **READ** Outputs/ folder contents -- load completed task results and Key Findings
 3. **(Track B) RE-HYDRATE** the task list -- run `TaskList`. If no `[{ABBREV}-` entry exists, a `/clear` started a new list: run Phase 2 Step 2.2's resume-or-re-hydrate branch. If entries exist, the boundary was a compaction: mark each status to match Recovery.
 4. **RESUME** from next incomplete task -- mark it IN_PROGRESS immediately

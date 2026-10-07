@@ -1,11 +1,11 @@
 ---
-description: Empirical verification discipline — measure the live, whole-surface truth instead of trusting a secondary, stale, or projected reading; wc-l line-count authority, broad-gate-over-audit-list authority, metric reconciliation, doctrinal-claim sweeps, markdown-field normalization, idempotent-append safety, gate-input-set verification (§8.1-§8.7), and recorded-figure provenance — drift, absent derivation, expired projection (§8.9). Behavior-change surface sweeps (§8.8) live in measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md
+description: Empirical verification discipline — measure the live, whole-surface truth instead of trusting a secondary, stale, or projected reading; wc-l line-count authority, broad-gate-over-audit-list authority, metric reconciliation, doctrinal-claim sweeps, markdown-field normalization, idempotent-append safety, gate-input-set verification (§8.1-§8.7), recorded-figure provenance — drift, absent derivation, expired projection (§8.9), a recorded delta that states both endpoints and whether it is net or set size (§8.10), and a pinned count that names the artifact and version it was read from (§8.11) — both held in measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md. Behavior-change surface sweeps (§8.8) live in measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Measurement Discipline — Measure It, Don't Infer It
 
-**Purpose:** §8 Empirical Verification Discipline, split out of [verification-gates.md](verification-gates.md) (§1-§7 stay on that anchor). The cross-cutting "measure it, don't infer it" counterpart to that file's cross-process/build/runtime gate discipline — eight cases where an agent or planner trusted a secondary, stale, or projected representation of reality instead of measuring the live, whole-surface truth. This file carries §8.1–§8.7 and §8.9; §8.8 and Reviewer Check 076 were split out to [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md) when this file crossed the Read-tool token gate.
+**Purpose:** §8 Empirical Verification Discipline, split out of [verification-gates.md](verification-gates.md) (§1-§7 stay on that anchor). The cross-cutting "measure it, don't infer it" counterpart to that file's cross-process/build/runtime gate discipline — eight cases where an agent or planner trusted a secondary, stale, or projected representation of reality instead of measuring the live, whole-surface truth. This file carries §8.1–§8.7 and §8.9; §8.8 and Reviewer Check 076 were split out to [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md), and §8.10–§8.11 to [measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md](measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md), when this file crossed the Read-tool token gate.
 
 ---
 
@@ -367,7 +367,7 @@ Fix: Add a pre-edit-derived conservation gate (`for s in '<coordinate>' '<exact 
 
 ### 8.8 After a behavior change, sweep the surfaces that describe and call it
 
-**Moved.** §8.8 and Reviewer Check 076 now live in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md), split out when this file crossed the Read-tool token gate. The content is unchanged: sub-rules A–C (update the structured field, not just the prose beside it; a detection plus a repair is not a remediation until something routes between them; a previously-unreachable branch is unproven code) and sub-rules D–E, their data-cleanup counterpart (Grep for the instruction that regenerates the defect, not only for its instances; migrate the value FORM, not just the key).
+**Moved.** §8.8 and Reviewer Check 076 now live in [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md), split out when this file crossed the Read-tool token gate. The content is unchanged: sub-rules A–C (update the structured field, not just the prose beside it; a detection plus a repair is not a remediation until something routes between them; a previously-unreachable branch is unproven code) and sub-rules D–E, their data-cleanup counterpart (Grep for the instruction that regenerates the defect, not only for its instances; migrate the value FORM, not just the key), and sub-rule I, the re-key counterpart (when a rule is re-keyed, enumerate its consumers by medium, because code that calls the shared function inherits the change and prose that restates the rule does not).
 
 §8.7 above asks whether a gate can fail. §8.8 asks the prior question — whether the change was even applied everywhere it is stated.
 
@@ -497,6 +497,19 @@ File: {plan or task file path} | Location: {Success Criteria | Expected Output |
 Issue: Threshold {N} used as a binding gate carries {no derivation | only a citation of {prior flag}, forwarded {depth} times | a derivation dated {date}, superseded by {decision} recorded later in this plan}
 Fix: Trace the figure to a measurement or to its origin sentence and inline the derivation; where no origin exists, label it advisory and gate on the thresholds that carry one, reporting overshoot with headroom per references/measurement-discipline.md §8.9 | Confidence: MEDIUM
 ```
+
+### 8.10 A recorded delta states both endpoints and says whether it is net or set size
+
+**Moved.** §8.10 now lives in [measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md](measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md), split out when this file crossed the Read-tool token gate. A spec records a delta with both endpoint counts beside it and says whether the figure is net or set size. Where a transform sits between measurement and return value, the figure is stated on both sides.
+
+### 8.11 A pinned count names the artifact and version it was read from
+
+**Moved.** §8.11 now lives in the same Part-3 file. A literal count carries the artifact and version it was read from, and a pin against a regenerated artifact is untrusted until re-read. Count removed diff lines with `grep -c '^-[^-]'` so the `---` header does not register.
+
+### 8.12 A byte pin names its instrument: blob bytes and checkout bytes differ under autocrlf
+
+**Moved.** §8.12 lives in the same Part-3 file. Under `core.autocrlf=true`, `git show <sha>:<path> | wc -c` and `wc -c` on the checkout differ by the line count. Name the instrument beside every byte pin, and add the line count when one operand comes from git history.
+
 ---
 
 *Cross-references: [verification-gates.md](verification-gates.md) (§1-§7 — cross-process/build/runtime gate discipline this section generalizes from; split anchor, keeps the original filename).*

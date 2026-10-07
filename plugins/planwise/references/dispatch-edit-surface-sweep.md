@@ -1,12 +1,12 @@
 ---
-description: The Grep is the enumeration — a brief that changes a value bound to many sites instructs a sweep, not a patch, and the half a structure map misses is the half that fails quietly. Covers site-named versus sweep-framed briefs, the zero-site defect, metadata surfaces, spelled-out counts, renumbering at every heading level plus the in-prose pointers, the renumbering gate's true expected count, operative sites versus prose sites when applying an upstream change in place, and why a half-applied edit is worse than a notice. Consult while writing a brief that changes a count, a section number, a selector or an enum member, while renumbering, and while reading a flag that says an upstream change was applied.
+description: The Grep is the enumeration — a brief that changes a value bound to many sites instructs a sweep, not a patch, and the half a structure map misses is the half that fails quietly. Covers site-named versus sweep-framed briefs, the zero-site defect, metadata surfaces, spelled-out counts, renumbering at every heading level plus the in-prose pointers, the renumbering gate's true expected count, operative sites versus prose sites when applying an upstream change in place, why a half-applied edit is worse than a notice, why an audit-then-repair inventory is a class query and not a list of named sites, how to seed a stale-reference sweep with what the moving task saw, why moving a source of truth invalidates every reader of the old one, and why retiring a writer does not retire the reader's legacy input. Consult while writing a brief that changes a count, a section number, a selector or an enum member, while renumbering, while reading a flag that says an upstream change was applied, while writing a repair inventory, while briefing a sweep after a text move, while planning a change that makes a stored value derived, and before deleting a reader because no producer writes its input any more.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Edit Surface Sweep — The Grep Is the Enumeration: Instruct a Sweep, Not a Patch
 
 **Purpose:** An edit brief that changes a value bound to many sites — a count, a section number, an enum member — is written by an author who maps the artifact the way they *think* about it. A count is thought of as living in one sentence; a section number as living in a heading; a partition key as living in the criterion that names it. In every case the artifact carried more referents than the mental model did, and the brief bounded the runner's search set to the ones the author happened to see.
 
-**Read this when** you are writing a brief that changes a count, a section number, a selector or an enum member; when you are renumbering headings; when you are applying an upstream change in place; and when you are reading a flag that asserts such an edit was applied.
+**Read this when** you are writing a brief that changes a count, a section number, a selector or an enum member; when you are renumbering headings; when you are applying an upstream change in place; when you are reading a flag that asserts such an edit was applied; when you are writing an audit-then-repair inventory; when you are briefing a stale-reference sweep after text moved; and when a change moves a source of truth.
 
 The two halves of such a surface are not equally visible, and **the invisible half is the one that fails quietly.** A stale *heading* is self-announcing — a reader sees `## 5.` above `### 4.A` and knows something is wrong. A stale *pointer* reads as a perfectly ordinary instruction and lands nowhere, or worse, on a renumbered section that now means something else. A partially applied edit is worse still: the file reads as updated, which invites nobody to check it.
 
@@ -25,6 +25,10 @@ Three neighbouring rules own machinery this file builds on. [`scaffolding-hygien
 - [7. When Applying an Upstream Change in Place, Enumerate the Operative Sites — Not the Prose Sites](#7-when-applying-an-upstream-change-in-place-enumerate-the-operative-sites--not-the-prose-sites)
 - [8. A Half-Applied Edit Is Worse Than a Notice, and the Receiver Re-Derives the Claim](#8-a-half-applied-edit-is-worse-than-a-notice-and-the-receiver-re-derives-the-claim)
 - [9. A Sweep and a Diff-Shape Gate Collide by Construction — Say So in the Brief](#9-a-sweep-and-a-diff-shape-gate-collide-by-construction--say-so-in-the-brief)
+- [10. An Audit-Then-Repair Inventory Is a Class Query, Not a List of Sites](#10-an-audit-then-repair-inventory-is-a-class-query-not-a-list-of-sites)
+- [11. Seed a Stale-Reference Sweep With What the Mover Saw](#11-seed-a-stale-reference-sweep-with-what-the-mover-saw)
+- [12. Moving a Source of Truth Invalidates Every Reader of the Old One](#12-moving-a-source-of-truth-invalidates-every-reader-of-the-old-one)
+- [13. Retiring a Writer Does Not Retire the Reader's Legacy Input](#13-retiring-a-writer-does-not-retire-the-readers-legacy-input)
 
 ---
 
@@ -202,6 +206,130 @@ The §7 assertion was specific, confident, and still incomplete; only re-reading
 > In the §4 session the runner found all three sites, surfaced them correctly, and then **declined to fix them**, to keep its diff's `^-` count at the value its brief predicted. A gate annotation predicts the shape of correct work and never constrains it. An append brief that instructs a sweep must also state that the sweep's deletions are expected.
 
 §6 and §9 both concern a gate that misreads correct work and are separated deliberately: §6's gate has a *wrong expected value* and is fixed by writing the right one; §9's gate has a *correct prediction* that the runner mistook for a constraint, and is fixed by saying so in the annotation. Merging them produces "check your gates", which prescribes neither fix. The gate author's side of the same principle — an annotation predicts the shape of correct work and never constrains it, and a runner reports the true value rather than reshaping the artifact — is [`verification-gate-evidence.md`](verification-gate-evidence.md) §11. The runner who withholds a correct fix to protect a predicted diff count needs the statement where it is reading — inside the sweep instruction — not only in the gate rule.
+
+---
+
+## 10. An Audit-Then-Repair Inventory Is a Class Query, Not a List of Sites
+
+> [!constraint] Enumerate a defect by its class across the whole subject, never by the instances a brief happens to name
+> A named site is one member of a class. Once one member is known, query the class.
+
+A plan repaired a legacy index table before a port. Its Execution Input listed the defects by site: a blank line, a split row, one row with 10 cells from an unescaped `|` in inline code, and out-of-order runs. Task 1 captured every row's `cell_count`. Task 2 repaired the four named sites. A later scorer then halted on its strict row walk: 293 of 299 rows parsed.
+
+Six more rows carried 11 unescaped pipes in the Title cell. They were the same class as the third named site. The capture had already recorded their cell counts of 10 to 12. Nothing asked "which rows have a cell count other than 9", because the inventory was a list of sites. A repair task had to be inserted mid-session, and the byte chain gained a ledger.
+
+```text
+WRONG — the inventory is the list of sites the author noticed:
+T3: <row-A> has 10 cells (unescaped | in inline code) -> repair <row-A>
+
+CORRECT — the named site defines a class, and the class is queried over every row:
+T3 class: any table row whose cell count != 9
+query:    rows where cell_count != 9  -> <row-A>, <row-B>, <row-C>, <row-D>, <row-E>, <row-F>, <row-G>
+repair:   every hit, each ledgered
+```
+
+**Placement.** When a capture step already records the attribute (here `cell_count`), the class query costs one line. Put the query and its hit list in the snapshot's defect section, so the repair task inherits the full set.
+
+**Dry-run it.** On a scratch table with one off-count row among well-formed rows, the query must return exactly that row. A query that returns more or fewer rows has the wrong predicate.
+
+**Applies to** any audit-then-repair plan over a table, a corpus or a file set: structural defects in markdown tables, malformed frontmatter, stale links. It applies most where one instance was found by hand and written into a brief as a site.
+
+§1 and §2 cover a brief that names too few or zero sites of a value. [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) §4 says to query the class you intend to make a claim about. §4 there covers the absence claim. This section covers the repair inventory.
+
+---
+
+## 11. Seed a Stale-Reference Sweep With What the Mover Saw
+
+> [!constraint] A grep-term list is a sample of phrasings, not a complete set
+> The agent that moved the text has already read every line of it. That agent is the cheapest source of the phrasings the list misses.
+
+A task split one module into a facade plus seven siblings. A later task swept comments and docstrings for cross-references the move made false. It built its candidates by searching eight terms: `above`, `below`, `this module`, `this file`, `one file`, `section`, `next to` and `defined next`.
+
+The moving task's runner had reported one comment it moved but did not fix. In `<function>` the comment said "see the module docstring's carve-outs", and the carve-outs now lived in the facade's docstring. None of the eight terms matches that text. The orchestrator added `docstring`, `carve-out`, `see ` and `module's` to the terms and pre-seeded the known comment as a candidate before dispatch. The sweep then classified 48 candidates and reworded 2. One of the 2 was the pre-seeded comment.
+
+```
+WRONG — the sweep trusts its fixed list:
+Sweep step 2: search {above, below, this module, this file, one file, section, next to, defined next}
+# "see the module docstring's carve-outs" matches none; the stale pointer ships.
+
+CORRECT — the mover's report feeds the sweep:
+Move task report: "<function> comment points at 'the module docstring' — now the facade's"
+Orchestrator -> sweep task: add {docstring, carve-out, "see ", module's}; seed that comment as a candidate
+```
+
+**Give the moving task an output slot.** Name it "references I moved that may now be false". The sweep task then inherits those references without depending on an orchestrator catching them. The task-file template carries the slot as a conditional subsection of `## Expected Output`, required when the task moves or splits text. The sweep task lists the same slot in its `## Required Context`. The routing path already exists: the moving task records the references as a Cross-Task Coordination Flag in the Recovery file, with the sweep task as the Downstream Consumer ([`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) §1.3).
+
+**Applies to** module splits, file moves and section relocations followed by a prose-coherence sweep. It also applies to any two-step plan where one task moves text and a later task hunts for references the move made false.
+
+---
+
+## 12. Moving a Source of Truth Invalidates Every Reader of the Old One
+
+> [!constraint] When a change moves the source of truth, the blast radius is every reader of the old source
+> A reader of a stale or partial source fails silent: it returns a clean, plausible answer. A writer sweep proves the old source is no longer written. It says nothing about who still reads it.
+
+An empty answer from a reader whose input no longer holds its subject is the "empty is not clean" failure in a new form.
+
+A redesign made item-file frontmatter the only record of an item's status. The index became a generated artifact, stale between regenerations. It rendered closed items into archive shards, never into the hub. The session's tasks were scoped to the writers: retire the row append, the index-cell status write and the score write-back. Every writer task passed its own gates and the suite was green. Every reader still pointed at the old source.
+
+| Reader | What it still read | What broke |
+|---|---|---|
+| `--create` duplicate-id check | the hub only | shard, leaf and unregenerated ids passed as new |
+| `--status` | old status and file list from the hub | closed and leaf items reported "not found"; an undo after a stale hub reported "No change" |
+| archival audit | CLOSED rows in the hub | could never fire on a generated index, because closed items never appear in the hub |
+| handler and doctor prose | "the audit catches a closed item never moved" | described an audit that could not see its subject |
+
+No test failed. The whole-tree coherence sweep found the dead audit. A separate adversarial code review found the three lookup regressions. The task gates found neither.
+
+Take three steps in the same change as the move.
+
+1. **Enumerate readers by the data they consume, not by the files the plan names.** Search for every function that opens the old source, then for every consumer of those functions.
+2. **Ask of each reader whether its subject can still appear in what it reads.** A CLOSED-row audit over a hub that never holds CLOSED rows is vacuous by construction.
+3. **Repoint each reader to the new source, or retire it.** Give each a test whose fixture uses the new shape: a heading-less generated hub with no closed rows, or an item that exists only on disk. Build that fixture by hand, not through the API under test ([`verification-gate-evidence.md`](verification-gate-evidence.md) §5).
+
+```
+WRONG — the plan retires the old writes and trusts the suite:
+retire <append-row> / <index-status-write> / <score-write-back> -> suite green -> done
+(<create>, <status> and <archival-audit> still read <old-source>)
+
+CORRECT — sweep every reader of the old source in the same change:
+search openers of <old-source> -> <create>, <status>, <drift-detector> -> each repointed to <new-source>
+-> tests with a <new-source>-shaped fixture that holds no closed rows
+```
+
+**Applies to** any migration from a stored value to a derived one, any "X is now a build artifact" change, and any denormalisation reversal. This rule sits upstream of the gate-input rules. The gate was never wrong. It read a source that had stopped carrying its subject. [`verification-gates.md`](verification-gates.md) §11.1 covers the gate that reads a stale enumeration. This section covers the move that makes the source stale.
+
+---
+
+## 13. Retiring a Writer Does Not Retire the Reader's Legacy Input
+
+> [!constraint] "No producer writes X any more" says nothing about artifacts already on disk
+> It establishes that X will not appear in new artifacts. A reader path for a legacy input is compatibility, not a dependency. Retire it only when you can show no unmigrated artifact reaches that reader. Either the migration is mandatory and enforced, or the reader refuses the legacy shape loudly. §12 ("Moving a Source of Truth Invalidates Every Reader of the Old One") is the inverse. There, a source moves and the readers of the old one go stale. Here, a writer retires and the readers must still accept what it wrote.
+
+A backlog index moved from a hand-maintained file to a generated one. The legacy file recorded dependencies in a `## Dependencies` table. The generator records them in a `Blocks` column and writes no such table. A carried-forward flag said: "retire or rewire the legacy-table union … so no reader depends on a section the generator never writes."
+
+The cutover's pre-write task took the first option. It deleted `<legacy-table reader>` and removed the table from the blocked-by map builder's edge sources. Every test passed. The live project's generated index behaved identically. The change looked like dead-code removal.
+
+A code review before commit found the consumer this removed. A project upgrading from the previous release keeps its legacy 6- or 7-column index until it runs the migrator, and that index has no `Blocks` column. Its only dependency data was the table the parser no longer read. After the upgrade, `--show-blocked` would report nothing. Every blocked item would become selectable for triage, with no warning. The fix restored the table as a read-if-present source, which changes nothing for a generated index.
+
+> [!constraint] Keep the reader as read-if-present until migration is enforced
+> WRONG — delete the reader because the generator never writes its input:
+> ```
+> generator never writes "## Dependencies"  ->  delete the reader for it
+> # unmigrated consumer: blocking silently empty; suite green (fixtures are all generated-shape)
+> ```
+> CORRECT — keep the reader as a union, and test all three shapes:
+> ```
+> generator never writes "## Dependencies"  ->  keep the reader as read-if-present (union with Blocks)
+> tests: legacy-only index blocks; generated-only index blocks; generated index has no dependency on the section
+> retire the reader only after migration is enforced, or make the legacy shape refuse loudly
+> ```
+
+- **Sweep both directions.** When a source of truth moves, sweep every reader for data it can no longer see. When a legacy writer retires, sweep every reader for the legacy data it must still accept. In both cases the failure is a clean, plausible empty answer.
+- **Record who holds the old shape before choosing.** When a flag offers "retire or rewire", the choice depends on who still holds the old shape. Record that population first.
+- **Test three shapes.** Test the legacy-only shape, the new-only shape, and the absence of any dependency on the retired section. A suite whose fixtures are all new-shape cannot see the removal.
+
+**Applies to** format migrations of any artifact that consumers hold locally (indexes, config files, caches, manifests), where the new writer ships before every consumer has migrated. It applies to any "remove dead code" change whose deadness was established from the producer side only.
 
 ---
 

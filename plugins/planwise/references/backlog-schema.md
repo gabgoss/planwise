@@ -135,6 +135,8 @@ blocks: []
 | `route_evidence` | string | No | One line: why that route, from what the author verified live at filing time |
 | `route_dated` | date (YYYY-MM-DD) | No | The date the route was judged -- a stored route is a dated claim that rots like any other, and this date makes that staleness visible at triage |
 
+Read `id`, `blocks`, and `created` as text. A typed YAML load turns an unquoted zero-padded id into an octal integer.
+
 The three `route_*` fields are optional and non-binding: an item without
 them is valid and scores normally, and triage always runs its own gates
 regardless of what a hint says.

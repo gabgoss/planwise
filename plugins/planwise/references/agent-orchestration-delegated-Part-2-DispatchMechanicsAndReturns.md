@@ -1,5 +1,5 @@
 ---
-description: DELEGATED dispatch discipline, Part 2 of 3. This file holds §1.14–§1.22, dispatch mechanics and post-return handling. Part 1 of 3 is agent-orchestration-delegated.md.
+description: DELEGATED dispatch discipline, Part 2 of 3. This file holds §1.14–§1.22, dispatch mechanics and post-return handling, including gating a runner's sweep table on its control rows (§1.16.5) and the idle-while-waiting-on-a-background-command stall (§1.17.1, §1.17.3). Part 1 of 3 is agent-orchestration-delegated.md.
 ---
 
 # DELEGATED Dispatch Discipline — Part 2: Dispatch Mechanics and Returns
@@ -12,7 +12,7 @@ Section numbers are continuous across all three parts. A section keeps its `§1.
 |---|---|---|---|
 | 1 | [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) | §1.1–§1.13 | Declaration, foundations, and dispatch-prompt construction |
 | 2 (this file) | `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` | §1.14–§1.22 | Dispatch mechanics and post-return handling |
-| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.31 | Cross-cutting dispatch-prompt and orchestrator discipline |
+| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.32 | Cross-cutting dispatch-prompt and orchestrator discipline |
 
 Read Part 1 first when declaring a DELEGATED session — it holds the mandatory triggers and the context boundary this file assumes. Read Part 3 alongside this one when constructing a spawn prompt.
 
@@ -118,6 +118,8 @@ The mirror failure: a capable task-runner reviewing a cumulative diff returned R
 > #               → confirms --{flag} IS consumed end-to-end → withdraws finding → verdict READY
 > ```
 
+The per-arm form of this failure is §1.16.4.
+
 A claim of the form "symbol X is declared but never used in this file, therefore feature Y is broken" is only safe to accept after tracing every consumer of X — including consumers in other files that may read the same input independently (e.g. a second argparse over `sys.argv`). Single-file grep proves local non-use, not global inertness.
 
 Highest false-positive risk patterns — any of these warrants an independent code-read before accepting the verdict: "declared-but-unused," "never called," "dead code," "flag has no effect," "interface mismatch," "unreferenced in this file."
@@ -141,9 +143,62 @@ Fix: Add recompute gate per references/agent-orchestration-delegated-Part-2-Disp
 
 A third recompute, in the same spirit as §1.16.1: read the runner's evidence for a **production call site**, not its status label. A deliverable that adds a function, an optional parameter, a CLI flag, a config key or a guarded branch is terminal only when the runner quotes where production invokes it with the activating argument. A return that says the behaviour is complete but *"dormant until a follow-up task passes the argument / registers the flag"* is recomputed to **PARTIAL or BLOCKED — never COMPLETE** — and the wiring is routed inside the session, because the site and the value it needs are usually already in scope and the fix is one to four lines. Once the session closes, a deferred activation is indistinguishable from a dropped one: the handoff has no owner and no gate. The gate, its call-site search and the closing-sweep ledger requirement: [verify-caller-before-complete.md](verify-caller-before-complete.md).
 
+### 1.16.4 A runner's comparative claim about arms it did not grade is recomputed
+
+A per-arm runner's evidence ends at its own arm's archive. A sentence in its status block that compares its arm to others is a claim about evidence it did not read, offered in the voice of evidence it did. §1.16.2 names over-classification for cross-file control-flow claims. The same shape appears whenever a per-arm runner explains its result by reference to sibling arms.
+
+> [!constraint] Recompute every comparative clause from evidence the orchestrator holds
+> - **A sentence that names another arm, task, or session is a comparative claim.** The orchestrator recomputes it before it propagates. The runner's own arm is its evidence. Everything else is inference.
+> - **Softening words are the trigger.** "Fixture-wide", "pre-existing", "same as `<arm>`", and "not caused by" each move a finding from the arm's column to nobody's. Use `Grep` for them in a grade return before accepting it.
+> - **The orchestrator's own stdout is evidence.** It ran the sibling grade, and the verdict lines sit in its window. Recomputing a comparative claim usually costs one `Grep` or one re-read of a line it already holds. That is cheaper than the downstream correction across three files.
+>
+> WRONG — accept the comparative clause because the local finding is correct:
+> ```
+> runner: "P3 FAIL (3 outputs checksum=missing) — identical on <arm-a>/<arm-b>, fixture-wide"
+> orchestrator: P3 FAIL is real -> accept the sentence -> write-up Notes: "fixture-wide"
+> ```
+> CORRECT — split the sentence into the graded claim and the comparative claim, and recompute the second from evidence the orchestrator holds:
+> ```
+> graded claim:      P3 FAIL, 3 outputs without checksum   <- the runner's archive; accept
+> comparative claim: "identical on <arm-b>"                <- not the runner's archive
+> orchestrator: Grep checksum <arm-b>/grade.json -> 0 hits; its P3 read "problems=none"
+> -> the comparative claim is false -> corrective resume of the same agent
+> ```
+
+Worked figures: three of ten outputs lacked a checksum line on the graded arm. The sibling arm's grade read `10 task(s) checked; problems=none` and held no checksum text. The other failures the runner may have seen on a third arm were "file missing" after a fixture reset, a different cause. The softening clause would have reached three downstream files.
+
+**Applies to** multi-arm measurement sessions where each runner grades one arm and the write-up compares them (a lab, a census, an A/B sweep). It also applies to DELEGATED acceptance generally.
+
+### 1.16.5 A sweep table is gated on its control rows and its own summary before a downstream task consumes it
+
+A task that sweeps patterns and classes each hit as `update` or `leave` returns a judgment table, and a clean status block is not evidence that the table is right. Mechanical steps (prerequisite searches, git bases, collect counts) and judgment steps (classifying each hit) fail differently. The mechanical steps can be fully correct while the judgment table is wrong in several plausible ways. This holds for any runner tier that sweeps and classifies.
+
+> [!constraint] Gate the table on disk before the next task reads it
+> - **Gate any sweep table on its control rows before a downstream task consumes it.** Pick at least two rows whose answer the task file already states. Run `Grep` on the file behind each control and compare it with the claimed value. A clean status block is not evidence.
+> - **Reject a table whose summary disagrees with its rows.** A count that does not match the rows means at least one of them is wrong.
+> - **Keep the verified mechanical steps when you reject the judgment steps.** Re-run only the rejected steps, and record the rejection in Recovery.
+> - **Check a classification against the next task's own text.** A note marked `leave` that the next task's step names for editing is a contradiction. Fix the table before dispatching the next task.
+>
+> WRONG — accept a sweep table because the status block is clean:
+> ```
+> runner -> COMPLETE, "<SET> already includes both style rules"
+> orchestrator -> dispatch the next task from that table
+> ```
+> CORRECT — gate the table on disk first:
+> ```
+> runner -> COMPLETE, control rows: <manifest>:572 update, <fixtures>:56 update
+> orchestrator -> Grep <fixtures> 'rules/<dir>/' -> 4 members -> the claim "6" is false -> reject the table
+>              -> re-run only the judgment steps, keep the verified mechanical steps
+>              -> then dispatch the next task
+> ```
+
+Measured case. A sweep reported a write-set constant at six paths. On disk it held four, and the task file named that constant as the known `update` case. The same table marked a manifest note `leave` although the next task's own step named the note for editing. It marked a README line `leave` and then counted seven README update rows in its summary. It reported a table at six rules where a locked decision keeps it at four. It closed an out-of-repo enumerator as "no action" although the orchestration routed that decision to the user. A re-run of the judgment steps on a stronger tier produced a table that matched the files. The same session's cheap-tier cost-measurement task returned correct numbers, but its reuse sentences named a second project and backlog ids that a shipped README must not carry.
+
+**Applies to** surface sweeps, enumeration sweeps, and any task that classes each hit as stale or current.
+
 ## 1.17 Task-Runner Dispatch Failure Modes and Resume Protocol
 
-A dispatched task-runner has four post-return states — three failure modes and one real completion. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by the final-message voice and the working-tree state; and when the return *reads* as complete, gate acceptance on **on-disk deliverable evidence** before believing it — a stall can masquerade as completion (§1.17.4). For every failure state the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner. A fresh runner re-reads everything and can race or duplicate the first one's partial work.
+A dispatched task-runner has four post-return states — three failure modes and one real completion. Before dispatching the next task — or before treating a "completed" notification as done — classify the return by the final-message voice and the working-tree state; and when the return *reads* as complete, gate acceptance on **on-disk deliverable evidence** before believing it — a stall can masquerade as completion (§1.17.4). For every failure state of the unit of work in hand the corrective is the same: **resume the SAME agent** (its context already holds the full task), never dispatch a fresh runner for that same unit of work. A fresh runner re-reads everything and can race or duplicate the first one's partial work. A new round of work is a different case and gets a fresh runner (§1.17.7).
 
 ### 1.17.1 Diagnosis table
 
@@ -153,6 +208,7 @@ Classify every returned runner against this table before acting on its result:
 |--------|-----------|--------|
 | Fast return (seconds, a handful of tool calls), dispatch-voice reply ("I've dispatched the task-runner… I'll report back"), clean tree (zero diff in the edit target, Recovery untouched) | Self-delegation — the runner spawned a nested duplicate instead of executing | Resume the same agent with the execute-yourself directive (§1.17.2) |
 | Mid-work narration ending in a colon or next-step phrase ("Now let's rewrite each. First, `test_conflict…`:"), dirty tree with genuine partial edits on disk | Message-boundary stall — the runner executed part-way, then ended its message at a narration checkpoint | Resume the SAME agent with a continuation message (§1.17.3); its context holds the full task state |
+| Idle, final message says the runner is "waiting on" a background job or command, dirty tree | Message-boundary stall — the job's completion reached the runner's harness and never woke the runner | Resume the SAME agent (§1.17.3), instruct a foreground re-run with a long timeout |
 | `completed` return whose final message ends mid-action ("Now let me…", "Next I'll…") or omits required report fields — reads as done, but deliverables are not yet on disk | Mid-action stall masquerading as completion — the `completed` status is not a deliverable check | Run the on-disk acceptance gate, then resume the SAME agent to finish (§1.17.4) |
 | Structured completion report (status + verification results) whose deliverables verify on disk | Real completion | Reconcile normally |
 
@@ -170,12 +226,28 @@ Then verify single-application afterward (`git status` / diff on the edit target
 
 ### 1.17.3 Message-boundary-stall resume
 
-On a message-boundary stall the runner's partial edits are real and on disk. Do NOT treat the stall notification as completion (that silently loses the unfinished tail), and do NOT dispatch a fresh runner (it re-reads everything and may re-edit or conflict with the partial work). Send the SAME agent a continuation message that:
+On a message-boundary stall the runner's partial edits are real and on disk. Do NOT treat the stall notification as completion (that silently loses the unfinished tail), and do NOT dispatch a fresh runner for the same unit of work (it re-reads everything and may re-edit or conflict with the partial work). Send the SAME agent a continuation message that:
 
 1. quotes the runner's own last line so it anchors where it stopped;
 2. forbids starting over or re-editing completed work;
 3. enumerates ONLY the remaining work items; and
 4. restates the required final-report format.
+
+An idle notice that says the runner is "waiting on a background job" is a message-boundary stall, not progress. The job's completion reached the runner's harness and never woke the runner. Resume the SAME agent with a continuation that tells it to re-run the command in the foreground with a long timeout and lists only the remaining steps. Do not wait for the job yourself and do not dispatch a fresh runner. Add "idle while waiting on a background command" to the stall signals you check on every return.
+
+> [!constraint] Classify "waiting on a background command" as a stall
+> WRONG — read the idle notice as live work and wait:
+> ```
+> runner: "The full suite is still running, so I'm waiting on it. The sweep and the
+>          summary numbers depend on its result."   -> orchestrator waits -> nothing wakes the runner
+> ```
+> CORRECT — classify as a stall and resume the same runner:
+> ```
+> dirty tree + executor voice + "waiting on a background command" -> message-boundary stall
+> resume: "Re-run <suite> in the FOREGROUND with a timeout up to 600000 ms (about 4 minutes).
+>          Remaining steps: the sweep, the final summary numbers, the Recovery row."
+> ```
+> Prevent it in the spawn prompt: [Part 3](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.27.1 pins foreground execution for any long suite.
 
 For long remediation prompts, instruct up front: "work through to the end without pausing for narration checkpoints."
 
@@ -213,6 +285,102 @@ This is distinct from the two voice+tree failure modes above: those announce the
 - Confirm the Recovery step row for the task flipped to its completed state.
 
 On any miss, resume the SAME agent to finish (never re-dispatch a fresh one), then re-run the checks before accepting.
+
+### 1.17.5 Name a write-by turn in the spawn prompt, and size the brief by its proof count
+
+The harness caps a runner by turns, not by tokens. The cap is invisible to the runner until it fires. Writing is the last step in every brief, so a runner that reads until it is cut off leaves nothing on disk. The stall is a limit-and-brief problem, not a model-tier problem.
+
+> [!constraint] Give the runner the shape of the run, and count the proofs the brief demands
+> - **Every transcript-reading dispatch names a write-by turn.** The number is the harness limit minus the cost of the write phase (for example 50 minus about 15). It goes in the spawn prompt, not the task file, because the limit belongs to the harness the orchestrator chose.
+> - **`unmeasured (reason)` is a licensed value.** A brief that only lists what must be measured leaves the runner no honest way to stop. Naming the fallback turns a stall into a gap the orchestrator can see and route.
+> - **Count the required per-unit proofs at scaffold time.** A brief that demands N per-unit proofs spends at least N x (mutate + run + restore + verify) turns before any authoring. Above about 5 proofs, either split the proofs into their own task or require one script that runs every mutation in a single call. Have the runner write that script itself.
+> - **Order the spawn prompt for the cap.** Write the output file and the Recovery row as soon as the verification data exists, before any polish. Batch independent calls. Write pre-step evidence to disk before any run-once step.
+> - **Record the measured cost against the estimate.** A figure of 189K against 46.7K is evidence for the next estimate, not noise.
+
+WRONG — a brief with steps and headings but no turn shape:
+
+```
+spawn prompt: task file + archive + 7 headings + status block
+runner: Grep, Read(offset), Grep, Read ... x63 -> turn limit -> nothing on disk
+```
+
+CORRECT — the spawn prompt states the shape of the run:
+
+```
+TURN BUDGET: <= 25 turns of evidence (Grep first, paged Read second),
+WRITE the output row in one Write call by turn 30, then the sheet, then Recovery.
+A figure not found in budget is written `unmeasured (reason)` — never leave
+the file unwritten to keep hunting.
+```
+
+**Worked figures.** A stalled runner used 63 tool uses and about 130K tokens. It left only an empty placeholder in `Outputs/`. The orchestrator resumed it with "write the row now, in one call, from the figures you hold; a figure you cannot find is `unmeasured (reason)`; do not re-read". The runner then wrote a 96-line file in five tool uses. A proof-heavy runner used 89 tool uses and 189,468 tokens against a 46.7K estimate. It repeated the edit-run-mutate-run-restore-verify loop 9 times.
+
+**Applies to** grade, audit, census, and review dispatches whose Required Context is a transcript, a log, or any file read by paging. It also applies to any DELEGATED brief that pairs authoring with an iterative verify loop, such as test authoring with per-class mutation proofs.
+
+### 1.17.6 Measure the landed state before resuming a capped runner, or accept it from disk
+
+When a dispatched runner stops mid-task, establish the landed state before the next move. The orchestrator reads the tree read-only: which files changed, whether the changed set equals the intended set, and whether the write's invariants hold. Then it either resumes the same runner with that state or accepts the task on it.
+
+> [!constraint] Two continuations are forbidden
+> - **Resume blind.** The runner re-derives its position from its transcript and may re-enter a run-once step. A guard may refuse the second run, but only if one exists.
+> - **Revert and restart.** A task file's recovery path that discards a directory throws away correct work and any concurrent session's uncommitted file.
+
+The resume message states the measured facts, says "the write ran; do NOT run it again", and lists only the remaining steps.
+
+WRONG — resume on the notification alone:
+
+```text
+Runner stopped at turn limit -> SendMessage "continue the task"
+# The runner re-derives its position from its transcript and may re-enter the write step.
+```
+
+CORRECT — measure the landed state, then resume with it:
+
+```text
+git status --porcelain -- <write-set>           -> 46 files modified
+changed set == files with the missing rulings   -> 46 == 46
+one heading per file; numstat deletions         -> all 1; 0
+SendMessage "the write ran; do NOT run it again; continue from POST measurements"
+```
+
+**Accept without a resume.** When every deliverable is on disk and only the status block is missing, do not resume. Check the edit target, the output headings, the Recovery row, and one re-run of the deliverable's own test. Resume only if something is missing. A window near 200K has no headroom for a resume, and a resume would spend a round trip only to produce a report.
+
+**Budget a run-once step at authoring time.** A task with an irreversible or run-once step writes its PRE evidence to disk before the step. It also keeps tool calls per phase low (one measurement script instead of ten shell probes), so the cap falls on either side of the write and not across it.
+
+The same rule gave a different action in three real recurrences:
+
+| Landed state | Action |
+|---|---|
+| Edits on disk, net growth over the limit (97 lines against a limit under 80), evidence note and Recovery update missing | Resume the same runner with the measured facts and only the remaining steps: trim, dry-run pair, verify, note, Recovery |
+| Every deliverable on disk, Recovery row COMPLETE, only the status block missing | Do not resume. Recompute the gates and accept (22 passed, lint clean, 9 of 9 functions present, 252 lines under a 260 limit) |
+| A non-turn stop (an API DNS failure, or a 600-second stream watchdog before anything was written) | Check the landed state, then resume the same agent from its last line |
+
+**Applies to** any delegated task with a run-once side effect (an append, a migration, a cutover, a commit, a publish), and any runner whose notification reports a harness stop instead of a status block.
+
+### 1.17.7 A new round of work gets a fresh runner; resume only for the same unit of work
+
+"Resume the same agent" is right for one task that stalled or needs one corrective. It is wrong for a new round of work. A resumed runner pays for every earlier round's context on every later turn. The cost grows with each round, and the old context adds no value to the new round.
+
+> [!constraint] Fresh runner per round, resume per unit of work
+> - **A new round gets a fresh runner with a short brief.** The brief names the findings file, the ledgers of earlier rounds, the pinned hashes of the files in scope, and a frozen-snapshot self-check. The on-disk artifacts carry what the new runner needs. The old transcript does not.
+> - **Resume only for the same unit of work.** That means a stall, a missing status block, or a single corrective instruction on the deliverable the runner just produced.
+> - **Stop an over-grown runner.** If a runner is mid-edit and over-grown, stop it. Take an inventory of the tree: what is edited, what is untouched, and the current lint errors. Then dispatch a fresh runner with the partial work marked UNVERIFIED and a frozen-snapshot self-check.
+
+WRONG — one runner carried across rounds:
+
+```
+<task> runner -> resume for fix loop -> resume for caveats -> resume for review round
+# ~750K tokens by round 4; stopped mid-edit
+```
+
+CORRECT — one runner per round, with the ledger as the handoff:
+
+```
+<task> runner (ledger) -> fresh fix-loop runner (reads ledger) -> fresh review-round runner (reads ledgers)
+# a single corrective on a round's own deliverable -> resume that round's runner
+```
+
+**Applies to** DELEGATED sessions where review findings, dry-run failures, or gate caveats reopen work after a task was accepted. It also applies at any moment the orchestrator chooses between resuming a runner and dispatching a new one.
 
 ## 1.18 Verify-Before-Acting on LSP Diagnostics
 
@@ -314,6 +482,8 @@ Governs whether a DELEGATED task-runner launches in foreground or background.
 | Shell commands (Bash) | **Foreground** | Bash permission needs interactive approval |
 | Read-only research (Explore) | Background OK | No write permissions needed |
 
+A runner that backgrounds its own long command stalls too; see the foreground-suite subsection in Part 3 (§1.27.1).
+
 ## 1.22 Delegated Mode Anti-Patterns Checklist
 
 Quick-reference checklist for common DELEGATED-mode mistakes; several map to fuller rules elsewhere in this file.
@@ -330,7 +500,7 @@ Quick-reference checklist for common DELEGATED-mode mistakes; several map to ful
 
 ---
 
-**Part of a three-file discipline:** [Part 1 — Foundations and Dispatch-Prompt Construction](agent-orchestration-delegated.md) (§1.1–§1.13) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.31)
+**Part of a three-file discipline:** [Part 1 — Foundations and Dispatch-Prompt Construction](agent-orchestration-delegated.md) (§1.1–§1.13) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.32)
 
 *Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12; §1.19–§1.22 folded from `handlers/run.md`'s Delegated Execution Protocol (2026-08-10). Split into three topical parts (2026-09-06) because the combined text exceeded the Read-tool page cap; section numbers were frozen across the split.*
 *Cross-reference: [agent-orchestration.md](agent-orchestration.md), [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*

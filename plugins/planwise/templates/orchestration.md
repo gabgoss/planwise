@@ -244,6 +244,7 @@ A harness `completed` status means the agent stopped with no live children. It i
 - [ ] Grep the edit target for the symbol that was supposed to change — confirm it is present, and that residual references meant to be swept are gone
 - [ ] `git status --short` shows the expected file set dirty and nothing unexpected
 - [ ] Every required status-block field is present and non-empty (a blanked field is not a short one)
+- [ ] If the Orchestration promised to re-verify a runner's own verdict, run the replay command named in the producing task's Output (for example `<gate_script>.py --self-test`). Do not rebuild the fixtures yourself (`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §19)
 - [ ] If the Expected Output declared required headings or table-column headers, Grep the produced file for every one of them
 
 ### Step 3 — Scan the return for a stalled tail

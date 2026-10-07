@@ -1,5 +1,5 @@
 ---
-description: Conventions for authoring .claude/rules/ files — frontmatter, path scoping, and pre-authoring scan workflow
+description: Conventions for authoring .claude/rules/ files — frontmatter, path scoping, and pre-authoring scan workflow — plus the writer-or-gate rule for any artifact sentence that states a format, cap or threshold (§7)
 ---
 
 # Rule Authoring Conventions
@@ -266,6 +266,79 @@ This means path scoping works in all contexts, not just the main session. (confi
 ### Context Budget Observation
 
 When total rule content is large, rules may silently fail to load due to context budget competition. The mechanism is unclear, but having many rules increases the risk of individual rules being dropped. Keep rule count and size minimal. (Observed during testing — MEDIUM confidence, mechanism not fully understood.)
+
+## 7. A Rule Is Not a Control: Pair Every Format Rule, Cap or Threshold With a Writer or a Gate
+
+> [!constraint] This section governs any reference, template, agent instruction or handler sentence that states a format, a cap or a threshold, not only `.claude/rules/` files
+> A rule that exists only as text an agent might read is a description of the intended state. It is not a control on that state. Reading is not enforcement. An agent under load reads the file in front of it, not the reference two hops away. Stronger wording does not fix this. Two mechanisms do, and the artifact's author decides which one applies.
+
+### 7.1 Mechanism 1 — The writer emits the rule
+
+If a script or agent writes the artifact, the writer emits the required form. Examples:
+
+- A generator caps titles at 120 characters and reports every truncation.
+- A generator shards at a token budget instead of documenting a rotation trigger.
+- A generator derives the shipped seed from its own zero-item output, so the seed and the live form cannot drift.
+
+A writer that enforces the format makes the reference descriptive again. That is safe, because the description is no longer load-bearing.
+
+### 7.2 Mechanism 2 — A gate checks the artifact
+
+If humans or free-form agents write the artifact, a gate checks it. The gate needs three properties:
+
+- **A number, not an adjective.** Write "at most 120 characters" for "short". An agent can compare a number.
+- **A redirect with every prohibition.** Write "history belongs in a changelog file" beside "do not keep prior values". A careful agent told only not to keep information invents a place to keep it. In the measured case, agents chained `Prior entry:` text onto one line rather than destroy information.
+- **A check beside the line it governs.** Do not park the check in a conventions section elsewhere. The writer looks at the line, not at the conventions section.
+
+### 7.3 Two tests before a documented rule ships
+
+1. **Name the thing that fires when the rule is broken.** If the answer is "the next reader will notice", the rule has no control. A replacement threshold with no checker is the same defect in a new unit. Name the enforcing writer and the out-of-band checker.
+2. **Confirm the rule's unit can fire on the artifact it governs.** A line-count threshold on a file whose lines grow to 53 KB cannot fire. Measure the artifact in the unit that bounds it (bytes or tokens) before writing the number.
+
+### 7.4 Measured table
+
+Four rules governed one index file and its items. Names are stand-ins. Every number is measured.
+
+| Rule as written | Where it lived | Mechanism behind it | What happened |
+|---|---|---|---|
+| "Every `<item>` MUST follow this structure", with a literal seven-field frontmatter block | a workflow reference | none | 51 of the files it governed omitted the block |
+| "Keep the title cell to one line" | the writer agent's instructions | none: no number, no check | one cell reached 3,926 characters |
+| Bump `Last Updated:` "with a short parenthetical naming what changed" | a handler and a reference | none: no cap, no instruction to discard the prior value | one line reached 53,251 bytes, and a second header reached 83,732 bytes |
+| "Run when the index exceeds about 500 lines" | the schema reference | none, and the unit could never fire: the file was 242 lines and 233 KB | the trigger was dead for the file's whole life |
+
+> [!constraint] WRONG and CORRECT — the obligation is not the control
+> WRONG — the obligation is the control:
+> ```
+> <schema reference>   "Run cleanup when the index exceeds ~500 lines."
+>                      (invoked by zero handlers; live file 242 lines / 233 KB)
+> ```
+> CORRECT — the writer enforces, the reference describes, and the checker is named:
+> ```
+> <generator>.py   TITLE_MAX_LEN = 120 -> truncate_title(); 22,000-token budget -> split_items_to_budget()
+> <schema reference>   "enforced by sharding at --write; --check reports a breach; a doctor
+>                       read-gate extension re-checks from outside the generator"
+> ```
+
+The shipped seed in that case was structurally identical to the 233 KB live file: same headings, same header, same footer. The live file did not deviate from the design. It followed it. A rule that is correct as prose can be violated at scale.
+
+### 7.5 Where it applies
+
+This section applies to every reference, template, agent instruction and handler sentence that states a format, a cap or a threshold. It is the authoring-side failure: no gate was written because the MUST was mistaken for one. A plan states the same rule at plan level: every deliverable is a writer or a gate, not a paragraph (see `references/session-plan-requirements.md`, "Scaffolding Phase Requirements (Plan Writing)").
+
+A gate that exists but never ran, or that ran and asked the wrong question, is a downstream failure. The gate-evidence references cover it: [verification-gate-evidence.md](verification-gate-evidence.md) and [gate-predicate-discrimination.md](gate-predicate-discrimination.md).
+
+#### Reviewer Check 098 — Format, Cap or Threshold Sentence With Neither a Writer Nor a Gate
+
+- **Severity / Role / Type:** WARNING (HIGH confidence) | Verification-Gate Reviewer | NEW
+- **What:** For each deliverable or rule sentence that states a format, cap or threshold, find the writer that emits it or the gate that rejects the wrong form. Flag a sentence with neither.
+- **Detection:** Grep the plan's deliverables and the artifacts it edits for "MUST follow", "keep to", "at most", "short", "about N lines". For each hit, name the script or agent that emits the form, or the check that fires on the wrong form. A hit with neither → WARNING. A threshold whose unit cannot fire on the artifact (lines on a file bounded in bytes) → WARNING.
+- **Finding template:**
+```
+[WARNING] Format, cap or threshold stated with neither a writer nor a gate
+File: {deliverable or artifact path} | Location: {sentence}
+Issue: "{sentence}" states a {format|cap|threshold}; no writer emits it and no gate rejects the wrong form
+Fix: Name the enforcing writer or add a gate beside the line it governs, per references/rule-authoring.md §7 | Confidence: HIGH
+```
 
 ---
 

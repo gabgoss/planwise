@@ -1,5 +1,5 @@
 ---
-description: A figure is not verified until its derivation is. Covers why recomputing a total proves only that the author can add, why a filtered denominator is wrong only where it bites, why a bare count in prose has to be re-derived at every hop that depends on it, and why a measurement written into its own subject needs a convergence argument. Consult when about to report, verify or repair a figure that is a sum, a labelled aggregate, or a count stated in prose.
+description: A figure is not verified until its derivation is. Covers why recomputing a total proves only that the author can add, why a filtered denominator is wrong only where it bites, why a bare count in prose has to be re-derived at every hop that depends on it, and why a measurement written into its own subject needs a convergence argument. Consult when about to report, verify or repair a figure that is a sum, a labelled aggregate, or a count stated in prose. Also covers why every operand of a byte-equality gate must come from one byte instrument, because a character count in a byte identity reads as lost content.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Aggregate Provenance — A Figure Is Not Verified Until Its Derivation Is
@@ -18,6 +18,7 @@ Three neighbouring rules own adjacent machinery. [`measurement-discipline.md`](m
 - [2. State the Denominator With the Number, and Never Re-Use a Row Set Across Questions](#2-state-the-denominator-with-the-number-and-never-re-use-a-row-set-across-questions)
 - [3. A Bare Count in Prose Is a Claim, Not a Measurement — Name the Members Inline](#3-a-bare-count-in-prose-is-a-claim-not-a-measurement--name-the-members-inline)
 - [4. A Measurement Stored Inside Its Own Subject Needs a Convergence Argument](#4-a-measurement-stored-inside-its-own-subject-needs-a-convergence-argument)
+- [5. Every Operand of a Byte Identity Comes From One Byte Instrument](#5-every-operand-of-a-byte-identity-comes-from-one-byte-instrument)
 
 ---
 
@@ -65,7 +66,9 @@ Specify checks at the grain the artifact claims, not the grain that is convenien
 >
 > **Report the population with the figure — "218 of 281 subagent transcripts," not "218."** A figure whose population is unstated cannot be audited, and writing the population down is usually enough to catch the mismatch yourself.
 >
-> **When a re-measurement disagrees with a published figure, find the cause before recording the correction.** "Wrong digit" and "wrong population" demand different fixes, and only one of them tells you the rest of the numbers need re-checking.
+> **A completeness guard's denominator must not share its numerator's filter.** The guard form of this rule, where `compared == total` passes over a row the parser's region rule dropped, is in `gate-denominator-integrity.md` § "7. A Guard's Denominator Must Not Pass Through the Filter It Guards". This section owns the reporting form.
+
+**When a re-measurement disagrees with a published figure, find the cause before recording the correction.** "Wrong digit" and "wrong population" demand different fixes, and only one of them tells you the rest of the numbers need re-checking.
 >
 > **Independent verification protects against inheriting *their* defect and does nothing about introducing your own.** Verifying someone else's claim with your own instrument is worth doing for the first reason. It is not a guarantee, and the confidence of "I checked this myself" makes an unverified check **more** dangerous than a relayed one — a relayed figure still reads as somebody else's claim; a self-checked one reads as settled.
 
@@ -123,6 +126,37 @@ Specify checks at the grain the artifact claims, not the grain that is convenien
 > - **Make the correction a same-length substitution.** `47,510` → `47,571` is digit-for-digit identical in length, so the file size does not move and the note converges in one pass. A correction that alters the string's length re-invalidates itself, and you loop.
 
 This is a mechanical trap rather than an epistemic one, which is why it is a practice and not a constraint. The three sections above are about what a figure *means*; this one is about the order in which two edits have to happen.
+
+---
+
+## 5. Every Operand of a Byte Identity Comes From One Byte Instrument
+
+> [!constraint] A character-counted operand in a byte identity produces a deficit that reads as content loss
+> `length($0)` is a character count in any locale-aware `awk`. It equals the byte count only while the input is pure ASCII. A markdown corpus with typographic punctuation is not pure ASCII. A gate that asserts byte equality takes every operand from the same byte-level instrument: `len(open(path, 'rb').read())`, `wc -c`, or a byte regex. One character-counted operand produces a deficit equal to the count of multi-byte characters.
+
+A refactor moved a 58,562-byte changelog line and a 13,082-byte prose block out of an `<index>` file. It was gated by an exact byte-equality check against a PRE-edit baseline. The task briefs pinned `awk '/^\*Last Updated:/ {print length($0)}'` as the baseline command.
+
+On the live file `awk` reported 58,091, not 58,562. The line holds 723 non-ASCII bytes (em dashes, arrows, box characters), and Git Bash `awk` returned the decoded character count. A dependency block showed the same gap: 12,929 by `awk` against 13,082 by Python over the raw bytes. Had the final task compared the script's byte figures to the `awk` baseline, it would have reported 471 bytes of "lost content" on work that lost nothing.
+
+> ```
+> WRONG — one operand from awk, the rest from bytes:
+> PRE   = awk length($0)          # 58091 characters
+> POST  = len(changelog_bytes) + len(pointer_bytes)   # bytes
+> assert PRE == POST              # fails by the non-ASCII byte count
+>
+> CORRECT — every operand from the same byte instrument:
+> PRE   = len(re.search(rb'(?m)^\*Last Updated:[^\r\n]*', data).group(0))   # 58562
+> POST  = entry_content_bytes + marker_bytes + prefix_bytes                  # 58476 + 72 + 14
+> assert PRE == POST
+> ```
+
+Three points follow.
+
+- **Measure conservation in bytes end to end.** The baseline, the per-destination accounting and the live re-measure all come from `rb` reads or `wc -c`. Never from `awk`, `${#var}` or `len(str)`.
+- **Record which instrument produced each figure next to the figure.** The ledger kept both rows (`changelog_footer_bytes` and `changelog_footer_bytes_awk`) with their commands, so the disagreement was a labelled finding, not a mystery.
+- **A brief's pinned measurement command is a claim to run once and cross-check, not an instrument to trust.** The warning that shipped with the brief predicted a +1 discrepancy per line (line endings). The real mechanism was different and larger. Only two instruments side by side exposed it.
+
+[`measurement-discipline.md`](measurement-discipline.md) § "8.1 Line-count measurements MUST use `wc -l`, not Read-output line numbers" governs line counts. This section is the byte-and-character counterpart.
 
 ---
 

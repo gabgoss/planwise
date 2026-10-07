@@ -284,6 +284,8 @@ Task {
 }
 ```
 
+A backlog item whose deliverable edits the permission configuration is not a Route A item. See references/backlog-triage-pivot-detection.md, section "A Permission-Change Deliverable Is Not Agent-Executable".
+
 **Result handling:**
 - If fix-agent returns status FIXED → proceed to Phase 5 (verify + approve)
 - If fix-agent returns status BLOCKED → report blocker to user, offer to route to Session Planning (Route C)

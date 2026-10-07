@@ -1,5 +1,5 @@
 ---
-description: Anchoring a check to the artifact rather than to the text that describes it — why an anchor derived from a criterion inherits the criterion's false premises, re-deriving the section citations that lifted text carries, naming the artifact and field a cross-plan status gate reads, and counting a set whose members are already on disk. Consult before writing a gate anchor, a landing-zone reference, a lifted citation, or a projected set size.
+description: Anchoring a check to the artifact rather than to the text that describes it — why an anchor derived from a criterion inherits the criterion's false premises, re-deriving the section citations that lifted text carries, naming the artifact and field a cross-plan status gate reads, counting a set whose members are already on disk, and keeping a marked fallback for every version in the committed snapshot set when an extractor's anchor is replaced. Consult before writing a gate anchor, a landing-zone reference, a lifted citation, a projected set size, or a re-anchor commit.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Verify the Anchor Against the Artifact (Not Against Its Description)
@@ -8,7 +8,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 **Read this when** you are about to write a check, criterion, citation or figure whose subject lives in another artifact — and in three of the four failures below, that artifact was sitting on disk, one command away, the entire time.
 
-**Numbering.** This file carries its own §1–§4. It does not extend the shared `§3x` / `§9.B` series that [`verify-against-shipped-artifact.md`](verify-against-shipped-artifact.md) and [`verify-before-cite.md`](verify-before-cite.md) split between them. Those two govern the **identifier** being cited — a third-party symbol there, an internal project artifact here. This file governs the **anchor**: the thing a check points at to decide PASS or FAIL.
+**Numbering.** This file carries its own §1–§5. It does not extend the shared `§3x` / `§9.B` series that [`verify-against-shipped-artifact.md`](verify-against-shipped-artifact.md) and [`verify-before-cite.md`](verify-before-cite.md) split between them. Those two govern the **identifier** being cited — a third-party symbol there, an internal project artifact here. This file governs the **anchor**: the thing a check points at to decide PASS or FAIL.
 
 ## Table of Contents
 
@@ -16,6 +16,7 @@ paths: {planwise_root}/{plans_dir}/**
 - [2. Re-Derive Every Section Citation in Lifted Text Before Accepting the Lift](#2-re-derive-every-section-citation-in-lifted-text-before-accepting-the-lift)
 - [3. A Status Gate Names the Artifact and the Specific Table or Field It Reads](#3-a-status-gate-names-the-artifact-and-the-specific-table-or-field-it-reads)
 - [4. A Set Selected by a Greppable Key Over an Existing Artifact Has a COUNT, Not an Estimate](#4-a-set-selected-by-a-greppable-key-over-an-existing-artifact-has-a-count-not-an-estimate)
+- [5. A Re-Anchor Keeps a Fallback for Every Version the Snapshot Set Covers](#5-a-re-anchor-keeps-a-fallback-for-every-version-the-snapshot-set-covers)
 
 ---
 
@@ -149,6 +150,51 @@ One orchestrator reached for `lines per design`, compared it against a sibling t
 | Field completeness | **602 = 7 × 86 entries**, zero missing | — |
 
 Lines used against the gate, and field completeness against the schema, answer *"is fidelity being traded away?"* in one measurement each, and answer it correctly. **A cross-partition density comparison answers a different question and reads like an answer to this one.**
+
+---
+
+## 5. A Re-Anchor Keeps a Fallback for Every Version the Snapshot Set Covers
+
+> [!constraint] An anchor edit is a claim about every version in the committed snapshot set, not only the one that prompted it
+> The committed snapshot for an older version is a reading the current extractor must be able to reproduce. If it cannot, that snapshot is no longer evidence of anything. A comment that names the older form is a note to a future reader. It is not a fallback.
+
+An `<extractor>` anchors on a `new Set([...])` literal in a bundle. Version N+2 added a leading member. A commit re-anchored the constant to the five-member form, re-captured version N+2 only, and left a comment: "N and N+1 carry the four-member form without it".
+
+The committed N and N+1 snapshots still held the four-member key with `count: 1`, because nobody re-ran the extractor on them. Three sessions later, the first forced re-capture of those versions produced `count: 0`, `fallback_used: "absent"` and `UNANCHORED`. The fixtures rebuild from N+1, so every guard test over that surface would have inherited the false reading. A regenerated candidates file would have carried a `0 -> 1` row for a surface that never changed.
+
+The extractor was not wrong for N+2. It was wrong for two versions it no longer claimed to handle, and nothing had asked it about them.
+
+> [!constraint] Keep the previous form as a marked fallback, and guard every snapshot
+> WRONG — replace the anchor, re-capture the newest version, document the old form in a comment:
+> ```python
+> # Re-anchored on N+2: the Set gained a leading "<lead>" member.
+> # N and N+1 carry the four-member form without it.
+> ANCHOR = (b'new Set(["<lead>","a","b","c","d"])', ...)
+> # the extractor searches this form only -> older versions now report UNANCHORED
+> ```
+> CORRECT — keep the previous form as a fallback, mark which form matched, prove every committed snapshot still anchors:
+> ```python
+> ANCHOR = (b'new Set(["<lead>","a","b","c","d"])', ...)
+> ANCHOR_PRE_N2 = b'new Set(["a","b","c","d"])'
+> # on zero hits for the first form, search the fallback; report under the
+> # fallback key with fallback_used="pre-N2-anchor" and a note naming it
+> ```
+> ```python
+> # tests/test_guard_<surface>.py — a guard that iterates every snapshot, not the newest
+> for snap in every_snapshot_dir():
+>     s = load(snap / "surfaces/<surface>.json")
+>     assert s["count"] >= 1 and s["fallback_used"] != "absent"
+> ```
+
+Three operative points follow.
+
+1. **After any anchor edit, re-extract every committed version, not only the newest.** A scratch capture of each archived binary costs seconds and proves the claim the comment makes.
+2. **Keep the superseded form as a fallback with a marker.** The marker lets the diff and the report show which form a version matched. Dropping the form makes older snapshots unreproducible. Silently accepting either form makes anchor drift invisible.
+3. **Guard the invariant across the snapshot set.** A test that iterates every snapshot directory catches the next re-anchor at commit time, three sessions earlier than a re-capture would.
+
+**Dry-run pair.** Run the guard once over a snapshot set whose older version the extractor still anchors, and once over a set with the fallback removed. The first run MUST pass and the second MUST fail naming the older version. A guard that passes on both has never been shown to discriminate.
+
+**Applies to** any extractor, parser or probe that anchors on a literal the subject can change between versions, where more than one version's output is committed. It also applies to any golden-file set that a later task re-captures in place, and to any commit whose message says "re-anchor", "re-baseline" or "re-pin" for one version. §1 states the base rule: measure the anchor against the artifact. This section adds that the artifact is every version in the set.
 
 ---
 

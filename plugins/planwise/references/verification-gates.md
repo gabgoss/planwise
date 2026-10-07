@@ -1,11 +1,11 @@
 ---
-description: Sessions delivering IPC/protocol/codec layers MUST include round-trip evidence before COMPLETE; Sprint exit-gate verdicts reflect the gate-defining step's status, not a step-count percentage; build-clean ≠ computation-correct, build-fresh ≠ deploy-fresh, and runtime-correct-on-one-target ≠ all-targets for in-process numeric/codec and multi-target code; §10 turns the discipline on the instrument itself — a gate must be able to fail, must not fail correct work, must see the shape it counts, and must be pointed at the live subject as well as at fixtures; §11 sorts gates into change-detecting and state-detecting shapes — a battery of only diff-shaped gates proves the change was clean and says nothing about the artifact's condition, so every plan names at least one state-detecting gate; §12 points at the reachability gate (verify-caller-before-complete.md) — a definition is not a caller
+description: Sessions delivering IPC/protocol/codec layers MUST include round-trip evidence before COMPLETE; Sprint exit-gate verdicts reflect the gate-defining step's status, not a step-count percentage; build-clean ≠ computation-correct, build-fresh ≠ deploy-fresh, and runtime-correct-on-one-target ≠ all-targets for in-process numeric/codec and multi-target code; §10 turns the discipline on the instrument itself — a gate must be able to fail, must not fail correct work, must see the shape it counts, and must be pointed at the live subject as well as at fixtures; §11 sorts gates into change-detecting and state-detecting shapes — a battery of only diff-shaped gates proves the change was clean and says nothing about the artifact's condition, so every plan names at least one state-detecting gate, and an extractor's own computed properties (anchor found, object bounded, count plausible, two builds agree) cannot show its anchor landed on the right object — assert membership of an element taken from an independent surface (§11.5); §12 points at the reachability gate (verify-caller-before-complete.md) — a definition is not a caller; §13 and §14 (held in the Part-2 file) — a run sheet pins the field the hook reads, and a grader fails a null numeric field
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Verification Gates — Build-Clean Is Not Runtime-Correct
 
-**Purpose:** Gate-discipline rules for planwise sessions whose deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec). Codifies the two failure modes (build-clean ≠ runtime-correct; partial-PASS ≠ gate progress), the round-trip evidence requirement, the gate-is-the-gate Sprint Overview discipline, and the Recovery-vs-task-spec drift practice surfaced at closeout. Sections 5–7 extend the build-clean-is-not-enough principle past cross-process boundaries into in-process numeric/codec computation (§5), build-vs-deploy freshness (§6), and multi-target runtime parity (§7). §8 turns the same discipline on the verification command itself: a `git diff` gate that names no tree state silently measures the whole working tree instead of the sprint's own delta. §11 asks what a diff-shaped gate can answer at all — a battery composed entirely of change-detecting gates is blind by construction to any defect that predates the diff.
+**Purpose:** Gate-discipline rules for planwise sessions whose deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec). Codifies the two failure modes (build-clean ≠ runtime-correct; partial-PASS ≠ gate progress), the round-trip evidence requirement, the gate-is-the-gate Sprint Overview discipline, and the Recovery-vs-task-spec drift practice surfaced at closeout. Sections 5–7 extend the build-clean-is-not-enough principle past cross-process boundaries into in-process numeric/codec computation (§5), build-vs-deploy freshness (§6), and multi-target runtime parity (§7). §8 turns the same discipline on the verification command itself: a `git diff` gate that names no tree state silently measures the whole working tree instead of the sprint's own delta. §11 asks what a diff-shaped gate can answer at all — a battery composed entirely of change-detecting gates is blind by construction to any defect that predates the diff. §11.5 covers the extractor case: a gate made only of properties the extractor computed is a gate the extractor grades itself on, so read this file when you write or accept an extractor that anchors on a string in a bundle, a binary or a generated file.
 **Companion file:** [measurement-discipline.md](measurement-discipline.md) (§8 Empirical Verification Discipline — the cross-cutting "measure it, don't infer it" counterpart to this file's cross-process/build/runtime gate discipline).
 
 ## Table of Contents
@@ -22,6 +22,8 @@ paths: {planwise_root}/{plans_dir}/**
 - [10. The Instrument's Four Proof Obligations](#10-the-instruments-four-proof-obligations)
 - [11. Change-Detecting vs State-Detecting Gates](#11-change-detecting-vs-state-detecting-gates)
 - [12. Reachability Gates → verify-caller-before-complete.md](verify-caller-before-complete.md) — a definition is not a caller; the section below is a pointer so `§12` citations resolve
+- 13. A Run Sheet Pins the Field the Hook Reads — held in [verification-gates-Part-2-RunSheetControl.md](verification-gates-Part-2-RunSheetControl.md)
+- 14. A Grader Treats a Null Numeric Field as a Failed Measurement — held in the same Part-2 file
 
 ---
 
@@ -266,6 +268,8 @@ Throughout this section `$BASE` stands for the sprint's own recorded `{ABBREV}_S
 > git -C <repo> status --porcelain -- <this sprint's write paths>
 > # MUST be empty. Non-empty → HALT: an earlier session, a parallel sprint, or a human
 > # has uncommitted work inside this sprint's write-set. Commit or stash it, then re-run.
+> # Attribute each non-empty path to its owner BEFORE reporting the HALT, and never aim a
+> # revert at a path this session did not write (read-confirm-act-protocol.md §1.5).
 > # Do NOT pin over a dirty scope — the base would already carry work this sprint did not do,
 > # and every gate scoped to it would inherit that work as its own.
 > {ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)
@@ -348,6 +352,41 @@ Issue: Gate runs `git diff` with {no recorded base | `HEAD` as the operand | no 
 Fix: Pin `{ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)` in the sprint's first repo-touching task behind an empty-`git status --porcelain -- <write paths>` precondition, record it in Recovery Key Findings before the first edit, and rewrite the gate as `git diff $BASE -- <paths>` per references/verification-gates.md §8 | Confidence: HIGH
 ```
 
+### 8.6 A Base Is a Statement About One Moment; Commits After It Inside the Gate's Paths Break Every Delta Gate
+
+A commit does not remove work from a `$BASE..worktree` diff. It moves that work from "uncommitted" to "committed", and both states sit inside the range. In a repository that a second session can write to, a whole-tree gate measures every writer's work, not this session's. Measured once: a pinned count of 6 files became 14, then 22, while a second session kept editing. Run as pinned, the gate failed a correct tree.
+
+> [!constraint] Four operative points for a shared repository
+> 1. **Pin every diff gate to an explicit path list from the start.** Assert on `git diff --name-only $BASE -- <path list> | wc -l`. Print the whole-tree listing so a human can classify it, but do not assert on it.
+> 2. **A clean `git status` is not evidence the gate scope is clean.** A clean tree after a bundled commit is the case where a whole-tree base diff is most wrong, because the committed foreign work is still inside the range.
+> 3. **Expect the other session's edits to reach your own files.** Path-scoped gates stay correct. The commit then needs hunk-level staging (`git apply --cached` with a patch of only this session's lines), taken from a saved snapshot of the foreign diff.
+> 4. **When a pinned count moves (6, then 14, then 22), ask what the diff range contains before asking what changed in your code.**
+
+**Session-start base.** A sprint-wide base serves as a record. A session's own delta gates need a base pinned at that session's start. At each session's preflight, list the commits that landed after the sprint base inside the gates' pathspecs:
+
+```bash
+git log --oneline <sprint base>..HEAD -- <the gates' pathspecs>
+```
+
+- **Empty:** the sprint base is still exact for this session.
+- **Non-empty:** pin a session-start base, record both bases, and name each intervening commit as an attributed delta for any gate that still compares against the sprint base.
+
+> [!constraint] A sprint-wide base goes stale when an earlier session commits under the gates' pathspec
+> WRONG — adopt the sprint base unconditionally. The first session's closeout committed three new files under the pathspec, so a frontmatter-key gate matches every `+id:` line of those files and fails correct work:
+> ```bash
+> git diff <sprint base> -- '<dir>/<prefix>-*.md' | grep -E '^[+-](id|title):'   # hits on 3 new files
+> ```
+> CORRECT — check for intervening commits, then pin the session's own start:
+> ```bash
+> git log --oneline <sprint base>..HEAD -- '<dir>/'        # <hash> (3 new files)
+> SESSION_START=$(git rev-parse HEAD)
+> git diff $SESSION_START -- '<dir>/<prefix>-*.md' | grep -E '^[+-](id|title):'   # empty
+> ```
+
+**Corpus count check.** At the same preflight, compare the live file count in the gated directory against the figure the plan carries. A mismatch (302 live against 299 recorded) is the early signal that a commit landed after the base.
+
+Cross-references: §8.4 (the series base, which has the same first-to-touch hazard) and §8.1 (the clean-scope precondition, which also requires attribution per [read-confirm-act-protocol.md](read-confirm-act-protocol.md) §1.5).
+
 ---
 
 ## 10. The Instrument's Four Proof Obligations
@@ -376,10 +415,13 @@ Fix: Pin `{ABBREV}_S{NN}_BASE=$(git -C <repo> rev-parse HEAD)` in the sprint's f
 >          # The FAIL is the load-bearing half: it proves the gate discriminates.
 > ```
 >
-> Two rules, stated separately because they fail separately:
+> Three rules, stated separately because they fail separately:
 >
 > 1. **A criterion evaluated against live project data measures the data, not the code.** It is a regression guard for after the fix lands — never evidence the fix works. Phrase at least one criterion against a **fixture that reproduces the defect**, and say in the item which criterion is the discriminating one.
 > 2. **Run the same probe against the unfixed artifact** — the previous commit, the installed older version, a copy with the fix reverted — **and show it failing.** That second run is what converts "my code passes" into "this gate detects the defect."
+> 3. **Run a reproduction recipe on the known-bad state before pinning it, and read the flag's implementation, not its name.** A repro that prints nothing on the broken build is not a repro. `--show-<x>` can mean "print x" or "stop hiding x", and one `Grep` for the flag in the parser and its consumer settles which.
+>    - WRONG: `<tool> --config <fixture> --show-blocked` — the flag routes blocked items into the selectable list, so the "blocked by:" summary never prints.
+>    - CORRECT: `<tool> --config <fixture>` — run once on the broken state, it prints the summary with the id missing.
 >
 > Two corollaries:
 >
@@ -525,7 +567,7 @@ The shape: a task's exit gate derives its expected figure **from** the very enum
 grep -o '({first-member}.*{last-member})' {doc} | tr ',' '\n' | wc -l   # must equal the declared count
 ```
 
-Derive the two sides from **independent** surfaces, or the gate is checking a thing against itself. The mirror direction (a count that passes while work is missing) and the balance-gate case are in [gate-denominator-integrity.md](gate-denominator-integrity.md) §2 and §4.
+Derive the two sides from **independent** surfaces, or the gate is checking a thing against itself. When the enumeration is a source of truth that a change moved, the stale readers are the hazard: see [dispatch-edit-surface-sweep.md](dispatch-edit-surface-sweep.md) §12 (Moving a Source of Truth Invalidates Every Reader of the Old One). The mirror direction (a count that passes while work is missing) and the balance-gate case are in [gate-denominator-integrity.md](gate-denominator-integrity.md) §2 and §4.
 
 ### 11.2 The cross-surface equality invariant
 
@@ -572,6 +614,38 @@ The durable fix is not a sharper reviewer. It is making the set **enumerable rat
 > [!constraint] Dry-run an equality gate in BOTH directions before trusting it
 > Run it against a state where the defect is genuinely present — an earlier revision is the cheapest source — and show it **FAIL**. Then run it against a correct state and show it **PASS**. The FAIL proves it discriminates; the PASS proves it does not fail correct work, which §11.1 shows is the specific way this gate class goes wrong. A gate never shown to fail is not evidence, and a gate never shown to pass on correct input is a retry loop waiting to happen.
 
+### 11.5 An extractor's own outputs cannot validate its anchor
+
+An extractor locates data by anchoring on a string and reading the enclosing object. The object may be a minified bundle, a packed binary or a generated `.d.ts`. An anchor can land on a real object of the right shape that is the wrong object.
+
+Every property the extractor computes is then also true of the wrong object. The anchor is found. The object is bounded. The count is plausible. Two builds agree. The fallback path was not used. Count, boundedness and parity are necessary and never sufficient.
+
+> [!constraint] The only discriminating check is membership of an element the extractor did not decide
+> Take the element from an independent surface: a documented option, a name pinned in a finding, or a line in the tool's own `--help` capture. Assert that it is in the extracted set.
+
+```
+WRONG — accept the extractor on its own evidence:
+anchor found → object bounded (byte-verified) → 81 names, all --flag shaped
+→ parity across two builds → fallback null → ACCEPT
+# Every fact is true. The object is an option-forwarding list, not the registry the help text renders from.
+# The real registry held 138 names.
+
+CORRECT — cross-check against a surface the extractor did not produce:
+pick 3-6 members that MUST be present (spec-pinned, or read from the help capture)
+assert each is in the extracted set                  # membership, never a count
+on a miss: search the independent surface for the member (Grep over the help capture)
+  present there, absent here -> the anchor is the wrong object, not the build
+  absent there too           -> the build dropped it (a real finding)
+```
+
+Three rules follow.
+
+- **Every extractor gets at least one membership assertion against an independent surface.** The task that writes the snapshot owns that assertion, not a later test tier. A wrong-object anchor in a first capture is invisible to every later diff, because each diff compares the same wrong object with itself.
+- **A gate made only of properties the extractor computed is a gate the extractor grades itself on.** It cannot fail for the reason that matters.
+- **On a membership miss, the first diagnostic is the cross-surface search.** It separates "the extractor missed it" from "the build removed it" in one call. It is the difference between fixing an anchor and filing a false removal against the subject.
+
+§11.1 states the general form (derive the two sides from independent surfaces). §10 (The Instrument's Four Proof Obligations) states what any instrument must prove before its output counts as evidence. For a "count unchanged" gate: [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §10.
+
 ---
 
 ## 12. Reachability Gates — a Definition Is Not a Caller
@@ -583,5 +657,7 @@ Every gate in §1–§11 measures **presence**; none measures whether production
 **Empirical Verification Discipline** — relocated to [measurement-discipline.md](measurement-discipline.md) §8 (wc-l line-count authority over Read-output line numbers, broad-gate authority over an audit's file enumeration, headline-metric reconciliation, doctrinal-claim surface sweeps, markdown-field normalization on both read and write, idempotency-safe append/author, gate-input-set verification before trusting a predicate, and post-behavior-change surface sweeps).
 
 ---
+
+*Decide and assert on the same measurement (a splitter that measures the body while the assembler measures the file leaves a window that refuses correct input): [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §12.*
 
 *Cross-references: [session-execution-protocol.md](session-execution-protocol.md) (Recovery-file update discipline at closeout), [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Sprint exit-gate semantics in Master Plan / Sprint Plan rows), [measurement-discipline.md](measurement-discipline.md) (§8 Empirical Verification Discipline, split from this file).*

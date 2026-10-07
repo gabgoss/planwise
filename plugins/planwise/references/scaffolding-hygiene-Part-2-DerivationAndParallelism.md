@@ -1,14 +1,14 @@
 ---
-description: Five binding hygiene rules for what a multi-sprint scaffold must compute before it closes — retirement-deliverables deletion-set derivation and roster-change enumeration-surface re-derivation, config-editing permission-round-trip scaffolding, first-task sprint diff-baseline recording, computed write-set intersection for declared-parallel sprints, and computed write-target intersection for declared-parallel dispatch layers. Part 2 of 2 — §1–§12, the rules governing what the scaffold emits, live in scaffolding-hygiene.md
+description: Five binding hygiene rules for what a multi-sprint scaffold must compute before it closes — retirement-deliverables deletion-set derivation and roster-change enumeration-surface re-derivation, config-editing permission-round-trip scaffolding, first-task sprint diff-baseline recording, computed write-set intersection for declared-parallel sprints, and computed write-target intersection for declared-parallel dispatch layers (§17, including a called-symbol grep because disjoint outputs do not prove a layer has no import edge) — plus one authoring rule for a sheet a human runs (§18: break the paste line and echo the resolved parameters in "Watch for", and a stop rule with one general clause for a halt the harness starts) — and one orchestration rule (§19: an orchestrator re-verify item names a replay command the producing task ships, with Reviewer Check 099). Part 2 of 2 — §1–§12, the rules governing what the scaffold emits, live in scaffolding-hygiene.md
 ---
 # Scaffolding Hygiene — Part 2: Derivation and Parallelism
 
 **Purpose:** Enforce five mechanical hygiene rules covering what a multi-sprint scaffold must **compute** before it closes — a derived deletion set, a permission round-trip, a diff baseline, and two write-set intersections. Each rule has been re-derived in independent planning sessions; review-cycle tokens are wasted relitigating the same recurring issues.
 
 > [!important] This reference is split across two files — §1–§12 live in Part 1
-> This part carries §13–§17. The nine binding rules and three advisory practices governing what the scaffold **emits** — Meta-Plan source detection, folder naming, abbreviation validation, status defaults, `Outputs/` creation, sequential-sprint prerequisites, no-improvisation of artifact types, deviation classes, plan sizing, cohort token uplift, the mega-scaffold review gate, and run-time-sound verification commands — live in [scaffolding-hygiene.md](scaffolding-hygiene.md), which keeps the original filename.
+> This part carries §13–§19. The nine binding rules and three advisory practices governing what the scaffold **emits** — Meta-Plan source detection, folder naming, abbreviation validation, status defaults, `Outputs/` creation, sequential-sprint prerequisites, no-improvisation of artifact types, deviation classes, plan sizing, cohort token uplift, the mega-scaffold review gate, and run-time-sound verification commands — live in [scaffolding-hygiene.md](scaffolding-hygiene.md), which keeps the original filename.
 >
-> Section numbers are continuous across the two files: §13 here follows §12 there, and a section keeps its `§N` wherever it lands. A citation naming §13–§17 resolves to this file; one naming §1–§12 resolves to Part 1.
+> Section numbers are continuous across the two files: §13 here follows §12 there, and a section keeps its `§N` wherever it lands. A citation naming §13–§19 resolves to this file; one naming §1–§12 resolves to Part 1.
 
 This file is part of the §14 expansion referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols). Read both parts before generating any `Sprint-{XX}-{Name}/` folders.
 
@@ -19,6 +19,11 @@ This file is part of the §14 expansion referenced from the Companion Files and 
 - [15. First Task of Each Sprint Records the Diff Baseline](#15-first-task-of-each-sprint-records-the-diff-baseline)
 - [16. Declared Parallelism Requires a Computed Write-Set Intersection](#16-declared-parallelism-requires-a-computed-write-set-intersection)
 - [17. A Dispatch Layer Declares a Computed Write-Target Intersection](#17-a-dispatch-layer-declares-a-computed-write-target-intersection)
+  - [17.4 Disjoint outputs do not prove the layer has no import edge](#174-disjoint-outputs-do-not-prove-the-layer-has-no-import-edge)
+- [18. A Sheet a Human Runs Is Written for the Operator's Terminal](#18-a-sheet-a-human-runs-is-written-for-the-operators-terminal)
+  - [18.1 Break the paste line, and make "Watch for" read the resolved parameters](#181-break-the-paste-line-and-make-watch-for-read-the-resolved-parameters)
+  - [18.2 The stop rule covers a halt the harness starts](#182-the-stop-rule-covers-a-halt-the-harness-starts)
+- [19. An Orchestrator Re-Verify Item Names a Replay Command the Producing Task Ships](#19-an-orchestrator-re-verify-item-names-a-replay-command-the-producing-task-ships)
 
 ---
 
@@ -402,13 +407,153 @@ Non-determinism is what makes this expensive. An order-dependent gate reads as f
 
 The scaffold emits the scoped form into every per-task gate, so the next plan inherits the correct shape rather than copying a repo-wide snippet out of a project-level document.
 
+### 17.4 Disjoint outputs do not prove the layer has no import edge
+
+"Disjoint output files" answers the write-collision question, which §16 and §17.1 compute. It does not answer the read-dependency question. A task can have no file in common with its layer-mate and still need that mate's output to exist before its own tests can import it.
+
+**Example.** An orchestration declared two layers. L1 held the diff module (task 1) and its tests (task 3). L2 held the report module (task 2) and the fixture-driven tests (task 4). L2 was marked parallel on the strength of disjoint output files, with task 4 depending on tasks 1 and 3. Task 4's own brief specified `test_report_renders_fixture_diff`, which calls `report.render(diff(...))`, a symbol task 2 writes. A flag the orchestrator routed into task 4 added a second `report.render` call. Dispatched in parallel, task 4 would have imported a module that did not exist yet, or written its tests against a file mid-authoring. The orchestrator noticed the edge only while composing the L2 spawn prompts, and ran L2 sequentially. The fix cost nothing because the check came before the dispatch call.
+
+> [!constraint] Match each task's called symbols to its layer-mates' outputs before a parallel dispatch
+> WRONG — the layer table is derived from `Depends On` and output-file overlap alone:
+> ```
+> | L2 | Task 2, Task 4 | yes — disjoint files (report module vs test fixtures, two test files) |
+> # Task 4's brief: "test_report_renders_fixture_diff: report.render(diff(...)) contains ..."
+> ```
+> CORRECT — before a parallel dispatch, match each task's called symbols to the other task's outputs:
+> ```
+> for each task T in the layer:
+>     Grep T's brief for module.symbol calls (report.render, diff.diff_files, snapshot.load, ...)
+>     for each hit whose module is another layer-mate's Output -> the layer is NOT parallel
+> -> L2: Task 4 calls report.render (Task 2's Output) -> sequential: Task 2, then Task 4
+> ```
+
+Two rules follow.
+
+- **At scaffold time**, a task's `Depends On` lists every task whose output it imports or calls, not only every task whose output it reads as context. The reviewer check for a parallel layer is the called-symbol `Grep` above, run against the briefs, not a glance at the file lists.
+- **At run time**, the orchestrator repeats the `Grep` on the briefs it is about to dispatch, including any flags it just routed into them, which can add an edge the planner never saw. A routed flag that names a symbol from a layer-mate is a layer change, and the same Recovery row records it.
+
+**Applies to** any DELEGATED session with a parallel layer where one task authors tests, renderers or CLI wiring that exercises another task's module. It also applies to the Flag-Reconciliation Preflight in `handlers/run.md` Step 1.1a, and to plan review of orchestration files: "disjoint files" is necessary for parallel dispatch and is not sufficient. For a shared edit target, see [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.13.
+
 #### Reviewer Check 083 — Dispatch Layer Without a Computed Write-Target Intersection
 
 - **Severity / Role:** BLOCKER | Scaffolding Hygiene Reviewer | NEW
 - **What:** An Orchestration declaring a multi-member dispatch layer without a computed write-target intersection shown for that layer; or a layer annotated "disjoint" whose member task `**Output:**` lines in fact overlap; or a per-task count gate scoped repo-wide inside a parallel layer.
-- **Detection:** For each Orchestration, read the declared dispatch layers. For every layer with 2+ members, collect each member task file's `**Output:**` paths and intersect them pairwise. Assert a `Computed Write-Target Intersection` row exists for that layer carrying a shown result (`∅` or the named paths) plus a Verdict, and that the computed result matches the shown one. Then Grep each member's gate commands for a tree-wide count with no path scoping. Any one → BLOCKER.
+- **Detection:** For each Orchestration, read the declared dispatch layers. For every layer with 2+ members, collect each member task file's `**Output:**` paths and intersect them pairwise. Assert a `Computed Write-Target Intersection` row exists for that layer carrying a shown result (`∅` or the named paths) plus a Verdict, and that the computed result matches the shown one. Then Grep each member's gate commands for a tree-wide count with no path scoping. When flags were routed into the member task files after the table was written, re-read them too: a flag that tells a task to write a new artifact adds an output the table never saw (see `read-confirm-act-protocol.md` §1.3, "A Produce-Flag Is a Write-Set Delta"). Any one → BLOCKER.
 - **Finding template:** `[BLOCKER] Dispatch layer {L2 = {2,3}} declared disjoint but write-targets intersect at {path} | File: {Orchestration path} | Fix per references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §17 | Confidence: HIGH`
+
+## 18. A Sheet a Human Runs Is Written for the Operator's Terminal
+
+A run sheet, a README or a task file that hands a human a command to paste, a stop rule to follow or a log to read is written on the author's screen and from the author's intent. The operator has a narrower terminal, no copy of the design, and a habit of acting when the sheet is silent. The sheet then breaks or misleads in a way no reviewer reading it in an editor can see. §12.2 of [scaffolding-hygiene.md](scaffolding-hygiene.md) ("Scaffolded Verification Commands Derive the Repo Root — Never Assume Directory Depth") makes a verification command sound for the runner that executes it. This section makes a sheet sound for the person who pastes it. Two recurrences follow.
+
+### 18.1 Break the paste line, and make "Watch for" read the resolved parameters
+
+> [!constraint] A long command in a sheet a human pastes becomes two commands when the terminal wraps it
+> **Rule.** The first command runs quietly with its last flag missing. The second command is the stray flag, and it fails loudly. The harm is not the error line. The run still produces a grade on a different setup than the sheet states.
+>
+> **Example.** A reset line of about 150 characters:
+> ```powershell
+> python driver/reset_state.py --plan state/plan.heavy.json --mode chain --arm <arm> --recorder python --keep-compact-section --fixture-seed 11
+> ```
+> The operator pasted it into a terminal of ordinary width. `--fixture-seed 11` landed on its own line. The shell ran the reset without it, then printed `Missing expression after unary operator '--'`. The reset printed a random seed. On a second attempt the operator pasted the tail onto the launch line, which failed the same way. The probe ran to a clean PASS on the wrong fixtures. One of its clauses now carries a seed confound that the design cannot separate from the cause under test.
+>
+> Three consequences:
+>
+> - **Break the line, or make the paste unbreakable.** Give one flag per line with a continuation character (PowerShell backtick, bash backslash). Or give the script a named preset (`reset_state.py --preset <name>`), so the sheet carries one short token instead of seven flags.
+> - **Put the resolved parameters in "Watch for", not only the outcome.** The tool echoed its seed. The sheet should have said that the printed line must name the stated seed, and that any other value means a flag wrapped, so the operator re-runs the reset before launching. An echo nobody is told to read is not a check.
+> - **Test the sheet by pasting it** into a terminal at the width the operator has. Do not test it by reading it in an editor at 200 columns.
+>
+> WRONG — one 150-character line, the decisive flag last, and "Watch for" silent on it:
+> ```powershell
+> python driver/reset_state.py --plan state/plan.heavy.json --mode chain --arm <arm> --recorder python --keep-compact-section --fixture-seed 11
+> ```
+> CORRECT — a continuation per flag, and the printed value is a gate in the sheet:
+> ```powershell
+> python driver/reset_state.py `
+>   --plan state/plan.heavy.json --mode chain --arm <arm> `
+>   --recorder python --keep-compact-section `
+>   --fixture-seed 11
+> # Watch for: the printed line must say "seed 11". Any other seed means a flag wrapped. Re-run the reset.
+> ```
+
+**Applies to** any run sheet, README or task file that gives a human a command longer than about 80 characters to paste into an interactive shell. Where a probe's comparability rests on a flag near the end of the line (a seed, a mode, an overlay path), put that flag first or on its own line. When grading a probe whose setup echo exists, read the echo against the sheet before grading, and record any mismatch as a deviation beside the grade.
+
+### 18.2 The stop rule covers a halt the harness starts
+
+> [!constraint] A stop rule that lists predicted outcomes does not cover the halt its author did not predict
+> **Rule.** An operator facing an unlisted message will do something, and whatever they do becomes part of the measurement. A resumed run is a second condition that shares one row and one `n=1`.
+>
+> **Example.** A probe sheet's "Watch for" said to stop if the nonce is missing, a boundary is missing, or a post-compaction row is missing after a pre-compaction row. At step 2 the CLI printed a message the sheet never mentioned. It was an auto-compaction guard: "context refilled to the limit within 3 turns of the previous compact, 3 times in a row ... use /clear". The turn ended. The operator typed two configuration commands and the session resumed. Steps 3 and 4 then ran with the module's own loop guard blocking six compaction requests, and the context at 79K against a 60K trigger. The resulting row said boundaries 4, a stale nonce on line 4, cost 5.13 USD. It could not say that steps 1 and 2 ran under the designed condition and steps 3 and 4 under another. The "After" evidence paste, which was to run before `/exit`, was skipped because the operator went from the halt straight to the exit.
+>
+> Three consequences:
+>
+> - **Add one general clause to every sheet's stop rule.** If the CLI ends a turn on its own with a message you did not cause (a guard, a limit, an error), type nothing but `/exit`, and report the message and the status line verbatim.
+> - **Make the "After" evidence paste reachable from a halt.** Write it as "before `/exit`, in every case", and repeat it in the stop clause. An evidence paste placed after the run's natural end is skipped when the run ends unnaturally.
+> - **When a resumed run has already happened, record two conditions as two.** Name the turn at which the condition changed and what changed it, in the row's notes and in the flag to whoever compares rows.
+>
+> WRONG — the stop rule lists three predicted failures, and the CLI halts for a fourth reason:
+> ```
+> Watch for: nonce missing | boundary missing | post-compact row missing -> stop
+> CLI: "Autocompact is thrashing ... Try /clear"      (turn ends)
+> operator: <config command>, <config command>        (run resumes, condition changed)
+> row: boundaries=4, n=1                              (two conditions, one row)
+> ```
+> CORRECT — one general clause covers every unlisted halt:
+> ```
+> Watch for: ... -> stop
+> If the CLI ends a turn on its own with a message you did not cause:
+>   do the "After" paste, then /exit; report the message and the status line verbatim.
+> ```
+
+**Applies to** any run sheet for a paid, one-run measurement where the operator can resume the session after the harness stops it. It also applies to any stop rule written as a list of predicted outcomes, because the list is a floor, not a fence. When grading a run whose screen shows a halt followed by completion, the ledger, not the screen, says what condition each step ran under.
+
+## 19. An Orchestrator Re-Verify Item Names a Replay Command the Producing Task Ships
+
+An Orchestration or Post-Dispatch Checklist item that says "re-run X yourself" or "independently re-verify X" is a claim about an artifact. The task being checked must leave that artifact behind. A task that runs the check by hand and then cleans up its inputs leaves nothing to replay. The checklist item then cannot be done, or the orchestrator rebuilds the inputs and produces task outputs itself. §1.26 of [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) ("The Ownership Window") says when a replay may run. This section says what the task must ship so a replay exists.
+
+> [!constraint] Pair every orchestrator re-verify item with a named command in the producing task's Output
+> **Rule.** When the check is "re-run the dry-run yourself", the task ships the dry-run as a command. It does not ship a procedure that the runner performs and then cleans up.
+>
+> **Scaffold-time step.** For each re-verify item in the Orchestration, find the producing task's `**Output:**` line. It must name a file that carries a replay mode, and the Orchestration item must name that command. Where no such command exists, add the mode to the task's Output before the plan closes.
+>
+> WRONG — the checklist asks for a replay, but the task deletes its inputs:
+> ```
+> Orchestration: "re-run the planted-defect cases yourself"
+> Task 2 Step 3: plant defects (a)-(f) by hand in a temp dir
+> Task 2 Step 4: remove the temp dir
+> ```
+> CORRECT — the task ships the replay as a mode of its own output file:
+> ```
+> Task 2 Output: <gate_script>.py (includes --self-test)
+> --self-test: rebuild the clean case and each planted defect in mkdtemp, run the gates,
+>              print Case | Gate | Expected | Observed, remove the temp dir, exit 0 only if all match
+> Orchestration: "run <gate_script>.py --self-test yourself"
+> ```
+
+**Why this matters.** Without the command, the only way to replay is to rebuild the fixtures from the baseline file. A context boundary can forbid that read. Even where it does not, the rebuild makes the orchestrator produce task outputs. In the measured case the gate script exposed only `--all` and `--gate`, and the Phase-1 READ caught the gap. The user chose a binding spec change that added the mode. After the task, the orchestrator ran the mode itself and got 29 of 29 rows matching. After a later task it ran the mode with an expectation flag (`--self-test --expect-live pass`) the same way.
+
+**Side benefit.** A replayable harness also serves later tasks. Here it re-proved gate discrimination after a later split at no extra authoring cost.
+
+**The replay runs after acceptance.** It creates files only in a temp directory and removes them. It does not write the runner's Output files, so it stays inside the read-only rule of the Ownership Window.
+
+**Applies to** DELEGATED sessions whose orchestration must re-verify a runner's own verdict. It applies most to gate-building tasks, dry-runs and planted-defect tables. It also applies to any check whose fixtures live in a temp directory.
+
+#### Reviewer Check 099 — Orchestrator Re-Verify Item With No Shipped Replay Command
+
+- **Severity / Role:** WARNING | Scaffolding Hygiene Reviewer | NEW
+- **What:** An Orchestration or Post-Dispatch Checklist item of the form "re-run X yourself" or "independently re-verify X" whose producing task's Output names no replay command. The item's only source is a procedure the runner performs and then cleans up.
+- **Detection:**
+  1. `Grep` each Orchestration for `re-run .{0,40}yourself|independently re-verif|re-verify .{0,40}yourself`.
+  2. For each hit, find the producing task file and read its `**Output:**` line and Execution Steps.
+  3. Assert the Output names a command, or a mode of an output file, that rebuilds the fixtures and prints the verdict. Assert the Orchestration item names that same command.
+  4. Flag an item whose only source is a procedure in the task's steps that plants fixtures and then removes them.
+- **Finding template:**
+```
+[WARNING] Re-verify item names no replay command the producing task ships
+File: {Orchestration path} | Location: Post-Dispatch Checklist / Execution Strategy
+Issue: item "{quoted item}" asks the orchestrator to replay {X}, but Task {N} Output names no command that rebuilds the fixtures; its steps plant them by hand and remove them
+Fix: Add a replay mode (for example --self-test) to Task {N}'s Output file and name it in the Orchestration item, per references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §19 | Confidence: MEDIUM
+```
 
 ---
 
-*Five binding hygiene rules for what a multi-sprint scaffold must compute before it closes — Part 2 of 2. Sections §1–§12, the rules governing what the scaffold emits, live in [scaffolding-hygiene.md](scaffolding-hygiene.md). Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*
+*Five binding hygiene rules for what a multi-sprint scaffold must compute before it closes, plus the §18 sheet-authoring rule and the §19 replay-command rule — Part 2 of 2. Sections §1–§12, the rules governing what the scaffold emits, live in [scaffolding-hygiene.md](scaffolding-hygiene.md). Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*

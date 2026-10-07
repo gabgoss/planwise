@@ -1,5 +1,5 @@
 ---
-description: Count the population before naming a cause, and check whether the failure was already measured under the remedy you are proposing. Covers why a contradiction between two representations of one fact is evidence about the writers, why the plausible per-instance story stops you counting, the six-step procedure when two representations disagree, why the within-file duplicate hides longest, the treatment-arm check before proposing a remedy, and the four moves that keep "undocumented" from standing in for "untried". Consult before naming a cause from one observed instance, before filing or routing a remedy, and whenever a hypothesis proposes adding something to a system whose failure you are explaining.
+description: Count the population before naming a cause, and check whether the failure was already measured under the remedy you are proposing. Covers why a contradiction between two representations of one fact is evidence about the writers, why the plausible per-instance story stops you counting, the six-step procedure when two representations disagree, why the within-file duplicate hides longest, the treatment-arm check before proposing a remedy, the four moves that keep "undocumented" from standing in for "untried", and why a fallback recipe keyed on a predicted error string is a hypothesis and the printed rule is what gets fixed. Consult before naming a cause from one observed instance, before filing or routing a remedy, before pinning a fallback to a tool message the tool has not yet printed, and whenever a hypothesis proposes adding something to a system whose failure you are explaining, before choosing a remedy against a headline count that no one has grouped by category, and before recording a mechanism for a figure discrepancy without checking that it moves the number in the observed direction. Also covers why a would-file count is broken down by path segment before a destructive remedy is chosen, and why an unchecked "character count mislabeled as bytes" explanation predicts the wrong sign. Also covers why a fresh red test makes two claims (the code is wrong, and this assertion is the right one) and why its premise is checked, by naming what each operand measures and reading the code at the asserted line, before a module fix is routed.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Verify the Cause Before the Remedy — Count the Population; Check Whether the Remedy Already Shipped
@@ -22,6 +22,10 @@ The two halves are one rule because they share a test. §1–§4 ask *"is this i
 - [4. The Class Generalises Past Status Fields, and the Within-File Member Hides Longest](#4-the-class-generalises-past-status-fields-and-the-within-file-member-hides-longest)
 - [5. Before Proposing a Remedy, Check Whether the Failure Was Already Measured Under It](#5-before-proposing-a-remedy-check-whether-the-failure-was-already-measured-under-it)
 - [6. Why the Mistake Is Easy, and the Four Moves That Prevent It](#6-why-the-mistake-is-easy-and-the-four-moves-that-prevent-it)
+- [7. A Fallback Recipe Keyed on a Predicted Error String Is a Hypothesis; Fix the Printed Rule](#7-a-fallback-recipe-keyed-on-a-predicted-error-string-is-a-hypothesis-fix-the-printed-rule)
+- [8. Break a Would-File Count Down by Category Before Choosing a Remedy](#8-break-a-would-file-count-down-by-category-before-choosing-a-remedy)
+- [9. Check That a Proposed Cause Moves the Number in the Observed Direction](#9-check-that-a-proposed-cause-moves-the-number-in-the-observed-direction)
+- [10. A Fresh Red Test Is Two Claims — Check Its Premise Before Routing a Module Fix](#10-a-fresh-red-test-is-two-claims--check-its-premise-before-routing-a-module-fix)
 
 ---
 
@@ -137,6 +141,130 @@ The proposed remedy was not merely present but well-executed. A summarised versi
 > ```
 
 The exculpation comes first because a rule a reader believes is about carelessness will be filed as not-applicable-to-me, and the incident's defining feature is that the research was correct and the inference from it was not. The cost asymmetry closes it: reading the artifact costs minutes, while shipping a remedy already in force costs a cycle and produces a result **indistinguishable from the current state** — and worse, displaces attention from the real cause.
+
+---
+
+## 7. A Fallback Recipe Keyed on a Predicted Error String Is a Hypothesis; Fix the Printed Rule
+
+> [!constraint] A recipe written before the tool ran is a prediction wearing an instruction's clothes
+> It carries the same authority as a spec step, and a runner has no reason to doubt it. That holds until the tool prints its own rule. At that moment the printed rule outranks the predicted one. The fix has to satisfy the validator that exists, not the one the design imagined. §5 ("Before Proposing a Remedy, Check Whether the Failure Was Already Measured Under It") asks whether the remedy already shipped. This section asks whether the failure the recipe targets is the failure the tool printed.
+
+A module design pinned an assumption about a validator that had never run on the module. The design said the static scan would refuse a closure table over `<ctx>` with the text `"<ctx>.<noun> is used as a value"`. It wrote a fallback recipe for that refusal: move the bind into the early hook, and spell `<ctx>` calls in-hook for the hooks that can fire earlier. The task file made the recipe binding: "on a refusal naming `<helper>`, apply the fallback".
+
+The validator refused the file on the first run, naming `<helper>`. Its text was a different rule: `<ctx> is passed to "<helper>", which is not a function declared at the top of this file (a function declaration, or a const bound to one)`. The refusal was about the declaration's scope, because `<helper>` was nested inside `register()`. It was not about `<ctx>` being used as a value.
+
+The recipe's restructuring would have rewritten every helper the early-firing hook calls to take raw `<ctx>`. That is a far larger change than the refusal asked for, aimed at a rule the validator did not state. The runner applied the fix the measured text asked for. It hoisted `<helper>` to module scope and replaced its one closure with an `<env>` parameter. The change was eight lines, with fifteen call sites gaining one argument and no hook body changed. Validation passed on the next run.
+
+> [!constraint] Read the refusal for the property it names, and fix that property
+> WRONG — the refusal names the function, so the pre-written recipe fires:
+> ```
+> refusal: "<helper> ... is not a function declared at the top of this file"
+> action:  apply the fallback recipe -> bind in the early hook, rewrite 4 helpers to take raw <ctx>
+>          (targets "used as a value", which the validator never said)
+> ```
+> CORRECT — the refusal names a scope rule, so the fix changes scope:
+> ```
+> refusal: "<helper> ... is not a function declared at the top of this file"
+> action:  hoist <helper> to module scope; an <env> parameter replaces its closure
+>          (+8 lines, validate passes; mismatch with the design routed as a flag)
+> ```
+
+Three consequences follow.
+
+1. **Fix the measured cause.** Read the refusal for the property it names (here, declaration scope). Choose the smallest edit that changes exactly that property. Applying the pre-written recipe because it is "the fallback" fixes a rule nobody observed.
+2. **Name the trigger text as a hypothesis.** "If the refusal says X, do Y" is fine. "On any refusal naming `<helper>`, do Y" binds Y to refusals Y was never designed for.
+3. **Route the mismatch, do not absorb it.** The design's assumption is now known wrong, and the fix has a shape the design did not anticipate. Put both in a coordination flag to the session that next type-checks or re-validates the file. That session then checks the hoisted shape against the real declarations instead of assuming it sound.
+
+**Applies to** any design that pins a fallback to an error string from a tool that has not yet run against the artifact. That covers static scans, linters, schema validators and CLI `validate` subcommands. When you review a "fallback applied" report, ask whether the fix matched the measured text or the anticipated one, and whether the difference was routed downstream.
+
+---
+
+## 8. Break a Would-File Count Down by Category Before Choosing a Remedy
+
+> [!constraint] A headline count is an aggregate, and a remedy chosen against an aggregate treats every unit as the same kind of thing
+> Before choosing between remedies, spend one call finding out what the units are. The question is "how many of what". The answer is usually a `Counter` over one path segment.
+
+The first real dry run of a version-watch scan on `<vN> → <vN+1>` reported 686 would-file items against 372 rows of index headroom. The verdict was HALT. The plan had one remedy ready: `<cleanup-script> --target index`, a destructive user-run script that removes every COMPLETE and CLOSED row. The orchestrator framed the choice on the two headline numbers. 686 is "far over any headroom the remedy can create", so the choice was cleanup or nothing. Both halves of that framing were wrong.
+
+Grouping the 686 rows by top-level directory gave `<plans-dir> 573, <docs-dir> 59, <wip-dir> 33, <tooling-dir> 15, <config-dir> 5, <vendored-dir> 1`. One level down, 551 of the 573 sat under `<plan>/**`, and 545 of those were `Results/raw/*.json`. These are frozen output dumps, and each happens to contain a CLI version string. Nobody edits a measurement record when the CLI moves.
+
+Adding `Results` to the scan scope's excluded-directories list (beside `Outputs` and `Reviews`, excluded for the same reason) dropped the count to 135, under the unchanged headroom. The cleanup was never run. A derived JSON file fell from 84.4 MB to 35.6 MB as a side effect.
+
+The capacity claim was also uncounted. 189 of the index's 239 rows were COMPLETE or CLOSED, so the cleanup would have freed roughly 1,080 rows of headroom. The orchestrator had asserted "cannot free enough" without counting. A `Grep` with `output_mode='count'` for `| COMPLETE |` over the index settles it.
+
+> ```
+> WRONG — choose against the aggregate:
+> 686 would-file > 372 headroom → HALT → the plan's remedy is the cleanup script → ask cleanup-or-nothing
+>
+> CORRECT — break the aggregate down, then choose:
+> Counter(top-level dir) → <plans-dir> 573
+> Counter(second level under <plans-dir>/Plans) → <plan> 551 → Results/raw 545
+> → 545 of 686 are frozen artifacts → one exclude entry → 135 < 372 → OK, no cleanup
+> ```
+
+Three points follow.
+
+- **Group before you decide.** One `Counter` over the first path segment, then over the second for the largest bucket, took under a minute. It changed the remedy class from destructive to one config line.
+- **Prefer the exclude that names a category over the remedy that makes room.** Excluding `Results/` states what kind of file is never a work item and holds on every future run. Cleaning the index states how much room there is and buys one run.
+- **Do not assert a capacity claim you have not counted.** "The cleanup cannot free 314 rows" reasoned about a script's purpose. It did not count the rows the script would remove.
+
+**Applies to** any gate that compares a count against a capacity, where the remedy on offer is destructive or expensive. That covers index headroom, a token budget, a file-count cap and a review queue. A large bucket of one kind is usually a scope defect, not a capacity problem.
+
+---
+
+## 9. Check That a Proposed Cause Moves the Number in the Observed Direction
+
+> [!constraint] A mechanism recorded for a discrepancy must move the number in the direction observed
+> A plausible-sounding unit confusion can predict the opposite sign. If no checked cause fits, record the measured value and write "cause unknown". Do not supply a cause that reads well.
+
+Two runners each found a brief figure larger than the bytes they measured:
+
+| Brief figure | Measured |
+|---|---|
+| 6,950 for the pre-cut section | 5,510 bytes |
+| 83,732 for a sum | 82,984 bytes |
+
+Both runners explained the gap the same way: "the brief's figure is a character count, mislabeled as bytes". That cause cannot be true. A UTF-8 character is one to four bytes, so a span's character count is never larger than its byte count. A character count would sit below the byte figure, not above it. The explanation was recorded in a snapshot, a Recovery row and a ledger before the orchestrator caught it.
+
+> ```text
+> WRONG — a familiar mechanism, recorded without checking its direction:
+> Brief says 83,732; measured 82,984 bytes. The brief's figure is a char count, not bytes.
+>
+> CORRECT — the direction is checked, and the cause is left open when nothing fits:
+> Brief says 83,732; measured 82,984 bytes. A char count cannot exceed bytes for UTF-8 text, so
+> "char count" does not explain a larger figure. Cause unknown. The measured value stands.
+> ```
+
+**Applies to** any reconciliation between a recorded figure and a fresh measurement: byte, character and token counts, row totals and before/after deltas. The rule bites hardest when the explanation is a well-known trap that sounds right at a glance. The byte-versus-character trap itself is in [`measure-aggregate-provenance.md`](measure-aggregate-provenance.md) § "5. Every Operand of a Byte Identity Comes From One Byte Instrument". It invites this error.
+
+---
+
+## 10. A Fresh Red Test Is Two Claims — Check Its Premise Before Routing a Module Fix
+
+> [!constraint] A new test that goes red claims "the code is wrong" and "this assertion is the right one"
+> When the test was written in the same round as the fix, nothing has ever shown the second claim true. Before you dispatch a module fix for a fresh red test, spend one read on the premise.
+
+**Worked case.** A fix round added a test asserting that the migrator reports every refusal in one run. The suite showed `assert len(report["would_refuse"]) == len(exc.value.items)` as `1 == 4`. The orchestrator told the user the `--report` path was still broken and sent the runner a module fix. The runner returned a collision note instead. The report builder plans with every repair flag on, so every flag-closable refusal is closed and exactly one survives. The module already enumerated every refusal item. The test compared an all-flags report against a no-flag plan's four items. A test-only fix closed it, and the orchestrator retracted its diagnosis twice.
+
+Three operative steps:
+
+- **Ask what each side of the failing assertion measures.** Name the inputs, flags and mode that produced each operand. The `1 == 4` failure compared two configurations, and that was visible from the two call sites without running anything.
+- **Read the code at the line the assertion exercises** before calling it broken. Two lines settled the worked case.
+- **Route by what you found.** A wrong premise gets a test fix. Only a confirmed code defect gets a module fix, and the dispatch names the line that is wrong.
+
+```
+# WRONG — the red assertion is taken as the diagnosis:
+new test red: 1 == 4 -> "the --report path is broken" -> dispatch a module fix -> retract later
+
+# CORRECT — the premise is checked first:
+new test red: 1 == 4 -> what produced 1? (--report, all repair flags on)
+                     -> what produced 4? (plan, no flags)
+                     -> unlike operands -> fix the test, leave the module
+```
+
+**Report the diagnosis as provisional.** Before this check, tell the user "the new test fails at X; checking whether the test or the code is wrong". A confident wrong diagnosis costs a retraction.
+
+**Applies to** orchestrators reading a runner's newly written failing test, failing-first fix rounds, and any assertion that compares the outputs of two entry points or configurations: report versus write, all flags versus none, dry-run versus write.
 
 ---
 

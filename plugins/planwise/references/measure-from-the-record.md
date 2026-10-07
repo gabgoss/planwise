@@ -1,5 +1,5 @@
 ---
-description: Grade a delegated result or a probe from the record, never from the narration — and know which field of the record discriminates. Covers why a transcript-recovered synthesis is provisional and systematically softer than the delivered report, why a correct verdict is not evidence the attribution was correct, why `is_error` alone cannot separate a denial from a downstream failure, where the field that can separate them actually lives, and why a downstream proxy (token count, wall time) cannot substitute for a harness setting's own recorded value. Consult when a reviewer's reply did not route, when grading a probe's outcome or its cause, when scoring a permission dry-run, and when gating a sweep over a model or CLI setting.
+description: Grade a delegated result or a probe from the record, never from the narration — and know which field of the record discriminates. Covers why a transcript-recovered synthesis is provisional and systematically softer than the delivered report, why a correct verdict is not evidence the attribution was correct, why `is_error` alone cannot separate a denial from a downstream failure, where the field that can separate them actually lives, and why a downstream proxy (token count, wall time) cannot substitute for a harness setting's own recorded value. Consult when a reviewer's reply did not route, when grading a probe's outcome or its cause, when scoring a permission dry-run, and when gating a sweep over a model or CLI setting. Also covers why a summary field whose name rhymes with the measure must be recomputed from the definition and tested against a control session, and why a field is traced to the code that writes it, including any conditional logging, rather than accepted from the first search hit.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Grade From the Record — The Narration Got the Outcome Right and the Record Said Something Else
@@ -18,6 +18,9 @@ Three neighbouring rules own adjacent machinery. [`dispatch-boundary-evidence.md
 - [2. Grade the Mechanism, Not Only the Outcome](#2-grade-the-mechanism-not-only-the-outcome)
 - [3. Know Which Field Discriminates, and Capture It at the Moment It Exists](#3-know-which-field-discriminates-and-capture-it-at-the-moment-it-exists)
 - [4. The Recovery Recipe](#4-the-recovery-recipe)
+- [5. A Summary Field Whose Name Matches the Measure Is Not the Measure](#5-a-summary-field-whose-name-matches-the-measure-is-not-the-measure)
+- [6. Trace a Field to the Code That Writes It, Not to the First Search Hit](#6-trace-a-field-to-the-code-that-writes-it-not-to-the-first-search-hit)
+- [7. A Grader That Archives "The Transcript" Must Enumerate Every Session Id the Log Names](#7-a-grader-that-archives-the-transcript-must-enumerate-every-session-id-the-log-names)
 
 ---
 
@@ -149,6 +152,111 @@ The fixture-side half of the same incident — why a known-good probe aimed at a
 > Step 2's bounded extraction form — a small-window `-o` match on the status-block field names, taking the last hit — is [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md) §4. If this recipe drifts out of sync with the harness's transcript layout, fix the recipe and leave §1's rule untouched.
 
 §1 and §3 are both "the artifact you are reading is not the artifact you need", but the missing artifact differs in kind and so does the remedy: §1's exists and will arrive later (wait and diff), §3's was never persisted and must be captured at invocation or it is gone forever. Merged, they produce "check your sources", which supplies neither action.
+
+---
+
+## 5. A Summary Field Whose Name Matches the Measure Is Not the Measure
+
+> [!constraint] Recompute a headline figure from its definition, and test it against a session that cannot have the property
+> A summary field is named for what it stores, not for the question the task asks. When the two names rhyme, a runner takes the field. Every downstream gate passes, because the structure gate, the measure gate and the status block never test the definition.
+
+A task graded a context-reset arm. Its headline deliverable was the re-entry load: the tokens a clear-then-resume re-entry costs before the session is back at its next dispatch. The task defined it as "the tokens from its first call through the context-loaded block". The design predicted 43.7K to 68.2K.
+
+The runner read the per-session ledger summaries and found `first_call_read` = 28,192 on all three post-clear sessions. It reported "re-entry load 28,192, constant, 5.7x lighter than the baseline arm's 159,633". The status block was clean and the file passed every structural gate.
+
+The same archive held the ORIGINAL session's ledger, and its `first_call_read` was 28,192 too. A re-entry load that is identical on the session with no re-entry is not a re-entry load. The field is the static-prefix cache read, which the first call of every session pays.
+
+The orchestrator ran the ledger tool read-only on one post-clear transcript. Creation went 22K, 28K, 49K, 28K across calls 1 to 4, and context was 156,028 by the fourth call. Recomputed as the per-call `context` at the call that issues the first dispatch, the load was 159,113 / 165,780 / 149,749, mean 158,214. That is the same order as the baseline arm. The corrected figure reversed the arm's conclusion: the resume skipped the approval, not the reads.
+
+> ```
+> WRONG — take the field whose name matches:
+> ledgers[sid].first_call_read = 28,192 for every post-clear session
+> → "re-entry load = 28,192 (n=3)"
+>
+> CORRECT — recompute from the definition, and test it against a session where the value must differ:
+> definition: tokens accrued from the first call through the re-entry point
+> → per-call table: context at the call that issues the first dispatch
+> → 159,113 / 165,780 / 149,749
+> control: the ORIGINAL session shows first_call_read = 28,192 as well
+> → a "re-entry" figure that a non-re-entry session also has measures something else
+> ```
+
+Three rules follow.
+
+1. **Name the computation in the brief, not the field.** Every headline figure in a grade task names how it is computed. The brief says "context at the call that issues the first dispatch, from the ledger tool's per-call table", never "the ledger's first-call figure". A field name in a brief is an invitation to copy it.
+2. **Test a per-arm figure against the arm's own control.** A session in the same archive that cannot have the property is the cheapest control there is. If the figure is unchanged there, the field is wrong, whatever it is called.
+3. **The orchestrator recomputes the one number that decides the arm.** A headline measurement is a verdict expressed as a number, so the rule in [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) § "1.16 Recompute Delegated Verdicts from Primary Evidence" applies to it. One read-only ledger run took one call and caught a 5.6x error.
+
+[`measure-aggregate-provenance.md`](measure-aggregate-provenance.md) is the sibling that governs sums and denominators. This section governs which field a figure is read from.
+
+---
+
+## 6. Trace a Field to the Code That Writes It, Not to the First Search Hit
+
+> [!constraint] A field name found by searching data is a hypothesis, not a citation
+> A superficially matching field name, found by searching data rather than reading the code that produces it, is a hypothesis. Confirm it by reading the producer.
+
+A backlog item asked a grader script to tell a real keystroke from a machine-relayed prompt using an `origin` field. The item said the field carries the values `composer`, `peer` and `task-notification`. A search for `"origin"` across archived transcripts found `"origin":{"kind":"human"}` at once, in a file named `*-transcript.jsonl`.
+
+It was the wrong field. The file was a derivative analysis artifact from an earlier, unrelated proof of concept. It carried its own invented vocabulary (`human`, `coordinator`) that reused the word "origin".
+
+The real field was the engine's own `<EventOrigin>` type, declared in the engine's type definitions with exactly the `composer`/`peer`/`task-notification` vocabulary. It was populated only in the hook log's `prompt.submit` rows, written by the module's own handler (`origin: e.origin.kind`). Confirming this took one read of the module's source, not another search of transcript data.
+
+The handler's logging was conditional: `if (<ctx> !== null || <clearedQuestion> || <arm>.logAll)`. The log was therefore a complete record of every prompt only for the one arm configured with `logAll: true`. A fix that read from the log without checking this would have under-counted silently on every other arm. It would have traded one wrong number for a differently wrong number.
+
+> ```
+> WRONG — search transcript data for the field name, accept the first hit:
+> Grep  pattern='"origin"'  glob='**/*.jsonl'
+> # finds "origin":{"kind":"human"} in an unrelated derivative analysis file
+> # implement filtering on this field → silently wrong discriminator
+>
+> CORRECT — read the code that emits the field, confirm the vocabulary matches,
+> and check for logging conditions that could make the source incomplete:
+> Grep  pattern='<EventOrigin>'  glob='types/*.d.ts'                 # confirms composer/peer/task-notification
+> Grep  pattern="on\('prompt.submit'"  path='<module>/hooks/'         # finds the actual producing code
+> # → origin: e.origin.kind, logged only when (<ctx> !== null || <clearedQuestion> || <arm>.logAll)
+> Grep  pattern='logAll'  path='<module>/hooks/arms/'                 # only one arm is a complete record
+> ```
+
+Two points follow.
+
+- **Verify the vocabulary before trusting a hit.** When an item names a field and its value set, confirm the value set matches. A matching field name with a non-matching value set is a different schema, not a partial match.
+- **Trace a data field to the code that writes it.** The absence of a row is exactly what a data-only search cannot see. Check the producing code for conditional logging before treating a log as an exhaustive source.
+
+The rule that a verdict about a feature rests on a search of the implementation, not the prose, is [`verify-verdict-source.md`](verify-verdict-source.md) § "1. A Negative Verdict About a Feature Rests on a Symbol-Level Search of the Implementation, Never on Prose". This section applies it to a field in a record.
+
+---
+
+## 7. A Grader That Archives "The Transcript" Must Enumerate Every Session Id the Log Names
+
+> [!constraint] "The transcript" is a singular that stops being true when a boundary mints a new session id
+> A grader built on the singular fails silently. It still finds a file, computes a ledger, and prints a cost.
+
+A grader archived the run's transcript beside its sidecar and computed `Turns`, the per-call ledger and cost from that one file. Every earlier arm kept one session id from start to exit, so "the transcript" was one file. A later arm ran `/clear` after each step. Each `/clear` minted a new session id, and the run spanned four.
+
+The grader found the last id in the log (`<id-4>`) and archived one file under that name. That file held the first session's bytes: 373,813 bytes, equal byte for byte to the live `<id-1>` transcript, with its own module dump reading `session=<id-1>`. The live `<id-4>` file was 248,495 bytes. The sidecar reported `Turns=4` and `cost 0.66 (0.82) USD`. Those were one session's figures out of four.
+
+Three consequences follow.
+
+1. **Archive by the log, not by a lookup.** Enumerate every distinct `session_id` in the run's log. Archive the transcript at each `transcript_path`. Name each archive by its own id. A run with N ids produces N archives, or the grader says why not.
+2. **Compute whole-run figures from the log's per-session rows when they exist.** The module's `turn.complete` rows carried cumulative usage per session (207,757 / 196,587 / 148,825 / 128,860 read tokens). Summing them was possible without the missing transcripts. Cost was not, because the cost formula lived only inside the grader. Expose it as a function that takes a transcript path.
+3. **Print the scope beside the number.** `Turns=4 (session 1 of 4)` is honest. `Turns=4` is not. A results row that inherits a scoped number says so in its Notes cell, and the write-up does not compare it like for like.
+
+> [!constraint] Every id the log names gets its own archive, and the scope prints beside the figure
+> WRONG — one lookup, one archive, whole-run columns filled from it:
+> ```
+> last_id = last session_id in log            -> <id-4>
+> archive(transcript_for(last_id))            -> writes <id-1>'s bytes as <id-4>.jsonl
+> Turns, ledger, cost <- that file            -> 1 of 4 sessions, labelled as the run
+> ```
+> CORRECT — every id the log names, each archived under its own name, scope printed:
+> ```
+> ids = distinct session_id in log            -> [<id-1>, <id-2>, <id-3>, <id-4>]
+> for id in ids: archive(transcript_path[id]) -> 4 files, 4 names
+> Turns, ledger, cost <- sum over ids         -> "4 sessions; per-session rows below"
+> ```
+
+**Applies to** any grader, sidecar writer or cost reporter that archives or reads "the" session transcript. It also applies to arms, probes or hooks that call `/clear`, resume a session, or relaunch a child process mid-run, and to results tables where one row's `Turns` or `Cost` sits beside another row's.
 
 ---
 

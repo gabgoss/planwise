@@ -1,5 +1,5 @@
 ---
-description: Behavior-change surface sweeps — after a change lands, sweep the surfaces that describe and call it: structured manifest/schema fields (not just the prose beside them), the caller that routes a detection to its repair, a newly-reachable branch, the data-cleanup counterpart — the instruction that regenerates a defect, and the value FORM a migration must take — and the claim-truth counterpart: closing an item, retracting a finding, or deleting quoted prose each leave other artifacts asserting the old truth.
+description: Behavior-change surface sweeps — after a change lands, sweep the surfaces that describe and call it: structured manifest/schema fields (not just the prose beside them), the caller that routes a detection to its repair, a newly-reachable branch, the data-cleanup counterpart — the instruction that regenerates a defect, and the value FORM a migration must take — and the claim-truth counterpart: closing an item, retracting a finding, or deleting quoted prose each leave other artifacts asserting the old truth — and the re-key counterpart: when a rule is re-keyed, enumerate its consumers by medium, because code that calls the shared function inherits the change and prose that restates the rule does not — and the module-split counterpart: a consumer census covers prose (a handler or reference that tells an agent to call `module.name(...)` is a consumer) and keeps every attribute the monolith bound, imported names included.
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -16,6 +16,10 @@ A behavior change lands on surfaces beyond the code that implements it. **The te
 §8.7 asks whether a gate can fail. This section asks a prior question: whether the change was even applied everywhere it is stated. Sub-rules A–C are one sweep, in causal order — C only ever arises as a consequence of acting on B, so they are not separable. Sub-rules D and E are the same discipline turned on **data cleanup** rather than behavior change: where A–C ask which surfaces still *describe* the old behavior, D asks which surface is still *producing* the old data, and E asks whether the new data actually took the shape the destination scheme defines.
 
 Sub-rules F–H turn it on a third subject: **a claim whose truth changed.** Closing an item, retracting a finding, and deleting a quoted sentence each falsify statements recorded elsewhere, and every one of those statements was correct when written — so no reviewer of those files flags anything. They are wrong only relative to a change made elsewhere, later.
+
+Sub-rule I turns it on a fourth subject: **a rule re-keyed from one source to another**, whose consumers sit in two media. Code that calls the shared function inherits the change, and prose that restates the rule does not.
+
+Sub-rule J turns it on a fifth subject: **a module split into a facade plus siblings.** The census of names the facade must keep resolving is itself a sweep, and a census read from code alone is too small.
 
 > [!constraint] A — Update the field, not just the prose beside it
 > WRONG — the fix updates the human-readable half and leaves the machine-readable half asserting the old behavior. The row now asserts two contradictory things about the same key, and the authoritative half is the false one:
@@ -221,6 +225,71 @@ Sub-rules F–H turn it on a third subject: **a claim whose truth changed.** Clo
 > **Reader-side rule: a citation returning 0 hits means "verify why", not "the justification collapsed."** That is the reading a closeout reconciliation session owes an upstream flag whose quoted evidence has vanished.
 
 **Applies-to surface (sub-rules F–H).** Any close, retraction, or deletion that changes the truth of a claim other artifacts already recorded. F walks forward from a close to the sites that recorded the item open. G walks forward from a retraction to the citations that keep asserting it. H walks backward from a deletion to the flags that quoted the deleted prose. The three directions are distinct and a merged sweep will run only one of them.
+
+> [!constraint] I — When a rule is re-keyed, enumerate its consumers by medium
+> **Rule.** When a rule is re-keyed (a scoring factor, routing signal, status enum or validation rule now reads one source instead of another), list every consumer of the rule before the edit, and split the list by medium. The two media propagate the change differently. Code that calls the shared function inherits it. Prose that restates the rule inherits nothing.
+>
+> A scoring factor awarded a bonus when a regular expression matched a keyword in the index's title cell. A cap on title length meant a keyword past the cap lost the bonus silently. The factor was re-keyed to a frontmatter field, read through one resolver. The rule had four consumers in two media:
+>
+> | Consumer | Medium | What happens at the re-key |
+> |---|---|---|
+> | `<scorer>.compute_score` | code, the definition | edited |
+> | `<generator>.compute_scores_for_items` | code, calls the same function | inherits the change with zero edits, proven by a fixture run and then a regression test |
+> | a template line, "for bug items, include a keyword in the title" | prose restating the rule | still teaches the old rule. Flag it to the session or item that owns the template |
+> | a backlog item's routing signal, "keyword in the title column" | prose restating the rule | still specifies the old read. Flag it to the item, naming the replacement |
+>
+> Three parts to the method:
+>
+> - **Code that calls the shared function inherits the change.** Verify it once with a fixture. Pin it with a regression test, because "inherits" is a claim about the call graph, and a later refactor can break it silently. The test asserts that the bonus moves with `<field>`.
+> - **Prose that restates the rule does not inherit anything.** A template line, a handler step, a backlog item's signal definition: each is a copy of the old rule that outlives the edit. Each one is a coordination flag to its owner. The flag must name the replacement (the resolver, its resolution order, the comparison) so the owner adopts it instead of re-deriving it.
+> - **Measure the population the old rule was mis-scoring before retiring it.** Build a per-item delta table. In the measured case 138 of 183 open items lost the bonus: 124 carried an automated pin-drift title, 10 carried a regenerate title, and 4 matched on incidental prose. One real bug had been missing the bonus because its title used neither word. The count was the strongest argument for the re-key, and it was invisible until the table existed. It is also the number the next cutover audit has to explain.
+>
+> WRONG — treat the definition as the whole change:
+> ```
+> edit <scorer>.compute_score -> tests green -> generator "should" follow -> template and router "will be updated later"
+> ```
+> CORRECT — split consumers by medium, prove the code path, flag the prose:
+> ```
+> grep every consumer of the rule (code callers AND prose restatements)
+>   code caller  -> fixture run + regression test asserting the bonus moves with <field>
+>   prose copy   -> flag to its owner, naming <resolver> and its resolution order
+> measure the per-item delta table -> 138 lost / 1 gained / 44 unchanged, every one predicted
+> ```
+>
+> **Supporting measurement.** The old rule's keyword failed in a second way. Thirty-six of 183 open title cells exceeded a 120-character cap. Three matched the retired keyword 1,047 to 1,392 characters deep in a paragraph-length cell with no keyword in the title. One router signal, as written, already disagreed with the scorer on one open item.
+>
+> **Relationship to the neighbours.** Sub-rules A–E sweep the surfaces that describe and call a changed behavior. This sub-rule adds the split by medium and the regression test for the inheriting code path. [dispatch-edit-surface-sweep.md](dispatch-edit-surface-sweep.md) covers counts, section numbers and enum members bound to many sites.
+
+**Applies-to surface (sub-rule I).** Any scoring weight, routing signal, status enum or validation rule that is defined in one function and restated in templates, handler prose, agent instructions or backlog items. The definition is one consumer. The restatements are the ones that drift.
+
+> [!constraint] J — A module split's consumer census covers prose, and keeps every attribute the monolith bound
+> **Rule.** A markdown handler or reference that tells an agent to run `module.name(...)` is a consumer of the module, exactly like a Python import. A census grepped over `.py` files alone under-counts the surface. A parity gate built on that census reports N of N and passes over a set that is too small.
+>
+> Two operative points:
+>
+> - **Census every surface that can call the module.** Cover scripts, tests, handlers, references, templates and manifests. Include every call form: `from m import x`, `import m as alias` followed by `alias.x`, and `m.x` written in prose or in a `python -c 'import m; m.f()'` recipe.
+> - **Preserve the monolith's full attribute set, not only the names it defined.** A name the old module imported is still an attribute consumers can reach. The facade re-exports it unless a census proves no consumer uses it.
+>
+> WRONG — the census covers code and tests only:
+> ```
+> census = grep 'from <module> import|<module>\.' scripts/ tests/
+> G3: 131/131 census names resolve on the facade -> PASS      # handler prose never scanned
+> # Result: the facade lacks two names the monolith had imported from a sibling module.
+> # A handler tells the agent to call both through the module -> AttributeError at run time.
+> ```
+> CORRECT — the census is the monolith's attribute set plus every prose surface:
+> ```
+> census = every top-level name the pre-split module bound (defined OR imported)
+>        UNION grep over scripts/ tests/ handlers/ references/ templates/ manifests/
+> G3 = every census name resolves on the facade
+> plus a shipped test that pins each handler-cited name to the facade
+> ```
+>
+> **Measured.** The census gate passed 131 of 131 names. A later code review found two names missing. A handler told the agent to call both through the module, and the handler's bookkeeping step then raised `AttributeError`. The fix re-exported both names and added the test that pins each handler-cited name to the facade.
+>
+> **Relationship to sub-rule I.** I splits the consumers of a re-keyed rule by medium. J applies the same split to a moved module: code that imports it is one medium, and prose that calls it is the other.
+
+**Applies-to surface (sub-rule J).** Any split of a module into a facade plus siblings, where documentation directs an agent or user to call module attributes. It applies most to plugin handlers, which are prose the agent executes.
 
 #### Reviewer Check 076 — Detection + Repair With No Routing Deliverable
 

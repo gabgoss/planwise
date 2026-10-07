@@ -99,4 +99,41 @@ When a pivot will demolish artifacts holding empirical findings — a measured d
 
 ---
 
+## 5. A Permission-Change Deliverable Is Not Agent-Executable
+
+> [!constraint] Authorization to do the work is not authorization to change what the agent may do
+> A user who selects a route, answers a routing prompt and types "go" grants item-level consent. The harness separately gates any change to the permission configuration. An agent that can widen its own rules can widen them in directions nobody approved. That gate firing is correct behavior, not a fault to route around.
+
+A backlog item's whole deliverable was a one-character widening of a `permissions.deny` entry. The item was fully specified and explicitly authorized. The harness still refused the `Edit` of the settings file. It then refused a read-only hash of the same file. It then refused a child-process probe whose command string named the file. Every refusal came from a layer above the entry under test, and only a human could approve the change.
+
+Three routing consequences follow.
+
+- **It is not delegable to a fix-agent.** A spawned subagent meets the same gate with less ability to explain the block or to obtain consent. It is also subject to whatever rule it just installed. Direct-fix delegation is the wrong route for this item class, however small and well specified the edit is.
+- **It cannot run under Auto Mode or unattended.** A workflow that assumes the whole item completes without a consent channel stalls at exactly one step, after the preparation is done.
+- **The block radiates to neighbouring reads.** Once the gate engaged on the settings path, an ordinary read-only hash of the same file was refused, and so was a child-process probe whose command string contained the path. Budget for reads about the control being blocked, not only writes to it. Use the native `Read` tool, not a shell equivalent.
+
+**Sequence the blocked step last.** Build everything that does not need the changed permission first: fixtures, the probe harness, a discrimination proof against the current setting, and the recorded revert line. Then the human's approval is followed by minutes of measurement, not by setup. This matters most when the installed state can disrupt other sessions.
+
+> [!constraint] A refusal is a consent gap, not a capability gap
+> WRONG — the edit is denied, so land the same byte change through a tool the gate did not flag:
+> ```
+> Edit <settings-file>                  -> refused
+> python -c "...write the same bytes"   -> succeeds, gate defeated
+> The refusal text invites using another tool, and a shell write is another tool.
+> That reading is wrong here. The gate's intent is that a human approves permission
+> changes. A path that lands the bytes without one defeats that intent.
+> The permitted workarounds are for capability gaps, not for consent gaps.
+> ```
+> CORRECT — stop, and hand the decision to the human who can grant it:
+> ```
+> Edit <settings-file> -> refused
+> -> state exactly what was being changed, and why
+> -> give the precise diff and the precise revert
+> -> let the user apply it, or approve the edit
+> ```
+
+**Applies to** triaging or routing any item whose deliverable edits a permissions block (deny, allow, additional directories) or any other file that governs what the agent may do. It also applies to any Auto Mode or unattended workflow that lists a permission change among its tasks. Route such an item to the user as a hand-off, not to a fix-agent.
+
+---
+
 *Related: [backlog-schema.md](backlog-schema.md) for the backlog index's table format, including the generated `Blocks` column this mechanism's `blocks:` frontmatter projects into.*

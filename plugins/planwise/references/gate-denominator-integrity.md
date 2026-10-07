@@ -1,12 +1,12 @@
 ---
-description: A coverage or balance gate whose denominator, or whose aggregate observable, comes from the artifact it gates returns accurate numbers that answer a different question than the one asked. Covers the invariant-first substitution table, the false-FAIL and false-PASS directions of an aggregate count over a shared file, absence criteria that deletion satisfies, presence counts that cannot see an unscoped item, balance gates that become inapplicable when a second provenance appears, and the plan-review signatures that catch each before dispatch. Consult when writing or accepting a count, a coverage ratio, a "no X survives" criterion, or an "N in = N out" gate.
+description: A coverage or balance gate whose denominator, or whose aggregate observable, comes from the artifact it gates returns accurate numbers that answer a different question than the one asked. Covers the invariant-first substitution table, the false-FAIL and false-PASS directions of an aggregate count over a shared file, absence criteria that deletion satisfies, presence counts that cannot see an unscoped item, balance gates that become inapplicable when a second provenance appears, the plan-review signatures that catch each before dispatch, and the containment check over a diff that walks only the added and changed hunks and so passes a deleted line (pair it with a per-file hunk census), and the completeness guard whose numerator and denominator both pass through the parser's region filter and so certify only what the filter saw (derive the denominator from the raw input by a simpler predicate, probe with a line the filter drops, and count every dropped line as unparsed). Consult when writing or accepting a count, a coverage ratio, a "no X survives" criterion, an "N in = N out" gate, or a "changes only inside markers" gate over a diff.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Gate Denominator Integrity — a Count Taken From the Artifact Being Gated Is a Tautology Wearing the Costume of a Check
 
 **Purpose:** A gate prints a number, and the number is accurate. The gate still answers a different question than the one asked, because its denominator, or the aggregate it observes, was derived from the wrong side of the property it was meant to protect. Neither direction of the mistake shows in the gate's own output. Both look like a number matching or not matching an expectation.
 
-**Read this when** you are writing or accepting a count, a coverage ratio, an absence criterion (`no X survives`), or a balance gate (`N in = N out`).
+**Read this when** you are writing or accepting a count, a coverage ratio, an absence criterion (`no X survives`), a balance gate (`N in = N out`), or a "changes only inside the markers" gate over a diff of a copied-and-extended file.
 
 This file owns the **denominator and the aggregate**. [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) owns the **pattern**, [`gate-baseline-independence.md`](gate-baseline-independence.md) owns the **base a diff is taken against**, and [`measurement-discipline.md`](measurement-discipline.md) §8.7 owns the **input set**. A gate can pass all three of those and still fail here.
 
@@ -17,20 +17,23 @@ This file owns the **denominator and the aggregate**. [`gate-predicate-discrimin
 - [3. Take the Denominator From Outside the Artifact](#3-take-the-denominator-from-outside-the-artifact)
 - [4. A Balance Gate Is a Statement About Provenance, Not About Rows](#4-a-balance-gate-is-a-statement-about-provenance-not-about-rows)
 - [5. Detection at Plan-Review Time](#5-detection-at-plan-review-time)
+- [6. A Containment Check Proves Only What It Iterates Over](#6-a-containment-check-proves-only-what-it-iterates-over)
+- [7. A Guard's Denominator Must Not Pass Through the Filter It Guards](#7-a-guards-denominator-must-not-pass-through-the-filter-it-guards)
 
 ---
 
 ## 1. Ask What Invariant You Actually Wanted
 
-The gate was derived from a convenient observable rather than from the invariant. Three recurring cases show it. In every one, the correct invariant was **not a count**.
+The gate was derived from a convenient observable rather than from the invariant. Four recurring cases show it. In every one, the correct invariant was **not a count**.
 
 | What the gate was trying to assert | Correct invariant |
 |---|---|
 | "I did not modify the existing text" | **Zero deletions in my own hunk.** Read `git diff --numstat` on my change, or inspect the `^-` lines |
 | "my content landed in this file" | **A content grep for a literal I authored**, per file, reported separately |
 | "the two copies of this sentence agree" | **Two counts of the same literal**, one per copy, both quoted |
+| "no line changed outside the marked region" | **A hunk census with `d = 0`, plus a containment check over the added and changed lines** (§6) |
 
-All three are per-hunk or per-content assertions. None is an aggregate over a file that other people also write.
+All four are per-hunk or per-content assertions. None is an aggregate over a file that other people also write.
 
 > [!practice] Name the invariant before choosing the instrument
 > Write the property in one sentence ("nothing I did removed a line"), then ask which observable that sentence is actually about. A count is a statement about the whole file. A hunk, a literal, or a pair of literals is a statement about your change.
@@ -93,6 +96,8 @@ Five operational rules follow:
 - **Never emit a stub to satisfy a sweep.** A placeholder section makes a coverage grep read as covered and turns a visible gap into an invisible one. Record the gap as a gap, with its disposition, and route it downstream.
 - **Sweep the marker distribution across the batch before dispatching the join.** Counting placeholders per output takes one count per file and exposes the ratio that shows a downstream criterion is unsafe. It is cheap at the batch gate and unrecoverable after the join. [`dispatch-batch-gate.md`](dispatch-batch-gate.md) owns the batch-gate checks this one joins.
 
+A denominator can also fail by sharing the numerator's filter rather than its output. § "7. A Guard's Denominator Must Not Pass Through the Filter It Guards" covers that form.
+
 One small self-referential trap sits in the same family: **a prose claim about a grep result is itself grep-visible.** A governance sentence asserting that no `map pending` string survives will itself contain the string. Reword the claim to be true. Do not mutilate the artifact to fit a naive pattern. [`verification-task-authoring.md`](verification-task-authoring.md) §8.1 carries the scrub rule for the same token.
 
 ---
@@ -136,9 +141,88 @@ Each defect above is catchable before dispatch. Flag any of these signatures in 
 - A gate of the form `count(rows sourced from X) == count(rows in Y)` where Y is a **standing** or **extended-later** artifact. If Y outlives the session that built it, such as a standing register or a log a later sprint extends, a second provenance is not hypothetical. It is scheduled. This is the highest-value signature because it is predictable in advance. Treat it as a blocker at plan-review time, not a note.
 - A `no X survives` criterion with no paired positive criterion over the full item set.
 - A count whose denominator is produced by the same decomposition that produced the items counted.
+- A completeness guard (`N of N compared`, `all rows resolved`) whose denominator is `len()` of the same list the parser's region rule produced. See § "7. A Guard's Denominator Must Not Pass Through the Filter It Guards".
+- A guard tested only with zero-row, partial-parse, and in-region fixtures, and never with a line the parser's region rule drops.
 - An "unchanged count" check on a file whose new content must *reference* the old content to distinguish itself from it.
 - An aggregate over a file with more than one writer in the plan.
 - A reason or status enum that can gain a value mid-campaign. The new value ships with a legend recording the gap, rather than being normalised to an in-enum code, which would misfile it.
 
 > [!verify] Check this file against its own signature list
 > No gate specified in this file takes a denominator from the artifact it gates. The per-file literal count in §2 counts a literal the author wrote against an expected value of 1 per file, which is a per-content assertion and not an aggregate over a shared file.
+
+---
+
+## 6. A Containment Check Proves Only What It Iterates Over
+
+> [!constraint] A containment check over a diff must iterate every hunk kind, or a census must prove the missing kind is absent
+> A check that walks the new side of each hunk cannot see a hunk that has no new side. A deleted line passes it.
+
+A task copied scripts from a control kit and added module code inside `# --- module additions ---` and `# --- end module additions ---` fence pairs. The gate said every differing line in `diff -r control/ copy/` sits inside a fence pair. The runner's check parsed each hunk header. For `a` (add) and `c` (change) hunks it walked the new-file range and confirmed every line was fenced. It printed PASS.
+
+**The gap.** A `d` (delete) hunk has no new-file range. A control line removed outright produces a header `NNdM` followed by only `<` lines. The loop body never runs for it, so PASS prints. A deleted control line is a change outside every fence by definition.
+
+Two rules close the gap.
+
+- **Pair the containment check with a hunk census.** Count the `a`, `c` and `d` hunks per file and record the counts. `d = 0` is the signal the containment check cannot produce. If `d > 0`, treat every deletion as a finding, because no fence can contain a line that is not there.
+- **Read each `c` hunk by hand once.** Its `>` side may be fenced while its `<` side is a control line that no longer exists as written. That is acceptable only when the design required the modification and the fenced block re-emits the line. Say so in the proof.
+
+```
+# WRONG — the check walks `a` and `c` ranges on the new file and prints PASS:
+for hunk in diff_hunks:
+    if hunk.kind in ("a", "c"):
+        for ln in hunk.new_range:
+            if not fenced[ln]: fail()
+# a `d` hunk never enters the loop; a deleted control line passes
+
+# CORRECT — the same check, plus a per-file census that makes deletions visible:
+diff <control>/<file> <copy>/<file> | grep -cE '^[0-9,]+d[0-9,]+$'   # MUST be 0 per file
+diff <control>/<file> <copy>/<file> | grep -cE '^[0-9,]+c[0-9,]+$'   # each one read by hand and recorded
+diff <control>/<file> <copy>/<file> | grep -cE '^[0-9,]+a[0-9,]+$'
+```
+
+`grep -c` prints `0` and exits 1 when nothing matches. Read the printed count, not the exit status.
+
+**Record the census.** Use the shape "per-file counts of `a`, `c`, `d`". The worked example's census was 8 `a`, then 5 `a` plus 1 `c`, then 4 `a` plus 2 `c`, with 0 `d` across all three files. A downstream re-run of the gate expects the recorded census. A changed `d` count is a finding.
+
+**Dry-run both directions.** On a scratch pair, a copy with one control line deleted must report `d` = 1. A clean copy that only adds a fenced block must report `d` = 0. The two runs must differ, or the census cannot see deletions.
+
+**Applies to** any "changes only inside markers" gate over a diff of a copied-and-extended file: fence comments, region markers and generated-code blocks. Also use it when you review a runner-written verification script before you accept its PASS. Ask which hunk kinds it iterates over.
+
+[`verification-gates.md`](verification-gates.md) §11 states the state-detecting form. The wider principle is the same: a gate that could not have seen its subject prints the same as a gate that saw it and found it clean.
+
+---
+
+## 7. A Guard's Denominator Must Not Pass Through the Filter It Guards
+
+> [!constraint] When the numerator and the denominator are both computed after one filter, the guard proves the filter is self-consistent
+> A guard of the form "everything counted was compared" is only as good as its count. Computed after one filter, both sides agree by construction. The guard then says nothing about input the filter never saw.
+
+**Scenario.** An index drift audit exited 3 unless `compared == total`. It shipped with tests for zero comparisons, a partial parse and comments between rows. All passed. A row after a `## Notes` heading, and a row after a legend table, were neither compared nor counted. The parser's region ended at the first heading, so both the compared count and the total skipped them. The audit printed "3 of 3 rows compared" over a fourth row it never read. A renamed header over an empty tree printed "0 of 0" and exited 0.
+
+```python
+# WRONG — both sides of the guard come from the region the parser chose:
+table = parse_table(content)              # region ends at the first heading
+compared = diff.compared                  # rows inside the region only
+total = len(table.table_lines)            # ALSO rows inside the region only
+if total and compared == total:
+    print("No drift detected.")           # a row after a heading is invisible to both
+
+# CORRECT — the denominator counts every candidate in the whole input,
+# and whatever the filter drops becomes a named, counted line:
+# every six-cell line outside the region (not a header or separator) is
+# recorded as unparsed "outside-table-region" and appended to table_lines
+table = parse_table(content)
+total = len(table.table_lines)            # now includes outside-region lines
+if table.unparsed:
+    status = "incomplete"                 # exit 3, names each line
+```
+
+Three operative rules:
+
+- **Derive the guard's denominator from the raw input, by a predicate simpler than the parser's.** Here the predicate is "splits into six cells", not "is a row inside the recognized table". A denominator that shares the parser's region rule inherits the parser's blind spot.
+- **Probe the guard with an input the filter drops.** Zero-row and partial-parse fixtures exercise the guard inside the filter. Only an input the filter excludes can show that the denominator was filtered too. Examples: a row after a heading, a renamed header, a row after a trailing table.
+- **Fail loud on what the filter excludes.** Counting an excluded line as `unparsed` makes the audit exit non-zero on a commented or fenced example row too. That false alarm is the right error direction for a guard whose purpose is to never certify unread input.
+
+This section owns the guard form. [`measure-aggregate-provenance.md`](measure-aggregate-provenance.md) § "2. State the Denominator With the Number, and Never Re-Use a Row Set Across Questions" owns the reporting form.
+
+**Applies to** any "N of N compared" or "all rows resolved" all-clear: index drift audits, `--check` modes, reconcilers, and parsers with a region rule that feed a completeness gate.

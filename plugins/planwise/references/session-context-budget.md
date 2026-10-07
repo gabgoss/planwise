@@ -244,6 +244,27 @@ Task token estimates MUST be computed bottom-up from measured file sizes, not ju
 **Formula:** `Task Estimate = (sum of Required Context file tokens) + (estimated output tokens)`
 **DELEGATED check:** `Task Estimate + injected path-rule tokens + 54K overhead < the dispatched model's window` (Sonnet/Haiku 200K, Opus 1M — the window is set by the dispatched MODEL, NOT the parent tier; see [§ Subagent Context Window](#subagent-context-window))
 
+### A Delegated Code Task's Estimate Counts the Edit-Run-Fix Loop
+
+For a code-producing delegated task, the bottom-up estimate above counts the reads and the output. It does not count the loop: edit, run the suite, read the failure, fix, re-run, battery, sweep. That loop dominates the cost and drives turns more than tokens. This subsection extends the tool-call estimate for large edit tasks in `agent-orchestration-delegated.md` §1.12 to the verify loop.
+
+> [!constraint] Budget for the loop and for one resume
+> - **Budget for the loop and for one resume.** Plan a code task with an explicit resume allowance. Report a session estimate as a range, not as the sum of the read and write figures.
+> - **Order the spawn prompt for the cap.** See the write-by-turn subsection in `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.5. On a capped return, check the landed state on disk first, then resume the same runner.
+
+Measured calibration, four dispatches of one session:
+
+| Dispatch | Estimate | Harness-reported | Turn cap hit |
+|---|---:|---:|---|
+| Task A (parser) | ~42K | ~317K | yes |
+| Task B (scan and render) | ~45K | ~254K | no (at 73 tool uses) |
+| Task C (splitter, check, write) | ~50K | ~392K | yes |
+| Task D (tests, status flip) | ~40K | ~320K | yes |
+
+The session scaffolded six tasks at ~33K-50K each, about 250K in total. Its dispatches summed to about 3.25M tokens. Each capped runner stopped mid-work with its code on disk and its summary and Recovery row missing. A resume of the same runner finished it every time.
+
+**Applies to** DELEGATED sessions whose tasks write code and tests, and to the scaffold estimates for such tasks.
+
 ### Task Sizing Categories
 
 The task-size thresholds below are expressed for the Pro tier. On Max, scale by the same ratio used for session limits — a "Too Large" task on Pro is ~80% of `practical_session_limit`. The "always split a task above 80% of one session" principle is tier-invariant.

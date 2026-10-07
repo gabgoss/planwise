@@ -447,4 +447,6 @@ Hooks are scoped to this skill — they do not affect the parent session or othe
 ---
 
 *Scoped to `.claude/skills/**` — loads only when authoring skill files.*
+*A skill instruction that states a format, a cap or a threshold needs a writer that emits it or a gate that rejects the wrong form: see [rule-authoring.md](rule-authoring.md), "A Rule Is Not a Control: Pair Every Format Rule, Cap or Threshold With a Writer or a Gate".*
+
 *Cross-reference: [agent-authoring.md](agent-authoring.md) for agent definition format, [agent-orchestration.md](agent-orchestration.md) for delegation patterns, [auto-mode-policy.md](auto-mode-policy.md) for the full Auto Mode Policy reference.*

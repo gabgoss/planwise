@@ -1,13 +1,13 @@
 ---
-description: What a verification gate's output is evidence of — positive and mutation controls, the correct-post-state arm, specifying the artifact the PASS branch must leave behind, which side is the defect when a gate and correct work disagree, why a gate that fails everything is a suspect until its dry-run pair differs, and how to write and classify the old-home citation sweep that follows a reference split. Consult before citing any guard, linter, hook, or MUST-be-empty check as proof, when your correct edit and a gate's expected value disagree, when a gate returns FAIL on every input, and when you author the exit criterion for a citation sweep after moving a section.
+description: What a verification gate's output is evidence of — positive and mutation controls, the correct-post-state arm, specifying the artifact the PASS branch must leave behind, which side is the defect when a gate and correct work disagree, why a gate that fails everything is a suspect until its dry-run pair differs, and how to write and classify the old-home citation sweep that follows a reference split, and the two generated inputs that silently empty a gate (a path list ending in carriage returns, a row a different line splitter reads as two), and the byte-preservation claim that only a byte tally can check, and the fixture for a writer or migrator that must be seeded from the live file's real shapes and dry-run twice on a scratch copy, and the decision-row gate that must assert the reason's value because a fallback reason is a FAIL, with a pointer to the mutation-proof and one-input-per-guard rules in gate-predicate-discrimination. Consult before citing any guard, linter, hook, or MUST-be-empty check as proof, when your correct edit and a gate's expected value disagree, when a gate returns FAIL on every input, and when you author the exit criterion for a citation sweep after moving a section.
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Verification-Gate Evidence (Proving the Instrument Before Citing It)
 
-**Purpose:** Rules for the gap between *"the gate returned this"* and *"this is true"*. A gate's output becomes evidence only after the gate has been exercised in the direction that carries information, over an input set that could have contained the defect. This file governs the exercising; [`verification-task-authoring.md`](verification-task-authoring.md) governs the match pattern, and [`verification-gates.md`](verification-gates.md) §10 governs the instrument's four proof obligations. §10-§13 govern the other direction: the instrument is already in play and disagrees with correct work anyway. They fix which side yields, what the runner reports, what the orchestrator re-derives, and what a dispatcher pre-classifies. §14 binds the comparison between a dry-run pair's two arms: a gate that fails everything has not been shown to discriminate any more than one that passes everything. §15 applies the whole file to one recurring gate, the old-home citation sweep that follows a reference split.
+**Purpose:** Rules for the gap between *"the gate returned this"* and *"this is true"*. A gate's output becomes evidence only after the gate has been exercised in the direction that carries information, over an input set that could have contained the defect. This file governs the exercising; [`verification-task-authoring.md`](verification-task-authoring.md) governs the match pattern, and [`verification-gates.md`](verification-gates.md) §10 governs the instrument's four proof obligations. §10-§13 govern the other direction: the instrument is already in play and disagrees with correct work anyway. They fix which side yields, what the runner reports, what the orchestrator re-derives, and what a dispatcher pre-classifies. §14 binds the comparison between a dry-run pair's two arms: a gate that fails everything has not been shown to discriminate any more than one that passes everything. §15 applies the whole file to one recurring gate, the old-home citation sweep that follows a reference split. §16 and §17 cover two inputs that silently vanish before the predicate runs: a path list whose lines end in a carriage return, and a row that a different line splitter reads as two. §18 covers a claim that no git-side instrument can falsify: that a scripted edit preserved the bytes of a file under `core.autocrlf`. §19 covers a grader over a decision log whose rows all record that the decision logic never ran.
 
-**Read this when** you author a guard, hook, linter, validation pass, or "MUST be empty" check, and again when you are about to cite one of them as proof that work is correct. Read §10-§13 when your correct edit and a gate's annotated value disagree, when a runner reports that it shaped content to satisfy a gate, or when you dispatch an authoring task whose content is a live gate's subject. Read §14 when a gate returns FAIL on every input it was given. Read §15 before writing the exit criterion for a citation sweep after moving a section between files.
+**Read this when** you author a guard, hook, linter, validation pass, or "MUST be empty" check, and again when you are about to cite one of them as proof that work is correct. Read §10-§13 when your correct edit and a gate's annotated value disagree, when a runner reports that it shaped content to satisfy a gate, or when you dispatch an authoring task whose content is a live gate's subject. Read §14 when a gate returns FAIL on every input it was given. Read §15 before writing the exit criterion for a citation sweep after moving a section between files. Read §16 before you trust an empty gate that reads a generated path list. Read §17 before you gate the row count of a generated table. Read §18 before you accept "line endings preserved" or "byte-identical" for a scripted edit of checked-out files. Read §7.1 before you release a parser, writer or migrator that rewrites a user-maintained markdown file.
 
 ## Table of Contents
 
@@ -26,6 +26,11 @@ paths: {planwise_root}/{plans_dir}/**
 - [13. Pre-Adjudicate a Doctrine Artifact's Collision With a Live Gate at Dispatch](#13-pre-adjudicate-a-doctrine-artifacts-collision-with-a-live-gate-at-dispatch)
 - [14. A Gate That Fails Everything Is Not More Trustworthy Than One That Passes Everything](#14-a-gate-that-fails-everything-is-not-more-trustworthy-than-one-that-passes-everything)
 - [15. An Old-Home Citation Sweep Is a Substring Match — Order the Content, Classify the Hits, Never Tighten the Pattern](#15-an-old-home-citation-sweep-is-a-substring-match--order-the-content-classify-the-hits-never-tighten-the-pattern)
+- [16. A File List That Feeds a Gate Is Part of the Gate's Input](#16-a-file-list-that-feeds-a-gate-is-part-of-the-gates-input)
+- [17. A Row-Count Gate and Its Consumer Must Split Lines the Same Way](#17-a-row-count-gate-and-its-consumer-must-split-lines-the-same-way)
+- [18. A Byte-Preservation Claim Is Verified With Bytes](#18-a-byte-preservation-claim-is-verified-with-bytes)
+- [19. A Decision-Row Gate Asserts the Reason's Value, and a Fallback Reason Is a FAIL](#19-a-decision-row-gate-asserts-the-reasons-value-and-a-fallback-reason-is-a-fail)
+- 20-23. Held in [verification-gate-evidence-Part-2-EnvironmentInputs.md](verification-gate-evidence-Part-2-EnvironmentInputs.md)
 
 ---
 
@@ -79,12 +84,15 @@ Record the contrast, not just the two verdicts:
 | Shipped script | 1 | `REFUSED: will not downgrade landed 'rule' -> 'documented'` | byte-unchanged |
 | Guard neutered | 0 | *(no REFUSED line)* | silently rewritten `rule` → `documented` |
 
-Four constraints govern the mutation:
+Five constraints govern the mutation:
 
 1. **Mutate a copy, never the real artifact.** The scratch copy lives outside the shipped tree, gets deleted in the same task, and is never a file a concurrent runner may be reading.
 2. **Reuse the existing fixture.** The differing result is then attributable to the one thing you changed.
 3. **Assert on the difference, not just the failure.** "Exit 1 plus REFUSED emitted plus bytes unchanged" against "exit 0 plus no REFUSED plus bytes rewritten" is strictly stronger than "exit 1 against exit 0". It tells you which assertion does the work.
 4. **Record the contrast in the task's status block.** A later reviewer cannot re-derive "this test is load-bearing" from a green suite.
+5. **Name the scratch root, prove its removal, and sweep for scratch directories.** See [Part 2](verification-gate-evidence-Part-2-EnvironmentInputs.md) §20.
+
+Which assertion must go red, and how to give each guard its own input, is in [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) §14 and §15.
 
 ---
 
@@ -108,7 +116,7 @@ Two consequences make this worth its own section.
 **A gate that gets its way leaves no failure signal at all.** The run is green, the report says PASS, and only someone comparing the new output against the file's older conventions can see the divergence.
 
 > [!practice] Prefer structural anchors over notational ones
-> Anchor on `^###`, `^| `, or another structural marker rather than on `§`, backticks, or emphasis. Notation is a display choice that varies within a single file. Structure is not. This is the cheapest available screen for the whole class, and it is guidance rather than a gate, because "prefer structure" cannot be asserted by a command.
+> Anchor on `^###`, `^| `, or another structural marker rather than on `§`, backticks, or emphasis. For a verdict line, whose label carries emphasis, copy the skeleton's bytes instead: [`verification-task-authoring.md`](verification-task-authoring.md) §10.5. Notation is a display choice that varies within a single file. Structure is not. This is the cheapest available screen for the whole class, and it is guidance rather than a gate, because "prefer structure" cannot be asserted by a command.
 
 [`verification-gates.md`](verification-gates.md) §10 obligation B states the general form of this rule — a gate must not fail correct work, and the authoring test is *what would a correct-but-differently-formatted artifact score?* Read it alongside this section. What §3 adds is the specific arm to run and the anchor-selection screen.
 
@@ -174,6 +182,8 @@ A single direction is a coin flip on which platform catches the regression. Keep
 
 > [!practice] A house discipline reachable only from the module that defines it is not reachable
 > The originating repository already had a newline-preserving read helper. It was documented only inside the module defining it, and the new destructive script did not import it. That is a discoverability problem, not a fixture problem. Make the discipline reachable from the **task** — "adding a destructive in-place write" — rather than from a module the author would have to already know to open.
+
+A test's hard-coded line endings for a checked-in file: [Part 2](verification-gate-evidence-Part-2-EnvironmentInputs.md) §21.
 
 ---
 
@@ -242,6 +252,38 @@ Two corollaries:
 - **A delegated verdict can be accurate in every reported number and still wrong.** Verifying that the figures match re-verifies the runner's *reading*. Only the orchestrator can see the runner's **choice of fixtures** as a claim to be checked.
 
 [`verification-gates.md`](verification-gates.md) §10 obligation C owns the neighbouring defect — a pattern that cannot see the shape it counts, because the idiom spans lines and the matcher does not. §7 here is about the fixture set rather than the pattern. Read both.
+
+### 7.1 Writers and Migrators: Seed a Fixture From the Live Artifact, and Dry-Run Twice on a Copy
+
+A fixture written from the spec of a format tests the writer against the format its author imagined. A live file carries every shape that people and older tools have written into it. A green suite over invented fixtures says nothing about those shapes. The gap is invisible from inside the suite.
+
+Guarded writers for a changelog and a promotion log shipped, and a lessons migrator was wired into an upgrade command. Each round ended with a green suite. Three times, a run against a copy of the project's real files found a defect that no fixture had modelled:
+
+- The live changelog carried a `## Drift Record` heading. The parser refused every `## ` line other than `## Entry N`. Every upgrade of that project would have printed REFUSED.
+- The migrator's own output carried a fenced `## Context` heading inside a relocated template. The parser ignored code fences, so the migration refused its own result on the next run.
+- The live log listed its parts in a hand-written form (`Archive parts: … · …`). The listing repair recognised only `Parts: `, so a refused retry still added a second listing line.
+
+The end-to-end fixtures were built byte by byte from a spec. None carried a non-entry `## ` heading, a fenced heading, or the hand-written form.
+
+> [!constraint] The fixture carries what the live file carries
+> ````
+> WRONG — the fixture is the spec:
+> changelog = "## Entry 2\nbody\n\n## Entry 1\nbody\n"   # only the canonical shape
+>
+> CORRECT — the fixture carries what the live file carries:
+> changelog = ("## Entry 2 — <date>\nbody\n```md\n## Context\n```\n\n"
+>              "## Drift Record\nnotes\n\n## Entry 1\nbody\n")
+> # plus: run the tool twice on a scratch copy of the live tree
+> ````
+
+Two operative points:
+
+1. **Seed at least one fixture from the real artifact's shapes.** Take the non-standard headings, fenced content, hand-written variants and mixed line endings the live file holds. Reduce each to its smallest form. Add each shape a dry run finds as a permanent regression fixture.
+2. **Dry-run every writer or migrator on a scratch copy of live data before release, and run it twice.** The second run proves the tool accepts its own output.
+
+This applies to any parser, writer, renumberer or migrator that rewrites a user-maintained markdown file, such as a changelog, an index or a log. It also applies to any release gate for such a tool. It applies most when the file predates the tool or people have edited it by hand.
+
+The three sections split the work. §5 is about how the fixture is built. §7 is about which shapes it spans. This subsection is about where the shapes come from.
 
 ---
 
@@ -514,6 +556,122 @@ That pattern is a substring match, not a parser. `{anchor}\.md.*§N` asks only w
 > The gate is then `hits − ledgered false positives = 0`, not `hits = 0`. The ledger lives where the next audit reads it — beside the sweep command in the sprint's verification task, or in the file's authoring conventions — because a classification nobody can find is re-derived from scratch, and a blanket-fail gate that keeps firing on known-correct lines gets softened or ignored instead of fixed. This is the discipline the on-disk identifier sweeps already use for the plugin's own scaffold vocabulary: surface candidates, classify each one, gate on what survives classification ([artifact-self-containment.md](artifact-self-containment.md) §4.3).
 
 The three rules assume the sweep inspected what you think it did. Pair them with the input-set assertions — register untracked files, assert zero untracked remain, assert the diff covered the expected file count — from [measurement-discipline.md](measurement-discipline.md) §8.7. Together they are what make an empty *or* non-empty sweep interpretable.
+
+---
+
+## 16. A File List That Feeds a Gate Is Part of the Gate's Input
+
+> [!constraint] Count the list before you trust a "MUST print nothing" gate that reads it
+> A path list consumed by `xargs`, `git --pathspec-from-file`, or a `while read` loop is the gate's input. Gate on the list's count first. Only then trust an empty-passing gate that reads it.
+>
+> The failure is silent. Git treats an unmatched pathspec on `status` and `diff` as "nothing to report", not as an error. A clean-tree precondition and a "no unexpected change" gate both pass exactly when nothing prints. A list whose every path fails to match therefore passes every one of them.
+>
+> One session built a 137-path list with a Python one-liner on Windows. Text mode wrote each line ending as `\r\n`. `xargs` splits on `\n` and keeps the `\r`, so git received `<path>\r`, which names no file. Every "MUST print nothing" gate that read the list passed over paths git never saw.
+> ```bash
+> # WRONG — text-mode list, and an empty-output gate trusted on its own:
+> python -c "print('\n'.join(paths))" > <list>.txt
+> xargs -a <list>.txt git status --porcelain --      # prints nothing: every path ends in \r
+>
+> # CORRECT — LF-only list, and a count gate the list must pass first:
+> python -c "import sys; open(sys.argv[1],'w',newline='\n').write('\n'.join(paths)+'\n')" <list>.txt
+> xargs -a <list>.txt git diff --numstat -- | wc -l   # MUST equal the expected file count
+> xargs -a <list>.txt git status --porcelain --        # only now is "prints nothing" evidence
+> ```
+> The positive count is the only gate in this block that can fail when the list is corrupt. Run it first. It needs a diff that changes every listed file, so run it on the edit set after the edits land. On a corrupt list it prints `0`, and on a sound list it prints the file count.
+>
+> A list built with `git ls-files -z` and read with `xargs -0` avoids the line-ending question entirely.
+
+---
+
+## 17. A Row-Count Gate and Its Consumer Must Split Lines the Same Way
+
+> [!constraint] Parse the structure the consumer will parse, not the number of prefixed lines
+> A bare carriage return inside one table cell split a row for a consumer that used `str.splitlines()`. The gate used `grep -c`, which splits on LF only, so it counted the row once and reported the expected total. The gate and its consumer disagreed about what a line is, and the gate was the one that never saw the defect.
+>
+> **Writer side.** Neutralise control bytes when you copy source text into a line-oriented format. Replace CR, other C0 controls, U+2028 and U+2029 with a space or a visible escape in any table cell, CSV field, or one-line log. Treat them the way the writer already treats a pipe.
+>
+> **Gate side.** A row-count `grep` proves the number of LF-terminated lines that carry a prefix. A cell-count parse that uses the consumer's own splitter proves that each row is a row.
+> ```bash
+> # WRONG — the gate counts prefixed lines:
+> grep -c '^| <key>-' <table>.md      # 88 — passes with a bare CR inside one row
+> ```
+> ```python
+> # CORRECT — the gate parses every row the way its consumer will:
+> raw = Path("<table>.md").read_bytes()
+> rows = [r for r in raw.decode("utf-8").splitlines() if r.startswith("| <key>-")]
+> bad = [r for r in rows if len(re.split(r"(?<!\\)\|", r)[1:-1]) != <expected_cells>]
+> assert not bad and b"\r" not in raw.replace(b"\r\n", b"")
+> ```
+> This applies to any generated markdown table, TSV, or CSV built from text that came from another file. It applies most to text that a repair edited. It applies to any gate whose consumer uses a different line splitter from the gate itself.
+
+---
+
+## 18. A Byte-Preservation Claim Is Verified With Bytes
+
+> [!constraint] The instrument that checks a byte claim must read bytes
+> A "byte-preserving" claim is a claim about bytes. `git diff` under `core.autocrlf` reads a normalized view, so it cannot see a changed line ending. A runner's self-report reads the runner's intent, not the disk. Neither can falsify the claim, so a pass from either is not evidence.
+>
+> One session ran a scripted edit over 59 CRLF files. The regex matched each whole line with `(.+?)\r?$` and replaced the match. The match included the `\r`, so the replacement wrote the new value and a bare `\n`. 46 files ended with one LF-only line inside a CRLF file. The runner reported "CRLF preserved". The acceptance gate was `git diff --stat`, which showed the expected file and line counts. Git printed `LF will be replaced by CRLF the next time Git touches it` on every affected file, and the session read it as noise.
+>
+> ```
+> # WRONG — splice one line and check with git:
+> re.sub(r"^id: (.+?)\r?$", "id: 123", text, flags=re.M)   # match ends after \r; \r is gone
+> git diff --stat   # 59 files, +590 -59 — identical before and after the splice
+> # runner: "CRLF preserved". warning: LF will be replaced by CRLF ... (ignored)
+>
+> # CORRECT — match the value, then count the bytes:
+> re.sub(r"^id: [^\r\n]*", "id: 123", text, flags=re.M)      # terminator untouched
+> tally: crlf 194 / lf 44 / mixed 0                            # mixed MUST be 0
+> ```
+>
+> A dry run on a three-line CRLF file shows the two forms differ. The WRONG form yields `crlf 3 / lf 1 / mixed 1`. The CORRECT form yields `crlf 4 / lf 0 / mixed 0`.
+
+Four operative points:
+
+- **Make the acceptance check a byte-level tally.** Count `\r\n` and bare `\n` per file, before and after the edit. A file that counts both is mixed, and the edit broke it. The tally is about ten lines of Python and runs in under a second over a few hundred files.
+- **Match the value, not the line.** `[^\r\n]*` stops before either terminator. `.*` and `.+?` match `\r`. In MULTILINE mode `$` sits between `\r` and `\n`, so a `\r?$` suffix is consumed into the lazy group, and the replacement then drops the `\r`.
+- **Treat git's `LF will be replaced by CRLF` warning as a gate failure on a file you just edited.** On a checkout that was clean before the edit, the warning names exactly the files whose working-copy endings no longer match what `autocrlf` would produce.
+- **Prefer a whole-block rewrite to a one-line splice when the block is small.** Read the frontmatter as bytes, detect the file's ending once, and re-emit the whole block with that ending.
+
+**Applies to** any scripted edit of a checked-out text file under `core.autocrlf=true`: frontmatter backfills, index-row repairs, status syncs, and template rewrites. It applies to any acceptance gate that reads `git diff` for a property git normalizes away, such as line endings, trailing whitespace under `whitespace=fix`, and a BOM. It applies to any runner report of "preserved" or "byte-identical" that the orchestrator cannot recompute from disk.
+
+**Recovery path.** Never use `git stash`, `git checkout` or `git restore` as a byte-preserving undo, because git restores content in its normalized form and not the bytes that were on disk. Snapshot a tree by copying bytes (`cp -p`, or Python `shutil.copy2`) to a scratch directory instead.
+
+---
+
+## 19. A Decision-Row Gate Asserts the Reason's Value, and a Fallback Reason Is a FAIL
+
+> [!constraint] Grade the reason a row carries, not the fact that it carries one
+> A gate that asserts "the row exists and has a reason" passes on a row whose reason says the logic did not run. The predicate must assert the reason's value: the token the code emits when the decision table produced the row. Every fallback token is a failure of the run, whatever the action field says.
+>
+> A hook module decides at every layer boundary whether to compact, clear or do nothing. It reads the run's orchestration file and evaluates a seven-clause predicate. The observe arm's expected outcome is `none` at every boundary. A grader predicate counted `decide` rows against boundary lines (4 = 4) and checked that each row carried a `reason`. It reported PASS.
+>
+> Every row read `reason: "read-failed"`, `decision: null`, `action: "no decision (file read failed)"`. The module had stored `<plan-path>` with the `@` from the pasted `/command @<plan-path>`. The file read returned ENOENT at every boundary, so the predicate table never evaluated. The arm's `none` was the read-failure fallback. It matched the expected outcome because "do nothing" is what both the policy and the failure produce. A grading task caught it by reading the rows' contents. The same path bug would have hit every later arm whose policy needs the file.
+>
+> ```
+> WRONG — count rows, check a reason is present, accept the action:
+> decide rows = 4, boundary lines = 4, rows missing reason = 0   → PASS
+> every row: reason="read-failed", decision=null, action="no decision"   # unread
+> arm expected none, got "no decision" → grades as none                  # coincidence
+>
+> CORRECT — assert the reason's value; require an evaluated-path field:
+> for row in decide_rows:
+>     assert row["reason"] == "policy", f"fallback reason {row['reason']!r} at layer {row['layer']}"
+>     assert row["true_context"] is not None      # written only by the evaluated path
+> # read-failed at every boundary → FAIL: the predicate never evaluated; path bug
+> ```
+>
+> Dry run on a scratch log of four rows that all read `reason: read-failed`. The row-count predicate printed PASS. The value predicate printed FAIL.
+
+Three consequences:
+
+- **Grade the reason, not the row.** The gate is `reason == <the value the logic emits>` on every row. `read-failed`, `parse-failed`, `no decision` and their kin are FAIL rows even when the resulting action is the expected one. Write the accepted value into the sheet's watch-for list and into the task file's success criterion.
+- **An arm whose expected action equals the fallback action needs a positive proof of evaluation.** When "do nothing" is both the policy's answer and the failure's, require a field that only the evaluated path writes. Examples: the failing clause name, the measured context size, the layer number the answer named. Grade on its presence.
+- **Fix path construction where the input enters, and test it with the input's real shape.** The `@` came from the user's own command syntax. A fixture path without the `@` cannot catch it. The test carries the `@`-prefixed spelling in both path separators.
+
+**Sibling rule.** §3 requires a gate to run against its pinned content. This section is the row-shaped form: a gate that checks a decision was recorded must check the decision was made.
+
+**Applies to** any grader over a decision log (hook modules, policy engines, rule evaluators). It applies to any arm, control or fixture whose expected outcome coincides with the failure outcome (`none`, `skip`, `no-op`). It applies to any path handling for user-typed reference syntax (`@path`, `~`, quotes).
 
 ---
 

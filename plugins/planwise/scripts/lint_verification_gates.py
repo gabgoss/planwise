@@ -1254,7 +1254,8 @@ def _check8_grep_tool_escaped_pipe_alternation(context: LintContext) -> list:
     Reads markdown lines directly, because a ``Grep`` call in a table row never
     becomes an extracted command. WARNING, not ERROR: the heuristic reads
     intent from the characters beside the escape. A line containing the word
-    WRONG is a counter-example, not a gate, and is skipped.
+    WRONG is a counter-example, not a gate, and is skipped. A template
+    placeholder on the line does not exempt it.
     """
     findings = []
     for path in context.markdown_files():
@@ -1264,7 +1265,9 @@ def _check8_grep_tool_escaped_pipe_alternation(context: LintContext) -> list:
             continue
         rel = _relative_name(path, context.plan_root)
         for number, line in enumerate(text.split("\n"), start=1):
-            if "WRONG" in line or _PLACEHOLDER_RE.search(line):
+            # No placeholder skip: a template slot elsewhere on the line, such
+            # as in an output cell, says nothing about the pattern's dialect.
+            if "WRONG" in line:
                 continue
             for call in _GREP_TOOL_CALL_RE.finditer(line):
                 if not _ESCAPED_PIPE_ALTERNATION_RE.search(call.group(2)):

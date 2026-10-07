@@ -340,4 +340,6 @@ An agent definition file maps to runtime behavior in two modes:
 ---
 
 *Scoped to `.claude/agents/**` — loads only when authoring agent definition files.*
+*An agent instruction that states a format, a cap or a threshold needs a writer that emits it or a gate that rejects the wrong form: see [rule-authoring.md](rule-authoring.md), "A Rule Is Not a Control: Pair Every Format Rule, Cap or Threshold With a Writer or a Gate".*
+
 *Cross-reference: [rule-authoring.md](rule-authoring.md) for rule frontmatter and path-scoping conventions, [skill-authoring.md](skill-authoring.md) for skill frontmatter, [agent-orchestration.md](agent-orchestration.md) for invocation and team patterns.*

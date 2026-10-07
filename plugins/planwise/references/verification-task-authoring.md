@@ -1,5 +1,5 @@
 ---
-description: Verification-task match-pattern authoring discipline — per-unit existence assertions over aggregate counts, format-cross-reading from sibling extraction tasks, denominator scoping, PASS/FAIL contract, orchestrator adjudication of BLOCKER-from-heuristic
+description: Verification-task match-pattern authoring discipline — per-unit existence assertions over aggregate counts, format-cross-reading from sibling extraction tasks, denominator scoping, PASS/FAIL contract, orchestrator adjudication of BLOCKER-from-heuristic, and the allowed-set rule for a re-capture gate over a directory a tool regenerates in place (environment-attributable files named apart from extractor-attributable ones), and pinning a gate from a run over real content — a gate pinned before its subject exists, a count beside a content block, a count method matched to the command's real output shape, a verdict grep that copies the skeleton's bytes, and a section counted by a line-anchored heading (§11, in the Part-2 file), and the checklist line that a mutation-control criterion names the guard, not a test, and a verbatim-literal proof's compared-set size (§12, Part-2 file)
 paths: {planwise_root}/{plans_dir}/**
 ---
 
@@ -32,6 +32,9 @@ paths: {planwise_root}/{plans_dir}/**
   - [10.7 An anchor accepts exactly the outcome set its own task can produce](#107-an-anchor-accepts-exactly-the-outcome-set-its-own-task-can-produce)
   - [10.8 Four command semantics that make a well-formed gate mean something else](#108-four-command-semantics-that-make-a-well-formed-gate-mean-something-else)
   - [10.9 Read the command as a program — four more mismatches between mechanism and claim](#109-read-the-command-as-a-program--four-more-mismatches-between-mechanism-and-claim)
+  - [10.10 A re-capture gate's allowed set names the files that change on every capture](#1010-a-re-capture-gates-allowed-set-names-the-files-that-change-on-every-capture)
+- [11. A Gate Is Pinned From a Run Over Real Content, Never From a Mental Image](#11-a-gate-is-pinned-from-a-run-over-real-content-never-from-a-mental-image) — moved to [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md)
+- 12. A Verbatim-Literal Proof Extracts From the Body — held in [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md)
 
 ---
 
@@ -134,7 +137,7 @@ Fix: Replace with per-unit existence assertions per references/verification-task
 >
 > If the denominator cannot be made precise (e.g., the construct's invocation shape varies and excluding prose is infeasible), the check is **NOT** a pass/fail gate. Re-classify it as an `INVESTIGATE` signal and surface the ambiguity to the orchestrator instead of emitting FAIL.
 
-A denominator counted in the artifact being gated cannot detect an item nobody scoped. See [gate-denominator-integrity.md](gate-denominator-integrity.md) §3.
+A denominator counted in the artifact being gated cannot detect an item nobody scoped. See [gate-denominator-integrity.md](gate-denominator-integrity.md) §3. A predicate that counts also names its unit: see §13, held in [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md).
 
 #### Reviewer Check 059 — Verification Task Keyword-Proximity Coverage Gate
 
@@ -229,6 +232,9 @@ Fix: Constrain verdict per references/verification-task-authoring.md §5 (FAIL o
 > - [ ] Every gate carries its measured pre-edit value inline, and that value contradicts the expectation — or the gate is marked `invariant:` (§10.1-§10.3).
 > - [ ] Every anchor's accepted-outcome set diffed against its owning task's terminal branches, and the count carried inline (§10.7).
 > - [ ] All four command-semantics traps checked: `grep -c` counts lines, `-B1` emits the match, set membership is not count equality, every path resolves from the declared cwd (§10.8).
+> - [ ] A mutation-control criterion names the guard, not a test: "each guard has a test that fails when only that guard is disabled", with one minimal input per guard and the mutated symbol's own return value asserted (`gate-predicate-discrimination.md` §14 and §15).
+> - [ ] A proof that two literal sets are verbatim reports the size of the compared set and extracts from the function body only (§12, Part-2 file).
+> - [ ] An anchor or verification command that runs a writer (`--write`, `--fix`, `--apply`, an upgrade flag) names a scratch target (`exit-criteria-fidelity.md` §16.10.7).
 
 ---
 
@@ -254,6 +260,8 @@ Fix: Constrain verdict per references/verification-task-authoring.md §5 (FAIL o
 > When a single file encodes the same fact in both a machine-checked form and a human-readable form, a passing gate only ever sees the form it parses. Every mutation MUST update every representation, and the change MUST then verify the written counts against the file.
 >
 > Observed false-PASS: a status flip updated the parsed code block to a new count but left the prose bullets, summary line, and callout's stated counts stale. The mechanical check stayed green while the document contradicted itself.
+
+A gate that counts a section by its heading text anchors the heading at the start of the line. A substring count also reads prose mentions. See [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md) §11.5.
 
 ---
 
@@ -363,7 +371,7 @@ One adjacent shape cannot be caught by a pre-edit annotation at all, and it belo
 
 A verification report necessarily *describes* the checks it ran, so its own column headers, legend, and residual prose legitimately contain the tokens a naive gate searches for. A bare `grep -c 'FAIL' {report}` expecting `0` is satisfied by the report's own vocabulary and fires on a report that passed — and a gate that can never report success is exactly as uninformative as one that can never report failure.
 
-[templates/verification-report.md](../templates/verification-report.md) defines the convention that removes the ambiguity: a single machine-readable trailing `**Verdict:** PASS|FAIL` line, plus per-criterion status carried in a dedicated table cell. A gate consuming a verification report MUST match the verdict line, or the `| FAIL |` row-cell pattern that `verification-report.md` defines — never a bare substring search over the whole document.
+[templates/verification-report.md](../templates/verification-report.md) defines the convention that removes the ambiguity: a single machine-readable trailing `**Verdict:** PASS|FAIL` line, plus per-criterion status carried in a dedicated table cell. A gate consuming a verification report MUST match the verdict line, or the `| FAIL |` row-cell pattern that `verification-report.md` defines — never a bare substring search over the whole document. Copy the verdict line's bytes from the skeleton, including the emphasis between label and value: [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md) §11.4.
 
 ### 10.6 A diff-pinned or sweep-based criterion records its input-set counts
 
@@ -436,6 +444,8 @@ An anchor is written from the outcome its author expects. A task's Execution Ste
 **Set agreement is not count equality.** An anchor asserting that one set contains another must not be hardened into an equality of totals. A correct execution that produces a legitimate superset then fails a gate whose real claim it satisfied. See §10.8 trap 3.
 
 **Where the branch set is written more than once, all copies are derived from the task.** A plan typically states the outcome set in the task file, again in the Execution Input, and again in the Signoff anchor. The task file's Execution Steps are the source. The other two are copies, and a copy authored independently is how the sets drift apart.
+
+A path-set gate over a directory a tool regenerates in place has the same shape of defect for its allowed set. See §10.10.
 
 #### Reviewer Check 095 — Anchor Enumerates Fewer Outcome Branches Than Its Task Produces
 
@@ -563,6 +573,49 @@ Reflowing that tag onto its own line — a change with zero semantic content —
 > Otherwise a partial landing presents as a failed implementation rather than an incomplete repair, and the runner debugs its own correct work.
 >
 > The positive instance that motivates it: a gate proven at plan review to return **3 against 1 on a correct implementation** would have halted five tasks on good work. It reached its intended end state only because two independent repairs, owned by two different tasks, both landed.
+
+### 10.10 A re-capture gate's allowed set names the files that change on every capture
+
+A snapshot directory holds two classes of file. Extractor-attributable files change only when the extractor or the subject binary changes. Environment-attributable files change on every capture. These are anything fetched from a network, anything that records a session or a machine, and anything that records a timing or a cost. A diff-stat gate that lists only the first class reports the second class as regression every time it runs.
+
+A task re-captured three archived builds with `<capture-command> --force`. It then ran a `git diff --stat` gate against a pinned allowed set of four paths. Any other changed path was a HALT. The gate fired on four paths per build:
+
+- Three were environment drift the extractor never touches. A changelog file changed because an upstream entry had been published since the base commit. A session-record file changed because of session ids and the machine's installed-skill roster. A run-report file changed because of elapsed milliseconds and total cost.
+- The fourth, a module-strings file, was a real extractor defect.
+
+The runner spent its investigation budget proving the three drift rows harmless before it could isolate the one that mattered. The allowed set had been authored from one capture at plan time. The author knew the live tier ran two child processes per build and even budgeted their cost. Nothing in the brief connected "runs live children" to "rewrites the files those children produce".
+
+> [!constraint] Two lists, reported separately, with the environment list derived from what the capture does
+> WRONG — one allowed set, authored from the base commit's snapshot shape:
+> ```
+> allowed = {<subsets>.json, <tool-table>.json, manifest.json, <identity>.json}
+> changed = {<changelog>.json, <session>.json, <run-report>.json, <module-strings>.json, ...}
+> changed - allowed = 4 paths per build -> HALT
+> # three are noise, one is signal, and the gate cannot tell them apart
+> ```
+> CORRECT — the extractor list and the environment list are separate, and only the remainder halts:
+> ```
+> extractor_allowed  = {<subsets>.json, <tool-table>.json, manifest.json, <identity>.json}
+> environment_expect = {<changelog>.json, <session>.json, <run-report>.json}   # live children + network fetch
+> unexpected = changed - extractor_allowed - environment_expect
+> # unexpected = {<module-strings>.json} -> HALT on that one path, with the drift rows listed as expected
+> ```
+
+Three operative points:
+
+1. **Classify every captured file at authoring time.** For each file the capture writes, ask one question: would this file change if the extractor and the binary were both frozen? If yes, it belongs in the environment list. It does not belong in the allowed list or the HALT list.
+2. **Derive the environment list from the command's side effects, not from one observation.** A `--force` that runs live children rewrites their outputs. A capture that fetches a changelog rewrites the changelog. Read the capture code's write sites. A single prior capture cannot show what varies between captures.
+3. **Keep the HALT rare.** A gate that always fires gets waved through. The first time a re-capture gate HALTs on noise, the runner learns to expect a HALT. The second time, the real defect is in the same list. Keep the noise out of it.
+
+This applies to any `git diff --stat` or path-set gate over a directory a tool regenerates in place. It applies to snapshot, fixture, golden-file and report directories that mix extracted content with session, timing, cost or fetched data. It also applies to any brief that pins an allowed-change set for a re-run.
+
+§10.7 covers the same defect for an anchor: the accepted set must equal the set of outcomes the task can produce. This subsection covers the allowed set of changed paths. The allowed set must also cover the files the capture rewrites as a side effect.
+
+---
+
+## 11. A Gate Is Pinned From a Run Over Real Content, Never From a Mental Image
+
+**Moved.** This section lives in [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md). It covers a gate pinned before its subject exists (§11.1), a count gate pinned beside a content block (§11.2), and a count method pinned from the command's real output shape (§11.3). Cite it as `verification-task-authoring.md` §11. The number stays reserved here so citations keep resolving.
 
 ---
 

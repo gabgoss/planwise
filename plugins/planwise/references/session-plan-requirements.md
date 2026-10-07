@@ -79,6 +79,8 @@ description: Required file specifications per plan level and the DELEGATED-trigg
 - Every file cited in Cross-References MUST appear in the `Extracted from:` header
 - Cross-sprint sources (used by multiple sprints) are listed in each EI's header like any other source
 
+- Every plan deliverable that states a format, a cap or a threshold names its writer (the script or agent that emits the form) or its gate (the check that rejects the wrong form). The plan-level form is "every deliverable is a writer or a gate, not a paragraph". See [rule-authoring.md](rule-authoring.md), "A Rule Is Not a Control: Pair Every Format Rule, Cap or Threshold With a Writer or a Gate".
+
 **Global Source Map:** When using global numbering for spec outputs (recommended for multi-sprint plans), the Master Plan MUST include a Global Source Map table assigning each spec output a number, its primary sprint, and any additional sprints that use it.
 
 **Multi-Tier Discovery Extraction:**

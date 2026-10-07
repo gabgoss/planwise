@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_on": "2026-09-18",
+  "generated_on": "2026-10-07",
   "normalization": "read as utf-8-sig (BOM stripped), CRLF -> LF, sha256 hex (doctor_sweeps.history_digest)",
   "purpose": "Every body each formerly-mirrored agent has ever shipped with. doctor's orphaned-agent-mirror sweep marks an installed mirror matching any listed digest REMOVABLE (historical-exact). Regenerate with tools/gen_agent_history.py after editing a listed agent; tests/test_agent_history.py enforces it.",
   "agents": {
@@ -39,6 +39,7 @@
       "9efab6f502db912243fe3011fb4240935f9a7ec9da252cdc5584c945dc80ab0f",
       "a128b62bf12778e5c8a3372d8cc76a68f78c431d756f8230c218a2628089094d",
       "a37d2d29bb87548e4c1170cd43d16e64b7285bee23efad13b74f05baee59a716",
+      "a73c09a26ed8c005e0b574c0610b5234ecbb1c36387160e0e593dcc85e10e1c6",
       "aa06d5e284d64ef73ff6f7ff127c714edc06da128901d762a62394335c9895b5",
       "ace0d64e3e168b300aa50dbc1c778c0320839edcf518137a7b654ba7db49386b",
       "addfa4571e02e566313be5a0c19dc8056ad5c34ba44161ecb5101946c6e704db",
@@ -71,6 +72,7 @@
     "task-runner.md": [
       "027d59732a985e54479b359e8dd6f0414cbd76818f207df4e8bce74df01b356b",
       "10e7ee5da22c1b539359dd13108c5249678d91b2cfc1c15579cdb4859485342e",
+      "13f918e01902e27bfde5118ab5ff90ba44c91858c18686434f647d2e3ed66f84",
       "5e0e16789c28e5b269e48f472acce21f68df5a607a0943ff416818221a2f3163",
       "65cfa402df19866f51836bbfbd599b6346714031b63a45ba00bb21f9a2eb98ea",
       "6b825f1e22de407255e338fb674a7fc7d55523a0142cb9c992438f3f041a7064",

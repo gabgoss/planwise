@@ -1,12 +1,12 @@
 ---
-description: A citation names a copy and an instant, not just a file. Covers why a disputed reading is a question about which artifact was read — an installed copy, the committed tree, or the live working tree — and how line-number offsets settle it when content cannot; why a read whose subject may be concurrently written needs content hashes at both ends and both layers, because git status, diff --stat and mtime all fail to pin identity of content; and why a concurrent writer also narrows what the session-close commit may include. Consult when two readings of one file disagree, when a read-only sweep runs while another session may be writing the tree, and when committing in a tree another session shares.
+description: A citation names a copy and an instant, not just a file. Covers why a disputed reading is a question about which artifact was read — an installed copy, the committed tree, or the live working tree — and how line-number offsets settle it when content cannot; why a read whose subject may be concurrently written needs content hashes at both ends and both layers, because git status, diff --stat and mtime all fail to pin identity of content; why a concurrent writer also narrows what the session-close commit may include, and why a shipped script that errors against project data is compared with the development tree's copy before the data is blamed. Consult when two readings of one file disagree, when a read-only sweep runs while another session may be writing the tree, when committing in a tree another session shares, and when a script run from a pinned installed path fails on project data.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Artifact Identity — Which Copy Did You Read, and Did It Hold Still While You Read It
 
 **Purpose:** Two incidents in which a reading of a file was correct about its content and unmoored from the thing it was a reading *of*. Any file that also exists as an installed or cached copy — a plugin's shipped references and the installed copies generated from them, a vendored upstream, a published build — routinely exists in at least three states at once: the installed copy a consumer has, the committed tree, and the dirty working tree. Mid-session they are all different. A citation that names content but not the copy it came from is therefore ambiguous by construction, and a sweep that reads a tree another session is actively writing produces citations that were true for an interval nobody recorded.
 
-**Read this when** two agents disagree about what a file says or where, when a read-only sweep is about to run on a tree another session may be writing, when you are about to cite a line number that a downstream reader cannot re-verify, and when committing at session close in a tree you may not own alone.
+**Read this when** two agents disagree about what a file says or where, when a read-only sweep is about to run on a tree another session may be writing, when you are about to cite a line number that a downstream reader cannot re-verify, when committing at session close in a tree you may not own alone, and when a script run from a pinned installed path fails with an error that reads like a data problem.
 
 Both defects are quiet in the same way: the reading itself is verifiable, and the disagreement it produces looks like a dispute about facts. It is not. It is a dispute about **which artifact**, and about **when** — and neither question can be settled by re-asserting the content.
 
@@ -17,6 +17,8 @@ Two neighbouring rules own the tree-naming half. [`verify-backlog-citation-fresh
 - [1. Treat a Disputed File Reading as a Question About Which Artifact Was Read](#1-treat-a-disputed-file-reading-as-a-question-about-which-artifact-was-read)
 - [2. When a Read's Subject May Be Concurrently Written, Pin Content Hashes at Both Ends](#2-when-a-reads-subject-may-be-concurrently-written-pin-content-hashes-at-both-ends)
 - [3. Commit Only What This Session Wrote](#3-commit-only-what-this-session-wrote)
+- [4. A Shipped Script That Errors Against Project Data Is Compared With the Development Tree Before the Data Is Blamed](#4-a-shipped-script-that-errors-against-project-data-is-compared-with-the-development-tree-before-the-data-is-blamed)
+- [5. Two Readings of a Tool's Version Disagree: Name the Resolver](#5-two-readings-of-a-tools-version-disagree-name-the-resolver)
 
 ---
 
@@ -97,7 +99,70 @@ The tree-state pins in [`verify-backlog-citation-freshness.md`](verify-backlog-c
 > [!practice] A concurrent writer also invalidates the session-close commit convention
 > The convention assumes the session owns the tree it commits. When another session's in-flight work is sitting dirty in the same tree, committing it hijacks uncommitted changes into a commit message describing unrelated work. **Commit only what this session wrote, and say plainly why the other tree was left alone.**
 
+The mechanism is a pathspec commit, `git commit -m <msg> -- <this session's paths>`, because a bare `git commit` takes every entry another session staged. Run `git show --stat HEAD` afterward. It MUST list zero foreign paths.
+
 This is a commit-scope consequence of §2's premise, not a general commit policy. The standing convention — `git add` specific files, never the whole tree — is [`session-execution-protocol.md`](session-execution-protocol.md) §7; this section adds only the reason a shared tree makes that convention load-bearing.
+
+---
+
+## 4. A Shipped Script That Errors Against Project Data Is Compared With the Development Tree Before the Data Is Blamed
+
+> [!constraint] A config pin that resolves to an installed cache copy is a claim that the copy's behaviour still matches the project's live conventions
+> The claim decays the moment a development-tree change lands that the installed copy predates. Nothing in the pin's syntax signals the drift. §1 asks which copy a reading came from. This section asks which copy a script came from.
+
+The error read as a data problem. A backlog script run from the pinned installed path exited with `Error: Could not find '## Backlog Items' section.` Every file in the backlog directory was checked, and none carried that heading.
+
+The index had already been migrated to a generated hub, overflow-leaf and archive-shard set that has no such heading. The installed scripts had never been taught to read that shape. The development tree already carried a shim that splices the heading onto legacy content and leaves generated content untouched. No release had shipped since the migration. Diagnosing the data would have sent the work the wrong way.
+
+> [!constraint] Confirm version skew, then resolve scripts from the development tree
+> WRONG — trust the installed cache's error as a statement about the data:
+> ```
+> python <installed-cache>/scripts/parse_backlog.py --config <project>/config.yaml --id 136
+> # Error: Could not find '## Backlog Items' section.
+> # -> conclude the index file is malformed, start editing it by hand
+> ```
+> CORRECT — confirm version skew, then resolve scripts from the development tree:
+> ```
+> compare config.yaml plugin_version  with  <dev-tree>/.claude-plugin/plugin.json "version"
+> # if the dev tree is ahead, use ITS scripts for this session:
+> python <dev-tree>/scripts/parse_backlog.py --config <project>/config.yaml --id 136
+> ```
+
+Two operative points follow.
+
+1. **Compare before assuming the data is wrong.** When a project has both an installed plugin cache and its own development tree on disk, and a shipped script errors against current project data, compare the development tree's copy of the same script. A mismatch between the version in the project's config and the version in the development tree's plugin manifest is the fast confirmation.
+2. **Once skew is confirmed, run the development-tree scripts directly for the rest of the session.** Do not patch the installed cache, because an upgrade overwrites it. Do not block on a release cut mid-task.
+
+**Pre-check.** Before editing any generated artifact by hand to satisfy a script, run the same script from the development tree. If it succeeds there, the data was never wrong.
+
+---
+
+## 5. Two Readings of a Tool's Version Disagree: Name the Resolver
+
+> [!constraint] A tool's reported version belongs to the resolver that ran it, not to the machine
+> A shell PATH lookup is one resolver. A driver script's own `find_executable()` that prefers a native binary is another. A package update can move one without moving the other. A precondition written as "the version is X" silently assumes one resolver.
+
+A task pinned `<tool> --version # precondition: 2.1.267`. The shell tool resolved the package manager's shim and read 2.1.268. The driver script resolved a native executable and read 2.1.267. Both readings were correct. The validate gate ran on one build, and the design the session existed to measure had been pinned on the other. Nothing errored, and the gates reported a plausible result.
+
+Three consequences follow.
+
+1. **A version precondition names the binary, not only the number.** "`<tool> --version` from the shell is X" and "the executable the driver selects is X" are two checks. Write the one each gate depends on.
+2. **Pin from the binary the subject actually runs.** A version pin that gates later drift checks records the build that ran the probe, not the build a helper script happened to prefer.
+3. **When two readings disagree, record both and say which gate used which.** The discrepancy is data. Discarding one reading as "wrong" loses the fact that two gates ran on different builds.
+
+> [!constraint] Name the resolver beside the number
+> WRONG — one number, resolver implicit:
+> ```
+> <tool> --version   # precondition: 2.1.267
+> ```
+> CORRECT — the binary each gate runs, and both readings when they differ:
+> ```
+> <tool> --version                 # shell PATH shim: 2.1.268 (the validate gate ran here)
+> python driver/stage.py           # driver's find_executable(), native exe: 2.1.267 (the version pin records here)
+> # differ -> record both; pin from the build that launches the lab
+> ```
+
+**Applies to** any precondition, pin or drift check keyed on a CLI's reported version where a package manager leaves a shim and a native executable side by side. It also applies to driver scripts with their own executable discovery that run beside shell-invoked commands in one session, and to reading a version-mismatch line in a session log.
 
 ---
 
