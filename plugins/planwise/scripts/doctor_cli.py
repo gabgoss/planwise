@@ -47,6 +47,18 @@ except ImportError:
         "installed"
     )
 
+try:
+    from transfer_review import (
+        STATUS_NOW_UPSTREAM,
+        STATUS_STILL_UNIQUE,
+        review_transfers,
+    )
+except ImportError:
+    raise ImportError(
+        "transfer_review is required for doctor_cli's transfer-file labels; "
+        "the scripts/ directory appears to be partially installed"
+    )
+
 def _run_prune_stale(cfg: "InitConfig") -> int:
     """WRITER (opt-in): delete ONLY the REMOVABLE stale de-scoped rules and
     orphaned agent mirrors, log to PRUNED.md.
@@ -888,6 +900,10 @@ def _run_doctor(cfg: "InitConfig") -> int:
     else:
         pairs = sorted({f["pair"] for f in leftovers})
         print(f"Leftover recovery artifacts across {len(pairs)} version pair(s):")
+        # One read-only comparison of every transfer file with the current
+        # shipped file, taken only when a transfer surface exists.
+        transfer_rows = (review_transfers(cfg) if any(
+            f["surface"] == "upgrade-transfers" for f in leftovers) else [])
         for f in leftovers:
             mark = "!" if f["klass"] == "action-required" else "~"
             print(f"  {mark} {f['pair']}   {f['surface']}   {f['klass']}")
@@ -895,7 +911,16 @@ def _run_doctor(cfg: "InitConfig") -> int:
             print(f"      size:    {f['count']} file(s), {format_bytes(f['bytes'])}, "
                   f"{f['age_days']}d old")
             print(f"      meaning: {RECOVERY_ARTIFACT_CLASSES[f['klass']]}")
-            if f["klass"] in ("inert", "safe-to-discard"):
+            if f["surface"] == "upgrade-transfers":
+                mine = [r for r in transfer_rows if r["pair"] == f["pair"]]
+                upstream = sum(r["status"] == STATUS_NOW_UPSTREAM for r in mine)
+                unique = sum(r["status"] == STATUS_STILL_UNIQUE for r in mine)
+                print(f"      review:  {upstream} now upstream, {unique} still unique, "
+                      f"{len(mine) - upstream - unique} other "
+                      "(compared with the current shipped files, read-only)")
+                print("      action:  resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md "
+                      "Step 4.1 case C — never auto-pruned")
+            elif f["klass"] in ("inert", "safe-to-discard"):
                 print("      action:  remove with /planwise doctor --prune-upgrade-leftovers")
             else:
                 print("      action:  resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md Step 4 — never auto-pruned")

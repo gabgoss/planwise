@@ -37,7 +37,10 @@ already reports at upgrade time:
   `handlers/upgrade-Part-3-BannerAndConflictResolution.md` Step 4.
 - **review-then-discard** — transferred customizations under
   `upgrade-transfers/{pair}/`, awaiting the user's re-homing decision.
-  *Never offered for deletion here.*
+  *Never offered for deletion here.* The report adds a read-only `review:`
+  line that compares each transfer file with the current shipped file and
+  counts the files now upstream, still unique, and other. Resolve them per
+  `handlers/upgrade-Part-3-BannerAndConflictResolution.md` Step 4.1 case C.
 - **safe-to-discard** — pre-change backups under `upgrade-backups/{pair}/`,
   once the user is satisfied with the upgrade. *Prunable.*
 - **inert** — a consumed verdict cache (`verdicts.json.consumed`) under
@@ -53,7 +56,8 @@ Leftover recovery artifacts across {N} version pair(s):
       path:    {absolute path}
       size:    {N} file(s), {B} {B|KiB|MiB}, {D}d old
       meaning: {the class's one-line meaning}
-      action:  {remove with /planwise doctor --prune-upgrade-leftovers | resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md Step 4 — never auto-pruned}
+      review:  {N} now upstream, {M} still unique, {K} other (compared with the current shipped files, read-only)   [upgrade-transfers rows only]
+      action:  {remove with /planwise doctor --prune-upgrade-leftovers | resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md Step 4 — never auto-pruned | resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md Step 4.1 case C — never auto-pruned}
 
 Total prunable (inert/safe-to-discard) leftover(s): {N} of {M} found, {B} {B|KiB|MiB} reclaimable.
 ```
@@ -83,7 +87,8 @@ in unattended runs (state the inference inline) — the same per-class
 confirm contract `handlers/upgrade-Part-3-BannerAndConflictResolution.md`
 Step 4.3 uses for its own cleanup
 offer. *action-required* and *review-then-discard* findings are never
-offered here at all; they only ever route to Step 4.
+offered here at all. *action-required* findings route to Step 4, and
+*review-then-discard* findings route to Step 4.1 case C.
 
 It deletes ONLY the *inert* and *safe-to-discard* findings from Stage 14's
 sweep — an *action-required* or *review-then-discard* finding is never

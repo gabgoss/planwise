@@ -177,7 +177,7 @@ Upgrade complete.
 > Pass the `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` (or `Lessons changelog:`) and `Plans index migration:` blocks through verbatim, exactly as the script's own banner prints them — the handler names no repair step of its own. On `refused`, the `fix:` line already carries the re-run instruction; add nothing further to it.
 
 > [!practice] Recovery-artifact disposition classes
-> `action-required` — unresolved conflict sidecars. `review-then-discard` — transferred customizations awaiting re-homing. `safe-to-discard` — pre-change backups, once you are satisfied with the upgrade. `inert` — a consumed verdict cache. Step 4.3 offers per-class cleanup for `safe-to-discard` and `inert` only; `action-required` and `review-then-discard` are reported here but resolved through Step 4 / Step 4.1 / Step 4.2.
+> `action-required` — unresolved conflict sidecars. `review-then-discard` — transferred customizations awaiting re-homing. `safe-to-discard` — pre-change backups, once you are satisfied with the upgrade. `inert` — a consumed verdict cache. Step 4.3 offers per-class cleanup for `safe-to-discard` and `inert` only; `action-required` and `review-then-discard` are reported here but resolved through Step 4 / Step 4.1 / Step 4.2. A `review-then-discard` file from an earlier version pair is resolved through Step 4.1 case C.
 
 > [!practice] Interactive elaboration — home hints (when `verdicts.json` exists)
 > Raw stdout has no `home_hints` access (handler-side cache only). When `verdicts.json` exists, append to the
@@ -212,7 +212,7 @@ Recovery artifacts:      {N} dir(s) across {M} version pair(s) — run /planwise
 Upgrade complete.
 ```
 
-If customizations-transferred > 0, list each transferred file and its target path, and point the user at Step 4.1 to promote it into an active rule or Step 4.2 to propose upstreaming it — the file is already safe (moved before the shipped body was adopted); this is a "when convenient" follow-up, not a blocker. If conflicts > 0, append the conflict list verbatim from the script's stdout and direct the user to Step 4 (or Step 4.1 if they want to complete a relocation the automated transfer couldn't). If de-scoped-preserved > 0, surface the re-home notice for each (the action choices: project-local rule / re-scope `paths:` / upstream). If the over-scope advisory is > 0, point the user at `/planwise doctor`.
+If customizations-transferred > 0, list each transferred file and its target path, and point the user at Step 4.1 to promote it into an active rule or Step 4.2 to propose upstreaming it — the file is already safe (moved before the shipped body was adopted); this is a "when convenient" follow-up, not a blocker. Run Step 4.1 case C in every upgrade that reaches this summary, since the `Recovery artifacts:` line counts an earlier pair's transfer files and case A never lists them. If conflicts > 0, append the conflict list verbatim from the script's stdout and direct the user to Step 4 (or Step 4.1 if they want to complete a relocation the automated transfer couldn't). If de-scoped-preserved > 0, surface the re-home notice for each (the action choices: project-local rule / re-scope `paths:` / upstream). If the over-scope advisory is > 0, point the user at `/planwise doctor`.
 
 #### Style rule announcement and reconcile lines
 
@@ -270,7 +270,7 @@ The `upgrade-conflicts/` directory and its `INDEX.md` can be cleaned up once all
 
 ### Step 4.1 — Assisted relocation
 
-Under `upgrade.customization_handoff: report+relocate`, upgrade.md's Step 2.4 writer already performs an automated transfer for the customization-bearing majority: it writes the full installed body to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` as a **dormant preservation document** (outside `.claude/rules/` — never loaded as a rule; see the file's own provenance header) before adopting the shipped body. Two cases land here, both interactive-only:
+Under `upgrade.customization_handoff: report+relocate`, upgrade.md's Step 2.4 writer already performs an automated transfer for the customization-bearing majority: it writes the full installed body to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` as a **dormant preservation document** (outside `.claude/rules/` — never loaded as a rule; see the file's own provenance header) before adopting the shipped body. Three cases land here. Cases A and B are interactive-only. Case C prints its verdicts in every run and takes its confirms only in an interactive session:
 
 **A. File is listed under "Customizations transferred before adoption"** — the transfer already succeeded; offer to promote the dormant transfer file into an active, `paths:`-scoped project rule:
 
@@ -278,7 +278,7 @@ Under `upgrade.customization_handoff: report+relocate`, upgrade.md's Step 2.4 wr
 2. On confirm, `AskUserQuestion` for the code-path glob the new rule should scope to (`paths:`). **Default when the user skips:** write `paths: # TODO scope` plus an advisory comment (`# TODO: scope this rule to the code dirs it governs — do NOT use plan/backlog/lessons globs`).
 3. **Copy, strip, scope.** Read the transfer file and extract ONLY the original transferred body: drop everything above it — the provenance frontmatter block (`source_filename:` … `classification:`), the `# Transferred customization: {filename}` heading, the "review and re-home" boilerplate paragraph, and the `---` separator line that precedes the body. What remains must be exactly the original installed file content (which may open with its own `---` frontmatter — that one STAYS; it is the rule's real frontmatter, not the wrapper's).
 4. Apply `update_frontmatter(content, paths_value)` to the stripped body so the promoted file carries a real `paths:` line, and **Write** the result to `.claude/rules/{project_name}/{filename}`. The promoted file must be a clean, valid, `paths:`-scoped rule — no provenance keys, no wrapper heading, no doubled frontmatter fences. (If the transferred body is an **agent** file, its frontmatter is agent-shaped — tell the user and let them adapt it into rule form or keep it dormant instead; do not blind-promote.)
-5. The transfer file itself stays in place as the preservation record; tell the user it can be deleted once they are satisfied with the promoted rule. Step 4.3 lists this surface (`review-then-discard`) alongside every other recovery-artifact class for visibility, but never offers it for deletion there — a genuine customization needs this human read before it is discarded, so the delete stays a manual step here.
+5. The transfer file itself stays in place as the preservation record; tell the user it can be deleted once they are satisfied with the promoted rule. Step 4.3 lists this surface (`review-then-discard`) alongside every other recovery-artifact class for visibility, but never offers it for deletion there — a genuine customization needs this human read before it is discarded, so the delete stays a manual step here. A transfer file that this step leaves in place is reviewed again by case C on every later upgrade.
 
 **B. File is listed under "Conflicts (preserved in place — action required)"** — the customization was never moved; secure it FIRST, then resolve the conflict through the existing sidecar mechanism. The installed location is **kind-aware**: rules live at `.claude/rules/planwise/{filename}`, agents at `.claude/agents/{filename}` — never assume the rules path for an agent.
 
@@ -287,7 +287,29 @@ Under `upgrade.customization_handoff: report+relocate`, upgrade.md's Step 2.4 wr
 3. **Secure the customization:** Read the preserved installed body (from its kind-aware installed path) and Write it to `.claude/rules/{project_name}/{filename}` via `update_frontmatter(content, paths_value)`. Read the new copy back and confirm it contains the customization before touching anything else — this copy is the pre-image that makes the next step safe. (For an agent body, same caveat as case A step 4.)
 4. **Adopt shipped via the sidecar** — the already-documented Step 4 resolution action, not a new write surface: move the `.new` sidecar content over the installed file at its kind-aware path (overwrite installed with sidecar, then delete the `.new`). Do this **only after** step 3's copy is verified — nothing is ever overwritten without a confirmed surviving copy (the relocated project-owned file; the writer's `upgrade-backups/` pre-image, when one was made, is a second recovery path). Never simply delete the installed file: the shipped body must land in the freed slot, or the install is left missing a managed artifact.
 
-The handler's write surface in both cases stays within its documented boundary — `verdicts.json`, `.claude/rules/{project_name}/**` promotion copies, issue-draft files, and the Step 4 sidecar-over-installed conflict resolution. The `--upgrade` script remains the only automated mutator of the managed tree; everything here is an explicit, per-file, user-confirmed interactive action.
+**C. A transfer file sits under an earlier version pair's folder** — a file under `{planwise_root}/upgrade-transfers/{pair}/` where `{pair}` is not this run's `{from}-to-{to}`. The banner lists only this run's transfers, so case A never reaches an earlier pair's file. Without this case, nothing ever tells the user that a later release now ships the content.
+
+1. Run the read-only review. Pass this run's pair so case A keeps its own files:
+   ```bash
+   python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --root "{planwise_root}" --review-transfers --upgrade-pair "{from}-to-{to}"
+   ```
+   The script prints a JSON array with one row per file. A `[]` result means no earlier transfer exists, so skip the rest of case C. The script strips the provenance wrapper and compares the preserved body with the **current** shipped `references/{filename}`. It uses the same structural comparison as Step 2.4, so it needs no agent and gives the same verdict in a headless run.
+2. Print one line per file in the chat summary, whatever the status: `{pair}/{filename}: {status} — {detail}`. A file the user keeps is then a recorded decision and not silence.
+3. Act on each file by its `status`:
+
+   | `status` | Meaning | Action |
+   |---|---|---|
+   | `now-upstream` | The shipped file contains the preserved body | Use Grep to find each title in `recorded_unique_blocks` inside `{plugin_root}/references/{filename}`. Quote the matching shipped headings. Then `AskUserQuestion` per file: "Delete the transfer file `{path}`? The shipped file now carries its content." |
+   | `still-unique` | Part of the preserved body is not in the shipped file | List every entry in `unique_blocks`. Mark each entry that is also in `unique_blocks_titled_in_shipped` as "title exists upstream — likely revised, read the shipped section". Then offer the case A promotion for this file, or keep it. Never offer plain deletion. |
+   | `no-counterpart` | The shipped file no longer exists | Report the file and its `recorded_unique_blocks`. Keep it. Never offer deletion. |
+   | `not-a-transfer` or `unreadable` | The file lacks the wrapper, or the script could not read it | Report the path. Keep it. Never offer deletion. |
+
+   The delete confirm is `<!-- AUTO-MODE: convenience -->`, and its inferred default is **skip**, so an unattended run never deletes a transfer file. Delete only on an explicit yes, and print each removed path. The promotion offer follows case A, including its `<!-- AUTO-MODE: critical -->` gate.
+
+   > [!constraint] A title match is a hint, never a SUBSET verdict
+   > The comparison calls a block unique when its content is not inside the shipped file. A block whose title still exists upstream was usually revised there, so it stays `still-unique`. Only the script's `now-upstream` status makes a file deletable. Do not upgrade a `still-unique` file to deletable because its titles match.
+
+The handler's write surface in all three cases stays within its documented boundary — `verdicts.json`, `.claude/rules/{project_name}/**` promotion copies, issue-draft files, the Step 4 sidecar-over-installed conflict resolution, and the confirmed deletion of one `now-upstream` transfer file under `upgrade-transfers/`. The `--upgrade` script remains the only automated mutator of the managed tree; everything here is an explicit, per-file, user-confirmed interactive action.
 
 ---
 
@@ -330,7 +352,7 @@ Runs after the Step 3 banner has reported which `Recovery artifacts:` surfaces c
 | Class | Surface(s) | Offered for deletion here? |
 |---|---|---|
 | `action-required` | `{planwise_root}/upgrade-conflicts/*/` (unresolved `.new` sidecars); `{planwise_root}/upgrade-conflicts/*/issue-drafts/` | Never — resolve the sidecars via Step 4, the issue drafts via Step 4.2 |
-| `review-then-discard` | `{planwise_root}/upgrade-transfers/*/` | Never — a genuine customization needs a human read before it is discarded; promote or delete by hand via Step 4.1 case A |
+| `review-then-discard` | `{planwise_root}/upgrade-transfers/*/` | Never in bulk — a genuine customization needs a human read before it is discarded. Step 4.1 case A promotes this run's files. Step 4.1 case C reviews an earlier pair's files and offers deletion one file at a time |
 | `safe-to-discard` | `{planwise_root}/upgrade-backups/*/` | Yes |
 | `inert` | `{planwise_root}/upgrade-conflicts/*/verdicts.json.consumed` | Yes |
 

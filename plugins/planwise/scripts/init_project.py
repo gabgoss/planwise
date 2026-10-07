@@ -449,6 +449,14 @@ except ImportError:
         "re-exports; the scripts/ directory appears to be partially installed"
     )
 
+try:
+    from transfer_review import run_review_transfers
+except ImportError:
+    raise ImportError(
+        "transfer_review is required for init_project's --review-transfers "
+        "diagnostic; the scripts/ directory appears to be partially installed"
+    )
+
 
 def install_rules(cfg: InitConfig) -> list[str]:
     """Copy reference files as rules with updated paths: frontmatter.
@@ -776,6 +784,14 @@ def main():
                              "files whose body diverges from the plugin-shipped version "
                              "(filename, kind, installed path, shipped path). Prints [] when "
                              "none diverge. Does not modify anything and does not require --name.")
+    parser.add_argument("--review-transfers", action="store_true",
+                        help="Read-only diagnostic: print a JSON array with one row per "
+                             "file under upgrade-transfers/*-to-*/, comparing each preserved "
+                             "body with the current plugin-shipped file (status now-upstream, "
+                             "still-unique, no-counterpart, not-a-transfer or unreadable). "
+                             "Pass --upgrade-pair FROM-to-TO to skip this run's own pair. "
+                             "Prints [] when no transfer is on disk. Does not modify "
+                             "anything and does not require --name.")
     parser.add_argument("--prune-stale", action="store_true",
                         help="WRITER (opt-in): delete the stale de-scoped rules and "
                              "orphaned agent mirrors that --doctor's read-only sweeps mark "
@@ -812,8 +828,9 @@ def main():
     # writer's refusal gate depends on it being well-formed.
     expected_pair = None
     if args.upgrade_pair is not None:
-        if not args.upgrade:
-            parser.error("--upgrade-pair only applies together with --upgrade")
+        if not (args.upgrade or args.review_transfers):
+            parser.error("--upgrade-pair only applies together with --upgrade "
+                         "or --review-transfers")
         parts = args.upgrade_pair.split("-to-")
         if len(parts) != 2 or not parts[0] or not parts[1]:
             parser.error("--upgrade-pair must be FROM-to-TO (e.g. 1.0.4-to-1.0.5), "
@@ -844,14 +861,14 @@ def main():
             sys.exit(2)
         sys.exit(0)
 
-    # --doctor, --list-diverged, and the two --prune-* writers are self-scoped
-    # modes that do not use the project name; every other mode
+    # --doctor, --list-diverged, --review-transfers, and the two --prune-* writers
+    # are self-scoped modes that do not use the project name; every other mode
     # (init / --migrate / --upgrade) requires it.
     if (not args.doctor and not args.prune_stale and not args.prune_upgrade_leftovers
-            and not args.list_diverged and not args.name):
-        parser.error("--name is required (omit it only for the read-only --doctor "
-                     "or --list-diverged diagnostics, or --prune-stale / "
-                     "--prune-upgrade-leftovers)")
+            and not args.list_diverged and not args.review_transfers and not args.name):
+        parser.error("--name is required (omit it only for the read-only --doctor, "
+                     "--list-diverged or --review-transfers diagnostics, or "
+                     "--prune-stale / --prune-upgrade-leftovers)")
 
     _plugin_root = get_plugin_root()
     cfg = InitConfig(
@@ -882,6 +899,9 @@ def main():
 
     if args.list_diverged:
         sys.exit(_run_list_diverged(cfg))
+
+    if args.review_transfers:
+        sys.exit(run_review_transfers(cfg, args.upgrade_pair))
 
     if args.upgrade:
         if args.migrate:
