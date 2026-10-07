@@ -562,7 +562,9 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
     config["_project_root"] = planwise_root.parent
 
     # Resolve paths relative to planwise root
-    project = config.get("project", {})
+    # A null or scalar `project:` block reads as an empty mapping, so every
+    # directory below falls back to its default.
+    project = _project_block(config)
 
     # Validate project.name when config was found via upward search
     if explicit_config is None:
