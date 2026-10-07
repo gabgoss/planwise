@@ -964,8 +964,12 @@ def test_golden_idempotency_with_relocated_fenced_template(tmp_path, monkeypatch
 # Path 2: fresh init_project.main() into a directory already holding the
 # legacy lessons tree.
 # ---------------------------------------------------------------------------
-def test_path2_init_migrates_legacy_lessons_end_to_end(tmp_path, capsys):
+def test_path2_init_defers_legacy_lessons_and_writes_nothing_to_them(tmp_path, capsys):
+    """Plain init only detects a hand-authored lessons index: the index and every
+    lesson file keep their bytes, no backup directory is made, and the
+    Skipped section names `/planwise upgrade` as the step that migrates it."""
     cfg, lessons_dir = _project(tmp_path, seed_openers=False, dirty=False)
+    original_index = (lessons_dir / INDEX).read_bytes()
     original_ll1 = (lessons_dir / LL1).read_bytes()
     old_argv = sys.argv[:]
     sys.argv = ["init_project.py", "--name", "e2e-init", "--project-root", str(cfg.project_root)]
@@ -974,34 +978,23 @@ def test_path2_init_migrates_legacy_lessons_end_to_end(tmp_path, capsys):
     finally:
         sys.argv = old_argv
     banner = capsys.readouterr().out
-    pair = f"init-to-{TO}"
 
-    # The bootstrap (here, `copy_seed_files`, which runs first and only
-    # creates a file `xb`-exclusively, so it never overwrites the
-    # pre-existing legacy index) seeded the changelog before the migrator
-    # ran: its backup pre-image is header-only, byte-exact to the plugin's
-    # own changelog seed.
-    backups = _backups(cfg, pair)
-    assert backups.joinpath(CHANGELOG).read_bytes() == CHANGELOG_HEADER_ONLY
-    assert backups.joinpath(LL1).read_bytes() == original_ll1
-
-    assert "Lessons index migration:" in banner and "migrated:" in banner
-    hub = read_text(lessons_dir / INDEX)
-    assert "Generated:" in hub
-    config = _config(cfg)
-    parsed = parse_lessons.parse_index(config)
-    assert parsed.shape == "generated" and len(parsed.rows) == 3
-    index_exit, companion_exit = _check_exits(cfg)
-    assert (index_exit, companion_exit) == (0, 0)
-    promo = read_text(lessons_dir / PROMO_ARCHIVE)
-    assert "LL-003" in promo
-    ledger = json.loads(read_text(lessons_dir / LEDGER))
-    assert ledger["unaccounted"] == 0
+    assert "Lessons index migration: DEFERRED" in banner
+    assert "migrated:" not in banner
+    assert (lessons_dir / INDEX).read_bytes() == original_index
+    assert (lessons_dir / LL1).read_bytes() == original_ll1
+    assert parse_lessons.parse_index(_config(cfg)).shape == "legacy"
+    assert not (cfg.project_root / "planwise" / "upgrade-backups").exists()
+    assert "Skipped (action required):" in banner
+    skipped_section = banner.split("Skipped (action required):", 1)[1]
+    assert str(lessons_dir / INDEX) in skipped_section
+    assert "/planwise upgrade" in skipped_section and "--lessons-reconcile" in skipped_section
 
 
-def test_path2_refusal_prints_skipped_artifact(tmp_path, capsys):
-    """The refusal fixture at init: a `SkippedArtifact` row prints under
-    "Skipped (action required)", naming the index and the fix."""
+def test_path2_unmigratable_tree_defers_instead_of_refusing_at_init(tmp_path, capsys):
+    """The tree upgrade would REFUSE (a lesson file missing): init no longer plans
+    the migration, so it defers and prints a `SkippedArtifact` row under
+    "Skipped (action required)", naming the index and the upgrade fix."""
     cfg, lessons_dir = _project(tmp_path, seed_openers=False, dirty=False, omit_ll002=True)
     old_argv = sys.argv[:]
     sys.argv = ["init_project.py", "--name", "e2e-init", "--project-root", str(cfg.project_root)]
@@ -1012,6 +1005,7 @@ def test_path2_refusal_prints_skipped_artifact(tmp_path, capsys):
     banner = capsys.readouterr().out
 
     assert "Skipped (action required):" in banner
+    assert "REFUSED" not in banner
     assert str(lessons_dir / INDEX) in banner
-    assert "re-run /planwise upgrade" in banner or "close each refusal" in banner
+    assert "run /planwise upgrade" in banner
     assert not (cfg.project_root / "planwise" / "upgrade-backups" / f"init-to-{TO}" / "lessons").exists()

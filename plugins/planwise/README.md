@@ -457,7 +457,7 @@ When a new plugin version is published, upgrading happens in two stages:
 
 Versions before 1.0.5.2 use a hand-authored backlog index: one table, one footer line for the whole changelog, and no generated Archive shards. From 1.0.5.2 on, an open item renders into a generated hub, and a closed item renders into a generated Archive shard. Each item's YAML frontmatter is the single source of truth for its row. The changelog moves into its own file. One item blocks another through the frontmatter `blocks:` key, not a `## Dependencies` table.
 
-`/planwise upgrade` migrates a hand-authored index automatically. Plain `/planwise init` runs the same migration, on both its "already up to date" exit and its main path. The migration:
+`/planwise upgrade` migrates a hand-authored index automatically. Plain `/planwise init` only detects one. Init writes nothing to the index or to any item file. It reports the index as deferred under its Skipped section and names `/planwise upgrade` as the fix. Init still re-splits an over-budget changelog on an already-generated index. The upgrade migration:
 
 - Backs up every file it is about to write, under `{planwise_root}/upgrade-backups/{from}-to-{to}/backlog/`.
 - Moves the changelog footer, the feature-cell prose, and the dependency notes into their new homes.
@@ -472,11 +472,11 @@ The migration refuses on a data conflict it cannot resolve on its own, such as a
 
 Backups are first-wins within one `{from}-to-{to}` version pair — the first run in that pair keeps its backup. A later run in the same pair may find the target changed since that kept backup. That run also writes the current file to a numbered sibling, `{name}.{n}.bak`, so its own restore point survives. An identical re-run, one that finds the target unchanged, writes no new sibling.
 
-Pass `--backlog-reconcile index-wins` or `--backlog-reconcile frontmatter-wins` to `/planwise upgrade` to choose how a row/frontmatter disagreement resolves. The default is `index-wins`. This flag applies only together with `--upgrade` — plain `/planwise init` does not accept it.
+Pass `--backlog-reconcile index-wins` or `--backlog-reconcile frontmatter-wins` to `/planwise upgrade` to choose how a row/frontmatter disagreement resolves. The default is `index-wins`. This flag applies only together with `--upgrade`. Plain `/planwise init` does not accept it, because init never migrates a hand-authored index.
 
 Pass `--lessons-reconcile index-wins` or `--lessons-reconcile frontmatter-wins` to `/planwise upgrade` for the same choice over the lessons index. The default is `index-wins`. This flag applies only together with `--upgrade`.
 
-A fresh `/planwise init` over a hand-authored index can meet an item whose needs the fresh config cannot yet supply — for example, an abbreviation its domain list does not define. That case is refused rather than run partway. The refusal prints a fix line and shows as a skipped item in the init summary, and the migration re-fires the next time `/planwise upgrade` runs. A fresh init does not always migrate a hand-authored index.
+Plain `/planwise init` over a hand-authored index leaves it untouched, on a fresh project and on a re-run. A reconcile only has work to do when an index row and an item's frontmatter both exist and disagree, and that needs an earlier planwise version. The Skipped section prints in subroutine mode (`--auto-from`) too, so the fix line always reaches you. A refusal, such as an abbreviation the config does not define, can only happen in `/planwise upgrade`.
 
 Until the migration finishes, both [`/planwise backlog`](#5-planwise-backlog) and the index generator refuse to run against a hand-authored index.
 
@@ -486,7 +486,7 @@ Every index and changelog file stays readable in one call: the hub holds to a 12
 
 Versions before 1.0.5.2 use a hand-authored lessons index: one Master Table, a header changelog block, and a Rule Promotion Log table, all in the same file. From 1.0.5.2 on, the index is generated from each lesson file's frontmatter, the changelog moves into its own file, and the Promotion Log moves into its own files. Directory membership is never a routing input — a lesson's `status:` decides whether it lists in the hub or shards to `Archive/`.
 
-`/planwise upgrade` migrates a hand-authored lessons index automatically. Plain `/planwise init` runs the same migration, on both its "already up to date" exit and its main path. The migration:
+`/planwise upgrade` migrates a hand-authored lessons index automatically. Plain `/planwise init` only detects one. Init writes nothing to the index or to any lesson file. It reports the index as deferred under its Skipped section and names `/planwise upgrade` as the fix. Init still re-splits an over-budget changelog on an already-generated index. The upgrade migration:
 
 - Backs up every file it is about to write, under `{planwise_root}/upgrade-backups/{from}-to-{to}/lessons/`.
 - Relocates the header changelog and the Rule Promotion Log into their own files.
@@ -506,7 +506,7 @@ Until the migration finishes, any `/planwise lessons` mode that writes a lesson 
 
 Versions before 1.0.5.2 use a hand-authored plans index: one table whose rows, statuses and notes you edited by hand. From 1.0.5.2 on, the index is generated from each plan's Master Plan. The Master Plan's `**Status:**` line and dates decide each row, and a row is never edited directly.
 
-`/planwise upgrade` migrates a hand-authored plans index automatically. Plain `/planwise init` runs the same migration. The migration:
+`/planwise upgrade` migrates a hand-authored plans index automatically. Plain `/planwise init` only detects one. Init writes nothing to the index or to any Master Plan. It reports the index as deferred under its Skipped section and names `/planwise upgrade` as the fix. The upgrade migration:
 
 - Backs up the index and every Master Plan it appends to, under `{planwise_root}/upgrade-backups/{from}-to-{to}/plans/`.
 - Attaches each note in the index to the row it followed, and appends it to that row's Master Plan without changing any byte already there.

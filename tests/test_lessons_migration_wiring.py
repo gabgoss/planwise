@@ -151,8 +151,8 @@ def test_d_init_calls_lessons_routine_with_init_and_the_live_version(tmp_path, m
     calls = []
     canned = _canned("migrated", None, counts={"shards": 1}, git_dirty=False)
 
-    def spy(cfg_, from_version, to_version, *, reconcile=None):
-        calls.append((from_version, to_version, reconcile))
+    def spy(cfg_, from_version, to_version, *, reconcile=None, defer_legacy=False):
+        calls.append((from_version, to_version, reconcile, defer_legacy))
         return canned
     monkeypatch.setattr(ip, "migrate_lessons_if_legacy", spy)
     argv = ["init_project.py", "--name", cfg.project_name,
@@ -162,18 +162,20 @@ def test_d_init_calls_lessons_routine_with_init_and_the_live_version(tmp_path, m
     ip.main()
     out = capsys.readouterr().out
 
-    assert calls == [("init", TARGET_VERSION, None)]
+    # Plain init is detect-only: defer_legacy=True, and no reconcile mode is chosen.
+    assert calls == [("init", TARGET_VERSION, None, True)]
     assert "Lessons index migration:" in out
 
 
 # ---------------------------------------------------------------------------
-# (e): the five failure states BCR's own backlog block uses --
-# `{"refused", "unrecognized", "backup_failed", "write_failed", "error"}`
+# (e): the six states init_project.py's backlog block uses --
+# `{"deferred", "refused", "unrecognized", "backup_failed", "write_failed", "error"}`
 # (init_project.py's backlog block, quoted verbatim) -- each append exactly
 # one SkippedArtifact carrying the routine's own fix; the non-failure states
 # append none.
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("state,should_skip", [
+    ("deferred", True),
     ("refused", True),
     ("unrecognized", True),
     ("backup_failed", True),
@@ -183,7 +185,7 @@ def test_d_init_calls_lessons_routine_with_init_and_the_live_version(tmp_path, m
     ("generated", False),
     ("absent", False),
 ])
-def test_e_skipped_artifact_appended_for_the_same_five_states_bcr_uses(
+def test_e_skipped_artifact_appended_for_the_same_six_states_the_backlog_block_uses(
     tmp_path, monkeypatch, capsys, state, should_skip,
 ):
     """Proves the caller: init_project.main()'s SkippedArtifact mapping,
@@ -298,7 +300,7 @@ def test_i_bootstrap_runs_before_the_lessons_migration_in_init_main(tmp_path, mo
         order.append("bootstrap")
         return real_bootstrap(cfg_)
 
-    def migrate_spy(cfg_, from_version, to_version, *, reconcile=None):
+    def migrate_spy(cfg_, from_version, to_version, *, reconcile=None, defer_legacy=False):
         order.append("lessons_migrate")
         return _canned("absent", None)
     monkeypatch.setattr(ip, "bootstrap_lessons_artifacts", bootstrap_spy)

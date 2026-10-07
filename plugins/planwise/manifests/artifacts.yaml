@@ -79,9 +79,10 @@ missing_key_behaviors:
 #   migrate_shape: Hand-authored today, generator-owned after a one-time
 #     shape migration. `migrate_backlog_if_legacy()`,
 #     `migrate_lessons_if_legacy()` and `migrate_plans_if_legacy()` run at
-#     the upgrade commit point (and at init) and rewrite a legacy
-#     hand-authored file into the generated shape, backing up the original
-#     first; once migrated, later runs see the shape as already generated
+#     the upgrade commit point and rewrite a legacy hand-authored file
+#     into the generated shape, backing up the original first. Plain init
+#     only detects a legacy file (defer_legacy) and defers it to upgrade;
+#     once migrated, later runs see the shape as already generated
 #     and the migration does not re-fire. `--replace-legacy` on the
 #     generator itself is the only way `--write` overwrites a
 #     still-hand-authored file directly, bypassing the migration and its
@@ -361,7 +362,7 @@ artifacts:
     notes: >
       Written once by the one-time legacy-to-generated shape migration
       (migrate_backlog_index.py, driven by migrate_backlog_if_legacy() at
-      the upgrade commit point or at init); records the backfilled keys,
+      the upgrade commit point); records the backfilled keys,
       resolved dependency edges, changelog conservation, and reconciliation
       the migration performed, so a later audit never has to re-derive them
       from a diff. The filename stem comes from
@@ -389,7 +390,7 @@ artifacts:
       a fresh project with the generator's output over an empty plans
       directory. A hand-authored plans index migrates once:
       migrate_plans_if_legacy() (migrate_plans_index.py, at the upgrade
-      commit point or at init) backs up the index and every Master Plan it
+      commit point) backs up the index and every Master Plan it
       appends to, attaches each index note to the row it followed, then
       runs generate_plans_index.py --write --replace-legacy. A generated
       index is left alone, and an index of unrecognized shape is reported
@@ -409,7 +410,7 @@ artifacts:
     notes: >
       Written once by the one-time legacy-to-generated shape migration
       (migrate_plans_index.py, driven by migrate_plans_if_legacy() at the
-      upgrade commit point or at init); records every appended index note,
+      upgrade commit point); records every appended index note,
       status changes, unattributed notes, unresolved rows, backups, the
       generator verdict and the byte accounting, so a later audit never has
       to re-derive them from a diff. The filename comes from
@@ -545,7 +546,7 @@ artifacts:
     notes: >
       Written once by the one-time legacy-to-generated shape migration
       (migrate_lessons_index.py, driven by migrate_lessons_if_legacy() at
-      the upgrade commit point or at init); records the backfilled keys,
+      the upgrade commit point); records the backfilled keys,
       relocated changelog and Promotion Log conservation, quoted titles,
       reconciled status cells, and companion disposition the migration
       performed, so a later audit never has to re-derive them from a diff.

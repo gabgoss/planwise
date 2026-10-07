@@ -5,9 +5,11 @@ isolation (`migrate_backlog_if_legacy()` called directly). This file proves
 the CALL SITES: `artifact_upgrade._run_upgrade()` reaches the routine on
 BOTH of its exits (the already-up-to-date early return and the main upgrade
 path), `init_project.main()` reaches it after the lessons bootstrap on a
-fresh/legacy `init`, a refused migration surfaces as a loud SkippedArtifact
-at init and never changes `--upgrade`'s exit code, and `--backlog-reconcile`
-is validated and forwarded end to end.
+fresh/legacy `init` in detect-only mode (`defer_legacy`) so a hand-authored
+index is deferred to `/planwise upgrade` with nothing written, a deferred
+migration surfaces as a loud SkippedArtifact at init (also under
+`--auto-from`), a refused one never changes `--upgrade`'s exit code, and
+`--backlog-reconcile` is validated and forwarded end to end.
 
 Fixtures reuse `test_backlog_migration`'s project builder (a legacy backlog
 under a real dev-tree plugin root) rather than reinventing one, per that
@@ -129,57 +131,71 @@ def test_c_refusal_never_changes_the_return_code_and_the_pin_still_commits(tmp_p
 
 
 # ---------------------------------------------------------------------------
-# (d)-(e): init_project.main() reaches the routine after the lessons block.
+# (d)-(e): init_project.main() reaches the routine after the lessons block,
+# and DEFERS a hand-authored index to /planwise upgrade instead of rewriting it.
 # ---------------------------------------------------------------------------
-def test_d_reinit_on_a_legacy_tree_migrates(tmp_path, monkeypatch, capsys):
+def _backlog_tree_bytes(backlog) -> dict:
+    """Every file under the backlog dir, by relative path, as bytes -- the before/after
+    comparison that proves a run wrote nothing."""
+    return {str(p.relative_to(backlog)): p.read_bytes() for p in sorted(Path(backlog).rglob("*")) if p.is_file()}
+
+
+def _init_argv(cfg, *extra) -> list:
+    return ["init_project.py", "--name", cfg.project_name, "--project-root", str(cfg.project_root), *extra]
+
+
+def test_d_reinit_on_a_legacy_tree_defers_and_writes_nothing(tmp_path, monkeypatch, capsys):
     """A RE-init: this fixture's config.yaml already exists (via `_legacy_project`),
     so this is init running again on a project the user already set up, not a
-    truly fresh one -- the fresh case is `test_d2` below."""
+    truly fresh one -- the fresh case is `test_d2` below. Plain init only
+    detects the hand-authored index: no item file or index byte changes, and
+    the fix names /planwise upgrade."""
     # A plain `init` run (no --upgrade/--migrate/--doctor/...) falls off the
     # end of main() without calling sys.exit() — nothing to catch here.
-    cfg, _backlog = _legacy_project(tmp_path, pinned=TARGET_VERSION)
-    argv = ["init_project.py", "--name", cfg.project_name,
-            "--project-root", str(cfg.project_root)]
-    monkeypatch.setattr(sys, "argv", argv)
+    cfg, backlog = _legacy_project(tmp_path, pinned=TARGET_VERSION)
+    before = _backlog_tree_bytes(backlog)
+    monkeypatch.setattr(sys, "argv", _init_argv(cfg))
 
     ip.main()
     out = capsys.readouterr().out
 
-    # The shared "Backlog index migration:" prefix alone does not distinguish
-    # a migrated run from ERROR/REFUSED/WRITE FAILED/BACKUP FAILED.
-    assert "generator --check:      clean" in out
-    report = artifact_upgrade.migrate_backlog_if_legacy(cfg, TARGET_VERSION, TARGET_VERSION)
-    assert report.state == "generated"
+    assert "Backlog index migration: DEFERRED" in out
+    assert "generator --check:" not in out  # the migrated banner's own line never prints
+    assert _backlog_tree_bytes(backlog) == before
+    assert not (cfg.project_root / "planwise" / "upgrade-backups").exists()
+    # The index is still hand-authored: a deferring call reports it again, and a
+    # non-deferring call is what migrates it.
+    assert artifact_upgrade.migrate_backlog_if_legacy(
+        cfg, TARGET_VERSION, TARGET_VERSION, defer_legacy=True).state == "deferred"
 
 
-def test_d2_truly_fresh_init_with_no_config_yet_refuses_on_an_unmapped_abbrev(tmp_path, monkeypatch, capsys):
+def test_d2_truly_fresh_init_with_no_config_yet_defers_rather_than_refusing(tmp_path, monkeypatch, capsys):
     """A truly fresh init: no config.yaml exists before this run, so init
     writes it fresh (in this same run, with no `abbreviations:` block). The
     legacy index's rows use abbrevs (SMP/INFRA) nothing in that fresh config
-    supplies, so the migration correctly REFUSES rather than guessing --
-    recognise-or-refuse, never best-effort. The refusal surfaces as a
-    Skipped row naming the index, and never changes init's own exit code."""
-    cfg, _backlog = _bm_project(tmp_path)
+    supplies. Plain init no longer plans the migration at all, so it cannot
+    refuse: it defers, names the index under Skipped, and leaves every file
+    untouched. The refusal for the unmapped abbrev waits for /planwise upgrade."""
+    cfg, backlog = _bm_project(tmp_path)
     (cfg.project_root / "planwise" / "config.yaml").unlink()
-    argv = ["init_project.py", "--name", cfg.project_name,
-            "--project-root", str(cfg.project_root)]
-    monkeypatch.setattr(sys, "argv", argv)
+    before = _backlog_tree_bytes(backlog)
+    monkeypatch.setattr(sys, "argv", _init_argv(cfg))
 
     ip.main()  # falls off the end of main() -- no sys.exit() on a plain init
     out = capsys.readouterr().out
 
-    assert "REFUSED" in out
+    assert "DEFERRED" in out
+    assert "REFUSED" not in out
     assert "Skipped (action required):" in out
     skipped_section = out.split("Skipped (action required):", 1)[1]
     assert "00-Index-Backlog.md" in skipped_section
+    assert _backlog_tree_bytes(backlog) == before
 
 
-def test_e_refused_init_names_the_index_under_skipped(tmp_path, monkeypatch, capsys):
+def test_e_deferred_init_names_the_index_and_the_upgrade_fix_under_skipped(tmp_path, monkeypatch, capsys):
     cfg, _backlog = _legacy_project(tmp_path, pinned=TARGET_VERSION)
-    _unconfigure_abbrev(cfg)
-    argv = ["init_project.py", "--name", cfg.project_name,
-            "--project-root", str(cfg.project_root)]
-    monkeypatch.setattr(sys, "argv", argv)
+    _unconfigure_abbrev(cfg)  # would refuse under upgrade; init never gets that far
+    monkeypatch.setattr(sys, "argv", _init_argv(cfg))
 
     ip.main()
     out = capsys.readouterr().out
@@ -188,6 +204,37 @@ def test_e_refused_init_names_the_index_under_skipped(tmp_path, monkeypatch, cap
     skipped_section = out.split("Skipped (action required):", 1)[1]
     assert "00-Index-Backlog.md" in skipped_section
     assert "/planwise backlog" in skipped_section
+    assert "/planwise upgrade" in skipped_section
+    assert "--backlog-reconcile" in skipped_section
+
+
+def test_e2_auto_from_init_still_prints_the_skipped_section(tmp_path, monkeypatch, capsys):
+    """Subroutine mode used to suppress the Skipped section, so a deferred (or
+    refused) migration reached the user only through the migration banner and
+    its remediation was never named under Skipped."""
+    cfg, _backlog = _legacy_project(tmp_path, pinned=TARGET_VERSION)
+    monkeypatch.setattr(sys, "argv", _init_argv(cfg, "--auto-from", "backlog"))
+
+    ip.main()
+    out = capsys.readouterr().out
+
+    assert "Skipped (action required):" in out
+    skipped_section = out.split("Skipped (action required):", 1)[1]
+    assert "00-Index-Backlog.md" in skipped_section
+    assert "/planwise upgrade" in skipped_section
+    assert out.rstrip().splitlines()[-1] == "Init complete — resuming /planwise backlog…"
+    assert "Done!" not in out
+
+
+def test_e3_defer_legacy_leaves_a_generated_index_alone(tmp_path):
+    """The deferral applies to a hand-authored index only. After the upgrade path
+    migrates it, a deferring call reads the generated shape like any other."""
+    cfg, _backlog = _legacy_project(tmp_path, pinned=TARGET_VERSION)
+    assert artifact_upgrade.migrate_backlog_if_legacy(cfg, TARGET_VERSION, TARGET_VERSION).state == "migrated"
+
+    report = artifact_upgrade.migrate_backlog_if_legacy(cfg, TARGET_VERSION, TARGET_VERSION, defer_legacy=True)
+
+    assert report.state == "generated"
 
 
 # ---------------------------------------------------------------------------

@@ -63,15 +63,15 @@ def disposition_rows(tmp_path, action="plans-backed-up"):
 
 
 # ---------------------------------------------------------------------------
-# The nine report states: absent, generated, unrecognized, refused,
+# The ten report states: absent, generated, unrecognized, deferred, refused,
 # backup_failed, write_failed, migrated, changelog_split, error. The plans
 # index has no changelog, so `changelog_split` is in the vocabulary only.
 # ---------------------------------------------------------------------------
 
 
-def test_the_vocabulary_is_the_nine_shared_states_and_two_are_silent():
-    assert pm.STATES == ("absent", "generated", "unrecognized", "refused", "backup_failed", "write_failed",
-                         "migrated", "changelog_split", "error")
+def test_the_vocabulary_is_the_ten_shared_states_and_two_are_silent():
+    assert pm.STATES == ("absent", "generated", "unrecognized", "deferred", "refused", "backup_failed",
+                         "write_failed", "migrated", "changelog_split", "error")
     assert pm.SILENT_STATES == ("absent", "generated")
 
 

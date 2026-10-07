@@ -66,7 +66,7 @@ CREATED = "created; no pre-image (the file did not exist before this run)"
 @dataclasses.dataclass
 class LessonsMigrationReport:
     """Outcome of `migrate_lessons_if_legacy`, with banner-ready fields."""
-    state: str  # absent | generated | unrecognized | refused | backup_failed | write_failed | migrated | changelog_split | error
+    state: str  # absent | generated | unrecognized | deferred | refused | backup_failed | write_failed | migrated | changelog_split | error
     index_path: Path | None
     detail: str = ""
     fix: str = ""
@@ -82,17 +82,23 @@ class LessonsMigrationReport:
 
 
 def migrate_lessons_if_legacy(cfg: "InitConfig", from_version: str, to_version: str,
-                              *, reconcile: str | None = None) -> LessonsMigrationReport:
-    """Migrate the project's lessons index when it is hand-authored. Never raises."""
+                              *, reconcile: str | None = None,
+                              defer_legacy: bool = False) -> LessonsMigrationReport:
+    """Migrate the project's lessons index when it is hand-authored. Never raises.
+
+    `defer_legacy` makes the call detect-only for a hand-authored index: it writes nothing,
+    reports state `deferred`, and names `/planwise upgrade` as the step that migrates it. A
+    generated index is handled the same either way. Plain `init` sets it."""
     report = LessonsMigrationReport(state="absent", index_path=None)
     try:
-        _migrate(cfg, from_version, to_version, reconcile, report)
+        _migrate(cfg, from_version, to_version, reconcile, report, defer_legacy)
     except Exception as exc:  # noqa: BLE001 -- the caller's upgrade must never fail on this step
         report.state, report.detail = "error", repr(exc)
     return report
 
 
-def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, report) -> None:
+def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, report,
+             defer_legacy: bool = False) -> None:
     config_path = Path(cfg.project_root) / cfg.planwise_root / "config.yaml"
     if not config_path.is_file():
         return
@@ -111,6 +117,13 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
         return
     if shape == "generated":
         _check_generated(cfg, from_version, to_version, config, index_path, report)
+        return
+    if defer_legacy:
+        report.state = "deferred"
+        report.detail = "the index is hand-authored; this run changed no lessons file"
+        report.fix = ("run /planwise upgrade, which migrates it; pass --lessons-reconcile "
+                      "index-wins or frontmatter-wins there to choose how a row/frontmatter "
+                      "disagreement resolves")
         return
 
     archive_dir = lessons_dir / "Archive"
@@ -501,6 +514,9 @@ def _banner_lines(report: LessonsMigrationReport) -> list:
     fix = report.fix.replace("\n", "\n          ")
     if report.state == "changelog_split":
         return [_changelog_split_line(report)]
+    if report.state == "deferred":
+        return ["Lessons index migration: DEFERRED (index and lesson files left untouched)",
+                f"  reason: {report.detail}", f"  fix:    {fix}"]
     if report.state == "refused":
         return ["Lessons index migration: REFUSED (index and lesson files left untouched)",
                 "  reason: " + report.detail.replace("\n", "\n          "), f"  fix:    {fix}"]

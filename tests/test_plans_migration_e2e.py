@@ -167,7 +167,7 @@ def test_path1_run_upgrade_migrates_fixture_b_end_to_end(tmp_path, monkeypatch, 
     assert _tree(cfg.project_root / "planwise" / "upgrade-backups") == backups
 
 
-def test_path2_fresh_init_migrates_fixture_b_and_the_seed_copy_spares_the_legacy_index(
+def test_path2_fresh_init_defers_fixture_b_and_the_seed_copy_spares_the_legacy_index(
     tmp_path, capsys,
 ):
     cfg, plans_dir = _project(tmp_path)
@@ -177,14 +177,21 @@ def test_path2_fresh_init_migrates_fixture_b_and_the_seed_copy_spares_the_legacy
     _run_init(cfg)
     banner = capsys.readouterr().out
 
-    # The seed copy did not overwrite the legacy index: the migration found its rows and notes.
+    # The seed copy did not overwrite the legacy index, and plain init only detects it:
+    # every file the fixture started with keeps its bytes, no backup is made, and the
+    # Skipped section names /planwise upgrade as the step that migrates it.
     assert "Seed files installed:" in banner and "  + planwise/Plans/00-Index-Plans.md" not in banner
-    _assert_migrated_on_disk(cfg, plans_dir, before, banner, f"init-to-{TO}", capsys)
+    assert "Plans index migration: DEFERRED (index and Master Plans left untouched)" in banner.splitlines()
+    after = _tree(plans_dir)
+    assert {name: after.get(name) for name in before} == before
+    assert not (cfg.project_root / "planwise" / "upgrade-backups").exists()
+    assert "Skipped (action required):" in banner
+    assert "run /planwise upgrade" in banner.split("Skipped (action required):", 1)[1]
 
-    # A second init prints no plans banner and leaves the plans tree bytes identical.
+    # A second init defers again and still writes nothing.
     settled = _tree(plans_dir)
     _run_init(cfg)
-    assert "Plans index migration:" not in capsys.readouterr().out
+    assert "Plans index migration: DEFERRED" in capsys.readouterr().out
     assert _tree(plans_dir) == settled
 
 

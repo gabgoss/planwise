@@ -53,7 +53,7 @@ except ImportError as exc:
 RERUN = ("then re-run /planwise upgrade (the migration re-fires on a hand-authored index; "
          "nothing else repeats)")
 MIGRATOR = "migrate_plans_index.py"
-STATES = ("absent", "generated", "unrecognized", "refused", "backup_failed", "write_failed", "migrated",
+STATES = ("absent", "generated", "unrecognized", "deferred", "refused", "backup_failed", "write_failed", "migrated",
           "changelog_split", "error")
 SILENT_STATES = ("absent", "generated")
 
@@ -61,7 +61,7 @@ SILENT_STATES = ("absent", "generated")
 @dataclasses.dataclass
 class PlansMigrationReport:
     """Outcome of `migrate_plans_if_legacy`, with banner-ready fields."""
-    state: str  # absent | generated | unrecognized | refused | backup_failed | write_failed | migrated | changelog_split | error
+    state: str  # absent | generated | unrecognized | deferred | refused | backup_failed | write_failed | migrated | changelog_split | error
     index_path: Path | None
     detail: str = ""
     fix: str = ""
@@ -76,21 +76,26 @@ class PlansMigrationReport:
 
 
 def migrate_plans_if_legacy(cfg: "InitConfig", from_version: str, to_version: str,
-                            *, reconcile: str | None = None) -> PlansMigrationReport:
+                            *, reconcile: str | None = None,
+                            defer_legacy: bool = False) -> PlansMigrationReport:
     """Migrate the project's plans index when it is hand-authored. Never raises.
 
     `reconcile` exists so the signature matches the backlog and lessons
     routines. The plans migration has exactly one resolution for a status
-    disagreement, the Master Plan's, so the keyword is accepted and ignored."""
+    disagreement, the Master Plan's, so the keyword is accepted and ignored.
+
+    `defer_legacy` makes the call detect-only for a hand-authored index: it writes nothing,
+    reports state `deferred`, and names `/planwise upgrade` as the step that migrates it. A
+    generated index is handled the same either way. Plain `init` sets it."""
     report = PlansMigrationReport(state="absent", index_path=None)
     try:
-        _migrate(cfg, from_version, to_version, report)
+        _migrate(cfg, from_version, to_version, report, defer_legacy)
     except Exception as exc:  # noqa: BLE001 -- the caller's upgrade must never fail on this step
         report.state, report.detail = "error", repr(exc)
     return report
 
 
-def _migrate(cfg, from_version: str, to_version: str, report) -> None:
+def _migrate(cfg, from_version: str, to_version: str, report, defer_legacy: bool = False) -> None:
     config_path = Path(cfg.project_root) / cfg.planwise_root / "config.yaml"
     if not config_path.is_file():
         return
@@ -112,6 +117,11 @@ def _migrate(cfg, from_version: str, to_version: str, report) -> None:
     if shape == "generated":
         report.state = "generated"
         report.detail = f"index --check exit {gen.check_plans_index(config).exit_code}"
+        return
+    if defer_legacy:
+        report.state = "deferred"
+        report.detail = "the index is hand-authored; this run changed no plans file"
+        report.fix = "run /planwise upgrade, which migrates it"
         return
 
     ledger_file = mig.ledger_path_for(plans_dir)
@@ -204,6 +214,9 @@ def _say(line: str = "") -> None:
 def _banner_lines(report: PlansMigrationReport) -> list:
     index = report.index_path
     fix = report.fix.replace("\n", "\n          ")
+    if report.state == "deferred":
+        return ["Plans index migration: DEFERRED (index and Master Plans left untouched)",
+                f"  reason: {report.detail}", f"  fix:    {fix}"]
     if report.state == "refused":
         return ["Plans index migration: REFUSED (index and Master Plans left untouched)",
                 "  reason: " + report.detail.replace("\n", "\n          "), f"  fix:    {fix}"]

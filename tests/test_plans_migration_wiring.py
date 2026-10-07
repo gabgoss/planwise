@@ -92,7 +92,7 @@ def test_a_run_upgrade_calls_the_plans_routine_once_with_the_pair_after_lessons(
     monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
     order = []
 
-    def lessons_spy(cfg_, from_version, to_version, *, reconcile=None):
+    def lessons_spy(cfg_, from_version, to_version, *, reconcile=None, defer_legacy=False):
         order.append("lessons")
         return pm.PlansMigrationReport(state="absent", index_path=None)
 
@@ -164,7 +164,7 @@ def test_d_init_calls_the_plans_routine_with_init_and_the_live_version_after_les
     cfg = _project(tmp_path, TARGET_VERSION)
     order = []
 
-    def lessons_spy(cfg_, from_version, to_version, *, reconcile=None):
+    def lessons_spy(cfg_, from_version, to_version, *, reconcile=None, defer_legacy=False):
         order.append("lessons")
         return pm.PlansMigrationReport(state="absent", index_path=None)
 
@@ -179,15 +179,17 @@ def test_d_init_calls_the_plans_routine_with_init_and_the_live_version_after_les
     ip.main()
     out = capsys.readouterr().out
 
-    assert order == ["lessons", ("plans", "init", TARGET_VERSION, {})]
+    # Plain init is detect-only: it passes defer_legacy=True and chooses no reconcile mode.
+    assert order == ["lessons", ("plans", "init", TARGET_VERSION, {"defer_legacy": True})]
     assert "Plans index migration: REFUSED" in out
 
 
 # ---------------------------------------------------------------------------
-# (f): the five refusal states append one SkippedArtifact carrying the report's
-# own fix; the three non-failure states append none.
+# (f): the deferred state and the five refusal states append one SkippedArtifact
+# carrying the report's own fix; the three non-failure states append none.
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("state,should_skip", [
+    ("deferred", True),
     ("refused", True),
     ("unrecognized", True),
     ("backup_failed", True),
@@ -197,7 +199,7 @@ def test_d_init_calls_the_plans_routine_with_init_and_the_live_version_after_les
     ("generated", False),
     ("absent", False),
 ])
-def test_e_skipped_artifact_is_appended_for_the_five_refusal_states_only(
+def test_e_skipped_artifact_is_appended_for_the_deferred_and_refusal_states_only(
     tmp_path, monkeypatch, capsys, state, should_skip,
 ):
     """Proves the caller: init_project.main()'s SkippedArtifact mapping."""

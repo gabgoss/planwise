@@ -1001,16 +1001,17 @@ def main():
 
     # Backlog-index retrofit: migrate a hand-authored backlog index (or
     # re-split an over-budget changelog on an already-generated one) via the
-    # SAME idempotent routine _run_upgrade() calls on both of its exits — the
-    # trigger is the index's on-disk shape, not a version, so the migration
-    # runs on this very run. A legacy index whose units the fresh config
-    # cannot supply (e.g. nothing here yet supplies its abbrev) is refused
-    # instead, with a fix line, and re-fires on the next /planwise upgrade.
-    _backlog = migrate_backlog_if_legacy(cfg, "init", cfg.plugin_version)
+    # SAME idempotent routine _run_upgrade() calls on both of its exits. A
+    # hand-authored index is only DETECTED here (defer_legacy): the rewrite,
+    # and the row/frontmatter reconcile choice, belong to /planwise upgrade,
+    # which accepts --backlog-reconcile. A first init has no item frontmatter
+    # to disagree with, and plain init never applies a reconcile mode the
+    # caller could not choose. The deferred state lands in the Skipped section.
+    _backlog = migrate_backlog_if_legacy(cfg, "init", cfg.plugin_version, defer_legacy=True)
     _emit_backlog_migration_banner(_backlog)
     if _backlog.state == "error" and _backlog.index_path is None:
         pass  # config.yaml's own Skipped row above already reports this fault
-    elif _backlog.state in {"refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+    elif _backlog.state in {"deferred", "refused", "unrecognized", "backup_failed", "write_failed", "error"}:
         index_path = _backlog.index_path or (
             cfg.project_root / cfg.planwise_root / cfg.backlog_dir / "00-Index-Backlog.md")
         skipped.append(SkippedArtifact(
@@ -1023,16 +1024,16 @@ def main():
     # Lessons-index retrofit: migrate a hand-authored lessons index (or
     # re-split an over-budget changelog on an already-generated one) via the
     # SAME idempotent routine _run_upgrade() calls on both of its exits,
-    # immediately after the backlog retrofit above -- the trigger is the
-    # index's on-disk shape, not a version, so the migration runs on this
-    # very run. Runs after bootstrap_lessons_artifacts() above, so the
-    # migrator meets the openers the bootstrap already seeded rather than
+    # immediately after the backlog retrofit above. Like the backlog, a
+    # hand-authored index is only detected here (defer_legacy) and migrates
+    # on /planwise upgrade. Runs after bootstrap_lessons_artifacts() above, so
+    # the migrator meets the openers the bootstrap already seeded rather than
     # their absence.
-    _lessons_mig = migrate_lessons_if_legacy(cfg, "init", cfg.plugin_version)
+    _lessons_mig = migrate_lessons_if_legacy(cfg, "init", cfg.plugin_version, defer_legacy=True)
     _emit_lessons_migration_banner(_lessons_mig)
     if _lessons_mig.state == "error" and _lessons_mig.index_path is None:
         pass  # config.yaml's own Skipped row above already reports this fault
-    elif _lessons_mig.state in {"refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+    elif _lessons_mig.state in {"deferred", "refused", "unrecognized", "backup_failed", "write_failed", "error"}:
         index_path = _lessons_mig.index_path or (
             cfg.project_root / cfg.planwise_root / cfg.lessons_dir / "00-Index-LessonsLearned.md")
         skipped.append(SkippedArtifact(
@@ -1042,16 +1043,16 @@ def main():
             remediation=_lessons_mig.fix or "re-run /planwise upgrade",
         ))
 
-    # Plans-index retrofit: migrate a hand-authored plans index via the SAME
+    # Plans-index retrofit: detect a hand-authored plans index via the SAME
     # idempotent routine _run_upgrade() calls on both of its exits, right after
-    # the lessons retrofit above -- the trigger is the index's on-disk shape,
-    # not a version, so the migration runs on this very run. A fresh seed is
-    # already generator-shaped, so the routine stays silent on it.
-    _plans_mig = migrate_plans_if_legacy(cfg, "init", cfg.plugin_version)
+    # the lessons retrofit above. A hand-authored index is only detected here
+    # (defer_legacy) and migrates on /planwise upgrade. A fresh seed is already
+    # generator-shaped, so the routine stays silent on it.
+    _plans_mig = migrate_plans_if_legacy(cfg, "init", cfg.plugin_version, defer_legacy=True)
     _emit_plans_migration_banner(_plans_mig)
     if _plans_mig.state == "error" and _plans_mig.index_path is None:
         pass  # config.yaml's own Skipped row above already reports this fault
-    elif _plans_mig.state in {"refused", "unrecognized", "backup_failed", "write_failed", "error"}:
+    elif _plans_mig.state in {"deferred", "refused", "unrecognized", "backup_failed", "write_failed", "error"}:
         index_path = _plans_mig.index_path or (
             cfg.project_root / cfg.planwise_root / cfg.plans_dir / _resolve_plans_index_name(cfg))
         skipped.append(SkippedArtifact(
@@ -1224,10 +1225,13 @@ def main():
             ),
         ))
 
+    # The Skipped section prints in subroutine mode too: it is the only place a
+    # deferred or refused migration names its remediation, and the calling
+    # handler would otherwise resume with a legacy index and no fix line.
+    _print_skipped_banner(skipped)
     if args.auto_from:
         print(f"Init complete — resuming /planwise {args.auto_from}…")
     else:
-        _print_skipped_banner(skipped)
         print("Done!")
 
 

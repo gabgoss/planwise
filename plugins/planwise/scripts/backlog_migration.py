@@ -13,6 +13,8 @@ the next upgrade and a finished one never repeats:
 - `migrated` (generated): re-split a changelog that has grown over the per-file
   read budget, with backups; otherwise do nothing and print nothing.
 - `unrecognized`: report the classifier's reason and touch nothing.
+- `deferred`: a hand-authored index met by a caller that passed `defer_legacy` (plain
+  `init`): write nothing and name `/planwise upgrade` as the step that migrates it.
 
 Recognise-or-refuse, never best-effort. Every step before the backup is
 read-only, and a failed backup means no write is attempted. A failed write
@@ -62,7 +64,7 @@ CREATED = "created; no pre-image (the file did not exist before this run)"
 @dataclasses.dataclass
 class BacklogMigrationReport:
     """Outcome of `migrate_backlog_if_legacy`, with banner-ready fields."""
-    state: str  # absent | generated | unrecognized | refused | backup_failed | write_failed | migrated | changelog_split | error
+    state: str  # absent | generated | unrecognized | deferred | refused | backup_failed | write_failed | migrated | changelog_split | error
     index_path: Path | None
     detail: str = ""
     fix: str = ""
@@ -79,17 +81,25 @@ class BacklogMigrationReport:
 
 
 def migrate_backlog_if_legacy(cfg: "InitConfig", from_version: str, to_version: str,
-                              *, reconcile: str | None = None) -> BacklogMigrationReport:
-    """Migrate the project's backlog index when it is hand-authored. Never raises."""
+                              *, reconcile: str | None = None,
+                              defer_legacy: bool = False) -> BacklogMigrationReport:
+    """Migrate the project's backlog index when it is hand-authored. Never raises.
+
+    `defer_legacy` makes the call detect-only for a hand-authored index: it writes nothing,
+    reports state `deferred`, and names `/planwise upgrade` as the step that migrates it. A
+    generated index is handled the same either way. Plain `init` sets it, because a
+    row/frontmatter reconcile only has something to resolve once a project already carries
+    item frontmatter, and `/planwise upgrade` is where `--backlog-reconcile` is accepted."""
     report = BacklogMigrationReport(state="absent", index_path=None)
     try:
-        _migrate(cfg, from_version, to_version, reconcile, report)
+        _migrate(cfg, from_version, to_version, reconcile, report, defer_legacy)
     except Exception as exc:  # noqa: BLE001 -- the caller's upgrade must never fail on this step
         report.state, report.detail = "error", repr(exc)
     return report
 
 
-def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, report) -> None:
+def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, report,
+             defer_legacy: bool = False) -> None:
     config_path = Path(cfg.project_root) / cfg.planwise_root / "config.yaml"
     if not config_path.is_file():
         return
@@ -108,6 +118,13 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
         return
     if shape == "migrated":
         _resplit_changelog(cfg, from_version, to_version, config, index_path, report)
+        return
+    if defer_legacy:
+        report.state = "deferred"
+        report.detail = "the index is hand-authored; this run changed no backlog file"
+        report.fix = ("run /planwise upgrade, which migrates it; pass --backlog-reconcile "
+                      "index-wins or frontmatter-wins there to choose how a row/frontmatter "
+                      "disagreement resolves")
         return
     inputs = [index_path, *sorted(config["_backlog_dir"].glob("*.md")), *sorted(config["_archive_dir"].glob("*.md"))]
     dirty, _reason = chk.git_state(config["_project_root"], inputs)
@@ -416,6 +433,9 @@ def _banner_lines(report: BacklogMigrationReport) -> list:
     if report.state == "changelog_split":
         return [(f"Backlog changelog: re-split into {c.get('changelog_parts')} part(s), each ≤ {READ_TOKEN_WARN} "
                  f"tokens; backups: {report.backup_dir}")]
+    if report.state == "deferred":
+        return ["Backlog index migration: DEFERRED (index and item files left untouched)",
+                f"  reason: {report.detail}", f"  fix:    {fix}"]
     if report.state == "refused":
         return ["Backlog index migration: REFUSED (index and item files left untouched)",
                 f"  reason: {report.detail}", f"  fix:    {fix}"]
