@@ -2,6 +2,13 @@
 #
 # Decision (2026-09-08): the whole repository is linted, tests included.
 # `python -m ruff check .` from this directory MUST report zero findings.
+# From a parent directory, pass this repo's path instead:
+# `python -m ruff check <path-to-this-repo>`. Ruff then discovers this file
+# from the linted files and resolves the relative paths below against this
+# directory. NEVER pass this file via `--config` from outside the repo: ruff
+# resolves `per-file-ignores` (and `src`) in a `--config` file against the
+# CALLER's working directory, so the exemptions below silently stop matching
+# and spurious I001 findings appear on untouched files.
 #
 #   plugins/planwise/   the shipped subtree — clean with no allowance
 #   tests/              the dev-only suite — ALSO linted; an unlinted test tree
