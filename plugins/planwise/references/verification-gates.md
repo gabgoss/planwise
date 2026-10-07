@@ -525,7 +525,7 @@ The shape: a task's exit gate derives its expected figure **from** the very enum
 grep -o '({first-member}.*{last-member})' {doc} | tr ',' '\n' | wc -l   # must equal the declared count
 ```
 
-Derive the two sides from **independent** surfaces, or the gate is checking a thing against itself.
+Derive the two sides from **independent** surfaces, or the gate is checking a thing against itself. The mirror direction (a count that passes while work is missing) and the balance-gate case are in [gate-denominator-integrity.md](gate-denominator-integrity.md) §2 and §4.
 
 ### 11.2 The cross-surface equality invariant
 

@@ -134,6 +134,8 @@ Fix: Replace with per-unit existence assertions per references/verification-task
 >
 > If the denominator cannot be made precise (e.g., the construct's invocation shape varies and excluding prose is infeasible), the check is **NOT** a pass/fail gate. Re-classify it as an `INVESTIGATE` signal and surface the ambiguity to the orchestrator instead of emitting FAIL.
 
+A denominator counted in the artifact being gated cannot detect an item nobody scoped. See [gate-denominator-integrity.md](gate-denominator-integrity.md) §3.
+
 #### Reviewer Check 059 — Verification Task Keyword-Proximity Coverage Gate
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
