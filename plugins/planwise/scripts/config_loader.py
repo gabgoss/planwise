@@ -554,6 +554,10 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
     else:
         config = _parse_yaml_simple(raw)
 
+    # A document that is not a mapping (a list or a scalar) carries no keys.
+    if not isinstance(config, dict):
+        config = {}
+
     # Planwise root is the directory containing config.yaml
     planwise_root = config_path.parent
 
@@ -568,7 +572,7 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
 
     # Validate project.name when config was found via upward search
     if explicit_config is None:
-        project_name = project.get("name", "")
+        project_name = _nonempty_str(project.get("name")) or ""
         if not project_name or "{" in project_name:
             print(
                 f"Warning: config at {config_path} has placeholder or missing "
@@ -576,11 +580,12 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
                 file=sys.stderr,
             )
 
-    backlog_rel = project.get("backlog_dir", "Backlog")
+    # A directory key that is null, empty or not a string falls back to its
+    # default, the way `resolve_index_dir` reads the same keys.
+    backlog_rel = _nonempty_str(project.get("backlog_dir")) or "Backlog"
     config["_backlog_dir"] = planwise_root / backlog_rel
-    config["_archive_dir"] = planwise_root / project.get("archive_dir", f"{backlog_rel}/Archive")
-    index_files = project.get("index_files", {}) if isinstance(project.get("index_files"), dict) else {}
-    config["_index_path"] = config["_backlog_dir"] / index_files.get("backlog", "00-Index-Backlog.md")
+    config["_archive_dir"] = planwise_root / (_nonempty_str(project.get("archive_dir")) or f"{backlog_rel}/Archive")
+    config["_index_path"] = config["_backlog_dir"] / resolve_index_name(config, "backlog")
 
     # Resolve plugin root (fall back if config value is missing or stale)
     plugin_root_val = config.get("plugin_root")
@@ -591,9 +596,9 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
         config["_plugin_root"] = fallback
 
     # Resolve plans path
-    plans_rel = project.get("plans_dir", "Plans")
+    plans_rel = _nonempty_str(project.get("plans_dir")) or "Plans"
     config["_plans_dir"] = planwise_root / plans_rel
-    config["_plans_index"] = config["_plans_dir"] / index_files.get("plans", "00-Index-Plans.md")
+    config["_plans_index"] = config["_plans_dir"] / resolve_index_name(config, "plans")
 
     # The simple parser turns an empty top-level key into {}, so anything that
     # is not a non-empty list of strings counts as absent.
@@ -613,16 +618,16 @@ def load_config(script_path: Path | None = None, *, config_path: Path | None = N
         config["plan_statuses"] = list(DEFAULT_PLAN_STATUSES)
 
     # Resolve lessons paths (optional)
-    lessons_dir = project.get("lessons_dir", "")
+    lessons_dir = _nonempty_str(project.get("lessons_dir"))
     if lessons_dir:
         config["_lessons_dir"] = planwise_root / lessons_dir
-        config["_lessons_index"] = config["_lessons_dir"] / index_files.get("lessons", "00-Index-LessonsLearned.md")
+        config["_lessons_index"] = config["_lessons_dir"] / resolve_index_name(config, "lessons")
     else:
         config["_lessons_dir"] = None
         config["_lessons_index"] = None
 
     # Resolve feedback path
-    feedback_rel = project.get("feedback_dir", "Feedback")
+    feedback_rel = _nonempty_str(project.get("feedback_dir")) or "Feedback"
     config["_feedback_dir"] = planwise_root / feedback_rel
 
     return config
