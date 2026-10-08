@@ -126,6 +126,9 @@ def parse_context_report(text: str) -> dict:
       * total_active prefers the header `**Tokens:** <n> / ...` figure (the
         canonical active total) and falls back to summing the non-deferred,
         non-free-space category rows.
+      * Rows under a level-1-to-3 heading that is not category, agent or skill
+        (for example MCP Tools or Memory Files) are ignored. Deeper
+        sub-headings do not end a section.
     """
     categories: dict[str, int] = {}
     agents: list[dict] = []
@@ -157,8 +160,13 @@ def parse_context_report(text: str) -> dict:
             section = "skills"
             continue
         if low.startswith("#"):
-            # Some other heading — leave current section, it will be reset by
-            # the next recognized section header.
+            # Any other level-1-to-3 heading ends the current section. A
+            # `/context` report carries tables this parser does not consume
+            # (MCP Tools, Memory Files), and their rows must not land in the
+            # section before them. A deeper sub-heading (`####` or more)
+            # leaves the current section unchanged.
+            if re.match(r"^#{1,3}\s", line):
+                section = None
             continue
 
         if not line.startswith("|"):
@@ -574,6 +582,10 @@ def _write_back(config_path, values: dict) -> None:
     children are left beneath a complete value. This is the REPLACE-if-present
     policy: the opposite of init_project.merge_context_subkeys's additive,
     skip-if-present one (see that function's docstring).
+
+    The status comments calibrate() writes on `token_saver_session_start_range`
+    and `token_saver_structural_floor` supersede the line's prior comment, per
+    config_loader.splice_context_block.
 
     The write goes through the parse-checked writer, so an edit that would leave
     an unparseable config is rolled back and raised rather than saved.

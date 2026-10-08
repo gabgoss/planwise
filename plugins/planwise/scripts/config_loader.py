@@ -245,6 +245,35 @@ def _block_value_end(text: str, line_end: int, key_indent: int) -> int:
     return end if saw_child else line_end
 
 
+def _split_inline_comment(s: str) -> tuple[str, str]:
+    """Split a YAML value fragment into (body, comment).
+
+    The comment starts at the first `#` that is preceded by whitespace and sits
+    outside single- and double-quoted spans. It includes the whitespace run
+    before the `#`. The comment is "" when there is none. A quote opens a span
+    only at the start of the fragment or after whitespace or one of `[{,:`, so
+    an apostrophe inside a plain word does not open one.
+    """
+    quote = ""
+    prev = ""
+    for i, ch in enumerate(s):
+        if quote:
+            if quote == '"' and ch == "\\":
+                prev = ch
+                continue
+            if ch == quote and not (quote == '"' and prev == "\\"):
+                quote = ""
+        elif ch in "'\"" and (i == 0 or s[i - 1].isspace() or s[i - 1] in "[{,:"):
+            quote = ch
+        elif ch == "#" and i > 0 and s[i - 1].isspace():
+            start = i
+            while start > 0 and s[start - 1].isspace():
+                start -= 1
+            return s[:start], s[start:]
+        prev = ch
+    return s, ""
+
+
 def splice_context_block(text: str, values: dict) -> str:
     """Replace-or-append each (key, value) pair against a `context:` block.
 
@@ -253,7 +282,8 @@ def splice_context_block(text: str, values: dict) -> str:
         whole-text regex, not scoped to inside the block — matching a
         top-level key like `plugin_version` works the same way), its value is
         REPLACED IN PLACE. A trailing inline comment on that line is
-        preserved. When the key's own line carries no value (the real value
+        preserved unless the new value carries its own inline comment, which
+        then replaces it. When the key's own line carries no value (the real value
         lives in an indented block below it — either hand-authored or
         produced by an earlier whole-file re-dump), the entire child block is
         consumed and replaced too, so no orphaned children are left behind.
@@ -287,14 +317,16 @@ def splice_context_block(text: str, values: dict) -> str:
             # Preserve a trailing inline comment on the line (the value is
             # everything up to an unquoted `#`). Splice via slicing rather than
             # re.sub so the replacement is never re-interpreted for backrefs.
-            cm = re.search(r"(\s+#.*)$", m.group("rest"))
-            comment = cm.group(1) if cm else ""
+            value_part, comment = _split_inline_comment(m.group("rest"))
+            # A value that carries its own inline comment supersedes the line's
+            # existing comment, so a status comment never accumulates run over run.
+            if _split_inline_comment(str(value))[1]:
+                comment = ""
             replacement = f"{m.group('indent')}{key}: {value}{comment}"
             end = m.end()
             # An empty value on the key line (once its inline comment is set
             # aside) means the real value may live in an indented block below —
             # consume that block along with the parent line.
-            value_part = m.group("rest")[: cm.start(1)] if cm else m.group("rest")
             if not value_part.strip():
                 end = _block_value_end(text, m.end(), len(m.group("indent")))
             text = text[: m.start()] + replacement + text[end:]
