@@ -58,17 +58,17 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 23 | DELEGATED edit-heavy task missing N>25 resume protocol + tool-use budget estimation (`agent-orchestration-delegated.md` §1.12) | BLOCKER | Orchestration spawn prompts |
 | 24 | DELEGATED shared-edit-target dispatches missing parallelism cap/shard/delta strategy (`agent-orchestration-delegated.md` §1.13) | BLOCKER | Orchestration dispatch matrix |
 | 25 | Verify-before-cite round-2 (`verify-before-cite.md` §9.B.6 examples-repo pin verification, §9.B.7 spawn-prompt helper enumeration, §9.B.8 field-mapping + measured output-size gate, §9.B.9 tiered-fetch ladder) | BLOCKER (varies by sub-rule) | Task file spawn prompts, Required Context, and Verification Commands |
-| 26 | Sprint exit-gate verdict not reflecting gate-defining step (`verification-gates.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
-| 27 | Sprint Overview row encoding session-count fraction instead of gate verdict (`verification-gates.md` §4) | ERROR | Master Plan Sprint Overview |
+| 26 | Sprint exit-gate verdict not reflecting gate-defining step (`gate-exit-verdict-and-smoke-reports.md` §3) | BLOCKER | Sprint Plan + Sprint Overview row |
+| 27 | Sprint Overview row encoding session-count fraction instead of gate verdict (`gate-exit-verdict-and-smoke-reports.md` §4) | ERROR | Master Plan Sprint Overview |
 | 28 | EI Cross-References §-citation format violated (`ei-citation-and-token-reconciliation.md` §7) | BLOCKER | EI Cross-References table |
 | 29 | UNCONFIRMED claim missing four-site enforcement (`ei-fidelity.md` §4) | BLOCKER | EI body |
 | 30 | Sprint Plan has `READY_TO_EXECUTE` at scaffolding time (`scaffolding-hygiene.md` §4) | WARNING | Sprint Plan Status field |
 | 31 | Per-session `Outputs/` directory missing (`scaffolding-hygiene.md` §5) | BLOCKER | Session folder |
 | 32 | Orchestration `**Prerequisite:**` declaration missing for sequential session (`scaffolding-hygiene.md` §6) | ERROR | Orchestration Prerequisites |
 | 33 | Orchestration Context Boundary callout missing (`agent-orchestration-delegated.md` §1.3) | BLOCKER | Orchestration Execution Strategy |
-| 34 | Verification Commands section missing for runnable-artifact task (`verification-gates.md` §3) — exempt if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in task's Notes for Agent | BLOCKER | Task file Verification Commands |
-| 35 | Per-file-type Verification Commands table empty (`verification-gates.md` §3) — applies to runnable-artifact tasks per `templates/task-file.md` §Per-File-Type Commands | BLOCKER | Task file Verification Commands |
-| 36 | Verify Before/After callout missing for runnable artifact (`verification-gates.md` §4) | BLOCKER | Task file Verification Commands |
+| 34 | Verification Commands section missing for runnable-artifact task (`gate-exit-verdict-and-smoke-reports.md` §3) — exempt if `<!-- VERIFICATION: not-applicable (reason) -->` comment present in task's Notes for Agent | BLOCKER | Task file Verification Commands |
+| 35 | Per-file-type Verification Commands table empty (`gate-exit-verdict-and-smoke-reports.md` §3) — applies to runnable-artifact tasks per `templates/task-file.md` §Per-File-Type Commands | BLOCKER | Task file Verification Commands |
+| 36 | Verify Before/After callout missing for runnable artifact (`gate-exit-verdict-and-smoke-reports.md` §4) | BLOCKER | Task file Verification Commands |
 | 37 | Required Context not updated when a prior task changed file structure (`task-content-fidelity.md` §9.A.1) | ERROR | Task Required Context |
 | 38 | Per-file-type token rate band violation (`task-content-fidelity.md` §9.A.3) | WARNING | Task Required Context |
 | 39 | User-prompt-cited artifact unverified at scaffolding (`verify-before-cite.md` §9.B.1) | BLOCKER | Task file cited paths |

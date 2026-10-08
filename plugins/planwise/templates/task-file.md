@@ -263,7 +263,7 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > recorded once — by the sprint's first task that touches the repo, in Recovery Key
 > Findings, before that task's first edit — behind a clean-scope precondition
 > (`git status --porcelain -- <write paths>` empty, else HALT). See
-> `references/verification-gates.md` §8 for the full rule; this block states the
+> `references/gate-diff-baseline-pinning.md` §8 for the full rule; this block states the
 > requirement, the reference carries the doctrine.
 >
 > WRONG — no operand, so the command reads the entire working tree:

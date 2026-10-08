@@ -5,13 +5,13 @@ paths: {planwise_root}/{plans_dir}/**
 
 # Measurement Discipline — Measure It, Don't Infer It
 
-**Purpose:** §8 Empirical Verification Discipline, split out of [verification-gates.md](verification-gates.md) (§1-§7 stay on that anchor). The cross-cutting "measure it, don't infer it" counterpart to that file's cross-process/build/runtime gate discipline — eight cases where an agent or planner trusted a secondary, stale, or projected representation of reality instead of measuring the live, whole-surface truth. This file carries §8.1–§8.7 and §8.9; §8.8 and Reviewer Check 076 were split out to [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md), and §8.10–§8.11 to [measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md](measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md), when this file crossed the Read-tool token gate.
+**Purpose:** §8 Empirical Verification Discipline, split out of the former [verification-gates.md](verification-gates.md), now the family index whose §1-§7 live in [gate-runtime-boundary-evidence.md](gate-runtime-boundary-evidence.md) and [gate-exit-verdict-and-smoke-reports.md](gate-exit-verdict-and-smoke-reports.md). The cross-cutting "measure it, don't infer it" counterpart to that file's cross-process/build/runtime gate discipline — eight cases where an agent or planner trusted a secondary, stale, or projected representation of reality instead of measuring the live, whole-surface truth. This file carries §8.1–§8.7 and §8.9; §8.8 and Reviewer Check 076 were split out to [measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md](measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md), and §8.10–§8.11 to [measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md](measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md), when this file crossed the Read-tool token gate.
 
 ---
 
 ## 8. Empirical Verification Discipline
 
-[verification-gates.md](verification-gates.md) §2–§7 each guard a specific "necessary-but-not-sufficient signal treated as the gate" failure. This section generalizes the same discipline to four cross-cutting cases where an agent or planner trusted a **secondary, stale, or projected** representation of reality instead of measuring the live, whole-surface truth. The common cure: **measure it, don't infer it.**
+[gate-runtime-boundary-evidence.md](gate-runtime-boundary-evidence.md) §2 and §5–§7 and [gate-exit-verdict-and-smoke-reports.md](gate-exit-verdict-and-smoke-reports.md) §3–§4 each guard a specific "necessary-but-not-sufficient signal treated as the gate" failure. This section generalizes the same discipline to four cross-cutting cases where an agent or planner trusted a **secondary, stale, or projected** representation of reality instead of measuring the live, whole-surface truth. The common cure: **measure it, don't infer it.**
 
 ### 8.1 Line-count measurements MUST use `wc -l`, not Read-output line numbers
 
@@ -80,7 +80,7 @@ Fix: Cite the review discovery fact sheet's wc -l count for {file_path}, or re-m
 >   NOT "grep returns zero lines".
 > ```
 >
-> The distinguishing test: a **citation** references a specific real project artifact (opaque to any downstream consumer) and is a genuine violation; an **illustration** is an abstract filename/identifier pattern under an "Example:" label and is intended documentation. Classify by that test, not by the regex alone. This is the same classification principle [verification-gates.md](verification-gates.md) §2 applies to round-trip runtime evidence — never silently accept a non-empty gate, and never expect literal-empty output when the repo documents the very pattern being scanned.
+> The distinguishing test: a **citation** references a specific real project artifact (opaque to any downstream consumer) and is a genuine violation; an **illustration** is an abstract filename/identifier pattern under an "Example:" label and is intended documentation. Classify by that test, not by the regex alone. This is the same classification principle [gate-runtime-boundary-evidence.md](gate-runtime-boundary-evidence.md) §2 applies to round-trip runtime evidence — never silently accept a non-empty gate, and never expect literal-empty output when the repo documents the very pattern being scanned.
 
 ### 8.3 Sanity-check a projected headline metric against the fixed extraction scope before starting
 
@@ -202,7 +202,7 @@ This is worse than a missing gate. A missing gate is visible in review; a gate t
 > ```bash
 > git diff $BASE -- <paths> | grep -E '^\+' | grep -E '<forbidden-pattern>'   # expect empty
 > ```
-> `$BASE` is the sprint's recorded baseline, defined in `references/verification-gates.md` §8, which also states how the sprint's first repo-touching task records it before that task's first edit.
+> `$BASE` is the sprint's recorded baseline, defined in `references/gate-diff-baseline-pinning.md` §8, which also states how the sprint's first repo-touching task records it before that task's first edit.
 > Three independent blind spots, each sufficient on its own to make the gate unfalsifiable:
 > 1. **Untracked files never appear in `git diff` at all.** A task that CREATES files gets an empty result from a pipeline those files' content never entered.
 > 2. **`^\+` filtering hides everything predating the base.** A defect older than `$BASE` is a context line, not an added line, so it is invisible by construction — and stays invisible across every later session reusing the shape.
@@ -512,4 +512,4 @@ Fix: Trace the figure to a measurement or to its origin sentence and inline the 
 
 ---
 
-*Cross-references: [verification-gates.md](verification-gates.md) (§1-§7 — cross-process/build/runtime gate discipline this section generalizes from; split anchor, keeps the original filename).*
+*Cross-references: [gate-runtime-boundary-evidence.md](gate-runtime-boundary-evidence.md) and [gate-exit-verdict-and-smoke-reports.md](gate-exit-verdict-and-smoke-reports.md) (the former `verification-gates.md` §1-§7 — cross-process/build/runtime gate discipline this section generalizes from), [verification-gates.md](verification-gates.md) (the family index).*

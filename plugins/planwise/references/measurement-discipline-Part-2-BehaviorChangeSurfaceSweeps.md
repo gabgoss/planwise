@@ -311,4 +311,4 @@ Fix: Add a deliverable editing the caller's gate to route the detected state to 
 
 ---
 
-*Cross-references: [measurement-discipline.md](measurement-discipline.md) (§8.1–§8.7 — the live-measurement and gate-integrity discipline this section builds on; split anchor, keeps the original filename), [verification-gates.md](verification-gates.md) (§1-§7 — cross-process/build/runtime gate discipline).*
+*Cross-references: [measurement-discipline.md](measurement-discipline.md) (§8.1–§8.7 — the live-measurement and gate-integrity discipline this section builds on; split anchor, keeps the original filename), [gate-runtime-boundary-evidence.md](gate-runtime-boundary-evidence.md) and [gate-exit-verdict-and-smoke-reports.md](gate-exit-verdict-and-smoke-reports.md) (the former `verification-gates.md` §1-§7 — cross-process/build/runtime gate discipline).*

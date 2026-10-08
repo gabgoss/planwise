@@ -92,7 +92,7 @@ Before recording any Result, check each anchor's command against the four traps 
 ## Verdict
 
 > [!gate] Sprint Exit Gate
-> Verdict reflects the **gate-defining step's status**, not step-count percentage (per `references/verification-gates.md` §3 "The Gate Is the Gate").
+> Verdict reflects the **gate-defining step's status**, not step-count percentage (per `references/gate-exit-verdict-and-smoke-reports.md` §3 "The Gate Is the Gate").
 
 **Verdict:** {PASS \| PARTIAL \| FAIL}
 
@@ -110,7 +110,7 @@ Before recording any Result, check each anchor's command against the four traps 
 ## Round-Trip Evidence <!-- required for IPC/protocol/codec sessions -->
 
 > [!gate] Round-Trip Evidence Requirement
-> If this sprint contains IPC/protocol/codec sessions, ONE of these three evidence forms MUST be present (per `references/verification-gates.md` §1):
+> If this sprint contains IPC/protocol/codec sessions, ONE of these three evidence forms MUST be present (per `references/gate-runtime-boundary-evidence.md` §1-§2):
 
 - **Form A — In-process integration test:** {test name + result}
 - **Form B — Manual smoke step:** {documented commands + observed output}
@@ -123,7 +123,7 @@ If none of A/B/C applies (no IPC/protocol/codec sessions), state "N/A — no IPC
 ## Sprint Overview Row Encoding
 
 > [!practice] Sprint Overview Row vs Master Plan Status
-> The Sprint Overview row state reflects the **exit-gate verdict**, NOT the session-count fraction (per `references/verification-gates.md` §4). When this signoff records PASS, update the Master Plan's Sprint Overview row Status to COMPLETE. PARTIAL or FAIL retains IN_PROGRESS until remediated.
+> The Sprint Overview row state reflects the **exit-gate verdict**, NOT the session-count fraction (per `references/gate-exit-verdict-and-smoke-reports.md` §4). When this signoff records PASS, update the Master Plan's Sprint Overview row Status to COMPLETE. PARTIAL or FAIL retains IN_PROGRESS until remediated.
 
 Master Plan Sprint Overview row to update:
 ```

@@ -664,7 +664,7 @@ Applies to:
 
 - Sprint Signoff Mechanical Anchors, session gate files and task Verification Commands that prove idempotency of a generator, migrator or formatter.
 - Any session whose orchestration forbids writes to a live data tree.
-- The sibling case of a writer's own pre-release test: seed its fixture from the live artifact and dry-run it twice on a copy (`references/verification-gate-evidence.md` §7.1). That case covers a tool's pre-release test. This subsection covers an anchor's own command text.
+- The sibling case of a writer's own pre-release test: seed its fixture from the live artifact and dry-run it twice on a copy (`references/gate-fixture-provenance.md` §7.1). That case covers a tool's pre-release test. This subsection covers an anchor's own command text.
 
 ### 16.11 Fill the Signoff at Sprint Close — A Downstream Gate Reads the Artifact, Never the Intent
 

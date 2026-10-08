@@ -184,7 +184,7 @@ Three consequences:
 
 Three consequences:
 
-- **The instrument is the artifact of record, not the proof file.** A proof file is read once, at acceptance. An instrument's output is read on every later run. When the two disagree, the instrument wins in practice, so fix the instrument. [`verification-gate-evidence.md`](verification-gate-evidence.md) §10 states the artifact-over-instrument rule.
+- **The instrument is the artifact of record, not the proof file.** A proof file is read once, at acceptance. An instrument's output is read on every later run. When the two disagree, the instrument wins in practice, so fix the instrument. [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §10 states the artifact-over-instrument rule.
 - **"The criterion is satisfied by a different search" is the tell.** When a runner argues the criterion holds via a structure the criterion did not name, the argument is the finding. Recompute from the instrument's own output before accepting.
 - **The fix is a relabel, not a redesign.** The broad search was correct and wanted. The defect was one label carrying two meanings. Splitting it into two lines kept the design and made the criterion's line true.
 

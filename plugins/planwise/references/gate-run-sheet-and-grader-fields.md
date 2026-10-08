@@ -1,13 +1,13 @@
 ---
-description: §13 — a run sheet pins the field the observed mechanism reads, not the flag whose name matches the sheet's intent. A flag nothing in the mechanism reads is documentation, not control. Trace each pinned flag to the line of the hook that reads it, give a mechanism whose default acts an off value before the sheet is written, and suspect the sheet's control before the operator when two operator-correct runs give the same wrong outcome. §14 — a grader that reads a numeric field from a module's log fails on null, because a null where a number belongs is a failed measurement and a "row present" predicate passes a row whose every numeric field is null.
+description: A run sheet pins the field the observed mechanism reads, not the flag whose name matches the sheet's intent — a flag nothing reads is documentation, not control (§13); and a grader that reads a numeric field from a module's log fails on null, because a null where a number belongs is a failed measurement and a "row present" predicate passes a row whose every numeric field is null (§14).
 paths: {planwise_root}/{plans_dir}/**
 ---
 
-# Verification Gates, Part 2 — A Run Sheet Pins the Field the Hook Reads
+# Gate Run-Sheet Control and Grader Fields
 
-**Purpose:** §13 and §14, split out of [verification-gates.md](verification-gates.md) when that file passed the Read-tool token warning. §1–§12 stay on that anchor, which keeps the original filename. Cite these sections as `verification-gates.md` §13 and §14 and read them here.
+**Purpose:** Two rules about the join between a sheet or grader and the mechanism it claims to control or measure. Every line of a sheet can run without error while its predicate stays unreachable, and every run can grade PASS while every measurement is unmeasured. Split from `verification-gates.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-gates.md §N` citation translates by filename alone. The family index is `verification-gates.md`.
 
-**Read this when** you write a run sheet, a probe driver or a test fixture that pins flags on a reset or launch line and then predicts behavior from them. Read it again when two clean runs of a sheet give the same wrong outcome. Read §14 when you write a grader predicate over a numeric field in a module's log.
+**Read this when** you write a run sheet, a probe driver or a test fixture that pins flags on a reset or launch line, two clean runs of a sheet give the same wrong outcome, or you write a grader predicate over a numeric field in a log.
 
 ## Table of Contents
 
@@ -56,9 +56,7 @@ Four attempts, three of them clean executions of a sheet whose control was not a
 
 **Applies to** run sheets, probe drivers and test fixtures that pin flags on a reset or launch line and then predict behavior from them. It also applies to any mechanism with a default that acts, such as a hook that feeds, a timer that fires or a guard that blocks. The sheet must be able to name the value under which the mechanism does not act.
 
-**Sibling rule.** `## 10. The Instrument's Four Proof Obligations` in the anchor file proves the instrument discriminates. This section proves the sheet's control reaches the mechanism. Both must hold before a run's outcome is evidence.
-
----
+**Sibling rule.** [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) §10 proves the instrument discriminates. This section proves the sheet's control reaches the mechanism. Both must hold before a run's outcome is evidence.
 
 ## 14. A Grader Treats a Null Numeric Field as a Failed Measurement
 
@@ -78,6 +76,10 @@ Three rules follow.
 
 1. **Grade the field, not the row.** Name the type and the range of every numeric field the predicate reads. A `null`, a string or a negative value is a FAIL.
 2. **Record the failure beside every cost row.** When a run's timing fields are `null`, the arm table says so next to each cost row. A cost row with no usable timing data is not a zero.
-3. **Run the dry-run pair.** Run the predicate once against a row with a number and once against a row with `null`. The two results MUST differ. A predicate that returns PASS on both has never been shown to discriminate. `## 10. The Instrument's Four Proof Obligations` in the anchor file states the general form.
+3. **Run the dry-run pair.** Run the predicate once against a row with a number and once against a row with `null`. The two results MUST differ. A predicate that returns PASS on both has never been shown to discriminate. [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) §10 states the general form.
 
-**Applies to** any grader, assertion or report that reads a numeric field from a log, a store or a result file. Cross-reference: `## 6. Build-Fresh ≠ Deploy-Fresh` in the anchor file covers a build that is fresh while the deployed copy is not. This section covers the run that graded PASS on a build whose measurements were never taken.
+**Applies to** any grader, assertion or report that reads a numeric field from a log, a store or a result file. Cross-reference: [gate-runtime-boundary-evidence.md](gate-runtime-boundary-evidence.md) §6 covers a build that is fresh while the deployed copy is not. This section covers the run that graded PASS on a build whose measurements were never taken.
+
+---
+
+*Cross-references: [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) (§10, the dry-run pair every predicate owes) · [gate-script-output-assertions.md](gate-script-output-assertions.md) (§19 and §23, grading a decision row's reason and a script's exit code) · [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md) (a declared API that drifts between builds) · [verification-gates.md](verification-gates.md) (the family index).*

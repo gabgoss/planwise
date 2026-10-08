@@ -38,7 +38,7 @@ For every newly added function, optional parameter, CLI flag, config key, event 
 > ```
 > The pattern carries the activating argument or the registration call, and the path excludes the test tree — a test supplying the argument is the false witness the constraint above describes.
 
-Dry-run the gate in both directions before trusting it: it must **fire** on a deliberately unwired symbol (a function defined in a scratch module and called from nowhere returns 0 sites) and stay **silent** on a wired one (an existing function with a production caller returns ≥ 1). A reachability gate that has only ever been run against wired code has not been shown to discriminate. The instrument-level obligations — the gate can fail, does not fail correct work, sees the shape it counts — are [verification-gates.md](verification-gates.md) §10; this file adds the one question those gates do not ask.
+Dry-run the gate in both directions before trusting it: it must **fire** on a deliberately unwired symbol (a function defined in a scratch module and called from nowhere returns 0 sites) and stay **silent** on a wired one (an existing function with a production caller returns ≥ 1). A reachability gate that has only ever been run against wired code has not been shown to discriminate. The instrument-level obligations — the gate can fail, does not fail correct work, sees the shape it counts — are [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) §10; this file adds the one question those gates do not ask.
 
 ---
 
@@ -129,4 +129,4 @@ Four operative points follow.
 
 ---
 
-*Companion files: [verification-gates.md](verification-gates.md) (§10 the instrument's proof obligations, §11 change- vs state-detecting shapes, §12 the pointer to this file), [gate-heuristic-verifier-patterns.md](gate-heuristic-verifier-patterns.md) §2 (per-unit assertions over aggregate counts), [templates/sprint-signoff.md](../templates/sprint-signoff.md) (the anchor a behaviour-adding criterion carries).*
+*Companion files: [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) (§10 the instrument's proof obligations), [gate-change-vs-state-detecting.md](gate-change-vs-state-detecting.md) (§11 change- vs state-detecting shapes), [verification-gates.md](verification-gates.md) (the family index, whose §12 points to this file), [gate-heuristic-verifier-patterns.md](gate-heuristic-verifier-patterns.md) §2 (per-unit assertions over aggregate counts), [templates/sprint-signoff.md](../templates/sprint-signoff.md) (the anchor a behaviour-adding criterion carries).*

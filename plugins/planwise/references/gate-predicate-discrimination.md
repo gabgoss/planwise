@@ -86,7 +86,7 @@ A hazard shown to fail in both directions is a class rather than an anecdote. Bo
 
 The remedy is to fix the gate — `grep -ni 'owner'` — and never to adjust the wording. The next author of that section has no reason to preserve a lowercase occurrence they do not know is load-bearing, so a wording fix decays on the next edit while a pattern fix does not.
 
-The second direction has an adjudication half, and it already ships: [`verification-gate-evidence.md`](verification-gate-evidence.md) §12 governs what to do when a runner discloses that it shaped an artifact to satisfy a gate. Read it alongside this section rather than re-deriving it. What §3 adds is the upstream half — the pattern property that puts a runner in that position in the first place.
+The second direction has an adjudication half, and it already ships: [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §12 governs what to do when a runner discloses that it shaped an artifact to satisfy a gate. Read it alongside this section rather than re-deriving it. What §3 adds is the upstream half — the pattern property that puts a runner in that position in the first place.
 
 ---
 
@@ -165,7 +165,7 @@ Markdown documentation is mostly bullets and tables, so a diff filter blind to b
 >
 > Then inject one known-bad line. Pipe one synthetic leaking line through the whole chain with `printf`. It MUST come out of the far end. A chain that swallows it cannot report a real leak either.
 >
-> A defect in a pinned template spreads to every file that copies the template. Dry-run a pinned gate once, in both directions, before anyone copies it into task files. [`measurement-discipline.md`](measurement-discipline.md) §8.7 owns the input-set assertion. [`verification-gate-evidence.md`](verification-gate-evidence.md) §3 owns the dry-run pair.
+> A defect in a pinned template spreads to every file that copies the template. Dry-run a pinned gate once, in both directions, before anyone copies it into task files. [`measurement-discipline.md`](measurement-discipline.md) §8.7 owns the input-set assertion. [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §3 owns the dry-run pair.
 
 ---
 
@@ -255,7 +255,7 @@ This section is deliberately written without a mechanical gate. "Have a differen
 
 ## 10. A "Count Unchanged" Gate Shares Vocabulary With the Addition It Must Exclude
 
-§1 to §9 ask whether a pattern can discriminate. This section covers a gate whose pattern discriminates the old content and then meets new content that matches it too. [`verification-gates.md`](verification-gates.md) §11 separates change-detecting gates from state-detecting gates. [`gate-pre-edit-baseline.md`](gate-pre-edit-baseline.md) §10.3 says to mark a preservation gate with `invariant:`. Neither says how to build the preservation gate when the addition shares the pattern's vocabulary.
+§1 to §9 ask whether a pattern can discriminate. This section covers a gate whose pattern discriminates the old content and then meets new content that matches it too. [`gate-change-vs-state-detecting.md`](gate-change-vs-state-detecting.md) §11 separates change-detecting gates from state-detecting gates. [`gate-pre-edit-baseline.md`](gate-pre-edit-baseline.md) §10.3 says to mark a preservation gate with `invariant:`. Neither says how to build the preservation gate when the addition shares the pattern's vocabulary.
 
 > [!constraint] A bare count that expects "unchanged" is a state-detecting instrument pointed at a change-detecting question
 > **Rule.** The gate answers "how many lines match?". The criterion asks "did the old lines survive?". The two have the same answer only when the addition shares no vocabulary with the pattern. An addition that extends a vocabulary shares it by design: a third block beside two, a new pair beside existing pairs, a new row type in the same table.
@@ -291,7 +291,7 @@ This section is deliberately written without a mechanical gate. "Have a differen
 Two rules follow, one for each role.
 
 - **Author.** For every gate marked "unchanged", ask whether the addition being gated contains the pattern. Check it against the spec's own pinned line formats, which sit in the same file. If it does, the gate is not a gate.
-- **Runner.** When a correct implementation cannot satisfy a pinned count, the artifact is authoritative and the instrument is the defect. Prove the property the gate stood in for with a stronger instrument, such as `git diff --stat` showing additions only and zero deletions. Report the discrepancy. Never reshape the output to satisfy the pattern. [`verification-gate-evidence.md`](verification-gate-evidence.md) §10 states the artifact-over-instrument rule.
+- **Runner.** When a correct implementation cannot satisfy a pinned count, the artifact is authoritative and the instrument is the defect. Prove the property the gate stood in for with a stronger instrument, such as `git diff --stat` showing additions only and zero deletions. Report the discrepancy. Never reshape the output to satisfy the pattern. [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §10 states the artifact-over-instrument rule.
 
 **The same trap in test code.** A test assertion such as `assert not any("vs high (" in line for line in lines)`, written before a sibling output type was added, fails the same way. Narrow it to the old line's full shape, for example `"vs high (median"`.
 
@@ -330,7 +330,7 @@ Three operative points:
 - **The orchestrator reads a delivered gate's code before accepting it.** The acceptance test for a tool that will judge later tasks is not "its criteria passed". It is "the orchestrator can state, from the code, what a clean POST run compares and what a corrupted run flips". This cost one Read of a 300-line file.
 - **Make the gate state-aware and name both modes.** The fix kept the PRE comparison while the live footer matched the PRE constant and otherwise parsed the ledger's POST cells. The proving task then showed that the POST mode flips exactly one line when one addend is altered.
 
-**Applies to** any DELEGATED session where one task builds the instrument that a later task uses as a gate. It matters most for conservation, round-trip and drift checks whose subject changes between the build and the gate run. [`verification-gate-evidence.md`](verification-gate-evidence.md) §3 runs the correct post-state arm at authoring time. This section covers accepting a gate that a different task built.
+**Applies to** any DELEGATED session where one task builds the instrument that a later task uses as a gate. It matters most for conservation, round-trip and drift checks whose subject changes between the build and the gate run. [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §3 runs the correct post-state arm at authoring time. This section covers accepting a gate that a different task built.
 
 ---
 
@@ -411,7 +411,7 @@ Three rules:
 
 **Orchestrator-side corollary.** A runner's stated reason for keeping a duplicate ("not assertion-neutral") is a finding to verify, not a decision to accept. Settling it cost one 15-line script.
 
-**Applies to** any guard that reads a structured file with a regex, where a second, differently anchored regex exists for the same field (a shared parser module versus a test-local copy). It applies when a local duplicate is replaced by an import from the module under test. It applies to declaration, JSON, YAML and minified-bundle extractors where one identifier appears in comments, type unions, docstrings and examples as well as in the position that matters. [`verification-gate-evidence.md`](verification-gate-evidence.md) §10 (The Artifact Is Authoritative; the Instrument Is the Defect) holds the sibling rule that the artifact settles an instrument dispute.
+**Applies to** any guard that reads a structured file with a regex, where a second, differently anchored regex exists for the same field (a shared parser module versus a test-local copy). It applies when a local duplicate is replaced by an import from the module under test. It applies to declaration, JSON, YAML and minified-bundle extractors where one identifier appears in comments, type unions, docstrings and examples as well as in the position that matters. [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §10 (The Artifact Is Authoritative; the Instrument Is the Defect) holds the sibling rule that the artifact settles an instrument dispute.
 
 ---
 
@@ -447,7 +447,7 @@ Three operative points:
 - **An aggregate that is invariant under the mutation is the tell.** `undetermined` is the answer for "two or more claimants" and for "every file claims". A mutation that only adds claimants cannot move it. When the asserted value is a fixed point of the mutation, the test is not a proof.
 - **Run the mutation. Do not argue coverage.** A reading of the call graph would have reported the first version as a proof.
 
-**Applies to** any criterion of the form "test X fails when Y is changed to Z". Write the proof against Y's return value, not a downstream aggregate. It matters most for predicates consumed by a classifier that maps many predicate outcomes to one label (`undetermined`, `skipped`, `none`). A reviewer reading a mutation-proof claim in a status block asks which assertion turned red, not whether the mutation "was run". [`verification-gate-evidence.md`](verification-gate-evidence.md) §2 (A Test Whose Subject Is a Refusal Must Be Proven Load-Bearing) holds the three-step control this section sharpens.
+**Applies to** any criterion of the form "test X fails when Y is changed to Z". Write the proof against Y's return value, not a downstream aggregate. It matters most for predicates consumed by a classifier that maps many predicate outcomes to one label (`undetermined`, `skipped`, `none`). A reviewer reading a mutation-proof claim in a status block asks which assertion turned red, not whether the mutation "was run". [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §2 (A Test Whose Subject Is a Refusal Must Be Proven Load-Bearing) holds the three-step control this section sharpens.
 
 ---
 
@@ -478,7 +478,7 @@ Three operative points:
 Two rules:
 
 - **Run the mutation before the brief asserts its outcome.** Write "each guard has a test that fails when only that guard is disabled", not "test N fails". The first form survives a fixture shadowed by an earlier rule. The second form fails as a criterion, and the reason is not obvious.
-- **Treat real-body fixtures and edge-shape fixtures as two different obligations.** Real bytes catch encoding and line-ending hazards that synthetic lines miss. Only synthetic edge shapes exercise grammar the corpus happens not to use yet: tilde fences, longer backtick runs, indented fences, a hit on the last line with no terminator. A destructive pass needs both kinds. [`verification-gate-evidence.md`](verification-gate-evidence.md) §7 (A Fixture Set Must Span Input SHAPES, Not Only Families) holds the shape rule.
+- **Treat real-body fixtures and edge-shape fixtures as two different obligations.** Real bytes catch encoding and line-ending hazards that synthetic lines miss. Only synthetic edge shapes exercise grammar the corpus happens not to use yet: tilde fences, longer backtick runs, indented fences, a hit on the last line with no terminator. A destructive pass needs both kinds. [`gate-fixture-provenance.md`](gate-fixture-provenance.md) §7 (A Fixture Set Must Span Input SHAPES, Not Only Families) holds the shape rule.
 
 **Applies to** any detect-and-strip or reconcile pass with more than one exclusion rule, most of all on a `--write` path. It applies to a task brief that pins a mutation-control criterion to a named test. It applies to a test suite justified as "built from real item bodies" for a parser or scanner.
 
@@ -527,4 +527,4 @@ Three operative points:
 
 ---
 
-*Cross-reference: [`measurement-discipline.md`](measurement-discipline.md) §8.7 (the gate's input set — the other half of an unfalsifiable gate, and the dry-run mandate this file gives a recipe for) · [`verification-gate-evidence.md`](verification-gate-evidence.md) §12 (adjudicating a disclosure that a gate shaped its own subject), §3 (the correct-post-state arm of the dry-run) · [`verification-gates.md`](verification-gates.md) §8 (the recorded baseline a diff-scoped gate pins) · [`gate-command-semantics.md`](gate-command-semantics.md) §10.9 (reading a gate command as a program) and [`gate-pinned-from-real-content.md`](gate-pinned-from-real-content.md) §11 (a gate pinned from a run over real content) · [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) (the live-measurement-wins clause a briefing figure travels with)*
+*Cross-reference: [`measurement-discipline.md`](measurement-discipline.md) §8.7 (the gate's input set — the other half of an unfalsifiable gate, and the dry-run mandate this file gives a recipe for) · [`gate-artifact-over-instrument.md`](gate-artifact-over-instrument.md) §12 (adjudicating a disclosure that a gate shaped its own subject) · [`gate-positive-and-mutation-controls.md`](gate-positive-and-mutation-controls.md) §3 (the correct-post-state arm of the dry-run) · [`gate-diff-baseline-pinning.md`](gate-diff-baseline-pinning.md) §8 (the recorded baseline a diff-scoped gate pins) · [`gate-command-semantics.md`](gate-command-semantics.md) §10.9 (reading a gate command as a program) and [`gate-pinned-from-real-content.md`](gate-pinned-from-real-content.md) §11 (a gate pinned from a run over real content) · [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) (the live-measurement-wins clause a briefing figure travels with)*

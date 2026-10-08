@@ -65,7 +65,7 @@ Run `token_saver.classify_file(path, model, projected_added_bytes, thresholds)` 
 > [!constraint] read-Critical → paged-read/refactor, NOT `1M-exception`
 > Applies the read-vs-cost Critical distinction canonical in [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits (full WRONG/CORRECT box there — not restated here): a `read`-reason Critical is a mechanical Read failure, resolved by paging or refactor, never by routing to a larger window. Only a `cost`-reason Critical is `1M-exception`-eligible — see [`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md §1.20`](../references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) 1M-Exception Dispatch.
 
-A passing read-gate/cost-gate scan is a necessary signal, not a sufficient one — the general gate-discipline principle canonical in [`references/verification-gates.md`](../references/verification-gates.md) §1: clearing a mechanical check is not proof the plan is runtime-correct.
+A passing read-gate/cost-gate scan is a necessary signal, not a sufficient one — the general gate-discipline principle canonical in [`references/gate-runtime-boundary-evidence.md`](../references/gate-runtime-boundary-evidence.md) §1: clearing a mechanical check is not proof the plan is runtime-correct.
 
 ### Step 6: Read-constant drift tripwire
 

@@ -58,7 +58,7 @@ All four are per-hunk or per-content assertions. None is an aggregate over a fil
 > Grep  pattern='<literal I authored>'  path='fileC'  output_mode='count'        # 1
 > ```
 
-[`verification-gates.md`](verification-gates.md) §11.1 states the false-FAIL direction for an enumeration (the expected value is derived from the enumeration under test). This section adds the false-PASS direction and the rules below. A rule that shows only the false-FAIL direction teaches runners to loosen gates, which is the opposite of the lesson.
+[`gate-change-vs-state-detecting.md`](gate-change-vs-state-detecting.md) §11.1 states the false-FAIL direction for an enumeration (the expected value is derived from the enumeration under test). This section adds the false-PASS direction and the rules below. A rule that shows only the false-FAIL direction teaches runners to loosen gates, which is the opposite of the lesson.
 
 - A "count must be unchanged" gate on a file the work may legitimately add prose to is **mis-specified**. Replace it with a zero-deletions assertion on the author's own hunk. Deletions are what "you modified the existing text" actually means.
 - **Never let a file-presence count stand as proof that a task's content landed**, in any plan where more than one task writes the same file. Under layered dispatch on shared handler and reference docs that is the normal case. Prove content by content. [`gate-heuristic-verifier-patterns.md`](gate-heuristic-verifier-patterns.md) §2 and [`gate-input-set-and-compared-window.md`](gate-input-set-and-compared-window.md) §10.6 carry the per-unit and input-set forms.
@@ -130,7 +130,7 @@ Class 2 rows are *reported*, not *balanced*, because by construction they have n
 - **Widen the acceptance patterns with the structure, in the same edit.** A structural change that leaves its verification pattern behind ships a gate that reads the old world. `^| DEF-` would have returned a perfectly balanced figure while two rows sat unexamined.
 - **Tell the downstream consumer the shape changed.** The only task that later reads such a Log will otherwise write the obvious cross-count (`total == N in`) and false-fail correct work. That is a coordination flag, not a footnote.
 
-[`verification-gates.md`](verification-gates.md) §11.3 states the set-comparison form of the same discipline: compare member sets, not counts. This section covers the case where the sets legitimately differ.
+[`gate-change-vs-state-detecting.md`](gate-change-vs-state-detecting.md) §11.3 states the set-comparison form of the same discipline: compare member sets, not counts. This section covers the case where the sets legitimately differ.
 
 ---
 
@@ -188,7 +188,7 @@ diff <control>/<file> <copy>/<file> | grep -cE '^[0-9,]+a[0-9,]+$'
 
 **Applies to** any "changes only inside markers" gate over a diff of a copied-and-extended file: fence comments, region markers and generated-code blocks. Also use it when you review a runner-written verification script before you accept its PASS. Ask which hunk kinds it iterates over.
 
-[`verification-gates.md`](verification-gates.md) §11 states the state-detecting form. The wider principle is the same: a gate that could not have seen its subject prints the same as a gate that saw it and found it clean.
+[`gate-change-vs-state-detecting.md`](gate-change-vs-state-detecting.md) §11 states the state-detecting form. The wider principle is the same: a gate that could not have seen its subject prints the same as a gate that saw it and found it clean.
 
 ---
 

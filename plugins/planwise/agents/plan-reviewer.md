@@ -68,9 +68,9 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - Check 010 — Task DELEGATED Mandatory Triggers Honored → references/agent-orchestration-delegated.md §1.1
 - Check 011 — Task-File Error Recovery Semantics Declared → references/agent-orchestration-delegated.md §1.2
 - Check 012 — Orchestration Context Boundary Callout Present → references/agent-orchestration-delegated.md §1.3
-- Check 013 — Task Verification Commands Section Present → references/verification-gates.md §3
-- Check 014 — Per-File-Type Verification Table Populated → references/verification-gates.md §3
-- Check 015 — Verification `> [!verify]` Before/After Block Present → references/verification-gates.md §4
+- Check 013 — Task Verification Commands Section Present → references/gate-exit-verdict-and-smoke-reports.md §3
+- Check 014 — Per-File-Type Verification Table Populated → references/gate-exit-verdict-and-smoke-reports.md §3
+- Check 015 — Verification `> [!verify]` Before/After Block Present → references/gate-exit-verdict-and-smoke-reports.md §4
 - Check 016 — Task Required Context KiB / Tokens Numeric → references/task-content-fidelity.md §9.A.2
 - Check 017 — Task Byte-Ratio Band Conformance → references/task-content-fidelity.md §9.A.3
 - Check 018 — Task Verify-Before-Cite (User-Cited Artifacts) → references/verify-before-cite.md §9.B.1
@@ -108,9 +108,9 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 032 — Task Env Var / Function Signature / Config Key Drift → references/verify-before-cite.md §9.B.7
 - Check 033 — Task MERGE/Upsert Field Mapping Subsection → references/verify-before-cite.md §9.B.8
 - Check 065 — Task Token Saver Large-File Ladder Applied → references/task-content-fidelity.md §9.A.8
-- Check 034 — Verification Commands Notebook Execution Present → references/verification-gates.md §3
-- Check 035 — Verification Commands Lint/Format Present → references/verification-gates.md §3
-- Check 036 — Verification Commands DB Pre-Check Position → references/verification-gates.md §3
+- Check 034 — Verification Commands Notebook Execution Present → references/gate-exit-verdict-and-smoke-reports.md §3
+- Check 035 — Verification Commands Lint/Format Present → references/gate-exit-verdict-and-smoke-reports.md §3
+- Check 036 — Verification Commands DB Pre-Check Position → references/gate-exit-verdict-and-smoke-reports.md §3
 - Check 058 — Verification Task Anchored Aggregate Count Threshold → references/gate-heuristic-verifier-patterns.md §2
 - Check 059 — Verification Task Keyword-Proximity Coverage Gate → references/gate-heuristic-verifier-patterns.md §4
 - Check 060 — Verification Task Verdict-Arithmetic Contract → references/gate-verdict-contract-and-adjudication.md §6
@@ -185,11 +185,11 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 
 - Verify that any task gate deriving its input from a change set registers untracked files and asserts its input set was non-empty (`references/measurement-discipline.md` §8.7 sub-rule A)
 - Confirm that any task with a compaction/consolidation objective pairs its size gate with a content-conservation gate (`references/measurement-discipline.md` §8.7 sub-rule B)
-- Verify that every task's `git diff` is scoped to a recorded `{ABBREV}_S{NN}_BASE` and path-scoped with `-- <paths>` rather than a `grep` pipe (`references/verification-gates.md` §8)
+- Verify that every task's `git diff` is scoped to a recorded `{ABBREV}_S{NN}_BASE` and path-scoped with `-- <paths>` rather than a `grep` pipe (`references/gate-diff-baseline-pinning.md` §8)
 - Verify that every After-block gate records its measured pre-edit value beside its post-edit expectation, and that no gate's recorded pre-edit value already satisfies that expectation — such a gate passes with zero work done and is vacuous by construction (`references/gate-pre-edit-baseline.md` §10)
 - Verify that every numeric threshold used as a binding gate carries its derivation — the measurement that produced it or a named external basis — and that a derived size/count criterion has not been invalidated by a decision recorded later in the same plan (`references/measurement-discipline.md` §8.9)
-- Verify that a bug-fix deliverable's criteria include one phrased against a fixture reproducing the defect and one requiring the probe to fail on the unfixed artifact — criteria querying live project data pass identically against unfixed code (`references/verification-gates.md` §10 obligation A)
-- Confirm no gate asserts a format or spelling pattern where the property at stake is resolution, and that a gate-repair deliverable's criteria are not satisfiable entirely by fixtures with no live sweep of the guarded tree (`references/verification-gates.md` §10 obligations B and D)
+- Verify that a bug-fix deliverable's criteria include one phrased against a fixture reproducing the defect and one requiring the probe to fail on the unfixed artifact — criteria querying live project data pass identically against unfixed code (`references/gate-instrument-proof-obligations.md` §10 obligation A)
+- Confirm no gate asserts a format or spelling pattern where the property at stake is resolution, and that a gate-repair deliverable's criteria are not satisfiable entirely by fixtures with no live sweep of the guarded tree (`references/gate-instrument-proof-obligations.md` §10 obligations B and D)
 - Verify that a deliverable containing a move, extraction, consolidation or collapse carries at least one blast-radius gate — a copy-count probe at both ends, a set-difference audit of the deleted copy against the survivor, a test-surface sweep for patches steering the moved symbols, or an execution-stage gate beyond collection (`references/session-execution-protocol.md` §6.1)
 - Confirm every refactor size band carries an inline derivation and the signal-not-target clause, and that the derivation does not subtract the full volume of a region the same plan marks verbatim-frozen, anchor-protected, or subject to in-place replacement (`references/ei-citation-and-token-reconciliation.md` §8.3)
 - Verify every mechanical anchor, exit criterion and EI gate accepts each terminal outcome its owning task's Execution Steps define — enumerate the task's branches first, then the anchor's accepted set, and report a strict subset as WARNING, escalating to ERROR only where no accepted outcome remains for the branch the task will actually produce (`references/gate-anchor-outcome-set.md` §10.7 and `references/exit-criteria-fidelity.md` §16.10.6). Zero-hit, nothing-to-do and already-resolved branches are the ones dropped most often. Report a disagreement against the task file, never against whichever copy is in the majority
@@ -200,12 +200,12 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 
 - Check 074 — Diff-Derived Gate Without Input-Set Assertion → references/measurement-discipline.md §8.7
 - Check 075 — Size Gate Without Content-Conservation Gate → references/measurement-discipline.md §8.7
-- Check 077 — Diff-Scoped Gate Not Baseline-Pinned → references/verification-gates.md §8
+- Check 077 — Diff-Scoped Gate Not Baseline-Pinned → references/gate-diff-baseline-pinning.md §8
 - Check 082 — Verification Gate Without a Measured Pre-Edit Baseline → references/gate-pre-edit-baseline.md §10
 - Check 095 — Anchor Enumerates Fewer Outcome Branches Than Its Task Produces → references/gate-anchor-outcome-set.md §10.7
 - Check 086 — Numeric Gate Stated Without a Derivation → references/measurement-discipline.md §8.9
-- Check 087 — Bug-Fix Criteria With No Fixture and No Unfixed-Artifact Run → references/verification-gates.md §10
-- Check 088 — Gate Asserts Format Where the Property Is Resolution, or Is Fixture-Satisfiable → references/verification-gates.md §10
+- Check 087 — Bug-Fix Criteria With No Fixture and No Unfixed-Artifact Run → references/gate-instrument-proof-obligations.md §10
+- Check 088 — Gate Asserts Format Where the Property Is Resolution, or Is Fixture-Satisfiable → references/gate-instrument-proof-obligations.md §10
 - Check 089 — Refactor Deliverable With No Blast-Radius Sweep → references/session-execution-protocol.md §6.1
 - Check 090 — Size Band Stated Without Its Derivation → references/ei-citation-and-token-reconciliation.md §8.3
 - Check 096 — Size Constant Cannot Meet the Plan's Headline Margin → references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md §16.14
