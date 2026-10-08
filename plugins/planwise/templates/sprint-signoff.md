@@ -64,19 +64,19 @@ For each exit criterion, document the mechanical anchor (grep / SQL / file prese
 >
 > The recorded pre-change value doubles as the Before baseline. An anchor asserting a delta ("unchanged vs Before", "Before + 1") without one cannot be computed, and a runner then reports the absolute number and calls it PASS.
 >
-> A preservation anchor, where `pre == post` is the intended outcome, is exempt — write `invariant: {N}` in the Pre-Change cell instead of a bare value. See `references/verification-task-authoring.md` §10.
+> A preservation anchor, where `pre == post` is the intended outcome, is exempt — write `invariant: {N}` in the Pre-Change cell instead of a bare value. See `references/gate-pre-edit-baseline.md` §10.
 
 > [!constraint] Each anchor accepts every terminal outcome its owning task can produce
 > Enumerate the owning task's terminal branches from its Execution Steps, then check that this anchor accepts all of them. Carry the count in the Branches column as `{accepted}/{task}`.
 >
 > The two numbers MUST match. An anchor accepting fewer fails a correct execution, and the runner must halt or manufacture an outcome the anchor will take. Zero-hit, nothing-to-do, and already-resolved branches are the ones most often dropped, and they are frequently the expected outcome.
 >
-> Never harden a set-membership claim into an equality of counts — a correct superset then fails a gate whose actual claim it satisfied. See `references/verification-task-authoring.md` §10.7.
+> Never harden a set-membership claim into an equality of counts — a correct superset then fails a gate whose actual claim it satisfied. See `references/gate-anchor-outcome-set.md` §10.7.
 
 > [!constraint] New behaviour anchors on a production caller, never on a definition
 > For a criterion that lands a new function, optional parameter, CLI flag, config key, event subscription or guarded branch, the Mechanical Anchor is a call-site search over production paths that names the activating argument or the registration, and the Result cell quotes the site as `{file}:{line}`. A definition search, a unit test that supplies the argument itself, and documentation of the flag all measure presence and stay green on code production never reaches; a criterion whose only anchor is one of those is not PASS. See `references/verify-caller-before-complete.md`.
 
-Before recording any Result, check each anchor's command against the four traps in `references/verification-task-authoring.md` §10.8: `grep -c` counts matching **lines** rather than matches, `-B1`/`-A1` emit the match line itself, a set-membership claim must not become a count equality, and every path MUST resolve from the cwd this table's own header declares.
+Before recording any Result, check each anchor's command against the four traps in `references/gate-command-semantics.md` §10.8: `grep -c` counts matching **lines** rather than matches, `-B1`/`-A1` emit the match line itself, a set-membership claim must not become a count equality, and every path MUST resolve from the cwd this table's own header declares.
 
 | # | Exit Criterion (verbatim) | Mechanical Anchor | Pre-Change | Branches | Result |
 |---|---------------------------|-------------------|-----------|----------|--------|

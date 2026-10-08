@@ -129,4 +129,4 @@ Four operative points follow.
 
 ---
 
-*Companion files: [verification-gates.md](verification-gates.md) (§10 the instrument's proof obligations, §11 change- vs state-detecting shapes, §12 the pointer to this file), [verification-task-authoring.md](verification-task-authoring.md) (per-unit assertions over aggregate counts), [templates/sprint-signoff.md](../templates/sprint-signoff.md) (the anchor a behaviour-adding criterion carries).*
+*Companion files: [verification-gates.md](verification-gates.md) (§10 the instrument's proof obligations, §11 change- vs state-detecting shapes, §12 the pointer to this file), [gate-heuristic-verifier-patterns.md](gate-heuristic-verifier-patterns.md) §2 (per-unit assertions over aggregate counts), [templates/sprint-signoff.md](../templates/sprint-signoff.md) (the anchor a behaviour-adding criterion carries).*

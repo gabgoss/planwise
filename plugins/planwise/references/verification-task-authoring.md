@@ -1,622 +1,79 @@
 ---
-description: Verification-task match-pattern authoring discipline — per-unit existence assertions over aggregate counts, format-cross-reading from sibling extraction tasks, denominator scoping, PASS/FAIL contract, orchestrator adjudication of BLOCKER-from-heuristic, and the allowed-set rule for a re-capture gate over a directory a tool regenerates in place (environment-attributable files named apart from extractor-attributable ones), and pinning a gate from a run over real content — a gate pinned before its subject exists, a count beside a content block, a count method matched to the command's real output shape, a verdict grep that copies the skeleton's bytes, and a section counted by a line-anchored heading (§11, in the Part-2 file), and the checklist line that a mutation-control criterion names the guard, not a test, and a verbatim-literal proof's compared-set size (§12, Part-2 file)
+description: Family index for verification-task authoring — which short gate-* reference governs a match pattern, a verdict, an absence check, a pre-edit baseline, an input set, an anchor's outcome set, a command's semantics, or a gate pinned before its subject exists; carries the §7 authoring checklist and the map from this file's former section numbers to the topic files that now hold them.
 paths: {planwise_root}/{plans_dir}/**
 ---
 
-# Verification-Task Authoring (Match-Pattern Discipline)
+# Verification-Task Authoring (Family Index)
 
-**Purpose:** Rules for authoring `/planwise` verification tasks whose body is a grep/awk pattern plus a pass/fail criterion. Codifies the four recurring anti-patterns that produce false-PASS or false-BLOCKER verdicts requiring orchestrator hand-reconciliation: structurally unreachable count thresholds, keyword-proximity heuristics as pass/fail gates, denominators counting prose, and arithmetic-fudged PASS verdicts.
+**Purpose:** The index for the verification-task authoring family. The rules live in the short topic files below. They were split out of this file on 2026-10-08, when it passed the Read-tool token gate. Each topic file keeps the section numbers this file used, so a citation of the form `verification-task-authoring.md §N` resolves through the section map at the end of this file.
+
+**Read this when** you author, review or run a verification task whose body is a match pattern plus a pass/fail criterion. Open the topic file the table names. Read this index only to find it.
 
 ## Table of Contents
 
-- [1. Failure Shape — Heuristic Verifiers Producing False Verdicts](#1-failure-shape--heuristic-verifiers-producing-false-verdicts)
-- [2. Per-Unit Existence Assertions, Not Aggregate Count Thresholds](#2-per-unit-existence-assertions-not-aggregate-count-thresholds)
-- [3. Match Patterns Derived From Sibling Extraction Tasks](#3-match-patterns-derived-from-sibling-extraction-tasks)
-- [4. Denominator Scoping — Count Real Instances Only](#4-denominator-scoping--count-real-instances-only)
-- [5. PASS Requires Actual = Expected — No Arithmetic Fudging](#5-pass-requires-actual--expected--no-arithmetic-fudging)
-  - [5.1 A Check That Could Not Be Run Returns UNCERTAIN, Never PASS](#51-a-check-that-could-not-be-run-returns-uncertain-never-pass)
-- [6. Orchestrator Adjudication of BLOCKER-From-Heuristic](#6-orchestrator-adjudication-of-blocker-from-heuristic)
+- [Topic Files](#topic-files)
 - [7. Authoring Checklist](#7-authoring-checklist)
-- [8. Absence and Consistency Gates — Scrub, Scope, and Sync](#8-absence-and-consistency-gates--scrub-scope-and-sync)
-  - [8.1 An absence-grep requires scrubbing the token everywhere](#81-an-absence-grep-requires-scrubbing-the-token-everywhere)
-  - [8.2 Assert against the right population](#82-assert-against-the-right-population)
-  - [8.3 One file encoding a fact twice — every mutation updates both](#83-one-file-encoding-a-fact-twice--every-mutation-updates-both)
-- [9. A bare heuristic in a task brief must state its exclusions](#9-a-bare-heuristic-in-a-task-brief-must-state-its-exclusions)
-- [10. Every Gate Records Its Measured Pre-Edit Value](#10-every-gate-records-its-measured-pre-edit-value)
-  - [10.1 The annotation](#101-the-annotation)
-  - [10.2 A gate whose pre-edit value already satisfies its expectation is vacuous by construction](#102-a-gate-whose-pre-edit-value-already-satisfies-its-expectation-is-vacuous-by-construction)
-  - [10.3 Invariant and preservation gates are exempt — and must be marked](#103-invariant-and-preservation-gates-are-exempt--and-must-be-marked)
-  - [10.4 Why the annotation, and not just the discipline](#104-why-the-annotation-and-not-just-the-discipline)
-  - [10.5 A gate over a verification report reads the verdict line, not a bare substring](#105-a-gate-over-a-verification-report-reads-the-verdict-line-not-a-bare-substring)
-  - [10.6 A diff-pinned or sweep-based criterion records its input-set counts](#106-a-diff-pinned-or-sweep-based-criterion-records-its-input-set-counts)
-  - [10.7 An anchor accepts exactly the outcome set its own task can produce](#107-an-anchor-accepts-exactly-the-outcome-set-its-own-task-can-produce)
-  - [10.8 Four command semantics that make a well-formed gate mean something else](#108-four-command-semantics-that-make-a-well-formed-gate-mean-something-else)
-  - [10.9 Read the command as a program — four more mismatches between mechanism and claim](#109-read-the-command-as-a-program--four-more-mismatches-between-mechanism-and-claim)
-  - [10.10 A re-capture gate's allowed set names the files that change on every capture](#1010-a-re-capture-gates-allowed-set-names-the-files-that-change-on-every-capture)
-- [11. A Gate Is Pinned From a Run Over Real Content, Never From a Mental Image](#11-a-gate-is-pinned-from-a-run-over-real-content-never-from-a-mental-image) — moved to [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md)
-- 12. A Verbatim-Literal Proof Extracts From the Body — held in [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md)
+- [Section Map](#section-map)
 
 ---
 
-## 1. Failure Shape — Heuristic Verifiers Producing False Verdicts
+## Topic Files
 
-Two recurring failure modes in verification-task specs share one root cause: a match pattern that *approximates* the intent is shipped as a pass/fail gate without checking it against the actual output formats the sibling extraction tasks produce.
-
-| Anti-Pattern | Symptom | Cost |
-|--------------|---------|------|
-| Anchored aggregate count threshold (`grep -cE '^…' … expect ≥N`) | Verifier reports Actual<Expected yet marks PASS with arithmetic fudging, OR marks FAIL when source format produced fewer matchable instances than the threshold requires | Orchestrator hand-reconciles every flagged row; downstream tasks blocked or, worse, allowed to proceed on a fudged PASS |
-| Keyword-proximity coverage gate (`grep -B1 keyword \| grep -c tag`) | Verifier reports `N/M` with `M` inflated by prose mentions, table headers, fenced pseudo-code; emits hard BLOCKER on zero genuine misses | Sibling tasks routed back for rework that is not needed; orchestrator must read source to adjudicate |
-
-Both anti-patterns also share a secondary defect: when Actual contradicts Expected, the verifier either fudges to PASS or emits a hard BLOCKER instead of returning FAIL or `[UNCERTAIN]` for orchestrator adjudication. §2-§6 below state the binding rules that prevent each collapse.
-
----
-
-## 2. Per-Unit Existence Assertions, Not Aggregate Count Thresholds
-
-> [!constraint] Verification tasks MUST assert existence per unit, not aggregate counts over an anchored regex
-> WRONG — a single anchored regex with a count threshold sweeps the file once and ships the count as the verdict. If the sibling extraction tasks produce more than one output format (line-start vs backtick-wrapped vs `{PLACEHOLDER}`-substituted), the threshold is structurally unreachable.
-> ```bash
-> grep -cE '^\[(BLOCKER|ERROR|WARNING|INFO)\]' {file}   # expect ≥{N}
-> ```
-> CORRECT — enumerate the units the verifier is checking, assert the property holds for each unit individually. The aggregate count, if needed, is *derived* from the per-unit results — not from a single regex sweep.
-> ```bash
-> # Per-unit: for each ### Check NNN block, assert it contains at least one
-> # severity token in any accepted form (concrete word OR placeholder).
-> awk '/^### Check [0-9]/{block=$0; next} /^---$/{ ... emit block + match check ... }'
-> ```
-
-A count-threshold whose target is structurally unreachable is a **spec bug**, not a verifier failure. The fix is to rewrite the verification step as a per-unit existence assertion, not to relax the threshold.
-
-#### Reviewer Check 058 — Verification Task Anchored Aggregate Count Threshold
-
-- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
-- **What:** A verification task MUST NOT ship an anchored aggregate count threshold (e.g., `grep -cE '^…' {file}` paired with `expect ≥N`) as its sole pass/fail gate. If sibling extraction tasks produce more than one output format for the measured construct, the threshold is structurally unreachable and the verifier will either FAIL incorrectly or fudge to PASS. Replace with per-unit existence assertions: enumerate the units the verifier is checking and assert the property holds per unit.
-- **Detection:**
-  1. For each task whose Objective contains verification-style language (`verify`, `count`, `coverage`, `expect ≥/≤`), open the Execution Steps and Verification Commands sections.
-  2. Grep for the anchored-count pattern: a `grep -c…` or `grep -cE…` invocation paired with a comparator (`-ge`, `-le`, `≥`, `≤`) and a numeric threshold.
-  3. Cross-read the sibling extraction tasks that write to the file the verifier scans; enumerate the output formats each produces.
-  4. If ≥2 distinct formats exist AND the verifier's pattern is anchored (`^…` or a single format) → BLOCKER.
-  5. If exactly 1 format exists AND the threshold is exactly equal to the produced count, also flag as WARNING (brittle to format drift).
-- **Finding template:**
-```
-[BLOCKER] Verification task uses structurally unreachable anchored count threshold
-File: {task file path} | Location: Verification Commands / Execution Steps
-Issue: Verifier pattern `{anchored-grep}` paired with `expect {comparator}{N}`; sibling tasks produce {format_count} formats not all matched by the pattern
-Fix: Replace with per-unit existence assertions per references/verification-task-authoring.md §2 (enumerate units, assert per unit, derive aggregate from per-unit results) | Confidence: HIGH
-```
-
----
-
-## 3. Match Patterns Derived From Sibling Extraction Tasks
-
-> [!constraint] Verification match patterns MUST accept every output format the sibling extraction tasks actually produce
-> A verification command's pattern is a contract with the sibling extraction tasks. Before authoring the pattern, cross-read every sibling task that writes to the file the verifier scans, and enumerate every format the source content can take:
->
-> - line-start (`^[TAG]`)
-> - backtick-wrapped mid-sentence (`` `[TAG] …` ``)
-> - placeholder-substituted (`[{PLACEHOLDER}]`)
-> - inline within a paragraph
->
-> WRONG — author the verifier's regex against the format you happen to remember, ship without cross-reading. Whatever sibling task uses a different format silently fails the gate.
->
-> CORRECT — the verifier's pattern accepts every enumerated format, OR the verification step is split per-format so each can be asserted independently.
-
-> [!practice] Cross-read discipline
-> When authoring a verification step that scans a file produced by N sibling tasks, the authoring sequence is:
->
-> 1. Open every sibling task that appends content to the target file.
-> 2. Enumerate the formats each produces (one row per format).
-> 3. Design the verifier's pattern to match the union, OR design N per-format verifiers.
-> 4. Document the format enumeration in the verification task's `## Required Context` so a reviewer can validate the union without re-deriving it.
-
----
-
-## 4. Denominator Scoping — Count Real Instances Only
-
-> [!constraint] A coverage check is only valid if its denominator counts real instances of the measured construct
-> A coverage check has the shape `tagged / total ≥ threshold`. The denominator (`total`) MUST count actual occurrences of the thing being measured — NOT every line containing the keyword. Specifically exclude:
->
-> - prose that *describes* the construct
-> - table headers and column captions
-> - fenced code blocks illustrating the construct
-> - pseudo-code blocks naming the construct
->
-> WRONG — denominator from a bare keyword grep:
-> ```bash
-> tagged=$(grep -B1 '{keyword}' {file} | grep -c '{tag}')
-> total=$(grep -c '{keyword}' {file})            # inflated by prose & pseudo-code
-> [ "$tagged" -ge "$total" ]                     # structurally guaranteed false negative
-> ```
->
-> CORRECT — denominator scoped to real call sites:
-> ```bash
-> # Match the construct's invocation pattern (e.g., tool-call shape, function-call shape),
-> # exclude fenced code blocks (awk between ``` fences), exclude table rows (skip | columns).
-> total=$(awk '!/^```/{...exclude fenced...} !/^\|/{...exclude tables...} /<invocation pattern>/' {file} | wc -l)
-> ```
->
-> If the denominator cannot be made precise (e.g., the construct's invocation shape varies and excluding prose is infeasible), the check is **NOT** a pass/fail gate. Re-classify it as an `INVESTIGATE` signal and surface the ambiguity to the orchestrator instead of emitting FAIL.
-
-A denominator counted in the artifact being gated cannot detect an item nobody scoped. See [gate-denominator-integrity.md](gate-denominator-integrity.md) §3. A predicate that counts also names its unit: see §13, held in [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md).
-
-#### Reviewer Check 059 — Verification Task Keyword-Proximity Coverage Gate
-
-- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
-- **What:** A verification task MUST NOT ship a keyword-proximity heuristic (e.g., `grep -B{N} keyword {file} | grep -c tag`) paired with a coverage-ratio denominator from a bare keyword grep (`grep -c keyword`) as its pass/fail gate. The denominator is inflated by prose, table headers, and fenced pseudo-code that mention the keyword without invoking the construct, and the proximity bound (`-B1`, `-A1`) misses correctly-tagged sites whose tag sits 2+ lines away. Replace with explicit-site enumeration: verify the spec's enumerated anchors are tagged, do not re-derive the site set from a keyword grep.
-- **Detection:**
-  1. Grep Verification Commands and Execution Steps for the proximity-gate shape: `grep -[BA]\d+ '{keyword}'` piped to `grep -c '{tag}'`, paired with a denominator `grep -c '{keyword}'` and a coverage comparator (`-ge`, `-eq`).
-  2. If the bare denominator `grep -c '{keyword}'` is used AND the file under scan is a prose document (`.md`) — denominator includes prose / table rows / fenced code → BLOCKER.
-  3. If the spec lists the explicit sites (e.g., an EI repoint map or an edit-group list) AND the verifier instead uses a keyword grep → BLOCKER (the spec's enumerated sites are the ground truth; verify them by anchor).
-  4. Also flag: any verification step that maps `Actual<Expected` to BLOCKER directly without an `INVESTIGATE` escalation path → ERROR (denominator may be inflated; missing adjudication path forces false rework).
-- **Finding template:**
-```
-[BLOCKER] Verification task uses keyword-proximity coverage gate with inflated denominator
-File: {task file path} | Location: Verification Commands / Execution Steps
-Issue: Verifier uses `grep -B{N} '{keyword}' | grep -c '{tag}'` over denominator `grep -c '{keyword}'`; denominator counts prose/table/fenced-code mentions, proximity bound misses tags ≥2 lines away
-Fix: Replace with explicit-site enumeration per references/verification-task-authoring.md §4 (verify the spec's enumerated anchors by name, scope denominator to real construct instances, or re-classify as INVESTIGATE if denominator cannot be made precise) | Confidence: HIGH
-```
-
----
-
-## 5. PASS Requires Actual = Expected — No Arithmetic Fudging
-
-> [!constraint] A verification subagent MUST NOT mark PASS when Actual contradicts Expected
-> WRONG — verifier reports `Actual=44, Expected=≥54, Verdict=PASS` with a justification like "44 is ≥54." This is a contract violation. The orchestrator cannot trust any row in the verifier's report if arithmetic fudging is possible.
-> ```markdown
-> | Check | Actual | Expected | Verdict |
-> |-------|--------|----------|---------|
-> | … | 44 | ≥54 | PASS (44 is ≥54) |
-> ```
-> CORRECT — when Actual contradicts Expected, the verifier returns FAIL or `[UNCERTAIN]` for orchestrator adjudication. The verifier is not authorized to relax the threshold on its own.
-> ```markdown
-> | Check | Actual | Expected | Verdict |
-> |-------|--------|----------|---------|
-> | … | 44 | ≥54 | [UNCERTAIN] — Actual<Expected; possible structurally unreachable threshold (§2) or format enumeration gap (§3); escalating to orchestrator |
-> ```
-
-The verdict-arithmetic check is mechanical: if the comparison operator's evaluation against `(Actual, Expected)` returns false, the verdict cannot be PASS. A reviewer flagging this anti-pattern can grep the verifier's reported rows for `(Actual, Expected, Verdict)` triples where the arithmetic does not hold and flag every such row.
-
-### 5.1 A Check That Could Not Be Run Returns UNCERTAIN, Never PASS
-
-> [!constraint] A verifier reporting that a check could not be run MUST NOT return PASS or a bare narrative claim about the environment
-> This is the adjacent case to arithmetic fudging above — not a check that ran and produced a contradicting Actual, but one that never ran at all. The verifier returns `[UNCERTAIN]` for orchestrator adjudication — never PASS, and never a bare narrative claim about the environment (e.g. "not available here," "the tool doesn't support it"). The report MUST carry the exact command attempted and the exact error observed; the orchestrator adjudicates from that evidence, not from a summary judgement.
-
----
-
-## 6. Orchestrator Adjudication of BLOCKER-From-Heuristic
-
-> [!constraint] When a verifier emits a BLOCKER from a heuristic (not from an explicit-site assertion), the orchestrator MUST adjudicate against source before routing rework
-> A verifier's BLOCKER routes downstream tasks back for rework. If the BLOCKER originated from a heuristic that this rule's §2-§4 would flag (anchored count threshold, proximity heuristic, prose-inflated denominator), the orchestrator MUST cross-check the flagged sites against the actual source before sending the task back.
->
-> WRONG — orchestrator forwards the BLOCKER directly to the implementing task author for rework. If the heuristic was wrong, the author rebuilds correct work to satisfy the false signal.
->
-> CORRECT — orchestrator opens the flagged sites in source, applies the explicit-site assertion from §2 (the spec's enumerated sites are the ground truth), and either confirms the BLOCKER or rewrites the verification step to fix the heuristic. Only confirmed BLOCKERs route to rework.
-
-> [!practice] Heuristic-BLOCKER triage
-> The orchestrator's adjudication check at BLOCKER-receipt time:
->
-> 1. Read the verifier's reported flagged sites.
-> 2. For each site, open source at the cited line; classify as:
->    - **Genuine miss** — confirmed, route to rework.
->    - **Format gap** (§3) — the site IS tagged in a format the verifier's pattern did not match; rewrite the verification step's pattern, do NOT route to rework.
->    - **Denominator inflation** (§4) — the site is prose / table / fenced code, not a real call site; rewrite the denominator, do NOT route to rework.
-> 3. If ≥1 site is a format gap or denominator inflation, the verification step is defective — block the task chain on fixing the verifier, not on rework.
-
-#### Reviewer Check 060 — Verification Task Verdict-Arithmetic Contract
-
-- **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
-- **What:** A verification task spec MUST require the verifier to return FAIL or `[UNCERTAIN]` when Actual contradicts Expected per the comparison operator — never PASS. The spec MUST also declare an orchestrator adjudication path for BLOCKER-from-heuristic findings (the orchestrator validates flagged sites against source before routing rework, per the rules above).
-- **Detection:**
-  1. Open Verification Commands and any output-template the verifier task instructs the subagent to emit (e.g., a results table with `Actual` / `Expected` / `Verdict` columns).
-  2. If the template permits a PASS verdict on a row where the `Actual` value does not satisfy the `Expected` comparator → BLOCKER (verdict-arithmetic contract violation enabled).
-  3. If the spec emits BLOCKER directly to downstream rework without an `INVESTIGATE` / orchestrator-adjudication branch → ERROR (denies the adjudication path required when a heuristic produces a false signal).
-  4. If the spec contains language like "approximate", "close enough", or "within tolerance" without a numeric tolerance band → WARNING (arithmetic-fudging risk).
-- **Finding template:**
-```
-[BLOCKER] Verification task spec permits PASS on contradicted comparator
-File: {task file path} | Location: Verification Commands / output template
-Issue: Spec permits Verdict=PASS when Actual does not satisfy Expected; orchestrator adjudication path for BLOCKER-from-heuristic not declared
-Fix: Constrain verdict per references/verification-task-authoring.md §5 (FAIL or [UNCERTAIN] when Actual contradicts Expected) and §6 (orchestrator adjudicates BLOCKER-from-heuristic against source before routing rework) | Confidence: HIGH
-```
+| File | Sections | Read when |
+|------|----------|-----------|
+| [gate-heuristic-verifier-patterns.md](gate-heuristic-verifier-patterns.md) | §1-§4, §9, §13, Checks 058 and 059 | you write a count threshold, a coverage ratio, a keyword-proximity heuristic, a bare "condition ⇒ defect" rule for a runner, or a predicate that counts |
+| [gate-verdict-contract-and-adjudication.md](gate-verdict-contract-and-adjudication.md) | §5-§6, Check 060 | you write a verifier's output template, Actual contradicts Expected, or a BLOCKER arrives from a heuristic |
+| [gate-absence-and-consistency.md](gate-absence-and-consistency.md) | §8 | you write a `grep -c TOKEN == 0` criterion, a subset consistency check, or a status flip over a file that states one fact twice |
+| [gate-pre-edit-baseline.md](gate-pre-edit-baseline.md) | §10-§10.4, Check 082 | you write or review an After-block gate, or the gate linter reports Check 1 or Check 2 |
+| [gate-input-set-and-compared-window.md](gate-input-set-and-compared-window.md) | §10.6, §12 | a criterion is fed by a pinned diff or a sweep, or a proof compares string literals and reports a difference count |
+| [gate-anchor-outcome-set.md](gate-anchor-outcome-set.md) | §10.7, §10.10, Check 095 | you write a Signoff anchor, an exit criterion, an Execution Input gate, or a `git diff --stat` allowed set over a regenerated directory |
+| [gate-command-semantics.md](gate-command-semantics.md) | §10.8-§10.9 | you pin any `grep`, `diff`, `wc` or `awk` gate, or a gate returns a plausible value on work you know is correct |
+| [gate-pinned-from-real-content.md](gate-pinned-from-real-content.md) | §10.5, §11 | the thing a gate measures does not exist yet, sits in a content block you wrote, comes from a tool whose output you have not seen, or is a Markdown verdict line or heading |
 
 ---
 
 ## 7. Authoring Checklist
 
 > [!checklist] Verification-task spec — pre-publish checks
-> - [ ] No anchored aggregate count threshold (`grep -cE '^…' … expect ≥N`) used as the sole pass/fail gate — replace with per-unit existence assertions (§2).
-> - [ ] Match patterns cross-read against every sibling extraction task's output formats; format union documented in Required Context (§3).
-> - [ ] Coverage denominators scope-restricted to real construct instances; prose, table rows, and fenced code excluded — OR check re-classified as `INVESTIGATE` (§4).
-> - [ ] Verdict-arithmetic contract honored: if Actual contradicts Expected per the comparison operator, the verdict is FAIL or `[UNCERTAIN]`, never PASS (§5).
-> - [ ] BLOCKER-from-heuristic adjudication protocol declared in the orchestration — orchestrator validates flagged sites against source before routing rework (§6).
-> - [ ] Every gate carries its measured pre-edit value inline, and that value contradicts the expectation — or the gate is marked `invariant:` (§10.1-§10.3).
-> - [ ] Every anchor's accepted-outcome set diffed against its owning task's terminal branches, and the count carried inline (§10.7).
-> - [ ] All four command-semantics traps checked: `grep -c` counts lines, `-B1` emits the match, set membership is not count equality, every path resolves from the declared cwd (§10.8).
+> - [ ] No anchored aggregate count threshold (`grep -cE '^…' … expect ≥N`) used as the sole pass/fail gate — replace with per-unit existence assertions (`gate-heuristic-verifier-patterns.md` §2).
+> - [ ] Match patterns cross-read against every sibling extraction task's output formats; format union documented in Required Context (`gate-heuristic-verifier-patterns.md` §3).
+> - [ ] Coverage denominators scope-restricted to real construct instances; prose, table rows, and fenced code excluded — OR check re-classified as `INVESTIGATE` (`gate-heuristic-verifier-patterns.md` §4).
+> - [ ] Verdict-arithmetic contract honored: if Actual contradicts Expected per the comparison operator, the verdict is FAIL or `[UNCERTAIN]`, never PASS (`gate-verdict-contract-and-adjudication.md` §5).
+> - [ ] BLOCKER-from-heuristic adjudication protocol declared in the orchestration — orchestrator validates flagged sites against source before routing rework (`gate-verdict-contract-and-adjudication.md` §6).
+> - [ ] Every gate carries its measured pre-edit value inline, and that value contradicts the expectation — or the gate is marked `invariant:` (`gate-pre-edit-baseline.md` §10.1-§10.3).
+> - [ ] Every anchor's accepted-outcome set diffed against its owning task's terminal branches, and the count carried inline (`gate-anchor-outcome-set.md` §10.7).
+> - [ ] All four command-semantics traps checked: `grep -c` counts lines, `-B1` emits the match, set membership is not count equality, every path resolves from the declared cwd (`gate-command-semantics.md` §10.8).
 > - [ ] A mutation-control criterion names the guard, not a test: "each guard has a test that fails when only that guard is disabled", with one minimal input per guard and the mutated symbol's own return value asserted (`gate-predicate-discrimination.md` §14 and §15).
-> - [ ] A proof that two literal sets are verbatim reports the size of the compared set and extracts from the function body only (§12, Part-2 file).
+> - [ ] A proof that two literal sets are verbatim reports the size of the compared set and extracts from the function body only (`gate-input-set-and-compared-window.md` §12).
 > - [ ] An anchor or verification command that runs a writer (`--write`, `--fix`, `--apply`, an upgrade flag) names a scratch target (`exit-criteria-fidelity.md` §16.10.7).
 
 ---
 
-## 8. Absence and Consistency Gates — Scrub, Scope, and Sync
+## Section Map
 
-### 8.1 An absence-grep requires scrubbing the token everywhere
+A citation written as `verification-task-authoring.md §N` resolves here. The section keeps its number in the file that now holds it.
 
-> [!constraint] An absence-grep criterion MUST scrub the literal token from every surface, not just data cells
-> A criterion of the form `grep -c 'TOKEN' {file} == 0` proves absence of a TOKEN-class item. Satisfying it requires the literal token to appear nowhere — not merely absent from data cells. It must be scrubbed from the classification legend, count-block labels, section headers, descriptive prose, and any self-referential mention of the grep itself. Replace with a synonym. Grep is case-sensitive, so lowercase variants are safe; run the exact anchor command yourself before declaring the criterion met.
->
-> Observed false-FAIL: the criterion's own grep returned 8 against a file with zero unresolved data cells — every hit was the legend, the label, and the criterion's own description.
-
-### 8.2 Assert against the right population
-
-> [!constraint] A consistency check MUST assert against the right population, not a conditional/optional set against an observed/union artifact
-> A consistency check asserting a conditional/optional annotation set is a subset of an observed/union artifact encodes the wrong invariant — conditional annotations exist precisely to document things absent from the observed set. Assert "the root is a declared field" instead — skipping glob, brace, and condition-expression entries, failing only on an undeclared root. Scope comment-marker checks to comment-only lines so inline annotations are not matched.
->
-> Observed false-FAIL: a `conditional ⊆ observed` assertion failed on 22 legitimate conditional fields.
-
-### 8.3 One file encoding a fact twice — every mutation updates both
-
-> [!constraint] When a file encodes one fact in two representations, every mutation MUST update both and verify against the file
-> When a single file encodes the same fact in both a machine-checked form and a human-readable form, a passing gate only ever sees the form it parses. Every mutation MUST update every representation, and the change MUST then verify the written counts against the file.
->
-> Observed false-PASS: a status flip updated the parsed code block to a new count but left the prose bullets, summary line, and callout's stated counts stale. The mechanical check stayed green while the document contradicted itself.
-
-A gate that counts a section by its heading text anchors the heading at the start of the line. A substring count also reads prose mentions. See [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md) §11.5.
-
----
-
-## 9. A bare heuristic in a task brief must state its exclusions
-
-> [!constraint] A bare "condition X ⇒ defect" heuristic handed to a runner MUST state its exclusions in the same block
-> A rule of the form "condition X ⇒ defect" is normally correct only after exclusions are applied. Stated bare in a task brief, it fires on every legitimately-excluded case, and each firing reads as a defect in work that is correct. When a brief hands a runner a rule of this shape, it MUST state, in the same block, the conditions under which X is expected and is **not** a bug.
->
-> WRONG: "Any newly-wired column at 0 non-NULL is a wrong-key finding."
-> CORRECT: "Any newly-wired column at 0 non-NULL is a wrong-key finding, EXCEPT where: the source is recorded absent in the reconciliation's evidence tier (expected NULL, not a failed fix); the value is conditional on state not present in the sampled window; the column is wired ahead of a producer that has not yet run. For each exclusion the runner cites the evidence row that establishes it."
->
-> A runner who hits an excluded case with the bare rule in hand has three options, two of them bad: report a false defect, silently ignore the rule, or spend an investigation re-deriving the exclusion. Only the third is safe, and it is the most expensive.
-
-**Applies to:** task briefs that hand a runner a bare "condition ⇒ defect" heuristic — distinct from §1's failure-shape table, which covers heuristic *verifiers* (structurally-unreachable count thresholds, keyword-proximity coverage gates) living inside verification commands. §9 covers a *correct* heuristic applied without its exclusions — a different failure shape, arising in task briefs rather than verification commands. This section reserves no further top-level number.
+| Former section | Now in |
+|----------------|--------|
+| §1 Failure Shape — Heuristic Verifiers Producing False Verdicts | `gate-heuristic-verifier-patterns.md` |
+| §2 Per-Unit Existence Assertions, Not Aggregate Count Thresholds (Check 058) | `gate-heuristic-verifier-patterns.md` |
+| §3 Match Patterns Derived From Sibling Extraction Tasks | `gate-heuristic-verifier-patterns.md` |
+| §4 Denominator Scoping — Count Real Instances Only (Check 059) | `gate-heuristic-verifier-patterns.md` |
+| §5 PASS Requires Actual = Expected, §5.1 A Check That Could Not Be Run Returns UNCERTAIN | `gate-verdict-contract-and-adjudication.md` |
+| §6 Orchestrator Adjudication of BLOCKER-From-Heuristic (Check 060) | `gate-verdict-contract-and-adjudication.md` |
+| §7 Authoring Checklist | this file |
+| §8 Absence and Consistency Gates (§8.1-§8.3) | `gate-absence-and-consistency.md` |
+| §9 A bare heuristic in a task brief must state its exclusions | `gate-heuristic-verifier-patterns.md` |
+| §10 Every Gate Records Its Measured Pre-Edit Value, §10.1-§10.4, Check 082 | `gate-pre-edit-baseline.md` |
+| §10.5 A gate over a verification report reads the verdict line | `gate-pinned-from-real-content.md` |
+| §10.6 A diff-pinned or sweep-based criterion records its input-set counts | `gate-input-set-and-compared-window.md` |
+| §10.7 An anchor accepts exactly the outcome set its own task can produce (Check 095) | `gate-anchor-outcome-set.md` |
+| §10.8 Four command semantics, §10.9 Read the command as a program | `gate-command-semantics.md` |
+| §10.10 A re-capture gate's allowed set names the files that change on every capture | `gate-anchor-outcome-set.md` |
+| §11 A Gate Is Pinned From a Run Over Real Content (§11.1-§11.5) | `gate-pinned-from-real-content.md` |
+| §12 A Verbatim-Literal Proof Extracts From the Body | `gate-input-set-and-compared-window.md` |
+| §13 A Predicate That Counts Names Its Unit | `gate-heuristic-verifier-patterns.md` |
 
 ---
 
-## 10. Every Gate Records Its Measured Pre-Edit Value
-
-A verification gate exists to answer one question: *did the work happen?* It answers that question only if its value **differs** before and after the work. A gate whose pre-edit value already satisfies its post-edit expectation returns the same verdict against an untouched tree as against a finished one — green before the task starts, and nothing the task does or fails to do can change it. That is not a weak gate; it is not a gate at all.
-
-The defect is invisible on the page. The command is well-formed, the expectation is reasonable, and the gate reports green — which is exactly what a correct gate reports. The one fact separating the two is the value the command returned *before* the edit, and that fact is cheap to obtain only while the pre-edit tree still exists. Afterwards it is gone.
-
-**Distinct from baseline-commit scoping.** [verification-gates.md](verification-gates.md) §8 requires a diff-derived gate to name a recorded baseline **commit** — it governs *which tree state* the gate reads. This section requires a recorded pre-edit **value** — it governs *whether the gate can discriminate at all*, whatever tree it reads. The two are independent: a perfectly baseline-scoped diff gate is still vacuous if its pre-edit value already met its expectation, and a gate carrying a correct pre-edit annotation still misattributes work if it diffs an unpinned tree. Apply both; neither restates the other.
-
-### 10.1 The annotation
-
-> [!constraint] Every Before/After gate records its measured pre-edit value inline beside its post-edit expectation
-> WRONG — the expectation stands alone. Nothing in the artifact records what the value was before the edit, so neither the author, a reviewer, nor a later checker can tell whether this gate could ever have failed:
-> ```bash
-> grep -c '{token}' {file}   # expect >=1
-> ```
-> CORRECT — the measured pre-edit value sits inline, immediately beside the expectation it is supposed to contradict:
-> ```bash
-> grep -c '{token}' {file}
-> # pre-edit: 0 → expect >=1
-> ```
-> The annotation is written **from a run against the live pre-edit tree**, never from intent. A value recalled from memory, inferred from the task's own objective, or copied from a sibling gate is not a measurement and does not satisfy this rule.
-
-The annotation's grammar is one comment line adjacent to the command it annotates:
-
-```
-# pre-edit: {measured value} → expect {post-edit expectation}
-```
-
-The literal token `pre-edit:` is the load-bearing part — a reviewer or a mechanical checker keys on it — so keep it verbatim and keep the measured value immediately after it. The arrow and the surrounding wording are readability, not syntax.
-
-### 10.2 A gate whose pre-edit value already satisfies its expectation is vacuous by construction
-
-Once both numbers sit side by side, the test is arithmetic. If the recorded pre-edit value **already satisfies** the stated expectation, the gate is vacuous by construction: it passes with zero work done, so it cannot answer the only question a gate exists to answer. Such a gate MUST be rewritten before it ships — not relaxed, not shipped with a caveat, and not retained "as a sanity check". A gate that always passes contributes nothing to an exit battery except false confidence, and it displaces the gate that would have caught the failure.
-
-> [!constraint] Rewrite a vacuous gate — never ship one with a caveat
-> WRONG — a count gate measured against an untouched file that already met its threshold. The token the edit is meant to introduce is already present elsewhere in the file: in a section this task does not modify, or in text this task preserves verbatim. The count clears the threshold before the task begins:
-> ```bash
-> grep -c '{token}' {file}
-> # pre-edit: 2 → expect >=1        # 2 already satisfies >=1 — green on an untouched tree
-> ```
-> CORRECT — rewrite so the pre-edit value **fails** the expectation. Either raise the threshold past the measured baseline, or narrow the pattern to the construct the edit actually introduces so the baseline is zero:
-> ```bash
-> grep -c '{token}' {file}
-> # pre-edit: 2 → expect 3          # the 2 pre-existing matching lines plus the 1 this task adds
-> grep -c '{anchor-the-edit-introduces}' {file}
-> # pre-edit: 0 → expect 1
-> ```
-> Both rewrites share the property the original lacked: the pre-edit value contradicts the expectation. That property — not the presence of an annotation — is what makes a gate discriminate. The annotation is what makes the property checkable by someone other than the author.
-
-The same arithmetic governs the mirror shapes:
-
-| Gate shape | Vacuous when | Rewrite |
-|------------|--------------|---------|
-| `expect >=N` presence gate | the pre-edit value is already `>=N` | Raise the threshold past the measured baseline, or narrow the pattern to what the edit adds |
-| `expect 0` absence gate | the pre-edit value is already `0` | The token being scrubbed was never in this population; assert against the population that actually carries it, or drop the gate |
-| `expect {exact}` equality gate | the pre-edit value already equals `{exact}` | Either the edit genuinely does not move this value — mark it invariant per §10.3 — or the expectation is wrong |
-
-The second row deserves particular attention: an absence gate measuring `0` before the edit is the shape most often mistaken for a passing check, because "expect 0, got 0" reads as success in every report format.
-
-### 10.3 Invariant and preservation gates are exempt — and must be marked
-
-Some gates exist precisely to assert that a value does **not** move: a count the edit must preserve, a block that must survive a refactor untouched, a section a split must leave in place. For these, `pre == post` is the correct and intended outcome, and §10.2's test would flag every one of them.
-
-They are exempt — but only when the author marks them, because a marked preservation gate and an unmarked vacuous gate are textually identical. Both record a pre-edit value that satisfies the expectation. The marking is the only thing separating an author who measured the value and intends it to hold from an author who never measured at all.
-
-> [!constraint] Mark a preservation gate with `invariant:` in place of `expect` on the annotation line
-> CORRECT — the marker sits on the annotation line and names what must not move:
-> ```bash
-> grep -c '{token}' {file}
-> # pre-edit: 3 → invariant: 3 (this count must NOT move — a revert drops it, a duplicate raises it)
-> ```
-> A gate carrying `invariant:` is exempt from the vacuity finding and MUST NOT be flagged for it. A gate whose pre-edit value satisfies an `expect` is **not** exempt, whatever the surrounding prose asserts: the marker lives on the annotation line or it does not exist, because the annotation line is the only place a checker can read it.
->
-> WRONG — adding the marker to silence a finding on a gate that was written to detect a change. `invariant:` is a claim that the author measured the value and intends it unchanged; used to quiet a true finding, it converts a detectable defect into an undetectable one — strictly worse than the vacuous gate it replaced.
-
-### 10.4 Why the annotation, and not just the discipline
-
-A rule saying only "make sure your gates can fail" would be correct and unenforceable. Without the recorded value, vacuity is **unknowable** from the artifact: the command and the expectation are both present and both look fine, and the one fact that decides the question exists nowhere in the file. A reviewer cannot recover it without re-running every command against a tree state that no longer exists. The measurement therefore has to be written down at the only moment it is cheap — before the edit, by the author who is running the command anyway to decide what to expect.
-
-That asymmetry is why the two findings carry different severities:
-
-- **No annotation → WARNING.** The gate may be perfectly good; nothing in the artifact establishes that. Absence of evidence is not evidence of a defect — but it is exactly indistinguishable from an author who never measured, which is why it cannot be silently accepted.
-- **Annotation present and already satisfied → ERROR.** Here the artifact carries positive evidence that the gate cannot fail. No further investigation is needed, and none should be spent.
-
-Recording the value costs nothing beyond writing down what the author already ran. It is the cheapest available defence against the class, which is why it is required rather than recommended.
-
-### 10.5 A gate over a verification report reads the verdict line, not a bare substring
-
-One adjacent shape cannot be caught by a pre-edit annotation at all, and it belongs here because its outcome is the same — a gate that does not discriminate. When a gate's subject is a **report the work itself produces**, there is no pre-edit tree to measure against: the report does not exist until the work is finished. The protection has to come from the report's format instead.
-
-A verification report necessarily *describes* the checks it ran, so its own column headers, legend, and residual prose legitimately contain the tokens a naive gate searches for. A bare `grep -c 'FAIL' {report}` expecting `0` is satisfied by the report's own vocabulary and fires on a report that passed — and a gate that can never report success is exactly as uninformative as one that can never report failure.
-
-[templates/verification-report.md](../templates/verification-report.md) defines the convention that removes the ambiguity: a single machine-readable trailing `**Verdict:** PASS|FAIL` line, plus per-criterion status carried in a dedicated table cell. A gate consuming a verification report MUST match the verdict line, or the `| FAIL |` row-cell pattern that `verification-report.md` defines — never a bare substring search over the whole document. Copy the verdict line's bytes from the skeleton, including the emphasis between label and value: [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md) §11.4.
-
-### 10.6 A diff-pinned or sweep-based criterion records its input-set counts
-
-§10.1 requires the report to record the *value* a gate measured. This section requires it to record what the gate was permitted to look at. The two are independent: a criterion can carry a correct, properly contradicting pre-edit value and still have run over an input set that excluded the work entirely — and its output is byte-identical either way, because an empty result renders "I checked and found nothing" and "I checked nothing" the same.
-
-The report is where that distinction has to be preserved, because it is the only artifact that outlives the tree state the counts were taken from.
-
-> [!verify] Record the spanned-file count and the untracked count beside the criterion's own result
-> Any verification report carrying a criterion whose input comes from a pinned diff or an on-disk sweep MUST record both counts adjacent to that criterion's verdict — not in a preamble, and not once for the report as a whole:
-> ```bash
-> git -C <repo> diff --name-only $BASE -- <scope> | wc -l    # files the pinned diff actually spanned
-> git -C <repo> status --porcelain <scope> | grep -c '^??'   # untracked within scope — MUST be 0
-> ```
-> A criterion reported PASS on a spanned count of 0, or alongside a non-zero untracked count, is not a PASS — the predicate never met the content it exists to inspect. Return FAIL or `[UNCERTAIN]` per §5, showing both counts.
-
-The commands are the liveness proof at [measurement-discipline.md](measurement-discipline.md) §8.7 sub-rule E; this section is the separate requirement that their output reach the report rather than stopping at the runner who ran them.
-
-#### Reviewer Check 082 — Verification Gate Without a Measured Pre-Edit Baseline
-
-- **Severity / Role / Type:** ERROR (HIGH confidence) | Verification-Gate Reviewer | NEW
-- **What:** Every After-block gate MUST record its measured pre-edit value inline beside its post-edit expectation. A gate whose recorded pre-edit value already satisfies its expectation is vacuous by construction — it passes with zero work done, so it cannot answer whether the work happened — and MUST be rewritten before it ships. An After-gate carrying no pre-edit annotation is a WARNING: the value was never recorded, so vacuity is unknowable from the artifact.
-- **Detection:**
-  1. Open the task file's Verification Commands After block, plus every Success Criteria item stating an expectation over a measured value.
-  2. For each command, look for an inline pre-edit annotation on an adjacent line (`# pre-edit: {N} → expect …`, or an equivalent recording of the measured pre-edit value). Absent → WARNING.
-  3. Annotation present: evaluate the recorded pre-edit value against the stated expectation using the gate's own comparator. If the pre-edit value already satisfies it → ERROR (vacuous by construction).
-  4. An author-marked invariant/preservation gate — the annotation line reads `invariant:` rather than `expect`, and `pre == post` is the intended outcome — is exempt and MUST NOT be flagged by steps 2 or 3.
-  5. Where the pre-edit tree state is still reachable, re-measure and compare against the recorded value; a recorded baseline that disagrees with the measured one → ERROR (the annotation was authored from intent, not from a run).
-  6. A gate whose subject is a report the same work produces: if it greps a bare token the report's own template emits, rather than the machine-readable verdict line or the status-cell row pattern → WARNING.
-- **Finding template:**
-```
-[ERROR] Verification gate is vacuous — pre-edit value already satisfies its expectation
-File: {task file path} | Location: Verification Commands After block / Success Criteria step {n}
-Issue: Gate `{command}` states `expect {comparator}{N}`; recorded/measured pre-edit value is {M}, which already satisfies it — the gate passes with zero work done and cannot detect whether the work happened
-Fix: Rewrite so the pre-edit value contradicts the expectation per references/verification-task-authoring.md §10 (raise the threshold past the measured baseline, or narrow the pattern to the construct the edit introduces), or mark the gate `invariant:` if pre == post is the intended outcome | Confidence: HIGH
-```
-
-### 10.7 An anchor accepts exactly the outcome set its own task can produce
-
-§10.2 catches a gate that cannot fail. This section catches the mirror defect: a gate that cannot pass. Both ship green-looking artifacts, and both report a wrong verdict on a correct execution.
-
-An anchor is written from the outcome its author expects. A task's Execution Steps usually define more outcomes than that — a zero-hit branch, a nothing-to-do branch, an already-resolved branch. When the anchor enumerates fewer, the runner executes correctly, produces a legitimate terminal outcome, and the gate rejects it. The runner must then halt or invent a result that the anchor will accept.
-
-> [!constraint] Diff the anchor's accepted-outcome set against the owning task's terminal branches at scaffold close
-> If the task's Execution Steps define N terminal outcomes, the anchor accepts N. This is set equality, not a subset relation in either direction.
->
-> WRONG — the task defines three terminal outcomes, the anchor accepts two:
-> ```markdown
-> Task step 4:  hits + unambiguous → repoint
->               hits + ambiguous   → route to the orchestrator
->               zero hits          → drift already resolved; record CLOSED-NO-ACTION
->
-> Anchor 6:     PASS when the report records `repoint` or `route`
-> ```
-> The measured and expected outcome is zero hits. The anchor rejects it.
->
-> CORRECT — the anchor's branch list is derived from the task's, not authored beside it:
-> ```markdown
-> Anchor 6:     PASS when the report records `repoint`, `route`, or `CLOSED-NO-ACTION`
->               (3 branches — matches task step 4's 3 terminal outcomes)
-> ```
-> Carry the parenthetical count. It is what makes the parity checkable by someone who is not re-reading both files.
-
-**The derivation is mechanical, so it belongs at scaffold close.** Enumerate the task's terminal branches from its Execution Steps, enumerate the anchor's accepted outcomes, and compare the two sets. A mismatch in either direction is a scaffold-time failure:
-
-| Direction | What it means | Fix |
-|-----------|---------------|-----|
-| Anchor accepts fewer than the task produces | The gate fails a correct execution | Widen the anchor to the task's full branch set |
-| Anchor accepts more than the task produces | The extra branches are unreachable, so the gate is looser than it reads | Narrow the anchor, or add the missing task branch if the task is the incomplete one |
-
-**Set agreement is not count equality.** An anchor asserting that one set contains another must not be hardened into an equality of totals. A correct execution that produces a legitimate superset then fails a gate whose real claim it satisfied. See §10.8 trap 3.
-
-**Where the branch set is written more than once, all copies are derived from the task.** A plan typically states the outcome set in the task file, again in the Execution Input, and again in the Signoff anchor. The task file's Execution Steps are the source. The other two are copies, and a copy authored independently is how the sets drift apart.
-
-A path-set gate over a directory a tool regenerates in place has the same shape of defect for its allowed set. See §10.10.
-
-#### Reviewer Check 095 — Anchor Enumerates Fewer Outcome Branches Than Its Task Produces
-
-- **Severity / Role / Type:** WARNING (HIGH confidence) | Verification-Gate Reviewer | NEW
-- **What:** A mechanical anchor, exit criterion, or Execution Input gate MUST accept every terminal outcome its owning task's Execution Steps can produce. An anchor accepting a strict subset fails a correct execution.
-- **Severity rationale — this class false-FAILs, so it is a WARNING, not a BLOCKER.** The defects in §10.2 hide *incorrect* work behind a gate that cannot fail. This one rejects *correct* work. A false-FAIL is visible at the moment it fires and recoverable by hand, so the class sits a tier below the vacuous-gate family whatever the criterion's status. Escalate to ERROR on one condition only: the anchor's rejection leaves the runner no accepted outcome to record, so the run must either halt or manufacture a result. That is the point at which a reporting defect becomes a data-integrity one.
-- **Detection:**
-  1. Open the owning task file's Execution Steps and enumerate its terminal outcomes — every branch that ends the step rather than continuing it. Include zero-hit, nothing-to-do, and already-resolved branches.
-  2. Open every artifact carrying an anchor for that task: the Signoff Mechanical Anchor Checks table, the exit criteria, and the Execution Input's own gate blocks.
-  3. Compare the two sets. Accepted set smaller than the task's → WARNING, escalating to ERROR where no accepted outcome remains for the branch the task will actually produce.
-  4. Accepted set larger → WARNING. Either the extra branches are unreachable, or the task is missing a branch it should define.
-  5. An anchor asserting set membership (`⊇`) whose expectation is written as a count equality → WARNING. A correct superset fails it.
-  6. Where two artifacts state the same branch set and disagree with each other, report against the task file's Execution Steps as the source, never against whichever copy is in the majority.
-- **Finding template:**
-```
-[WARNING] Anchor accepts fewer outcome branches than its task produces
-File: {anchor file path} | Location: {anchor row / exit criterion number}
-Issue: Task {task id} Execution Steps define {N} terminal outcomes ({list}); anchor accepts {M} ({list}) — the measured-and-expected outcome `{branch}` is not accepted, so a correct execution FAILs this gate
-Fix: Widen the anchor to accept all {N} branches and carry the count inline, per references/verification-task-authoring.md §10.7 | Confidence: HIGH
-```
-
-### 10.8 Four command semantics that make a well-formed gate mean something else
-
-The gates in this family are not vacuous and not narrow. They are well-formed commands that do not measure what their author read them as measuring. A pre-edit annotation does not catch them, because the annotation records the same misread value.
-
-Check all four before a gate ships:
-
-| # | Trap | What the author assumed | What the command does |
-|---|------|-------------------------|-----------------------|
-| 1 | `grep -c` counts matches | One count per occurrence | Counts matching **lines**. A `≥ 2` threshold over a two-phrase alternation false-fails a file naming both phrases on one line. Use `grep -o … \| wc -l` when occurrences are the subject. |
-| 2 | `-B1` / `-A1` / `-C1` emit context only | The output holds only surrounding lines | The output holds the match line **as well**. A count over context output includes every match, so a per-hit budget is off by the hit count. |
-| 3 | Set membership hardened into count equality | `expected ⊆ actual` and `count(actual) == count(expected)` agree | They disagree on every correct superset. Assert the membership the criterion actually claims, one member per assertion, per §2. |
-| 4 | A path resolves from wherever the runner stands | The anchor runs from the plan folder, or the repo root | It runs from the cwd the anchor's **own table header** declares. A plan-relative path under a repo-root header fails unconditionally, and the criterion FAILs work that passed. |
-
-> [!constraint] Resolve every path in an anchor against the cwd its own table declares
-> WRONG — the table header declares the plugin repo as cwd, and the row runs a path relative to the session folder. It cannot resolve, so the anchor fails on every execution:
-> ```markdown
-> Run all anchors from `{repo}/`.
-> | 2 | {criterion} | `test -f Outputs/{Report}.md` | PASS / FAIL |
-> ```
-> CORRECT — the path is written from the declared cwd, or the header carries a stated exception for the row:
-> ```markdown
-> | 2 | {criterion} | `test -f {plan_path}/{Session}/Outputs/{Report}.md` | PASS / FAIL |
-> ```
-> Trap 4 is the cheapest of the four to catch and the easiest to miss, because the anchor reads correctly in the task file it was drafted beside.
-
-Trap 1 is additionally detected mechanically by `scripts/lint_verification_gates.py`. Traps 2, 3 and 4 are authoring-side checks with no linter coverage — run them by hand at scaffold close.
-
-### 10.9 Read the command as a program — four more mismatches between mechanism and claim
-
-Three standing checks interrogate a gate's **inputs and expected value**: re-measure the reading, re-derive an inherited threshold, and dry-run against known-bad input. None of them reads the command as a program and asks what it can physically see. A threshold error is detectable by comparison. A mechanism error is detectable only by reading the command.
-
-**State in one sentence what the command physically inspects, then compare that to what the criterion claims.** Where the two differ, the gate is measuring a proxy.
-
-| Mechanism | What it silently cannot see | Consequence |
-|---|---|---|
-| `grep -B{n}` / `-A{n}` context windows | anything outside the window, and the match line's own content | a correctly-formatted site reads as malformed; a subject larger than the window is only partly compared |
-| any pipeline whose filter targets a *neighbouring* line | same-line variants of the thing being filtered | a semantically-null reflow flips the result |
-| a dry-run "clean" control | the pattern under test, if the control happens to contain it | the pair stops discriminating **while appearing to run** |
-| exact-count assertions (`= N`) | every legitimate additional mention | forbids correct work |
-
-The worked instance for row 2: an AUTO-MODE coverage gate built as `grep -B1 "AskUserQuestion" \| grep -v "AUTO-MODE:"` can only see a tag written on its own line *above* the call. This correctly-tagged same-line bullet counts as untagged:
-
-```markdown
-- interactive confirm (`AskUserQuestion`, `<!-- AUTO-MODE: critical -->`), **AND**
-```
-
-Reflowing that tag onto its own line — a change with zero semantic content — moves the baseline 33 → 34 and fails a gate-defining exit criterion. Two corollaries: **a formatting change is not automatically gate-neutral**, so record the coupling at the code site when a gate reads line adjacency; and **verify a control before trusting the test it anchors**, because a discrimination proof establishes nothing if both arms match.
-
-> [!constraint] Pattern unit and threshold unit MUST match
-> ```
-> WRONG — a cardinal command compared against an ordinal threshold; unreachable on any correct post-state:
->   grep -c '^## 1[0-9]\.' file.md   # ≥ 13     ← returns 3 today, 4 after correct work
->
-> CORRECT — one unit throughout, with the before value stated so the gate is checkable today:
->   grep -c '^## [0-9]' file.md      # 12 before → 13 after
->
-> Or, when the point is existence rather than cardinality, assert existence:
->   grep -n '^## 13\.' file.md       # exactly 1 hit
-> ```
-> **The screen:** for every `grep -c … # N` gate, ask what unit `N` is. If `N` is a section number, a row number, a version, or any other ordinal, the gate is suspect — `grep -c` cannot return an ordinal. Either widen the pattern to count the whole set, or change the assertion from a count to a presence check.
->
-> **State the before value too.** `12 → 13` is checkable in a way a bare `≥ 13` is not, because a reader can run it today and confirm the 12. §2 and trap 3 of §10.8 own the neighbouring rule — assert membership per unit rather than hardening it into count equality.
-
-> [!constraint] A grep for a numeric literal must anchor its digit boundaries
-> ```bash
-> grep -rnE '(^|[^0-9])40000([^0-9]|$)' plugins/planwise/    # correct
-> grep -rn  '40000'                     plugins/planwise/    # matches 400000, 140000, 4000012
-> ```
-> `\b` is not a sufficient substitute. A digit is a word character, so the boundary behaves correctly for `400000` but not for a case like `x40000`. Prefer the explicit `[^0-9]` guard, which is unambiguous across engines and self-documenting.
->
-> **Why it is easy to miss:** numeric constants in one domain are near-multiples of each other — `40000`/`400000`, `1000`/`10000`, `150000`/`1500000` — and they co-occur in exactly the files where you are grepping for one of them.
->
-> Two corollaries. **A count is part of the gate's output, not scaffolding around it** — reporting "8 hits, here is what each one is" makes the count a claim, so anchor it before making it. And **direction coverage does not test pattern precision**: this defect dry-runs cleanly in all three directions (known-bad fires, clean baseline empty, correct post-state silent), because every direction shares the same imprecise pattern.
-
-> [!constraint] A gate specification includes its regex dialect
-> ```
-> WRONG — BRE, where `\|` is the alternation operator, not an escaped literal pipe:
->   grep '^\| 1[12] ' references/agent-orchestration.md      # expect 2 → matched all 485 lines
->
-> CORRECT — in BRE a bare pipe is already literal:
->   grep '^| 1[12] ' references/agent-orchestration.md       # 2
-> ```
-> The same anchor is correct in one mode and matches everything in the other, and under `-E` the polarity flips — there the pipe must be escaped to be literal. The failure is invisible by inspection, because the escaped form looks more careful and is the one a reviewer assumes is safe.
->
-> **Two rules:** write `grep -E` explicitly whenever the pattern contains alternation, escaping, or grouping; and for every gate containing `\|`, `\(`, `\{` or `\+`, confirm the intended dialect — with no `-E`, those escapes are operators, not literals.
->
-> **The detection note:** a vacuous match returns a *large* number, which is exactly the shape a `≥ N` threshold silently accepts.
-
-> [!constraint] A fixed-size window is a measurement instrument — the subject must fit inside it
-> ```bash
-> # WRONG — a guessed window smaller than the subject; compares 13 lines of a 14-line block:
-> diff <(grep -A 12 'artifact classes this plan will touch' handlers/plan.md) \
->      <(grep -A 12 'artifact classes this plan will touch' handlers/plan-scaffolding.md)   # EMPTY
->
-> # CORRECT — compare the complete added-line sets, which have no window at all:
-> diff <(git diff FILE_A | grep '^+' | grep -v '^+++') \
->      <(git diff FILE_B | grep '^+' | grep -v '^+++')     # exit 0
-> ```
-> A window that under-covers turns *"are these two blocks identical?"* into *"are their first N lines identical?"* — a different and weaker question.
->
-> **The exact-count half:** a `grep -c … = N` gate silently forbids every legitimate additional mention of its pattern. `= 1` on a heading phrase cannot distinguish "the heading exists once" from "no other line in this file may mention this phrase", and the second is almost never what the author meant. Prefer `≥ 1` plus a placement assertion — `grep -n`, with the line numbers compared against known anchors.
-
-> [!practice] When a gate needs N separately-owned repairs to become reachable, every site must say the others exist
-> Otherwise a partial landing presents as a failed implementation rather than an incomplete repair, and the runner debugs its own correct work.
->
-> The positive instance that motivates it: a gate proven at plan review to return **3 against 1 on a correct implementation** would have halted five tasks on good work. It reached its intended end state only because two independent repairs, owned by two different tasks, both landed.
-
-### 10.10 A re-capture gate's allowed set names the files that change on every capture
-
-A snapshot directory holds two classes of file. Extractor-attributable files change only when the extractor or the subject binary changes. Environment-attributable files change on every capture. These are anything fetched from a network, anything that records a session or a machine, and anything that records a timing or a cost. A diff-stat gate that lists only the first class reports the second class as regression every time it runs.
-
-A task re-captured three archived builds with `<capture-command> --force`. It then ran a `git diff --stat` gate against a pinned allowed set of four paths. Any other changed path was a HALT. The gate fired on four paths per build:
-
-- Three were environment drift the extractor never touches. A changelog file changed because an upstream entry had been published since the base commit. A session-record file changed because of session ids and the machine's installed-skill roster. A run-report file changed because of elapsed milliseconds and total cost.
-- The fourth, a module-strings file, was a real extractor defect.
-
-The runner spent its investigation budget proving the three drift rows harmless before it could isolate the one that mattered. The allowed set had been authored from one capture at plan time. The author knew the live tier ran two child processes per build and even budgeted their cost. Nothing in the brief connected "runs live children" to "rewrites the files those children produce".
-
-> [!constraint] Two lists, reported separately, with the environment list derived from what the capture does
-> WRONG — one allowed set, authored from the base commit's snapshot shape:
-> ```
-> allowed = {<subsets>.json, <tool-table>.json, manifest.json, <identity>.json}
-> changed = {<changelog>.json, <session>.json, <run-report>.json, <module-strings>.json, ...}
-> changed - allowed = 4 paths per build -> HALT
-> # three are noise, one is signal, and the gate cannot tell them apart
-> ```
-> CORRECT — the extractor list and the environment list are separate, and only the remainder halts:
-> ```
-> extractor_allowed  = {<subsets>.json, <tool-table>.json, manifest.json, <identity>.json}
-> environment_expect = {<changelog>.json, <session>.json, <run-report>.json}   # live children + network fetch
-> unexpected = changed - extractor_allowed - environment_expect
-> # unexpected = {<module-strings>.json} -> HALT on that one path, with the drift rows listed as expected
-> ```
-
-Three operative points:
-
-1. **Classify every captured file at authoring time.** For each file the capture writes, ask one question: would this file change if the extractor and the binary were both frozen? If yes, it belongs in the environment list. It does not belong in the allowed list or the HALT list.
-2. **Derive the environment list from the command's side effects, not from one observation.** A `--force` that runs live children rewrites their outputs. A capture that fetches a changelog rewrites the changelog. Read the capture code's write sites. A single prior capture cannot show what varies between captures.
-3. **Keep the HALT rare.** A gate that always fires gets waved through. The first time a re-capture gate HALTs on noise, the runner learns to expect a HALT. The second time, the real defect is in the same list. Keep the noise out of it.
-
-This applies to any `git diff --stat` or path-set gate over a directory a tool regenerates in place. It applies to snapshot, fixture, golden-file and report directories that mix extracted content with session, timing, cost or fetched data. It also applies to any brief that pins an allowed-change set for a re-run.
-
-§10.7 covers the same defect for an anchor: the accepted set must equal the set of outcomes the task can produce. This subsection covers the allowed set of changed paths. The allowed set must also cover the files the capture rewrites as a side effect.
-
----
-
-## 11. A Gate Is Pinned From a Run Over Real Content, Never From a Mental Image
-
-**Moved.** This section lives in [verification-task-authoring-Part-2-PinnedFromRealContent.md](verification-task-authoring-Part-2-PinnedFromRealContent.md). It covers a gate pinned before its subject exists (§11.1), a count gate pinned beside a content block (§11.2), and a count method pinned from the command's real output shape (§11.3). Cite it as `verification-task-authoring.md` §11. The number stays reserved here so citations keep resolving.
-
----
-
-*Cross-references: [verification-gates.md](verification-gates.md) (cross-process runtime gates — orthogonal concern: round-trip evidence at session-COMPLETE, not match-pattern authoring), [ei-completeness.md](ei-completeness.md) §9 (EI completeness and audit-grep-table coverage — feeds the format enumeration §3 relies on).*
+*Cross-references: [verification-gates.md](verification-gates.md) (cross-process runtime gates and the recorded baseline commit a diff gate reads), [verification-gate-evidence.md](verification-gate-evidence.md) (what a gate's output is evidence of), [gate-predicate-discrimination.md](gate-predicate-discrimination.md), [gate-denominator-integrity.md](gate-denominator-integrity.md), [gate-baseline-independence.md](gate-baseline-independence.md) (the three gate references that were never part of this file).*

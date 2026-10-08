@@ -98,7 +98,7 @@ Fix: Cite the review discovery fact sheet's wc -l count for {file_path}, or re-m
 > report 603 / ~3.8K saved; Issue: projection assumed 460 (280-extract + 460-remainder = 740 ≠ 894 original) — the projection was internally inconsistent, and the section had grown since the audit.
 > ```
 >
-> Before starting, run the up-front sanity check: `original − extracted_block ?= projected_remainder`. If they don't reconcile, surface it before execution, not at verification time. The extraction is correct; only the projection was optimistic. This is the plan-level headline-metric sibling of the "structurally unreachable threshold" concept (Check 058 / `verification-task-authoring.md` §2), which targets grep-count thresholds inside verification tasks — a different surface, no overlap.
+> Before starting, run the up-front sanity check: `original − extracted_block ?= projected_remainder`. If they don't reconcile, surface it before execution, not at verification time. The extraction is correct; only the projection was optimistic. This is the plan-level headline-metric sibling of the "structurally unreachable threshold" concept (Check 058 / `gate-heuristic-verifier-patterns.md` §2), which targets grep-count thresholds inside verification tasks — a different surface, no overlap.
 
 #### Reviewer Check 070 — Plan Headline Metric vs Fixed Extraction Scope Reconciliation
 

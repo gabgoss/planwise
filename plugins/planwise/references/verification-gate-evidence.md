@@ -116,7 +116,7 @@ Two consequences make this worth its own section.
 **A gate that gets its way leaves no failure signal at all.** The run is green, the report says PASS, and only someone comparing the new output against the file's older conventions can see the divergence.
 
 > [!practice] Prefer structural anchors over notational ones
-> Anchor on `^###`, `^| `, or another structural marker rather than on `§`, backticks, or emphasis. For a verdict line, whose label carries emphasis, copy the skeleton's bytes instead: [`verification-task-authoring.md`](verification-task-authoring.md) §10.5. Notation is a display choice that varies within a single file. Structure is not. This is the cheapest available screen for the whole class, and it is guidance rather than a gate, because "prefer structure" cannot be asserted by a command.
+> Anchor on `^###`, `^| `, or another structural marker rather than on `§`, backticks, or emphasis. For a verdict line, whose label carries emphasis, copy the skeleton's bytes instead: [`gate-pinned-from-real-content.md`](gate-pinned-from-real-content.md) §10.5 and §11.4. Notation is a display choice that varies within a single file. Structure is not. This is the cheapest available screen for the whole class, and it is guidance rather than a gate, because "prefer structure" cannot be asserted by a command.
 
 [`verification-gates.md`](verification-gates.md) §10 obligation B states the general form of this rule — a gate must not fail correct work, and the authoring test is *what would a correct-but-differently-formatted artifact score?* Read it alongside this section. What §3 adds is the specific arm to run and the anchor-selection screen.
 
@@ -363,7 +363,7 @@ Two mechanical rules follow:
 1. **Dry-run every gate against the exact text its own specification prescribes.** A gate validated only against improvised fixtures has never been shown to accept its own intended output. The cheapest possible fixture — the spec's own CORRECT block — is the one most often skipped.
 2. **A gate lives in more than one file.** The same regex existed in the Execution Input *and* in the task file's Verification Commands, so fixing one leaves the other to false-fail a later sweep. Fix every copy and annotate each, or the correction is itself a half-measure.
 
-The construction vocabulary this remedy assumes — the regex dialect, the window that must fit its subject, the count whose unit must match its threshold — is [`verification-task-authoring.md`](verification-task-authoring.md) §10.9. §3 above owns the correct-post-state arm that catches the defect before a runner meets it.
+The construction vocabulary this remedy assumes — the regex dialect, the window that must fit its subject, the count whose unit must match its threshold — is [`gate-command-semantics.md`](gate-command-semantics.md) §10.9. §3 above owns the correct-post-state arm that catches the defect before a runner meets it.
 
 ---
 
@@ -394,7 +394,7 @@ A deformed artifact can be found by reading it. A spurious BLOCKED announces its
 
 **The review-time tell.** For every gate annotated with an expected value, ask whether the value was derived from a correct post-state or predicted before the work was scoped. A parenthetical explaining the expectation ("ToC/footer only", "headings + ToC") marks a prediction.
 
-Two neighbouring rules own the authoring side. [`verification-task-authoring.md`](verification-task-authoring.md) §10.7 requires an anchor to accept exactly the outcome set its own task can produce. [`verification-gates.md`](verification-gates.md) §11.1 shows how a pre-existing omission arms a gate against correct work. Both catch the annotation before a runner meets it. This section governs the runner who meets it anyway.
+Two neighbouring rules own the authoring side. [`gate-anchor-outcome-set.md`](gate-anchor-outcome-set.md) §10.7 requires an anchor to accept exactly the outcome set its own task can produce. [`verification-gates.md`](verification-gates.md) §11.1 shows how a pre-existing omission arms a gate against correct work. Both catch the annotation before a runner meets it. This section governs the runner who meets it anyway.
 
 ---
 
@@ -424,7 +424,7 @@ The honest report is the signal, and the resolution is the part to check. Re-der
 
 **The standing asymmetry that makes disclosure load-bearing.** A gate that false-fails correct work is loud: the runner halts, retries, reports BLOCKED, and a human looks. A gate a runner silently satisfies by bending the artifact produces the exact same output as one satisfied honestly. There is no diff signature, no count anomaly, and no failed step for a sweep to find. The sweep re-runs the same gate and gets the same green. Disclosure is a property of a particular runner, not of the process, so the process cannot rely on it arriving. Where it does arrive, it is the only signal there will be.
 
-The two gate-authoring corollaries — a fixed-size window must fit its subject, and an exact-count gate forbids legitimate mentions — are [`verification-task-authoring.md`](verification-task-authoring.md) §10.9. This section is the adjudication half.
+The two gate-authoring corollaries — a fixed-size window must fit its subject, and an exact-count gate forbids legitimate mentions — are [`gate-command-semantics.md`](gate-command-semantics.md) §10.9. This section is the adjudication half.
 
 ---
 
@@ -675,4 +675,4 @@ Three consequences:
 
 ---
 
-*Cross-references: [verification-gates.md](verification-gates.md) §10 (the instrument's four proof obligations — fixture-vs-live-sweep, the gate that fails correct work, and the pattern that cannot see the shape it counts), §11 (change-detecting vs state-detecting shapes) and §11.1 (a pre-existing omission can arm a gate against correct work), [verification-task-authoring.md](verification-task-authoring.md) §10 (pre-edit value annotation), §10.7 (an anchor accepts exactly its task's outcome set), §10.8 (command semantics that make a well-formed gate mean something else) and §10.9 (the construction corollaries §10-§13 assume — regex dialect, window size, exact counts), [measurement-discipline.md](measurement-discipline.md) §8.5 (normalize on both read and write; annotated rather than clean fixtures) and §8.7 (verify the gate's input set before trusting its predicate), [dispatch-edit-surface-sweep.md](dispatch-edit-surface-sweep.md) §5-§6 (hunting `§` pointers after a renumbering, and a renumbering gate's true expected count — the sibling of §15), [artifact-self-containment.md](artifact-self-containment.md) §4.3 (the classify-do-not-blanket-fail sweep §15.3 mirrors).*
+*Cross-references: [verification-gates.md](verification-gates.md) §10 (the instrument's four proof obligations — fixture-vs-live-sweep, the gate that fails correct work, and the pattern that cannot see the shape it counts), §11 (change-detecting vs state-detecting shapes) and §11.1 (a pre-existing omission can arm a gate against correct work), [gate-pre-edit-baseline.md](gate-pre-edit-baseline.md) §10 (pre-edit value annotation), [gate-anchor-outcome-set.md](gate-anchor-outcome-set.md) §10.7 (an anchor accepts exactly its task's outcome set), [gate-command-semantics.md](gate-command-semantics.md) §10.8 (command semantics that make a well-formed gate mean something else) and §10.9 (the construction corollaries §10-§13 assume — regex dialect, window size, exact counts), [measurement-discipline.md](measurement-discipline.md) §8.5 (normalize on both read and write; annotated rather than clean fixtures) and §8.7 (verify the gate's input set before trusting its predicate), [dispatch-edit-surface-sweep.md](dispatch-edit-surface-sweep.md) §5-§6 (hunting `§` pointers after a renumbering, and a renumbering gate's true expected count — the sibling of §15), [artifact-self-containment.md](artifact-self-containment.md) §4.3 (the classify-do-not-blanket-fail sweep §15.3 mirrors).*

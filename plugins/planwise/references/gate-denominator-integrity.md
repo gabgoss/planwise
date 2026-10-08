@@ -61,7 +61,7 @@ All four are per-hunk or per-content assertions. None is an aggregate over a fil
 [`verification-gates.md`](verification-gates.md) §11.1 states the false-FAIL direction for an enumeration (the expected value is derived from the enumeration under test). This section adds the false-PASS direction and the rules below. A rule that shows only the false-FAIL direction teaches runners to loosen gates, which is the opposite of the lesson.
 
 - A "count must be unchanged" gate on a file the work may legitimately add prose to is **mis-specified**. Replace it with a zero-deletions assertion on the author's own hunk. Deletions are what "you modified the existing text" actually means.
-- **Never let a file-presence count stand as proof that a task's content landed**, in any plan where more than one task writes the same file. Under layered dispatch on shared handler and reference docs that is the normal case. Prove content by content. [`verification-task-authoring.md`](verification-task-authoring.md) §2 and §10.6 carry the per-unit and input-set forms.
+- **Never let a file-presence count stand as proof that a task's content landed**, in any plan where more than one task writes the same file. Under layered dispatch on shared handler and reference docs that is the normal case. Prove content by content. [`gate-heuristic-verifier-patterns.md`](gate-heuristic-verifier-patterns.md) §2 and [`gate-input-set-and-compared-window.md`](gate-input-set-and-compared-window.md) §10.6 carry the per-unit and input-set forms.
 - **When a gate's expected value is stated as `≥ 1`, ask what a regression would look like.** At `≥ 1`, deleting two of three references still passes. `≥ 1` answers "does it exist at all", which is almost never the question after the first landing.
 - **A false-failing gate is not the safe direction.** It is as corrosive as a skipped gate, because runners learn to route around it, and the routing-around is silent. Treat a gate that fires on correct work as a defect **in the gate**. Fix it at the point of discovery. Do not explain it away in a status block.
 
@@ -98,7 +98,7 @@ Five operational rules follow:
 
 A denominator can also fail by sharing the numerator's filter rather than its output. § "7. A Guard's Denominator Must Not Pass Through the Filter It Guards" covers that form.
 
-One small self-referential trap sits in the same family: **a prose claim about a grep result is itself grep-visible.** A governance sentence asserting that no `map pending` string survives will itself contain the string. Reword the claim to be true. Do not mutilate the artifact to fit a naive pattern. [`verification-task-authoring.md`](verification-task-authoring.md) §8.1 carries the scrub rule for the same token.
+One small self-referential trap sits in the same family: **a prose claim about a grep result is itself grep-visible.** A governance sentence asserting that no `map pending` string survives will itself contain the string. Reword the claim to be true. Do not mutilate the artifact to fit a naive pattern. [`gate-absence-and-consistency.md`](gate-absence-and-consistency.md) §8.1 carries the scrub rule for the same token.
 
 ---
 

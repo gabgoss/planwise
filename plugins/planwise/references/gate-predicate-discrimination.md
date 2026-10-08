@@ -200,7 +200,7 @@ This section is deliberately written without a mechanical gate. "Have a differen
 
 ## 9. A Pinned Pattern Runs Against the Real Line, and Its Passing Branch Is Reachable
 
-§1 pairs an anchor against its known-bad state. §2 covers how wide a pattern must be. Both assume the pattern was run over the content it is meant to judge. This section covers two cases where nobody did that. In the first, a plan pins a pattern in one place and its expected real-world hit in another. In the second, the gate can fail but cannot return its passing value. [`verification-task-authoring.md`](verification-task-authoring.md) §4 covers the denominator a count gate takes, and §11 there covers a gate pinned before its subject exists.
+§1 pairs an anchor against its known-bad state. §2 covers how wide a pattern must be. Both assume the pattern was run over the content it is meant to judge. This section covers two cases where nobody did that. In the first, a plan pins a pattern in one place and its expected real-world hit in another. In the second, the gate can fail but cannot return its passing value. [`gate-heuristic-verifier-patterns.md`](gate-heuristic-verifier-patterns.md) §4 covers the denominator a count gate takes, and [`gate-pinned-from-real-content.md`](gate-pinned-from-real-content.md) §11 covers a gate pinned before its subject exists.
 
 ### 9.1 The real expected-hit line is a verbatim fixture row
 
@@ -255,7 +255,7 @@ This section is deliberately written without a mechanical gate. "Have a differen
 
 ## 10. A "Count Unchanged" Gate Shares Vocabulary With the Addition It Must Exclude
 
-§1 to §9 ask whether a pattern can discriminate. This section covers a gate whose pattern discriminates the old content and then meets new content that matches it too. [`verification-gates.md`](verification-gates.md) §11 separates change-detecting gates from state-detecting gates. [`verification-task-authoring.md`](verification-task-authoring.md) §10.3 says to mark a preservation gate with `invariant:`. Neither says how to build the preservation gate when the addition shares the pattern's vocabulary.
+§1 to §9 ask whether a pattern can discriminate. This section covers a gate whose pattern discriminates the old content and then meets new content that matches it too. [`verification-gates.md`](verification-gates.md) §11 separates change-detecting gates from state-detecting gates. [`gate-pre-edit-baseline.md`](gate-pre-edit-baseline.md) §10.3 says to mark a preservation gate with `invariant:`. Neither says how to build the preservation gate when the addition shares the pattern's vocabulary.
 
 > [!constraint] A bare count that expects "unchanged" is a state-detecting instrument pointed at a change-detecting question
 > **Rule.** The gate answers "how many lines match?". The criterion asks "did the old lines survive?". The two have the same answer only when the addition shares no vocabulary with the pattern. An addition that extends a vocabulary shares it by design: a third block beside two, a new pair beside existing pairs, a new row type in the same table.
@@ -295,7 +295,7 @@ Two rules follow, one for each role.
 
 **The same trap in test code.** A test assertion such as `assert not any("vs high (" in line for line in lines)`, written before a sibling output type was added, fails the same way. Narrow it to the old line's full shape, for example `"vs high (median"`.
 
-**The sibling failure from the other side.** A bare count over a content block picks up the block's own comment, because the pattern is too loose for the old content ([`verification-task-authoring-Part-2-PinnedFromRealContent.md`](verification-task-authoring-Part-2-PinnedFromRealContent.md) §11.2). Here the pattern is too loose for the new content. In both cases, count a shape instead of a token, or stop counting and diff.
+**The sibling failure from the other side.** A bare count over a content block picks up the block's own comment, because the pattern is too loose for the old content ([`gate-pinned-from-real-content.md`](gate-pinned-from-real-content.md) §11.2). Here the pattern is too loose for the new content. In both cases, count a shape instead of a token, or stop counting and diff.
 
 **Applies to.** Any task-file verification block that pairs "add X beside Y" with "count of Y-pattern unchanged". Test assertions written before a sibling output type was added. Generated reports where a new section reuses an existing section's line vocabulary: decision blocks, verdict lines, comparison tables.
 
@@ -527,4 +527,4 @@ Three operative points:
 
 ---
 
-*Cross-reference: [`measurement-discipline.md`](measurement-discipline.md) §8.7 (the gate's input set — the other half of an unfalsifiable gate, and the dry-run mandate this file gives a recipe for) · [`verification-gate-evidence.md`](verification-gate-evidence.md) §12 (adjudicating a disclosure that a gate shaped its own subject), §3 (the correct-post-state arm of the dry-run) · [`verification-gates.md`](verification-gates.md) §8 (the recorded baseline a diff-scoped gate pins) · [`verification-task-authoring.md`](verification-task-authoring.md) §10.9 (reading a gate command as a program) and §11 (a gate pinned from a run over real content, in [`verification-task-authoring-Part-2-PinnedFromRealContent.md`](verification-task-authoring-Part-2-PinnedFromRealContent.md)) · [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) (the live-measurement-wins clause a briefing figure travels with)*
+*Cross-reference: [`measurement-discipline.md`](measurement-discipline.md) §8.7 (the gate's input set — the other half of an unfalsifiable gate, and the dry-run mandate this file gives a recipe for) · [`verification-gate-evidence.md`](verification-gate-evidence.md) §12 (adjudicating a disclosure that a gate shaped its own subject), §3 (the correct-post-state arm of the dry-run) · [`verification-gates.md`](verification-gates.md) §8 (the recorded baseline a diff-scoped gate pins) · [`gate-command-semantics.md`](gate-command-semantics.md) §10.9 (reading a gate command as a program) and [`gate-pinned-from-real-content.md`](gate-pinned-from-real-content.md) §11 (a gate pinned from a run over real content) · [`read-confirm-act-protocol.md`](read-confirm-act-protocol.md) (the live-measurement-wins clause a briefing figure travels with)*

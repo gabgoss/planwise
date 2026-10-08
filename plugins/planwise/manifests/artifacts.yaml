@@ -769,7 +769,7 @@ artifacts:
       Row exists for contributor visibility.
 
   - id: verification_task_authoring_rule
-    on_disk: "plugin in-place (references/verification-task-authoring.md)"
+    on_disk: "plugin in-place (references/verification-task-authoring.md, the family index, plus the eight references/gate-*.md topic files it names)"
     config_keys: []
     producer: "(not produced — read in-place from the plugin)"
     consumers:

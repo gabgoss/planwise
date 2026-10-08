@@ -70,7 +70,7 @@ the raw text, so the backslash reaches `Grep` intact.
   row in `references/gate-predicate-discrimination.md` carries the full
   recipe.
 - A shell search command has its own dialect rules. See the "regex dialect"
-  constraint in `references/verification-task-authoring.md`.
+  constraint in `references/gate-command-semantics.md` §10.9.
 
 > [!constraint] Write alternation as a bare pipe in a `Grep` call
 > WRONG — a backslash before the pipe, copied from a table-cell escape. The call matches the literal text `a|b` and reports zero hits:

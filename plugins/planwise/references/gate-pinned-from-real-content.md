@@ -1,30 +1,37 @@
 ---
-description: A gate is pinned from a run over real content, never from a mental image — a pattern pinned before its subject exists is a prediction (run it at the first reconciliation, read the row on zero matches, prefer a shape-tolerant pattern), a count gate pinned beside a content block runs over that block before the task file ships (anchor on the command shape, the content is the deliverable and the gate is the defect), a pinned count method matches the command's real output shape (one observed line, zero count is a FAIL), a verdict-line gate copies the skeleton's bytes including the emphasis between label and value (dry-run it on a passing and a failing copy), and a section is counted by a line-anchored heading test, never by substring. §12 covers a verbatim-literal proof: it extracts from the function body only, excludes by the exact token and not a bare word, and prints the compared-set size beside the difference count. §13 covers a predicate that counts: it names its unit, states both counts when a boundary mints the thing counted (three clears, four session ids), and is graded against the named unit, never the intended one.
+description: A gate is pinned from a run over real content, never from a mental image — a gate over a verification report reads the machine-readable verdict line, never a bare substring the report's own vocabulary emits (§10.5); a pattern pinned before its subject exists is a prediction, run at the first reconciliation with the row read on zero matches (§11.1); a count gate pinned beside a content block runs over that block before the task file ships, and when they disagree the content is the deliverable and the gate is the defect (§11.2); a count method matches the command's real output shape, with a zero count a FAIL (§11.3); a verdict-line gate copies the skeleton's bytes including the emphasis between label and value, dry-run on a passing and a failing copy (§11.4); and a section is counted by a line-anchored heading test, never by substring (§11.5).
 paths: {planwise_root}/{plans_dir}/**
 ---
 
-# Verification-Task Authoring, Part 2 — A Gate Is Pinned From a Run Over Real Content
+# Gate Pinned From a Run Over Real Content
 
-**Purpose:** §11, split out of [verification-task-authoring.md](verification-task-authoring.md) when that file approached the Read-tool token gate. §1–§10 stay on that anchor, which keeps the original filename. This half carries §11, §12 and §13. Cite them as `verification-task-authoring.md` §11, §12 and §13 and read them here.
+**Purpose:** A pinned gate is a claim about the shape of something. The something may not exist yet, or it may exist in a form the author never looked at. The instrument then returns the wrong value on correct work, or cannot return its passing value at all. Each section covers one way the claim fails. Split from `verification-task-authoring.md` on 2026-10-08. Section numbers are kept from that reference, so an existing `verification-task-authoring.md §N` citation translates by filename alone. The family index is `verification-task-authoring.md`.
 
-**Read this when** you pin a regex, a count, a count method or a reproduction command in a task file, and the thing it measures does not exist yet, sits in a content block you wrote, or comes from a tool whose output you have not looked at. Read §11.4 when a gate greps a Markdown verdict line, and §11.5 when a gate counts a section by its heading. Read §12 when a proof script compares string literals between two sources and reports a difference count. Read §13 when a predicate or success criterion asserts a count of sessions, boundaries, files, rows or events.
+**Read this when** you pin a regex, a count, a count method or a reproduction command in a task file and the thing it measures does not exist yet, sits in a content block you wrote, or comes from a tool whose output you have not looked at. Read §10.5 and §11.4 when a gate greps a Markdown verdict line, and §11.5 when a gate counts a section by its heading.
 
 ## Table of Contents
 
+  - [10.5 A gate over a verification report reads the verdict line, not a bare substring](#105-a-gate-over-a-verification-report-reads-the-verdict-line-not-a-bare-substring)
 - [11. A Gate Is Pinned From a Run Over Real Content, Never From a Mental Image](#11-a-gate-is-pinned-from-a-run-over-real-content-never-from-a-mental-image)
   - [11.1 A gate pinned before its subject exists is a prediction](#111-a-gate-pinned-before-its-subject-exists-is-a-prediction)
   - [11.2 A gate pinned beside a content block runs over that block before the task file ships](#112-a-gate-pinned-beside-a-content-block-runs-over-that-block-before-the-task-file-ships)
   - [11.3 A pinned count method matches the command's real output shape](#113-a-pinned-count-method-matches-the-commands-real-output-shape)
   - [11.4 A verdict-line gate copies the skeleton's bytes, emphasis included](#114-a-verdict-line-gate-copies-the-skeletons-bytes-emphasis-included)
   - [11.5 Count a section by a line-anchored heading test, never by substring](#115-count-a-section-by-a-line-anchored-heading-test-never-by-substring)
-- [12. A Verbatim-Literal Proof Extracts From the Body, Excludes by Exact Token, and Prints the Compared-Set Size](#12-a-verbatim-literal-proof-extracts-from-the-body-excludes-by-exact-token-and-prints-the-compared-set-size)
-- [13. A Predicate That Counts Names Its Unit](#13-a-predicate-that-counts-names-its-unit)
 
 ---
 
+### 10.5 A gate over a verification report reads the verdict line, not a bare substring
+
+One adjacent shape cannot be caught by a pre-edit annotation at all, and it belongs here because its outcome is the same — a gate that does not discriminate. When a gate's subject is a **report the work itself produces**, there is no pre-edit tree to measure against: the report does not exist until the work is finished. The protection has to come from the report's format instead.
+
+A verification report necessarily *describes* the checks it ran, so its own column headers, legend, and residual prose legitimately contain the tokens a naive gate searches for. A bare `grep -c 'FAIL' {report}` expecting `0` is satisfied by the report's own vocabulary and fires on a report that passed — and a gate that can never report success is exactly as uninformative as one that can never report failure.
+
+[templates/verification-report.md](../templates/verification-report.md) defines the convention that removes the ambiguity: a single machine-readable trailing `**Verdict:** PASS|FAIL` line, plus per-criterion status carried in a dedicated table cell. A gate consuming a verification report MUST match the verdict line, or the `| FAIL |` row-cell pattern that `verification-report.md` defines — never a bare substring search over the whole document. Copy the verdict line's bytes from the skeleton, including the emphasis between label and value: §11.4 below.
+
 ## 11. A Gate Is Pinned From a Run Over Real Content, Never From a Mental Image
 
-A pinned gate is a claim about the shape of something. The something may not exist yet, or it may exist in a form the author never looked at. The instrument then returns the wrong value on correct work, or cannot return its passing value at all. Each subsection below covers one way the claim fails. §3 covers the sibling extraction formats a pattern must accept, and §10.9 covers reading a command as a program. This section covers the step both assume: the pinned gate was actually run over the real content.
+A pinned gate is a claim about the shape of something. The something may not exist yet, or it may exist in a form the author never looked at. The instrument then returns the wrong value on correct work, or cannot return its passing value at all. Each subsection below covers one way the claim fails. `gate-heuristic-verifier-patterns.md` §3 covers the sibling extraction formats a pattern must accept, and `gate-command-semantics.md` §10.9 covers reading a command as a program. This section covers the step both assume: the pinned gate was actually run over the real content.
 
 ### 11.1 A gate pinned before its subject exists is a prediction
 
@@ -138,7 +145,7 @@ Two other gates in the same task set followed the bytes and worked: `grep -c 'Re
 
 ### 11.5 Count a section by a line-anchored heading test, never by substring
 
-A substring pattern answers "does this text occur". It does not answer "does this file contain this section". The two questions agree only in files that never mention the section by name. The file most likely to mention it is the plan, spec or reference that introduces the convention. That file is often among the first to adopt the convention, so the collision is structural, not a coincidence. §8.1 covers scrubbing a token from every surface. §8.2 covers asserting against the right population. This subsection covers counting a heading.
+A substring pattern answers "does this text occur". It does not answer "does this file contain this section". The two questions agree only in files that never mention the section by name. The file most likely to mention it is the plan, spec or reference that introduces the convention. That file is often among the first to adopt the convention, so the collision is structural, not a coincidence. `gate-absence-and-consistency.md` §8.1 covers scrubbing a token from every surface, and §8.2 there covers asserting against the right population. This subsection covers counting a heading.
 
 > [!constraint] Anchor the heading at the start of the line, and record both counts when they differ
 > **Rule.** A harvest appended one `## Index Notes (harvested <date>)` section to each of 32 master plans. The task pinned two substring gates: a pre-write gate `grep -c '## Index Notes (harvested'` expecting 0, and a post-write gate expecting 1 per target. One target was the plan that designed the harvest. It quotes the heading twice in prose, once in a decision row and once in a checklist line. The substring count read 2 before the write and 3 after. A line-anchored heading test read 0 before and 1 after. Without the fix, the pre-write gate halts the harvest on a clean target and the post-write gate fails a correct one.
@@ -163,77 +170,4 @@ A substring pattern answers "does this text occur". It does not answer "does thi
 
 ---
 
-## 12. A Verbatim-Literal Proof Extracts From the Body, Excludes by Exact Token, and Prints the Compared-Set Size
-
-A literal extractor measures whatever text it is pointed at. Pointed at a file, it measures the file: doc comments, signatures and the function body together. A criterion about the body alone needs an extraction window that is the body alone. A green result over a smaller or wider set than the criterion names is not the proof the criterion asked for.
-
-> [!constraint] Scope the window to the body, exclude by the exact token, and print the set size beside the difference count
-> **Rule.** A task ported five texts from one language into string literals of another and had to prove them verbatim. The checker read both source files, pulled every quoted literal out of each function by regex, normalised the `%s` and `${...}` placeholders to one sentinel, and compared the two sets. The first runs reported spurious "extra" entries on the target side from three mechanisms:
->
-> - Doc comments above the function quoted the source text in inline code.
-> - A parameter default literal in the signature added its own literal.
-> - A nested-brace interpolation stopped the normaliser's `\$\{[^}]*\}` at the first `}`, which left the interpolation's tail as literal text.
->
-> A fourth defect shrank the set without any warning. An exclusion filter keyed on the bare word `recording` also matched a genuine ported line. A real comparison silently dropped out, and the check stayed green over 13 lines instead of 14.
->
-> Four operative points:
->
-> 1. **Extract from the body.** Start the window at the token that opens the body (`=> {` or `{`) and end it at the closing brace. Doc comments and parameter lists then sit outside the window by construction.
-> 2. **Fix the source under test when the checker's grammar is the limit.** Hoist every non-trivial interpolation into a named local, so every `${...}` inside a template literal holds a bare identifier. A simple regex then holds without a brace-balancing parser, and the source reads better.
-> 3. **Exclude by the exact token that makes the excluded line unique.** Key the filter on `${recording}` (the interpolation), not on `recording` (the word). A filter that over-matches shrinks the compared set silently.
-> 4. **Report the compared-set size beside the difference count.** `0 differences` over 14 lines and `0 differences` over 13 lines print the same. The set size is the number that exposes a dropped line.
->
-> WRONG — whole-file scan, bare-word exclusion, difference count only:
-> ```python
-> literals = re.findall(r"`([^`]*)`", target_source)          # collects doc comments and defaults too
-> literals = [s for s in literals if "recording" not in s]    # also drops a real line
-> print(f"{len(source_set ^ target_set)} differences")
-> ```
-> CORRECT — body-scoped scan, exact-token exclusion, both counts:
-> ```python
-> body = target_source[target_source.index("=> {", function_start):]   # from the body opener onward
-> literals = re.findall(r"`([^`]*)`", body)
-> literals = [s for s in literals if "${recording}" not in s]
-> print(f"{len(source_set ^ target_set)} differences over {len(source_set)} lines")
-> ```
-
-**Authoring rule for the criterion.** A task criterion of the form "the ported text is verbatim" pins two things. The proof prints the compared-set size, and the task states the expected size. A reviewer of a green verbatim proof asks two questions: how many lines it compared, and where the extraction window opened.
-
-**Applies to** a runner-side proof script that compares string literals between two source languages, between a spec and its implementation, or between a template and its rendered output.
-
-**Split from §10.6.** `verification-task-authoring.md` §10.6 ("A diff-pinned or sweep-based criterion records its input-set counts") covers a count recorded before an edit. This section covers the window an extractor reads and the size it reports after.
-
-## 13. A Predicate That Counts Names Its Unit
-
-A count without its unit is a prediction about the author's mental model. The reader cannot tell a wrong model from a wrong run. The count was right for the thing the author pictured and wrong for the thing the sentence named. A grader forbidden from adjusting predicates can only record the mismatch.
-
-This section extends the denominator discipline of §4 of [verification-task-authoring.md](verification-task-authoring.md) ("Denominator Scoping — Count Real Instances Only"), which scopes a denominator to real instances. It adds the step before that scoping: say what the instance is. See also [gate-denominator-integrity.md](gate-denominator-integrity.md) ("Take the denominator from outside the artifact being gated").
-
-> [!constraint] Name the unit, state both counts when a boundary mints the thing counted, and grade against the named unit
-> **Example.** A sheet's predicate read "the log should show three distinct session ids". The arm runs a clear after each of three finished steps, and each clear starts a new session id. The author counted the clears and wrote the number as ids. The log showed four ids: the original session plus one per clear. Every other count was three: three clears, three notices, three nonces, three command rows. The runner recorded "not held" with the measured count and a paragraph explaining that "three" most plausibly meant clears. A passing run now carries a not-held clause that a downstream write-up has to adjudicate from prose.
->
-> Three consequences:
->
-> - **Name the unit in the predicate, and name the off-by-one when a boundary creates the thing counted.** "Three clear boundaries, four session ids (the original plus one per clear)" costs eleven words and removes the ambiguity.
-> - **When two units are in play, state both counts.** Boundaries and the sessions they produce differ by exactly one. A predicate that gives both is checked in both directions.
-> - **Grade the measured count against the named unit, never the intended one.** The fix belongs upstream in the sheet, not in a grader that learns to guess.
->
-> WRONG — the unit named is not the unit counted:
-> ```
-> predicate: "three distinct session ids"          <- author counted clears
-> measured:  4 ids (<id-a>, <id-b>, <id-c>, <id-d>)
-> verdict:   not held, 4 != 3                      <- on a run that did what the arm designs
-> ```
-> CORRECT — both units, both numbers, the off-by-one stated:
-> ```
-> predicate: "three clear boundaries; four distinct session ids
->             (the original session plus one new id per clear)"
-> measured:  3 clear-command rows; 4 ids
-> verdict:   held, held
-> ```
-
-**Applies to** run sheets, design predicates and success criteria that assert a count of sessions, boundaries, files, rows or events. It matters most where an action mints the thing being counted: a boundary that creates a session, a split that creates a part, a retry that creates a record. A reviewer checking a plan's predicates asks "count of what, and does the initial state count as one?"
-
----
-
-*Cross-references: [verification-task-authoring.md](verification-task-authoring.md) §3 (the sibling extraction formats a pattern must accept) and §10.9 (reading a command as a program) · [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §9 (the real expected-hit line as a fixture, and a passing branch that is reachable) and §10 (a "count unchanged" gate beside an addition that shares its vocabulary) · [verification-gates.md](verification-gates.md) §10 obligation A (the reproduction recipe is run before it is pinned).*
+*Cross-references: [gate-heuristic-verifier-patterns.md](gate-heuristic-verifier-patterns.md) §3 (the sibling extraction formats a pattern must accept) · [gate-command-semantics.md](gate-command-semantics.md) §10.9 (reading a command as a program) · [gate-absence-and-consistency.md](gate-absence-and-consistency.md) §8.1-§8.2 (scrubbing a token from every surface, asserting against the right population) · [gate-predicate-discrimination.md](gate-predicate-discrimination.md) §9 (the real expected-hit line as a fixture, and a passing branch that is reachable) and §10 (a "count unchanged" gate beside an addition that shares its vocabulary) · [gate-instrument-proof-obligations.md](gate-instrument-proof-obligations.md) obligation A (the reproduction recipe is run before it is pinned; today `verification-gates.md` §10) · [templates/verification-report.md](../templates/verification-report.md) (the verdict-line convention §10.5 and §11.4 read) · [verification-task-authoring.md](verification-task-authoring.md) (the family index).*

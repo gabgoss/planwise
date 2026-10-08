@@ -608,7 +608,7 @@ Applies to:
 >
 > The same recorded value is the Before baseline. A criterion asserting "unchanged vs Before" or "Before + 1" with no baseline captured cannot be computed at all, and a runner reports the absolute number and calls it PASS.
 >
-> A preservation criterion, where the value must not move, is exempt — mark it `invariant: {N}` rather than annotating a bare value. The mechanics live in `references/verification-task-authoring.md` §10.
+> A preservation criterion, where the value must not move, is exempt — mark it `invariant: {N}` rather than annotating a bare value. The mechanics live in `references/gate-pre-edit-baseline.md` §10.
 
 **Accept every terminal branch the owning task produces.** This is the mirror defect, and it fails in the opposite direction: not a gate that cannot fail, but one that cannot pass.
 
@@ -617,7 +617,7 @@ Applies to:
 >
 > A criterion accepting a strict subset FAILs a correct execution. The runner must then halt or manufacture an outcome the criterion will take. When the criterion is gate-defining, that failure fails the sprint on correct work.
 >
-> Where the Execution Input, the exit criteria, and the Signoff anchor each state the branch set, the task file's Execution Steps are the source and the other two are copies. Report a disagreement against the source, never against whichever copy is in the majority. See `references/verification-task-authoring.md` §10.7 and Reviewer Check 095.
+> Where the Execution Input, the exit criteria, and the Signoff anchor each state the branch set, the task file's Execution Steps are the source and the other two are copies. Report a disagreement against the source, never against whichever copy is in the majority. See `references/gate-anchor-outcome-set.md` §10.7 and Reviewer Check 095.
 
 **Never harden a set-membership claim into a count equality.** A criterion claiming one set contains another is satisfied by a correct superset. Rewritten as an equality of totals, it fails that superset while its actual claim still holds.
 

@@ -10,7 +10,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 The three share one structure: a number was verified at a grain **coarser than the grain at which it can fail**. A grand total cannot expose two offsetting component errors. A label naming a population cannot expose a filter applied two steps upstream. A numeral in prose cannot expose which of two same-sized sets it was counting. In each case the verification was performed diligently and reported clean.
 
-Three neighbouring rules own adjacent machinery. [`measurement-discipline.md`](measurement-discipline.md) §8.9 hardens the **recorded figure a gate compares against** — its drift, its derivation, its expiry. [`verification-task-authoring.md`](verification-task-authoring.md) §4 and [`exit-criteria-fidelity.md`](exit-criteria-fidelity.md) §16.10.2 bind the denominator of a coverage or ratio **gate**. This file is about a figure **reported in an artifact** — a total, a labelled aggregate, a count in prose — whose derivation nobody re-ran. The remedies differ: a gate is re-bound to an external item set; a reported figure has its addends re-derived and its population stated.
+Three neighbouring rules own adjacent machinery. [`measurement-discipline.md`](measurement-discipline.md) §8.9 hardens the **recorded figure a gate compares against** — its drift, its derivation, its expiry. [`gate-heuristic-verifier-patterns.md`](gate-heuristic-verifier-patterns.md) §4 and [`exit-criteria-fidelity.md`](exit-criteria-fidelity.md) §16.10.2 bind the denominator of a coverage or ratio **gate**. This file is about a figure **reported in an artifact** — a total, a labelled aggregate, a count in prose — whose derivation nobody re-ran. The remedies differ: a gate is re-bound to an external item set; a reported figure has its addends re-derived and its population stated.
 
 ## Table of Contents
 
@@ -160,4 +160,4 @@ Three points follow.
 
 ---
 
-*Cross-reference: [`measurement-discipline.md`](measurement-discipline.md) §8.9 (the recorded figure a gate compares against) · [`verification-task-authoring.md`](verification-task-authoring.md) §4 (denominator scoping for a coverage gate) · [`exit-criteria-fidelity.md`](exit-criteria-fidelity.md) §16.10.2 (a gate on a derived ratio names its column, grain and denominator) · [`session-context-budget.md`](session-context-budget.md) § File Size Limits (the three Read-tool gates a self-measuring header reports against)*
+*Cross-reference: [`measurement-discipline.md`](measurement-discipline.md) §8.9 (the recorded figure a gate compares against) · [`gate-heuristic-verifier-patterns.md`](gate-heuristic-verifier-patterns.md) §4 (denominator scoping for a coverage gate) · [`exit-criteria-fidelity.md`](exit-criteria-fidelity.md) §16.10.2 (a gate on a derived ratio names its column, grain and denominator) · [`session-context-budget.md`](session-context-budget.md) § File Size Limits (the three Read-tool gates a self-measuring header reports against)*

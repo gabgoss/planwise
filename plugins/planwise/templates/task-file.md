@@ -285,7 +285,7 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > must NOT move (a count a refactor must preserve, a block that must survive untouched) is
 > exempt from this finding, but only when marked `invariant:` in place of `expect` on the
 > annotation line — an unmarked gate whose pre-edit value already satisfies `expect` is not
-> exempt, whatever the surrounding prose claims. See `references/verification-task-authoring.md`
+> exempt, whatever the surrounding prose claims. See `references/gate-pre-edit-baseline.md`
 > §10 for the full doctrine; this block states the requirement, the reference carries the rule.
 >
 > WRONG — the expectation stands alone; nothing records what the value was before the edit:
