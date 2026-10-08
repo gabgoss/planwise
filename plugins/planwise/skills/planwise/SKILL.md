@@ -60,7 +60,7 @@ Available subcommands:
   doctor --create-feedback-dir Create the missing feedback drafts directory (writer; opt-in)
   token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
   backlog [item-id] [--loop-resume <run-id>]  Triage backlog items; capture follow-up BLIs from resolution outputs
-                               --loop-resume re-enters a one-item-per-session loop (needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1)
+                               --loop-resume re-enters a one-item-per-session loop (needs the plugin's hooks module)
   list                         List all plans with status
   lessons [search-terms]       Search lessons learned
   lessons capture              Capture a lesson mid-session

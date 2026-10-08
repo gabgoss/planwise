@@ -18,7 +18,6 @@ type Host = {
   runCommand: (command: string, args: string) => Promise<unknown>
   listCommands: () => Promise<CommandInfo[]>
   uiLog: (text: string) => void
-  envFlag: () => Promise<string | undefined>
 }
 
 /** One record of module memory. Every field resets with the process. */
@@ -43,7 +42,6 @@ function hostOf($: EngineInterface): Host {
     runCommand: (command: string, args: string) => $.command.run({ command, args }),
     listCommands: () => $.command.list(),
     uiLog: (text: string) => $.ui.log(text),
-    envFlag: () => $.env.get('CLAUDE_CODE_ENABLE_FUNCTION_HOOKS'),
   }
 }
 

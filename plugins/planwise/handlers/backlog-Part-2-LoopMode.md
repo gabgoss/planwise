@@ -130,7 +130,7 @@ Ask these only on an interactive run with no item id argument. Q1 is asked on ev
 
 <!-- AUTO-MODE: convenience -->
 <!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Loop opt-in (backlog.md Phase 2 Q1)". -->
-**Q1.** Use `AskUserQuestion`: "Loop through the backlog this run? Each session triages one item, then the plugin's hooks module compacts and re-enters `/planwise backlog`. Looping needs `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` and the plugin's hooks module; without them this run ends after the first item and you can continue by hand."
+**Q1.** Use `AskUserQuestion`: "Loop through the backlog this run? Each session triages one item, then the plugin's hooks module compacts and re-enters `/planwise backlog`. Looping needs the plugin's hooks module; without it this run ends after the first item and you can continue by hand."
 - Option 1: No, single session (default)
 - Option 2: Yes, loop
 
