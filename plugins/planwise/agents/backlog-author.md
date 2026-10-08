@@ -67,7 +67,7 @@ Full discipline: `references/verify-backlog-citation-freshness.md` §10.
 
 ## 2. DRAFT — Make Each Item Executable From Itself Alone
 
-Fill `templates/backlog-item.md`. Frontmatter fields (`id`, `title`, `priority`, `status`, `abbrev`, `created`, `blocks`) are required and machine-parsed by the scoring script — `status: NOT_STARTED` and `created:` today's date for every new item.
+Fill `templates/backlog-item.md`. Frontmatter fields (`id`, `title`, `priority`, `status`, `abbrev`, `created`, `blocks`) are required and machine-parsed by the scoring script — `status: NOT_STARTED` and `created:` today's date for every new item. Draft the `title` at 120 characters or fewer, and put the detail in `## Summary` (§3 step 2 covers the writer's check).
 
 > [!binding] Inline the content the item depends on
 > When an item's value rests on specific content — a block to promote, the evidence behind a finding, an exact spec or recipe — **paste that content into the item verbatim**. A pointer (another repo, a path, a session-only artifact) is welcome *alongside* the inlined content for provenance, but it must NOT be the sole carrier of the substance.
