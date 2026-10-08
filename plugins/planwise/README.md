@@ -50,6 +50,7 @@ Three dependencies, and only the first is needed to use planwise at all. Each ro
 | **Python 3.8+** | Every script-backed step — backlog scoring, config read/write, `init`, `upgrade`, `doctor` | Most of the plugin does not function |
 | **PyYAML** | Config validation, the artifact manifest, and `/planwise upgrade` | `/planwise upgrade` stops with `PyYAML is required for --upgrade` and changes nothing. Elsewhere planwise degrades quietly: config writes go through unverified, and the artifact manifest reads as empty so categorization falls back to built-in defaults |
 | **[GitHub CLI](https://cli.github.com/) (`gh`), authenticated** | `/planwise feedback` posting upstream, and the optional `upgrade.github_issue` report | **Optional — nothing breaks.** Both flows degrade to a written draft plus the issues URL, so you file it by hand |
+| **A Claude Code build with the function-hooks runtime** (early access; set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`) | Automatic re-entry in `/planwise backlog` loop mode | **Optional — nothing else breaks.** The loop ends after the first item and you continue by hand with `--loop-resume` |
 
 **Installing them**
 
@@ -233,6 +234,18 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 /planwise backlog --status IN_PROGRESS
 /planwise backlog BUG-042
 ```
+
+#### Loop mode
+
+Loop mode works through several items without you at the keyboard. Each session triages exactly one item. Then the plugin's hooks module compacts the context and re-enters `/planwise backlog` for the next item.
+
+- **Q1** asks whether to loop. The default is No, a single session.
+- **Q2** asks which items the loop covers: all eligible items, specific items you pick, or the top N by score.
+- **The env flag.** Looping needs `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` and the plugin's hooks module.
+- **Graceful degradation.** Without the module the marker line prints and nothing else happens. Continue by hand with `/planwise backlog --loop-resume <run-id>`.
+- **Where state lives.** Each run keeps one file, `Backlog-Runs/{YYYYMMDD-HHMMSS}.json`, in your backlog folder. The run id is the file name without `.json`.
+
+After the setup questions, loop mode asks nothing. An item that needs a user decision is skipped. It gets a dated `## Loop Decision Needed` section in its own item file, and its status returns to its pre-loop value. The end summary lists every such item, and the next interactive `/planwise backlog <id>` run answers it. Phase 8 files any lesson on its own.
 
 **Archival stays in sync.** Closing an item moves its file to `Archive/`, and re-runs are safe. The next `generate_backlog_index.py --write` renders the new link from the file's new location. If an item was closed by hand and its file left stranded, `backlog` detects the drift on open and offers to reconcile it — nothing is moved without your consent. It also detects a legacy `**Status:**` line that an older item writer left under an item's title, and offers to strip it, so frontmatter `status:` stays the only status field. `--no-check` skips both detect passes for fast triage.
 
@@ -546,7 +559,7 @@ flowchart LR
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
-| `/planwise backlog` | Triage and work on backlog items |
+| `/planwise backlog` | Triage and work on backlog items (optionally one per session, looping) |
 | `/planwise list` | See all plans and their status |
 | `/planwise lessons` | Search the lessons learned index |
 | `/planwise lessons capture` | Capture a lesson mid-session |
@@ -638,6 +651,7 @@ planwise/                           # Plugin root
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init
   scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py)
+  hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
   examples/                         # Sample outputs
   config.yaml.template              # Config template
 ```

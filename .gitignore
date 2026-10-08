@@ -12,3 +12,7 @@ htmlcov/
 evals/.scratch/
 evals/.envelopes/
 evals/.pytest_cache/
+
+# Editor type scaffolding the Claude Code CLI writes into a --plugin-dir plugin (must never ship)
+plugins/planwise/tsconfig.json
+plugins/planwise/.claude-plugin/types/

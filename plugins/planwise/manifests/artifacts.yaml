@@ -689,6 +689,19 @@ artifacts:
       loop ignores it; this row exists so contributors don't invent a
       duplicate install path.
 
+  - id: hooks_module
+    on_disk: "plugin in-place (hooks/hooks.json, hooks/register.ts)"
+    config_keys: []
+    producer: "(not produced — read in-place from the plugin)"
+    consumers:
+      - "/planwise backlog"
+    missing_key_behavior: warn_loud
+    upgrade_behavior: not_installed
+    notes: >
+      The backlog loop's compaction-and-re-entry module is read in-place
+      from the plugin directory and is never copied to the project. The
+      upgrade loop ignores it.
+
   - id: artifact_self_containment_rule
     on_disk: ".claude/rules/planwise/artifact-self-containment.md"
     config_keys: []
