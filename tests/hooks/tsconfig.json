@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "target": "es2023", "lib": ["es2023", "dom"], "types": [],
+    "module": "esnext", "moduleResolution": "bundler",
+    "strict": true, "noEmit": true, "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true, "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true, "erasableSyntaxOnly": true
+  },
+  "include": ["types", "../../plugins/planwise/hooks"]
+}
