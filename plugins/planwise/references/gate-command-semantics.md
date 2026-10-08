@@ -41,7 +41,7 @@ Check all four before a gate ships:
 > ```
 > Trap 4 is the cheapest of the four to catch and the easiest to miss, because the anchor reads correctly in the task file it was drafted beside.
 
-Trap 1 is additionally detected mechanically by `scripts/lint_verification_gates.py`. Traps 2, 3 and 4 are authoring-side checks with no linter coverage — run them by hand at scaffold close.
+Traps 1 and 2 are detected mechanically by `scripts/lint_verification_gates.py`: Check 3 reads a `grep -c` whose stated count was measured as occurrences, and Check 14 reads a pipeline that pipes a `-B`/`-A`/`-C` window into a count. Traps 3 and 4 are authoring-side checks with no linter coverage — run them by hand at scaffold close.
 
 ### 10.9 Read the command as a program — four more mismatches between mechanism and claim
 
@@ -87,6 +87,8 @@ Reflowing that tag onto its own line — a change with zero semantic content —
 > `\b` is not a sufficient substitute. A digit is a word character, so the boundary behaves correctly for `400000` but not for a case like `x40000`. Prefer the explicit `[^0-9]` guard, which is unambiguous across engines and self-documenting.
 >
 > **Why it is easy to miss:** numeric constants in one domain are near-multiples of each other — `40000`/`400000`, `1000`/`10000`, `150000`/`1500000` — and they co-occur in exactly the files where you are grepping for one of them.
+>
+> `scripts/lint_verification_gates.py` Check 13 fires on a pattern that is nothing but digits.
 >
 > Two corollaries. **A count is part of the gate's output, not scaffolding around it** — reporting "8 hits, here is what each one is" makes the count a claim, so anchor it before making it. And **direction coverage does not test pattern precision**: this defect dry-runs cleanly in all three directions (known-bad fires, clean baseline empty, correct post-state silent), because every direction shares the same imprecise pattern.
 

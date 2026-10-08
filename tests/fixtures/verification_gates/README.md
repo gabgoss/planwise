@@ -28,10 +28,20 @@ not intended.
 | `shape_06_substring_own_vocabulary/` | 6 | 1 | WARNING |
 | `shape_07_contradicted_before_baseline/` | 7 | 2 | ERROR |
 | `shape_08_grep_tool_escaped_pipe/` | 8 | 3 | WARNING |
+| `shape_09_dollar_anchor_crlf/` | 9 | 1 | WARNING (the absent-target arm; the CRLF ERROR and LF silent arms are built in a temp directory by the suite) |
+| `shape_10_single_term_coverage/` | 10 | 1 | WARNING |
+| `shape_11_verdict_emphasis_dropped/` | 11 | 1 | ERROR |
+| `shape_12_heading_substring/` | 12 | 1 | WARNING |
+| `shape_13_bare_numeric_literal/` | 13 | 1 | WARNING |
+| `shape_14_context_window_counted/` | 14 | 1 + 1 refusal | WARNING + UNCERTAIN (the pipeline is refused whole by the executor) |
+| `shape_15_anchored_aggregate_threshold/` | 15 | 1 | WARNING |
+| `shape_16_unscoped_suite_gate/` | 16 | 1 + 1 refusal | WARNING + UNCERTAIN (`python` is not on the allowlist) |
 | `invariant_preservation/` | 1 and 2 must **NOT** fire | **0** | — |
 | `grep_literal_pipe_ok/` | 8 must **NOT** fire | **0** | — |
+| `anchored_heading_ok/` | 9, 10, 11, 12, 13 and 15 must **NOT** fire | **0** | — |
+| `scoped_suite_ok/` | 14 and 16 must **NOT** fire (asserted with the executor off) | **0** | — |
 | `regression_R1_count_gate_two/` | 1, plus 2 | 1 + 1 | ERROR + WARNING |
-| `regression_R2_count_gate_eleven/` | 1, plus 2 | 1 + 1 | ERROR + WARNING |
+| `regression_R2_count_gate_eleven/` | 1, plus 2 and 10 | 1 + 1 + 1 | ERROR + WARNING + WARNING |
 | `regression_R3_count_gate_four/` | 1, plus 2 | 1 + 1 | ERROR + WARNING |
 | `regression_R4_bre_returns_zero/` | 3 and 1, plus 2 | 1 + 1 + 1 | ERROR + ERROR + WARNING |
 | `regression_R5_self_matching_sweep/` | 4, plus 2 | 1 + 1 | ERROR + WARNING |
@@ -47,7 +57,9 @@ not intended.
 > `regression_R4` carries **three** findings for the same reason: the original gate was
 > BRE-broken (Check 3), returned `0` against an `expect 0` and so was also vacuous
 > (Check 1), and was unannotated (Check 2). All three are real properties of the
-> recorded instance.
+> recorded instance. `regression_R2` carries three as well: its recorded gate counts the
+> single term `AUTO-MODE` in a Markdown file against `≥2`, which is the single-term
+> coverage shape Check 10 reads.
 
 ---
 
@@ -68,6 +80,14 @@ fixture tree's live measured value, so neither Check 2 (missing annotation) nor 
 | `shape_06_substring_own_vocabulary` | A bare `grep -c 'FAIL'` over a generated report that **passed**. The report measures **3** — its legend, its column header, and a criterion row — all emitted by the sibling `templates/verification-report.md`. |
 | `shape_07_contradicted_before_baseline` | Two Before-block baselines that disagree with the live tree: stated `5` vs measured **2**, and stated `21 lines` vs measured **19**. Check 7 **executes**, so the disagreement is real, not merely asserted. |
 | `shape_08_grep_tool_escaped_pipe` | Three native `Grep` calls whose patterns write alternation as `a\|b`: one in a table row (line 12), one in a fenced block (line 19), and one in a row whose output cell carries `{...}` template slots (line 28). Check 8 reads markdown lines, so no call needs to be an extracted command. The line-12 call is the real gate that first showed the defect, and the line-28 row is verbatim from a finished plan. |
+| `shape_09_dollar_anchor_crlf` | A `$`-anchored exact-sentence gate whose target `Outputs/deliverable.md` does not exist yet, so its line endings are unknown: WARNING. No checked-in file carries the CRLF bytes, because a checkout under `core.autocrlf` rewrites them; the suite builds the CRLF (ERROR) and LF (silent) targets in a temp directory. |
+| `shape_10_single_term_coverage` | `grep -ci 'intersection' design.md` against `expect >= 2`, where `design.md` covers every clause in one paragraph. Check 1 executes and measures **1**, which does not satisfy the threshold, so only Check 10 fires. |
+| `shape_11_verdict_emphasis_dropped` | A Before gate `grep -c 'Gate: PASS' Outputs/snapshot.md` where the snapshot writes `**Gate:** PASS`. The target carries the bold form, so the literal is absent and Check 11 is ERROR. The snapshot carries no `**Verdict:**` marker, so Check 6 stays silent. |
+| `shape_12_heading_substring` | A pre-write Before gate `grep -c '## Index Notes' plan.md # expect 0` where `plan.md` quotes the heading twice in prose and carries no heading. The substring count measures **2**; Check 12 fires on the missing `^`. The After gate is marked `invariant:` so Check 1 stays silent. |
+| `shape_13_bare_numeric_literal` | `grep -rn '40000' config/` where `config/limits.md` holds `40000` and `400000`. Check 1 executes and measures **2** lines against `expect 1`, so only Check 13 fires. |
+| `shape_14_context_window_counted` | `grep -B1 'AskUserQuestion' handlers/review.md \| grep -c 'AUTO-MODE:'` as an After gate. The executor refuses the pipeline whole (one UNCERTAIN refusal); Check 14 reads the two stages and fires on the counted context window. |
+| `shape_15_anchored_aggregate_threshold` | `grep -cE '^\[(BLOCKER\|ERROR\|WARNING\|INFO)\]' report.md` against `expect >= 54`, where `report.md` holds three line-start tags and one mid-sentence tag. Check 1 measures **3**, unsatisfied; `-E` keeps Check 3 silent; Check 15 fires. |
+| `shape_16_unscoped_suite_gate` | `python -m pytest -q` as a task file's After gate with no path argument. `python` is refused by the allowlist (one UNCERTAIN refusal); Check 16 fires. |
 
 ---
 
@@ -95,6 +115,18 @@ gate, included so the fixture is not trivially finding-free.
 (`^\| 1[12] `), a pipe beside whitespace, a bare-pipe alternation and a line marked
 WRONG. Each is correct or exempt for the native `Grep` tool, so the suite asserts
 **zero** findings.
+
+`anchored_heading_ok/` is the guard for Checks 9 to 15. Its Before block carries the
+correct form of each flagged shape: a heading anchored with `^`, a two-word phrase
+rather than a single term, the skeleton's bold bytes `**Gate:** PASS` (the snapshot
+reads HALT, so Check 1 cannot fire), digit boundaries guarded with `(^|[^0-9])…([^0-9]|$)`,
+a count with no threshold, and a `\r\?` guard before a `$` anchor. The suite asserts
+**zero** findings with the executor on.
+
+`scoped_suite_ok/` is the guard for Checks 14 and 16: a context window read by eye and
+never piped into a count, and a pytest gate scoped to one test module. The suite asserts
+**zero** findings with the executor off, because `python` is refused by the allowlist
+and that refusal is a report about the executor, not a check finding.
 
 ---
 

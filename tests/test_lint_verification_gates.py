@@ -158,6 +158,106 @@ class TestPerCheckShapes(unittest.TestCase):
         self.assertEqual(_severities_for_check(findings, 8), ["WARNING"] * 3)
         self.assertEqual(sorted(f["line"] for f in findings), [12, 19, 28])
 
+    def test_check9_dollar_anchor_absent_target_is_warning(self):
+        # The checked-in arm: the target does not exist yet, so its line
+        # endings are unknown and the `$` anchor is a WARNING. The CRLF
+        # (ERROR) and LF (silent) arms are built at test time in
+        # TestCheck9LineEndingArms, because a checked-in file's bytes depend
+        # on the checkout (README.md Group A, and the rule in
+        # gate-generated-input-integrity.md §21).
+        findings = _lint_fixture("shape_09_dollar_anchor_crlf")
+        self.assertEqual(_checks_present(findings), [9])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
+    def test_check10_single_term_coverage_is_warning(self):
+        findings = _lint_fixture("shape_10_single_term_coverage")
+        self.assertEqual(_checks_present(findings), [10])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
+    def test_check11_verdict_emphasis_dropped_is_error(self):
+        findings = _lint_fixture("shape_11_verdict_emphasis_dropped")
+        self.assertEqual(_checks_present(findings), [11])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "ERROR")
+
+    def test_check12_heading_substring_is_warning(self):
+        findings = _lint_fixture("shape_12_heading_substring")
+        self.assertEqual(_checks_present(findings), [12])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
+    def test_check13_bare_numeric_literal_is_warning(self):
+        findings = _lint_fixture("shape_13_bare_numeric_literal")
+        self.assertEqual(_checks_present(findings), [13])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
+    def test_check14_context_window_counted_is_warning(self):
+        # A pipeline: the executor refuses it whole (one UNCERTAIN refusal,
+        # check None), and the static check still reads its stages.
+        findings = _lint_fixture("shape_14_context_window_counted")
+        self.assertEqual(_checks_present(findings), [14])
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(_severities_for_check(findings, 14), ["WARNING"])
+        self.assertEqual([f["severity"] for f in findings if f["check"] is None], ["UNCERTAIN"])
+
+    def test_check15_anchored_aggregate_threshold_is_warning(self):
+        findings = _lint_fixture("shape_15_anchored_aggregate_threshold")
+        self.assertEqual(_checks_present(findings), [15])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
+    def test_check16_unscoped_suite_gate_is_warning(self):
+        # `python` is not on the allowlist, so the executor refuses the gate
+        # (one UNCERTAIN refusal, check None) and the static check reads it.
+        findings = _lint_fixture("shape_16_unscoped_suite_gate")
+        self.assertEqual(_checks_present(findings), [16])
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(_severities_for_check(findings, 16), ["WARNING"])
+        self.assertEqual([f["severity"] for f in findings if f["check"] is None], ["UNCERTAIN"])
+
+
+class TestCheck9LineEndingArms(unittest.TestCase):
+    """Check 9's two file-backed arms, built in a temp directory so the
+    target's bytes are what the test wrote and not what the checkout did.
+    The CRLF arm must fire ERROR; the LF arm must stay silent. Together with
+    the checked-in absent-target WARNING arm they are the dry-run pair."""
+
+    _TASK = (
+        "# Task: ExactSentenceGate\n\n"
+        "**Output:** `deliverable.md`\n\n"
+        "## Verification Commands\n\n"
+        "> [!verify] Before / After Commands\n"
+        "> **Before:** *(runner)*\n"
+        "> ```bash\n"
+        "> ls deliverable.md\n"
+        "> ```\n"
+        "> **After:** *(runner)*\n"
+        "> ```bash\n"
+        "> grep -c '^The exact required sentence\\.$' deliverable.md\n"
+        "> # pre-edit: 0 → expect 1\n"
+        "> ```\n"
+    )
+
+    def _lint_with_endings(self, newline: bytes):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "TASK-09.md").write_text(self._TASK, encoding="utf-8")
+            body = b"# Deliverable" + newline + newline + b"The exact required sentence." + newline
+            (plan_root / "deliverable.md").write_bytes(body)
+            return lint_plan(plan_root, execute=False)
+
+    def test_crlf_target_is_error(self):
+        findings = self._lint_with_endings(b"\r\n")
+        self.assertEqual(_checks_present(findings), [9])
+        self.assertEqual(_severities_for_check(findings, 9), ["ERROR"])
+
+    def test_lf_target_is_silent(self):
+        findings = self._lint_with_endings(b"\n")
+        self.assertEqual(findings, [])
+
 
 class TestInvariantExemption(unittest.TestCase):
     """The corpus's false-positive guard (README.md Group B). Six of the
@@ -177,6 +277,20 @@ class TestInvariantExemption(unittest.TestCase):
         findings = _lint_fixture("grep_literal_pipe_ok")
         self.assertEqual(findings, [])
 
+    def test_anchored_heading_fixture_produces_zero_findings(self):
+        # The guard for Checks 9 to 15: an anchored heading, a two-word
+        # phrase, the skeleton's bold bytes, guarded digit boundaries, a
+        # count with no threshold, and a `\r\?` guard before the anchor.
+        findings = _lint_fixture("anchored_heading_ok")
+        self.assertEqual(findings, [])
+
+    def test_scoped_suite_fixture_produces_zero_findings(self):
+        # The guard for Checks 14 and 16: a context window read by eye and a
+        # pytest gate scoped to one module. Executor off, because `python` is
+        # refused by the allowlist and the refusal is not a check finding.
+        findings = _lint_fixture("scoped_suite_ok", execute=False)
+        self.assertEqual(findings, [])
+
 
 class TestRegressionFixtures(unittest.TestCase):
     """Five real gates quoted in the originating backlog item (README.md
@@ -192,12 +306,17 @@ class TestRegressionFixtures(unittest.TestCase):
         self.assertEqual(_severities_for_check(findings, 1), ["ERROR"])
         self.assertEqual(_severities_for_check(findings, 2), ["WARNING"])
 
-    def test_regression_r2_count_gate_eleven_flags_check1_and_check2(self):
+    def test_regression_r2_count_gate_eleven_flags_checks_1_2_and_10(self):
+        # The recorded gate is `grep -c 'AUTO-MODE' … # ≥2`: a single term
+        # counted in a Markdown file against a threshold of two, which is
+        # the single-term coverage shape Check 10 reads. Like the Check-2
+        # co-finding, it is a real property of the recorded instance.
         findings = _lint_fixture("regression_R2_count_gate_eleven")
-        self.assertEqual(_checks_present(findings), [1, 2])
-        self.assertEqual(len(findings), 2)
+        self.assertEqual(_checks_present(findings), [1, 2, 10])
+        self.assertEqual(len(findings), 3)
         self.assertEqual(_severities_for_check(findings, 1), ["ERROR"])
         self.assertEqual(_severities_for_check(findings, 2), ["WARNING"])
+        self.assertEqual(_severities_for_check(findings, 10), ["WARNING"])
 
     def test_regression_r3_count_gate_four_flags_check1_and_check2(self):
         findings = _lint_fixture("regression_R3_count_gate_four")
@@ -345,6 +464,27 @@ class TestExecutorDisabled(unittest.TestCase):
         findings = _lint_fixture("shape_06_substring_own_vocabulary", execute=False)
         self.assertIn(6, _checks_present(findings))
         self.assertEqual(_severities_for_check(findings, 6), ["WARNING"])
+
+    def test_checks_9_to_16_fire_with_executor_disabled(self):
+        # Every one of the eight shape checks is static. With the executor
+        # off, the pipeline and pytest fixtures also lose their refusal
+        # finding, so each fixture carries exactly its own finding.
+        expected = {
+            "shape_09_dollar_anchor_crlf": (9, "WARNING"),
+            "shape_10_single_term_coverage": (10, "WARNING"),
+            "shape_11_verdict_emphasis_dropped": (11, "ERROR"),
+            "shape_12_heading_substring": (12, "WARNING"),
+            "shape_13_bare_numeric_literal": (13, "WARNING"),
+            "shape_14_context_window_counted": (14, "WARNING"),
+            "shape_15_anchored_aggregate_threshold": (15, "WARNING"),
+            "shape_16_unscoped_suite_gate": (16, "WARNING"),
+        }
+        for fixture, (check, severity) in expected.items():
+            with self.subTest(fixture=fixture):
+                findings = _lint_fixture(fixture, execute=False)
+                self.assertEqual(_checks_present(findings), [check])
+                self.assertEqual(len(findings), 1)
+                self.assertEqual(_severities_for_check(findings, check), [severity])
 
 
 class TestRefusedCommandIsUncertainNeverPass(unittest.TestCase):

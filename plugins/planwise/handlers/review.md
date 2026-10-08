@@ -177,7 +177,7 @@ Runs on **both** paths, after Scale Detection and **before any reviewer is spawn
 python "{plugin_root}/scripts/lint_verification_gates.py" "{PlanPath}" > "{GateLintPath}"
 ```
 
-The plan tree is a single positional argument; there is no output-path flag, so stdout is redirected to `{GateLintPath}`. Add `--no-execute` to disable the read-only executor — that skips the two checks that decide by running a command and leaves the five static checks — when the plan tree sits on a slow or untrusted mount.
+The plan tree is a single positional argument; there is no output-path flag, so stdout is redirected to `{GateLintPath}`. Add `--no-execute` to disable the read-only executor — that skips the two checks that decide by running a command (Checks 1 and 7) and leaves the static checks — when the plan tree sits on a slow or untrusted mount.
 
 3. Read the exit code as a findings verdict, not a success flag:
 

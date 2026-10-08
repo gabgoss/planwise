@@ -141,6 +141,8 @@ A Markdown verdict line has a rendered form and a byte form. The rendered form i
 
 Two other gates in the same task set followed the bytes and worked: `grep -c 'Result:\*\* WRITTEN'` and `grep -cE '^## Verdict: (PASS|FAIL)'`. The difference was whether the author wrote the pattern from the skeleton or from memory of the rendered line.
 
+`scripts/lint_verification_gates.py` Check 11 fires on a verdict, gate, result or status pattern with no emphasis between label and value: ERROR when the target file writes the bold form, WARNING when the target does not exist yet.
+
 **Applies to.** Any gate that greps a Markdown output for a verdict, status or result line: task Before and After blocks, orchestration acceptance tables, session success criteria and signoff checks. It matters most where the skeleton puts the label in bold (`**Verdict:**`, `**Result:**`, `**Gate:**`) and the value outside the bold.
 
 ### 11.5 Count a section by a line-anchored heading test, never by substring
@@ -167,6 +169,8 @@ A substring pattern answers "does this text occur". It does not answer "does thi
 > Dry run on a scratch plan that quotes the heading twice in prose: before the append, the substring count printed 2 and the anchored count printed 0. After the append, they printed 3 and 1.
 
 **Applies to.** Any gate that counts, requires or forbids a Markdown section by its heading text: harvest or append gates, "exactly one section" assertions, duplicate-heading checks and migration idempotency guards. It matters most when the target set includes the plan or reference file that defines the heading.
+
+`scripts/lint_verification_gates.py` Check 12 fires on a pattern that starts with the heading marker and no `^`. Its Check 9 fires on the companion trap in operative point 1: a `$` anchor with no `\r?` guard, ERROR when the target carries CRLF line endings and WARNING when the target does not exist yet.
 
 ---
 

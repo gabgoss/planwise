@@ -49,6 +49,8 @@ The annotation's grammar is one comment line adjacent to the command it annotate
 
 The literal token `pre-edit:` is the load-bearing part — a reviewer or a mechanical checker keys on it — so keep it verbatim and keep the measured value immediately after it. The arrow and the surrounding wording are readability, not syntax.
 
+A per-task gate measures the files its task touches. `scripts/lint_verification_gates.py` Check 16 fires on a task file's Before or After `pytest` gate that names no path, because a whole-suite run costs minutes per task and moves for reasons outside the task. A whole-population baseline belongs in the Master Plan, measured once with its tree identity recorded.
+
 ### 10.2 A gate whose pre-edit value already satisfies its expectation is vacuous by construction
 
 Once both numbers sit side by side, the test is arithmetic. If the recorded pre-edit value **already satisfies** the stated expectation, the gate is vacuous by construction: it passes with zero work done, so it cannot answer the only question a gate exists to answer. Such a gate MUST be rewritten before it ships — not relaxed, not shipped with a caveat, and not retained "as a sanity check". A gate that always passes contributes nothing to an exit battery except false confidence, and it displaces the gate that would have caught the failure.

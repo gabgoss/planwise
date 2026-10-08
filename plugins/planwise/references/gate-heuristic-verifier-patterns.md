@@ -47,6 +47,8 @@ Both anti-patterns also share a secondary defect: when Actual contradicts Expect
 
 A count-threshold whose target is structurally unreachable is a **spec bug**, not a verifier failure. The fix is to rewrite the verification step as a per-unit existence assertion, not to relax the threshold.
 
+`scripts/lint_verification_gates.py` detects two shapes of this class in a task file. Check 15 fires on an anchored `grep -c '^…'` gate whose threshold is two or more. Check 10 fires on a `grep -c <one word>` gate over a Markdown file against such a threshold, because `grep -c` counts lines and a soft-wrapped paragraph is one line.
+
 #### Reviewer Check 058 — Verification Task Anchored Aggregate Count Threshold
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
