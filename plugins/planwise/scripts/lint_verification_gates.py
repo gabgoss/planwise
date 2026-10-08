@@ -289,6 +289,25 @@ def _exit_criterion_commands(line: str, rel: str, path: Path, number: int) -> li
     return [command] if command is not None else []
 
 
+def _quote_closes_in_fence(lines: list, index: int) -> bool:
+    """True when the quote left open on ``lines[index]`` closes before the fence ends.
+
+    A stray quote in a one-line command must not swallow the gates after it, so
+    a line is joined with its successors only when the join is known to close.
+    Otherwise the line stays a command of its own and the resolver refuses it
+    as an unterminated quote, as it always has.
+    """
+    joined = _strip_blockquote(lines[index]).rstrip()
+    for raw in lines[index + 1:]:
+        line = _strip_blockquote(raw).rstrip()
+        if line.strip().startswith("```"):
+            return False
+        joined = joined + "\n" + line
+        if not _scan(joined).unterminated:
+            return True
+    return False
+
+
 def _extract_from_file(path: Path, plan_root: Path, text: str) -> list:
     """Extract every command from one markdown file."""
     rel = _relative_name(path, plan_root)
@@ -298,12 +317,30 @@ def _extract_from_file(path: Path, plan_root: Path, text: str) -> list:
     fence_block: str | None = None
     in_fence = False
     previous: ExtractedCommand | None = None
+    # A quoted argument can span lines (``python -c "`` followed by a script
+    # body). The lines of one such command are held here, with the number of
+    # the first, until the quote closes -- otherwise each continuation line
+    # would be linted as a command of its own.
+    open_lines: list = []
+    open_start = 0
 
-    for number, raw in enumerate(text.split("\n"), start=1):
+    lines = text.split("\n")
+    for number, raw in enumerate(lines, start=1):
         line = _strip_blockquote(raw).rstrip()
         stripped = line.strip()
 
         if in_fence:
+            if open_lines:
+                open_lines.append(line)
+                joined = "\n".join(open_lines)
+                if _scan(joined).unterminated:
+                    continue
+                command = _build_command(joined, rel, path, open_start, fence_block)
+                open_lines = []
+                if command is not None:
+                    found.append(command)
+                    previous = command
+                continue
             if stripped.startswith("```"):
                 in_fence = False
                 fence_block = None
@@ -321,6 +358,10 @@ def _extract_from_file(path: Path, plan_root: Path, text: str) -> list:
                 # this is where a recorded pre-edit value lives.
                 if previous is not None and not previous.annotation:
                     previous.annotation = stripped
+                continue
+            if _scan(line).unterminated and _quote_closes_in_fence(lines, number - 1):
+                open_lines = [line]
+                open_start = number
                 continue
             command = _build_command(line, rel, path, number, fence_block)
             if command is not None:
@@ -577,14 +618,11 @@ def _run_gates(context: LintContext) -> list:
     return findings
 
 
-def lint_plan(plan_root, execute: bool = True) -> list:
-    """Lint every verification gate in a plan tree and return its findings.
+def _lint(plan_root, execute: bool):
+    """Lint a plan tree and return ``(findings, context)``.
 
-    With ``execute`` false, no command is run and the checks that need a
-    measurement stand down; the checks that read command text still report.
-    Nothing is run in that mode, so nothing is refused in it either -- the
-    caller turned execution off, rather than the allowlist turning a command
-    away.
+    The context keeps each gate's execution result, which is what a coverage
+    count is read from.
     """
     plan_root = Path(plan_root)
     context = LintContext(
@@ -598,7 +636,43 @@ def lint_plan(plan_root, execute: bool = True) -> list:
         findings.extend(_run_gates(context))
     for check in CHECK_REGISTRY:
         findings.extend(check(context))
+    return findings, context
+
+
+def lint_plan(plan_root, execute: bool = True) -> list:
+    """Lint every verification gate in a plan tree and return its findings.
+
+    With ``execute`` false, no command is run and the checks that need a
+    measurement stand down; the checks that read command text still report.
+    Nothing is run in that mode, so nothing is refused in it either -- the
+    caller turned execution off, rather than the allowlist turning a command
+    away.
+    """
+    findings, _ = _lint(plan_root, execute)
     return findings
+
+
+def coverage_line(context: LintContext) -> str:
+    """Say how many gates the executor actually ran, in one line.
+
+    A report made only of refusals carries no findings about the gates, yet it
+    reads as a quiet scan. This line states the denominator so the two cannot
+    be confused: ``checked`` counts gates that ran, ``refused`` counts gates
+    the allowlist turned away. When gates exist and none ran, the line starts
+    with ``NOT CHECKED``.
+    """
+    gates = [c for c in context.commands if c.is_gate and not c.is_placeholder]
+    total = len(gates)
+    if not context.execute:
+        return f"Coverage: execution disabled; {total} gates not run."
+    checked = sum(1 for c in gates if c.result and c.result["executed"])
+    refused = total - checked
+    if total and not checked:
+        return (
+            f"Coverage: NOT CHECKED -- 0 of {total} gates ran; {refused} refused. "
+            "Derive the verification gates by hand."
+        )
+    return f"Coverage: checked {checked} of {total} gates; {refused} refused."
 
 
 # ---------------------------------------------------------------------------
@@ -1317,6 +1391,11 @@ CHECK_REGISTRY.extend(
 #   0  no findings at all.
 #   1  findings present, none at ERROR -- WARNING and UNCERTAIN advise only.
 #   2  at least one finding at ERROR -- the caller should halt.
+#
+# The first line of stdout is always a ``Coverage:`` line. It starts with
+# ``Coverage: NOT CHECKED`` when gates exist and the executor ran none of them.
+# That case still exits 1 (all findings are UNCERTAIN), so the line is the only
+# signal that separates it from a scan that found real advisory findings.
 # ---------------------------------------------------------------------------
 
 EXIT_NO_FINDINGS = 0
@@ -1350,7 +1429,8 @@ def main() -> None:
         print(f"Error: plan root not found at {plan_root}", file=sys.stderr)
         sys.exit(EXIT_ERROR_PRESENT)
 
-    findings = lint_plan(plan_root, execute=not args.no_execute)
+    findings, context = _lint(plan_root, execute=not args.no_execute)
+    print(coverage_line(context))
 
     if not findings:
         print("No findings.")

@@ -185,7 +185,9 @@ The plan tree is a single positional argument; there is no output-path flag, so 
 
 Exit `1` and exit `2` are the **normal findings-present outcomes**. Neither is a failure of this step and neither halts the review — a linter that exits non-zero because it found something is doing its job. A plan tree that does not resolve also exits `2` but writes nothing, so a `2` over an empty findings file is the unavailable case below, not an ERROR case.
 
-4. If the script could not be run at all, or exit `2` produced no findings, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did.
+The first line of the findings file is always a `Coverage:` line. `Coverage: checked N of M gates; K refused.` means N gates ran and K were turned away by the read-only allowlist. A refused gate appears as an `[UNCERTAIN] Refusal` entry, not as a pass. Record the line in the report so a reader sees the denominator. `Coverage: NOT CHECKED` means gates exist and none ran: treat that case as **unavailable** (step 4).
+
+4. If the script could not be run at all, exit `2` produced no findings, or the first line starts `Coverage: NOT CHECKED`, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did. When only some gates were refused, the reviewer derives just those by hand.
 
 5. Pass `{GateLintPath}` into the spawn prompt of the reviewer that owns verification gates on the selected path: the No-Team Path's combined content reviewer, or the Team Path's Verification-Gate Reviewer.
 
@@ -306,8 +308,10 @@ Agent(
     Gate lint findings: {GateLintPath absolute path} -- mechanical verification-gate
     findings from scripts/lint_verification_gates.py, already measured against the live
     pre-edit tree. Read them and classify each one into your finding format rather than
-    re-deriving the same gates by hand. If the path reads `unavailable`, derive them
-    yourself and say explicitly that you did.
+    re-deriving the same gates by hand. The first line, `Coverage:`, says how many
+    gates the linter ran. An `[UNCERTAIN] Refusal` entry is a gate it did not run:
+    derive that gate yourself and say explicitly that you did. If the path reads
+    `unavailable`, derive them all yourself and say explicitly that you did.
     {DelegatedReviewBlock}
 
     Global numbering note: Spec numbers are assigned globally across all sprints.
@@ -590,8 +594,10 @@ Agent(
     Gate lint findings: {GateLintPath absolute path} -- mechanical verification-gate
     findings from scripts/lint_verification_gates.py, already measured against the live
     pre-edit tree. Read them and classify each one into your finding format rather than
-    re-deriving the same gates by hand. If the path reads `unavailable`, derive them
-    yourself and say explicitly that you did.
+    re-deriving the same gates by hand. The first line, `Coverage:`, says how many
+    gates the linter ran. An `[UNCERTAIN] Refusal` entry is a gate it did not run:
+    derive that gate yourself and say explicitly that you did. If the path reads
+    `unavailable`, derive them all yourself and say explicitly that you did.
     ...
 )
 ```

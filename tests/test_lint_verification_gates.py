@@ -63,6 +63,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 from lint_verification_gates import (
     ALLOWED_EXECUTABLES,
     _count_line_and_occurrence_totals,
+    _lint,
+    coverage_line,
     extract_commands,
     lint_plan,
     run_command,
@@ -481,6 +483,106 @@ class TestCheck3AbsorptionFiresOnEscapedMetacharacterPattern(unittest.TestCase):
             findings = lint_plan(plan_root, execute=False)
         self.assertEqual(_checks_present(findings), [3])
         self.assertEqual(_severities_for_check(findings, 3), ["ERROR"])
+
+
+def _write_task(plan_root, fence_lines):
+    """Write one task file whose After block holds ``fence_lines``."""
+    body = "".join(f"> {line}\n" for line in fence_lines)
+    (plan_root / "TASK-01-Fixture.md").write_text(
+        "# Task: Fixture\n\n"
+        "## Verification Commands\n\n"
+        "> [!verify] Before / After Commands\n"
+        "> **After:** *(runner)*\n"
+        "> ```bash\n" + body + "> ```\n",
+        encoding="utf-8",
+    )
+
+
+class TestMultiLineQuotedCommand(unittest.TestCase):
+    """A quoted argument that spans lines is one command, not one per line."""
+
+    SCRIPT = (
+        'python -c "',
+        "import sys",
+        "print(sys.argv)\"",
+        "# pre-edit: error -> expect: ok",
+    )
+
+    def test_script_body_is_one_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            _write_task(plan_root, self.SCRIPT)
+            commands = extract_commands(plan_root)
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0].command, 'python -c "\nimport sys\nprint(sys.argv)"')
+        self.assertEqual(commands[0].line, 8)
+        self.assertEqual(commands[0].annotation, "# pre-edit: error -> expect: ok")
+
+    def test_refusal_names_the_executable_not_an_unterminated_quote(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            _write_task(plan_root, self.SCRIPT)
+            findings = lint_plan(plan_root)
+        refusals = [f for f in findings if f["check"] is None]
+        self.assertEqual(len(refusals), 1)
+        self.assertIn("not one of the four allowed", refusals[0]["message"])
+        self.assertNotIn("unterminated", refusals[0]["message"])
+
+    def test_stray_quote_does_not_swallow_the_gates_after_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "target.md").write_text("X\n", encoding="utf-8")
+            _write_task(
+                plan_root,
+                [
+                    "echo don't",
+                    "grep -c 'X' target.md   # expect >=1",
+                ],
+            )
+            commands = extract_commands(plan_root)
+        self.assertEqual(
+            [c.command for c in commands],
+            ["echo don't", "grep -c 'X' target.md"],
+        )
+
+
+class TestCoverageLine(unittest.TestCase):
+    """The first stdout line states how many gates ran, so a report made only
+    of refusals cannot read as a quiet scan."""
+
+    def _coverage(self, fence_lines, execute=True):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "target.md").write_text("X\n", encoding="utf-8")
+            _write_task(plan_root, fence_lines)
+            _, context = _lint(plan_root, execute)
+            return coverage_line(context)
+
+    def test_all_refused_reads_not_checked(self):
+        line = self._coverage(
+            [
+                "git status --porcelain   # expect: empty",
+                "python -c \"print(1)\"   # expect: 1",
+            ]
+        )
+        self.assertTrue(line.startswith("Coverage: NOT CHECKED -- 0 of 2 gates ran"), line)
+
+    def test_mixed_tree_reports_the_split(self):
+        line = self._coverage(
+            [
+                "grep -c 'X' target.md   # expect >=1",
+                "git status --porcelain   # expect: empty",
+            ]
+        )
+        self.assertEqual(line, "Coverage: checked 1 of 2 gates; 1 refused.")
+
+    def test_no_gates_is_not_flagged_as_unchecked(self):
+        line = self._coverage(["grep -c 'X' target.md"])
+        self.assertEqual(line, "Coverage: checked 0 of 0 gates; 0 refused.")
+
+    def test_execution_disabled_says_so(self):
+        line = self._coverage(["grep -c 'X' target.md   # expect >=1"], execute=False)
+        self.assertEqual(line, "Coverage: execution disabled; 1 gates not run.")
 
 
 if __name__ == "__main__":
