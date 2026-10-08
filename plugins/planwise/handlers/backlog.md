@@ -230,6 +230,8 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
    misplaced-but-valid file builds clean and leaks nothing, so nothing downstream would
    report the error.
 
+   In loop mode a conflict is a documented skip (Part 2 § Documented skip), never an escalation to Route C.
+
 8. Present the scope assessment to the user:
 
 > [!template] Scope Assessment Block
@@ -279,7 +281,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 - Option 2: Alternative route
 - Option 3: Skip this item
 
-**In loop mode:** Option 2 is the alternative of A or B only, and Route C is never offered. A Route C re-assessment is a Skip, recorded as `backlog_loop.py --mark --run {run-id} --id {item_id} --outcome SKIPPED --note "LOOP: re-assessed to Route C on {date}; plans deferred in loop mode"`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`.
+**In loop mode:** ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (Part 2 § Documented skip), with a `--decision` text that starts `LOOP: re-assessed to Route C`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`. Every other decision point follows Part 2 § No questions after setup.
 
 ### Route A: Direct Fix (fix-agent delegation)
 
@@ -423,7 +425,7 @@ directly with item scope only."
 
    If a hit needs repointing, return it to the fix-agent (Route A) or open a follow-up task (Route B) requesting the shell command be repointed. Do NOT proceed to step 4 with unrepointed hits outstanding.
 
-In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`.
+In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 4 and step 5: all gates passing means COMPLETE, and a failing gate is a documented skip that reverts nothing (Part 2 § No questions after setup).
 
 <!-- AUTO-MODE: critical -->
 4. Use `AskUserQuestion`:
@@ -439,7 +441,7 @@ In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run 
 **After Route B (Task List):**
 1. Verify all tasks are marked completed
 2. Show summary of changes made
-   In loop mode, before step 3 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`.
+   In loop mode, before step 3 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 3: every task completed means COMPLETE, and any other state is a documented skip.
 <!-- AUTO-MODE: critical -->
 3. Use `AskUserQuestion`: Approve (COMPLETE) or Revert (NOT_STARTED)
 
@@ -557,6 +559,8 @@ Present each candidate to the user with the auto-recommendation heuristic:
 > ─────────────────────────────────────────────
 > ```
 
+**In loop mode:** ask nothing, file nothing, and print each candidate in the iteration summary. Skip the rest of Step 7.
+
 <!-- AUTO-MODE: convenience -->
 <!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Follow-up candidate filing (backlog.md Phase 7)". -->
 Use `AskUserQuestion`: "Create backlog item from this candidate?"
@@ -654,6 +658,8 @@ When the number of items filed differs from the number of candidates surfaced, n
 ## Phase 8: LESSON CAPTURE
 
 After closing the triaged items of this session (one, in loop mode), prompt for lessons learned.
+
+**In loop mode:** ask nothing. Decide whether the iteration surfaced a lesson, file it when it did, and record the ids with `backlog_loop.py --mark --lessons`. Follow `handlers/backlog-Part-2-LoopMode.md` § Phase 8 in loop mode, then continue to Phase 9.
 
 <!-- AUTO-MODE: convenience -->
 <!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Lessons capture acknowledgment". -->

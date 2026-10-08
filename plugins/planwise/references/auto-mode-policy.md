@@ -183,3 +183,11 @@ Two rules follow, and a handler must satisfy both:
 | Follow-up candidate filing (backlog.md Phase 7) | `skip all` — never file a backlog item unattended. The user invokes `/planwise backlog` explicitly to surface candidates. |
 | Loop opt-in (backlog.md Phase 2 Q1) | `No` — a single-item session. Looping is an interactive feature. |
 | Loop mode / count (backlog.md Phase 2 Q2) | Not reached, because Q1 defaults to `No`. |
+| Lessons capture (backlog.md Phase 8, loop mode) | Decide without asking. File a lesson when the iteration surfaced one, and record its id with `backlog_loop.py --mark --lessons`. Otherwise write `No lesson this iteration.` This row replaces the `No` default of "Lessons capture acknowledgment" inside a loop run. |
+| Phase 5 approval (backlog.md Phase 5, loop mode) | Every gate passes: mark `COMPLETE`. A gate fails: documented skip, with nothing reverted and the changes left in the working tree. |
+| Phase 3 conflict or failed premise (backlog.md Phase 3, loop mode) | Documented skip. This covers a failed existence-premise probe, a scoped-rule conflict and acceptance criteria that are already met. A documented skip appends a `Loop Decision Needed` section to the item file, restores the item's pre-loop status and records `SKIPPED` with `user_input_needed`. |
+| Route C or fix-agent `BLOCKED` (backlog.md Phase 4, loop mode) | Documented skip. A loop run never dispatches a planner. |
+| Follow-up candidate filing (backlog.md Phase 7, loop mode) | File none. Print each candidate in the iteration summary. |
+| Held-item notice (backlog.md Phase 2, loop mode) | Not reached. The loop queue never holds a `BLOCKED` item. |
+
+The only questions a loop run asks after setup are Q1, Q2, Q3 (in `specific` mode) and the HALT question for an item that died mid-work.

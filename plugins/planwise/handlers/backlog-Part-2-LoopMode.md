@@ -59,20 +59,68 @@ Each session handles exactly one item. The numbered steps run in order.
 4. `{"next": null, ...}` means the queue is empty. Run `--boundary` and finish at Phase 9.
 5. Set only the popped item IN_PROGRESS, regenerate the index, then run `--mark --phase selected --run {run-id} --id {item-id}`.
 6. Phase 3 RESOLVE. Re-run `score_backlog.py --route --id {item-id}` and note any divergence from `route_at_init` in `Reason:`.
-7. Phase 4 ACT. The route question offers the recommended route, the alternative (A or B), and Skip. Route C is never offered. Run `--mark --phase acting --run {run-id} --id {item-id}` before the Route A or B dispatch.
-8. Phase 5 VERIFY. Run `--mark --phase verifying --run {run-id} --id {item-id}` before the approval question.
+7. Phase 4 ACT. Ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (see § No questions after setup). Run `--mark --phase acting --run {run-id} --id {item-id}` before the Route A or B dispatch.
+8. Phase 5 VERIFY. Run `--mark --phase verifying --run {run-id} --id {item-id}` before the gates. Ask nothing. Apply the Phase 5 default in § No questions after setup.
 9. Phase 6 CLOSE. Map the outcome and run `--mark --outcome`:
 
    | Phase 5 or Phase 4 result | Outcome |
    |---|---|
-   | Approved, or task list done | `COMPLETE` |
-   | Reverted, or planner blocked | `NOT_STARTED` |
-   | Skipped | `SKIPPED` |
+   | Every gate passed, or task list done | `COMPLETE` |
+   | A decision is needed, or a gate failed | `SKIPPED`, with `--decision` |
+   | Halted item skipped at the HALT question | `SKIPPED`, with `--note halted-mid-item` |
 
-10. Phases 7 and 8 run every iteration, for the one item of the session.
+   A `SKIPPED` outcome restores the item's pre-loop status. When the script prints `Restored`, regenerate the backlog index.
+10. Phases 7 and 8 run every iteration, for the one item of the session. Both ask nothing.
 11. Phase 9 LOOP BOUNDARY. Run `--boundary` and end the turn on the marker.
 
-The Phase 4 re-assessment rule: when triage shows an item is really Route C, treat the choice as Skip. Record it with `--mark --outcome SKIPPED` and a note that starts `LOOP: re-assessed to Route C`. No backlog field carries the note, because `update_backlog.py` has no notes flag.
+---
+
+## No questions after setup
+
+Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every other decision point either takes the default in the table below or becomes a documented skip. The handler still takes every action it can. It stops asking and acts.
+
+| Decision point | Loop-mode behavior |
+|---|---|
+| Phase 2 held-item notice | Not reached. The queue never holds a `BLOCKED` item |
+| Phase 3 premise probe fails | Documented skip |
+| Phase 3 scoped-rule conflict | Documented skip |
+| Phase 3 acceptance criteria already met | Documented skip. The evidence names the criteria. The handler does not close an item unattended |
+| Phase 4 route | Take the recommended route when it is A or B. A Route C result is a documented skip |
+| Route A fix-agent returns `BLOCKED` | Documented skip. The evidence is the agent's blocker |
+| Phase 5 gates pass | Mark `COMPLETE` |
+| Phase 5 a gate fails | Documented skip. Revert nothing. The changes stay in the working tree, and the evidence names the failing gate and the changed files |
+| Phase 7 follow-up candidates | File none. Print each candidate in the iteration summary |
+| Phase 8 lessons | Auto-capture (see § Phase 8 in loop mode) |
+
+### Documented skip
+
+A documented skip ends the iteration with the item handed back and the reason on the page. Run one call:
+
+```bash
+python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --outcome SKIPPED --run {run-id} --id {item-id} --decision "{question, options and evidence}"
+```
+
+The script does three things:
+
+- It appends a dated `## Loop Decision Needed` section to the item file. The section opens with a `[!gate] User input needed` callout.
+- It restores the item's pre-loop status when the loop had set it IN_PROGRESS.
+- It records the outcome `SKIPPED` and the flag `user_input_needed` in the run file. The end summary lists every flagged item.
+
+Write the `--decision` text as the question that would have been asked, then the options, then the evidence with its source. The next interactive run finds the section and answers it. A route re-assessment to Route C starts the text with `LOOP: re-assessed to Route C`.
+
+Regenerate the backlog index after the call. Then continue to Phase 7.
+
+### Phase 8 in loop mode
+
+Decide without asking whether the iteration surfaced a lesson. A lesson exists when something was non-obvious: a routing signal misled, a fix exposed a related defect, or a gate failed for an unexpected reason. A skipped item with a documented question is not a lesson by itself.
+
+If a lesson surfaced, file it the normal way. Run `parse_lessons.py --next-id`, write the file from `templates/lesson.md`, run the lessons index generator, and append the changelog entry. Then record the ids:
+
+```bash
+python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --run {run-id} --id {item-id} --lessons "LL-NNN"
+```
+
+If no lesson surfaced, write the line `No lesson this iteration.` in the iteration summary and ask nothing. The session summary and the end summary name every lesson id filed.
 
 ---
 

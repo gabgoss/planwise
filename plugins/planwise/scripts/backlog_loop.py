@@ -12,7 +12,9 @@ single-line JSON object:
 
   --init     build the queue from the open backlog and write a new run file
   --next     pop the next still-selectable item and make it `current`
-  --mark     record a phase, or the closing outcome, for an item
+  --mark     record a phase, or the closing outcome, for an item. A SKIPPED
+             outcome restores the item's pre-loop status; with --decision it
+             also writes a `## Loop Decision Needed` section into the item file
   --boundary print the marker line the hooks module watches for
   --end      close the run and print the cross-run summary
   --status   print one run's record, or list every run
@@ -46,6 +48,10 @@ from parse_backlog import (
     filter_items,
     parse_dependencies_table,
 )
+from reconcile_common import (
+    read_text_preserving_newlines,
+    write_text_preserving_newlines,
+)
 from score_backlog import (
     _read_hub_family_items,
     compute_route_signals,
@@ -53,6 +59,7 @@ from score_backlog import (
     load_scored_items,
     read_item_frontmatter,
 )
+from update_backlog import sync_yaml_status
 
 MARKER_FORMAT = "BACKLOG LOOP: run={run} done={done} remaining={remaining} state={state}"
 
@@ -67,6 +74,8 @@ PHASES = ("selected", "acting", "verifying")
 OUTCOMES = ("COMPLETE", "NOT_STARTED", "SKIPPED")
 EXCLUDED_REASON = "plans deferred in loop mode"
 NO_LONGER_SELECTABLE = "no-longer-selectable"
+DECISION_HEADING = "## Loop Decision Needed"
+USER_INPUT_NOTE = "USER INPUT NEEDED: see the Loop Decision Needed section in the item file"
 ACTIONS = ("init", "next", "mark", "boundary", "end")
 
 
@@ -226,6 +235,51 @@ def still_selectable(config: dict, rows_by_norm: dict, item_id: str) -> bool:
     return status in OPEN_STATUSES and status not in HOLD_STATUSES
 
 
+def item_status_of(config: dict, rows_by_norm: dict, item_id: str) -> tuple[Path | None, str]:
+    """The item file and its status now: frontmatter first, the hub row second."""
+    row = rows_by_norm.get(normalize_id(item_id))
+    if row is None:
+        return None, ""
+    path = get_first_file_path(row, config["_backlog_dir"])
+    if path is None or not path.exists():
+        return None, str(row["status"]).strip().upper()
+    frontmatter = read_item_frontmatter(path)
+    return path, str(frontmatter.get("status") or row["status"]).strip().upper()
+
+
+def append_decision_section(path: Path, run_id: str, text: str) -> bool:
+    """Append the dated `## Loop Decision Needed` section; False when this run already did.
+
+    The run-id tag makes a repeated `--mark` for the same run a no-op, so a
+    retry after a crash never stacks a second copy of the section.
+    """
+    raw = read_text_preserving_newlines(path)
+    tag = f"<!-- loop-decision run={run_id} -->"
+    if tag in raw:
+        return False
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    body = text.strip().replace("\r\n", "\n").replace("\n", eol)
+    section = eol.join([
+        "",
+        DECISION_HEADING,
+        "",
+        tag,
+        "> [!gate] User input needed",
+        (
+            f"> Loop run {run_id}, {datetime.now().astimezone().date().isoformat()}. "
+            "The loop skipped this item without working it. "
+            "Answer the question below, then triage it again."
+        ),
+        "",
+        body,
+        "",
+    ])
+    if not raw.endswith(("\n", "\r")):
+        raw += eol
+    write_text_preserving_newlines(path, raw + section)
+    return True
+
+
 def score_of(scores: dict, item_id: str) -> int:
     breakdown = scores.get(item_id)
     return breakdown.total if breakdown is not None else 0
@@ -270,6 +324,14 @@ def summary_lines(run: dict, config: dict) -> list[str]:
         lines.append(f"Excluded ({EXCLUDED_REASON}):")
         for entry in run["excluded"]:
             lines.append(f"  {entry['id']} route {entry['route']}  {entry.get('feature') or ''}".rstrip())
+    needs_input = [key for key, rec in run["items"].items() if rec.get("user_input_needed")]
+    if needs_input:
+        lines.append("User input needed (see the Loop Decision Needed section in each item file):")
+        lines.extend(f"  {key}" for key in needs_input)
+    lessons = [(key, rec["lessons"]) for key, rec in run["items"].items() if rec.get("lessons")]
+    if lessons:
+        lines.append("Lessons filed during this run:")
+        lines.extend(f"  {key}: {', '.join(ids)}" for key, ids in lessons)
     filed = filed_during_run(run, config)
     if filed:
         lines.append("Filed during this run (not in the queue):")
@@ -495,6 +557,9 @@ def cmd_next(args, config: dict) -> int:
             add_history(run, "mark", item_id, f"outcome=SKIPPED {NO_LONGER_SELECTABLE}")
             skipped.append(item_id)
             continue
+        # The status before this loop touched the item, so a documented skip can
+        # hand the item back the way it was found.
+        record["pre_status"] = item_status_of(config, rows_by_norm, item_id)[1] or None
         run["items"][item_id] = record
         run["current"] = item_id
         add_history(run, "next", item_id, f"remaining={len(run['queue'])}")
@@ -520,7 +585,38 @@ def cmd_next(args, config: dict) -> int:
         **base_payload,
         "route_at_init": info.get("route_at_init"),
         "score": info.get("score"),
+        "pre_status": run["items"][popped].get("pre_status"),
         "skipped": skipped,
+    })
+    return EXIT_OK
+
+
+def mark_lessons(args, config: dict) -> int:
+    """Record the lesson ids Phase 8 filed for an item; merges, never duplicates.
+
+    Written under its own history event, so it never changes which event
+    `--boundary` reads as the newest mark for the item.
+    """
+    if args.phase or args.outcome or args.route or args.note or args.decision is not None:
+        raise LoopExit(EXIT_USAGE, "--lessons stands alone: give no --phase, --outcome, --route, --note or --decision")
+    ids = [part.strip() for part in args.lessons.split(",") if part.strip()]
+    if not ids:
+        raise LoopExit(EXIT_USAGE, "--lessons needs at least one lesson id")
+    path = resolve_run_path(config, args.run)
+    run = load_run(path)
+    refuse_if_ended(run, {"run": path.stem, "state": state_text(path)})
+    key = resolve_item_key(run, args.id)
+    record = run["items"][key]
+    merged = list(record.get("lessons") or [])
+    merged.extend(lesson for lesson in ids if lesson not in merged)
+    record["lessons"] = merged
+    add_history(run, "lessons", key, ",".join(ids))
+    save_run(path, run)
+    emit([f"Recorded lessons for {key}: {', '.join(merged)}"], {
+        "run": path.stem,
+        "id": key,
+        "lessons": merged,
+        "state": state_text(path),
     })
     return EXIT_OK
 
@@ -528,19 +624,47 @@ def cmd_next(args, config: dict) -> int:
 def cmd_mark(args, config: dict) -> int:
     if not args.id:
         raise LoopExit(EXIT_USAGE, "--mark requires --id")
+    if args.lessons is not None:
+        return mark_lessons(args, config)
     if bool(args.phase) == bool(args.outcome):
-        raise LoopExit(EXIT_USAGE, "--mark requires exactly one of --phase or --outcome")
-    if args.phase and (args.route or args.note):
-        raise LoopExit(EXIT_USAGE, "--route and --note apply to --outcome only")
+        raise LoopExit(EXIT_USAGE, "--mark requires exactly one of --phase, --outcome or --lessons")
+    if args.phase and (args.route or args.note or args.decision):
+        raise LoopExit(EXIT_USAGE, "--route, --note and --decision apply to --outcome only")
+    if args.decision is not None and args.outcome != "SKIPPED":
+        raise LoopExit(EXIT_USAGE, "--decision applies to --outcome SKIPPED only")
+    if args.decision is not None and not args.decision.strip():
+        raise LoopExit(EXIT_USAGE, "--decision needs the question, the options and the evidence")
     path = resolve_run_path(config, args.run)
     run = load_run(path)
     refuse_if_ended(run, {"run": path.stem, "state": state_text(path)})
     key = resolve_item_key(run, args.id)
     record = run["items"][key]
+    restored: str | None = None
+    decision_written = False
     if args.phase:
         record["phase"] = args.phase
         add_history(run, "mark", key, f"phase={args.phase}")
     else:
+        if args.outcome == "SKIPPED":
+            # A skip hands the item back the way the loop found it. A documented
+            # skip also writes the question into the item file, so the next
+            # interactive run finds it.
+            rows_by_norm = {
+                normalize_id(row["id"]): row
+                for row in _read_hub_family_items(config["_index_path"], config["_backlog_dir"])
+            }
+            item_path, status_now = item_status_of(config, rows_by_norm, key)
+            if args.decision is not None and item_path is None:
+                raise LoopExit(EXIT_USAGE, f"--decision could not find the item file for {key}")
+            if item_path is not None:
+                pre_status = record.get("pre_status")
+                loop_set_it = bool(pre_status) and pre_status != "IN_PROGRESS" and status_now == "IN_PROGRESS"
+                if loop_set_it and sync_yaml_status(item_path, pre_status).outcome == "changed":
+                    restored = pre_status
+                if args.decision is not None:
+                    decision_written = append_decision_section(item_path, path.stem, args.decision)
+            if args.decision is not None:
+                record["user_input_needed"] = True
         now = now_iso()
         record["phase"] = "closed"
         record["outcome"] = args.outcome
@@ -549,14 +673,23 @@ def cmd_mark(args, config: dict) -> int:
             record["route"] = args.route
         if args.note:
             record["note"] = args.note
+        elif args.decision is not None:
+            record["note"] = USER_INPUT_NOTE
         add_history(run, "mark", key, f"outcome={args.outcome}")
     save_run(path, run)
     what = f"phase={args.phase}" if args.phase else f"outcome={args.outcome}"
-    emit([f"Marked {key}: {what}"], {
+    lines = [f"Marked {key}: {what}"]
+    if restored:
+        lines.append(f"Restored {key} status to {restored}. Regenerate the backlog index.")
+    if decision_written:
+        lines.append(f"Wrote the {DECISION_HEADING} section into the item file.")
+    emit(lines, {
         "run": path.stem,
         "id": key,
         "phase": record["phase"],
         "outcome": record["outcome"],
+        "restored_status": restored,
+        "decision_written": decision_written,
         "state": state_text(path),
     })
     return EXIT_OK
@@ -701,6 +834,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--outcome", choices=list(OUTCOMES), default=None)
     parser.add_argument("--route", choices=["A", "B"], default=None)
     parser.add_argument("--note", default=None)
+    parser.add_argument(
+        "--lessons", default=None,
+        help="With --mark: comma-separated lesson ids Phase 8 filed for the item.",
+    )
+    parser.add_argument(
+        "--decision", default=None,
+        help="With --mark --outcome SKIPPED: the question, options and evidence to write "
+             "into the item file as a Loop Decision Needed section.",
+    )
     return parser
 
 
