@@ -205,7 +205,7 @@ def test_e_deferred_init_names_the_index_and_the_upgrade_fix_under_skipped(tmp_p
     assert "00-Index-Backlog.md" in skipped_section
     assert "/planwise backlog" in skipped_section
     assert "/planwise upgrade" in skipped_section
-    assert "--backlog-reconcile" in skipped_section
+    assert "--backlog-reconcile" not in skipped_section
 
 
 def test_e2_auto_from_init_still_prints_the_skipped_section(tmp_path, monkeypatch, capsys):

@@ -210,3 +210,27 @@ class TestUpgradeAndInitHandlersBacklogMigration(unittest.TestCase):
     def test_init_fallback_step_4_seeds_the_backlog_changelog(self):
         text = INIT_FALLBACK_HANDLER.read_text(encoding="utf-8-sig")
         self.assertIn("00-Changelog-Backlog.md", text)
+
+    def test_upgrade_step_2_4_names_no_reconcile_flag(self):
+        # The handler's command never passes the flag, so naming it in the
+        # prose documents an option the run cannot reach.
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 2.4", "### Step 2.5")
+        self.assertNotIn("--backlog-reconcile", span)
+
+    def test_upgrade_step_3_backlog_block_lists_parked_units(self):
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 3 ", "### Step 4 ")
+        self.assertIn("parked ambiguous units:", span)
+
+    def test_upgrade_step_3_unrecognized_branches_print_detail_not_a_command(self):
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 3 ", "### Step 4 ")
+        self.assertNotIn("inspect it with", span)
+        self.assertGreaterEqual(span.count("detail:"), 3)
+
+    def test_upgrade_step_3_plans_refused_block_names_the_rerun(self):
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 3 ", "### Step 4 ")
+        block = _span_between(span, "Plans index migration: REFUSED", "— or")
+        self.assertIn("then re-run /planwise upgrade", block)

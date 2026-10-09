@@ -629,7 +629,7 @@ def build_report(config: dict, index_path: Path) -> dict:
                           "titles_needing_quotes": 0, "status_mismatches": 0},
               "cells": {"rows_with_over_title_units": 0, "units": 0},
               "prose_sections": {"drop": 0, "relocate": 0},
-              "ready_with_all_repairs": shape == "generated", "would_refuse": []}
+              "ready_with_all_repairs": shape == "generated", "would_refuse": [], "questions": []}
     lessons_dir = config.get("_lessons_dir")
     if lessons_dir is None:
         return report
@@ -756,6 +756,7 @@ def build_report(config: dict, index_path: Path) -> dict:
         report["ready_with_all_repairs"] = True
     except Refusal as exc:  # every refusal, one line each, when the plan collected several
         report["would_refuse"] = exc.lines() if isinstance(exc, sup.RefusalSet) else [str(exc)]
+        report["questions"] = [exc.question] if exc.question else []
     except Exception as exc:  # noqa: BLE001 -- --report never raises, whatever the input
         report["error"] = f"planning raised {exc!r}"
     return report

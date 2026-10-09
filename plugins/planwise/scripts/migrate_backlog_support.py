@@ -22,7 +22,20 @@ from reconcile_common import read_text_preserving_newlines as read_text
 
 
 class Refusal(Exception):
-    """A condition that stops the run before any write (exit 2)."""
+    """A recognise-or-refuse stop. ``reason`` says what was found; ``fix``
+    names the edit that closes it. A reason written as ``"<reason> -- <fix>"``
+    is split on the last ``" -- "``, the split the consumers used before.
+    A refusal with no fix is a defect at construction time, so it raises
+    TypeError here rather than printing a banner whose fix line repeats
+    its reason."""
+
+    def __init__(self, reason: str, fix: str | None = None, *, question: dict | None = None):
+        if fix is None and " -- " in reason:
+            reason, fix = reason.rsplit(" -- ", 1)
+        if not fix:
+            raise TypeError(f"Refusal without a fix: {reason!r}")
+        self.reason, self.fix, self.question = reason, fix, question
+        super().__init__(f"{reason} -- {fix}")
 
 
 SHINGLE_N = 5
@@ -605,7 +618,8 @@ def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = Non
             if tokens >= budget:
                 raise Refusal(
                     f"changelog entry {i} has a paragraph of ~{tokens} tokens, over the "
-                    f"{budget}-token per-file budget; add a blank line inside it by hand, then re-run")
+                    f"{budget}-token per-file budget",
+                    "add a blank line inside it by hand, then re-run")
             chunks.append((label, piece))
     return chunks
 
@@ -667,7 +681,8 @@ def check_parts_budget(split: list, budget: int = READ_TOKEN_WARN) -> list:
         if tokens >= budget:
             raise Refusal(f"changelog part {name} would measure ~{tokens} tokens, over the {budget}-token "
                           "per-file budget: an entry in it has a paragraph too large to sit beside the part's "
-                          "header; add a blank line inside it by hand, then re-run")
+                          "header",
+                          "add a blank line inside it by hand, then re-run")
     return split
 
 
@@ -712,7 +727,9 @@ def parse_changelog(texts: list) -> list:
         i, n = 0, len(lines)
         if i >= n or not BACKLINK_RE.match(lines[i].strip()):
             found = lines[i] if i < n else ""
-            raise Refusal(f"part {pi + 1} line {i + 1}: expected the backlink line, found {found!r}")
+            raise Refusal(f"part {pi + 1} line {i + 1}: expected the backlink line, found {found!r}",
+                          "restore the backlink line the migration writes as the first line of that part, "
+                          "then re-run")
         i += 1
         if i < n and lines[i] == "":
             i += 1
@@ -726,12 +743,15 @@ def parse_changelog(texts: list) -> list:
             stripped = line.strip()
             match = ENTRY_HEADING_RE.match(stripped)
             if stripped.startswith("## ") and not match:
-                raise Refusal(f"part {pi + 1} line {i + j + 1}: unrecognised section heading {line!r}")
+                raise Refusal(f"part {pi + 1} line {i + j + 1}: unrecognised section heading {line!r}",
+                              "rename the heading to an entry heading the migration wrote, or delete it, "
+                              "then re-run")
             if match:
                 headings.append((j, int(match.group(1)), bool(match.group(2))))
         if not headings or headings[0][0] != 0:
             bad = remainder[0] if remainder else ""
-            raise Refusal(f"part {pi + 1} line {i + 1}: text outside any '## Entry' section: {bad!r}")
+            raise Refusal(f"part {pi + 1} line {i + 1}: text outside any '## Entry' section: {bad!r}",
+                          "move that text under an entry heading or delete it, then re-run")
         for h, (start, num, is_cont) in enumerate(headings):
             body_start = start + 1
             if body_start < len(remainder) and remainder[body_start] == "":
@@ -749,7 +769,9 @@ def parse_changelog(texts: list) -> list:
             current = {"num": num, "parts": [body]}
         else:
             if current is None or current["num"] != num:
-                raise Refusal(f"entry {num} (continued) has no matching entry heading before it")
+                raise Refusal(f"entry {num} (continued) has no matching entry heading before it",
+                              "restore the entry heading above that continued section, or merge the section "
+                              "into its entry, then re-run")
             current["parts"].append(body)
     if current is not None:
         result.append("\n\n".join(current["parts"]))

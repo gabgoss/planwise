@@ -91,6 +91,13 @@ class TestUpgradeAndInitHandlersLessonsMigration(unittest.TestCase):
         text = INIT_FALLBACK_HANDLER.read_text(encoding="utf-8-sig")
         self.assertIn("hand-shaped lessons index", text)
 
+    def test_upgrade_step_2_4_names_no_lessons_reconcile_flag(self):
+        # The handler's command never passes the flag, so naming it in the
+        # prose documents an option the run cannot reach.
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 2.4", "### Step 2.5")
+        self.assertNotIn("--lessons-reconcile", span)
+
 
 class TestDoctorHandlerStage21(unittest.TestCase):
     """Stage 21 lives in DOCTOR_HANDLER_PART2, appended after Stage 20 on

@@ -89,7 +89,7 @@ def migrate_backlog_if_legacy(cfg: "InitConfig", from_version: str, to_version: 
     reports state `deferred`, and names `/planwise upgrade` as the step that migrates it. A
     generated index is handled the same either way. Plain `init` sets it, because a
     row/frontmatter reconcile only has something to resolve once a project already carries
-    item frontmatter, and `/planwise upgrade` is where `--backlog-reconcile` is accepted."""
+    item frontmatter, and `/planwise upgrade` is where the reconcile choice is accepted."""
     report = BacklogMigrationReport(state="absent", index_path=None)
     try:
         _migrate(cfg, from_version, to_version, reconcile, report, defer_legacy)
@@ -122,9 +122,7 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     if defer_legacy:
         report.state = "deferred"
         report.detail = "the index is hand-authored; this run changed no backlog file"
-        report.fix = ("run /planwise upgrade, which migrates it; pass --backlog-reconcile "
-                      "index-wins or frontmatter-wins there to choose how a row/frontmatter "
-                      "disagreement resolves")
+        report.fix = "run /planwise upgrade, which migrates it"
         return
     inputs = [index_path, *sorted(config["_backlog_dir"].glob("*.md")), *sorted(config["_archive_dir"].glob("*.md"))]
     dirty, _reason = chk.git_state(config["_project_root"], inputs)
@@ -134,7 +132,7 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     try:
         plan = mig.plan_migration(config, index_path, text, detail, options)
     except mig.Refusal as exc:
-        _refuse(report, str(exc), f"{command} --write --backfill-frontmatter --write-edges "
+        _refuse(report, exc, f"{command} --write --backfill-frontmatter --write-edges "
                                   f"--extract-dependency-notes --reconcile {mode} --append-ambiguous")
         return
     paths = mig.artifact_paths(index_path)
@@ -173,7 +171,7 @@ def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, in
     try:
         plan = mig.plan_changelog_resplit(config, index_path)
     except mig.Refusal as exc:
-        _refuse(report, str(exc), "")
+        _refuse(report, exc, "")
         return
     if plan is None:
         report.state = "generated"
@@ -204,12 +202,12 @@ def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, in
     report.counts["changelog_parts"] = expected
 
 
-def _refuse(report, message: str, command: str) -> None:
-    """State `refused`: the migrator's text verbatim, and the exact action it names."""
-    action = message.rsplit(" -- ", 1)[1] if " -- " in message else message
-    if command and "--append-ambiguous" in message:
+def _refuse(report, exc, command: str) -> None:
+    """State `refused`: the refusal's reason as the detail, and the edit it names as the fix."""
+    action = exc.fix
+    if command and "--append-ambiguous" in str(exc):
         action += f"; or append them with: {command}"
-    report.state, report.detail, report.fix = "refused", message, f"{action}\n{RERUN}"
+    report.state, report.detail, report.fix = "refused", exc.reason, f"{action}\n{RERUN}"
 
 
 def _rel(path: Path, backlog_dir: Path) -> Path:
@@ -441,7 +439,7 @@ def _banner_lines(report: BacklogMigrationReport) -> list:
                 f"  reason: {report.detail}", f"  fix:    {fix}"]
     if report.state == "unrecognized":
         return [f"Backlog index migration: {index} is not a hand-authored or generated index — left untouched",
-                f"  reason: {report.detail}; inspect it with: {report.fix}"]
+                *(f"  detail: {line}" for line in report.detail.splitlines() or [""])]
     if report.state == "backup_failed":
         return ["Backlog index migration: BACKUP FAILED — no write was attempted",
                 f"  {report.detail}", f"  fix:    {fix}"]

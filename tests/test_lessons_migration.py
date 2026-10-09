@@ -146,6 +146,31 @@ def test_over_budget_changelog_reaches_changelog_split_and_emits_banner(tmp_path
     assert str(report.backup_dir) in out
 
 
+def test_changelog_refusal_prints_its_own_fix(tmp_path, capsys):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _seed_changelog(lessons_dir, [(n, _FILLER) for n in range(30, 0, -1)])
+    changelog = lessons_dir / "00-Changelog-LessonsLearned.md"
+    text = changelog.read_text(encoding="utf-8")
+    _write(changelog, text.replace("[← 00-Index-LessonsLearned.md](00-Index-LessonsLearned.md)", "not a backlink line", 1))
+    report = _migrate(cfg)
+    assert report.state == "refused"
+    assert "expected a backlink line" in report.detail
+    assert "restore the backlink line the generator writes" in report.fix
+    assert "fix the changelog line named above" not in report.fix
+    assert "hand-authored" not in report.fix
+    lm._emit_lessons_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "  fix:    restore the backlink line" in out
+
+
+def test_changelog_refusal_keeps_a_keep_it_fix(tmp_path):
+    report = lm.LessonsMigrationReport(state="generated", index_path=tmp_path / "x.md", backup_dir=None)
+    lm._refuse_changelog(report, sup.Refusal("it would change", "keep the changelog as it is and report a defect"))
+    assert report.detail == "it would change"
+    assert report.fix.startswith("keep the changelog as it is and report a defect")
+    assert "fix the changelog line named above" not in report.fix
+
+
 def test_second_run_after_changelog_split_is_silent(tmp_path, capsys):
     cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
     _seed_changelog(lessons_dir, [(n, _FILLER) for n in range(30, 0, -1)])
@@ -503,6 +528,13 @@ def test_banner_names_each_state(capsys, state, headline):
     assert headline in out.splitlines()[0]
     if state == "refused":
         assert "  fix:    do this" in out and "then re-run /planwise upgrade" in out
+
+
+def test_lessons_deferred_fix_names_no_flag(tmp_path):
+    cfg, _lessons_dir = _project(tmp_path)
+    report = lm.migrate_lessons_if_legacy(cfg, "1.0", "1.1", defer_legacy=True)
+    assert report.state == "deferred", report.detail
+    assert report.fix and "--" not in report.fix
 
 
 @pytest.mark.parametrize("state", ["absent", "generated"])

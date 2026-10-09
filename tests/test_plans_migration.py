@@ -322,6 +322,15 @@ def test_banner_names_each_state(capsys, state, headline):
     assert headline in out and out.startswith("Plans index migration:")
 
 
+def test_unrecognized_banner_prints_detail_not_a_command(tmp_path, capsys):
+    fixture_e(tmp_path)
+    report = migrate(tmp_path)
+    assert report.state == "unrecognized" and report.detail
+    pm._emit_plans_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "detail:" in out and "inspect it with" not in out
+
+
 @pytest.mark.parametrize("state", ["absent", "generated"])
 def test_banner_is_silent_when_nothing_happened(capsys, state):
     pm._emit_plans_migration_banner(_report(state))

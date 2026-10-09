@@ -128,7 +128,7 @@ def _migrate(cfg, from_version: str, to_version: str, report, defer_legacy: bool
     try:
         plan = mig.plan_migration(config, index_path, text, mig.migration_date(ledger_file))
     except Refusal as exc:
-        _refuse(report, str(exc))
+        _refuse(report, exc)
         return
     targets = mig.plan_targets(plan)
     dirty, _reason = git_state(config["_project_root"], targets)
@@ -157,10 +157,10 @@ def _migrate(cfg, from_version: str, to_version: str, report, defer_legacy: bool
     _fill_counts(ledger_file, report)
 
 
-def _refuse(report, message: str) -> None:
-    """State `refused`: the migrator's text verbatim, which names each refusal and the fix that closes it."""
-    report.state, report.detail = "refused", message
-    report.fix = f"close each refusal in the reason as its text says,\n{RERUN}"
+def _refuse(report, exc) -> None:
+    """State `refused`: the refusal's reason as the detail, and its fix as the fix."""
+    report.state, report.detail = "refused", exc.reason
+    report.fix = f"{exc.fix}\n{RERUN}"
 
 
 def _write_failed(report, pre: dict, created: list) -> None:
@@ -222,7 +222,7 @@ def _banner_lines(report: PlansMigrationReport) -> list:
                 "  reason: " + report.detail.replace("\n", "\n          "), f"  fix:    {fix}"]
     if report.state == "unrecognized":
         return [f"Plans index migration: {index} is not a hand-authored or generated index -- left untouched",
-                f"  reason: {report.detail}; inspect it with: {report.fix}"]
+                *(f"  detail: {line}" for line in report.detail.splitlines() or [""])]
     if report.state == "backup_failed":
         return ["Plans index migration: BACKUP FAILED -- no write was attempted",
                 f"  {report.detail}", f"  fix:    {fix}"]

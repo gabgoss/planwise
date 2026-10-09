@@ -628,7 +628,7 @@ def test_report_json_is_one_object_with_the_documented_fields(tmp_path, capsys):
     report = json.loads(capsys.readouterr().out)
     assert list(report) == ["shape", "detail", "index", "rows", "comments", "narrative_cells", "attributable",
                             "unattributed", "uncarried_lines", "root_path_rows", "prefixed_rows", "status_changes",
-                            "append_targets", "ready", "would_refuse"]
+                            "append_targets", "ready", "would_refuse", "questions"]
     assert report["uncarried_lines"] == 0
     assert (report["shape"], report["rows"], report["comments"], report["narrative_cells"]) == ("legacy", 3, 1, 1)
     assert (report["attributable"], report["unattributed"], report["status_changes"]) == (2, 0, 1)

@@ -40,6 +40,7 @@ Backlog index migration:                                   (silent — nothing p
     blocks: edges written:  {N}
     dependency notes moved: {N} bullet(s) into {N} item file(s)
     feature-cell prose moved: {N} unit(s)
+    parked ambiguous units:  {N} ({B} bytes) — see {ledger}   (omitted when N == 0)
     reconciled cells:       {N} ({index-wins|frontmatter-wins}) — {id}.{key}: {frontmatter} -> {index}; …
     ledger:                 {path}
     backups:                {planwise_root}/upgrade-backups/{from}-to-{to}/backlog/ ({N} file(s), listed in DISPOSITIONS.md)
@@ -52,7 +53,7 @@ Backlog index migration: REFUSED (index and item files left untouched)
           then re-run /planwise upgrade (the migration re-fires on a hand-authored index; nothing else repeats)
   — or, on an index the script cannot classify as either hand-authored or generated:
 Backlog index migration: {index} is not a hand-authored or generated index — left untouched
-  reason: {the classifier's reason}; inspect it with: {migrate_backlog_index.py --report command}
+  detail: {each line of the classifier's reason, one `detail:` line per line}
   — or, on an already-generated index whose changelog grew past the per-file budget:
 Backlog changelog: re-split into {N} part(s), each ≤ {budget} tokens; backups: {planwise_root}/upgrade-backups/{from}-to-{to}/backlog/
 
@@ -83,7 +84,7 @@ Lessons index migration: REFUSED (index and lesson files left untouched)
           then re-run /planwise upgrade (the migration re-fires on a hand-authored index; nothing else repeats)
   — or, on an index the script cannot classify as either hand-authored or generated:
 Lessons index migration: {index} is not a hand-authored or generated index -- left untouched
-  reason: {the classifier's reason}; inspect it with: {migrate_lessons_index.py --report command}
+  detail: {each line of the classifier's reason, one `detail:` line per line}
   — or, on a backup failure before any write:
 Lessons index migration: BACKUP FAILED -- no write was attempted
   {detail}
@@ -113,9 +114,10 @@ Plans index migration:                                     (silent — nothing p
 Plans index migration: REFUSED (index and Master Plans left untouched)
   reason: {the migrator's own refusal text, verbatim}
   fix:    {the exact edit the refusal names}
+          then re-run /planwise upgrade (the migration re-fires on a hand-authored index; nothing else repeats)
   — or, on an index the script cannot classify as either hand-authored or generated:
 Plans index migration: {index} is not a hand-authored or generated index -- left untouched
-  reason: {the classifier's reason}; inspect it with: {migrate_plans_index.py --report command}
+  detail: {each line of the classifier's reason, one `detail:` line per line}
   — or, on a backup failure before any write:
 Plans index migration: BACKUP FAILED -- no write was attempted
   {detail}

@@ -988,7 +988,7 @@ def test_path2_init_defers_legacy_lessons_and_writes_nothing_to_them(tmp_path, c
     assert "Skipped (action required):" in banner
     skipped_section = banner.split("Skipped (action required):", 1)[1]
     assert str(lessons_dir / INDEX) in skipped_section
-    assert "/planwise upgrade" in skipped_section and "--lessons-reconcile" in skipped_section
+    assert "/planwise upgrade" in skipped_section and "--lessons-reconcile" not in skipped_section
 
 
 def test_path2_unmigratable_tree_defers_instead_of_refusing_at_init(tmp_path, capsys):

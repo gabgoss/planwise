@@ -346,10 +346,12 @@ def plan_migration(config: dict, index_path: Path, text: str, migration_date: st
     the fix that closes it."""
     shape, detail = classify_shape(text)
     if shape != "legacy":
-        raise Refusal(f"the index shape is {shape}, not legacy: {detail}")
+        raise Refusal(f"the index shape is {shape}, not legacy: {detail}",
+                      "run the migration only on a hand-authored plans index; this index needs no migration")
     plan = _analyze(config, index_path, text, migration_date)
     if plan["refusals"]:
-        raise Refusal("\n".join(plan["refusals"]))
+        raise Refusal("\n".join(plan["refusals"]),
+                      fix="close each refusal listed above as its text says, then re-run")
     return plan
 
 
@@ -523,8 +525,11 @@ def build_report(config: dict, index_path: Path) -> dict:
     if shape != "legacy":
         return {"shape": shape, "detail": detail, "index": str(index_path), "rows": 0, "comments": 0,
                 "narrative_cells": 0, "attributable": 0, "unattributed": 0, "uncarried_lines": 0, "root_path_rows": 0,
-                "prefixed_rows": 0, "status_changes": 0, "append_targets": [], "ready": False, "would_refuse": []}
-    return _summary(_analyze(config, index_path, text, migration_date(ledger_path_for(config["_plans_dir"]))))
+                "prefixed_rows": 0, "status_changes": 0, "append_targets": [], "ready": False, "would_refuse": [],
+                "questions": []}
+    report = _summary(_analyze(config, index_path, text, migration_date(ledger_path_for(config["_plans_dir"]))))
+    report["questions"] = []  # a plans refusal is a plain string, so it asks nothing
+    return report
 
 
 def _safe_report(config: dict, index_path: Path) -> dict:

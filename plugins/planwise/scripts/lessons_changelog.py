@@ -132,7 +132,9 @@ def _parse_changelog_body(text: str, label: str, older_re=None) -> tuple:
             i += 1
     if consumed == 0:
         found = lines[0] if lines else ""
-        raise Refusal(f"{label} line 1: expected a backlink line, found {found!r}")
+        raise Refusal(f"{label} line 1: expected a backlink line, found {found!r}",
+                      "restore the backlink line the generator writes as the first line of that file, "
+                      "then re-run")
     body_lines = lines[i:]
     end = len(body_lines)
     while end > 0 and body_lines[end - 1] == "":
@@ -148,7 +150,8 @@ def _parse_changelog_body(text: str, label: str, older_re=None) -> tuple:
     first = headings[0][0] if headings else len(body_lines)
     for j in range(first):
         if body_lines[j].strip():
-            raise Refusal(f"{label} line {i + j + 1}: text outside any '## Entry' section: {body_lines[j]!r}")
+            raise Refusal(f"{label} line {i + j + 1}: text outside any '## Entry' section: {body_lines[j]!r}",
+                          "move that text under an entry heading or delete it, then re-run")
     entries = []
     for h, (start, num, suffix) in enumerate(headings):
         bstart = start + 1
@@ -335,12 +338,14 @@ def _render_checked(pos: int, group: list, names: dict, older: bool) -> str:
     try:
         back = _parse_changelog_body(text, name, names["older_re"] if pos == 0 else None)[0]
     except Refusal as exc:
-        raise Refusal(f"{name}: the planned file would not read back ({exc}); nothing was written") from exc
+        raise Refusal(f"{name}: the planned file would not read back ({exc}); nothing was written",
+                      "correct the entry the message names in the source changelog, then re-run") from exc
     if back != group:
         k = next((i for i, (a, b) in enumerate(zip(group, back)) if a != b), min(len(group), len(back)))
         num = (group[k] if k < len(group) else back[k])[0]
         raise Refusal(f"{name}: the planned file would not read back as the entries planned for it: Entry {num} "
-                      f"would change ({len(group)} entries planned, {len(back)} read back); nothing was written")
+                      f"would change ({len(group)} entries planned, {len(back)} read back); nothing was written",
+                      "keep the changelog as it is and report the entry named above as a tool defect")
     return text
 
 

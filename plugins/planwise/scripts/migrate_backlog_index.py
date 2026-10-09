@@ -190,10 +190,20 @@ def preflight_generator(config: dict, index_path: Path, overrides: dict | None =
             hint = " -- add --backfill-frontmatter to fill the missing frontmatter from the index row, file name and git"
         elif "non-numeric id value" in str(exc):
             hint = _non_numeric_hint(str(exc), config, index_path, view, backfill_hint)
-        raise Refusal(f"the generator would refuse this tree -- {exc}{hint}") from exc
+        fix = hint.removeprefix(" -- ") or "correct the item file the message names so the generator accepts it, then re-run"
+        raise Refusal(f"the generator would refuse this tree: {exc}", fix) from exc
     if reciprocal:
         pairs = ", ".join(f"{a}<->{b}" for a, b in reciprocal)
-        raise Refusal(f"the generator would refuse to write: reciprocal blocks edge(s) {pairs}")
+        a, b = reciprocal[0]
+        question = {"id": "reciprocal-edge",
+                    "prompt": f"Items {a} and {b} each block the other. Keep which direction?",
+                    "options": [{"label": f"{a} blocks {b}", "answer": {"drop": f"{b}->{a}"}},
+                                {"label": f"{b} blocks {a}", "answer": {"drop": f"{a}->{b}"}},
+                                {"label": "Drop both", "answer": {"drop": "both"}}],
+                    "pairs": [[x, y] for x, y in reciprocal]}
+        raise Refusal(f"the generator would refuse to write: reciprocal blocks edge(s) {pairs}",
+                      "keep one direction: remove the other item's id from one of the two blocks: lists, then re-run",
+                      question=question)
     return {item["_path"].resolve(): item for item in items}
 
 
@@ -203,16 +213,20 @@ def resolve_rows(text: str, header_idx: int, roles: dict, config: dict, index_pa
     for line_no, cells in sup.iter_rows(text.split("\n"), header_idx):
         where = f"row at line {line_no + 1}"
         if len(cells) != len(roles):
-            raise Refusal(f"{where}: {len(cells)} cell(s) but the header has {len(roles)}")
+            raise Refusal(f"{where}: {len(cells)} cell(s) but the header has {len(roles)}",
+                          "repair the row so it has the header's cell count; a pipe character inside backticks "
+                          "is the usual cause")
         if not cells[roles["id"]].strip():
-            raise Refusal(f"{where}: empty ID cell")
+            raise Refusal(f"{where}: empty ID cell", "write the item's id in the ID cell, or delete the row")
         links, leftover = sup.files_links(cells[roles["file"]])
         if leftover:
-            raise Refusal(f"{where}: Files cell carries text other than links, {cells[roles['file']]!r}")
+            raise Refusal(f"{where}: Files cell carries text other than links, {cells[roles['file']]!r}",
+                          "replace the Files cell with the item-file link only")
         path = sup.resolve_item_file(links[0][1], config["_backlog_dir"], config["_archive_dir"],
                                      index_path.parent) if links else None
         if path is None:
-            raise Refusal(f"{where} (id {cells[roles['id']]}): Files cell resolves no item file")
+            raise Refusal(f"{where} (id {cells[roles['id']]}): Files cell resolves no item file",
+                          "create the item file the Files cell names, or repoint the link")
         rows.append({"line": line_no, "cells": cells, "path": path, "links": links})
     return rows
 
@@ -225,7 +239,9 @@ def collect_rows(resolved: list, roles: dict, index_path: Path, items: dict, val
         path, cells, links = row["path"], row["cells"], row["links"]
         fields = items.get(path)
         if fields is None:
-            raise Refusal(f"row at line {row['line'] + 1}: {path.name} is not an item file the generator scans")
+            raise Refusal(f"row at line {row['line'] + 1}: {path.name} is not an item file the generator scans",
+                          "rename the file to the item-file pattern the generator scans, or move it out of the "
+                          "backlog directory")
         diffs += [{**diff, "id": fields["id"], "path": path}
                   for diff in sup.row_diffs(cells, roles, fields, valid_abbrevs)]
         extra = [sup.link_unit(t, h, index_path.parent, path.parent) for t, h in links[1:]
@@ -376,7 +392,8 @@ def plan_reconcile(diffs: list, mode: str | None, texts: dict, items: dict) -> l
     stuck = [d for d in diffs if d["prose"] or (mode == "index-wins" and d["row"] in (None, ""))]
     if stuck:
         raise Refusal(f"{len(stuck)} row cell(s) disagree with item frontmatter and --reconcile {mode} cannot "
-                      f"settle them: {'; '.join(d['message'] for d in stuck[:10])}. Fix them by hand, then re-run")
+                      f"settle them: {'; '.join(d['message'] for d in stuck[:10])}",
+                      "make each named cell and its frontmatter key agree by hand, then re-run")
     for d in diffs:
         if mode == "index-wins":
             value = f"[{', '.join(d['row'])}]" if d["key"] == "blocks" else d["row"]
@@ -468,7 +485,8 @@ def plan_changelog(text: str, index_path: Path, changelog_path: Path, pending: i
     pointer = sup.POINTER_RE.match(footer)
     if pointer:
         if changelog_path.name not in (pointer.group(1), pointer.group(2)):
-            raise Refusal(f"the footer points to {pointer.group(2)}, expected {changelog_path.name}")
+            raise Refusal(f"the footer points to {pointer.group(2)}, expected {changelog_path.name}",
+                          f"point the footer at {changelog_path.name}, then re-run")
         if not changelog_path.exists():
             raise Refusal(f"the footer says the changelog moved to {changelog_path.name}, but that "
                           "file is missing -- restore it from version control")
@@ -561,7 +579,8 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
         hint = ""
         if not options.extract_dependency_notes and len(chk.scan_index(text, header_idx, True)[0]) < len(problems):
             hint = " -- add --extract-dependency-notes to move the soft-dependency bullets into their owning item files"
-        raise Refusal("content regeneration would drop and this tool does not move: " + "; ".join(problems) + hint)
+        raise Refusal("content regeneration would drop and this tool does not move: " + "; ".join(problems),
+                      hint[4:] or "move each named line into an item file or the changelog by hand, then re-run")
     changelog_path, _ledger, older = paths
     if older != changelog_path and older.exists():
         raise Refusal(f"{older.name} exists from an earlier version of this tool, and the generator "
@@ -578,9 +597,9 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
     missing = chk.missing_edges(edges, items)
     if missing:
         raise Refusal(f"{len(missing)} '## Dependencies' edge(s) are missing from frontmatter blocks: "
-                      f"{'; '.join(missing[:10])}. The generator renders no Dependencies section, so add "
-                      "each edge to its item's blocks: first"
-                      + ("" if options.write_edges else " -- or add --write-edges to write each edge into blocks:"))
+                      f"{'; '.join(missing[:10])}. The generator renders no Dependencies section",
+                      "add each edge to its item's blocks: first"
+                      + ("" if options.write_edges else ", or add --write-edges to write each edge into blocks:"))
     valid_abbrevs = sup.configured_abbrevs(config)
     rows, diffs = collect_rows(resolved, roles, index_path, items, valid_abbrevs)
     cells = plan_reconcile(diffs, options.reconcile, texts, items)
@@ -628,7 +647,8 @@ def plan_migration(config: dict, index_path: Path, text: str, detail: tuple, opt
     """Plan the migration of a `legacy` index in memory. Returns the plan, or None when the
     index is already migrated. Raises `Refusal`. Nothing is written."""
     if options.reconcile not in (None, *RECONCILE_MODES):
-        raise Refusal(f"unknown reconcile mode {options.reconcile!r}; use one of {', '.join(RECONCILE_MODES)}")
+        raise Refusal(f"unknown reconcile mode {options.reconcile!r}",
+                      f"use one of {', '.join(RECONCILE_MODES)}")
     return build_plan(text, detail, config, index_path, artifact_paths(index_path), options)
 
 
@@ -907,7 +927,7 @@ def build_report(config: dict, index_path: Path) -> dict:
                                "unrecognised_lines": 0},
               "row_mismatches": 0, "parked_ambiguous": {"units": 0, "bytes": 0},
               "ready_with_all_repairs": shape == "migrated",
-              "would_refuse": [detail] if shape == "unrecognized" else []}
+              "would_refuse": [detail] if shape == "unrecognized" else [], "questions": []}
     changelog_path = artifact_paths(index_path)[0]
     if changelog_path.exists():
         files = sup.changelog_budget_status(config, index_path)
@@ -938,7 +958,9 @@ def build_report(config: dict, index_path: Path) -> dict:
             parked = dedup_accounting(plan["dests"])
             report["parked_ambiguous"] = {"units": parked["parked_units"], "bytes": parked["parked_bytes"]}
     except Refusal as exc:
-        report["would_refuse"] = [str(exc)]
+        refusals = [exc]  # the plan stops at its first refusal; each carries its own question, if any
+        report["would_refuse"] = [str(r) for r in refusals]
+        report["questions"] = [r.question for r in refusals if r.question]
     return report
 
 

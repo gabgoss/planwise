@@ -121,9 +121,7 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     if defer_legacy:
         report.state = "deferred"
         report.detail = "the index is hand-authored; this run changed no lessons file"
-        report.fix = ("run /planwise upgrade, which migrates it; pass --lessons-reconcile "
-                      "index-wins or frontmatter-wins there to choose how a row/frontmatter "
-                      "disagreement resolves")
+        report.fix = "run /planwise upgrade, which migrates it"
         return
 
     archive_dir = lessons_dir / "Archive"
@@ -135,7 +133,7 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     try:
         plan = mig.plan_migration(config, index_path, text, detail, options)
     except mig.Refusal as exc:
-        _refuse(report, str(exc))
+        _refuse(report, exc)
         return
 
     ledger_file = mig.ledger_path_for(lessons_dir)
@@ -257,7 +255,7 @@ def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, in
     except FileNotFoundError:
         return
     except sup.Refusal as exc:
-        _refuse_changelog(report, str(exc))
+        _refuse_changelog(report, exc)
         return
     if plan is None:
         return
@@ -272,24 +270,23 @@ def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, in
                           "changelog_files_written": len(plan["outputs"])})
 
 
-def _refuse(report, message: str) -> None:
-    """State `refused`: the migrator's text verbatim, which lists every
-    refusal grouped under the flag or hand fix that closes it -- so the fix
-    line points at that list rather than repeating it."""
-    report.state, report.detail = "refused", message
-    report.fix = f"close each refusal in the reason as its group says,\n{RERUN}"
+def _refuse(report, exc) -> None:
+    """State `refused`: the refusal's reason (every refusal line) as the
+    detail, and its fix (the group names that close them) as the fix."""
+    report.state, report.detail = "refused", exc.reason
+    report.fix = f"{exc.fix}\n{RERUN}"
 
 
-def _refuse_changelog(report, message: str) -> None:
-    """State `refused` for a changelog-only refusal. `message` already names
-    the changelog file and the 1-based line to fix (`lessons_changelog.
-    Refusal`'s own text). The fix text must NOT claim the index is
-    hand-authored -- it is generated; only the named changelog line is
-    wrong -- unlike `_refuse`'s shared `RERUN` text, which is written for
-    the legacy-migration refusal path and does make that claim."""
-    report.state, report.detail = "refused", message
-    report.fix = ("fix the changelog line named above, then re-run /planwise upgrade "
-                 "(the changelog is re-checked on every run; nothing else repeats)")
+def _refuse_changelog(report, exc) -> None:
+    """State `refused` for a changelog-only refusal. The refusal's reason names
+    the changelog file and the line it found, and its own fix names the edit
+    (or says to keep the changelog and report a defect). The re-run text must
+    NOT claim the index is hand-authored -- it is generated -- unlike
+    `_refuse`'s shared `RERUN` text, which is written for the legacy-migration
+    refusal path and does make that claim."""
+    report.state, report.detail = "refused", exc.reason
+    report.fix = (f"{exc.fix}\nthen re-run /planwise upgrade "
+                  "(the changelog is re-checked on every run; nothing else repeats)")
 
 
 def _rel(path: Path, lessons_dir: Path) -> Path:
@@ -522,7 +519,7 @@ def _banner_lines(report: LessonsMigrationReport) -> list:
                 "  reason: " + report.detail.replace("\n", "\n          "), f"  fix:    {fix}"]
     if report.state == "unrecognized":
         return [f"Lessons index migration: {index} is not a hand-authored or generated index -- left untouched",
-                f"  reason: {report.detail}; inspect it with: {report.fix}"]
+                *(f"  detail: {line}" for line in report.detail.splitlines() or [""])]
     if report.state == "backup_failed":
         return ["Lessons index migration: BACKUP FAILED -- no write was attempted",
                 f"  {report.detail}", f"  fix:    {fix}"]

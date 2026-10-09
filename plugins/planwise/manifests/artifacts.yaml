@@ -349,13 +349,12 @@ artifacts:
       refreshes these directly, because they hold no hand-authored content.
 
   - id: backlog_migration_ledger
-    on_disk: "{planwise_root}/{backlog_dir}/00-Backlog-Migration-Ledger.json"
+    on_disk: "{planwise_root}/{backlog_dir}/00-Index-Backlog-Migration-Ledger.json"
     config_keys:
       - "project.backlog_dir"
       - "project.index_files.backlog"
     producer: "migrate_backlog_index.py --write"
     consumers:
-      - "/planwise doctor (migration audit trail)"
       - "/planwise upgrade (backlog migration verification)"
     missing_key_behavior: warn_loud
     upgrade_behavior: preserve
@@ -403,7 +402,6 @@ artifacts:
       - "project.index_files.plans"
     producer: "migrate_plans_index.py --write"
     consumers:
-      - "/planwise doctor (migration audit trail)"
       - "/planwise upgrade (plans migration verification)"
     missing_key_behavior: warn_loud
     upgrade_behavior: preserve
@@ -539,7 +537,6 @@ artifacts:
       - "project.index_files.lessons"
     producer: "migrate_lessons_index.py --write"
     consumers:
-      - "/planwise doctor (migration audit trail)"
       - "/planwise upgrade (lessons migration verification)"
     missing_key_behavior: warn_loud
     upgrade_behavior: preserve
