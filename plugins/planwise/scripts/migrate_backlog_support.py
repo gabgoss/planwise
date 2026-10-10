@@ -63,8 +63,14 @@ _PUNCT_RE = re.compile(r"[^\w\s]")
 _WS_RE = re.compile(r"\s+")
 _DIGITS_RE = re.compile(r"\d+")
 # A Blocks cell may hold only ids and separators, a dash, or "none". Other
-# text in it is prose the regeneration would drop.
-_BLOCKS_TEXT_RE = re.compile(r"(\d+([\s,;]+\d+)*)?|[-–—]|none", re.IGNORECASE)
+# text in it is prose the regeneration would drop. An id may carry a prefix.
+_CELL_ID = r"(?:[A-Za-z]+-)?\d+"
+_BLOCKS_TEXT_RE = re.compile(rf"({_CELL_ID}([\s,;]+{_CELL_ID})*)?|[-–—]|none", re.IGNORECASE)
+# A '## Dependencies' Blocks cell may also end in one parenthetical note. The items table
+# never accepts one, so its note could not be moved.
+_DEP_CELL_RE = re.compile(rf"(?P<ids>{_CELL_ID}(?:[\s,;]+{_CELL_ID})*|[-–—]|none)?\s*(?:\((?P<note>[^()]*)\))?",
+                          re.IGNORECASE)
+_CELL_ID_RE = re.compile(r"(?:([A-Za-z]+)-)?(\d+)")
 _FILES_GLUE_RE = re.compile(r"[\s,;]+|<br\s*/?>", re.IGNORECASE)
 _ABBREV_RE = re.compile(r"[A-Z][A-Z0-9]*")  # the shape an item file name's abbrev segment takes
 _ABBREV_CELL_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*")  # an Abbrev cell that carries a value, in any case
@@ -264,6 +270,16 @@ def blocks_text_ok(cell: str) -> bool:
     return bool(_BLOCKS_TEXT_RE.fullmatch(plain(cell)))
 
 
+def dependency_cell_parts(cell: str):
+    """(ids as (prefix or None, NNN) pairs, note text or "") for a '## Dependencies' Blocks cell
+    of ids and at most one trailing parenthetical, else None."""
+    m = _DEP_CELL_RE.fullmatch(plain(cell))
+    if m is None:
+        return None
+    ids = [(prefix or None, digits.zfill(3)) for prefix, digits in _CELL_ID_RE.findall(m.group("ids") or "")]
+    return ids, (m.group("note") or "").strip()
+
+
 def files_links(cell: str):
     """Return (links as (text, href) pairs, any text outside the links)."""
     return _LINK_RE.findall(cell), _FILES_GLUE_RE.sub("", _LINK_RE.sub("", cell))
@@ -299,6 +315,15 @@ def abbrev_usable(value: str, valid) -> bool:
     """True when `value` can stand as an abbrev: a configured one when `valid`
     is a set, else any value shaped like a file name's abbrev segment."""
     return bool(value) and (value in valid if valid is not None else bool(_ABBREV_RE.fullmatch(value)))
+
+
+def case_match_abbrev(value: str, valid) -> str | None:
+    """The configured key that equals `value` ignoring case, when `value` itself is not configured
+    and exactly one key matches; else None."""
+    if not valid or value in valid:
+        return None
+    hits = sorted(k for k in valid if k.lower() == value.lower())
+    return hits[0] if len(hits) == 1 else None
 
 
 def row_diffs(cells: list, roles: dict, fields: dict, valid_abbrevs=None) -> list:
@@ -579,15 +604,31 @@ def _entry_section(label: str, body: str, nl: str) -> str:
     return f"## Entry {label}{nl}{nl}{body}{nl}{nl}"
 
 
+def entry_fits_alone(tokens: int) -> bool:
+    """True when a single changelog entry of `tokens` can keep a file to itself: it measures
+    under the Read tool's page cap, so a reader still gets it whole in one call."""
+    return tokens < READ_PAGE_CAP_TOKENS
+
+
+def oversized_single_entries(parts: list) -> list:
+    """One `{path, tokens}` record for each part that holds a single entry and measures at or
+    over the per-file warn budget, for the ledger. `parts` is `[(path, text), ...]`."""
+    found = []
+    for path, text in parts:
+        tokens = changelog_tokens(text)
+        if tokens >= READ_TOKEN_WARN and len(ENTRY_HEADING_RE.findall(text.replace("\r\n", "\n"))) <= 1:
+            found.append({"path": str(path), "tokens": tokens})
+    return found
+
+
 def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = None) -> list:
     """Split each footer entry into one or more (label, body) chunks. An
     entry whose own section reaches `target` (default `budget`) is split at
     blank-line boundaries into 'N' and 'N (continued)' pieces. A single
-    paragraph whose own section alone still exceeds `budget` raises
-    `Refusal`, naming the entry and its token count -- a data error this
-    tool cannot decide. An entry with no paragraph boundary at all (a
-    footer entry is one line) is refused the same way and is never split
-    mid-line. Each body takes `nl` line endings."""
+    paragraph whose own section alone still exceeds `budget` stays whole
+    as its own chunk while `entry_fits_alone`; at or above the page cap it
+    raises `Refusal`, naming the entry and its token count -- a data error
+    this tool cannot decide. Each body takes `nl` line endings."""
     target = budget if target is None else target
     chunks = []
     for i, seg in enumerate(segments, start=1):
@@ -609,6 +650,9 @@ def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = Non
         for j, piece in enumerate(pieces):
             label = str(i) if j == 0 else f"{i}{CONTINUED}"
             tokens = changelog_tokens(_entry_section(label, piece, nl))
+            if tokens >= budget and entry_fits_alone(tokens):
+                chunks.append((label, piece))  # one entry under the page cap keeps its file whole
+                continue
             if tokens >= budget and len(paras) == 1:
                 raise Refusal(
                     f"changelog entry {i}, which begins {body.strip()[:60]!r}, is one paragraph of ~{tokens} tokens, over "
@@ -675,10 +719,12 @@ def split_changelog(segments: list, naming, index_name: str, nl: str, budget: in
 
 def check_parts_budget(split: list, budget: int = READ_TOKEN_WARN) -> list:
     """Return `split` unchanged, or raise `Refusal` naming the first part
-    that measures at or over `budget`."""
+    that measures at or over `budget`. A part holding one entry stays whole
+    while that entry `entry_fits_alone`."""
     for name, text in split:
         tokens = changelog_tokens(text)
-        if tokens >= budget:
+        single = len(ENTRY_HEADING_RE.findall(text.replace("\r\n", "\n"))) <= 1
+        if tokens >= budget and not (single and entry_fits_alone(tokens)):
             raise Refusal(f"changelog part {name} would measure ~{tokens} tokens, over the {budget}-token "
                           "per-file budget: an entry in it has a paragraph too large to sit beside the part's "
                           "header",

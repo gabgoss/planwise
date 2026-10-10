@@ -282,3 +282,44 @@ def test_resplit_rows_name_the_real_backup_path(tmp_path):
     assert base._migrate(cfg).state == "changelog_split"
     rows = (base._pair(cfg) / "DISPOSITIONS.md").read_text(encoding="utf-8")
     assert f"rewritten; pre-image at upgrade-backups/1.0-to-1.1/backlog/{CHANGELOG}" in rows
+
+
+# --- abbreviations the config does not define ---
+
+def test_unconfigured_abbrev_is_added_to_config_with_backup(tmp_path, capsys):
+    cfg, backlog = base._project(tmp_path)
+    config_path = backlog.parent / "config.yaml"
+    original = base.CONFIG.replace("  INFRA: Infrastructure and DevOps\n", "").replace(
+        "abbreviations:\n", "abbreviations:\n  # keep this comment\n") + "other_key: 1\n"
+    base._write(config_path, original)
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    text = config_path.read_bytes().decode("utf-8")
+    added = 'INFRA: "INFRA (added by the upgrade; edit the description)"'
+    assert text == original.replace("  SMP: Sample work\n", f"  SMP: Sample work\n  {added}\n")
+    assert "abbrev: INFRA" in (backlog / "ITEM-003-INFRA-Third.md").read_text(encoding="utf-8")
+    # The pre-edit config is backed up byte-exact, and a DISPOSITIONS row names the addition and the backup.
+    backed = [p for p in (base._pair(cfg) / "backlog").rglob("config.yaml")]
+    assert [p.read_bytes() for p in backed] == [original.encode("utf-8")]
+    rows = (base._pair(cfg) / "DISPOSITIONS.md").read_text(encoding="utf-8")
+    assert "added INFRA under abbreviations:; pre-image at upgrade-backups/1.0-to-1.1/backlog/_outside/" in rows
+    assert json.loads(mig.read_text(report.ledger_path))["abbreviations"] == {"added": ["INFRA"], "matched": []}
+    bm._emit_backlog_migration_banner(report)
+    assert "    abbreviations added:    INFRA" in capsys.readouterr().out
+
+
+def test_case_insensitive_abbrev_matches_a_configured_key(tmp_path, capsys):
+    index = base.legacy_index().replace("| NOT_STARTED | SMP | [001]", "| NOT_STARTED | smp | [001]")
+    cfg, backlog = base._project(tmp_path, index)
+    config_path = backlog.parent / "config.yaml"
+    before = config_path.read_bytes()
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    assert config_path.read_bytes() == before  # a case match adds nothing to the config
+    assert "abbrev: SMP" in (backlog / "001-Sample.md").read_text(encoding="utf-8")
+    log = json.loads(mig.read_text(report.ledger_path))
+    assert log["abbreviations"] == {"added": [], "matched": [{"from": "smp", "to": "SMP"}]}
+    [cell] = [c for c in log["reconcile"]["cells"] if c["key"] == "abbrev"]
+    assert (cell["index"], cell["winner"], cell["written"]) == ("smp", "configured-key", "SMP")
+    bm._emit_backlog_migration_banner(report)
+    assert "    abbreviations matched:  smp -> SMP" in capsys.readouterr().out

@@ -125,14 +125,19 @@ def test_r3_split_keeps_every_part_within_budget_at_real_scale():
     assert sup.parse_changelog([text for _n, text in result]) == segments
 
 
-def test_r3_unsplittable_first_entry_is_refused_not_written_over_budget(tmp_path, monkeypatch, capsys):
+def test_r3_unsplittable_first_entry_under_the_page_cap_is_kept_whole(tmp_path, monkeypatch, capsys):
+    # The entry plus its part header reaches the warn budget but sits far under the page cap, so it keeps
+    # its file whole and the ledger names it.
     body, _ = body_under(BUDGET - 20)
     footer = f"*Last Updated: 2024-01-01 — {body} Prior entry: 2023-12-01 — small entry.*\n"
-    config_path, _index = project(tmp_path, index(row("001"), footer=footer), {"001": item("001")})
-    before = snapshot(tmp_path)
+    config_path, index_path = project(tmp_path, index(row("001"), footer=footer), {"001": item("001")})
     code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write")
-    assert code == 2 and "REFUSED" in err and "per-file budget" in err, err + out
-    assert snapshot(tmp_path) == before
+    assert code == 0, err + out
+    log = json.loads(mig.artifact_paths(index_path)[1].read_bytes().decode("utf-8"))
+    [kept] = log["oversized_single_entries"]
+    assert Path(kept["path"]).name == part_name(1) and BUDGET <= kept["tokens"] < sup.READ_PAGE_CAP_TOKENS
+    assert log["changelog"]["unaccounted"] == 0 and log["verification"] == {"verified": True, "misses": []}
+    assert body in (index_path.parent / part_name(1)).read_bytes().decode("utf-8")
 
 
 # --- R5: a CRLF re-split writes CRLF only ----------------------------------
@@ -239,17 +244,27 @@ def test_r8_rerun_resumes_after_an_item_file_was_already_replaced(tmp_path, monk
     assert json.loads(mig.artifact_paths(_index)[1].read_bytes())["mode"] == "write"
 
 
-# --- R1: index-wins never silently drops a Dependencies edge ---------------
+# --- R1: index-wins unions a Dependencies edge instead of dropping it ------
 
-def test_r1_index_wins_refuses_to_drop_a_dependencies_edge(tmp_path, monkeypatch, capsys):
+def test_index_wins_unions_a_dependencies_edge(tmp_path, monkeypatch, capsys):
     items = {i: item(i) for i in ("001", "002", "003")}
     text = index(row("001", blocks="002"), row("002"), row("003"), deps=DEPS_001_003)
-    config_path, _index = project(tmp_path, text, items)
-    before = snapshot(tmp_path)
+    config_path, index_path = project(tmp_path, text, items)
     code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write", "--write-edges",
                          "--reconcile", "index-wins")
-    assert code == 2 and "would drop" in err and "001 blocks 003" in err, err + out
-    assert snapshot(tmp_path) == before
+    assert code == 0, err + out
+    assert "blocks: [002, 003]" in (index_path.parent / name("001")).read_text(encoding="utf-8")
+    edges = json.loads(mig.artifact_paths(index_path)[1].read_bytes())["edges"]
+    assert edges == [{"src": "001", "dst": "003", "source": "dependencies-table"}]
+    cells = json.loads(mig.artifact_paths(index_path)[1].read_bytes())["reconcile"]["cells"]
+    assert [(c["index"], c["written"]) for c in cells] == [(["002"], ["002", "003"])]
+    # the check is exact: a written list that differs from the planned union is a miss
+    item_path = index_path.parent / name("001")
+    stale = {"changelog": {"segments": [], "parts": [(index_path, None)]}, "dests": [],
+             "reconcile": {"mode": "index-wins", "cells": [{**cells[0], "path": item_path, "written": ["002", "004"]}]},
+             "index_text": index_path.read_text(encoding="utf-8")}
+    misses = mig.verify_written(stale, mig.artifact_paths(index_path), index_path)
+    assert [m for m in misses if m.startswith("reconciled blocks: [002, 004]")]
 
 
 # --- L5, L6, L4 -------------------------------------------------------------

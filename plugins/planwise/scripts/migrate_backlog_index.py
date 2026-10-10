@@ -19,8 +19,8 @@ re-splits one that has grown over budget.
 
 Recognise-or-refuse, never best-effort. Before any write, the run refuses
 (exit 2) and names the cause when: the shape, a column or a `##` section is
-not recognised; any line anywhere in the file is prose the regeneration
-drops (preamble, items section, Shards, Dependencies); a `## Dependencies`
+not recognised; a Shards or Dependencies table or row is not recognised;
+a `## Dependencies`
 edge is missing from its item's frontmatter `blocks:`; the generator's own
 scan would refuse the tree; a row has an empty ID cell or prose in its
 Files or Blocks cell; a row cell disagrees with its item frontmatter; a
@@ -40,8 +40,16 @@ under `## Dependencies` into its owning item's `## Dependency Notes
 (migrated from the backlog index)`. `--reconcile index-wins|frontmatter-wins`
 settles a row/frontmatter disagreement. A changelog holding only its
 backlink line counts as absent. These still refuse under every flag: a
-file with no frontmatter and no index row, a bullet naming no known item,
-an unparseable frontmatter block, and a reciprocal edge.
+file with no frontmatter and no index row, an unparseable frontmatter
+block, and a reciprocal edge.
+
+Index text that regeneration would drop is relocated, never refused: a
+preamble line, text between the heading and its table, text after the
+table, text under `## Shards` or `## Dependencies`, an unrecognised
+section, a soft-dependency bullet whose owner has no item file, and a row
+whose Files cell resolves no item file. Each lands byte-exact in one dated
+changelog entry, and the ledger's `relocated_index_lines` lists it. A run
+resumed on a later day reuses the date of the entry already written.
 
 Dedup: a unit is ALREADY-PRESENT only when its whole strict form (case
 folded, whitespace collapsed, emphasis stripped) occurs in one paragraph
@@ -81,6 +89,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import generate_backlog_index as gen
 import migrate_backlog_checks as chk
+import migrate_backlog_relocate as reloc
 import migrate_backlog_repairs as repairs
 import migrate_backlog_support as sup
 from config_loader import load_config
@@ -207,8 +216,9 @@ def preflight_generator(config: dict, index_path: Path, overrides: dict | None =
     return {item["_path"].resolve(): item for item in items}
 
 
-def resolve_rows(text: str, header_idx: int, roles: dict, config: dict, index_path: Path) -> list:
-    """Resolve each row's Files cell to its item file; refuse a row this tool cannot read."""
+def resolve_rows(text: str, header_idx: int, roles: dict, config: dict, index_path: Path, relocated: list) -> list:
+    """Resolve each row's Files cell to its item file; refuse a row this tool cannot read. A row
+    whose Files cell resolves no item file is appended to `relocated` whole and left out."""
     rows = []
     for line_no, cells in sup.iter_rows(text.split("\n"), header_idx):
         where = f"row at line {line_no + 1}"
@@ -225,8 +235,9 @@ def resolve_rows(text: str, header_idx: int, roles: dict, config: dict, index_pa
         path = sup.resolve_item_file(links[0][1], config["_backlog_dir"], config["_archive_dir"],
                                      index_path.parent) if links else None
         if path is None:
-            raise Refusal(f"{where} (id {cells[roles['id']]}): Files cell resolves no item file",
-                          "create the item file the Files cell names, or repoint the link")
+            relocated.append({"line": line_no + 1, "kind": "row without an item file",
+                              "text": text.split("\n")[line_no].rstrip("\r")})
+            continue
         rows.append({"line": line_no, "cells": cells, "path": path, "links": links})
     return rows
 
@@ -255,13 +266,24 @@ def _cell(row: dict, roles: dict, role: str) -> str:
     return sup.plain(row["cells"][roles[role]]) if role in roles else ""
 
 
-def _abbrev(row: dict, roles: dict, path: Path, config: dict, where: str) -> str:
+def retarget_cell(line: str, cell: str, value: str) -> str:
+    """`line`, a table row, with its first cell that equals `cell` rewritten to `value`."""
+    return re.sub(rf"(\|\s*){re.escape(cell)}(\s*\|)", lambda m: f"{m.group(1)}{value}{m.group(2)}", line, count=1)
+
+
+def _name_win(wins: list, path: Path, item_id: str, key: str, cell: str, value: str) -> None:
+    """Record that the file name's `value` settled a disagreement with the index `cell`."""
+    wins.append({"id": item_id, "key": key, "frontmatter": None, "index": cell, "winner": "file-name",
+                 "written": value, "path": path})
+
+
+def _abbrev(row: dict, roles: dict, path: Path, config: dict, where: str, wins: list) -> str:
     valid = sup.configured_abbrevs(config)
     seg, cell = (repairs.filename_fields(path.name) or (None, None))[1], _cell(row, roles, "abbrev")
     usable = [v for v in (seg, cell) if sup.abbrev_usable(v, valid)]
-    if len(set(usable)) > 1:
-        raise Refusal(f"{where}: the file name says abbrev {seg!r} but the index cell says {cell!r} -- "
-                      "make them agree by hand, then re-run")
+    if len(set(usable)) > 1:  # the file name's segment comes first in `usable`
+        _name_win(wins, path, repairs.first_id_in(path.stem) or "", "abbrev", cell, usable[0])
+        return usable[0]
     unconfigured = sorted({v for v in (seg, cell) if sup.abbrev_usable(v, None)} - (valid or set()))
     if not usable and valid is not None and unconfigured:
         names = " and ".join(unconfigured)
@@ -270,21 +292,25 @@ def _abbrev(row: dict, roles: dict, path: Path, config: dict, where: str) -> str
     return usable[0] if usable else ""
 
 
-def _source_values(keys: list, row: dict, roles: dict, path: Path, config: dict, dates: dict):
-    """Return ({key: value} for `keys`, the created-date source or None). Refuses rather than guess."""
+def _source_values(keys: list, row: dict, roles: dict, path: Path, config: dict, dates: dict, wins: list):
+    """Return ({key: value} for `keys`, the created-date source or None). Where the file name and the
+    index cell disagree on an id or abbrev, the file name wins and `wins` records the cell. Refuses
+    rather than guess otherwise."""
     where = f"{path.name} (row at line {row['line'] + 1})"
     values, source = {}, None
     for key in keys:
         if key == "id":
             ids, named = sup.row_ids(row["cells"][roles["id"]]), repairs.first_id_in(path.stem)
-            if len(ids) != 1 or (named is not None and named != ids[0]):
-                raise Refusal(f"{where}: the ID cell names {ids or 'no id'} and the file name names {named} -- "
-                              "make them agree by hand, then re-run")
-            values[key] = ids[0]
+            if named is None and len(ids) != 1:
+                raise Refusal(f"{where}: the ID cell names {ids or 'no id'} and the file name carries no id",
+                              "rename the file to carry its id, or leave exactly one id in the ID cell")
+            if named is not None and ids != [named]:
+                _name_win(wins, path, named, "id", row["cells"][roles["id"]].strip(), named)
+            values[key] = named if named is not None else ids[0]
         elif key == "title":
             values[key] = repairs.title_from_cell(row["cells"][roles["feature"]])
         elif key == "abbrev":
-            values[key] = _abbrev(row, roles, path, config, where)
+            values[key] = _abbrev(row, roles, path, config, where, wins)
         elif key == "created":
             index_date = _cell(row, roles, "created")
             values[key], source = (index_date, "index") if index_date else dates[path]
@@ -324,11 +350,13 @@ def _repair_id(path: Path, body: str, raw: dict, row: dict | None, roles: dict, 
 
 
 def plan_backfill(resolved: list, roles: dict, config: dict, index_path: Path, texts: dict,
-                  id_repairs: list | None = None) -> list:
+                  id_repairs: list | None = None, wins: list | None = None) -> list:
     """Plan frontmatter for every scanned item file that lacks a block or keys, into `texts`.
     An `id:` of the form "{PREFIX}-{NNN}[-{NN}]" is normalised first; each such repair is
-    appended to `id_repairs`."""
+    appended to `id_repairs`. Each id or abbrev the file name settled against its index cell
+    is appended to `wins`."""
     id_repairs = [] if id_repairs is None else id_repairs
+    wins = [] if wins is None else wins
     by_path = {}
     for row in resolved:
         by_path.setdefault(row["path"], row)
@@ -350,7 +378,7 @@ def plan_backfill(resolved: list, roles: dict, config: dict, index_path: Path, t
     dates = repairs.created_dates(config["_project_root"], dated, config["_backlog_dir"]) if dated else {}
     planned = []
     for path, body, has_block, missing, row in todo:
-        values, source = _source_values(missing, row, roles, path, config, dates)
+        values, source = _source_values(missing, row, roles, path, config, dates, wins)
         nl = sup.newline_of(body)
         if has_block:
             try:
@@ -450,16 +478,16 @@ def plan_dedup(rows: list, high: float, low: float, append_ambiguous: bool, text
     return list(dests.values())
 
 
-def plan_notes(bullets: list, items: dict, texts: dict) -> list:
-    """Append each soft-dependency bullet to its owner's dependency-notes section in `texts`."""
+def plan_notes(bullets: list, items: dict, texts: dict, relocated: list) -> list:
+    """Append each soft-dependency bullet to its owner's dependency-notes section in `texts`.
+    A bullet whose owner has no item file is appended to `relocated` instead."""
     owners = {item["id"]: path for path, item in items.items()}
     grouped = {}
     for bullet in bullets:
         path = owners.get(bullet["owner"])
         if path is None:
-            named = f"id {bullet['owner']}, which has no item file" if bullet["owner"] else "no item id"
-            raise Refusal(f"line {bullet['line']}: the soft-dependency bullet {bullet['text'][:60]!r} names {named} "
-                          "-- add the item, or move the bullet into its owner's file by hand, then re-run")
+            relocated.append({"line": bullet["line"], "kind": "unknown-owner bullet", "text": bullet["text"]})
+            continue
         grouped.setdefault(path, []).append(bullet["text"])
     planned = []
     for path, units in grouped.items():
@@ -476,11 +504,12 @@ def plan_notes(bullets: list, items: dict, texts: dict) -> list:
     return planned
 
 
-def plan_changelog(text: str, index_path: Path, changelog_path: Path, pending: int, naming):
+def plan_changelog(text: str, index_path: Path, changelog_path: Path, pending: int, naming,
+                   relocated: str | None = None):
     """Return the multi-part changelog plan, or None when the index is
     already migrated. A changelog holding only its backlink
     line is treated as absent. `plan["parts"]` is `[(path, text), ...]`,
-    part 1 first."""
+    part 1 first. A `relocated` entry is written as the first segment."""
     footer = sup.FOOTER_TEXT_RE.search(text).group(0)
     pointer = sup.POINTER_RE.match(footer)
     if pointer:
@@ -496,7 +525,11 @@ def plan_changelog(text: str, index_path: Path, changelog_path: Path, pending: i
                           "interrupted older run or a hand edit left this state -- restore from version control")
         return None
     extracted = sup.extract_changelog(index_path.read_bytes())
-    split = sup.check_parts_budget(sup.split_changelog(extracted["segments"], naming, index_path.name,
+    if relocated:
+        entry = relocated.encode("utf-8")
+        extracted = {**extracted, "segments": [entry, *extracted["segments"]],
+                     "entry_content_bytes": extracted["entry_content_bytes"] + len(entry)}
+    split =sup.check_parts_budget(sup.split_changelog(extracted["segments"], naming, index_path.name,
                                                        sup.newline_of(text)))
     pattern = sup.changelog_part_pattern(naming)
     max_planned = len(split)
@@ -556,38 +589,64 @@ def _refuse_unusable_abbrevs(texts: dict, valid) -> None:
                           "then re-run")
 
 
-def _refuse_unfinished_ledger(ledger_path: Path) -> None:
-    """Refuse when the index is already migrated but the ledger path still holds the in-progress
+def interrupted_journal(ledger_path: Path) -> int | None:
+    """None unless the index is already migrated but the ledger path still holds the in-progress
     journal: the run stopped after replacing the index and before writing its ledger, so that
-    journal is the only record of what it did, including any parked units."""
+    journal is the only record of what it did. Returns the parked units it holds."""
     if not sup.journal_paths(ledger_path):
-        return
+        return None
     try:
-        parked = len(json.loads(read_text(ledger_path)).get("parked_ambiguous") or [])
+        return len(json.loads(read_text(ledger_path)).get("parked_ambiguous") or [])
     except (OSError, ValueError, AttributeError):
-        parked = 0
-    raise Refusal(f"{ledger_path.name} is still the in-progress journal of an interrupted migration: the index "
-                  f"was replaced but the ledger was never written, and the journal holds the only record of its "
-                  f"{parked} parked unit(s) -- keep that file: rename it (for example to {ledger_path.stem}"
-                  "-Interrupted.json), then re-run to regenerate the index")
+        return 0
+
+
+def settle_interrupted_journal(ledger_path: Path) -> Path:
+    """Rename the in-progress journal to `{stem}-Interrupted-{date}.json` (numeric suffix when that
+    name is taken), keeping every byte of it, then write a ledger at the old path that names the new
+    file. Returns the renamed path. The caller backs the journal up first."""
+    day = _today()
+    parked = interrupted_journal(ledger_path) or 0
+    renamed = ledger_path.with_name(f"{ledger_path.stem}-Interrupted-{day}.json")
+    n = 1
+    while renamed.exists():
+        n += 1
+        renamed = ledger_path.with_name(f"{ledger_path.stem}-Interrupted-{day}-{n}.json")
+    ledger_path.rename(renamed)
+    note = {"run_date": day, "mode": "journal-renamed", "journal_renamed_to": str(renamed),
+            "parked_units_in_journal": parked,
+            "note": "an earlier run replaced the index and stopped before it wrote its ledger. Its journal is "
+                    "kept under the name above. The index was already migrated, so this run planned no "
+                    f"migration and did not re-derive anything. The {parked} parked unit(s) remain verbatim in "
+                    "the renamed journal and need review there."}
+    sup.replace_all(sup.stage_all([(ledger_path, json.dumps(note, indent=2) + "\n")]))
+    return renamed
 
 
 def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: tuple, options: RepairOptions):
     header_idx, roles = detail
     problems, edges, found = chk.scan_index(text, header_idx, extract_notes=options.extract_dependency_notes)
+    movable, problems = reloc.split_problems(problems)
+    relocated = reloc.collect_relocations(movable, text.split("\n"))
+    scanned = {record["line"] - 1 for record in relocated}  # index lines the plan removes after relocating them
     if problems:
         hint = ""
-        if not options.extract_dependency_notes and len(chk.scan_index(text, header_idx, True)[0]) < len(problems):
+        if (not options.extract_dependency_notes
+                and len(reloc.split_problems(chk.scan_index(text, header_idx, True)[0])[1]) < len(problems)):
             hint = " -- add --extract-dependency-notes to move the soft-dependency bullets into their owning item files"
-        raise Refusal("content regeneration would drop and this tool does not move: " + "; ".join(problems),
-                      hint[4:] or "move each named line into an item file or the changelog by hand, then re-run")
+        fix = hint[4:] or "move each named line into an item file or the changelog by hand, then re-run"
+        if any(chk.FOREIGN_PREFIX in p for p in problems):
+            prefix = chk.items_prefix(text.split("\n"), header_idx)
+            fix = ("write the cell with the items table's prefix or as bare digits "
+                   f"(the items table writes {f'{prefix}-' if prefix else 'bare digits'})")
+        raise Refusal("content regeneration would drop and this tool does not move: " + "; ".join(problems), fix)
     changelog_path, _ledger, older = paths
     if older != changelog_path and older.exists():
         raise Refusal(f"{older.name} exists from an earlier version of this tool, and the generator "
                       f"would scan it as an item file -- rename it to {changelog_path.name}")
-    resolved = resolve_rows(text, header_idx, roles, config, index_path)
-    texts, id_repairs = {}, []
-    backfill = (plan_backfill(resolved, roles, config, index_path, texts, id_repairs)
+    resolved = resolve_rows(text, header_idx, roles, config, index_path, relocated)
+    texts, id_repairs, wins = {}, [], []
+    backfill = (plan_backfill(resolved, roles, config, index_path, texts, id_repairs, wins)
                 if options.backfill_frontmatter else [])
     no_backfill = not options.backfill_frontmatter
     edge_plan = []
@@ -602,45 +661,63 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
                       + ("" if options.write_edges else ", or add --write-edges to write each edge into blocks:"))
     valid_abbrevs = sup.configured_abbrevs(config)
     rows, diffs = collect_rows(resolved, roles, index_path, items, valid_abbrevs)
+    settled = {(w["key"], w["path"]) for w in wins}  # the file name already won these cells
+    diffs = [d for d in diffs if (d["key"], d["path"]) not in settled]
     cells = plan_reconcile(diffs, options.reconcile, texts, items)
     written_cells = cells if options.reconcile == "index-wins" else []
     if written_cells:
         items = preflight_generator(config, index_path, texts)
-        dropped = chk.missing_edges(edges, items)
-        if dropped:
-            raise Refusal(f"--reconcile index-wins would drop {len(dropped)} '## Dependencies' edge(s) from "
-                          f"blocks: {'; '.join(dropped[:10])}. The row's Blocks cell and '## Dependencies' "
-                          "disagree -- make them agree by hand, then re-run")
+        if chk.missing_edges(edges, items):
+            for edge in plan_edges(edges, items, texts):
+                known = next((e for e in edge_plan if (e["src"], e["dst"]) == (edge["src"], edge["dst"])), None)
+                if known is None:
+                    edge_plan.append(edge)
+                    known = edge
+                known["source"] = "dependencies-table"
+                for cell in cells:
+                    if cell["key"] == "blocks" and cell["path"] == edge["path"]:
+                        cell["written"] = sorted({*cell.get("written", cell["index"]), edge["dst"]}, key=int)
+            items =preflight_generator(config, index_path, texts)
     dests = plan_dedup(rows, options.high, options.low, options.append_ambiguous, texts, options.park_ambiguous)
     for dest in dests:
         if dest["append"]:
             units = [unit for _row_id, unit in dest["append"]]
             dest["new_text"] = sup.append_notes(dest["body"], units, sup.newline_of(dest["body"]))
             texts[dest["path"]] = dest["new_text"]
-    notes = plan_notes([f for f in found if f["kind"] == "bullet"], items, texts)
+    bullets = [{**f, "kind": "bullet", "text": f"- {f['text']}"} if f["kind"] == "remainder" else f
+               for f in found if f["kind"] in ("bullet", "remainder")]
+    notes = plan_notes(bullets, items, texts, relocated)
     _refuse_unusable_abbrevs(texts, valid_abbrevs)
     pending = (sum(len(d["append"]) for d in dests) + len(backfill) + len(edge_plan) + len(written_cells)
                + sum(n["bullets"] for n in notes) + len(id_repairs))
     naming = gen._index_naming(index_path)
-    changelog = plan_changelog(text, index_path, changelog_path, pending, naming)
+    relocated.sort(key=lambda record: record["line"])
+    when = (reloc.recorded_date(read_text(changelog_path)) if relocated and changelog_path.exists() else None) or _today()
+    entry = reloc.render_relocated_entry(relocated, when) if relocated else None
+    changelog = plan_changelog(text, index_path, changelog_path, pending, naming, entry)
     if changelog is None:
-        _refuse_unfinished_ledger(paths[1])
         return None
     for entry in backfill:
         entry["lines"] = _key_lines(texts[entry["path"]], entry["keys_added"])
     footer = sup.FOOTER_TEXT_RE.search(text)
     pointer = f"*Last Updated: {_today()} — moved to [{changelog_path.name}]({changelog_path.name})*"
     index_text = text[:footer.start()] + pointer + text[footer.end():]
-    drop = {i for f in found for i in range(f["line"] - 1, f["line"] - 1 + f["count"])}
+    source_lines = text.split("\n")
+    for win in wins:  # the staged index states the winning value, so a re-run finds the cell and file agreeing
+        row = next(r for r in resolved if r["path"] == win["path"])
+        line = source_lines[row["line"]]
+        index_text = index_text.replace(line, retarget_cell(line, win["index"], win["written"]), 1)
+    drop ={i for f in found for i in range(f["line"] - 1, f["line"] - 1 + f["count"])}
+    drop |= scanned
     if drop:
         index_text = _drop_lines(index_text, drop)
     outputs = [(path, texts[path]) for path in sorted(texts, key=str)]
     outputs += list(changelog["parts"]) + [(index_path, index_text)]
     return {"changelog": changelog, "dests": dests, "row_count": len(rows),
             "interrupted": changelog["resumed"] or any(d["prior"] for d in dests) or any(n["present"] for n in notes),
-            "index_text": index_text, "backfill": backfill, "id_repairs": id_repairs, "edges": edge_plan, "notes": notes,
+            "index_text": index_text, "relocated": relocated, "relocated_entry": entry, "backfill": backfill, "id_repairs": id_repairs, "edges": edge_plan, "notes": notes,
             "dropped_headings": [f["text"] for f in found if f["kind"] == "heading"],
-            "reconcile": {"mode": options.reconcile, "cells": cells}, "outputs": outputs}
+            "reconcile": {"mode": options.reconcile, "cells": cells + wins}, "outputs": outputs}
 
 
 def plan_migration(config: dict, index_path: Path, text: str, detail: tuple, options: RepairOptions):
@@ -740,10 +817,14 @@ def build_ledger(plan: dict, paths: tuple, measured: dict | None = None, misses:
         "backfill": [{"path": str(b["path"]), "keys_added": b["keys_added"], "created_source": b["created_source"]}
                      for b in plan["backfill"]],
         "id_repairs": [{"path": str(r["path"]), "from": r["from"], "to": r["to"]} for r in plan.get("id_repairs", ())],
-        "edges": [{"src": e["src"], "dst": e["dst"]} for e in plan["edges"]],
+        "edges": [{"src": e["src"], "dst": e["dst"], **({"source": e["source"]} if "source" in e else {})}
+                  for e in plan["edges"]],
         "dependency_notes": [{"path": str(n["path"]), "bullets": n["bullets"], "bytes": n["bytes"],
                               "already_present": n["present"]} for n in plan["notes"]],
         "dependency_headings_dropped": plan["dropped_headings"],
+        "relocated_index_lines": reloc.ledger_rows(plan.get("relocated", ())),
+        "oversized_single_entries": sup.oversized_single_entries(c["parts"]),
+        "abbreviations": plan.get("abbreviations") or {"added": [], "matched": []},
         "reconcile": {"mode": plan["reconcile"]["mode"],
                       "cells": [{k: v for k, v in cell.items() if k != "path"} for cell in plan["reconcile"]["cells"]]},
         "verification": None,
@@ -797,7 +878,8 @@ def verify_written(plan: dict, paths: tuple, index_path: Path) -> list:
     log = sup.joined_entries([read_text(p) for p in part_paths])
     for i, seg in enumerate(plan["changelog"]["segments"], start=1):
         if seg.decode("utf-8") not in log:
-            misses.append(f"changelog entry {i} is missing from its changelog part(s)")
+            what = "relocated index text entry" if i == 1 and plan.get("relocated_entry") else f"changelog entry {i}"
+            misses.append(f"{what} is missing from its changelog part(s)")
     for d in plan["dests"]:
         body = read_text(d["path"])
         misses += [f"row {row_id} unit {unit[:70]!r} is missing from {d['path'].name}"
@@ -821,8 +903,15 @@ def verify_written(plan: dict, paths: tuple, index_path: Path) -> list:
         body = read_text(n["path"])
         misses += [f"dependency note {u[:70]!r} is missing from {n['path'].name}" for u in n["units"] if u not in body]
     rec = plan.get("reconcile") or {"mode": None, "cells": []}
-    for cell in rec["cells"] if rec["mode"] == "index-wins" else ():
-        value = f"[{', '.join(cell['index'])}]" if cell["key"] == "blocks" else cell["index"]
+    for cell in rec["cells"]:
+        if cell.get("winner") == "file-name":
+            value = cell["written"]
+        elif cell.get("winner"):
+            continue  # a case-insensitive abbreviation match: the file's own abbrev: was never rewritten
+        elif rec["mode"] == "index-wins":
+            value = f"[{', '.join(cell.get('written', cell['index']))}]" if cell["key"] == "blocks" else cell["index"]
+        else:
+            continue
         if f"{cell['key']}: {value}" not in read_text(cell["path"]):
             misses.append(f"reconciled {cell['key']}: {value} is missing from {cell['path'].name}")
     if read_text(index_path) != plan["index_text"]:
@@ -1074,6 +1163,13 @@ def run(config: dict, args) -> int:
         plan = plan_migration(config, index_path, text, detail, options_from_args(args))
     except Refusal as exc:
         return say(2, f"REFUSED: {exc}", js, err=True)
+    if plan is None and interrupted_journal(paths[1]) is not None:
+        if not args.write:
+            return say(1, f"DRY-RUN: {paths[1].name} is the journal of an interrupted migration; --write would "
+                          f"rename it to {paths[1].stem}-Interrupted-{_today()}.json and keep every byte.", js)
+        renamed = settle_interrupted_journal(paths[1])
+        return say(0, f"WROTE: renamed the interrupted migration's journal to {renamed.name}. "
+                      "Next: run generate_backlog_index.py --write.", js)
     if plan is None:
         return say(0, f"CLEAN: already migrated -- the footer points to {paths[0].name} and every row's "
                       "prose is in its item file. Next: run generate_backlog_index.py --write.", js)

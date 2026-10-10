@@ -170,12 +170,17 @@ def test_write_edges_unions_the_edge_into_blocks(tmp_path, monkeypatch, capsys):
     assert b"| 001 | 002 |" in index_path.read_bytes()
 
 
-def test_extract_dependency_notes_off_refuses_and_names_the_flag(tmp_path, monkeypatch, capsys):
+def test_extract_dependency_notes_off_relocates_the_bullet_verbatim(tmp_path, monkeypatch, capsys):
     items = {"001": item("001", head=fm("001", blocks="[002]")), "002": item("002")}
     text = index(row("001", blocks="002"), row("002"), deps=DEPS_TABLE + SOFT)
-    config_path, _ = project(tmp_path, text, items)
-    refused(tmp_path, monkeypatch, capsys, config_path,
-            ["text under '## Dependencies'", "Soft dependencies", "add --extract-dependency-notes"])
+    config_path, index_path = project(tmp_path, text, items)
+    code, out, err = run(monkeypatch, capsys, config_path, "--force", "--write")
+    assert code == 0, err + out
+    first = mig.artifact_paths(index_path)[0].read_bytes().decode("utf-8").split("## Entry 2")[0]
+    assert "Relocated index text (migrated " in first
+    assert f"(text under a section): {SOFT_HEADING}\n" in first and f"(text under a section): {BULLET}\n" in first
+    assert item_bytes(index_path, "002") == items["002"].encode()
+    assert ledger(index_path)["changelog"]["unaccounted"] == 0
 
 
 def test_extract_dependency_notes_moves_the_bullet_to_its_owner(tmp_path, monkeypatch, capsys):
@@ -226,8 +231,6 @@ def test_foreign_changelog_is_still_refused_under_every_flag(tmp_path, monkeypat
 REFUSALS_UNDER_ALL_FLAGS = [
     ("reciprocal", index(row("001", blocks="002"), row("002", blocks="001"), deps=DEPS_TABLE),
      {"001": item("001"), "002": item("002", head=fm("002", blocks="[001]"))}, ["reciprocal", "001<->002"]),
-    ("unknown-owner", index(row("001"), deps="## Dependencies\n\n| ID | Blocks |\n|---|---|\n\n- 009 relates to 001\n\n"),
-     {"001": item("001")}, ["soft-dependency bullet", "009"]),
     ("no-row-no-block", index(row("001")), {"001": item("001"), "003": item("003", head="")}, ["no index row names it"]),
     ("unclosed-block", index(row("001"), row("003")), {"001": item("001"), "003": item("003", head="---\nid: 003\n")},
      ["does not close"]),
@@ -268,14 +271,20 @@ def test_report_counts_the_legacy_gaps(tmp_path, monkeypatch, capsys):
                                       "unrecognised_lines": 0}
 
 
-def test_report_names_the_refusal_and_exits_0(tmp_path, monkeypatch, capsys):
-    text = index(row("001"), deps="## Dependencies\n\n| ID | Blocks |\n|---|---|\n\n- 009 relates to 001\n\n")
-    config_path, _ = project(tmp_path, text, {"001": item("001")})
+def test_report_is_ready_for_an_unknown_owner_bullet_and_it_relocates(tmp_path, monkeypatch, capsys):
+    bullet = "- 009 relates to 001"
+    text = index(row("001"), deps=f"## Dependencies\n\n| ID | Blocks |\n|---|---|\n\n{bullet}\n\n")
+    config_path, index_path = project(tmp_path, text, {"001": item("001")})
     before = snapshot(tmp_path)
     code, out, _err = run(monkeypatch, capsys, config_path, "--report")
     report = json.loads(out)
-    assert code == 0 and report["ready_with_all_repairs"] is False and "009" in report["would_refuse"][0]
+    assert code == 0 and report["ready_with_all_repairs"] is True and report["would_refuse"] == []
     assert snapshot(tmp_path) == before
+    code, out, err = run(monkeypatch, capsys, config_path, "--force", "--write", *ALL_FLAGS)
+    assert code == 0, err + out
+    first = mig.artifact_paths(index_path)[0].read_bytes().decode("utf-8").split("## Entry 2")[0]
+    assert f"(unknown-owner bullet): {bullet}\n" in first
+    assert ledger(index_path)["changelog"]["unaccounted"] == 0
 
 
 def test_report_and_write_are_mutually_exclusive(tmp_path, monkeypatch, capsys):
@@ -302,3 +311,65 @@ def test_in_process_plan_targets_then_execute(tmp_path, monkeypatch, capsys):
     assert log["verification"] == {"verified": True, "misses": []}
     assert (len(log["backfill"]), len(log["edges"]), len(log["dependency_notes"])) == (1, 1, 1)
     capsys.readouterr()
+
+
+HEADER_ABBREV = "| ID | Feature | Priority | Status | Abbrev | Files |\n|---|---|---|---|---|---|\n"
+
+
+def test_file_name_wins_an_id_disagreement(tmp_path, monkeypatch, capsys):
+    # The file name says 003, the index cell says 013: the file name's id goes into frontmatter and the
+    # cell is recorded, not refused. The id: line is the only one missing, so it is the only one written.
+    original = item("003", head=fm("003", drop=("id",)))
+    cell = row("003").replace("| 003 |", "| 013 |", 1)
+    config_path, index_path = project(tmp_path, index(row("001"), cell), {"001": item("001"), "003": original})
+    write_then_clean(tmp_path, monkeypatch, capsys, config_path, "--backfill-frontmatter", "--reconcile", "index-wins")
+    assert b"\nid: 003\n" in item_bytes(index_path, "003") and b"013" not in item_bytes(index_path, "003")
+    log = ledger(index_path)
+    assert log["reconcile"]["cells"] == [{"id": "003", "key": "id", "frontmatter": None, "index": "013",
+                                          "winner": "file-name", "written": "003"}]
+    assert log["verification"] == {"verified": True, "misses": []}
+
+
+def test_file_name_wins_an_abbrev_disagreement(tmp_path, monkeypatch, capsys):
+    # The file name says SMP, the cell says DOC and index-wins would normally write DOC over it.
+    original = item("003", head=fm("003", drop=("abbrev",)))
+    cell = f"| 003 | {TITLES['003']} | High | NOT_STARTED | DOC | [003]({NAMES['003']}) |\n"
+    config_path, index_path = project(tmp_path, index(cell, header=HEADER_ABBREV), {"003": original})
+    write_then_clean(tmp_path, monkeypatch, capsys, config_path, "--backfill-frontmatter", "--reconcile", "index-wins")
+    assert b"\nabbrev: SMP\n" in item_bytes(index_path, "003") and b"DOC" not in item_bytes(index_path, "003")
+    log = ledger(index_path)
+    assert log["reconcile"]["cells"] == [{"id": "003", "key": "abbrev", "frontmatter": None, "index": "DOC",
+                                          "winner": "file-name", "written": "SMP"}]
+    assert log["verification"] == {"verified": True, "misses": []}
+
+
+def test_interrupted_journal_is_renamed_and_the_run_continues(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(mig, "_today", lambda: "2026-01-02")
+    config_path, index_path = project(tmp_path, index(row("001")), {"001": item("001")})
+    ledger_path = mig.artifact_paths(index_path)[1]
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("simulated crash after the index was replaced, before the ledger write")
+    with monkeypatch.context() as m:
+        m.setattr(mig, "build_ledger", crash)
+        with pytest.raises(RuntimeError, match="simulated crash"):
+            run(monkeypatch, capsys, config_path, "--write")
+    journal = ledger_path.read_bytes()
+    assert json.loads(journal)["mode"] == sup.JOURNAL_MODE
+    # A dry run names the rename and writes nothing.
+    before = snapshot(tmp_path)
+    code, out, err = run(monkeypatch, capsys, config_path)
+    assert code == 1 and "DRY-RUN" in out + err and "-Interrupted-2026-01-02.json" in out + err
+    assert snapshot(tmp_path) == before
+    # --write renames the journal, keeps every byte of it, and leaves a ledger naming it.
+    code, out, err = run(monkeypatch, capsys, config_path, "--write")
+    assert code == 0 and "WROTE" in out, err + out
+    kept = ledger_path.with_name(f"{ledger_path.stem}-Interrupted-2026-01-02.json")
+    assert kept.read_bytes() == journal
+    note = ledger(index_path)
+    assert note["mode"] == "journal-renamed" and note["journal_renamed_to"] == str(kept)
+    # The next run finds nothing left to settle.
+    after = snapshot(tmp_path)
+    code, out, err = run(monkeypatch, capsys, config_path, "--write")
+    assert code == 0 and "CLEAN" in out, err + out
+    assert snapshot(tmp_path) == after

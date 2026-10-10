@@ -128,6 +128,8 @@ If no lesson surfaced, write the line `No lesson this iteration.` in the iterati
 
 Ask these only on an interactive run with no item id argument. Q1 is asked on every such run. There is no opt-in flag.
 
+Ask each question in its own call, and ask the next only after the previous one is answered. Never batch Q1, Q2 and Q3 into one call. Q3 appears only when the answer to Q2 is `specific`.
+
 <!-- AUTO-MODE: convenience -->
 <!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Loop opt-in (backlog.md Phase 2 Q1)". -->
 **Q1.** Use `AskUserQuestion`: "Loop through the backlog this run? Each session triages one item, then the plugin's hooks module compacts and re-enters `/planwise backlog`. Looping needs the plugin's hooks module; without it this run ends after the first item and you can continue by hand."

@@ -33,6 +33,7 @@ import dataclasses
 import hashlib
 import io
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -43,6 +44,7 @@ try:
     import generate_backlog_index as gen
     import migrate_backlog_checks as chk
     import migrate_backlog_index as mig
+    import migrate_backlog_repairs as repairs
     import migrate_backlog_support as sup
     import upgrade_io
     from config_gen import InitConfig
@@ -59,6 +61,8 @@ RERUN = ("then re-run /planwise upgrade (the migration re-fires on a hand-author
 MIGRATOR = "migrate_backlog_index.py"
 SILENT_STATES = ("absent", "generated")
 CREATED = "created; no pre-image (the file did not exist before this run)"
+ABBREV_DESCRIPTION = "{} (added by the upgrade; edit the description)"
+YAML_WORDS = {"Y", "N", "YES", "NO", "ON", "OFF", "TRUE", "FALSE", "NULL"}  # unquoted, YAML reads these as non-strings
 
 
 @dataclasses.dataclass
@@ -129,8 +133,9 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     report.git_dirty = None if dirty is None else bool(dirty)
     mode = reconcile or "index-wins"
     options = mig.RepairOptions.unattended(mode)  # AMBIGUOUS units are parked in the ledger, never refused
+    plan_text, plan_config, added, matched = _abbrev_prepass(config, detail, text, index_path)
     try:
-        plan = mig.plan_migration(config, index_path, text, detail, options)
+        plan = mig.plan_migration(plan_config, index_path, plan_text, detail, options)
     except mig.Refusal as exc:
         _refuse(report, exc, f"{command} --write --backfill-frontmatter --write-edges "
                                   f"--extract-dependency-notes --reconcile {mode} --append-ambiguous")
@@ -138,10 +143,23 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     paths = mig.artifact_paths(index_path)
     backlog_dir = config["_backlog_dir"]
     if plan is not None:
+        plan["abbreviations"] = {"added": [name for name, _d in added],
+                                 "matched": [{"from": m["from"], "to": m["to"]} for m in matched]}
+        plan["reconcile"]["cells"] += [{"id": m["id"], "key": "abbrev", "frontmatter": None, "index": m["from"],
+                                        "winner": "configured-key", "written": m["to"], "path": m["path"]}
+                                       for m in matched]
         targets = mig.plan_targets(plan) + ([paths[1]] if paths[1].is_file() else [])  # a ledger or journal left earlier
+        targets += [config_path] if added else []
         pre = _backup(targets, backlog_dir, report, [*(p for p, _t in plan["outputs"]), paths[1]])
         if pre is None:
             return
+        if added:  # the plan accepted the new keys; the config is edited only now, after its backup
+            try:
+                _write_abbreviations(config_path, added)
+            except (OSError, ValueError) as exc:
+                report.detail = f"could not add the abbreviation(s) to config.yaml: {exc}"
+                _write_failed(report, pre, f"fix config.yaml, {RERUN}")
+                return
         try:
             rc, output = _captured(mig.execute, plan, paths, index_path, False)
         except (OSError, sup.ReplaceError) as exc:
@@ -154,8 +172,15 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
         for path in [*(p for p, _t in plan["outputs"]), paths[1]]:
             reason = _kept_at(path, backlog_dir, report) if path.resolve() in backed else CREATED
             _log(cfg, from_version, to_version, path, "backlog-migrated", reason, report)
+        if added:
+            _log(cfg, from_version, to_version, config_path, "backlog-migrated",
+                 f"added {', '.join(name for name, _d in added)} under abbreviations:; "
+                 + _kept_at(config_path, backlog_dir, report), report)
     else:
         report.detail = "an earlier run migrated the index; this run regenerated it only (its counts are in that ledger)"
+        if mig.interrupted_journal(paths[1]) is not None and not _settle_journal(cfg, from_version, to_version,
+                                                                                  paths, backlog_dir, report):
+            return
     if not _regenerate(cfg, from_version, to_version, config, index_path, report):
         if report.state != "backup_failed":
             report.state, report.fix = "write_failed", f"fix what the generator names, {RERUN}"
@@ -164,6 +189,104 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     if plan is not None:  # counts describe this run's migrator write, never an earlier run's ledger
         _fill_counts(paths[1], mode, report)
     _count_shards(config, index_path, report)
+
+
+def _abbrev_prepass(config: dict, detail: tuple, text: str, index_path: Path):
+    """Settle every abbreviation the index cells and item file names carry against `abbreviations:`.
+    A cell that differs from a configured key only in case is retargeted to that key in the
+    returned index text. An uppercase name no key matches is added to the returned config. Nothing
+    is written: returns (index text, config, added [(name, description)], matched [{from, to, id,
+    path}]). Anything it cannot read, or a config it cannot extend, comes back unchanged so the
+    plan names the problem itself."""
+    unchanged = (text, config, [], [])
+    valid, configured = sup.configured_abbrevs(config), config.get("abbreviations")
+    if valid is None or not isinstance(configured, dict):
+        return unchanged
+    header_idx, roles = detail
+    try:
+        rows = mig.resolve_rows(text, header_idx, roles, config, index_path, [])
+    except mig.Refusal:
+        return unchanged
+    lines, matched, added = text.split("\n"), [], {}
+    for row in rows:
+        seg = (repairs.filename_fields(row["path"].name) or (None, None))[1]
+        cell = sup.plain(row["cells"][roles["abbrev"]]) if "abbrev" in roles else ""
+        for value in dict.fromkeys(v for v in (seg, cell) if v):
+            hit = sup.case_match_abbrev(value, valid)
+            if hit and value == cell:
+                lines[row["line"]] = mig.retarget_cell(lines[row["line"]], cell, hit)
+                matched.append({"from": cell, "to": hit, "path": row["path"],
+                                "id": repairs.first_id_in(row["path"].stem) or ""})
+            elif value not in valid and not hit and re.fullmatch(r"[A-Z][A-Z0-9]*", value):
+                added[value] = ABBREV_DESCRIPTION.format(value)
+    new_text = "\n".join(lines)
+    if matched:  # keep the retargeting only if re-reading shows each cell now names its configured key
+        try:
+            again = {r["path"]: sup.plain(r["cells"][roles["abbrev"]])
+                     for r in mig.resolve_rows(new_text, header_idx, roles, config, index_path, [])}
+        except mig.Refusal:
+            again = {}
+        if any(again.get(m["path"]) != m["to"] for m in matched):
+            new_text, matched = text, []
+    if not added:
+        return new_text, config, [], matched
+    return new_text, {**config, "abbreviations": {**configured, **added}}, list(added.items()), matched
+
+
+def _write_abbreviations(config_path: Path, added: list) -> None:
+    """Splice one `NAME: "description"` line per `added` pair onto the end of the top-level
+    `abbreviations:` block of config.yaml, keeping every other byte, comment and key. Raises
+    ValueError when the block is not a plain mapping, and OSError after restoring the original bytes
+    when the edited file does not load with the new keys."""
+    before = config_path.read_bytes()
+    crlf = b"\r\n" in before
+    lines = before.decode("utf-8").split("\n")
+    start = next((i for i, ln in enumerate(lines) if re.match(r"abbreviations:\s*(#.*)?\r?$", ln)), None)
+    last = indent = None
+    for j in range(start + 1 if start is not None else len(lines), len(lines)):
+        body = lines[j].rstrip("\r")
+        if not body.strip() or body.lstrip().startswith("#"):
+            continue
+        if not body[0].isspace():
+            break
+        last, indent = j, indent or body[:len(body) - len(body.lstrip())]
+    if last is None:
+        raise ValueError("its abbreviations: block is not a plain mapping this step can extend")
+    keys = [f'"{n}"' if n in YAML_WORDS else n for n, _d in added]
+    new = [f'{indent}{key}: "{d}"' + ("\r" if crlf else "") for key, (_n, d) in zip(keys, added)]
+    config_path.write_bytes("\n".join([*lines[:last + 1], *new, *lines[last + 1:]]).encode("utf-8"))
+    try:
+        reloaded = config_loader.load_config(Path(__file__), config_path=config_path)
+        ok = {n for n, _d in added} <= (sup.configured_abbrevs(reloaded) or set())
+    except Exception:  # noqa: BLE001 -- any load failure means the edit is rejected
+        ok = False
+    if not ok:
+        config_path.write_bytes(before)
+        raise OSError("the edited config.yaml did not load with the new abbreviations; the original bytes were restored")
+
+
+def _settle_journal(cfg, from_version: str, to_version: str, paths: tuple, backlog_dir: Path, report) -> bool:
+    """The index is migrated but the ledger path still holds an interrupted run's journal. Back it up,
+    rename it to `-Interrupted-{date}`, log the rename, and go on. False means stop: `report` says why."""
+    ledger_path = paths[1]
+    pre = _backup([ledger_path], backlog_dir, report, [ledger_path])
+    if pre is None:
+        return False
+    parked = mig.interrupted_journal(ledger_path) or 0
+    try:
+        renamed = mig.settle_interrupted_journal(ledger_path)
+    except (OSError, sup.ReplaceError) as exc:
+        report.detail = f"could not rename the interrupted journal {ledger_path.name}: {exc}"
+        _write_failed(report, pre, f"rename {ledger_path.name} by hand, {RERUN}")
+        return False
+    report.counts["journal_renamed_to"], report.counts["journal_parked_units"] = str(renamed), parked
+    report.detail += (f"\n{ledger_path.name} held the journal of an interrupted run; it is kept whole as {renamed.name}, "
+                      f"and its {parked} parked unit(s) remain there for review")
+    _log(cfg, from_version, to_version, renamed, "backlog-migrated",
+         f"interrupted journal renamed from {ledger_path.name}; " + _kept_at(ledger_path, backlog_dir, report), report)
+    _log(cfg, from_version, to_version, ledger_path, "backlog-migrated",
+         "replaced by a ledger note naming the renamed journal; " + _kept_at(ledger_path, backlog_dir, report), report)
+    return True
 
 
 def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, index_path: Path, report) -> None:
@@ -402,10 +525,23 @@ def _ledger_counts(ledger: dict, mode: str) -> dict:
         "prose_units": ledger["dedup"]["appended_units"],
         "parked_units": ledger["dedup"].get("parked_units", 0),
         "parked_bytes": ledger["dedup"].get("parked_bytes", 0),
+        "relocated_lines": len(ledger.get("relocated_index_lines") or []),
+        "relocated_bytes": sum(r["bytes"] for r in ledger.get("relocated_index_lines") or []),
         "reconciled_cells": len(cells),
         "reconcile_mode": ledger["reconcile"]["mode"] or mode,
-        "reconciled": [f"{c['id']}.{c['key']}: {c['frontmatter']} -> {c['index']}" for c in cells],
+        "reconciled": [_cell_line(c) for c in cells],
+        "abbreviations_added": list((ledger.get("abbreviations") or {}).get("added") or []),
+        "abbreviations_matched": [f"{m['from']} -> {m['to']}" for m in (ledger.get("abbreviations") or {}).get("matched") or []],
+        "oversized_entries": len(ledger.get("oversized_single_entries") or []),
     }
+
+
+def _cell_line(cell: dict) -> str:
+    """One reconciled cell, as the banner lists it: the index value and what the cell settled to."""
+    if cell.get("winner"):
+        who = "file name wins" if cell["winner"] == "file-name" else "configured key"
+        return f"{cell['id']}.{cell['key']}: {cell['index']} -> {cell['written']} ({who})"
+    return f"{cell['id']}.{cell['key']}: {cell['frontmatter']} -> {cell['index']}"
 
 
 def _count_shards(config: dict, index_path: Path, report) -> None:
@@ -467,13 +603,25 @@ def _migrated_lines(report: BacklogMigrationReport) -> list:
             f"    blocks: edges written:  {c['edges']}",
             f"    dependency notes moved: {c['dependency_notes']} bullet(s) into {c['dependency_note_files']} item file(s)",
             f"    feature-cell prose moved: {c['prose_units']} unit(s)",
+            *([(f"    relocated index lines:  {c['relocated_lines']} ({c['relocated_bytes']} bytes) "
+                f"into {c['changelog_path']}")] if c.get("relocated_lines") else []),
             *([f"    {mig.parked_line(c['parked_units'], c['parked_bytes'], report.ledger_path)}"]
               if c.get("parked_units") else []),
             f"    reconciled cells:       {c['reconciled_cells']} ({c['reconcile_mode']})"
             + (" — " + "; ".join(c["reconciled"][:5]) + reconciled if c["reconciled"] else ""),
+            *([(f"    abbreviations added:    {', '.join(c['abbreviations_added'])} (placeholder descriptions in "
+                "config.yaml; edit them)")] if c.get("abbreviations_added") else []),
+            *([f"    abbreviations matched:  {'; '.join(c['abbreviations_matched'])}"]
+              if c.get("abbreviations_matched") else []),
+            *([f"    oversized entries kept whole: {c['oversized_entries']} (each under the Read page cap)"]
+              if c.get("oversized_entries") else []),
         ]
     elif report.detail:
         lines.append(f"    counts:                 unavailable — {report.detail.splitlines()[-1]}")
+    if c.get("journal_renamed_to"):
+        held = c.get("journal_parked_units", 0)
+        lines.append(f"    interrupted journal:    renamed to {c['journal_renamed_to']}"
+                     + (f"; its {held} parked unit(s) remain there and need review" if held else ""))
     lines += [f"    ledger:                 {report.ledger_path or 'none'}"]
     if report.backed_up:
         lines.append(f"    backups:                {report.backup_dir} ({len(report.backed_up)} file(s), "

@@ -14,6 +14,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scr
 SCRIPT = SCRIPTS / "migrate_backlog_index.py"
 GENERATOR = SCRIPTS / "generate_backlog_index.py"
 sys.path.insert(0, str(SCRIPTS))
+import config_loader
 import generate_backlog_index as gen
 import migrate_backlog_index as mig
 import migrate_backlog_support as sup
@@ -130,20 +131,15 @@ REFUSALS = [
     ("blocks", legacy_index(blocks="002"), None, {}, (), ["001", "Blocks", "002"]),
     ("blocks-prose", legacy_index(blocks="002 (soft)"), BLOCKS_002, SECOND_ITEM, (), ["other than ids"]),
     ("missing-key", LEGACY_INDEX, item_text(drop_key="created"), {}, (), ["created", "generator"]),
-    ("section", legacy_index(extra="\n## Notes\n\nFree prose.\n"), None, {}, (), ["## Notes"]),
-    ("after-table", LEGACY_INDEX.replace("\n*Last", "\nStray prose.\n\n*Last"), None, {}, (), ["after the table"]),
-    ("preamble", "# Backlog\n\nIntro prose.\n\n" + LEGACY_INDEX, None, {}, (), ["line 3: preamble text"]),
-    ("heading-gap", LEGACY_INDEX.replace("Items\n\n", "Items\n\nSome intro.\n\n"), None, {}, (),
-     ["line 3: text between '## Backlog Items' and its table"]),
-    ("deps-soft", before_footer(LEGACY_INDEX, DEPS_OK.replace("---", "**Soft dependencies**\n\n- 001 relates to 003")),
-     None, {}, (), ["text under '## Dependencies'", "Soft dependencies"]),
-    ("deps-prior-entry", before_footer(LEGACY_INDEX, DEPS_OK + "*Prior entry: 2023-11-01 — older.*\n\n"),
-     None, {}, (), ["text under '## Dependencies'", "Prior entry"]),
-    ("deps-to-eof", before_footer(legacy_index(blocks="002"), DEPS_OK) + "\nTrailing prose at EOF.\n", BLOCKS_002,
-     SECOND_ITEM, (), ["text under '## Dependencies'", "Trailing prose at EOF"]),
     ("deps-edge", before_footer(LEGACY_INDEX, DEPS_OK), None, SECOND_ITEM, (), ["001 blocks 002"]),
     ("shards-row", before_footer(LEGACY_INDEX, SHARDS_OK.replace("x.md)", "x.md) and notes")), None, {}, (),
      ["'## Shards' row"]),
+    ("deps-unrecognised-table", before_footer(LEGACY_INDEX, "## Dependencies\n\n| ID | Notes |\n|---|---|\n| 001 | x |\n\n"),
+     None, {}, (), ["content regeneration would drop and this tool does not move:",
+                    "unrecognised table under '## Dependencies'"]),
+    ("deps-row-note", before_footer(legacy_index(blocks="002"), DEPS_OK.replace("| 001 | 002 |", "| 001 | 002 (soft) |")),
+     BLOCKS_002, SECOND_ITEM, (), ["content regeneration would drop and this tool does not move:",
+                                   "note in a '## Dependencies' row"]),
     ("files-prose", legacy_index(files="[001](001-Sample.md) plus notes"), None, {}, (), ["Files cell carries text"]),
     ("empty-id", legacy_index(row_id=""), None, {}, (), ["empty ID cell"]),
     ("foreign-changelog", LEGACY_INDEX, None, {"00-Changelog-Backlog.md": "other\n"}, (), ["already exists"]),
@@ -163,6 +159,44 @@ def test_refused_before_any_write_even_under_force(tmp_path, index_text, item, e
     assert proc.returncode == 2, proc.stderr + proc.stdout
     assert all(fragment in proc.stderr for fragment in fragments), proc.stderr
     assert _snapshot(tmp_path) == before
+
+ORPHAN_ROW = "| 005 | Orphan | High | NOT_STARTED | 2024-01-01 |  | [005](Missing-005.md) |\n"
+RELOCATIONS = [
+    ("section", legacy_index(extra="\n## Notes\n\nFree prose.\n"), None, {}, ["## Notes", "Free prose."]),
+    ("after-table", LEGACY_INDEX.replace("\n*Last", "\nStray prose.\n\n*Last"), None, {}, ["Stray prose."]),
+    ("preamble", "# Backlog\n\nIntro prose.\n\n" + LEGACY_INDEX, None, {}, ["Intro prose."]),
+    ("heading-gap", LEGACY_INDEX.replace("Items\n\n", "Items\n\nSome intro.\n\n"), None, {}, ["Some intro."]),
+    ("deps-soft", before_footer(legacy_index(blocks="002"),
+                                DEPS_OK.replace("\n---\n", "\n**Soft dependencies**\n\n- 001 relates to 003\n")),
+     BLOCKS_002, SECOND_ITEM, ["**Soft dependencies**", "- 001 relates to 003"]),
+    ("deps-prior-entry", before_footer(legacy_index(blocks="002"), DEPS_OK + "*Prior entry: 2023-11-01 — older.*\n\n"),
+     BLOCKS_002, SECOND_ITEM, ["*Prior entry: 2023-11-01 — older.*"]),
+    ("row-without-item-file", LEGACY_INDEX.replace("001-Sample.md) |\n", "001-Sample.md) |\n" + ORPHAN_ROW, 1), None, {},
+     [ORPHAN_ROW.rstrip("\n")]),
+    ("deps-to-eof", before_footer(legacy_index(blocks="002"), DEPS_OK) + "\nTrailing prose at EOF.\n", BLOCKS_002,
+     SECOND_ITEM, ["Trailing prose at EOF."]),
+]
+
+@pytest.mark.parametrize("index_text,item,extra,lines", [pytest.param(*r[1:], id=r[0]) for r in RELOCATIONS])
+def test_index_level_prose_relocates_verbatim(tmp_path, monkeypatch, index_text, item, extra, lines):
+    config_path, index_path = _make_project(tmp_path, index_text, item=item, extra=extra)
+    # An earlier run on another day wrote the changelog and stopped: the resumed run keeps that date.
+    config = config_loader.load_config(Path(mig.__file__), config_path=config_path)
+    monkeypatch.setattr(mig, "_today", lambda: "2020-01-01")
+    text = mig.read_text(index_path)
+    earlier = mig.plan_migration(config, index_path, text, sup.classify_shape(text)[1], mig.RepairOptions())
+    for part_path, part_text in earlier["changelog"]["parts"]:
+        part_path.write_text(part_text, encoding="utf-8", newline="")
+    proc = _run(config_path, NO_GIT, "--force", "--write")
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    first = _changelog(index_path).read_text(encoding="utf-8").split("## Entry 2")[0]
+    assert "Relocated index text (migrated 2020-01-01)" in first
+    ledger, source = _ledger(index_path), index_text.split("\n")
+    assert ledger["changelog"]["unaccounted"] == 0 and ledger["verification"]["verified"] is True
+    held = {(r["line"], r["bytes"]) for r in ledger["relocated_index_lines"]}
+    for line in lines:
+        assert f"): {line}\n" in first + "\n"
+        assert (source.index(line) + 1, len(line.encode("utf-8"))) in held
 
 @pytest.mark.parametrize("index_text,item,extra", [
     ("# Backlog Index\n\n**Purpose:** Track work.\n**Last Updated:** 2024-01-01\n\n---\n\n" + LEGACY_INDEX, None, {}),

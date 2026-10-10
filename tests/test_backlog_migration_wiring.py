@@ -117,9 +117,11 @@ def _unconfigure_abbrev(cfg, abbrev: str = "INFRA") -> None:
 
 
 def test_c_refusal_never_changes_the_return_code_and_the_pin_still_commits(tmp_path, monkeypatch, capsys):
-    # An unconfigured abbrev refuses; an AMBIGUOUS unit no longer does (it is parked in the ledger).
-    cfg, _backlog = _legacy_project(tmp_path, pinned="1.0.5.1")
-    _unconfigure_abbrev(cfg)
+    # A lowercase abbrev cell that matches no configured key refuses (the pre-pass adds only uppercase
+    # names and matches only by case); an AMBIGUOUS unit no longer does (it is parked in the ledger).
+    from test_backlog_migration import legacy_index
+    cell = legacy_index().replace("| NOT_STARTED | SMP | [001]", "| NOT_STARTED | core | [001]")
+    cfg, _backlog = _legacy_project(tmp_path, pinned="1.0.5.1", index_text=cell)
     monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
 
     exit_code = artifact_upgrade._run_upgrade(cfg)

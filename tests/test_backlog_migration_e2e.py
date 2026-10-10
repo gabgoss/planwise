@@ -259,15 +259,15 @@ def test_pointer_footer_index_resumes_at_the_generator(tmp_path, monkeypatch):
     assert _snapshot(cfg.project_root) == after
 
 
-def test_bullet_naming_an_unknown_item_is_refused_and_touches_nothing(tmp_path):
-    # Assertion 8: the negative control.
-    cfg, _backlog = _project(tmp_path, legacy_index(bullet="- 009 relates to 001 (shared parser)"))
-    before = _snapshot(cfg.project_root)
+def test_bullet_naming_an_unknown_item_is_relocated_to_the_changelog(tmp_path):
+    # Assertion 8: the control. A bullet whose owner has no item file lands in the relocated entry.
+    bullet = "- 009 relates to 001 (shared parser)"
+    cfg, backlog = _project(tmp_path, legacy_index(bullet=bullet))
     report = bm.migrate_backlog_if_legacy(cfg, FROM, TO)
-    assert report.state == "refused", report.detail
-    assert "009" in report.detail
-    assert _snapshot(cfg.project_root) == before
-    assert not (cfg.project_root / "planwise" / "upgrade-backups").exists()
+    assert report.state == "migrated", report.detail
+    log = (backlog / "00-Changelog-Backlog.md").read_text(encoding="utf-8")
+    assert "Relocated index text (migrated " in log and f"(unknown-owner bullet): {bullet}" in log
+    assert report.counts["changelog_unaccounted"] == 0
 
 
 def _long_entry(k: int, sentences: int) -> str:

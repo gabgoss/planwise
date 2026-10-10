@@ -333,3 +333,43 @@ def test_n3_a_suffixed_row_id_that_disagrees_is_refused_by_name(tmp_path, cell, 
     report = bm.migrate_backlog_if_legacy(cfg, "1.0", "1.1")
     assert report.state == "refused" and name in report.detail and fragment in report.detail, report.detail
     assert snapshot(tmp_path) == before
+
+
+# --- F: a '## Dependencies' row may carry prefixed ids and a parenthetical note --
+
+FIRST, SECOND = "ITM-001-SMP-First.md", "ITM-002-SMP-Second.md"
+
+
+def deps_project(tmp_path, deps_row):
+    """Two items whose index ID cells carry the `BLI-` prefix, and one '## Dependencies' row."""
+    rows = (row("BLI-001", FIRST, "SMP"), row("BLI-002", SECOND, "SMP"))
+    deps = f"## Dependencies\n\n| ID | Blocks |\n|---|---|\n{deps_row}\n\n"
+    items = {FIRST: fm("001", "SMP") + "# First\n", SECOND: fm("002", "SMP") + "# Second\n"}
+    return project(tmp_path, index(*rows, deps=deps), items)
+
+
+def test_prefixed_dependencies_ids_become_edges(tmp_path, monkeypatch, capsys):
+    config_path, index_path = deps_project(tmp_path, "| BLI-001 | BLI-002 |")
+    code, out, err = run(monkeypatch, capsys, config_path, *ALL_FLAGS, "--write")
+    assert code == 0, err + out
+    assert frontmatter(index_path.parent / FIRST)["blocks"] == "[002]"
+    assert [(e["src"], e["dst"]) for e in ledger(index_path)["edges"]] == [("001", "002")]
+
+
+def test_parenthetical_note_becomes_a_dependency_bullet(tmp_path, monkeypatch, capsys):
+    config_path, index_path = deps_project(tmp_path, "| BLI-001 | BLI-002 (needs the selector) |")
+    code, out, err = run(monkeypatch, capsys, config_path, *ALL_FLAGS, "--write")
+    assert code == 0, err + out
+    body = (index_path.parent / FIRST).read_text(encoding="utf-8")
+    assert body.split("## Dependency Notes (migrated from the backlog index)")[1].strip() == "- needs the selector"
+    notes = ledger(index_path)["dependency_notes"]
+    assert [n["bullets"] for n in notes] == [1]
+
+
+def test_foreign_prefix_is_refused_naming_the_items_prefix(tmp_path, monkeypatch, capsys):
+    config_path, _ = deps_project(tmp_path, "| XYZ-001 | XYZ-002 |")
+    before = snapshot(tmp_path)
+    code, out, err = run(monkeypatch, capsys, config_path, *ALL_FLAGS, "--write")
+    assert code == 2 and "prefix other than the items table's" in err, err + out
+    assert "write the cell with the items table's prefix or as bare digits (the items table writes BLI-)" in err
+    assert snapshot(tmp_path) == before

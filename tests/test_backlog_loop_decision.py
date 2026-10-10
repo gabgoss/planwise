@@ -263,6 +263,19 @@ class TestNoQuestionsAfterSetup(unittest.TestCase):
         unexpected = [line for line in _question_lines(planted) if not any(a in line for a in allowed)]
         self.assertEqual(len(unexpected), 1)
 
+    def test_part_2_pins_one_call_per_setup_question(self):
+        text = LOOP_PART2.read_text(encoding="utf-8")
+        for needle in ("in its own call", "Never batch Q1, Q2 and Q3 into one call"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+
+    def test_one_call_pin_discriminates_a_stripped_sentence(self):
+        text = LOOP_PART2.read_text(encoding="utf-8")
+        stripped = "\n".join(line for line in text.splitlines() if "in its own call" not in line)
+        self.assertIn("in its own call", text)
+        self.assertNotIn("in its own call", stripped)
+        self.assertNotIn("Never batch Q1, Q2 and Q3 into one call", stripped)
+
 
 if __name__ == "__main__":
     unittest.main()
