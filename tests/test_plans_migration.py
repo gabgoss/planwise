@@ -253,13 +253,12 @@ def test_a_legacy_seed_with_no_master_plans_is_migrated_not_unrecognized(tmp_pat
     assert migrate(tmp_path).state == "migrated"
 
 
-def test_an_unclosed_comment_is_refused_with_zero_writes(tmp_path):
+def test_an_unclosed_comment_migrates_with_backups(tmp_path):
     row = "| ALP | Alpha | COMPLETE | 2026-01-10 | 2026-01-20 | Alpha/ |"
     build(tmp_path, legacy_index([row, "<!-- never closed"]), {})
-    before = plans_tree(tmp_path)
     report = migrate(tmp_path)
-    assert report.state == "refused" and "close the comment" in report.detail
-    assert plans_tree(tmp_path) == before and not pair_dir(tmp_path).exists()
+    assert report.state == "migrated", report.detail
+    assert pair_dir(tmp_path).exists()
 
 
 def _crash(*_a, **_k):

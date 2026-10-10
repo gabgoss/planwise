@@ -96,6 +96,7 @@ import migrate_backlog_relocate as reloc
 import migrate_backlog_repairs as repairs
 import migrate_backlog_support as sup
 from config_loader import load_config
+from markdown_parser import retried_cells
 from reconcile_common import read_text_preserving_newlines as read_text
 
 UNRECOVERABLE = ("resumed: this size includes notes an interrupted earlier run appended; "
@@ -225,8 +226,10 @@ def resolve_rows(text: str, header_idx: int, roles: dict, config: dict, index_pa
     """Resolve each row's Files cell to its item file; refuse a row this tool cannot read. A row
     whose Files cell resolves no item file is appended to `relocated` whole and left out."""
     rows = []
-    for line_no, cells in sup.iter_rows(text.split("\n"), header_idx):
+    lines = text.split("\n")
+    for line_no, cells in sup.iter_rows(lines, header_idx):
         where = f"row at line {line_no + 1}"
+        cells = retried_cells(lines[line_no], cells, len(roles))
         if len(cells) != len(roles):
             raise Refusal(f"{where}: {len(cells)} cell(s) but the header has {len(roles)}",
                           "repair the row so it has the header's cell count; a pipe character inside backticks "
@@ -241,7 +244,7 @@ def resolve_rows(text: str, header_idx: int, roles: dict, config: dict, index_pa
                                      index_path.parent) if links else None
         if path is None:
             relocated.append({"line": line_no + 1, "kind": "row without an item file",
-                              "text": text.split("\n")[line_no].rstrip("\r")})
+                              "text": lines[line_no].rstrip("\r")})
             continue
         rows.append({"line": line_no, "cells": cells, "path": path, "links": links})
     return rows
@@ -1165,7 +1168,9 @@ def build_report(config: dict, index_path: Path) -> dict:
     rows = []
     if shape == "legacy":
         header_idx, roles = detail
-        for _line, cells in sup.iter_rows(text.split("\n"), header_idx):
+        lines = text.split("\n")
+        for line_no, cells in sup.iter_rows(lines, header_idx):
+            cells = retried_cells(lines[line_no], cells, len(roles))  # the same retry the write applies
             links = sup.files_links(cells[roles["file"]])[0] if len(cells) == len(roles) else []
             path = sup.resolve_item_file(links[0][1], config["_backlog_dir"], config["_archive_dir"],
                                          index_path.parent) if links else None

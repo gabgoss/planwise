@@ -37,6 +37,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
@@ -581,62 +582,94 @@ def test_path1_century_append_repairs_a_hub_without_a_parts_listing(tmp_path, mo
     assert hub_path.read_bytes() == repaired
 
 
-def test_path1_refusal_leaves_tree_untouched(tmp_path, monkeypatch, capsys):
-    """LL-002's row resolves to zero files (its own file is omitted) ->
-    state `refused`, grouped in one RefusalSet block naming it, exit code
-    unchanged, the retrofit itself writes nothing, the pin still committed.
-
-    KEY_FINDING: `_run_upgrade`'s own bootstrap step (`bootstrap_lessons_
-    artifacts`, Step 2b) runs BEFORE the lessons retrofit and unconditionally
-    backfills any of the index/changelog/promotion-log/companion openers
-    that are absent, regardless of whether the retrofit that follows
-    refuses. This fixture pre-seeds the changelog and companion but not the
-    hub-side promotion-log file or the categorization notes file, so the
-    bootstrap creates those two even though the retrofit refuses -- "nothing
-    was written" is a property of the RETROFIT (index, lesson files, no
-    `upgrade-backups/.../lessons/` dir), not of the whole `_run_upgrade`
-    call, which the task's Step 3 bullet does not separate out."""
+def test_path1_relocations_land_and_the_report_has_no_would_refuse(tmp_path, monkeypatch, capsys):
+    """Three former refusals in one fixture: LL-002's row resolves to zero
+    files (its own file is omitted), the Rule Promotion Log header is not
+    the recognised one, and a hand-written changelog file already sits at
+    the changelog path. The migration relocates all three: exit code
+    unchanged, the pin committed, the originals backed up, and a `--report`
+    before and after plans no refusal."""
     cfg, lessons_dir = _project(tmp_path, omit_ll002=True)
+    foreign_changelog = b"# Hand-kept changelog\n\nSome history nobody should lose.\n"
+    _write(lessons_dir / CHANGELOG, foreign_changelog)
+    unrecognised = "| When | What | Who | File |"
+    index_bytes = (lessons_dir / INDEX).read_bytes()
+    _write(lessons_dir / INDEX, index_bytes.replace(b"| Date | Lesson ID | Artifact Created | File |",
+                                                    unrecognised.encode("utf-8")))
     cfg = _pin(cfg, FROM)
     monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
     original_index = (lessons_dir / INDEX).read_bytes()
-    original_ll1 = (lessons_dir / LL1).read_bytes()
+    before = mig.build_report(_config(cfg), lessons_dir / INDEX)
+    assert before["shape"] == "legacy" and before["would_refuse"] == []
 
     exit_code = artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None)
     banner = capsys.readouterr().out
 
-    assert exit_code == 0  # a lessons refusal never changes _run_upgrade's own exit code
+    assert exit_code == 0
     committed = yaml.safe_load((cfg.project_root / "planwise" / "config.yaml").read_bytes())
     assert committed["plugin_version"] == TO
-    assert (lessons_dir / INDEX).read_bytes() == original_index
-    assert (lessons_dir / LL1).read_bytes() == original_ll1
-    assert not (cfg.project_root / "planwise" / "upgrade-backups" / f"{FROM}-to-{TO}" / "lessons").exists()
-    assert "Lessons index migration: REFUSED" in banner
-    assert MISSING_ARTIFACT_ID in banner  # the RefusalSet group names the missing lesson
+    assert "Lessons index migration:" in banner and "REFUSED" not in banner
+    assert "relocated:               1 row(s), 3 promotion-log line(s), 1 foreign file(s) folded in" in banner
+    backups = _backups(cfg, f"{FROM}-to-{TO}")
+    assert backups.joinpath(INDEX).read_bytes() == original_index
+    assert backups.joinpath(CHANGELOG).read_bytes() == foreign_changelog
+    changelog = read_text(lessons_dir / CHANGELOG)
+    assert "Pre-migration changelog file (migrated" in changelog and "Some history nobody should lose." in changelog
+    assert "| LL-002 | Second lesson title | Tooling | Low | bash | git | TOOL | fixture | promoted |" in changelog
+    assert unrecognised in changelog
+    after = mig.build_report(_config(cfg), lessons_dir / INDEX)
+    assert after["shape"] == "generated" and after["would_refuse"] == []
 
 
-def test_path1_hand_written_hub_log_refuses_a_family_with_century_rows_only(tmp_path, monkeypatch, capsys):
-    """A family under 201 lessons now plans the hub-side promotion-log file
-    too, so a hub carrying hand-written content is foreign to the migration
-    and refuses it, exactly as it already did for a family with rows of 201
-    or more. Nothing is overwritten: the hub, the index and the Archive
-    directory are byte-for-byte what they were."""
+def test_path1_hand_written_hub_log_folds_in_for_a_family_with_century_rows_only(tmp_path, monkeypatch, capsys):
+    """A family under 201 lessons plans the hub-side promotion-log file too,
+    so a hub carrying hand-written content is foreign to the migration. Its
+    text folds into the changelog as residue and the generated hub replaces
+    it; the hand-written bytes survive in the changelog and in the backup."""
     cfg, lessons_dir = _project(tmp_path)
     cfg = _pin(cfg, FROM)
     monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
     hand_written = b"# My own promotion notes\n\nKept by hand, not by the migrator.\n"
     _write(lessons_dir / HUB_LOG, hand_written)
-    original_index = (lessons_dir / INDEX).read_bytes()
 
     assert artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None) == 0
     banner = capsys.readouterr().out
 
-    assert "Lessons index migration: REFUSED" in banner
-    assert HUB_LOG in banner
-    assert (lessons_dir / HUB_LOG).read_bytes() == hand_written
-    assert (lessons_dir / INDEX).read_bytes() == original_index
-    assert not (lessons_dir / PROMO_ARCHIVE).exists()
-    assert not (cfg.project_root / "planwise" / "upgrade-backups" / f"{FROM}-to-{TO}" / "lessons").exists()
+    assert "Lessons index migration:" in banner and "REFUSED" not in banner
+    assert "1 foreign file(s) folded in" in banner
+    assert "Kept by hand, not by the migrator." in read_text(lessons_dir / CHANGELOG)
+    assert b"Kept by hand" not in (lessons_dir / HUB_LOG).read_bytes()
+    assert (lessons_dir / PROMO_ARCHIVE).exists()
+    assert _backups(cfg, f"{FROM}-to-{TO}").joinpath(HUB_LOG).read_bytes() == hand_written
+
+
+def test_path1_kill_after_the_write_then_rerun_keeps_a_folded_hub_and_changelog(tmp_path, monkeypatch):
+    """The process dies after the staged outputs replace their targets and
+    before the generator step. The re-run recognises its own earlier folds:
+    each hand-written file's text is in the changelog once, and the
+    migrator's own changelog is not folded in as a foreign file."""
+    cfg, lessons_dir = _project(tmp_path)
+    _write(lessons_dir / HUB_LOG, b"# My promotion notes\n\nHUB-MARKER kept by hand.\n")
+    _write(lessons_dir / CHANGELOG, b"# Own changelog\n\nCL-MARKER history.\n")
+    cfg = _pin(cfg, FROM)
+    monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
+
+    def killed(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as killing:
+        killing.setattr(mig, "_run_generator_steps", killed)
+        with pytest.raises(KeyboardInterrupt):
+            artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None)
+    assert artifact_upgrade._run_upgrade(cfg, lessons_reconcile=None) == 0
+
+    changelog = read_text(lessons_dir / CHANGELOG)
+    assert changelog.count("HUB-MARKER") == 1 and changelog.count("CL-MARKER") == 1
+    assert changelog.count("Pre-migration changelog file") == 1
+    assert changelog.count("Relocated hand-written index sections") == 1
+    ledger = json.loads((lessons_dir / LEDGER).read_text(encoding="utf-8"))
+    assert sorted(ledger["relocated"]["foreign_files"]) == sorted([HUB_LOG, CHANGELOG])
+    assert ledger["unaccounted"] == 0
 
 
 def test_path1_changelog_split_reached_through_run_upgrade(tmp_path, monkeypatch):

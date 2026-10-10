@@ -694,14 +694,71 @@ def test_a_crlf_multi_line_note_in_an_lf_master_plan_is_recognised_on_resume(tmp
     assert "- Already-present items: 1" in ledger_of(plans_dir)
 
 
-def test_an_unclosed_comment_is_refused_naming_its_line_before_any_write(tmp_path, capsys):
-    lines = [ALP, "<!-- ALP: a note that never closes", BET]
-    config, _plans_dir, _index = build(tmp_path, legacy_index(lines), A_PLANS)
+def test_an_unclosed_comment_becomes_a_one_line_note_and_every_byte_is_accounted(tmp_path, capsys):
+    opener = "<!-- a note that never closes"
+    config, plans_dir, index = build(tmp_path, legacy_index([opener, ALP, BET]), A_PLANS)
+    plan = plan_of(config, index)
+    [item] = [i for i in plan["items"] if i.kind == "HTML comment"]
+    assert (item.line, item.text, item.unclosed) == (5, opener, True)
+    assert plan["refusals"] == [] and mig.accounting(plan)["unaccounted"] == 0
+    assert [r.abbrev for r in plan["table"].rows] == ["ALP", "BET"] and plan["uncarried"] == []
+    assert mig.run(config, write_args()) == 0, capsys.readouterr()
+    ledger = ledger_of(plans_dir)
+    notes = section(ledger, "Unattributed Index Notes")
+    assert f"### Line 5: HTML comment, {len(opener)} B, no-preceding-row " in notes
+    assert "(opener never closed; treated as a one-line note)" in notes and opener in notes
+    assert "- Unaccounted: 0" in ledger
+    uncarried = ledger.split("\n## Uncarried Index Lines\n", 1)[1].split("\n## Unresolved Rows\n", 1)[0]
+    assert "| ALP |" not in uncarried and "- Uncarried index lines: 0" in ledger
+    generated = (plans_dir / "00-Index-Plans.md").read_text(encoding="utf-8")
+    assert "| ALP |" in generated and "| BET |" in generated
+
+
+UNCLOSED_FLAG = "(opener never closed; treated as a one-line note)"
+UNCLOSED_OPENER = "<!-- ALP: unclosed note"
+UNCLOSED_CASES = {
+    "between-rows": ([ALP, UNCLOSED_OPENER, BET, GAM], ""),
+    "last-line": ([ALP, BET, GAM, UNCLOSED_OPENER], ""),
+    "in-tail": ([ALP, BET, GAM], "\nSome prose\n<!-- tail unclosed\nmore prose after\n"),
+    "two-openers": ([ALP, "<!-- first", BET, "<!-- second", GAM], ""),
+    "bare-opener": ([ALP, "<!--", BET, GAM], ""),
+    "opener-then-closed": ([ALP, UNCLOSED_OPENER, BET, "<!-- c -->", GAM], ""),
+    "row-after-opener-same-line": ([ALP, "<!-- x " + BET, GAM], ""),
+}
+
+
+@pytest.mark.parametrize("name", list(UNCLOSED_CASES))
+def test_an_unclosed_opener_is_never_written_into_a_master_plan(tmp_path, capsys, name):
+    lines, tail = UNCLOSED_CASES[name]
+    config, plans_dir, index = build(tmp_path, legacy_index(lines, tail=tail), A_PLANS)
+    plan = plan_of(config, index)
+    openers = [i for i in plan["items"] if i.unclosed]
+    # the scanner closes an opener at the next `-->` anywhere below it, so that case is one closed comment
+    assert bool(openers) == (name != "opener-then-closed")
+    assert all(i.dest is None and i.reason.endswith(UNCLOSED_FLAG) for i in openers)
+    assert mig.accounting(plan)["unaccounted"] == 0
+    assert mig.run(config, write_args()) == 0, capsys.readouterr()
+    for plan_file in sorted(plans_dir.rglob("*-Master-Plan.md")):
+        body = plan_file.read_text(encoding="utf-8")
+        assert "<!--" not in re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL), plan_file.name  # no open comment
+        assert all(i.text not in body for i in openers), plan_file.name
+    notes = section(ledger_of(plans_dir), "Unattributed Index Notes") or ""
+    assert all(i.text in notes for i in openers) and notes.count(UNCLOSED_FLAG) == len(openers)
+    generated = (plans_dir / "00-Index-Plans.md").read_text(encoding="utf-8")
+    assert [generated.count(f"| {a} |") for a in ("ALP", "BET", "GAM")] == [1, 1, 1]
     before = snapshot(tmp_path)
-    assert mig.run(config, write_args()) == 2
-    err = capsys.readouterr().err
-    assert "line 6" in err and "close the comment" in err
+    assert mig.run(config, write_args()) == 0, capsys.readouterr()
     assert snapshot(tmp_path) == before
+
+
+def test_unaccounted_bytes_fix_names_feedback(tmp_path, monkeypatch):
+    config, _plans_dir, index = fixture_a(tmp_path)
+    monkeypatch.setattr(mig, "accounting", lambda _plan: {"unaccounted": 7})
+    with pytest.raises(mig.Refusal) as caught:
+        plan_of(config, index)
+    [gap] = [r for r in caught.value.reason.split("\n") if "cannot account for 7 byte(s)" in r]
+    assert "run /planwise feedback with the --report output attached" in gap
+    assert gap.endswith("and keep the index as it is") and "migrate_plans_index.py --report" not in gap
 
 
 ARCHIVED = "## Archived\n\nOld plans we dropped:\n\n- Zeta was cancelled in March.\n"

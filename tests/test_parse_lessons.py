@@ -219,6 +219,41 @@ class TestBareCRInsideCell(_ParseLessonsFixtureBase):
         self.assertEqual(len(matching[0].cells), 9)
 
 
+class TestPipeInsideBackticks(_ParseLessonsFixtureBase):
+    """A pipe inside a closed backtick span is retried as literal and accepted
+    only on an exact header-count match; an unbalanced backtick stays malformed."""
+
+    def test_title_with_piped_code_parses_as_nine_cells(self):
+        row = (
+            b"| LL-060 | Fixture Lesson One `a | b` "
+            b"| process | medium | - | - | PROC | fixture | documented |\n"
+        )
+        self.write_legacy_index(row)
+
+        content = self.index_path.read_bytes().decode("utf-8")
+        rows = parse_legacy_master_table(content)
+
+        self.assertEqual(len(rows), 1)
+        self.assertFalse(rows[0].malformed)
+        self.assertEqual(len(rows[0].cells), 9)
+        self.assertEqual(rows[0].cells[1], "Fixture Lesson One `a | b`")
+
+    def test_unbalanced_backtick_title_still_malformed_and_names_the_pipe(self):
+        row = (
+            b"| LL-061 | Fixture Lesson `a | b "
+            b"| process | medium | - | - | PROC | fixture | documented |\n"
+        )
+        self.write_legacy_index(row)
+
+        content = self.index_path.read_bytes().decode("utf-8")
+        rows = parse_legacy_master_table(content)
+
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0].malformed)
+        self.assertIn("expected 9 cells, found 10", rows[0].reason)
+        self.assertIn("a | inside backticks", rows[0].reason)
+
+
 class TestGeneratedFamily(_ParseLessonsFixtureBase):
     """Rows are collected across the hub, an overflow leaf, and an Archive
     shard, resolved through the naming function."""

@@ -484,6 +484,7 @@ def _ledger_counts(ledger: dict) -> dict:
         "cells_skipped": sum(c2["skipped_present"] for c2 in cells),
         "prose_dropped": len(prose["drop"]), "prose_relocated": len(prose["relocate"]),
         "companion_renamed": ledger["companion"]["renamed"],
+        "relocated": ledger.get("relocated") or {},
         # "accepted" (only classes --write never heals) counts as clean.
         "generator_check_clean": mig.generator_succeeded(gen_exits),
     }
@@ -573,6 +574,11 @@ def _migrated_lines(report: LessonsMigrationReport) -> list:
             ("    companion:               regenerated" + (f"; hand prose in {c['companion_renamed']}"
                                                             if c.get("companion_renamed") else "")),
         ]
+        moved = c.get("relocated") or {}
+        if moved.get("rows") or moved.get("promotion_log_lines") or moved.get("foreign_files"):
+            lines.append(f"    relocated:               {moved.get('rows', 0)} row(s), "
+                         f"{moved.get('promotion_log_lines', 0)} promotion-log line(s), "
+                         f"{len(moved.get('foreign_files', []))} foreign file(s) folded in")
     elif report.detail:
         lines.append(f"    counts:                  unavailable -- {report.detail.splitlines()[-1]}")
     lines += [f"    ledger:                  {report.ledger_path or 'none'}"]

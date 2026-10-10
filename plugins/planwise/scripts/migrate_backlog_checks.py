@@ -15,6 +15,7 @@ from pathlib import Path
 
 import migrate_backlog_repairs as repairs
 import migrate_backlog_support as sup
+from markdown_parser import retried_cells
 
 METADATA_PREFIXES = ("**Purpose:**", "**Last Updated:**")  # preamble lines with no item content
 SHARDS, DEPENDENCIES = "## Shards", "## Dependencies"
@@ -48,7 +49,9 @@ def items_prefixes(lines: list, header_idx: int) -> frozenset:
     Empty when every row is bare digits. With mixed prefixes, a cell elsewhere may use any of
     them. Bare digits are always accepted."""
     column, found = _column(lines, header_idx, "id"), set()
-    for _i, cells in sup.iter_rows(lines, header_idx):
+    width = len(sup.row_cells(lines[header_idx]))
+    for i, cells in sup.iter_rows(lines, header_idx):
+        cells = retried_cells(lines[i], cells, width)
         parts = sup.row_id_parts(cells[column]) if column is not None and column < len(cells) else None
         if parts and parts[0]:
             found.add(parts[0].upper())
@@ -64,7 +67,9 @@ def _items_blocks(lines: list, header_idx: int, prefixes, problems: list) -> Non
     column = _column(lines, header_idx, "blocks")
     if column is None:
         return
+    width = len(sup.row_cells(lines[header_idx]))
     for i, cells in sup.iter_rows(lines, header_idx):
+        cells = retried_cells(lines[i], cells, width)
         cell = cells[column] if column < len(cells) else ""
         if sup.blocks_text_ok(cell) and foreign(prefixes, (p for p, _n in sup._CELL_ID_RE.findall(sup.plain(cell)))):
             problems.append(f"line {i + 1}: Blocks cell {cell!r} {FOREIGN_PREFIX}")

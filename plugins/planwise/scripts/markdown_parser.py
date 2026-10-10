@@ -56,6 +56,82 @@ def split_row_cells(line: str) -> list[str]:
     return [seg.replace("\\|", "|").strip() for seg in segments]
 
 
+_BACKTICK_RUN_RE = re.compile(r"`+")
+
+
+def _code_span_mask(line: str) -> list[bool]:
+    """Per-character flag: True where ``line`` sits inside a closed backtick span.
+
+    A run of N backticks opens a span that only a later run of exactly N
+    backticks closes. An opening run with no matching closer is literal text and
+    marks nothing, so an unbalanced backtick never swallows the rest of the row.
+    A backtick escaped by an odd number of backslashes is literal: it neither
+    opens nor closes a span, and the rest of its run is counted without it.
+    """
+    mask = [False] * len(line)
+    runs = []
+    for m in _BACKTICK_RUN_RE.finditer(line):
+        start = m.start()
+        slashes = len(line[:start]) - len(line[:start].rstrip("\\"))
+        if slashes % 2:
+            start += 1
+        if start < m.end():
+            runs.append((start, m.end()))
+    i = 0
+    while i < len(runs):
+        start, end = runs[i]
+        closer = next((j for j in range(i + 1, len(runs)) if runs[j][1] - runs[j][0] == end - start), None)
+        if closer is None:
+            i += 1
+            continue
+        for k in range(start, runs[closer][1]):
+            mask[k] = True
+        i = closer + 1
+    return mask
+
+
+def split_row_cells_code_aware(line: str, *, keep_escapes: bool = False) -> list[str]:
+    """Split a table row into cells, treating a ``|`` inside a backtick span as literal.
+
+    Outside a backtick span this behaves exactly like ``split_row_cells``: edge
+    pipes dropped, ``\\|`` unescaped, whitespace stripped. Backticks stay in the
+    returned cells. With ``keep_escapes=True`` a ``\\|`` stays as written, which
+    matches a reader that cuts rows on ``split_row_raw`` and strips each segment.
+
+    Retry contract: a caller uses this only after the plain split's cell count
+    disagrees with the header's, and accepts the result only when its count then
+    equals the header's exactly. A row the plain split already accepts is never
+    re-cut with this function. An unbalanced backtick opens no span, so such a
+    row keeps the plain split's count and the caller still reports it malformed.
+    """
+    stripped = line.strip()
+    mask = _code_span_mask(stripped)
+    segments = []
+    current_start = 0
+    for idx, ch in enumerate(stripped):
+        if ch == "|" and not mask[idx] and not (idx > 0 and stripped[idx - 1] == "\\"):
+            segments.append(stripped[current_start:idx])
+            current_start = idx + 1
+    segments.append(stripped[current_start:])
+    if segments and stripped.startswith("|"):
+        segments = segments[1:]
+    if segments and stripped.endswith("|") and not stripped.endswith("\\|"):
+        segments = segments[:-1]
+    if keep_escapes:
+        return [seg.strip() for seg in segments]
+    return [seg.replace("\\|", "|").strip() for seg in segments]
+
+
+def retried_cells(line: str, cells: list, width: int) -> list:
+    """The row's cells for a header of `width` columns. The code-aware split replaces the plain one only
+    when the plain count disagrees and the retried count then equals `width` exactly."""
+    if len(cells) != width:
+        retried = split_row_cells_code_aware(line, keep_escapes=True)
+        if len(retried) == width:
+            return retried
+    return cells
+
+
 def count_cells(line: str) -> int:
     """Return the number of logical cells in a table row."""
     return len(split_row_cells(line))

@@ -42,6 +42,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import generate_lessons_index as gen
 import lessons_changelog as changelog
+import migrate_lessons_relocate as relocate
 import migrate_lessons_repairs as repairs
 import migrate_lessons_support as sup
 import parse_lessons
@@ -154,10 +155,12 @@ def _row_map(cells: list) -> dict:
     return {name: cells[i] for i, name in enumerate(ROLE_ORDER) if i < len(cells)}
 
 
-def _resolve_rows(lessons_dir: Path, archive_dir: Path, rows: list, refusals: list) -> dict:
+def _resolve_rows(lessons_dir: Path, archive_dir: Path, rows: list, refusals: list,
+                  unresolved: list | None = None) -> dict:
     """`{id: (path, row)}` per Master Table row; appends `(fix, detail)`
-    to `refusals` for a malformed row or an id resolving to zero or >1
-    files, and leaves that row out."""
+    to `refusals` for a malformed row or an id resolving to >1 files, and
+    leaves that row out. Zero files: `(row, detail)` goes to `unresolved`
+    when given, else to `refusals`."""
     by_id: dict = {}
     for lesson_id, path in parse_lessons.lesson_files(lessons_dir, archive_dir):
         by_id.setdefault(lesson_id, []).append(path)
@@ -169,9 +172,12 @@ def _resolve_rows(lessons_dir: Path, archive_dir: Path, rows: list, refusals: li
             continue
         matches = by_id.get(row.id, [])
         if len(matches) != 1:
-            refusals.append((sup.FIX_RESOLVE, (f"lesson id {format_id(row.id)} (Master Table line "
-                                               f"{row.line}) resolves to {len(matches)} file(s) under "
-                                               "the lessons directory and Archive/; expected exactly one")))
+            detail = (f"lesson id {format_id(row.id)} (Master Table line {row.line}) resolves to "
+                      f"{len(matches)} file(s) under the lessons directory and Archive/; expected exactly one")
+            if not matches and unresolved is not None:
+                unresolved.append((row, detail))
+            else:
+                refusals.append((sup.FIX_RESOLVE, detail))
             continue
         resolved[row.id] = (matches[0], row)
     return resolved
@@ -211,7 +217,9 @@ def plan_migration(config: dict, index_path: Path, text: str, detail, options: R
     regions = sup.locate_regions(text)
     rows, placeholder_lines = sup.split_placeholder_rows(
         parse_lessons.parse_legacy_master_table(text, source=index_path))
-    resolved = _resolve_rows(lessons_dir, archive_dir, rows, refusals)
+    unresolved: list = []
+    resolved = _resolve_rows(lessons_dir, archive_dir, rows, refusals, unresolved)
+    unresolved_sections = relocate.unresolved_sections(text, unresolved)
 
     valid_statuses = gen._resolve_valid_statuses(config)
     lesson_texts: dict = {}
@@ -281,17 +289,21 @@ def plan_migration(config: dict, index_path: Path, text: str, detail, options: R
     header_segments = sup.extract_header_changelog(text)
     log_placeholder_lines: list = []
     log_leftover: list = []
-    promo_rows = sup.walk_promotion_log(text, refusals, log_placeholder_lines, log_leftover)
-    log_residue, residue_lines = sup.promotion_log_residue(log_leftover)
+    log_refusals: list = []
+    promo_rows = sup.walk_promotion_log(text, log_refusals, log_placeholder_lines, log_leftover)
+    moved_log_lines = relocate.split_log_refusals(text, log_refusals, refusals)
+    log_residue, residue_lines = sup.promotion_log_residue(sorted(log_leftover + moved_log_lines))
 
     # Keyed by occurrence (`sup.locate_regions`): a repeated heading is
     # dispositioned once per occurrence, and only the first Master Table /
     # Rule Promotion Log is structural -- a repeat of either is prose.
-    drop_sections, relocate_sections = [], []
+    drop_sections, relocate_sections, prose_relocated = [], [], []
     for key, section in regions["sections"].items():
         heading = section["heading"]
         if key == sup.PROMOTION_LOG_HEADING and log_residue:
             relocate_sections.append((heading, log_residue))
+            if sup.promotion_log_residue(log_leftover)[0]:  # prose too, not only refused rows
+                prose_relocated.append(heading)
             if not options.relocate_prose:
                 refusals.append((sup.FIX_RELOCATE, (
                     f"section '{heading}' carries text that is not a promotion-log row (line(s) "
@@ -303,20 +315,32 @@ def plan_migration(config: dict, index_path: Path, text: str, detail, options: R
             drop_sections.append(heading)
         else:
             relocate_sections.append((heading, section["body"]))
+            prose_relocated.append(heading)
             if not options.relocate_prose:
                 refusals.append((sup.FIX_RELOCATE, (f"prose section '{heading}' (line "
                                                     f"{section['line_start'] + 1}) differs from the "
                                                     "shipped seed and would be dropped")))
 
+    relocate_sections += relocate.as_relocations(unresolved_sections, index_nl)
+    changelog_path = lessons_dir / _changelog_filename(naming)
+    held: dict = {}
+    base = len(relocate_sections)
+    promo_outputs, foreign_logs, held_logs = relocate.fold_promotion_logs(
+        relocate_sections, promo_rows, lessons_dir, naming, index_nl,
+        relocate.earlier_changelog(changelog_path, today), held)
+    relocated = {"rows": len(unresolved_sections), "promotion_log_lines": len(moved_log_lines),
+                 "foreign_files": foreign_logs}
+
     changelog_segments = list(header_segments)
     if relocate_sections:
-        changelog_segments.insert(0, sup.render_relocated_entry(relocate_sections, today))
-    changelog_outputs = (sup.render_changelog(changelog_segments, naming.hub_name, index_nl, today)
-                         if changelog_segments else [])
-    changelog_path = lessons_dir / _changelog_filename(naming)
-    promo_outputs = (sup.render_promotion_logs(promo_rows, naming, index_nl, lessons_dir)
-                     if promo_rows else [])
-    for name, out_text in changelog_outputs + promo_outputs:
+        changelog_segments.insert(0, sup.render_relocated_entry(relocate_sections[:base] + held_logs, today))
+
+    folds: list = []
+    changelog_outputs = relocate.render_with_fold(changelog_path, changelog_segments, naming.hub_name, today,
+                                                  index_nl, relocated["foreign_files"], folds, held)
+    for name, out_text in changelog_outputs:  # a foreign promotion-log file was folded or accounted for above
+        if name in relocated["foreign_files"]:
+            continue
         blocker = _existing_or_none(lessons_dir / name, out_text, naming.hub_name)
         if blocker:
             refusals.append((sup.FIX_FOREIGN, blocker))
@@ -329,8 +353,8 @@ def plan_migration(config: dict, index_path: Path, text: str, detail, options: R
         if _companion_needs_rename(companion_text):
             notes_text = read_text(notes_path) if notes_path.exists() else None
             if notes_text is not None and notes_text != companion_text and not _is_notes_seed(notes_text):
-                refusals.append((sup.FIX_FOREIGN, (f"{notes_path} already exists; the hand-written "
-                                                   "companion cannot be renamed onto it")))
+                companion_text = relocate.merge_into_notes(notes_text, companion_text, today)
+                relocated["foreign_files"].append(gen.NOTES_FILENAME)
             companion_rename = companion_text
     if refusals:
         raise sup.RefusalSet(refusals)
@@ -351,9 +375,10 @@ def plan_migration(config: dict, index_path: Path, text: str, detail, options: R
         "backfill": backfill_records, "quotes": quote_records, "reconcile": reconcile_cells,
         "reconcile_mode": options.reconcile, "cells": cells_records,
         "drop_sections": drop_sections, "relocate_sections": relocate_sections,
-        "header_segments": header_segments, "changelog_outputs": changelog_outputs,
+        "prose_relocated": prose_relocated, "header_segments": header_segments, "changelog_outputs": changelog_outputs,
         "changelog_path": changelog_path, "promo_rows": promo_rows, "promo_outputs": promo_outputs,
         "companion_rename": companion_rename, "notes_path": notes_path,
+        "relocated": relocated, "folds": folds,
         "outputs": outputs, "interrupted": interrupted, "dests": [],
         "placeholders": {"master_table": len(placeholder_lines), "promotion_log": len(log_placeholder_lines)},
     }
@@ -430,6 +455,9 @@ def verify_written(plan: dict) -> list:
         if body.strip() and body.strip() not in all_text:
             misses.append(f"the relocated '{heading}' section ({body.strip()[:40]!r}) is missing "
                           "from every output")
+    for folded in plan["folds"]:
+        if folded not in all_text:
+            misses.append(f"a folded foreign file ({folded[:40]!r}) is missing from every output")
     for row in plan["promo_rows"]:
         cells = list(row["cells"]) + [""] * (4 - len(row["cells"]))
         line = "| " + " | ".join(cells) + " |"
@@ -464,9 +492,10 @@ def build_ledger(plan: dict, exits: dict | None = None, misses: list | None = No
         "quotes": plan["quotes"],
         "reconcile": {"mode": plan["reconcile_mode"], "cells": plan["reconcile"]},
         "cells": plan["cells"],
-        "prose": {"drop": plan["drop_sections"], "relocate": [h for h, _b in plan["relocate_sections"]],
+        "prose": {"drop": plan["drop_sections"], "relocate": plan["prose_relocated"],
                   "bytes": _relocated_bytes(plan["relocate_sections"])},
         "companion": {"renamed": str(plan["notes_path"]) if plan["companion_rename"] is not None else None},
+        "relocated": plan["relocated"],
         "migration_date": plan["migration_date"],
         "generator": exits or {k: None for k in _GENERATOR_EXIT_KEYS},
         "generator_verdict": None if exits is None else generator_verdict(exits),
@@ -485,7 +514,7 @@ def format_report(plan: dict) -> str:
         f"reconcile: {plan['reconcile_mode'] or 'off'}, {len(plan['reconcile'])} cell(s)",
         (f"cells: {sum(c['appended'] for c in plan['cells'])} unit(s) appended across "
          f"{len(plan['cells'])} file(s)"),
-        f"prose: {len(plan['drop_sections'])} dropped, {len(plan['relocate_sections'])} relocated",
+        f"prose: {len(plan['drop_sections'])} dropped, {len(plan['prose_relocated'])} relocated",
         f"companion: {'renamed' if plan['companion_rename'] is not None else 'no legacy companion found'}",
     ])
 
@@ -859,6 +888,14 @@ def run(config: dict, args) -> int:
     if not args.write:
         print(json.dumps(build_ledger(plan), indent=2) if js else format_report(plan))
         return say(1, "DRY-RUN: migration needed; no files written.", js)
+    try:
+        copies = relocate.keep_foreign_copies(lessons_dir, plan["relocated"]["foreign_files"])
+    except OSError as exc:
+        return say(1, f"FAIL: could not keep a copy of a foreign file ({exc}); nothing on disk changed.", js, err=True)
+    for src, dst, written in copies:  # a copy kept by an earlier run is listed in the ledger, not announced
+        if written:
+            say(0, f"BACKUP: {src} kept as {dst}", js)
+    plan["relocated"]["backups"] = [str(dst) for _src, dst, _written in copies]
     return execute(plan, ledger_file, index_path, config, js)
 
 

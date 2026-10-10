@@ -36,10 +36,6 @@ LEGACY_INDEX = (
     "| LL-001 | Fixture Lesson One | process | medium | python | claude-code | PROC | fixture | documented |\n"
     "\n---\n"
 )
-LEGACY_INDEX_UNRESOLVABLE = LEGACY_INDEX.replace(
-    "\n---\n",
-    "| LL-002 | Ghost Lesson | process | medium | python | claude-code | PROC | fixture | documented |\n\n---\n",
-)
 GENERATED_INDEX = (
     "Generated: 2024-01-01\n**Next available ID:** LL-002\n\n"
     "| ID | Title | Category | Severity | Language | Technology | Domain | Source | Status | File |\n"
@@ -317,11 +313,12 @@ def test_unrecognized_shape_is_reported_and_untouched(tmp_path):
 
 
 def test_refused_names_the_flag_it_closes(tmp_path):
-    cfg, _lessons_dir = _project(tmp_path, LEGACY_INDEX_UNRESOLVABLE)
+    cfg, lessons_dir = _project(tmp_path)
+    _write(lessons_dir / "LL-001-PROC-Dup.md", LESSON_001)  # LL-001 now resolves to two files
     before = _snapshot(tmp_path)
     report = _migrate(cfg)
     assert report.state == "refused"
-    assert "resolves to 0 file" in report.detail
+    assert "resolves to 2 file" in report.detail and sup.FIX_RESOLVE in report.detail
     assert _snapshot(tmp_path) == before
 
 
