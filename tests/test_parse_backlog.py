@@ -746,5 +746,110 @@ class TestRowLevelBlocksCellUnionedIntoBlockedByMap(unittest.TestCase):
         self.assertEqual(blocked, [])
 
 
+class TestArchivedBlockerInLegacyDependenciesTable(unittest.TestCase):
+    """A legacy `## Dependencies` row whose blocker is COMPLETE and lives only
+    in an Archive shard must not hold its blocked item back. The hub family
+    carries no row for that blocker, so its status lookup used to return the
+    empty string and the edge stayed open.
+
+    Every test asserts the Dependencies table parsed before it asserts on
+    blocking, because an empty table makes "nothing is blocked" vacuously true.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="parse_backlog_archived_blocker_test_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.planwise_dir = self.tmp / "planwise"
+        self.backlog_dir = self.planwise_dir / "Backlog"
+        self.archive_dir = self.backlog_dir / "Archive"
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        self.config_path = self.planwise_dir / "config.yaml"
+        self.config_path.write_text(CONFIG_YAML_FIXTURE, encoding="utf-8")
+
+        # Archive shard: blocker 100 is COMPLETE and absent from the hub.
+        (self.archive_dir / "Index-Backlog-100-100.md").write_text(
+            GENERATED_9COL_HEADER + _row9("100", status="COMPLETE", score="-"),
+            encoding="utf-8",
+        )
+
+    def write_hub(self, blocker: str) -> str:
+        """A legacy 6-column hub: item 002 is open, and the Dependencies row
+        says `blocker` blocks it. Returns the hub text."""
+        content = HEADER + _row("002") + DEPENDENCIES_HEADER + f"| {blocker} | 002 |\n"
+        (self.backlog_dir / "00-Index-Backlog.md").write_text(content, encoding="utf-8")
+        return content
+
+    def run_parse(self) -> str:
+        saved_argv = sys.argv
+        sys.argv = ["parse_backlog", "--config", str(self.config_path)]
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                parse_backlog.main()
+        finally:
+            sys.argv = saved_argv
+        return out.getvalue()
+
+    def test_archived_closed_blocker_does_not_block(self):
+        content = self.write_hub("100")
+        self.assertTrue(parse_dependencies_table(content), "fixture's Dependencies table failed to parse")
+
+        out = self.run_parse()
+
+        self.assertNotIn("Blocked Items", out)
+        self.assertTrue(any(line.startswith("002") for line in out.splitlines()))
+
+    def test_blocker_found_nowhere_still_blocks(self):
+        # 999 is in neither the hub family nor an Archive shard. A typo in a
+        # hand-authored row must keep its item blocked, not silently unblock it.
+        content = self.write_hub("999")
+        self.assertTrue(parse_dependencies_table(content), "fixture's Dependencies table failed to parse")
+
+        out = self.run_parse()
+
+        self.assertIn("Blocked Items", out)
+        self.assertIn("blocked by: 999", out)
+
+    def test_map_treats_only_a_closed_archived_id_as_resolved(self):
+        content = HEADER + _row("002") + DEPENDENCIES_HEADER + "| 100 | 002 |\n"
+        items = parse_backlog_table(content)
+        dependencies = parse_dependencies_table(content)
+
+        without_archive = build_blocked_by_map(dependencies, items)
+        self.assertEqual(without_archive.get(normalize_id("002")), [normalize_id("100")])
+
+        with_archive = build_blocked_by_map(
+            dependencies, items, frozenset({normalize_id("100")})
+        )
+        self.assertEqual(with_archive, {})
+
+    def test_hub_status_wins_over_an_archived_id(self):
+        # An id present in the hub family keeps the hub row's status, so an
+        # open hub row still blocks even when the same id sits in an archive.
+        content = HEADER + _row("100") + _row("002") + DEPENDENCIES_HEADER + "| 100 | 002 |\n"
+        items = parse_backlog_table(content)
+
+        blocked_by_map = build_blocked_by_map(
+            parse_dependencies_table(content), items, frozenset({normalize_id("100")})
+        )
+
+        self.assertEqual(blocked_by_map.get(normalize_id("002")), [normalize_id("100")])
+
+    def test_collect_archived_closed_ids_skips_open_shard_rows(self):
+        (self.archive_dir / "Index-Backlog-101-101.md").write_text(
+            GENERATED_9COL_HEADER + _row9("101", status="NOT_STARTED"),
+            encoding="utf-8",
+        )
+        self.write_hub("100")
+        config = {
+            "_archive_dir": self.archive_dir,
+            "_index_path": self.backlog_dir / "00-Index-Backlog.md",
+        }
+
+        self.assertEqual(
+            parse_backlog.collect_archived_closed_ids(config), frozenset({normalize_id("100")})
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -640,6 +640,26 @@ _BEFORE_AFTER_RE = re.compile(
     r"|\breplace\b[^\n]{0,120}\bwith\b",
     re.IGNORECASE,
 )
+
+
+def _label_then_fence(word: str) -> str:
+    """Pattern text for a label line (`word` alone, optionally a heading, a
+    list bullet, bold or italic markers, a trailing colon) followed, after
+    any blank lines, by the opening line of a fenced block."""
+    mark = r"(?:\*\*|__|\*|_)?"
+    return (
+        rf"^[ \t]*(?:#{{1,6}}[ \t]+|[-*+][ \t]+)?{mark}{word}{mark}[ \t]*:?{mark}[ \t]*\r?\n"
+        r"(?:[ \t]*\r?\n)*[ \t]*(?:```|~~~)"
+    )
+
+
+# -- a `Before` label with a fenced block under it and, on a LATER line, an
+#    `After` label with a fenced block under it. No single line holds both
+#    words, so the single-line clause above cannot see this shape.
+_BEFORE_AFTER_BLOCKS_RE = re.compile(
+    _label_then_fence("before") + r"[\s\S]*?" + _label_then_fence("after"),
+    re.IGNORECASE | re.MULTILINE,
+)
 # -- a scope-confinement bound
 _SCOPE_BOUND_RE = re.compile(
     r"out of scope|do not touch|must not touch|touch no other|edit only|scope[- ]confinement"
@@ -839,7 +859,11 @@ def compute_route_signals(item: dict, frontmatter: dict) -> dict:
     clear_fix = {
         "line_anchor": bool(_LINE_ANCHOR_RE.search(body)),
         "edit_target": bool(_EDIT_TARGET_RE.search(body)),
-        "before_after": bool(_BEFORE_AFTER_RE.search(body)) or ("WRONG" in body and "CORRECT" in body),
+        "before_after": (
+            bool(_BEFORE_AFTER_RE.search(body))
+            or bool(_BEFORE_AFTER_BLOCKS_RE.search(body))
+            or ("WRONG" in body and "CORRECT" in body)
+        ),
         "scope_bound": bool(_SCOPE_BOUND_RE.search(body)),
     }
     clear_fix["evidence_present"] = (

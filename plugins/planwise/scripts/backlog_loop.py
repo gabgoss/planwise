@@ -45,6 +45,7 @@ from parse_backlog import (
     _index_naming,
     _read_backlog_items,
     build_blocked_by_map,
+    collect_archived_closed_ids,
     filter_items,
     parse_dependencies_table,
 )
@@ -371,7 +372,9 @@ def cmd_init(args, config: dict) -> int:
         index_text = config["_index_path"].read_text(encoding="utf-8")
     except OSError:
         index_text = ""
-    blocked_by = build_blocked_by_map(parse_dependencies_table(index_text), items)
+    dependencies = parse_dependencies_table(index_text)
+    archived_closed_ids = collect_archived_closed_ids(config) if dependencies else frozenset()
+    blocked_by = build_blocked_by_map(dependencies, items, archived_closed_ids)
 
     criteria = FilterCriteria(
         status=args.status or None, priority=args.priority, abbrev=args.abbrev

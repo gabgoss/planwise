@@ -723,6 +723,82 @@ class TestRouteSignals(unittest.TestCase):
         self.assertFalse(signals["clear_fix"]["scope_bound"])
         self.assertFalse(signals["has_clear_fix"])
 
+    def test_before_and_after_labels_on_separate_lines_with_fenced_blocks_count_as_a_pair(self):
+        # A `Before:` label with a fenced block and, on a later line, an
+        # `After:` label with a fenced block. No single line holds both words,
+        # so only a detector that reads across lines sees the pair. The short
+        # item shortcut hides the gap, so the body is padded to 64 lines.
+        def padded(proposed: str) -> str:
+            head = "\n## Proposed Solution\n\n" + proposed + "\n## Acceptance Criteria\n\n"
+            filler = max(0, 64 - head.count("\n"))
+            return head + "".join(f"- [ ] Extra criterion {i}\n" for i in range(filler))
+
+        proposed = (
+            "Change the one string on line 3 of `src/app.py`. Touch no other line and no other file.\n\n"
+            "Before:\n\n```python\nprint(\"Welcom to the app\")\n```\n\n"
+            "After:\n\n```python\nprint(\"Welcome to the app\")\n```\n"
+        )
+        body = padded(proposed)
+        self.assertEqual(body.count("\n"), 64)
+        signals = score_backlog.compute_route_signals(
+            _route_item(abbrev="BUG"), _route_fm(body, line_count=body.count("\n"))
+        )
+        self.assertFalse(signals["is_short"])
+        self.assertTrue(signals["clear_fix"]["before_after"])
+        self.assertTrue(signals["clear_fix"]["evidence_present"])
+        self.assertEqual(signals["route"], "A")
+
+        # The label shapes the requirement names: plain, bold, a heading, a
+        # colon inside or outside the bold markers.
+        for before, after in (
+            ("Before", "After"),
+            ("**Before:**", "**After:**"),
+            ("**Before**:", "**After**:"),
+            ("### Before", "### After"),
+            ("- Before:", "- After:"),
+            ("BEFORE:", "AFTER:"),
+        ):
+            variant = proposed.replace("Before:", before).replace("After:", after)
+            variant_body = padded(variant)
+            signals = score_backlog.compute_route_signals(
+                _route_item(abbrev="BUG"), _route_fm(variant_body, line_count=variant_body.count("\n"))
+            )
+            self.assertTrue(signals["clear_fix"]["before_after"], before)
+
+        # A `Before` label with no `After` label is not a pair.
+        before_only = padded(
+            "Change the one string on line 3 of `src/app.py`. Touch no other line and no other file.\n\n"
+            "Before:\n\n```python\nprint(\"Welcom to the app\")\n```\n"
+        )
+        signals = score_backlog.compute_route_signals(
+            _route_item(abbrev="BUG"), _route_fm(before_only, line_count=before_only.count("\n"))
+        )
+        self.assertFalse(signals["is_short"])
+        self.assertFalse(signals["clear_fix"]["before_after"])
+        self.assertFalse(signals["clear_fix"]["evidence_present"])
+        self.assertEqual(signals["route"], "C")
+
+        # An `After` label placed before the `Before` label is not a pair either.
+        reversed_body = padded(
+            "Change the one string on line 3 of `src/app.py`. Touch no other line and no other file.\n\n"
+            "After:\n\n```python\nprint(\"Welcome to the app\")\n```\n\n"
+            "Before:\n\n```python\nprint(\"Welcom to the app\")\n```\n"
+        )
+        signals = score_backlog.compute_route_signals(
+            _route_item(abbrev="BUG"), _route_fm(reversed_body, line_count=reversed_body.count("\n"))
+        )
+        self.assertFalse(signals["clear_fix"]["before_after"])
+
+        # A label with no fenced block under it does not count.
+        no_fences = padded(
+            "Change the one string on line 3 of `src/app.py`. Touch no other line and no other file.\n\n"
+            "Before:\n\nthe typo\n\nAfter:\n\nthe fixed string\n"
+        )
+        signals = score_backlog.compute_route_signals(
+            _route_item(abbrev="BUG"), _route_fm(no_fences, line_count=no_fences.count("\n"))
+        )
+        self.assertFalse(signals["clear_fix"]["before_after"])
+
     def test_an_exact_edit_string_or_whole_file_copy_locates_the_edit_without_a_line_number(self):
         string_body = (
             "\n## Fix\n\nReplace `2.1.208` with `2.1.278`. Edit only `docs/a.md`; touch no other file.\n\n"

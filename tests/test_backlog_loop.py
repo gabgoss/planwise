@@ -195,6 +195,50 @@ class TestInit(_LoopFixtureBase):
         self.assertEqual(self.read_run(narrowed)["filters"]["priority"], "High")
 
 
+class TestInitArchivedBlockerInDependenciesTable(_LoopFixtureBase):
+    """The loop shares `parse_backlog.build_blocked_by_map`, so a legacy
+    `## Dependencies` edge from a COMPLETE blocker that lives only in an
+    Archive shard must not keep its item out of the queue."""
+
+    DEPENDENCIES = "\n## Dependencies\n\n| ID | Blocks |\n|----|--------|\n"
+
+    def write_hub_with_dependency(self, blocker: str) -> None:
+        rows = "".join(
+            f"| {item_id} | {title} | {priority} | {status} | INFRA | 2026-10-01 | "
+            f"{blocks} | 0 | [01]({item_filename(item_id)}) |\n"
+            for item_id, title, priority, status, blocks, _kind in FIXTURE_ITEMS
+            if item_id in ("001", "002")
+        )
+        (self.backlog_dir / "00-Index-Backlog.md").write_text(
+            HUB_HEADER + rows + self.DEPENDENCIES + f"| {blocker} | 002 |\n", encoding="utf-8"
+        )
+
+    def write_archived_blocker(self) -> None:
+        archive_dir = self.backlog_dir / "Archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        (archive_dir / "Index-Backlog-100-100.md").write_text(
+            HUB_HEADER
+            + "| 100 | Closed blocker | Low | COMPLETE | INFRA | 2026-09-01 | | - | [01](100-INFRA-x.md) |\n",
+            encoding="utf-8",
+        )
+
+    def test_archived_closed_blocker_does_not_hold_the_item_back(self):
+        self.write_archived_blocker()
+        self.write_hub_with_dependency("100")
+
+        payload = self.init("--mode", "all")
+
+        self.assertEqual([q["id"] for q in payload["queue"]], ["001", "002"])
+
+    def test_blocker_found_nowhere_still_holds_the_item_back(self):
+        self.write_archived_blocker()
+        self.write_hub_with_dependency("999")
+
+        payload = self.init("--mode", "all")
+
+        self.assertEqual([q["id"] for q in payload["queue"]], ["001"])
+
+
 class TestNext(_LoopFixtureBase):
     def test_next_pops(self):
         payload = self.init("--mode", "all")

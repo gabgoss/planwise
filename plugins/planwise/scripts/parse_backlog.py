@@ -307,8 +307,27 @@ def resolve_closed_item_shard(item_id: str, config: dict) -> tuple[Path | None, 
     return None, True
 
 
+def collect_archived_closed_ids(config: dict) -> frozenset[str]:
+    """Normalized ids of every COMPLETE/CLOSED row in an Archive shard.
+
+    `build_blocked_by_map` receives hub-family items only, so a closed
+    blocker that has moved to an Archive shard is invisible to its status
+    lookup. This set supplies the missing fact. Only a shard row whose
+    status is closed counts, so an id found nowhere stays unknown.
+    """
+    naming = _index_naming(config["_index_path"])
+    closed: set[str] = set()
+    for path in _enumerate_generated_files(config["_archive_dir"], naming):
+        for item in _read_backlog_items(path):
+            if item["status"] in CLOSED_STATUSES:
+                closed.add(normalize_id(item["id"]))
+    return frozenset(closed)
+
+
 def build_blocked_by_map(
-    dependencies: list[dict], items: list[dict]
+    dependencies: list[dict],
+    items: list[dict],
+    archived_closed_ids: frozenset[str] = frozenset(),
 ) -> dict[str, list[str]]:
     """Build reverse dependency map: blocked_item_id -> [open blocker IDs].
 
@@ -326,12 +345,21 @@ def build_blocked_by_map(
     would silently become routable. Both sources share the same
     open-blocker-only guard: a CLOSED/COMPLETE blocker's edge is already
     resolved and must not still hold a blocked item back.
+
+    ``items`` is the hub family, so a closed blocker that moved to an
+    Archive shard has no entry in the status map. ``archived_closed_ids``
+    (from ``collect_archived_closed_ids``) names those blockers, and a
+    ``## Dependencies`` edge from one of them is resolved. A blocker found
+    in neither place stays open, because a typo in a hand-authored row
+    must not silently unblock its items.
     """
     status_map = {normalize_id(item["id"]): item["status"] for item in items}
     blocked_by: dict[str, list[str]] = {}
 
     for dep in dependencies:
         blocker = normalize_id(dep["blocker_id"])
+        if blocker not in status_map and blocker in archived_closed_ids:
+            continue
         if status_map.get(blocker, "") not in CLOSED_STATUSES:
             for blocked_id in dep["blocked_ids"]:
                 blocked_by.setdefault(normalize_id(blocked_id), []).append(blocker)
@@ -561,7 +589,10 @@ def main():
             all_items.extend(_read_backlog_items(shard_path))
 
     dependencies = parse_dependencies_table(content)
-    blocked_by_map = build_blocked_by_map(dependencies, all_items)
+    # The Archive shards are read only when a legacy `## Dependencies` table
+    # exists: a generated corpus has none, so it pays no extra read.
+    archived_closed_ids = collect_archived_closed_ids(config) if dependencies else frozenset()
+    blocked_by_map = build_blocked_by_map(dependencies, all_items, archived_closed_ids)
 
     criteria = FilterCriteria(
         status=args.status,
