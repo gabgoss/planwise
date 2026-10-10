@@ -343,6 +343,44 @@ def test_file_name_wins_an_abbrev_disagreement(tmp_path, monkeypatch, capsys):
     assert log["verification"] == {"verified": True, "misses": []}
 
 
+def _crash_then_resume(monkeypatch, capsys, config_path, index_path, *flags):
+    """A --write that dies replacing the index, after the item files, then the same --write again."""
+    real = sup._replace
+
+    def replace(src, dst):
+        if Path(dst).name == index_path.name:
+            raise OSError("simulated crash")
+        return real(src, dst)
+    with monkeypatch.context() as m:
+        m.setattr(sup, "_replace", replace)
+        code, out, err = run(monkeypatch, capsys, config_path, *flags, "--write")
+    assert code == 1 and "replace stopped" in err, err + out
+    return run(monkeypatch, capsys, config_path, *flags, "--write")
+
+
+def test_a_file_name_id_win_is_kept_on_resume(tmp_path, monkeypatch, capsys):
+    cell = row("003").replace("| 003 |", "| 013 |", 1)
+    config_path, index_path = project(tmp_path, index(cell), {"003": item("003", head=fm("003", drop=("id",)))})
+    code, out, err = _crash_then_resume(monkeypatch, capsys, config_path, index_path,
+                                        "--backfill-frontmatter", "--reconcile", "index-wins")
+    assert code == 0, err + out
+    assert b"\nid: 003\n" in item_bytes(index_path, "003")
+    assert [(c["key"], c["index"], c["winner"], c["written"]) for c in ledger(index_path)["reconcile"]["cells"]] == [
+        ("id", "013", "file-name", "003")]
+
+
+def test_a_file_name_abbrev_win_is_kept_on_resume(tmp_path, monkeypatch, capsys):
+    cell = f"| 003 | {TITLES['003']} | High | NOT_STARTED | DOC | [003]({NAMES['003']}) |\n"
+    config_path, index_path = project(tmp_path, index(cell, header=HEADER_ABBREV),
+                                      {"003": item("003", head=fm("003", drop=("abbrev",)))})
+    code, out, err = _crash_then_resume(monkeypatch, capsys, config_path, index_path,
+                                        "--backfill-frontmatter", "--reconcile", "index-wins")
+    assert code == 0, err + out
+    assert b"\nabbrev: SMP\n" in item_bytes(index_path, "003") and b"DOC" not in item_bytes(index_path, "003")
+    assert [(c["key"], c["index"], c["winner"], c["written"]) for c in ledger(index_path)["reconcile"]["cells"]] == [
+        ("abbrev", "DOC", "file-name", "SMP")]
+
+
 def test_interrupted_journal_is_renamed_and_the_run_continues(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(mig, "_today", lambda: "2026-01-02")
     config_path, index_path = project(tmp_path, index(row("001")), {"001": item("001")})

@@ -20,7 +20,10 @@ re-splits one that has grown over budget.
 Recognise-or-refuse, never best-effort. Before any write, the run refuses
 (exit 2) and names the cause when: the shape, a column or a `##` section is
 not recognised; a Shards or Dependencies table or row is not recognised;
-a `## Dependencies`
+a Blocks cell or Dependencies row uses an id prefix the items table does
+not write, compared case-insensitively over every items row; a Dependencies
+row names its own item; relocated index text measures at or over the page
+cap as one changelog entry; a `## Dependencies`
 edge is missing from its item's frontmatter `blocks:`; the generator's own
 scan would refuse the tree; a row has an empty ID cell or prose in its
 Files or Blocks cell; a row cell disagrees with its item frontmatter; a
@@ -113,6 +116,7 @@ class RepairOptions:
     reconcile: str | None = None
     append_ambiguous: bool = False
     park_ambiguous: bool = False  # keep AMBIGUOUS units in the ledger; `append_ambiguous` wins over it
+    abbrev_precedence: bool = False  # settle each abbrev by file name, then frontmatter, then cell (`abbrev_prepass`)
     high: float = sup.DEFAULT_HIGH
     low: float = sup.DEFAULT_LOW
 
@@ -122,9 +126,10 @@ class RepairOptions:
 
     @classmethod
     def unattended(cls, reconcile: str = "index-wins") -> "RepairOptions":
-        """Every repair on, and AMBIGUOUS units parked: what `/planwise upgrade` and `init` run."""
+        """Every repair on, AMBIGUOUS units parked, and each abbrev settled by precedence: what
+        `/planwise upgrade` and `init` run."""
         return cls(backfill_frontmatter=True, write_edges=True, extract_dependency_notes=True, reconcile=reconcile,
-                   park_ambiguous=True)
+                   park_ambiguous=True, abbrev_precedence=True)
 
 
 def _today() -> str:
@@ -277,6 +282,37 @@ def _name_win(wins: list, path: Path, item_id: str, key: str, cell: str, value: 
                  "written": value, "path": path})
 
 
+def _settled_by_name(diffs: list, resolved: list, roles: dict, wins: list, prior: list) -> list:
+    """`diffs` less each disagreement already settled, which joins `wins` instead: an ID cell that
+    disagrees with an `id:` equal to the file name's own id, and a cell that disagrees with a value
+    `prior` (an interrupted run's journal) records as a win. A resumed run then keeps what the
+    interrupted run wrote, as a clean run would have."""
+    recorded = {(str(Path(w["path"]).resolve()), w["key"]): w for w in prior if isinstance(w, dict) and "path" in w}
+    kept = []
+    for d in diffs:
+        won = recorded.get((str(Path(d["path"]).resolve()), d["key"]))
+        if d["key"] == "id" and repairs.first_id_in(d["path"].stem) == d["frontmatter"]:
+            winner = "file-name"
+        elif won is not None and won.get("written") == d["frontmatter"]:
+            winner = won.get("winner") or "file-name"
+        else:
+            kept.append(d)
+            continue
+        row = next(r for r in resolved if r["path"] == d["path"])
+        cell = row["cells"][roles["id"]].strip() if d["key"] == "id" else d["row"]
+        wins.append({"id": d["id"], "key": d["key"], "frontmatter": d["frontmatter"], "index": cell,
+                     "winner": winner, "written": d["frontmatter"], "path": d["path"]})
+    return kept
+
+
+def _abbrev_record(config: dict, decisions: dict | None) -> dict:
+    """The ledger's `abbreviations` section: each name `abbrev_prepass` added to config.yaml, and each
+    value a case-insensitive match settled to its configured key."""
+    matched = [{"from": d["decision"]["from"], "to": d["decision"]["value"]} for d in (decisions or {}).values()
+               if d["decision"] and d["decision"]["source"] == "config-match"]
+    return {"added": list(config.get("_abbrevs_added") or []), "matched": matched}
+
+
 def _abbrev(row: dict, roles: dict, path: Path, config: dict, where: str, wins: list) -> str:
     valid = sup.configured_abbrevs(config)
     seg, cell = (repairs.filename_fields(path.name) or (None, None))[1], _cell(row, roles, "abbrev")
@@ -292,14 +328,99 @@ def _abbrev(row: dict, roles: dict, path: Path, config: dict, where: str, wins: 
     return usable[0] if usable else ""
 
 
-def _source_values(keys: list, row: dict, roles: dict, path: Path, config: dict, dates: dict, wins: list):
+ABBREV_DESCRIPTION = "{} (added by the upgrade; edit the description)"
+
+
+def abbrev_decisions(resolved: list, roles: dict, configured) -> dict:
+    """{item path: its settled abbrev} for each item an index row names: `sup.decide_abbrev` over the
+    file name's segment, the frontmatter `abbrev:` read from disk and the Abbrev cell, against
+    `configured`. Each value carries those three inputs by source name, `frontmatter` None when the
+    item has no `abbrev:` key and `index` "" when the cell carries no abbrev, plus the item's id."""
+    out = {}
+    for row in resolved:
+        path = row["path"]
+        if path in out:
+            continue
+        raw = repairs.partial_frontmatter(read_text(path))[0] or {}
+        values = {"file-name": (repairs.filename_fields(path.name) or (None, None))[1],
+                  "frontmatter": str(raw.get("abbrev") or "").strip().strip("\"'") if "abbrev" in raw else None,
+                  "index": sup.abbrev_token(_cell(row, roles, "abbrev"))}
+        out[path] = {**values, "id": repairs.first_id_in(path.stem) or "",
+                     "decision": sup.decide_abbrev(*values.values(), configured)}
+    return out
+
+
+def _base_abbrevs(config: dict):
+    """The configured keys an abbrev is judged against: those `abbrev_prepass` saw, else the config's."""
+    return config["_abbrevs_before"] if "_abbrevs_before" in config else sup.configured_abbrevs(config)
+
+
+def abbrev_prepass(config: dict, detail: tuple, text: str, index_path: Path, pending=()) -> tuple:
+    """Settle every indexed item's abbrev against the configured keys, less `pending` (names an
+    interrupted run already added), and return (plan config, added). The plan config records those
+    keys as `_abbrevs_before`, every winning name no key holds as `_abbrevs_added`, and the new names
+    under `abbreviations:`. `added` lists (name, description) for each name config.yaml lacks. A name
+    that loses is never added. Nothing is written. Raises `Refusal` when a name must be added but
+    config.yaml cannot take it; a row it cannot read is left for the plan to name."""
+    current = sup.configured_abbrevs(config) or set()
+    base = (current - set(pending)) or None
+    unchanged = ({**config, "_abbrevs_before": base}, [])
+    header_idx, roles = detail
+    try:
+        rows = resolve_rows(text, header_idx, roles, config, index_path, [])
+    except Refusal:
+        return unchanged
+    decisions = abbrev_decisions(rows, roles, base)
+    winners = {}
+    for path, d in decisions.items():
+        if d["decision"] and d["decision"]["appended"]:
+            winners.setdefault(d["decision"]["value"], []).append(path.name)
+    configured = config.get("abbreviations")
+    if not winners or not isinstance(configured, dict):
+        return unchanged
+    added = [(name, ABBREV_DESCRIPTION.format(name)) for name in winners if name not in current]
+    words = [name for name, _d in added if name in sup.YAML_WORDS]
+    if words:
+        files = ", ".join(f for name in words for f in winners[name])
+        raise Refusal(f"the upgrade would add {', '.join(words)} to abbreviations: in config.yaml, but YAML reads "
+                      "it bare as a boolean or null and the fallback config reader skips a quoted key",
+                      f"rename that abbreviation in {files} (its file name segment, abbrev: line or Abbrev cell), "
+                      f"or add it to abbreviations: in config.yaml by hand as a quoted key")
+    if added:  # the splice it will make must be possible before anything is written
+        sup.splice_abbreviations((Path(config["_planwise_root"]) / "config.yaml").read_bytes(), added)
+    return ({**config, "abbreviations": {**configured, **dict(added)}, "_abbrevs_before": base,
+             "_abbrevs_added": list(winners)}, added)
+
+
+def plan_abbrevs(decisions: dict, texts: dict) -> list:
+    """Write each settled abbrev over an `abbrev:` line that differs, into `texts` (an item without the
+    key gets it from the backfill), and return one reconcile cell for each item whose file name,
+    frontmatter or Abbrev cell disagreed with it, `winner` naming the source that settled it."""
+    cells = []
+    for path, d in decisions.items():
+        if d["decision"] is None:
+            continue
+        value, seg, fm, cell = d["decision"]["value"], d["file-name"], d["frontmatter"], d["index"]
+        if fm is not None and fm != value:
+            texts[path] = repairs.replace_key_line(_text(texts, path), "abbrev", value)
+        if (seg and seg != value) or (fm is not None and fm != value) or (cell and cell != value):
+            cells.append({"id": d["id"], "key": "abbrev", "frontmatter": fm, "index": cell,
+                          "winner": d["decision"]["source"], "written": value, "path": path})
+    return cells
+
+
+def _source_values(keys: list, row: dict, roles: dict, path: Path, config: dict, dates: dict, wins: list,
+                   abbrevs: dict | None = None):
     """Return ({key: value} for `keys`, the created-date source or None). Where the file name and the
-    index cell disagree on an id or abbrev, the file name wins and `wins` records the cell. Refuses
-    rather than guess otherwise."""
+    index cell disagree on an id or abbrev, the file name wins and `wins` records the cell; an abbrev
+    comes from `abbrevs` (`abbrev_decisions`) instead when given. Refuses rather than guess otherwise."""
     where = f"{path.name} (row at line {row['line'] + 1})"
     values, source = {}, None
     for key in keys:
-        if key == "id":
+        if key == "abbrev" and abbrevs is not None:
+            decided = abbrevs[path]["decision"]
+            values[key] = decided["value"] if decided else ""
+        elif key == "id":
             ids, named = sup.row_ids(row["cells"][roles["id"]]), repairs.first_id_in(path.stem)
             if named is None and len(ids) != 1:
                 raise Refusal(f"{where}: the ID cell names {ids or 'no id'} and the file name carries no id",
@@ -350,11 +471,11 @@ def _repair_id(path: Path, body: str, raw: dict, row: dict | None, roles: dict, 
 
 
 def plan_backfill(resolved: list, roles: dict, config: dict, index_path: Path, texts: dict,
-                  id_repairs: list | None = None, wins: list | None = None) -> list:
+                  id_repairs: list | None = None, wins: list | None = None, abbrevs: dict | None = None) -> list:
     """Plan frontmatter for every scanned item file that lacks a block or keys, into `texts`.
     An `id:` of the form "{PREFIX}-{NNN}[-{NN}]" is normalised first; each such repair is
     appended to `id_repairs`. Each id or abbrev the file name settled against its index cell
-    is appended to `wins`."""
+    is appended to `wins`. A missing abbrev comes from `abbrevs` when given."""
     id_repairs = [] if id_repairs is None else id_repairs
     wins = [] if wins is None else wins
     by_path = {}
@@ -378,7 +499,7 @@ def plan_backfill(resolved: list, roles: dict, config: dict, index_path: Path, t
     dates = repairs.created_dates(config["_project_root"], dated, config["_backlog_dir"]) if dated else {}
     planned = []
     for path, body, has_block, missing, row in todo:
-        values, source = _source_values(missing, row, roles, path, config, dates, wins)
+        values, source = _source_values(missing, row, roles, path, config, dates, wins, abbrevs)
         nl = sup.newline_of(body)
         if has_block:
             try:
@@ -476,6 +597,12 @@ def plan_dedup(rows: list, high: float, low: float, append_ambiguous: bool, text
         raise Refusal(f"{len(ambiguous)} ambiguous dedup unit(s), e.g. {'; '.join(ambiguous[:5])} -- "
                       "review them, then rerun with --append-ambiguous to append them (--force does not)")
     return list(dests.values())
+
+
+def remainder_bullet(note: dict) -> str:
+    """A `## Dependencies` row note as a bullet that names the targets it was written beside."""
+    targets = f"{', '.join(note['targets'])}: " if note["targets"] else ""
+    return f"- {targets}{note['text']}"
 
 
 def plan_notes(bullets: list, items: dict, texts: dict, relocated: list) -> list:
@@ -589,6 +716,28 @@ def _refuse_unusable_abbrevs(texts: dict, valid) -> None:
                           "then re-run")
 
 
+def _journal(ledger_path: Path) -> dict:
+    """The in-progress journal at the ledger path, or {} when the path holds none."""
+    try:
+        data = json.loads(read_text(ledger_path))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) and data.get("mode") == sup.JOURNAL_MODE else {}
+
+
+def pending_abbrevs(ledger_path: Path) -> list:
+    """The names an interrupted run recorded as added to config.yaml, read from its journal."""
+    return list((_journal(ledger_path).get("abbreviations") or {}).get("added") or [])
+
+
+def record_pending_abbrevs(ledger_path: Path, abbreviations: dict) -> None:
+    """Write a journal naming the abbreviations this run is about to add to config.yaml. A caller
+    writes it before it edits config.yaml, so a run killed after that edit still logs the names and
+    puts them in its ledger. It lists no targets, so it never reads as an interrupted migrator write."""
+    journal = {"mode": sup.JOURNAL_MODE, "targets": [], "parked_ambiguous": [], "abbreviations": abbreviations}
+    sup.replace_all(sup.stage_all([(ledger_path, json.dumps(journal, indent=2) + "\n")]))
+
+
 def interrupted_journal(ledger_path: Path) -> int | None:
     """None unless the index is already migrated but the ledger path still holds the in-progress
     journal: the run stopped after replacing the index and before writing its ledger, so that
@@ -607,6 +756,7 @@ def settle_interrupted_journal(ledger_path: Path) -> Path:
     file. Returns the renamed path. The caller backs the journal up first."""
     day = _today()
     parked = interrupted_journal(ledger_path) or 0
+    abbreviations = _journal(ledger_path).get("abbreviations") or {"added": [], "matched": []}
     renamed = ledger_path.with_name(f"{ledger_path.stem}-Interrupted-{day}.json")
     n = 1
     while renamed.exists():
@@ -614,8 +764,8 @@ def settle_interrupted_journal(ledger_path: Path) -> Path:
         renamed = ledger_path.with_name(f"{ledger_path.stem}-Interrupted-{day}-{n}.json")
     ledger_path.rename(renamed)
     note = {"run_date": day, "mode": "journal-renamed", "journal_renamed_to": str(renamed),
-            "parked_units_in_journal": parked,
-            "note": "an earlier run replaced the index and stopped before it wrote its ledger. Its journal is "
+            "parked_units_in_journal": parked, "abbreviations": abbreviations,
+            "note":"an earlier run replaced the index and stopped before it wrote its ledger. Its journal is "
                     "kept under the name above. The index was already migrated, so this run planned no "
                     f"migration and did not re-derive anything. The {parked} parked unit(s) remain verbatim in "
                     "the renamed journal and need review there."}
@@ -630,24 +780,31 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
     relocated = reloc.collect_relocations(movable, text.split("\n"))
     scanned = {record["line"] - 1 for record in relocated}  # index lines the plan removes after relocating them
     if problems:
-        hint = ""
-        if (not options.extract_dependency_notes
-                and len(reloc.split_problems(chk.scan_index(text, header_idx, True)[0])[1]) < len(problems)):
-            hint = " -- add --extract-dependency-notes to move the soft-dependency bullets into their owning item files"
-        fix = hint[4:] or "move each named line into an item file or the changelog by hand, then re-run"
+        fixes = []
         if any(chk.FOREIGN_PREFIX in p for p in problems):
-            prefix = chk.items_prefix(text.split("\n"), header_idx)
-            fix = ("write the cell with the items table's prefix or as bare digits "
-                   f"(the items table writes {f'{prefix}-' if prefix else 'bare digits'})")
-        raise Refusal("content regeneration would drop and this tool does not move: " + "; ".join(problems), fix)
+            written = " or ".join(f"{p}-" for p in sorted(chk.items_prefixes(text.split("\n"), header_idx)))
+            fixes.append("write the cell with the items table's prefix or as bare digits "
+                         f"(the items table writes {written or 'bare digits'})")
+        if any(chk.SELF_EDGE in p for p in problems):
+            fixes.append("remove the row's own id from its Blocks cell, because an item cannot block itself")
+        if any(chk.FOREIGN_PREFIX not in p and chk.SELF_EDGE not in p for p in problems):
+            flag_closes = (not options.extract_dependency_notes  # a Dependencies row note is still refused without it
+                           and len(reloc.split_problems(chk.scan_index(text, header_idx, True)[0])[1]) < len(problems))
+            fixes.append("add --extract-dependency-notes to move the soft-dependency bullets into their owning item files"
+                         if flag_closes else "move each named line into an item file or the changelog by hand, then re-run")
+        raise Refusal("content regeneration would drop and this tool does not move: " + "; ".join(problems),
+                      "; ".join(fixes))
     changelog_path, _ledger, older = paths
     if older != changelog_path and older.exists():
         raise Refusal(f"{older.name} exists from an earlier version of this tool, and the generator "
                       f"would scan it as an item file -- rename it to {changelog_path.name}")
     resolved = resolve_rows(text, header_idx, roles, config, index_path, relocated)
     texts, id_repairs, wins = {}, [], []
-    backfill = (plan_backfill(resolved, roles, config, index_path, texts, id_repairs, wins)
+    decisions = abbrev_decisions(resolved, roles, _base_abbrevs(config)) if options.abbrev_precedence else None
+    backfill = (plan_backfill(resolved, roles, config, index_path, texts, id_repairs, wins, decisions)
                 if options.backfill_frontmatter else [])
+    abbrev_cells = plan_abbrevs(decisions, texts) if decisions is not None else []
+    wins += abbrev_cells
     no_backfill = not options.backfill_frontmatter
     edge_plan = []
     if options.write_edges and edges:
@@ -660,9 +817,11 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
                       "add each edge to its item's blocks: first"
                       + ("" if options.write_edges else ", or add --write-edges to write each edge into blocks:"))
     valid_abbrevs = sup.configured_abbrevs(config)
-    rows, diffs = collect_rows(resolved, roles, index_path, items, valid_abbrevs)
+    compared = {k: v for k, v in roles.items() if k != "abbrev"} if decisions is not None else roles
+    rows, diffs = collect_rows(resolved, compared, index_path, items, valid_abbrevs)
     settled = {(w["key"], w["path"]) for w in wins}  # the file name already won these cells
     diffs = [d for d in diffs if (d["key"], d["path"]) not in settled]
+    diffs = _settled_by_name(diffs, resolved, roles, wins, _journal(paths[1]).get("wins") or [])
     cells = plan_reconcile(diffs, options.reconcile, texts, items)
     written_cells = cells if options.reconcile == "index-wins" else []
     if written_cells:
@@ -684,29 +843,33 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
             units = [unit for _row_id, unit in dest["append"]]
             dest["new_text"] = sup.append_notes(dest["body"], units, sup.newline_of(dest["body"]))
             texts[dest["path"]] = dest["new_text"]
-    bullets = [{**f, "kind": "bullet", "text": f"- {f['text']}"} if f["kind"] == "remainder" else f
+    bullets = [{**f, "kind": "bullet", "text": remainder_bullet(f)} if f["kind"] == "remainder" else f
                for f in found if f["kind"] in ("bullet", "remainder")]
     notes = plan_notes(bullets, items, texts, relocated)
     _refuse_unusable_abbrevs(texts, valid_abbrevs)
     pending = (sum(len(d["append"]) for d in dests) + len(backfill) + len(edge_plan) + len(written_cells)
-               + sum(n["bullets"] for n in notes) + len(id_repairs))
+               + sum(n["bullets"] for n in notes) + len(id_repairs)
+               + sum(1 for c in abbrev_cells if c["frontmatter"] not in (None, c["written"])))
     naming = gen._index_naming(index_path)
     relocated.sort(key=lambda record: record["line"])
     when = (reloc.recorded_date(read_text(changelog_path)) if relocated and changelog_path.exists() else None) or _today()
     entry = reloc.render_relocated_entry(relocated, when) if relocated else None
+    if entry:
+        reloc.check_size(relocated, entry)
     changelog = plan_changelog(text, index_path, changelog_path, pending, naming, entry)
     if changelog is None:
         return None
     for entry in backfill:
         entry["lines"] = _key_lines(texts[entry["path"]], entry["keys_added"])
-    footer = sup.FOOTER_TEXT_RE.search(text)
-    pointer = f"*Last Updated: {_today()} — moved to [{changelog_path.name}]({changelog_path.name})*"
-    index_text = text[:footer.start()] + pointer + text[footer.end():]
-    source_lines = text.split("\n")
+    lines = text.split("\n")
     for win in wins:  # the staged index states the winning value, so a re-run finds the cell and file agreeing
-        row = next(r for r in resolved if r["path"] == win["path"])
-        line = source_lines[row["line"]]
-        index_text = index_text.replace(line, retarget_cell(line, win["index"], win["written"]), 1)
+        if win["index"] and win["index"] != win["written"]:
+            row = next(r for r in resolved if r["path"] == win["path"])
+            lines[row["line"]] = retarget_cell(lines[row["line"]], win["index"], win["written"])
+    retargeted = "\n".join(lines)
+    footer = sup.FOOTER_TEXT_RE.search(retargeted)
+    pointer = f"*Last Updated: {_today()} — moved to [{changelog_path.name}]({changelog_path.name})*"
+    index_text = retargeted[:footer.start()] + pointer + retargeted[footer.end():]
     drop ={i for f in found for i in range(f["line"] - 1, f["line"] - 1 + f["count"])}
     drop |= scanned
     if drop:
@@ -717,6 +880,7 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
             "interrupted": changelog["resumed"] or any(d["prior"] for d in dests) or any(n["present"] for n in notes),
             "index_text": index_text, "relocated": relocated, "relocated_entry": entry, "backfill": backfill, "id_repairs": id_repairs, "edges": edge_plan, "notes": notes,
             "dropped_headings": [f["text"] for f in found if f["kind"] == "heading"],
+            "abbreviations": _abbrev_record(config, decisions),
             "reconcile": {"mode": options.reconcile, "cells": cells + wins}, "outputs": outputs}
 
 
@@ -904,11 +1068,12 @@ def verify_written(plan: dict, paths: tuple, index_path: Path) -> list:
         misses += [f"dependency note {u[:70]!r} is missing from {n['path'].name}" for u in n["units"] if u not in body]
     rec = plan.get("reconcile") or {"mode": None, "cells": []}
     for cell in rec["cells"]:
-        if cell.get("winner") == "file-name":
-            value = cell["written"]
-        elif cell.get("winner"):
-            continue  # a case-insensitive abbreviation match: the file's own abbrev: was never rewritten
-        elif rec["mode"] == "index-wins":
+        if cell.get("winner"):  # the settled value, whether this run wrote it or the file already held it
+            raw = repairs.partial_frontmatter(read_text(cell["path"]))[0] or {}
+            if str(raw.get(cell["key"]) or "").strip().strip("\"'") != cell["written"]:
+                misses.append(f"reconciled {cell['key']}: {cell['written']} is missing from {cell['path'].name}")
+            continue
+        if rec["mode"] == "index-wins":
             value = f"[{', '.join(cell.get('written', cell['index']))}]" if cell["key"] == "blocks" else cell["index"]
         else:
             continue
@@ -938,7 +1103,10 @@ def execute(plan: dict, paths: tuple, index_path: Path, json_mode: bool) -> int:
     # Parked units live nowhere else once the index is replaced, so the journal -- replaced first --
     # carries them until the finished ledger overwrites it.
     journal = {"mode": sup.JOURNAL_MODE, "targets": [str(p) for p, _text in outputs],
-               "parked_ambiguous": parked_records(plan["dests"])}
+               "parked_ambiguous": parked_records(plan["dests"]),
+               "abbreviations": plan.get("abbreviations") or {"added": [], "matched": []},
+               "wins": [{"path": str(c["path"]), "key": c["key"], "winner": c["winner"], "written": c["written"]}
+                        for c in plan["reconcile"]["cells"] if c.get("winner")]}
     try:  # the journal replaces first, so a rerun owns whatever an interrupted replace left dirty
         staged = sup.stage_all([(paths[1], json.dumps(journal, indent=2) + "\n"), *outputs])
     except OSError as exc:
@@ -1040,8 +1208,10 @@ def build_report(config: dict, index_path: Path) -> dict:
                                                           sup.configured_abbrevs(config)))
         except (gen.GeneratorError, Refusal):  # the plan below names a Refusal in would_refuse
             continue
-    try:  # the unattended upgrade's own options, so readiness and the parked count match what it would do
-        plan = plan_migration(config, index_path, text, detail, RepairOptions.unattended())
+    try:  # the unattended upgrade's own pre-pass and options, so readiness and the parked count match it
+        pending = pending_abbrevs(artifact_paths(index_path)[1])
+        plan_config, _added = abbrev_prepass(config, detail, text, index_path, pending)
+        plan = plan_migration(plan_config, index_path, text, detail, RepairOptions.unattended())
         report["ready_with_all_repairs"] = True
         if plan is not None:
             parked = dedup_accounting(plan["dests"])

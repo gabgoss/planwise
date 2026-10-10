@@ -9,6 +9,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_backlog_migration as base
 from test_backlog_migration import bm, config_loader, gen, mig, sup
@@ -308,18 +310,278 @@ def test_unconfigured_abbrev_is_added_to_config_with_backup(tmp_path, capsys):
     assert "    abbreviations added:    INFRA" in capsys.readouterr().out
 
 
-def test_case_insensitive_abbrev_matches_a_configured_key(tmp_path, capsys):
+def test_a_case_variant_cell_loses_to_the_configured_frontmatter_value(tmp_path, capsys):
+    # The file name 001-Sample.md has no abbrev segment, so the frontmatter's configured SMP is first.
     index = base.legacy_index().replace("| NOT_STARTED | SMP | [001]", "| NOT_STARTED | smp | [001]")
     cfg, backlog = base._project(tmp_path, index)
     config_path = backlog.parent / "config.yaml"
     before = config_path.read_bytes()
     report = base._migrate(cfg)
     assert report.state == "migrated", report.detail
-    assert config_path.read_bytes() == before  # a case match adds nothing to the config
+    assert config_path.read_bytes() == before  # the losing cell adds nothing to the config
     assert "abbrev: SMP" in (backlog / "001-Sample.md").read_text(encoding="utf-8")
     log = json.loads(mig.read_text(report.ledger_path))
-    assert log["abbreviations"] == {"added": [], "matched": [{"from": "smp", "to": "SMP"}]}
+    assert log["abbreviations"] == {"added": [], "matched": []}
     [cell] = [c for c in log["reconcile"]["cells"] if c["key"] == "abbrev"]
-    assert (cell["index"], cell["winner"], cell["written"]) == ("smp", "configured-key", "SMP")
+    assert (cell["index"], cell["winner"], cell["written"]) == ("smp", "frontmatter", "SMP")
     bm._emit_backlog_migration_banner(report)
-    assert "    abbreviations matched:  smp -> SMP" in capsys.readouterr().out
+    assert "001.abbrev: smp -> SMP (frontmatter wins)" in capsys.readouterr().out
+
+
+# --- abbreviation precedence: file name, then frontmatter, then the index cell ---
+
+NO_INFRA = base.CONFIG.replace("  INFRA: Infrastructure and DevOps\n", "")
+ADDED = '"{0} (added by the upgrade; edit the description)"'
+
+
+def _abbrevs(report):
+    log = json.loads(mig.read_text(report.ledger_path))
+    return log["abbreviations"], [c for c in log["reconcile"]["cells"] if c["key"] == "abbrev"]
+
+
+def _abbrev_lines(path):
+    return [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.startswith("abbrev:")]
+
+
+def _kill_on(name):
+    """A `sup._replace` that dies like a killed process on `name`: no except clause catches it."""
+    real = sup._replace
+
+    def replace(src, dst):
+        if Path(dst).name == name:
+            raise KeyboardInterrupt(f"simulated kill on {name}")
+        return real(src, dst)
+    return replace
+
+
+@pytest.mark.parametrize("cell", ["TBD", "SPM"])
+def test_a_placeholder_or_typo_cell_neither_reaches_config_nor_overwrites_the_frontmatter(tmp_path, cell):
+    index = base.legacy_index().replace("| NOT_STARTED | SMP | [002]", f"| NOT_STARTED | {cell} | [002]")
+    cfg, backlog = base._project(tmp_path, index)
+    config_path = backlog.parent / "config.yaml"
+    before = config_path.read_bytes()
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    assert config_path.read_bytes() == before
+    assert _abbrev_lines(backlog / "Archive" / "ITEM-002-SMP-Other.md") == ["abbrev: SMP"]
+    assert _abbrevs(report) == ({"added": [], "matched": []}, [
+        {"id": "002", "key": "abbrev", "frontmatter": "SMP", "index": cell, "winner": "file-name", "written": "SMP"}])
+
+
+@pytest.mark.parametrize("cell", ["CORE", "core", "TBD"])
+def test_a_losing_cell_on_a_bare_item_adds_nothing_and_does_not_refuse(tmp_path, cell):
+    index = base.legacy_index().replace("| Medium | NOT_STARTED | INFRA |", f"| Medium | NOT_STARTED | {cell} |")
+    cfg, backlog = base._project(tmp_path, index)
+    config_path = backlog.parent / "config.yaml"
+    before = config_path.read_bytes()
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    assert config_path.read_bytes() == before  # no orphan key for the cell that lost
+    assert _abbrev_lines(backlog / "ITEM-003-INFRA-Third.md") == ["abbrev: INFRA"]
+    assert _abbrevs(report) == ({"added": [], "matched": []}, [
+        {"id": "003", "key": "abbrev", "frontmatter": None, "index": cell, "winner": "file-name", "written": "INFRA"}])
+
+
+def test_a_lowercase_cell_that_is_the_only_value_is_uppercased_and_added(tmp_path):
+    index = base.legacy_index().replace("| NOT_STARTED | SMP | [001]", "| NOT_STARTED | core | [001]")
+    cfg, backlog = base._project(tmp_path, index)
+    base._write(backlog / "001-Sample.md", base.item_text().replace("abbrev: SMP\n", ""))
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    assert _abbrev_lines(backlog / "001-Sample.md") == ["abbrev: CORE"]
+    config = (backlog.parent / "config.yaml").read_text(encoding="utf-8")
+    assert config.endswith(f"  INFRA: Infrastructure and DevOps\n  CORE: {ADDED.format('CORE')}\n")
+    assert _abbrevs(report) == ({"added": ["CORE"], "matched": []}, [
+        {"id": "001", "key": "abbrev", "frontmatter": None, "index": "core", "winner": "index", "written": "CORE"}])
+
+
+def test_s1_a_configured_cell_beats_an_unconfigured_file_name_segment(tmp_path):
+    name = "ITEM-007-API-Design.md"
+    extra = f"| 007 | {base.TITLE} | High | NOT_STARTED | SMP | [007]({name}) |\n"
+    index = base.legacy_index().replace("| 004 |", f"{extra}| 004 |", 1)
+    cfg, backlog = base._project(tmp_path, index)
+    base._write(backlog / name, base.item_text("007", "Design body.").replace("abbrev: SMP\n", ""))
+    config_path = backlog.parent / "config.yaml"
+    before = config_path.read_bytes()
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    assert config_path.read_bytes() == before
+    assert _abbrev_lines(backlog / name) == ["abbrev: SMP"]
+    assert _abbrevs(report) == ({"added": [], "matched": []}, [
+        {"id": "007", "key": "abbrev", "frontmatter": None, "index": "SMP", "winner": "index", "written": "SMP"}])
+
+
+def test_a_case_match_in_the_frontmatter_is_normalised_to_the_configured_key(tmp_path, capsys):
+    index = base.legacy_index().replace("| NOT_STARTED | SMP | [001]", "| NOT_STARTED | smp | [001]")
+    cfg, backlog = base._project(tmp_path, index)
+    base._write(backlog / "001-Sample.md", base.item_text().replace("abbrev: SMP", "abbrev: smp"))
+    before = (backlog.parent / "config.yaml").read_bytes()
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    assert (backlog.parent / "config.yaml").read_bytes() == before  # a case match adds nothing to the config
+    assert _abbrev_lines(backlog / "001-Sample.md") == ["abbrev: SMP"]
+    assert _abbrevs(report) == ({"added": [], "matched": [{"from": "smp", "to": "SMP"}]}, [
+        {"id": "001", "key": "abbrev", "frontmatter": "smp", "index": "smp", "winner": "config-match", "written": "SMP"}])
+    bm._emit_backlog_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "    abbreviations matched:  smp -> SMP" in out and "001.abbrev: smp -> SMP (configured key)" in out
+
+
+def test_l3_a_file_name_abbrev_win_survives_a_resume(tmp_path, monkeypatch):
+    # Item 004 has no abbrev: key; its file name says SMP and its cell says OTH, both configured.
+    config = base.CONFIG + "  OTH: Other work\n"
+    index = base.legacy_index().replace("| Low | NOT_STARTED | SMP |", "| Low | NOT_STARTED | OTH |")
+    clean_cfg, clean_backlog = base._project(tmp_path / "clean", index)
+    base._write(clean_backlog.parent / "config.yaml", config)
+    assert base._migrate(clean_cfg).state == "migrated"
+    cfg, backlog = base._project(tmp_path / "resumed", index)
+    base._write(backlog.parent / "config.yaml", config)
+    with monkeypatch.context() as m:
+        m.setattr(sup, "_replace", _kill_on(base.INDEX))
+        with pytest.raises(KeyboardInterrupt):
+            base._migrate(cfg)
+    assert _abbrev_lines(backlog / "ITEM-004-SMP-Partial.md") == ["abbrev: SMP"]  # written before the kill
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    for tree in (clean_backlog, backlog):
+        assert _abbrev_lines(tree / "ITEM-004-SMP-Partial.md") == ["abbrev: SMP"], tree
+
+
+def test_l4_a_file_name_id_win_survives_a_resume(tmp_path, monkeypatch):
+    # Item 003 has no frontmatter; its file name says 003 and its ID cell says 013.
+    index = base.legacy_index().replace("| 003 | Third item", "| 013 | Third item")
+    cfg, backlog = base._project(tmp_path, index)
+    with monkeypatch.context() as m:
+        m.setattr(sup, "_replace", _kill_on(base.INDEX))
+        with pytest.raises(KeyboardInterrupt):
+            base._migrate(cfg)
+    assert "\nid: 003\n" in (backlog / "ITEM-003-INFRA-Third.md").read_text(encoding="utf-8")
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    [cell] = [c for c in json.loads(mig.read_text(report.ledger_path))["reconcile"]["cells"] if c["key"] == "id"]
+    assert (cell["index"], cell["winner"], cell["written"]) == ("013", "file-name", "003")
+
+
+def _on_project(tmp_path):
+    index = base.legacy_index().replace("| INFRA | [003](ITEM-003-INFRA-Third.md)", "| ON | [003](ITEM-003-ON-Third.md)")
+    cfg, backlog = base._project(tmp_path, index)
+    (backlog / "ITEM-003-INFRA-Third.md").rename(backlog / "ITEM-003-ON-Third.md")
+    return cfg, backlog
+
+
+@pytest.mark.parametrize("has_yaml", [True, False], ids=["pyyaml", "fallback-parser"])
+def test_s5_a_yaml_word_abbreviation_is_refused_before_any_write(tmp_path, monkeypatch, has_yaml):
+    monkeypatch.setattr(config_loader, "HAS_YAML", has_yaml)
+    cfg, _backlog = _on_project(tmp_path)
+    before = base._snapshot(tmp_path)
+    report = base._migrate(cfg)
+    assert report.state == "refused", (report.state, report.detail)
+    assert "ON" in report.detail and "ITEM-003-ON-Third.md" in report.fix, report.fix
+    assert base._snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize("before,after", [
+    (b"project:\r\n  name: x\r\nabbreviations:\r\n  SMP: Sample\r\n",
+     b'project:\r\n  name: x\r\nabbreviations:\r\n  SMP: Sample\r\n  NEW: "NEW (added)"\r\n  Y: "Y (added)"\r\n'),
+    (b"project:\r\n  name: x\r\nabbreviations:\r\n  SMP: Sample",
+     b'project:\r\n  name: x\r\nabbreviations:\r\n  SMP: Sample\r\n  NEW: "NEW (added)"\r\n  Y: "Y (added)"'),
+    (b"abbreviations:\n  SMP: Sample",
+     b'abbreviations:\n  SMP: Sample\n  NEW: "NEW (added)"\n  Y: "Y (added)"'),
+    (b"abbreviations:\r\n  SMP: Sample\r\nproject:\r\n  name: x\r\n",
+     b'abbreviations:\r\n  SMP: Sample\r\n  NEW: "NEW (added)"\r\n  Y: "Y (added)"\r\nproject:\r\n  name: x\r\n'),
+], ids=["crlf", "crlf-no-final-newline", "lf-no-final-newline", "crlf-block-first"])
+def test_s6_the_config_splice_is_byte_correct(tmp_path, monkeypatch, before, after):
+    path = tmp_path / "config.yaml"
+    path.write_bytes(before)
+    bm._write_abbreviations(path, [("NEW", "NEW (added)"), ("Y", "Y (added)")])
+    assert path.read_bytes() == after
+    for has_yaml in (True, False):  # both loaders read every added key back by its own name
+        monkeypatch.setattr(config_loader, "HAS_YAML", has_yaml)
+        keys = sup.configured_abbrevs(config_loader.load_config(Path(bm.__file__), config_path=path))
+        assert {"SMP", "NEW", "Y"} <= keys, has_yaml
+
+
+PROJECT_BLOCK = NO_INFRA.split("abbreviations:")[0]
+
+
+@pytest.mark.parametrize("config,fragment", [
+    (PROJECT_BLOCK + "abbreviations: {SMP: Sample work}\n", "flow"),
+    ("﻿abbreviations:\n  SMP: Sample work\n" + PROJECT_BLOCK, "byte-order mark"),
+], ids=["flow-style", "bom"])
+def test_s6_an_abbreviations_block_the_splice_cannot_extend_is_refused_before_any_write(tmp_path, config, fragment):
+    cfg, backlog = base._project(tmp_path)
+    base._write(backlog.parent / "config.yaml", config)
+    before = base._snapshot(tmp_path)
+    report = base._migrate(cfg)
+    assert report.state == "refused", (report.state, report.detail)
+    assert fragment in report.detail and "INFRA" in report.fix, (report.detail, report.fix)
+    assert base._snapshot(tmp_path) == before
+
+
+def test_s8_the_config_write_is_atomic(tmp_path, monkeypatch):
+    cfg, backlog = base._project(tmp_path)
+    base._write(backlog.parent / "config.yaml", NO_INFRA)
+    replaced, real = [], sup._replace
+    monkeypatch.setattr(sup, "_replace", lambda src, dst: replaced.append(Path(dst).name) or real(src, dst))
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    assert "config.yaml" in replaced  # staged beside the file, then os.replace
+    assert not [p for p in backlog.parent.iterdir() if p.name.startswith(".config.yaml.")]
+
+
+def test_s8_additions_survive_a_kill_after_the_config_write(tmp_path, monkeypatch):
+    cfg, backlog = base._project(tmp_path)
+    config_path = backlog.parent / "config.yaml"
+    base._write(config_path, NO_INFRA)
+
+    def kill(*_args):
+        raise KeyboardInterrupt("simulated kill after the config write")
+    with monkeypatch.context() as m:
+        m.setattr(mig, "execute", kill)
+        with pytest.raises(KeyboardInterrupt):
+            base._migrate(cfg)
+    assert f"  INFRA: {ADDED.format('INFRA')}\n" in config_path.read_text(encoding="utf-8")
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    assert config_path.read_text(encoding="utf-8").count("INFRA:") == 1
+    assert _abbrevs(report)[0] == {"added": ["INFRA"], "matched": []}
+    rows = (base._pair(cfg) / "DISPOSITIONS.md").read_text(encoding="utf-8")
+    assert "added INFRA under abbreviations:; pre-image at upgrade-backups/1.0-to-1.1/backlog/_outside/" in rows
+
+
+def test_s8_additions_survive_a_kill_after_the_index_write(tmp_path, monkeypatch):
+    # The kill lands on the finished ledger's replace: the index is migrated, the journal is all that is left.
+    cfg, backlog = base._project(tmp_path)
+    base._write(backlog.parent / "config.yaml", NO_INFRA)
+    ledger_path = mig.artifact_paths(backlog / base.INDEX)[1]
+    real = sup._replace
+
+    def replace(src, dst):
+        if Path(dst).name == ledger_path.name and '"mode": "write"' in Path(src).read_text(encoding="utf-8"):
+            raise KeyboardInterrupt("simulated kill before the ledger write")
+        return real(src, dst)
+    with monkeypatch.context() as m:
+        m.setattr(sup, "_replace", replace)
+        with pytest.raises(KeyboardInterrupt):
+            base._migrate(cfg)
+    report = base._migrate(cfg)
+    assert report.state == "migrated", report.detail
+    note = json.loads(mig.read_text(ledger_path))
+    assert note["mode"] == "journal-renamed" and note["abbreviations"]["added"] == ["INFRA"], note
+    rows = (base._pair(cfg) / "DISPOSITIONS.md").read_text(encoding="utf-8")
+    assert "added INFRA under abbreviations: by the interrupted run; pre-image at upgrade-backups/" in rows
+
+
+def test_s7_the_banner_prints_the_written_blocks_value():
+    cell = {"id": "001", "key": "blocks", "frontmatter": [], "index": ["002"], "written": ["002", "003"]}
+    assert bm._cell_line(cell) == "001.blocks: [] -> ['002', '003']"
+
+
+def test_report_gap_a_name_the_upgrade_would_add_is_not_a_refusal(tmp_path):
+    cfg, backlog = base._project(tmp_path)
+    base._write(backlog.parent / "config.yaml", NO_INFRA)
+    config = _config(cfg)
+    before = base._snapshot(tmp_path)
+    report = mig.build_report(config, config["_index_path"])
+    assert report["would_refuse"] == [] and report["ready_with_all_repairs"] is True, report["would_refuse"]
+    assert base._snapshot(tmp_path) == before

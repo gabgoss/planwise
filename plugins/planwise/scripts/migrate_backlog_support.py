@@ -272,12 +272,21 @@ def blocks_text_ok(cell: str) -> bool:
 
 def dependency_cell_parts(cell: str):
     """(ids as (prefix or None, NNN) pairs, note text or "") for a '## Dependencies' Blocks cell
-    of ids and at most one trailing parenthetical, else None."""
+    of ids and at most one trailing parenthetical, else None. The note is the cell's own text
+    inside that parenthetical, markup kept, when its plain form matches the parsed note."""
     m = _DEP_CELL_RE.fullmatch(plain(cell))
     if m is None:
         return None
     ids = [(prefix or None, digits.zfill(3)) for prefix, digits in _CELL_ID_RE.findall(m.group("ids") or "")]
-    return ids, (m.group("note") or "").strip()
+    note, raw, depth = (m.group("note") or "").strip(), cell.strip(), 0
+    if note and raw.endswith(")"):
+        for i in range(len(raw) - 1, -1, -1):  # find the "(" that opens the trailing parenthetical
+            depth += {")": 1, "(": -1}.get(raw[i], 0)
+            if depth == 0:
+                if plain(raw[i + 1:-1]) == note:
+                    note = raw[i + 1:-1].strip()
+                break
+    return ids, note
 
 
 def files_links(cell: str):
@@ -324,6 +333,90 @@ def case_match_abbrev(value: str, valid) -> str | None:
         return None
     hits = sorted(k for k in valid if k.lower() == value.lower())
     return hits[0] if len(hits) == 1 else None
+
+
+ABBREV_SOURCES = ("file-name", "frontmatter", "index")  # an item's abbrev values, in precedence order
+YAML_WORDS = frozenset({"YES", "NO", "ON", "OFF", "TRUE", "FALSE", "NULL"})  # PyYAML reads these bare as bool/null
+
+
+def abbrev_token(value) -> str:
+    """`value` stripped of quotes when it carries an abbrev in any case, else "" (empty, or not a token)."""
+    value = str(value or "").strip().strip("\"'")
+    return value if _ABBREV_CELL_RE.fullmatch(value) else ""
+
+
+def decide_abbrev(seg, frontmatter, cell, configured) -> dict | None:
+    """Settle one item's abbrev from its file name's segment, its frontmatter `abbrev:` and its index
+    Abbrev cell, in that order. The first value in `configured` wins; a value that equals one configured
+    key ignoring case counts as that key (source "config-match"). When none is configured, the file
+    name's segment wins if shaped like one, else the frontmatter value, then the cell, uppercased.
+    Returns {"value", "source", "from", "appended"}, `appended` when the winner is not configured, or
+    None when no value can stand."""
+    values = [(source, abbrev_token(v)) for source, v in zip(ABBREV_SOURCES, (seg, frontmatter, cell))]
+    values = [(source, v) for source, v in values if v]
+    for source, value in values:
+        if configured and value in configured:
+            return {"value": value, "source": source, "from": value, "appended": False}
+        hit = case_match_abbrev(value, configured)
+        if hit:
+            return {"value": hit, "source": "config-match", "from": value, "appended": False}
+    for source, value in values:
+        candidate = value if source == "file-name" else value.upper()
+        if _ABBREV_RE.fullmatch(candidate):
+            return {"value": candidate, "source": source, "from": value, "appended": True}
+    return None
+
+
+_ABBREVIATIONS_LINE_RE = re.compile(r"abbreviations:\s*(#.*)?$")
+
+
+def splice_abbreviations(data: bytes, added: list) -> bytes:
+    """config.yaml's bytes with one `NAME: "description"` line per (name, description) in `added`,
+    spliced after the last entry of the top-level `abbreviations:` block mapping. Each new line takes
+    that entry's own line ending, and a file that ends without a newline still does. Every other byte
+    is kept. Raises `Refusal` for a block this cannot extend: a byte-order mark on its line, flow style,
+    two blocks, no indented entry, or a name YAML would not read back as text."""
+    text = data.decode("utf-8")
+    lines = text.split("\n")
+    names = ", ".join(name for name, _d in added)
+    by_hand = f"add {names} under abbreviations: in config.yaml by hand"
+    words = [name for name, _d in added if name in YAML_WORDS]
+    if words:
+        raise Refusal(f"YAML reads a bare {', '.join(words)} as a boolean or null, not as an abbreviation",
+                      f"rename that abbreviation, or add {', '.join(words)} under abbreviations: in config.yaml "
+                      "by hand as a quoted key")
+    if text.startswith("﻿") and lines[0].lstrip("﻿").startswith("abbreviations:"):
+        raise Refusal("config.yaml starts with a byte-order mark on its abbreviations: line",
+                      f"remove the byte-order mark from the start of config.yaml, or {by_hand}")
+    starts = [i for i, line in enumerate(lines) if _ABBREVIATIONS_LINE_RE.match(line.rstrip("\r"))]
+    if not starts:
+        flow = any(re.match(r"abbreviations:\s*[{\[]", line) for line in lines)
+        raise Refusal("config.yaml writes abbreviations: in flow style on one line" if flow
+                      else "config.yaml has no top-level abbreviations: block mapping",
+                      f"rewrite abbreviations: as a block mapping with one indented NAME: description line "
+                      f"per key, or {by_hand}")
+    if len(starts) > 1:
+        raise Refusal("config.yaml has more than one top-level abbreviations: line",
+                      f"merge them into one block, or {by_hand}")
+    last = indent = None
+    for j in range(starts[0] + 1, len(lines)):
+        body = lines[j].rstrip("\r")
+        if not body.strip() or body.lstrip().startswith("#"):
+            continue
+        if not body[0].isspace():
+            break
+        last, indent = j, indent or body[:len(body) - len(body.lstrip())]
+    if last is None:
+        raise Refusal("config.yaml's abbreviations: block has no indented entry to extend", by_hand)
+    new = [f'{indent}{name}: "{description}"' for name, description in added]
+    if last == len(lines) - 1:  # the block's last entry ends the file, with no newline after it
+        eol = "\r" if "\r\n" in text else ""
+        lines[last] += eol
+        new = [line + eol for line in new[:-1]] + new[-1:]
+    else:
+        eol = "\r" if lines[last].endswith("\r") else ""
+        new = [line + eol for line in new]
+    return "\n".join([*lines[:last + 1], *new, *lines[last + 1:]]).encode("utf-8")
 
 
 def row_diffs(cells: list, roles: dict, fields: dict, valid_abbrevs=None) -> list:
@@ -748,9 +841,14 @@ def journal_paths(ledger_path: Path) -> set:
 
 
 def joined_entries(texts: list) -> str:
-    """Every part's entry text, in order, with the backlink/Parts lines and
-    the `## Entry` section headers removed -- the basis `verify_written` and
-    `unaccounted` check footer segments against."""
+    """Every entry's text, in order, one newline apart -- the basis `verify_written` and
+    `unaccounted` check segments against. `parse_changelog` re-joins an entry split into
+    'N (continued)' sections, so a split entry reads back byte for byte. Text it refuses falls
+    back to each part with the backlink/Parts lines and `## Entry` headers removed."""
+    try:
+        return "\n".join(segment.decode("utf-8") for segment in parse_changelog(texts))
+    except Refusal:
+        pass
     chunks = []
     for text in texts:
         norm = text.replace("\r\n", "\n")

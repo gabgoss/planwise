@@ -127,12 +127,13 @@ def test_abbreviation_is_backfilled_against_the_configured_mapping(tmp_path):
     assert report.state == "migrated", report.detail
     third = (backlog / "ITEM-003-INFRA-Third.md").read_text(encoding="utf-8")
     assert third.startswith("---\n") and "\nabbrev: INFRA\n" in third and "\nid: 003\n" in third
-    # Control: a lowercase cell that matches no configured key refuses (the upgrade adds only uppercase
-    # names to the config), so the assertion above rests on the configured keys, not on the file name alone.
-    control = legacy_index().replace("| NOT_STARTED | SMP | [001]", "| NOT_STARTED | core | [001]")
-    cfg2, _backlog2 = _project(tmp_path / "control", control)
-    refused = _migrate(cfg2)
-    assert refused.state == "refused" and "abbrev" in refused.detail, refused.detail
+    # Control: with INFRA unconfigured and a configured SMP cell, the cell wins over the file name, so the
+    # assertion above rests on the configured keys, not on the file name alone.
+    control = legacy_index().replace("| Medium | NOT_STARTED | INFRA |", "| Medium | NOT_STARTED | SMP |")
+    cfg2, backlog2 = _project(tmp_path / "control", control)
+    _write(backlog2.parent / "config.yaml", CONFIG.replace("  INFRA: Infrastructure and DevOps\n", ""))
+    assert _migrate(cfg2).state == "migrated"
+    assert "\nabbrev: SMP\n" in (backlog2 / "ITEM-003-INFRA-Third.md").read_text(encoding="utf-8")
 
 
 def test_header_only_changelog_is_filled(tmp_path):

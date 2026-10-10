@@ -139,7 +139,7 @@ REFUSALS = [
                     "unrecognised table under '## Dependencies'"]),
     ("deps-row-note", before_footer(legacy_index(blocks="002"), DEPS_OK.replace("| 001 | 002 |", "| 001 | 002 (soft) |")),
      BLOCKS_002, SECOND_ITEM, (), ["content regeneration would drop and this tool does not move:",
-                                   "note in a '## Dependencies' row"]),
+                                   "note in a '## Dependencies' row", "add --extract-dependency-notes"]),
     ("files-prose", legacy_index(files="[001](001-Sample.md) plus notes"), None, {}, (), ["Files cell carries text"]),
     ("empty-id", legacy_index(row_id=""), None, {}, (), ["empty ID cell"]),
     ("foreign-changelog", LEGACY_INDEX, None, {"00-Changelog-Backlog.md": "other\n"}, (), ["already exists"]),
@@ -149,6 +149,10 @@ REFUSALS = [
     ("thresholds-order", LEGACY_INDEX, None, {}, ("--thresholds", "0.3,0.5"), ["thresholds"]),
     ("thresholds-range", LEGACY_INDEX, None, {}, ("--thresholds", "1.5,0.2"), ["thresholds"]),
     ("thresholds-negative", LEGACY_INDEX, None, {}, ("--thresholds", "0.5,-0.1"), ["thresholds"]),
+    ("blocks-foreign-prefix", legacy_index(blocks="LL-002"), BLOCKS_002, SECOND_ITEM, (),
+     ["Blocks cell 'LL-002' uses a prefix other than the items table's", "(the items table writes bare digits)"]),
+    ("deps-self-edge", before_footer(LEGACY_INDEX, DEPS_OK.replace("| 001 | 002 |", "| 001 | 001 |")), None, {},
+     ("--write-edges",), ["names its own item 001 as a blocker", "an item cannot block itself"]),
 ]
 
 @pytest.mark.parametrize("index_text,item,extra,args,fragments", [pytest.param(*r[1:], id=r[0]) for r in REFUSALS])
@@ -175,6 +179,8 @@ RELOCATIONS = [
      [ORPHAN_ROW.rstrip("\n")]),
     ("deps-to-eof", before_footer(legacy_index(blocks="002"), DEPS_OK) + "\nTrailing prose at EOF.\n", BLOCKS_002,
      SECOND_ITEM, ["Trailing prose at EOF."]),
+    ("section-then-footer-then-text", before_footer(LEGACY_INDEX, "## Notes\n\nsection note\n\n") + "\ntrailing hand note\n",
+     None, {}, ["## Notes", "section note", "trailing hand note"]),
 ]
 
 @pytest.mark.parametrize("index_text,item,extra,lines", [pytest.param(*r[1:], id=r[0]) for r in RELOCATIONS])

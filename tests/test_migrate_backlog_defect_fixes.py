@@ -361,7 +361,7 @@ def test_parenthetical_note_becomes_a_dependency_bullet(tmp_path, monkeypatch, c
     code, out, err = run(monkeypatch, capsys, config_path, *ALL_FLAGS, "--write")
     assert code == 0, err + out
     body = (index_path.parent / FIRST).read_text(encoding="utf-8")
-    assert body.split("## Dependency Notes (migrated from the backlog index)")[1].strip() == "- needs the selector"
+    assert body.split("## Dependency Notes (migrated from the backlog index)")[1].strip() == "- 002: needs the selector"
     notes = ledger(index_path)["dependency_notes"]
     assert [n["bullets"] for n in notes] == [1]
 
