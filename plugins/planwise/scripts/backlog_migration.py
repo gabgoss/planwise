@@ -84,8 +84,11 @@ class BacklogMigrationReport:
 
 def migrate_backlog_if_legacy(cfg: "InitConfig", from_version: str, to_version: str,
                               *, reconcile: str | None = None,
-                              defer_legacy: bool = False) -> BacklogMigrationReport:
+                              defer_legacy: bool = False, answers: dict | None = None) -> BacklogMigrationReport:
     """Migrate the project's backlog index when it is hand-authored. Never raises.
+
+    `answers` is the parsed answers file. Its `edge_drops` list settles a reciprocal `blocks:` pair
+    the migrator would otherwise refuse; any other key is ignored here.
 
     `defer_legacy` makes the call detect-only for a hand-authored index: it writes nothing,
     reports state `deferred`, and names `/planwise upgrade` as the step that migrates it. A
@@ -94,14 +97,14 @@ def migrate_backlog_if_legacy(cfg: "InitConfig", from_version: str, to_version: 
     item frontmatter, and `/planwise upgrade` is where the reconcile choice is accepted."""
     report = BacklogMigrationReport(state="absent", index_path=None)
     try:
-        _migrate(cfg, from_version, to_version, reconcile, report, defer_legacy)
+        _migrate(cfg, from_version, to_version, reconcile, report, defer_legacy, answers)
     except Exception as exc:  # noqa: BLE001 -- the caller's upgrade must never fail on this step
         report.state, report.detail = "error", repr(exc)
     return report
 
 
 def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, report,
-             defer_legacy: bool = False) -> None:
+             defer_legacy: bool = False, answers: dict | None = None) -> None:
     config_path = Path(cfg.project_root) / cfg.planwise_root / "config.yaml"
     if not config_path.is_file():
         return
@@ -130,7 +133,8 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     dirty, _reason = chk.git_state(config["_project_root"], inputs)
     report.git_dirty = None if dirty is None else bool(dirty)
     mode = reconcile or "index-wins"
-    options = mig.RepairOptions.unattended(mode)  # AMBIGUOUS units are parked in the ledger, never refused
+    drops = frozenset(str(e) for e in (answers or {}).get("edge_drops") or ())
+    options = mig.RepairOptions.unattended(mode, drops)  # AMBIGUOUS units are parked in the ledger, never refused
     paths = mig.artifact_paths(index_path)
     try:  # names an interrupted run already added are judged as it judged them
         plan_config, added = mig.abbrev_prepass(config, detail, text, index_path, mig.pending_abbrevs(paths[1]))
@@ -465,7 +469,13 @@ def _ledger_counts(ledger: dict, mode: str) -> dict:
     return {
         "backfilled": len(ledger["backfill"]),
         "partial": sum(1 for b in ledger["backfill"] if len(b["keys_added"]) < len(mig.KEYS)),
-        "edges": len(ledger["edges"]),
+        "edges": sum(1 for e in ledger["edges"] if "action" not in e),  # written; answered drops and skips are not
+        "edges_dropped": [f"{e['src']}->{e['dst']}" for e in ledger["edges"]
+                          if e.get("action") == "dropped" and e.get("source") != "journal"],
+        "edges_dropped_by_prior_run": [f"{e['src']}->{e['dst']}" for e in ledger["edges"]
+                                       if e.get("action") == "dropped" and e.get("source") == "journal"],
+        "answers_not_applied": [f"{e['src']}->{e['dst']} ({e['reason']})" for e in ledger["edges"]
+                                if e.get("action") == "answer-not-applied"],
         "dependency_notes": sum(n["bullets"] for n in notes),
         "dependency_note_files": sum(1 for n in notes if n["bullets"]),
         "changelog_entries": log["entries"],
@@ -552,6 +562,12 @@ def _migrated_lines(report: BacklogMigrationReport) -> list:
              f"entries, {c['changelog_bytes']} bytes; each file ≤ {READ_TOKEN_WARN} tokens; {accounted})"),
             f"    frontmatter backfilled: {c['backfilled']} item file(s) ({c['partial']} had a partial block)",
             f"    blocks: edges written:  {c['edges']}",
+            *([f"    blocks: edges dropped by answer: {len(c['edges_dropped'])} ({', '.join(c['edges_dropped'])})"]
+              if c.get("edges_dropped") else []),
+            *([(f"    blocks: edges dropped by an interrupted run's answer: {len(c['edges_dropped_by_prior_run'])} "
+                f"({', '.join(c['edges_dropped_by_prior_run'])})")] if c.get("edges_dropped_by_prior_run") else []),
+            *([f"    answers not applied:    {len(c['answers_not_applied'])} ({'; '.join(c['answers_not_applied'])})"]
+              if c.get("answers_not_applied") else []),
             f"    dependency notes moved: {c['dependency_notes']} bullet(s) into {c['dependency_note_files']} item file(s)",
             f"    feature-cell prose moved: {c['prose_units']} unit(s)",
             *([(f"    relocated index lines:  {c['relocated_lines']} ({c['relocated_bytes']} bytes) "

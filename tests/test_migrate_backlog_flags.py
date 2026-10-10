@@ -3,6 +3,7 @@ refusal keeps its old fragment and names the flag, nothing written) and on
 (write, ledger section, CLEAN re-run, byte-identical tree), the header-only
 changelog, the read-only --report, and the in-process API. Fixtures are
 written as bytes under tmp_path, never under plugins/planwise/."""
+import dataclasses
 import json
 import os
 import sys
@@ -13,8 +14,11 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
+import backlog_migration as bm
 import migrate_backlog_index as mig
 import migrate_backlog_support as sup
+import migration_answers
+from config_gen import InitConfig
 
 NO_GIT = "--allow-untracked-tree"
 HEADER = "| ID | Feature | Priority | Status | Created | Blocks | Files |\n|---|---|---|---|---|---|---|\n"
@@ -411,3 +415,391 @@ def test_interrupted_journal_is_renamed_and_the_run_continues(tmp_path, monkeypa
     code, out, err = run(monkeypatch, capsys, config_path, "--write")
     assert code == 0 and "CLEAN" in out, err + out
     assert snapshot(tmp_path) == after
+
+
+PAIR_INDEX = index(row("001", blocks="002"), row("002", blocks="001"), deps=DEPS_TABLE)
+PAIR_ITEMS = {"001": item("001"), "002": item("002", head=fm("002", blocks="[001]"))}
+TWO_PAIRS_INDEX = index(row("001", blocks="002"), row("002", blocks="001"), row("003", blocks="004"),
+                        row("004", blocks="003"))
+TWO_PAIRS_ITEMS = {"001": item("001"), "002": item("002", head=fm("002", blocks="[001]")), "003": item("003"),
+                   "004": item("004", head=fm("004", blocks="[003]"))}
+BOTH_WAYS_DEPS = "## Dependencies\n\n| ID | Blocks |\n|---|---|\n| 001 | 002 |\n| 002 | 001 |\n\n"
+
+
+def plan_with_drops(monkeypatch, config_path, index_path, drops):
+    """Plan and execute with every repair on and `drops` as the answered edge drops; return the ledger."""
+    monkeypatch.setattr(sys, "argv", ["migrate_backlog_index.py", "--config", str(config_path)])
+    config = mig.load_config(Path(mig.__file__))
+    text = mig.read_text(index_path)
+    _shape, detail = sup.classify_shape(text)
+    options = dataclasses.replace(mig.RepairOptions.all_on(), edge_drops=frozenset(drops))
+    plan = mig.plan_migration(config, index_path, text, detail, options)
+    assert mig.execute(plan, mig.artifact_paths(index_path), index_path, False) == 0
+    log = ledger(index_path)
+    assert log["verification"] == {"verified": True, "misses": []}
+    return log
+
+
+def report_questions(monkeypatch, capsys, config_path):
+    code, out, err = run(monkeypatch, capsys, config_path, "--report", "--json")
+    assert code == 0, err + out
+    return json.loads(out)["questions"]
+
+
+def test_edge_drop_answer_keeps_the_other_direction(tmp_path, monkeypatch, capsys):
+    config_path, index_path = project(tmp_path, PAIR_INDEX, PAIR_ITEMS)
+    log = plan_with_drops(monkeypatch, config_path, index_path, ["002->001"])
+    assert item_bytes(index_path, "001") == PAIR_ITEMS["001"].replace("blocks: []", "blocks: [002]").encode()
+    assert item_bytes(index_path, "002") == PAIR_ITEMS["002"].replace("blocks: [001]", "blocks: []").encode()
+    assert log["edges"] == [{"src": "001", "dst": "002"},
+                            {"src": "002", "dst": "001", "action": "dropped", "source": "answer",
+                             "path": str((index_path.parent / NAMES["002"]).resolve())}]
+    capsys.readouterr()
+
+
+def test_edge_drop_both_clears_both_blocks(tmp_path, monkeypatch, capsys):
+    config_path, index_path = project(tmp_path, PAIR_INDEX, PAIR_ITEMS)
+    log = plan_with_drops(monkeypatch, config_path, index_path, ["001<->002:both"])
+    assert item_bytes(index_path, "001") == PAIR_ITEMS["001"].encode()
+    assert item_bytes(index_path, "002") == PAIR_ITEMS["002"].replace("blocks: [001]", "blocks: []").encode()
+    assert [(e["src"], e["dst"]) for e in log["edges"]] == [("001", "002"), ("002", "001")]
+    assert {e["action"] for e in log["edges"]} == {"dropped"}
+    capsys.readouterr()
+
+
+def test_reciprocal_without_an_answer_still_refuses_with_the_question(tmp_path, monkeypatch, capsys):
+    config_path, _ = project(tmp_path, PAIR_INDEX, PAIR_ITEMS)
+    refused(tmp_path, monkeypatch, capsys, config_path, ["reciprocal", "001<->002"], *ALL_FLAGS)
+    questions = report_questions(monkeypatch, capsys, config_path)
+    assert [q["id"] for q in questions] == ["reciprocal-edge"] and len(questions[0]["options"]) == 3
+
+
+def test_reciprocal_questions_one_per_pair(tmp_path, monkeypatch, capsys):
+    config_path, _ = project(tmp_path, TWO_PAIRS_INDEX, TWO_PAIRS_ITEMS)
+    questions = report_questions(monkeypatch, capsys, config_path)
+    assert [q["id"] for q in questions] == ["reciprocal-edge"] * 2
+    assert [q["pairs"] for q in questions] == [[["001", "002"]], [["003", "004"]]]
+    for q in questions:
+        a, b = q["pairs"][0]
+        assert (a in q["prompt"], b in q["prompt"]) == (True, True)
+        assert [o["answer"] for o in q["options"]] == [{"edge_drops": [f"{b}->{a}"]}, {"edge_drops": [f"{a}->{b}"]},
+                                                       {"edge_drops": [f"{a}<->{b}:both"]}]
+
+
+def test_each_option_payload_is_accepted_through_answers(tmp_path, monkeypatch, capsys):
+    # The pair reaches the migrator through the '## Dependencies' table, so the drop must also remove the union edge.
+    expected = [("[002]", "[]"), ("[]", "[001]"), ("[]", "[]")]  # per option: a blocks b, b blocks a, drop both
+    for option, (blocks_001, blocks_002) in enumerate(expected):
+        root = tmp_path / f"option-{option}"
+        items = {"001": item("001"), "002": item("002")}
+        config_path, index_path = project(root, index(row("001"), row("002"), deps=BOTH_WAYS_DEPS), items)
+        answer = report_questions(monkeypatch, capsys, config_path)[0]["options"][option]["answer"]
+        cfg = InitConfig(project_name="test-project", project_root=root / "proj", plugin_root=SCRIPTS.parent)
+        report = bm.migrate_backlog_if_legacy(cfg, "1.0", "1.1", answers=answer)
+        assert report.state == "migrated", (option, report.detail)
+        assert f"blocks: {blocks_001}" in item_bytes(index_path, "001").decode(), option
+        assert f"blocks: {blocks_002}" in item_bytes(index_path, "002").decode(), option
+    capsys.readouterr()
+
+
+# --- answered edge drops: the removal touches only the named entry, and only a reciprocal direction ---
+
+def plan_for(monkeypatch, config_path, index_path, drops, reconcile="index-wins"):
+    """Plan (without executing) with every repair on and `drops` as the answered edge drops."""
+    monkeypatch.setattr(sys, "argv", ["migrate_backlog_index.py", "--config", str(config_path)])
+    config = mig.load_config(Path(mig.__file__))
+    text = mig.read_text(index_path)
+    _shape, detail = sup.classify_shape(text)
+    options = dataclasses.replace(mig.RepairOptions.all_on(reconcile), edge_drops=frozenset(drops))
+    return mig.plan_migration(config, index_path, text, detail, options)
+
+
+def run_plan(monkeypatch, config_path, index_path, drops, reconcile="index-wins"):
+    """Plan and execute; return (plan, ledger) after checking the write verified from disk."""
+    plan = plan_for(monkeypatch, config_path, index_path, drops, reconcile)
+    assert mig.execute(plan, mig.artifact_paths(index_path), index_path, False) == 0
+    log = ledger(index_path)
+    assert log["verification"] == {"verified": True, "misses": []}
+    return plan, log
+
+
+def three_items(tmp_path, head_002, row_002="001, 004"):
+    items = {"001": item("001", head=fm("001", blocks="[002]")), "002": item("002", head=head_002), "004": item("004")}
+    return project(tmp_path, index(row("001", blocks="002"), row("002", blocks=row_002), row("004")), items)
+
+
+def dropped_pairs(log):
+    return [(e["src"], e["dst"]) for e in log["edges"] if e.get("action") == "dropped"]
+
+
+def test_drop_ignores_digits_in_an_inline_comment(tmp_path, monkeypatch, capsys):
+    head = fm("002", blocks="[001, 004] # split from 007-02")
+    config_path, index_path = three_items(tmp_path, head)
+    _plan, log = run_plan(monkeypatch, config_path, index_path, ["002->001"])
+    assert item_bytes(index_path, "002") == item("002", head=fm("002", blocks="[004] # split from 007-02")).encode()
+    assert dropped_pairs(log) == [("002", "001")]
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("before,after,row_cell,mode", [
+    ("\n  - '001'\n  - \"004\" # keep this note", "\n  - \"004\" # keep this note", "001, 004", "index-wins"),
+    ("[ '001' ,  \"004\" ,004 ]  # note", "[ \"004\" ,004 ]  # note", "001, 004", "frontmatter-wins"),
+    ("[004, 001, 004]", "[004, 004]", "001, 004", "frontmatter-wins"),
+    ("[1, 004]", "[004]", "001, 004", "index-wins"),
+    ("\n  - 001", "[]", "001", "index-wins"),
+    ("\n  - 004\n  # was 003\n  - 001", "\n  - 004\n  # was 003", "001, 004", "index-wins"),
+    ("\n  # first\n  - 001\n  - 004", "\n  # first\n  - 004", "001, 004", "index-wins"),
+    ("\n  - 004\n\n  - 001", "\n  - 004\n", "001, 004", "index-wins"),
+    ("[004,\n  001]", "[004]", "001, 004", "index-wins"),
+    ("[001,\n  004]", "[004]", "001, 004", "index-wins"),
+    ("[004, # keep\n  001]", "[004 # keep\n  ]", "001, 004", "index-wins"),
+    ("[004, 001,]", "[004, ]", "001, 004", "index-wins"),
+    ("\t[001,\t004]", "\t[004]", "001, 004", "index-wins"),
+], ids=["block-form", "quoted-padded-flow", "duplicate-kept", "unpadded-id", "block-emptied",
+        "comment-line-in-block", "comment-before-entry", "blank-line-in-block", "multiline-flow-last",
+        "multiline-flow-first", "multiline-flow-comment", "trailing-comma", "tab-flow"])
+def test_drop_removes_only_the_named_entry(tmp_path, monkeypatch, capsys, before, after, row_cell, mode):
+    config_path, index_path = three_items(tmp_path, fm("002", blocks=before), row_cell)
+    run_plan(monkeypatch, config_path, index_path, ["002->001"], mode)
+    assert item_bytes(index_path, "002") == item("002", head=fm("002", blocks=after)).encode()
+    capsys.readouterr()
+
+
+def test_drop_of_a_direction_whose_reverse_is_gone_is_not_applied(tmp_path, monkeypatch, capsys):
+    # The user answered, then removed 001 -> 002 by hand: 002 -> 001 is now a valid one-way edge.
+    items = {"001": item("001"), "002": item("002", head=fm("002", blocks="[001]"))}
+    config_path, index_path = project(tmp_path, index(row("001"), row("002", blocks="001")), items)
+    _plan, log = run_plan(monkeypatch, config_path, index_path, ["002->001"])
+    assert item_bytes(index_path, "002") == items["002"].encode()
+    assert dropped_pairs(log) == []
+    (entry,) = [e for e in log["edges"] if e.get("action") == "answer-not-applied"]
+    assert (entry["src"], entry["dst"], entry["source"]) == ("002", "001", "answer") and entry["reason"]
+    capsys.readouterr()
+
+
+def test_drop_reaches_an_unindexed_item_file(tmp_path, monkeypatch, capsys):
+    items = {"001": item("001", head=fm("001", blocks="[002]"))}
+    config_path, index_path = project(tmp_path, index(row("001", blocks="002")), items)
+    archived = index_path.parent / "Archive" / NAMES["002"]
+    archived.write_bytes(item("002", head=fm("002", blocks="[001]")).encode())
+    _plan, log = run_plan(monkeypatch, config_path, index_path, ["002->001"])
+    assert archived.read_bytes() == item("002").encode()
+    assert dropped_pairs(log) == [("002", "001")]
+    capsys.readouterr()
+
+
+def test_an_answer_that_matches_no_edge_is_reported(tmp_path, monkeypatch, capsys):
+    config_path, index_path = project(tmp_path, PAIR_INDEX, PAIR_ITEMS)
+    plan, log = run_plan(monkeypatch, config_path, index_path, ["0001->0002", "002->001"])
+    (entry,) = [e for e in log["edges"] if e.get("action") == "answer-not-applied"]
+    assert (entry["src"], entry["dst"]) == ("0001", "0002") and entry["reason"]
+    assert dropped_pairs(log) == [("002", "001")]
+    assert "0001->0002" in mig.format_report(plan)
+    capsys.readouterr()
+
+
+def test_a_refusal_names_the_answers_that_matched_nothing(tmp_path, monkeypatch, capsys):
+    config_path, index_path = project(tmp_path, PAIR_INDEX, PAIR_ITEMS)
+    before = snapshot(tmp_path)
+    with pytest.raises(mig.Refusal) as exc:
+        plan_for(monkeypatch, config_path, index_path, ["0001->0002"])
+    assert "reciprocal" in exc.value.reason and "0001->0002" in exc.value.reason
+    assert snapshot(tmp_path) == before
+    capsys.readouterr()
+
+
+def interrupt_before_index(monkeypatch):
+    """Make the first replace stop after the journal and item files, before the changelog and index."""
+    real = sup.replace_all
+
+    def partial(staged):
+        if len(staged) > 2 and staged[0][1].name.endswith("Migration-Ledger.json"):
+            real(staged[:-2])
+            sup.discard(staged[-2:])
+            raise sup.ReplaceError(staged[-2][1], [], OSError("simulated crash"))
+        return real(staged)
+    monkeypatch.setattr(sup, "replace_all", partial)
+
+
+@pytest.mark.parametrize("resume_drops", [[], ["002->001"]], ids=["without-answers", "with-answers"])
+def test_a_drop_survives_a_crash_after_the_item_files(tmp_path, monkeypatch, capsys, resume_drops):
+    config_path, index_path = project(tmp_path, PAIR_INDEX, PAIR_ITEMS)
+    plan = plan_for(monkeypatch, config_path, index_path, ["002->001"])
+    with monkeypatch.context() as m:
+        interrupt_before_index(m)
+        assert mig.execute(plan, mig.artifact_paths(index_path), index_path, False) == 1
+    cleared = PAIR_ITEMS["002"].replace("blocks: [001]", "blocks: []").encode()
+    assert item_bytes(index_path, "002") == cleared
+    assert json.loads(mig.artifact_paths(index_path)[1].read_bytes())["mode"] == sup.JOURNAL_MODE
+    resumed, log = run_plan(monkeypatch, config_path, index_path, resume_drops)
+    assert item_bytes(index_path, "002") == cleared
+    assert dropped_pairs(log) == [("002", "001")]
+    (dropped,) = [e for e in resumed["edges"] if e.get("action") == "dropped"]
+    assert dropped["path"] == (index_path.parent / NAMES["002"]).resolve()
+    (entry,) = [e for e in log["edges"] if e.get("action") == "dropped"]
+    assert entry["source"] == ("answer" if resume_drops else "journal")
+    assert entry["path"] == str(dropped["path"])
+    capsys.readouterr()
+
+
+def test_a_malformed_drop_entry_refuses_before_any_write(tmp_path, monkeypatch, capsys):
+    config_path, index_path = project(tmp_path, PAIR_INDEX, PAIR_ITEMS)
+    before = snapshot(tmp_path)
+    for entry in ("002 -> 001", "002->", "00a->001", "002<->001", "001->001", "002->2"):
+        with pytest.raises(mig.Refusal) as exc:
+            plan_for(monkeypatch, config_path, index_path, [entry])
+        assert exc.value.reason == migration_answers.bad_edge_drop_reason(entry)
+        assert exc.value.fix == migration_answers.EDGE_DROP_FIX
+        assert snapshot(tmp_path) == before
+    cfg = InitConfig(project_name="test-project", project_root=tmp_path / "proj", plugin_root=SCRIPTS.parent)
+    report = bm.migrate_backlog_if_legacy(cfg, "1.0", "1.1", answers={"edge_drops": ["002 -> 001"]})
+    assert report.state == "refused" and "'002 -> 001'" in report.detail
+    assert snapshot(tmp_path) == before
+    capsys.readouterr()
+
+
+def migrated_banner(tmp_path, index_text, items, answers):
+    _config_path, index_path = project(tmp_path, index_text, items)
+    cfg = InitConfig(project_name="test-project", project_root=tmp_path / "proj", plugin_root=SCRIPTS.parent)
+    report = bm.migrate_backlog_if_legacy(cfg, "1.0", "1.1", answers=answers)
+    assert report.state == "migrated", report.detail
+    return report, "\n".join(bm._banner_lines(report)), index_path
+
+
+def test_banner_names_the_dropped_directions(tmp_path, capsys):
+    report, banner, index_path = migrated_banner(tmp_path, PAIR_INDEX, PAIR_ITEMS, {"edge_drops": ["002->001"]})
+    assert "blocks: edges dropped by answer: 1 (002->001)" in banner
+    assert "answers not applied" not in banner
+    assert report.counts["edges"] == 1
+    assert [(e["src"], e["dst"]) for e in ledger(index_path)["edges"]] == [("001", "002"), ("002", "001")]
+    capsys.readouterr()
+
+
+def test_banner_names_the_answers_not_applied(tmp_path, capsys):
+    items = {"001": item("001"), "002": item("002", head=fm("002", blocks="[001]"))}
+    _report, banner, _ = migrated_banner(tmp_path, index(row("001"), row("002", blocks="001")), items,
+                                         {"edge_drops": ["002->001"]})
+    assert "edges dropped by answer" not in banner
+    assert "answers not applied:" in banner and "002->001" in banner
+    capsys.readouterr()
+
+
+# --- one edge model for the refusal and the applicability test, and a journal that cannot delete a valid edge ---
+
+def write_journal(index_path, drops):
+    mig.artifact_paths(index_path)[1].write_text(
+        json.dumps({"mode": sup.JOURNAL_MODE, "targets": [], "parked_ambiguous": [], "drops": drops}), encoding="utf-8")
+
+
+def no_cell(root):
+    items = {"001": item("001", head=fm("001", blocks="[002]")), "002": item("002", head=fm("002", blocks="[001]"))}
+    return project(root, index(row("001", blocks="002"), row("002")), items)
+
+
+def files_only(root):
+    items = {"001": item("001", head=fm("001", blocks="[002]")), "002": item("002", head=fm("002", blocks="[001]"))}
+    return project(root, index(row("001"), row("002")), items)
+
+
+def cells_only(root):
+    return project(root, index(row("001", blocks="002"), row("002", blocks="001")),
+                   {"001": item("001"), "002": item("002")})
+
+
+def deps_only(root):
+    return project(root, index(row("001"), row("002"), deps=BOTH_WAYS_DEPS), {"001": item("001"), "002": item("002")})
+
+
+def two_pairs(root):
+    return project(root, TWO_PAIRS_INDEX, TWO_PAIRS_ITEMS)
+
+
+def a_pair(root):
+    return project(root, PAIR_INDEX, PAIR_ITEMS)
+
+
+def test_a_pair_that_reconcile_resolves_is_not_refused(tmp_path, monkeypatch, capsys):
+    # Both files block each other, but 002's Blocks cell is empty and index-wins writes the cell.
+    config_path, index_path = no_cell(tmp_path)
+    _plan, log = run_plan(monkeypatch, config_path, index_path, [])
+    assert b"blocks: []" in item_bytes(index_path, "002") and b"blocks: [002]" in item_bytes(index_path, "001")
+    assert dropped_pairs(log) == []
+    capsys.readouterr()
+
+
+# name -> (builder, reconcile mode): every source a reciprocal pair reaches the generator from
+REFUSING_SCENARIOS = {"cells-and-deps-index-wins": (a_pair, "index-wins"),
+                      "files-frontmatter-wins": (files_only, "frontmatter-wins"),
+                      "cells-only-index-wins": (cells_only, "index-wins"),
+                      "deps-index-wins": (deps_only, "index-wins"),
+                      "deps-frontmatter-wins": (deps_only, "frontmatter-wins"),
+                      "two-pairs-index-wins": (two_pairs, "index-wins")}
+
+
+@pytest.mark.parametrize("name", REFUSING_SCENARIOS)
+def test_every_offered_option_settles_its_pair(tmp_path, monkeypatch, capsys, name):
+    """Invariant: enumerate the refusal the migrator raises, then feed every option of every question back
+    as the answer. Each run must migrate, verify from disk, and skip nothing."""
+    build, mode = REFUSING_SCENARIOS[name]
+    config_path, index_path = build(tmp_path / "probe")
+    with pytest.raises(mig.Refusal) as exc:
+        plan_for(monkeypatch, config_path, index_path, [], mode)
+    questions = mig.refusal_questions(exc.value)
+    assert questions, name
+    for q_at, question in enumerate(questions):
+        for o_at, option in enumerate(question["options"]):
+            answers = [entry for at, other in enumerate(questions)
+                       for entry in (option if at == q_at else other["options"][0])["answer"]["edge_drops"]]
+            config_path, index_path = build(tmp_path / f"run-{q_at}-{o_at}")
+            _plan, log = run_plan(monkeypatch, config_path, index_path, answers, mode)
+            skipped = [e for e in log["edges"] if e.get("action") == "answer-not-applied"]
+            assert skipped == [], (name, q_at, o_at, skipped)
+    capsys.readouterr()
+
+
+def test_a_journaled_drop_is_not_replayed_on_a_one_way_edge(tmp_path, monkeypatch, capsys):
+    # After the crash the user kept 002 -> 001 and removed 001 -> 002 by hand.
+    items = {"001": item("001"), "002": item("002", head=fm("002", blocks="[001]"))}
+    config_path, index_path = project(tmp_path, index(row("001"), row("002", blocks="001")), items)
+    write_journal(index_path, [{"src": "002", "dst": "001", "path": "x"}])
+    _plan, log = run_plan(monkeypatch, config_path, index_path, [])
+    assert item_bytes(index_path, "002") == items["002"].encode()
+    assert dropped_pairs(log) == []
+    (entry,) = [e for e in log["edges"] if e.get("action") == "answer-not-applied"]
+    assert (entry["src"], entry["dst"], entry["source"]) == ("002", "001", "journal") and "one-way" in entry["reason"]
+    capsys.readouterr()
+
+
+def test_an_answer_that_conflicts_with_the_journal_drops_one_direction(tmp_path, monkeypatch, capsys):
+    config_path, index_path = a_pair(tmp_path)
+    write_journal(index_path, [{"src": "002", "dst": "001", "path": "x"}])
+    _plan, log = run_plan(monkeypatch, config_path, index_path, ["001->002"])
+    assert dropped_pairs(log) == [("001", "002")]
+    assert item_bytes(index_path, "002") == PAIR_ITEMS["002"].encode()
+    (entry,) = [e for e in log["edges"] if e.get("action") == "answer-not-applied"]
+    assert (entry["src"], entry["dst"], entry["source"]) == ("002", "001", "journal") and "answer" in entry["reason"]
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("transform", [lambda s: s.replace("\n", "\r\n"), lambda s: "﻿" + s], ids=["crlf", "bom"])
+def test_drop_keeps_line_endings_and_bom(tmp_path, monkeypatch, capsys, transform):
+    config_path, index_path = three_items(tmp_path, fm("002", blocks="\n  - 004\n  - 001"))
+    target = index_path.parent / NAMES["002"]
+    target.write_bytes(transform(target.read_bytes().decode("utf-8")).encode("utf-8"))
+    run_plan(monkeypatch, config_path, index_path, ["002->001"])
+    assert target.read_bytes() == transform(item("002", head=fm("002", blocks="\n  - 004"))).encode("utf-8")
+    capsys.readouterr()
+
+
+def test_a_journaled_drop_is_bannered_as_an_interrupted_run(tmp_path, monkeypatch, capsys):
+    config_path, index_path = a_pair(tmp_path)
+    plan = plan_for(monkeypatch, config_path, index_path, ["002->001"])
+    with monkeypatch.context() as m:
+        interrupt_before_index(m)
+        assert mig.execute(plan, mig.artifact_paths(index_path), index_path, False) == 1
+    cfg = InitConfig(project_name="test-project", project_root=tmp_path / "proj", plugin_root=SCRIPTS.parent)
+    report = bm.migrate_backlog_if_legacy(cfg, "1.0", "1.1")
+    assert report.state == "migrated", report.detail
+    banner = "\n".join(bm._banner_lines(report))
+    assert "dropped by an interrupted run's answer: 1 (002->001)" in banner and "dropped by answer" not in banner
+    capsys.readouterr()

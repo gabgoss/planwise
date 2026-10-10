@@ -55,6 +55,7 @@ if __name__ == "__main__":
     sys.modules.setdefault("init_project", sys.modules[__name__])
 
 from constants import InstallScope
+from migration_answers import AnswersError, load_answers
 
 try:
     from upgrade_io import (
@@ -774,6 +775,10 @@ def main():
                              "(omit the flag) is index-wins. frontmatter-wins "
                              "drops the mismatched index cell instead of "
                              "rewriting the lesson file.")
+    parser.add_argument("--migration-answers", default=None, metavar="FILE",
+                        help="With --upgrade: a JSON file of answers to questions a "
+                             "migration cannot settle alone. A malformed file is "
+                             "refused before any write.")
     parser.add_argument("--doctor", action="store_true",
                         help="Read-only diagnostic: scan installed rules and report any "
                              "still scoped to plan/backlog/lessons globs (always-on context "
@@ -849,6 +854,9 @@ def main():
     if args.lessons_reconcile and not args.upgrade:
         parser.error("--lessons-reconcile requires --upgrade")
 
+    if args.migration_answers and not args.upgrade:
+        parser.error("--migration-answers requires --upgrade")
+
     if args.hash_installed:
         # The upgrade handler interpolates an absolute path here once per verdict
         # entry, so a typo'd or moved path must surface as a one-line error, not a
@@ -906,10 +914,18 @@ def main():
     if args.upgrade:
         if args.migrate:
             print("Note: --migrate is redundant when --upgrade is used (upgrade internally calls migrate).", file=sys.stderr)
+        answers = None
+        if args.migration_answers:
+            try:
+                answers = load_answers(Path(args.migration_answers))
+            except AnswersError as exc:
+                print(f"Upgrade refused: {exc.reason} -- {exc.fix}", file=sys.stderr)
+                sys.exit(2)
         sys.exit(_run_upgrade(cfg, expected_pair=expected_pair,
                               allow_downgrade=args.allow_downgrade,
                               backlog_reconcile=args.backlog_reconcile,
-                              lessons_reconcile=args.lessons_reconcile))
+                              lessons_reconcile=args.lessons_reconcile,
+                              answers=answers))
 
     if args.migrate:
         sys.exit(_run_migrate(cfg))

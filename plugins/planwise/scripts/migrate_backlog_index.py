@@ -87,6 +87,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -95,7 +96,10 @@ import migrate_backlog_checks as chk
 import migrate_backlog_relocate as reloc
 import migrate_backlog_repairs as repairs
 import migrate_backlog_support as sup
+import migration_answers as ans
+from backlog_index_scan import _strip_inline_comment
 from config_loader import load_config
+from frontmatter_parser import FM_KEY_LINE_RE
 from markdown_parser import retried_cells
 from reconcile_common import read_text_preserving_newlines as read_text
 
@@ -118,6 +122,7 @@ class RepairOptions:
     append_ambiguous: bool = False
     park_ambiguous: bool = False  # keep AMBIGUOUS units in the ledger; `append_ambiguous` wins over it
     abbrev_precedence: bool = False  # settle each abbrev by file name, then frontmatter, then cell (`abbrev_prepass`)
+    edge_drops: frozenset = frozenset()  # answered reciprocal edges: "{a}->{b}" drops a-blocks-b, "{a}<->{b}:both" both
     high: float = sup.DEFAULT_HIGH
     low: float = sup.DEFAULT_LOW
 
@@ -126,11 +131,11 @@ class RepairOptions:
         return cls(backfill_frontmatter=True, write_edges=True, extract_dependency_notes=True, reconcile=reconcile)
 
     @classmethod
-    def unattended(cls, reconcile: str = "index-wins") -> "RepairOptions":
+    def unattended(cls, reconcile: str = "index-wins", edge_drops: frozenset = frozenset()) -> "RepairOptions":
         """Every repair on, AMBIGUOUS units parked, and each abbrev settled by precedence: what
-        `/planwise upgrade` and `init` run."""
+        `/planwise upgrade` and `init` run. `edge_drops` carries the answered reciprocal edges."""
         return cls(backfill_frontmatter=True, write_edges=True, extract_dependency_notes=True, reconcile=reconcile,
-                   park_ambiguous=True, abbrev_precedence=True)
+                   park_ambiguous=True, abbrev_precedence=True, edge_drops=frozenset(edge_drops))
 
 
 def _today() -> str:
@@ -190,14 +195,64 @@ def _non_numeric_hint(message: str, config: dict, index_path: Path, view: dict, 
     return ""
 
 
+def reciprocal_question(a: str, b: str) -> dict:
+    """The question for one reciprocal pair. Each option's `answer` is an answers-file fragment that
+    `RepairOptions.edge_drops` accepts as written."""
+    return {"id": "reciprocal-edge",
+            "prompt": f"Items {a} and {b} each block the other. Keep which direction?",
+            "options": [{"label": f"{a} blocks {b}", "answer": {"edge_drops": [f"{b}->{a}"]}},
+                        {"label": f"{b} blocks {a}", "answer": {"edge_drops": [f"{a}->{b}"]}},
+                        {"label": "Drop both", "answer": {"edge_drops": [f"{a}<->{b}:both"]}}],
+            "pairs": [[a, b]]}
+
+
+def refusal_questions(refusal) -> list:
+    """The questions a refusal carries, one entry each. `Refusal.question` holds one dict, so a refusal
+    that asks several (one per reciprocal pair) bundles them under a `questions` key."""
+    question = refusal.question
+    if not question:
+        return []
+    return list(question["questions"]) if "questions" in question else [question]
+
+
+def edge_drop_directions(entries) -> set:
+    """The (src, dst) directions an answer names, ids zero-padded as the generator pads them.
+    `{a}->{b}` is one direction (a blocks b); `{a}<->{b}:both` is both. The grammar and its
+    error text are `migration_answers`'. An entry it rejects raises `Refusal`, never a skip."""
+    drops = set()
+    for entry in entries:
+        parsed = ans.parse_edge_drop(entry)
+        if parsed is None:
+            raise Refusal(ans.bad_edge_drop_reason(entry), ans.EDGE_DROP_FIX)
+        drops |= {(a.zfill(3), b.zfill(3)) for a, b in parsed}
+    return drops
+
+
+def reciprocal_pairs(items: dict) -> list:
+    """The reciprocal `blocks:` pairs among `items` (a `preflight_generator` result), as the generator finds them."""
+    return gen.detect_reciprocal_edges(gen.build_blocks_index(list(items.values())))
+
+
+def refuse_reciprocal(items: dict, unapplied: str = "") -> None:
+    """Raise the reciprocal-edge `Refusal` when `items` holds a pair. `unapplied` names the answered
+    edge drops that matched nothing, so the user sees why an answer did not settle the pair."""
+    reciprocal = reciprocal_pairs(items)
+    if reciprocal:
+        pairs = ", ".join(f"{a}<->{b}" for a, b in reciprocal)
+        raise Refusal(f"the generator would refuse to write: reciprocal blocks edge(s) {pairs}{unapplied}",
+                      "keep one direction: remove the other item's id from one of the two blocks: lists, then re-run",
+                      question={"questions": [reciprocal_question(a, b) for a, b in reciprocal]})
+
+
 def preflight_generator(config: dict, index_path: Path, overrides: dict | None = None,
-                        backfill_hint: bool = False) -> dict:
+                        backfill_hint: bool = False, check_reciprocal: bool = True) -> dict:
     """Run the generator's own scan now, so its refusal lands before any write.
-    `overrides` maps a resolved item path to planned text the scan reads instead."""
+    `overrides` maps a resolved item path to planned text the scan reads instead. A caller that has
+    more edits to plan passes `check_reciprocal=False` and calls `refuse_reciprocal` on the final state."""
     naming = gen._index_naming(index_path)
     view = {path: text.replace("\r\n", "\n") for path, text in (overrides or {}).items()}
     try:
-        items, reciprocal, _report = gen._run_report_pipeline(
+        items, _reciprocal, _report = gen._run_report_pipeline(
             config["_backlog_dir"], config["_archive_dir"], index_path, naming, config, overrides=view)
     except gen.GeneratorError as exc:
         hint = ""
@@ -207,19 +262,10 @@ def preflight_generator(config: dict, index_path: Path, overrides: dict | None =
             hint = _non_numeric_hint(str(exc), config, index_path, view, backfill_hint)
         fix = hint.removeprefix(" -- ") or "correct the item file the message names so the generator accepts it, then re-run"
         raise Refusal(f"the generator would refuse this tree: {exc}", fix) from exc
-    if reciprocal:
-        pairs = ", ".join(f"{a}<->{b}" for a, b in reciprocal)
-        a, b = reciprocal[0]
-        question = {"id": "reciprocal-edge",
-                    "prompt": f"Items {a} and {b} each block the other. Keep which direction?",
-                    "options": [{"label": f"{a} blocks {b}", "answer": {"drop": f"{b}->{a}"}},
-                                {"label": f"{b} blocks {a}", "answer": {"drop": f"{a}->{b}"}},
-                                {"label": "Drop both", "answer": {"drop": "both"}}],
-                    "pairs": [[x, y] for x, y in reciprocal]}
-        raise Refusal(f"the generator would refuse to write: reciprocal blocks edge(s) {pairs}",
-                      "keep one direction: remove the other item's id from one of the two blocks: lists, then re-run",
-                      question=question)
-    return {item["_path"].resolve(): item for item in items}
+    scanned = {item["_path"].resolve(): item for item in items}
+    if check_reciprocal:
+        refuse_reciprocal(scanned)
+    return scanned
 
 
 def resolve_rows(text: str, header_idx: int, roles: dict, config: dict, index_path: Path, relocated: list) -> list:
@@ -532,6 +578,189 @@ def plan_edges(edges: list, items: dict, texts: dict) -> list:
     return planned
 
 
+def _held_blocks(config: dict, index_path: Path, texts: dict) -> dict:
+    """{id: (resolved path, blocks)} for every item file the generator scans, indexed or not, read as the
+    generator reads it (planned `texts` first). A file the generator cannot parse is left out: the
+    preflight names it."""
+    held = {}
+    for path in gen._iter_item_files(config["_backlog_dir"], config["_archive_dir"], index_path):
+        path = path.resolve()
+        try:
+            fields = gen._scan_one_file(path, _text(texts, path).replace("\r\n", "\n"))
+        except gen.GeneratorError:
+            continue
+        held.setdefault(fields["id"], (path, fields["blocks"]))
+    return held
+
+
+_COMMENT_RE = re.compile(r"[ \t]+#.*$", re.MULTILINE)  # a trailing YAML comment, as the generator strips it
+
+
+def _blocks_extent(lines: list) -> tuple | None:
+    """(key line index, index after its last line) for the `blocks:` key of a frontmatter block, or None.
+    Bounds follow the generator's reading: the block ends at the first `---` line, a key line is
+    `FM_KEY_LINE_RE`, and every line up to the next key line (comment, blank or indented) is the key's."""
+    close = next((i for i in range(1, len(lines)) if lines[i].removesuffix("\r") == "---"), len(lines))
+    keys = [i for i in range(1, close)
+            if (m := FM_KEY_LINE_RE.match(lines[i].removesuffix("\r"))) and m.group(1) == "blocks"]
+    if not keys:
+        return None
+    end = next((i for i in range(keys[-1] + 1, close) if FM_KEY_LINE_RE.match(lines[i].removesuffix("\r"))), close)
+    return keys[-1], end
+
+
+def _drop_flow_entries(ext: str, dst: str) -> str:
+    """`ext`, a flow list's value text that may span lines, without every entry naming `dst`. Each removal
+    takes the entry and one adjacent comma, and nothing else: other entries, quoting, spacing and comments stay."""
+    changed = False
+    while (out := _drop_one_flow_entry(ext, dst)) is not None:
+        ext, changed = out, True
+    if not changed:
+        raise ValueError(f"no entry of its blocks: list names {dst}")
+    return ext
+
+
+def _drop_one_flow_entry(ext: str, dst: str) -> str | None:
+    dead = [False] * len(ext)
+    for m in _COMMENT_RE.finditer(ext):
+        dead[m.start():m.end()] = [True] * (m.end() - m.start())
+    live = [i for i in range(len(ext)) if not dead[i]]
+    opens, closes = [i for i in live if ext[i] == "["], [i for i in live if ext[i] == "]"]
+    if not opens or not closes:
+        raise ValueError("its blocks: list has no opening and closing bracket")
+    cuts = [opens[0], *(i for i in live if opens[0] < i < closes[-1] and ext[i] == ","), closes[-1]]
+    for k in range(len(cuts) - 1):
+        span = [i for i in live if cuts[k] < i < cuts[k + 1] and not ext[i].isspace()]
+        if not span or _entry_id(ext[span[0]:span[-1] + 1]) != dst:
+            continue
+        start, stop = span[0], span[-1] + 1
+        if k + 2 < len(cuts):  # a comma follows: take the entry, that comma, and the space after it
+            comma = cuts[k + 1]
+            if any(dead[stop:comma]):
+                raise ValueError("a comment sits between a blocks: entry and its comma")
+            tail = comma + 1
+            while tail < len(ext) and ext[tail].isspace():
+                tail += 1
+            if tail < len(ext) and ext[tail] == "#":  # keep one space, so the comment stays a comment
+                tail -= 1
+            return ext[:start] + ext[tail:]
+        if k > 0:  # the last entry: take it and the comma before it
+            comma = cuts[k]
+            return ext[:comma] + (ext[comma + 1:start] if any(dead[comma + 1:start]) else "") + ext[stop:]
+        return ext[:start] + ext[stop:]
+    return None
+
+
+def _entry_of(line: str) -> str | None:
+    """The padded id a block-list line names, else None (a comment, a blank line, other text)."""
+    m = gen._LIST_ITEM_RE.match(_strip_inline_comment(line).strip())
+    return _entry_id(m.group(1)) if m else None
+
+
+def _drop_block_entries(ext: str, dst: str) -> str:
+    """`ext`, a block list's value text, without the `- ` lines naming `dst`. Comment and blank lines stay.
+    A list left with no entry becomes `[]`."""
+    parts = ext.split("\n")
+    kept = [part for part in parts[1:] if _entry_of(part) != dst]
+    if len(kept) == len(parts) - 1:
+        raise ValueError(f"no entry of its blocks: list names {dst}")
+    if not any(gen._LIST_ITEM_RE.match(_strip_inline_comment(part).strip()) for part in kept):
+        eol = "\r" if parts[0].endswith("\r") else ""
+        head = parts[0].removesuffix(eol)
+        parts[0] = " []" + head[len(_strip_inline_comment(head)):] + eol
+    return "\n".join([parts[0], *kept])
+
+
+def _remove_blocks_entry(body: str, dst: str, name: str) -> str:
+    """`body` with every `blocks:` entry naming `dst` removed and every other byte kept: the other
+    entries with their quoting, padding and order, the inline comment, and the flow or block form.
+    Membership is the generator's own parse. Raises `Refusal` when the edit would change anything else."""
+    fix = f"remove {dst} from the blocks: list of {name} by hand, then re-run"
+    lines = body.split("\n")
+    span = _blocks_extent(lines)
+    if span is None:
+        raise Refusal(f"{name}: it has no blocks: line to remove {dst} from", fix)
+    key, end = span
+    ext = "\n".join([lines[key][len("blocks:"):], *lines[key + 1:end]])  # the key's value text, as the generator reads it
+    try:
+        new_ext = _drop_flow_entries(ext, dst) if _strip_inline_comment(ext).strip().startswith("[") \
+            else _drop_block_entries(ext, dst)
+    except ValueError as exc:
+        raise Refusal(f"{name}: {exc}", fix) from exc
+    lines[key:end] = ("blocks:" + new_ext).split("\n")
+    edited = "\n".join(lines)
+    try:
+        before = gen._scan_one_file(Path(name), body.replace("\r\n", "\n"))["blocks"]
+        after = gen._scan_one_file(Path(name), edited.replace("\r\n", "\n"))["blocks"]
+    except gen.GeneratorError as exc:
+        raise Refusal(f"{name}: the generator cannot read blocks: after removing {dst} ({exc})", fix) from exc
+    if after != [b for b in before if b != dst]:
+        raise Refusal(f"{name}: removing {dst} from blocks: would change another entry", fix)
+    return edited
+
+
+def _entry_id(text: str) -> str | None:
+    """The padded id one `blocks:` entry names, else None."""
+    try:
+        return gen._normalize_id_text(text)
+    except gen.GeneratorError:
+        return None
+
+
+def plan_edge_drops(drops: set, prior: list, held: dict, final: set, texts: dict) -> tuple:
+    """Settle each answered direction, and remove the applicable ones from their source item's
+    `blocks:` in `texts`. `final` is the edge set the migration will write (the trial settle's items).
+    A direction applies only when its reverse is also in `final`: a one-way edge is valid data, so an
+    answer for a pair the user has since fixed leaves it alone. A direction in `prior` (an interrupted
+    run's journal) is held to the same test, or is already absent from `final` (a recorded no-op), and
+    yields to this run's answer for the same pair. Returns ({(src, dst): the source item's path},
+    [{src, dst, source, reason}] for each not applied, {(src, dst): "answer" or "journal"})."""
+    journaled = {(d["src"], d["dst"]) for d in prior if isinstance(d, dict) and {"src", "dst"} <= set(d)}
+    answered_pairs = {frozenset(direction) for direction in drops}
+    applied, skipped, sources = {}, [], {}
+    for source, directions in (("answer", drops), ("journal", journaled - drops)):
+        for src, dst in sorted(directions):
+            reason = None
+            if src not in held:
+                reason = f"no item file has id {src}"
+            elif source == "journal" and frozenset((src, dst)) in answered_pairs:
+                reason = f"an answer in this run settles the pair {src}/{dst} the other way"
+            elif (src, dst) not in final:
+                reason = (f"the migration leaves no {src} blocks {dst} edge in place" if source == "answer" else None)
+            elif (dst, src) not in final:
+                reason = (f"{dst} does not block {src} once the migration writes its Blocks cells and Dependencies "
+                          f"edges, so {src} blocks {dst} is a one-way edge, not a reciprocal pair")
+            if reason is None:
+                applied[(src, dst)], sources[(src, dst)] = held[src][0], source
+            else:
+                skipped.append({"src": src, "dst": dst, "source": source, "reason": reason})
+    for (src, dst), path in applied.items():
+        if dst in held[src][1]:
+            texts[path] = _remove_blocks_entry(_text(texts, path), dst, path.name)
+    return applied, skipped, sources
+
+
+def _unapplied_note(skipped: list) -> str:
+    """The sentence a refusal appends, naming the answers that matched nothing."""
+    return ("; answers not applied: " + "; ".join(f"{s['src']}->{s['dst']} ({s['reason']})" for s in skipped)
+            if skipped else "")
+
+
+def _without_dropped(diffs: list, applied: dict) -> list:
+    """`diffs` with each dropped direction taken out of a Blocks cell's row value, so index-wins cannot
+    write it back. A cell the drop leaves agreeing with frontmatter is no disagreement."""
+    kept = []
+    for diff in diffs:
+        if diff["key"] == "blocks" and diff["row"] is not None:
+            gone = [dst for dst in diff["row"] if (diff["id"], dst) in applied]
+            if gone:
+                diff = {**diff, "row": [dst for dst in diff["row"] if dst not in gone]}
+                if diff["row"] == diff["frontmatter"]:
+                    continue
+        kept.append(diff)
+    return kept
+
+
 def plan_reconcile(diffs: list, mode: str | None, texts: dict, items: dict) -> list:
     """Settle each row/frontmatter disagreement per `mode`, or refuse naming both modes."""
     if not diffs:
@@ -776,6 +1005,49 @@ def settle_interrupted_journal(ledger_path: Path) -> Path:
     return renamed
 
 
+def _settle(config: dict, index_path: Path, resolved: list, roles: dict, compared: dict, edges: list,
+            options: RepairOptions, valid_abbrevs, texts: dict, wins: list, prior_wins: list, dropped: dict,
+            simulate: bool = False) -> dict:
+    """Plan the Dependencies union and the row/frontmatter reconcile into `texts`, leaving out each
+    `dropped` direction, and return the state the migration would write: its scanned `items`, the `rows`,
+    the `edge_plan`, the reconcile `cells` and the `written_cells`. Reciprocal pairs are NOT refused here:
+    the caller checks the final `items`, so a pair that reconcile settles never refuses. With `simulate`,
+    a missing edge or an unsettled cell does not refuse either, so the caller can read the edge model first."""
+    edges = [e for e in edges if (e[1], e[2]) not in dropped]  # an applied drop outranks the table
+    scan = partial(preflight_generator, config, index_path, texts, check_reciprocal=False)
+    edge_plan = []
+    if options.write_edges and edges:
+        edge_plan = plan_edges(edges, scan(not options.backfill_frontmatter), texts)
+    items = scan(not options.backfill_frontmatter)
+    missing = chk.missing_edges(edges, items)
+    if missing and not simulate:
+        raise Refusal(f"{len(missing)} '## Dependencies' edge(s) are missing from frontmatter blocks: "
+                      f"{'; '.join(missing[:10])}. The generator renders no Dependencies section",
+                      "add each edge to its item's blocks: first"
+                      + ("" if options.write_edges else ", or add --write-edges to write each edge into blocks:"))
+    rows, diffs = collect_rows(resolved, compared, index_path, items, valid_abbrevs)
+    settled = {(w["key"], w["path"]) for w in wins}  # the file name already won these cells
+    diffs = [d for d in diffs if (d["key"], d["path"]) not in settled]
+    diffs = _settled_by_name(diffs, resolved, roles, wins, prior_wins)
+    diffs = _without_dropped(diffs, dropped)
+    cells = [] if simulate and options.reconcile != "index-wins" else plan_reconcile(diffs, options.reconcile, texts, items)
+    written_cells = cells if options.reconcile == "index-wins" else []
+    if written_cells:
+        items = scan()
+        if chk.missing_edges(edges, items):
+            for edge in plan_edges(edges, items, texts):
+                known = next((e for e in edge_plan if (e["src"], e["dst"]) == (edge["src"], edge["dst"])), None)
+                if known is None:
+                    edge_plan.append(edge)
+                    known = edge
+                known["source"] = "dependencies-table"
+                for cell in cells:
+                    if cell["key"] == "blocks" and cell["path"] == edge["path"]:
+                        cell["written"] = sorted({*cell.get("written", cell["index"]), edge["dst"]}, key=int)
+            items = scan()
+    return {"items": items, "rows": rows, "edge_plan": edge_plan, "cells": cells, "written_cells": written_cells}
+
+
 def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: tuple, options: RepairOptions):
     header_idx, roles = detail
     problems, edges, found = chk.scan_index(text, header_idx, extract_notes=options.extract_dependency_notes)
@@ -808,38 +1080,23 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
                 if options.backfill_frontmatter else [])
     abbrev_cells = plan_abbrevs(decisions, texts) if decisions is not None else []
     wins += abbrev_cells
-    no_backfill = not options.backfill_frontmatter
-    edge_plan = []
-    if options.write_edges and edges:
-        edge_plan = plan_edges(edges, preflight_generator(config, index_path, texts, no_backfill), texts)
-    items = preflight_generator(config, index_path, texts, no_backfill)
-    missing = chk.missing_edges(edges, items)
-    if missing:
-        raise Refusal(f"{len(missing)} '## Dependencies' edge(s) are missing from frontmatter blocks: "
-                      f"{'; '.join(missing[:10])}. The generator renders no Dependencies section",
-                      "add each edge to its item's blocks: first"
-                      + ("" if options.write_edges else ", or add --write-edges to write each edge into blocks:"))
+    drops = edge_drop_directions(options.edge_drops)
+    journal = _journal(paths[1])  # an interrupted run's journal: its drops and wins apply again on resume
+    prior_drops = journal.get("drops") or []
     valid_abbrevs = sup.configured_abbrevs(config)
     compared = {k: v for k, v in roles.items() if k != "abbrev"} if decisions is not None else roles
-    rows, diffs = collect_rows(resolved, compared, index_path, items, valid_abbrevs)
-    settled = {(w["key"], w["path"]) for w in wins}  # the file name already won these cells
-    diffs = [d for d in diffs if (d["key"], d["path"]) not in settled]
-    diffs = _settled_by_name(diffs, resolved, roles, wins, _journal(paths[1]).get("wins") or [])
-    cells = plan_reconcile(diffs, options.reconcile, texts, items)
-    written_cells = cells if options.reconcile == "index-wins" else []
-    if written_cells:
-        items = preflight_generator(config, index_path, texts)
-        if chk.missing_edges(edges, items):
-            for edge in plan_edges(edges, items, texts):
-                known = next((e for e in edge_plan if (e["src"], e["dst"]) == (edge["src"], edge["dst"])), None)
-                if known is None:
-                    edge_plan.append(edge)
-                    known = edge
-                known["source"] = "dependencies-table"
-                for cell in cells:
-                    if cell["key"] == "blocks" and cell["path"] == edge["path"]:
-                        cell["written"] = sorted({*cell.get("written", cell["index"]), edge["dst"]}, key=int)
-            items =preflight_generator(config, index_path, texts)
+    settle_args = (config, index_path, resolved, roles, compared, edges, options, valid_abbrevs)
+    dropped, unapplied, drop_sources = {}, [], {}
+    if drops or prior_drops:  # read the edge model from a trial settle, so the answer sees what will be written
+        trial = _settle(*settle_args, dict(texts), list(wins), journal.get("wins") or [], {}, simulate=True)
+        final = {(item["id"], dst) for item in trial["items"].values() for dst in item["blocks"]}
+        dropped, unapplied, drop_sources = plan_edge_drops(drops, prior_drops, _held_blocks(config, index_path, texts),
+                                                           final, texts)
+    state = _settle(*settle_args, texts, wins, journal.get("wins") or [], dropped)
+    items, rows, edge_plan, cells, written_cells = (state[k] for k in ("items", "rows", "edge_plan", "cells",
+                                                                        "written_cells"))
+    note = _unapplied_note(unapplied)
+    refuse_reciprocal(items, note)
     dests = plan_dedup(rows, options.high, options.low, options.append_ambiguous, texts, options.park_ambiguous)
     for dest in dests:
         if dest["append"]:
@@ -850,9 +1107,12 @@ def build_plan(text: str, detail: tuple, config: dict, index_path: Path, paths: 
                for f in found if f["kind"] in ("bullet", "remainder")]
     notes = plan_notes(bullets, items, texts, relocated)
     _refuse_unusable_abbrevs(texts, valid_abbrevs)
+    edge_plan += [{"src": src, "dst": dst, "path": path, "action": "dropped", "source": drop_sources[(src, dst)]}
+                  for (src, dst), path in sorted(dropped.items())]
     pending = (sum(len(d["append"]) for d in dests) + len(backfill) + len(edge_plan) + len(written_cells)
                + sum(n["bullets"] for n in notes) + len(id_repairs)
                + sum(1 for c in abbrev_cells if c["frontmatter"] not in (None, c["written"])))
+    edge_plan += [{**skip, "action": "answer-not-applied"} for skip in unapplied]  # a record, not work
     naming = gen._index_naming(index_path)
     relocated.sort(key=lambda record: record["line"])
     when = (reloc.recorded_date(read_text(changelog_path)) if relocated and changelog_path.exists() else None) or _today()
@@ -984,8 +1244,8 @@ def build_ledger(plan: dict, paths: tuple, measured: dict | None = None, misses:
         "backfill": [{"path": str(b["path"]), "keys_added": b["keys_added"], "created_source": b["created_source"]}
                      for b in plan["backfill"]],
         "id_repairs": [{"path": str(r["path"]), "from": r["from"], "to": r["to"]} for r in plan.get("id_repairs", ())],
-        "edges": [{"src": e["src"], "dst": e["dst"], **({"source": e["source"]} if "source" in e else {})}
-                  for e in plan["edges"]],
+        "edges": [{"src": e["src"], "dst": e["dst"], **{k: e[k] for k in ("action", "source", "reason") if k in e},
+                   **({"path": str(e["path"])} if e.get("action") == "dropped" else {})} for e in plan["edges"]],
         "dependency_notes": [{"path": str(n["path"]), "bullets": n["bullets"], "bytes": n["bytes"],
                               "already_present": n["present"]} for n in plan["notes"]],
         "dependency_headings_dropped": plan["dropped_headings"],
@@ -1025,7 +1285,10 @@ def format_report(plan: dict, ledger_name: str = "the migration ledger") -> str:
               f"append, {count['prior']} appended by a prior run, {count['dedup']} already present (deduplicated)"),
              (f"backfill: {len(backfill)} item file(s) gain frontmatter ({sum(b['partial'] for b in backfill)} "
               f"had a partial block), {len(plan.get('id_repairs', ()))} prefixed id: value(s) normalised"),
-             f"edges: {len(plan['edges'])} '## Dependencies' edge(s) to write into blocks:",
+             (f"edges: {sum(1 for e in plan['edges'] if 'action' not in e)} '## Dependencies' edge(s) to "
+              f"write into blocks:, {sum(1 for e in plan['edges'] if e.get('action') == 'dropped')} answered drop(s)"
+              + "".join(f"\n  answer {e['src']}->{e['dst']} not applied: {e['reason']}"
+                        for e in plan["edges"] if e.get("action") == "answer-not-applied")),
              (f"dependency notes: {sum(n['bullets'] for n in notes)} bullet(s) into "
               f"{sum(1 for n in notes if n['bullets'])} item file(s), {len(plan['dropped_headings'])} heading "
               "line(s) dropped"),
@@ -1063,6 +1326,17 @@ def verify_written(plan: dict, paths: tuple, index_path: Path) -> list:
         if str(raw.get("id", "")).strip() != r["to"]:
             misses.append(f"repaired id: {r['to']} is missing from {r['path'].name}")
     for e in plan.get("edges", ()):
+        if e.get("action") == "answer-not-applied":
+            continue
+        if e.get("action") == "dropped":
+            try:
+                held = gen._scan_one_file(e["path"], read_text(e["path"]).replace("\r\n", "\n"))["blocks"]
+            except gen.GeneratorError as exc:
+                misses.append(f"dropped edge {e['src']} blocks {e['dst']}: {e['path'].name} cannot be re-read ({exc})")
+                continue
+            if e["dst"] in held:
+                misses.append(f"dropped edge {e['src']} blocks {e['dst']} is still in {e['path'].name}")
+            continue
         raw = repairs.partial_frontmatter(read_text(e["path"]))[0] or {}
         if e["dst"] not in sup.ids_in(raw.get("blocks", "")):
             misses.append(f"edge {e['src']} blocks {e['dst']} is missing from {e['path'].name}")
@@ -1109,7 +1383,9 @@ def execute(plan: dict, paths: tuple, index_path: Path, json_mode: bool) -> int:
                "parked_ambiguous": parked_records(plan["dests"]),
                "abbreviations": plan.get("abbreviations") or {"added": [], "matched": []},
                "wins": [{"path": str(c["path"]), "key": c["key"], "winner": c["winner"], "written": c["written"]}
-                        for c in plan["reconcile"]["cells"] if c.get("winner")]}
+                        for c in plan["reconcile"]["cells"] if c.get("winner")],
+               "drops": [{"src": e["src"], "dst": e["dst"], "path": str(e["path"])}
+                         for e in plan["edges"] if e.get("action") == "dropped"]}
     try:  # the journal replaces first, so a rerun owns whatever an interrupted replace left dirty
         staged = sup.stage_all([(paths[1], json.dumps(journal, indent=2) + "\n"), *outputs])
     except OSError as exc:
@@ -1224,7 +1500,7 @@ def build_report(config: dict, index_path: Path) -> dict:
     except Refusal as exc:
         refusals = [exc]  # the plan stops at its first refusal; each carries its own question, if any
         report["would_refuse"] = [str(r) for r in refusals]
-        report["questions"] = [r.question for r in refusals if r.question]
+        report["questions"] = [q for r in refusals for q in refusal_questions(r)]
     return report
 
 

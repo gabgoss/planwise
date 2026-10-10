@@ -732,8 +732,12 @@ def _run_upgrade(
     allow_downgrade: bool = False,
     backlog_reconcile: "str | None" = None,
     lessons_reconcile: "str | None" = None,
+    answers: "dict | None" = None,
 ) -> int:
     """Execute the --upgrade flow and print a banner. Returns exit code.
+
+    `answers` is the validated answers file (None when no file was given). It forwards to
+    `migrate_backlog_if_legacy()`'s own `answers` kwarg on both exits.
 
     `backlog_reconcile` forwards to `migrate_backlog_if_legacy()`'s own
     `reconcile` kwarg (None defaults to "index-wins" there) -- the backlog-
@@ -879,7 +883,7 @@ def _run_upgrade(
         # /planwise init — both real recalibration points.
         _apply_feedback_dir(cfg, config_path)
         report = migrate_backlog_if_legacy(
-            cfg, pinned_version, target_version, reconcile=backlog_reconcile)
+            cfg, pinned_version, target_version, reconcile=backlog_reconcile, answers=answers)
         _emit_backlog_migration_banner(report)
         # 2e. Lessons-index retrofit, same shape and same pair as the backlog
         # retrofit above -- never changes this branch's return code either.
@@ -997,7 +1001,7 @@ def _run_upgrade(
         # never abort an upgrade that has already started writing.
         try:
             _backlog_report = migrate_backlog_if_legacy(
-                cfg, pinned_version, target_version, reconcile=backlog_reconcile)
+                cfg, pinned_version, target_version, reconcile=backlog_reconcile, answers=answers)
             _emit_backlog_migration_banner(_backlog_report)
         except Exception as exc:  # noqa: BLE001 -- the retrofit must never abort an upgrade
             print(

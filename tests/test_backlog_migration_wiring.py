@@ -256,9 +256,9 @@ def test_g_backlog_reconcile_with_upgrade_is_forwarded_as_a_kwarg(tmp_path, monk
     calls = []
     real = artifact_upgrade.migrate_backlog_if_legacy
 
-    def spy(cfg, from_version, to_version, *, reconcile=None):
+    def spy(cfg, from_version, to_version, *, reconcile=None, answers=None):
         calls.append(reconcile)
-        return real(cfg, from_version, to_version, reconcile=reconcile)
+        return real(cfg, from_version, to_version, reconcile=reconcile, answers=answers)
 
     monkeypatch.setattr(artifact_upgrade, "migrate_backlog_if_legacy", spy)
     monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
@@ -282,6 +282,64 @@ def test_g_backlog_reconcile_with_upgrade_is_forwarded_as_a_kwarg(tmp_path, monk
 
     assert excinfo.value.code == 0
     assert calls == ["index-wins"]
+
+
+# ---------------------------------------------------------------------------
+# (h)-(j): --migration-answers is argparse-guarded, forwarded, and validated before any write.
+# ---------------------------------------------------------------------------
+def test_h_migration_answers_without_upgrade_is_a_parser_error(tmp_path):
+    answers = tmp_path / "answers.json"
+    answers.write_text('{"edge_drops": []}', encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(INIT_PROJECT), "--name", "X",
+         "--migration-answers", str(answers)],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 2
+    assert "--migration-answers requires --upgrade" in result.stderr
+
+
+def test_i_migration_answers_is_forwarded_as_a_kwarg(tmp_path, monkeypatch):
+    answers = {"edge_drops": ["002->001", "003<->004:both"]}
+    seen = []
+    real = artifact_upgrade.migrate_backlog_if_legacy
+
+    def spy(cfg, from_version, to_version, **kwargs):
+        seen.append(kwargs.get("answers"))
+        return real(cfg, from_version, to_version, **kwargs)
+
+    monkeypatch.setattr(artifact_upgrade, "migrate_backlog_if_legacy", spy)
+    monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
+
+    # Branch one: the already-up-to-date early return. Branch two: the main upgrade path.
+    for sub, pinned in (("up_to_date", TARGET_VERSION), ("main_path", "1.0.5.1")):
+        cfg, _backlog = _legacy_project(tmp_path / sub, pinned=pinned)
+        assert artifact_upgrade._run_upgrade(cfg, answers=answers) == 0
+
+    assert seen == [answers, answers]
+
+
+def test_j_malformed_answers_refuses_before_any_write(tmp_path, monkeypatch, capsys):
+    cfg, backlog = _legacy_project(tmp_path, pinned="1.0.5.1")
+    config_path = cfg.project_root / "planwise" / "config.yaml"
+    config_before = config_path.read_bytes()
+    tree_before = _backlog_tree_bytes(backlog)
+    bad = tmp_path / "answers.json"
+    bad.write_text('{"edge_drops": ["not-an-edge"]}', encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _init_argv(cfg, "--upgrade", "--migration-answers", str(bad)))
+
+    with pytest.raises(SystemExit) as excinfo:
+        ip.main()
+    err = capsys.readouterr().err
+
+    assert excinfo.value.code == 2
+    assert err.startswith("Upgrade refused: ")
+    assert " -- " in err
+    assert "edge_drops" in err
+    assert _backlog_tree_bytes(backlog) == tree_before
+    assert config_path.read_bytes() == config_before  # the pin was not committed
+    assert _read_config(cfg)["plugin_version"] == "1.0.5.1"
+    assert not (cfg.project_root / "planwise" / "upgrade-backups").exists()
 
 
 if __name__ == "__main__":

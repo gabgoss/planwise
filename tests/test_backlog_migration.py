@@ -460,6 +460,20 @@ def test_refused_fix_line_names_an_edit(tmp_path):
     assert "remove the other item's id" not in report.detail
 
 
+def test_answers_edge_drops_reach_the_migrator(tmp_path):
+    header = "| ID | Feature | Priority | Status | Abbrev | Blocks | Files |\n|---|---|---|---|---|---|---|\n"
+    rows = (f"| 001 | {TITLE}. {DUP} | High | NOT_STARTED | SMP | 002 | [001](001-Sample.md) |\n"
+            f"| 002 | {TITLE} | High | NOT_STARTED | SMP | 001 | [002](Archive/ITEM-002-SMP-Other.md) |\n"
+            "| 003 | Third item | Medium | NOT_STARTED | INFRA |  | [003](ITEM-003-INFRA-Third.md) |\n"
+            "| 004 | Partial item | Low | NOT_STARTED | SMP |  | [004](ITEM-004-SMP-Partial.md) |\n")
+    cfg, backlog = _project(tmp_path, f"## Backlog Items\n\n{header}{rows}\n---\n\n{FOOTER}")
+    _write(backlog / "Archive" / "ITEM-002-SMP-Other.md", item_text("002", "Other item.", blocks="[001]"))
+    report = _migrate(cfg, answers={"edge_drops": ["002->001"]})
+    assert report.state == "migrated", (report.state, report.detail)
+    assert "blocks: [002]" in (backlog / "001-Sample.md").read_text(encoding="utf-8")
+    assert "blocks: []" in (backlog / "Archive" / "ITEM-002-SMP-Other.md").read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("state", ["absent", "generated"])
 def test_banner_is_silent_when_nothing_happened(capsys, state):
     bm._emit_backlog_migration_banner(bm.BacklogMigrationReport(state=state, index_path=None))
