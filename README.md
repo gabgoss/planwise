@@ -163,7 +163,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, backlog/lessons/plans index shape audits, backlog item body status lines, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise backlog` | Triage and work on backlog items (optionally one per session, looping) |
-| `/planwise list` | See all plans and their status |
+| `/planwise list [--active] [--no-check]` | See all plans and their status (no model tool calls without a flag) |
 | `/planwise lessons` | Search the lessons learned index |
 | `/planwise lessons capture` | Capture a lesson mid-session |
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |

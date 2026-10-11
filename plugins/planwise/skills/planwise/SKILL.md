@@ -5,8 +5,10 @@ description: >
   with structured workflows. Use when user wants to create plans, run sessions,
   review plans, manage backlog items, or search lessons learned.
 argument-hint: "<init|plan|review|run|upgrade|doctor|token-saver|backlog|list|lessons|feedback|harvest|help> [args]"
+arguments: sub
 user-invocable: true
 disable-model-invocation: false
+allowed-tools: Bash(python -B "${CLAUDE_PLUGIN_ROOT}/scripts/skill_preflight.py" *)
 ---
 
 # /planwise — Agentic Project Management
@@ -16,6 +18,10 @@ disable-model-invocation: false
 Parse `$ARGUMENTS`:
 - `$0` = subcommand
 - Remaining = subcommand arguments (forwarded as context)
+
+The shell line below runs before you see this prompt. Its output replaces the line.
+
+!`python -B "${CLAUDE_PLUGIN_ROOT}/scripts/skill_preflight.py" '$sub' || true`
 
 | Subcommand | Handler |
 |-----------|---------|
@@ -27,7 +33,7 @@ Parse `$ARGUMENTS`:
 | `doctor` | Read [handlers/doctor.md](../../handlers/doctor.md) |
 | `token-saver` | Read [handlers/token-saver.md](../../handlers/token-saver.md) |
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
-| `list` | Read [handlers/list.md](../../handlers/list.md) |
+| `list` | Follow [List](#list) below (normally zero tool calls) |
 | `lessons` | Read [handlers/lessons.md](../../handlers/lessons.md) |
 | `feedback` | Read [handlers/feedback.md](../../handlers/feedback.md) |
 | `harvest` | Read [handlers/harvest.md](../../handlers/harvest.md) |
@@ -35,6 +41,25 @@ Parse `$ARGUMENTS`:
 
 If `$0` is empty, display help (below).
 If `$0` is not in the table, respond: "Unknown subcommand: {$0}. Run `/planwise` for usage."
+
+## List
+
+The shell line under Routing renders the `list` answer before you run. Check rule 5 first, then apply the first of rules 1-3 that matches.
+
+1. **Block present, no fallback line.** Display everything between `<!-- planwise:list:begin -->` and `<!-- planwise:list:end -->` verbatim as the whole answer. Run nothing. If the banner reports drift, add one sentence offering to reconcile, and wait.
+2. **A `PLANWISE_LIST_FALLBACK:` line is present.** Answer by its cause:
+   - `config.yaml not found`: say no planwise `config.yaml` was found in that directory, and tell the user to run `/planwise init`. Never initialise from `list`.
+   - `config.yaml parse error`: fail loud with `config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise list.` Then stop.
+   - `Plans index not found`: print the line. Suggest `generate_plans_index.py --write` to generate it from the Master Plans, or a check of `config.yaml`.
+   - Any other cause: print the line.
+3. **No block at all, or the line reads `[shell command execution disabled by policy]`.** Run this command once with Bash. Copy it byte for byte and add only the flags the user typed. Apply rules 1 and 2 to its output. Do not Read any file.
+
+   ```
+   python -B "${CLAUDE_PLUGIN_ROOT}/scripts/skill_preflight.py" list
+   ```
+
+4. **Reconcile on consent.** The writer is `reconcile_plans.py --write`, and it regenerates the whole plans index. Run it only after the user agrees. A permission prompt on this path is acceptable. [handlers/list.md](../../handlers/list.md) gives the exit-code meanings.
+5. **Typed flags.** If the `ARGUMENTS:` line holds `--active` or `--no-check`, ignore any injected block. The shell line passes only the subcommand, so that block is unfiltered and always checked. Take the one-call route of rule 3 with those flags.
 
 ## Help
 
@@ -61,7 +86,7 @@ Available subcommands:
   token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
   backlog [item-id] [--loop-resume <run-id>]  Triage backlog items; capture follow-up BLIs from resolution outputs
                                --loop-resume re-enters a one-item-per-session loop (needs the plugin's hooks module)
-  list                         List all plans with status
+  list [--active] [--no-check] List all plans with status
   lessons [search-terms]       Search lessons learned
   lessons capture              Capture a lesson mid-session
   lessons promote <id>         Promote lesson to artifact

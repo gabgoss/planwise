@@ -263,10 +263,16 @@ flowchart LR
 **List all your plans and their status.**
 
 ```
-/planwise list
+/planwise list [--active] [--no-check]
 ```
 
-Shows a table of every plan in your project with its status, sprint count, and when it was created.
+Shows a table of every plan in your project. The table has five columns: Abbrev, Name, Status, Created and Last Updated.
+
+A bare `/planwise list` renders the table when the skill loads, before Claude replies, so it uses no model tool calls. If your settings turn off skill shell commands, Claude runs one command to produce the same table. Each of `--active` and `--no-check` runs one command.
+
+`--active` keeps only plans with the status `PLANNING`, `READY_TO_EXECUTE`, `REVIEWED`, `APPROVED`, `NEEDS_FIXES` or `IN_PROGRESS`.
+
+Outside an initialised project, `list` says so and points you to `/planwise init`. It does not initialise the project.
 
 `list` also cross-checks the index against a fresh render of every Master Plan and flags any drift before the table, offering to reconcile the index on the spot — nothing is written without your consent (`--no-check` skips the check). It prints "No drift detected" only after a full comparison. When the check could not compare every row, it says so instead. When the index is still hand-authored, it points you to [`/planwise upgrade`](#10-planwise-upgrade) and offers no write.
 
@@ -274,7 +280,7 @@ Shows a table of every plan in your project with its status, sprint count, and w
 
 ```mermaid
 flowchart LR
-    A([Run command]) --> B[See table of<br/>all your plans]
+    A([Run command]) --> B[Skill renders the table<br/>before Claude replies] --> C[See table of<br/>all your plans]
 ```
 
 ---
@@ -560,7 +566,7 @@ flowchart LR
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
 | `/planwise backlog` | Triage and work on backlog items (optionally one per session, looping) |
-| `/planwise list` | See all plans and their status |
+| `/planwise list [--active] [--no-check]` | See all plans and their status (no model tool calls without a flag) |
 | `/planwise lessons` | Search the lessons learned index |
 | `/planwise lessons capture` | Capture a lesson mid-session |
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
@@ -650,7 +656,7 @@ planwise/                           # Plugin root
   references/                       # Knowledge base documents (4 installed as path-scoped rules + 2 installed as global style rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init
-  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py)
+  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py and skill_preflight.py (the zero-call list))
   hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
   examples/                         # Sample outputs
   config.yaml.template              # Config template
