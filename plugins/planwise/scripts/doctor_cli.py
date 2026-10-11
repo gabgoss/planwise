@@ -249,9 +249,8 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
     # `upgrade-backups/` would reclaim nothing — it would relocate the pair to
     # `upgrade-backups/<log>/upgrade-backups/{pair}`, where the sweep's
     # `*-to-*` glob can never see it again, so the surface would be neither
-    # gone nor reportable. A separate root keeps "pruned" and "swept" disjoint,
-    # and makes non-collision with the de-scoped-rule prune log structural
-    # rather than a matter of naming.
+    # gone nor reportable. A separate root keeps "pruned" and "swept" disjoint
+    # and cannot collide with the de-scoped-rule prune log.
     logs_root = planwise_root / "upgrade-prune-logs"
     out_dir = logs_root / f"upgrade-leftovers-{today}"
     suffix = 2
@@ -274,9 +273,10 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
             rel = Path(f["pair"]) / src.name  # fallback if src ever lands outside planwise_root
         backup_dst = out_dir / rel
         # An index pre-image in the pair: prune refresh files only.
-        partial = f["klass"] == "safe-to-discard" and not pair_is_clearable(src)
+        groups = classify_backup_pair(src, quiet=True) if f["klass"] == "safe-to-discard" else {}
+        partial = bool(groups) and not pair_is_clearable(groups)
         if partial:
-            targets = classify_backup_pair(src)["refresh"]
+            targets = groups["refresh"]
         else:
             targets = [p for p in src.rglob("*") if p.is_file()] if src.is_dir() else [src]
 

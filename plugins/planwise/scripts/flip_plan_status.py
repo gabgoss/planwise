@@ -15,7 +15,8 @@ and its file left untouched, when:
     same Path two different statuses;
   * the Status token cannot be located, or the value reads as multi-word
     (`IN PROGRESS`, `Not started`) or glues text onto the token (`IN-PROGRESS`);
-  * the Master Plan is a symlink or junction, or changed since it was read.
+  * the Master Plan, or a folder between the plans directory and it, is a
+    symlink or junction, or the file changed since it was read.
 
 A plan already at the target is reported `unchanged` and not rewritten.
 
@@ -27,7 +28,9 @@ Write discipline, so the diff stays auditable:
     closing italic `_` stays), or the leading word of a title-case value such
     as `Complete`.
   * `status_value_refusal(value)` reports, without writing, whether a raw
-    Status value is one the writer would flip.
+    Status value is one the writer would flip. `plan_path_refusal(plans_dir,
+    path)` does the same for a Path: the same Master Plan lookup and link
+    check the writer runs.
   * Line endings are never translated (CRLF stays CRLF).
   * The date the reader uses is bumped to today: the last `*Last Updated:`
     footer line, else the `**Last Updated:**` header line. With neither, the
@@ -43,12 +46,12 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import os
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import recovery_surfaces
 from config_loader import load_config
 from parse_plans import (
     _DATE_RE,
@@ -63,6 +66,7 @@ from parse_plans import (
 from reconcile_common import write_text_preserving_newlines
 
 _WORD_RUN_RE = re.compile(r"[A-Za-z0-9_]+")
+_FIRST_WORD_RE = re.compile(r"\S+\s*")
 _COMMENT_RE = re.compile(r"\s#.*$")
 _MARKUP_TAIL_RE = re.compile(r"[*`]+$")
 _MARKUP_HEAD_RE = re.compile(r"[*`]+")
@@ -87,6 +91,12 @@ Exit 1 when any Path is refused or fails, or the map is not UTF-8.
 """
 
 
+def _normalize_plan_path(plan_path: str) -> str:
+    """The map's form of a Path: forward slashes and a trailing slash, so `Alpha` and `Alpha/` are one."""
+    plan_path = plan_path.replace("\\", "/")
+    return plan_path if plan_path.endswith("/") else plan_path + "/"
+
+
 def read_map(path: Path) -> tuple[dict[str, str], dict[str, list[tuple[int, str]]], list[str]]:
     """Read the map. Returns `(mapping, conflicts, notes)`.
 
@@ -107,11 +117,9 @@ def read_map(path: Path) -> tuple[dict[str, str], dict[str, list[tuple[int, str]
         if ":" not in line:
             raise SystemExit(f"{path}:{n}: expected 'Path: STATUS', got {raw!r}")
         plan_path, status = (p.strip() for p in line.split(":", 1))
-        plan_path = plan_path.replace("\\", "/")
         if not plan_path or not status:
             raise SystemExit(f"{path}:{n}: expected 'Path: STATUS', got {raw!r}")
-        if not plan_path.endswith("/"):
-            plan_path += "/"
+        plan_path = _normalize_plan_path(plan_path)
         lines_for_path = seen.setdefault(plan_path, [])
         same = next((m for m, s in lines_for_path if s == status), None)
         if same is not None:
@@ -156,10 +164,14 @@ def _span_in_value(value: str) -> tuple[str, int] | str:
     whitespace and then a non-alphanumeric character (`—`, `(`, `- `). Text
     glued to the token refuses. Closing markup (`*` or a backtick) is skipped
     only when it mirrors the markup that opens the token directly (`**X**`,
-    `` `X` ``). Whitespace then a letter or digit refuses, because a bolded
-    first word (`**IN** PROGRESS`) is a multi-word status. The one exception
-    is an underscore identifier (`ON_hold since March`): it is one name, and
-    the word after it is prose."""
+    `` `X` ``). Whitespace then a letter refuses, because a bolded first word
+    (`**IN** PROGRESS`) is a multi-word status. Whitespace then a digit is
+    prose (`COMPLETE 2026-10-01`), which the reader also reads as one token.
+    The one exception is a number followed directly by a capital word
+    (`IN 2 PROGRESS`): that still looks like a status split by a number, so
+    it refuses, and the refusal says so. The other exception is an
+    underscore identifier (`ON_hold since March`): it is one name, and the
+    word after it is prose."""
     prefix = _LEADING_NON_ALNUM_RE.match(value)
     prefix_len = len(prefix.group(0)) if prefix else 0
     rest = value[prefix_len:]
@@ -177,8 +189,13 @@ def _span_in_value(value: str) -> tuple[str, int] | str:
     if tail and not tail[0].isspace():
         return f"{value.strip()!r} glues text onto the status token -- edit by hand"
     follow = tail.lstrip()
-    if follow and follow[0].isalnum() and "_" not in core:
-        return f"{value.strip()!r} reads as a multi-word status -- edit by hand"
+    if follow and "_" not in core:
+        if follow[0].isdigit():
+            first_word = _FIRST_WORD_RE.match(follow)
+            if _TOKEN_RUN_RE.match(follow[first_word.end() :]):
+                return f"{value.strip()!r} reads as a multi-word status, with a number between its words -- edit by hand"
+        elif follow[0].isalnum():
+            return f"{value.strip()!r} reads as a multi-word status -- edit by hand"
     return core, prefix_len
 
 
@@ -204,8 +221,58 @@ def locate_status_span(raw: str) -> tuple[str, int, int] | str:
     return core, start, start + len(core)
 
 
-def _is_link(path: Path) -> bool:
-    return os.path.islink(path) or (hasattr(path, "is_junction") and path.is_junction())
+def _master_plans_by_path(plans_dir: Path) -> dict[str, list]:
+    by_path: dict[str, list] = {}
+    for entry in enumerate_master_plans(plans_dir):
+        by_path.setdefault(entry.path, []).append(entry)
+    return by_path
+
+
+def _entry_refusal(entries: list) -> str | None:
+    """The refusal when `entries` (the Master Plans one Path resolves to) is not exactly one."""
+    if len(entries) == 1:
+        return None
+    if entries:
+        return f"{len(entries)} Master Plans claim this Path -- resolve by hand"
+    return "no Master Plan found for this Path"
+
+
+def _plan_file(plans_dir: Path, plan_path: str, entry) -> Path:
+    file = master_plan_path_for(plans_dir, plan_path, entry.abbrev)
+    return file if file.exists() else entry.file
+
+
+def _link_refusal(plans_dir: Path, file: Path) -> str | None:
+    """The refusal when `file`, or a folder between `plans_dir` and it, is a symlink or junction. The plans
+    directory itself is the configured root and is not checked. Uses the shared `recovery_surfaces.is_link`,
+    so the writer and every other surface read a link the same way. An entry that cannot be examined refuses."""
+    try:
+        parts = file.relative_to(plans_dir).parts
+        chain = [plans_dir.joinpath(*parts[:depth]) for depth in range(1, len(parts) + 1)]
+    except ValueError:
+        chain = [file]
+    for part in chain:
+        try:
+            linked = recovery_surfaces.is_link(part)
+        except OSError as exc:
+            return f"cannot examine {part}: {exc} -- edit the real file by hand"
+        if linked:
+            return f"{part} is a symlink or junction -- edit the real file by hand"
+    return None
+
+
+def plan_path_refusal(plans_dir: Path, path: str) -> str | None:
+    """Return None when the writer can reach the Master Plan for this Path in `plans_dir`, else a short
+    refusal reason: zero or several Master Plans on the Path, or a link on the way to the file. Side-effect
+    free. This is the same lookup and link check `main` runs for each mapped Path, not a second copy of
+    them. It says nothing about the Status value (see `status_value_refusal`) or the file's contents."""
+    plans_dir = Path(plans_dir)
+    plan_path = _normalize_plan_path(path)
+    entries = _master_plans_by_path(plans_dir).get(plan_path, [])
+    reason = _entry_refusal(entries)
+    if reason is not None:
+        return reason
+    return _link_refusal(plans_dir, _plan_file(plans_dir, plan_path, entries[0]))
 
 
 def _read_bytes(path: Path) -> bytes:
@@ -230,9 +297,7 @@ def main() -> int:
     valid = list(config["plan_statuses"])
     target, conflicts, notes = read_map(Path(args.map_file))
 
-    by_path: dict[str, list] = {}
-    for entry in enumerate_master_plans(plans_dir):
-        by_path.setdefault(entry.path, []).append(entry)
+    by_path = _master_plans_by_path(plans_dir)
 
     today = datetime.datetime.now().astimezone().date().isoformat()
     lines: list[str] = []
@@ -249,23 +314,17 @@ def main() -> int:
 
     for plan_path, want in target.items():
         entries = by_path.get(plan_path, [])
-        if len(entries) != 1:
-            refuse(
-                plan_path,
-                f"{len(entries)} Master Plans claim this Path -- resolve by hand"
-                if entries
-                else "no Master Plan found for this Path",
-            )
+        reason = _entry_refusal(entries)
+        if reason is not None:
+            refuse(plan_path, reason)
             continue
         if want not in valid:
             refuse(plan_path, f"{want!r} is not in plan_statuses {valid}")
             continue
-        entry = entries[0]
-        file = master_plan_path_for(plans_dir, plan_path, entry.abbrev)
-        if not file.exists():
-            file = entry.file
-        if _is_link(file):
-            refuse(plan_path, f"{file} is a symlink or junction -- edit the real file by hand")
+        file = _plan_file(plans_dir, plan_path, entries[0])
+        reason = _link_refusal(plans_dir, file)
+        if reason is not None:
+            refuse(plan_path, reason)
             continue
         try:
             data = _read_bytes(file)

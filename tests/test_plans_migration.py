@@ -9,6 +9,9 @@ here reads or writes the live project.
 Run with:  python -m pytest tests/test_plans_migration.py -q
 """
 
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -184,6 +187,101 @@ def test_unknown_plus_missing_prints_one_writer_command_and_a_map_line_only_for_
     out = capsys.readouterr().out
     assert out.count("  fix: python ") == 1 and out.count("map line:") == 1
     assert "    map line:    Beta/: {STATUS}" in out
+
+
+@pytest.mark.parametrize("raw", ["In Progress", "Not started"], ids=["in-progress", "not-started"])
+def test_a_multi_word_status_gets_a_hand_fix_naming_the_refusal_and_no_writer_line(tmp_path, capsys, raw):
+    import flip_plan_status
+
+    plans = dict(A_PLANS)
+    plans["Beta/BET-Master-Plan.md"] = master_plan("Beta", raw, "2026-02-01", "2026-02-10")
+    config, _plans_dir, _index = build(tmp_path, None, plans)
+    gen.write_plans_index(config)
+    report = migrate(tmp_path)
+    assert [a["class"] for a in report.anomalies] == ["unknown-status"] and report.fix == ""
+    reason = flip_plan_status.status_value_refusal(raw)  # the writer's own verdict is the source
+    assert reason
+    pm._emit_plans_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "  unknown-status: Beta/BET-Master-Plan.md" in out
+    assert "map line:" not in out and "  fix: " not in out and 'python "' not in out
+    hand = next(ln for ln in out.splitlines() if ln.strip().startswith("hand-fix:"))
+    assert pm.WRITER in hand and reason.removesuffix(" -- edit by hand") in hand
+
+
+def test_one_flippable_and_one_multi_word_status_print_one_map_line_and_one_writer_command(tmp_path, capsys):
+    plans = dict(A_PLANS)
+    plans["Beta/BET-Master-Plan.md"] = master_plan("Beta", "NEEDS_REDESIGN — x", "2026-02-01", "2026-02-10")
+    plans["Gamma/GAM-Master-Plan.md"] = master_plan("Gamma", "In Progress", "2026-03-01", "2026-03-10")
+    config, _plans_dir, _index = build(tmp_path, None, plans)
+    gen.write_plans_index(config)
+    report = migrate(tmp_path)
+    assert [a["class"] for a in report.anomalies] == ["unknown-status", "unknown-status"]
+    pm._emit_plans_migration_banner(report)
+    out = capsys.readouterr().out
+    assert out.count("map line:") == 1 and "    map line:    Beta/: {STATUS}" in out
+    assert out.count("  fix: python ") == 1 and out.count("hand-fix:") == 1
+
+
+def _link_plan_folder(tmp_path, name):
+    """Move `Plans/{name}` aside and put a directory link (a symlink, else a Windows junction) in its place."""
+    plans = tmp_path / "proj" / "planwise" / "Plans"
+    real = tmp_path / "elsewhere" / name
+    real.parent.mkdir(exist_ok=True)
+    shutil.move(str(plans / name), str(real))
+    link = plans / name
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except (OSError, NotImplementedError):  # no symlink right: a Windows junction needs none
+        made = (subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(real)], capture_output=True, check=False)
+                if os.name == "nt" else None)
+        if made is None or made.returncode != 0:
+            pytest.skip("neither a symlink nor a junction can be made here")
+    return real
+
+
+def _writer_hand_fix_lines(out):
+    return [ln for ln in out.splitlines() if ln.strip().startswith("hand-fix:")]
+
+
+def test_two_master_plans_on_one_path_get_a_hand_fix_and_no_map_line_the_writer_would_refuse(tmp_path, capsys):
+    plans = dict(A_PLANS)
+    plans["Beta/BET-Master-Plan.md"] = master_plan("Beta", "NEEDS_REDESIGN — x", "2026-02-01", "2026-02-10")
+    plans["Beta/BTB-Master-Plan.md"] = master_plan("Beta", "NEEDS_REDESIGN — y", "2026-02-01", "2026-02-10")
+    config, _plans_dir, _index = build(tmp_path, None, plans)
+    gen.write_plans_index(config)
+    report = migrate(tmp_path)
+    unknown = [a for a in report.anomalies if a["class"] == "unknown-status"]
+    assert len(unknown) == 2  # the generator also reports the shared Path as its own anomaly
+    pm._emit_plans_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "map line:" not in out and "  fix: " not in out and report.fix == ""
+    hands = _writer_hand_fix_lines(out)
+    assert len(hands) == 2 and all("2 Master Plans" in ln for ln in hands)
+    assert _run_writer(tmp_path, "Beta/: COMPLETE\n") == 1  # the writer does refuse that Path
+
+
+def test_a_linked_plan_folder_gets_a_hand_fix_and_no_map_line_the_writer_would_refuse(tmp_path, capsys):
+    plans = dict(A_PLANS)
+    plans["Beta/BET-Master-Plan.md"] = master_plan("Beta", "NEEDS_REDESIGN — x", "2026-02-01", "2026-02-10")
+    config, _plans_dir, _index = build(tmp_path, None, plans)
+    real = _link_plan_folder(tmp_path, "Beta")
+    gen.write_plans_index(config)
+    before = (real / "BET-Master-Plan.md").read_bytes()
+    report = migrate(tmp_path)
+    assert [a["file"] for a in report.anomalies] == ["Beta/BET-Master-Plan.md"]
+    pm._emit_plans_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "map line:" not in out and "  fix: " not in out and report.fix == ""
+    assert any("symlink or junction" in ln for ln in _writer_hand_fix_lines(out))
+    assert _run_writer(tmp_path, "Beta/: COMPLETE\n") == 1
+    assert (real / "BET-Master-Plan.md").read_bytes() == before
+
+
+def test_a_plans_dir_less_report_keeps_the_value_check_alone():
+    found = {"class": "unknown-status", "file": "Beta/BET-Master-Plan.md", "raw": "NEEDS_REDESIGN — x"}
+    assert pm._writer_refusal(found) is None
+    assert pm._writer_refusal(dict(found, raw="In Progress")) is not None
 
 
 def test_generated_index_clean_stays_silent(tmp_path, capsys):

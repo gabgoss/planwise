@@ -52,7 +52,14 @@ except ImportError:
     )
 
 try:
-    from recovery_surfaces import INDEX_ACTION, INDEX_MEANING, classify_backup_pair
+    from recovery_surfaces import (
+        HELD_ACTION,
+        HELD_MEANING,
+        HELD_SURFACE,
+        INDEX_ACTION,
+        INDEX_MEANING,
+        classify_backup_pair,
+    )
 except ImportError:
     raise ImportError(
         "recovery_surfaces is required for doctor_sweeps's backup "
@@ -747,20 +754,22 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
     backups_root = root / "upgrade-backups"
     for pair_dir in sorted(p for p in backups_root.glob("*-to-*") if p.is_dir()):
         groups = classify_backup_pair(pair_dir)
-        for surface, files, klass in (
-            ("upgrade-backups", groups["refresh"], "safe-to-discard"),
+        for surface, files, klass, text in (
+            ("upgrade-backups", groups["refresh"], "safe-to-discard", None),
             ("upgrade-backups (index-migration pre-images)", groups["index"],
-             "review-then-discard"),
+             "review-then-discard", (INDEX_MEANING, INDEX_ACTION)),
+            (HELD_SURFACE, groups["held"], "review-then-discard",
+             (HELD_MEANING, HELD_ACTION)),
         ):
             if files:
                 finding = {"pair": pair_dir.name, "surface": surface,
                            "path": str(pair_dir), "count": len(files),
                            "bytes": _bytes_of(files),
                            "age_days": _age_days(pair_dir), "klass": klass}
-                if files is groups["index"]:
+                if text:
                     # Its own meaning and action: the doctor report and the
                     # prune log print "reason" and "action" when a finding has them.
-                    finding.update(reason=INDEX_MEANING, action=INDEX_ACTION)
+                    finding.update(reason=text[0], action=text[1])
                 findings.append(finding)
 
     transfers_root = root / "upgrade-transfers"

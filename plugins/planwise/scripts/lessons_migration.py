@@ -48,6 +48,7 @@ try:
     import migrate_lessons_index as mig
     import migrate_lessons_support as sup
     import parse_lessons
+    import recovery_surfaces
     import upgrade_io
     from config_gen import InitConfig
     from migrate_backlog_checks import git_state
@@ -60,6 +61,7 @@ except ImportError as exc:
 
 RERUN = ("then re-run /planwise upgrade (the migration re-fires on a hand-authored index; "
          "nothing else repeats)")
+HEAL_RETRY_FIX = "{}, then re-run /planwise upgrade (the heal retries on every run)"
 MIGRATOR = "migrate_lessons_index.py"
 SILENT_STATES = ("absent", "generated")
 CREATED = "created; no pre-image (the file did not exist before this run)"
@@ -84,7 +86,7 @@ class LessonsMigrationReport:
     healed: list = dataclasses.field(default_factory=list)  # `--check` findings a generated-path `--write` cleared
     findings: list = dataclasses.field(default_factory=list)  # `--check` findings `--write` cannot clear, not accepted
     rewritten: list = dataclasses.field(default_factory=list)  # files a generated-path `--write` rewrote, created or removed
-    heal: str = ""  # "refused" when the generated-path `--write` refused and changed nothing
+    heal: str = ""  # "refused": the generated-path `--write` refused and changed nothing; "unverified": the check after it did not complete
 
 
 def migrate_lessons_if_legacy(cfg: "InitConfig", from_version: str, to_version: str,
@@ -100,6 +102,8 @@ def migrate_lessons_if_legacy(cfg: "InitConfig", from_version: str, to_version: 
         _migrate(cfg, from_version, to_version, reconcile, report, defer_legacy)
     except Exception as exc:  # noqa: BLE001 -- the caller's upgrade must never fail on this step
         report.state, report.detail = "error", repr(exc)
+        if report.backed_up:
+            report.detail += f"; backups kept: {report.backup_dir} (listed in DISPOSITIONS.md)"
     return report
 
 
@@ -146,8 +150,9 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     targets = mig.plan_targets(plan)
     pre = _backup(targets, lessons_dir, report)
     if pre is None:
+        _settle_failed_backup(cfg, from_version, to_version, targets, lessons_dir, report)
         return
-    existed = {p.resolve() for p in Path(lessons_dir).rglob("*") if p.is_file()}
+    existed ={p.resolve() for p in Path(lessons_dir).rglob("*") if p.is_file()}
     try:
         rc, output = _captured(mig.execute, plan, ledger_file, index_path, config, False)
     except Exception as exc:  # noqa: BLE001 -- any failure mid-write is rolled back, never left half-written
@@ -207,10 +212,14 @@ def _heal_generated(cfg, from_version: str, to_version: str, config: dict, index
     heal is skipped. Fills `report.healed` with the first check's findings the second check no longer
     reports, and `report.rewritten` with every file the write changed.
 
-    The generator offers no plan of what `--write` would change, so the backup comes first. When the
-    write then changed nothing (it refused, or it rewrote identical bytes), each copy this run made is
-    removed once its bytes are proved equal to the file's, so a finding that repeats on every upgrade
-    leaves no orphan copy. Every copy that stays gets a DISPOSITIONS row, whatever the outcome."""
+    The generator offers no plan of what `--write` would change, so the backup comes first. After the
+    write, each copy this run made is removed when its bytes equal both the pre-image and the file's
+    bytes now, whether or not the write changed other files. A finding that repeats on every upgrade
+    therefore leaves no orphan copy, and a heal that rewrites one shard keeps only the copies of files
+    that changed or were removed. Every copy that stays gets a DISPOSITIONS row, whatever the outcome.
+    A write that raises settles the copies the same way, then lets the exception go up. A backup that
+    fails partway removes the copies it made when each equals its file, logs the rest, and skips the heal.
+    A re-check that does not complete sets `report.heal` to "unverified" and claims no heal."""
     lessons_dir = config["_lessons_dir"]
     archive_dir = lessons_dir / "Archive"
     try:
@@ -219,29 +228,70 @@ def _heal_generated(cfg, from_version: str, to_version: str, config: dict, index
         _backup_failed(report, "the generated lessons index files", exc)
         report.detail = (f"heal skipped: could not list the generated lessons index files ({exc}); "
                          "no file was written")
-        report.fix = "fix the lessons directory's permissions, then re-run /planwise upgrade (the heal retries on every run)"
+        report.fix = HEAL_RETRY_FIX.format("fix the lessons directory's permissions")
         return None
     targets = list(dict.fromkeys([Path(index_path), *generated]))
     pre = _backup(targets, lessons_dir, report)
     if pre is None:
+        _settle_failed_backup(cfg, from_version, to_version, targets, lessons_dir, report)
+        report.detail = f"heal skipped: {report.detail}; no file was written"
+        report.fix = HEAL_RETRY_FIX.format("free the backup location or fix its permissions")
         return None
-    write_exit, _out = _captured(lambda: gen._cmd_write_lessons(
-        lessons_dir, archive_dir, index_path, naming, config, replace_legacy=False, json_out=False))
-    created = _created_since(pre, lessons_dir, archive_dir, index_path)
-    report.rewritten = [str(p) for p, data in pre.items() if data is not None and _action_on(p, data) != "lessons-unchanged"]
-    report.rewritten += [str(p) for p in created]
+    settle = (cfg, from_version, to_version, pre, lessons_dir, archive_dir, index_path, report)
+    try:
+        write_exit, _out = _captured(lambda: gen._cmd_write_lessons(
+            lessons_dir, archive_dir, index_path, naming, config, replace_legacy=False, json_out=False))
+    except Exception:
+        # An unexpected failure mid-write: the files may be half-written, so the copies stay unless they equal
+        # their file. Settle them (and log the rest) before the failure goes up to become state `error`.
+        with contextlib.suppress(Exception):
+            _settle_after_write(*settle)
+        raise
+    _settle_after_write(*settle)
     if not report.rewritten:
-        _discard_identical_backups(report, pre, lessons_dir)
         report.heal = "refused" if write_exit != 0 else ""
-        pre = {p: d for p, d in pre.items() if (report.backup_dir / _rel(p, lessons_dir)).exists()}  # a copy that stayed
-    if report.rewritten or report.backed_up:
-        _log_dispositions(cfg, from_version, to_version, pre, created, lessons_dir, report)
     if write_exit != 0:
         return first_exit, first
     (index_exit, final), _out = _captured(mig._check_index_findings, lessons_dir, archive_dir, index_path, naming, config)
+    if index_exit == gen.LessonsDisposition.REFUSED and not final:
+        report.heal = "unverified"  # the re-check did not complete: no heal is claimed
+        return index_exit, final
     still = {(f["class"], f["id"]) for f in final}
     report.healed = [f for f in first if (f["class"], f["id"]) not in still]
     return index_exit, final
+
+
+def _settle_after_write(cfg, from_version: str, to_version: str, pre: dict, lessons_dir: Path,
+                        archive_dir: Path, index_path: Path, report) -> None:
+    """After the heal's write ran (or stopped partway): fill `report.rewritten`, discard each copy that
+    equals both its pre-image and its file, and log a DISPOSITIONS row for every copy that stays. Runs on
+    the normal return and when the write raised, so no copy is left without a row."""
+    created = _created_since(pre, lessons_dir, archive_dir, index_path)
+    report.rewritten = [str(p) for p, data in pre.items() if data is not None and _action_on(p, data) != "lessons-unchanged"]
+    report.rewritten += [str(p) for p in created]
+    _discard_identical_backups(report, pre, lessons_dir)
+    stayed = {p: d for p, d in pre.items() if (report.backup_dir / _rel(p, lessons_dir)).exists()}
+    if report.rewritten or report.backed_up:
+        _log_dispositions(cfg, from_version, to_version, stayed, created, lessons_dir, report)
+
+
+def _settle_failed_backup(cfg, from_version: str, to_version: str, targets: list, lessons_dir: Path, report) -> None:
+    """A backup that failed partway leaves the copies it had already made. Nothing was written, so each
+    target's bytes now are its pre-image: a copy that equals its file is removed, and a copy that does not
+    stays and gets a DISPOSITIONS row. A target that cannot be read is left alone. Never raises."""
+    try:
+        now = {}
+        for src in targets:
+            try:
+                now[Path(src)] = Path(src).read_bytes() if Path(src).is_file() else None
+            except OSError:
+                continue
+        _discard_identical_backups(report, now, lessons_dir)
+        stayed = {p: d for p, d in now.items() if (report.backup_dir / _rel(p, lessons_dir)).exists()}
+        if report.backed_up:
+            _log_dispositions(cfg, from_version, to_version, stayed, [], lessons_dir, report)
+    except Exception as exc:  # noqa: BLE001 -- the failed backup is already the reported outcome
+        report.detail += f"\ncould not settle the partial backup copies ({exc!r}); they stay under {report.backup_dir}"
 
 
 def _created_since(pre: dict, lessons_dir: Path, archive_dir: Path, index_path: Path) -> list:
@@ -274,14 +324,19 @@ def _discard_identical_backups(report, pre: dict, lessons_dir: Path) -> None:
             report.backed_up.remove(copy)
             if copy != str(dst):
                 report.diverged.pop(str(dst), None)
-            _prune_empty_dirs(Path(copy).parent, report.backup_dir)
+            _prune_empty_dirs(Path(copy).parent, report.backup_dir.parent.parent)
 
 
 def _prune_empty_dirs(start: Path, stop: Path) -> None:
-    """Remove `start` and each parent up to and including `stop` while it is empty."""
+    """Remove `start` and each parent up to and including `stop` while it is empty. The backup
+    callers pass the `upgrade-backups/` directory as `stop`, so an emptied version-pair directory
+    and an emptied `upgrade-backups/` go too. A non-empty directory stays, a link is never
+    removed or followed, and an OSError ends the walk. This never raises."""
     current = start
     while True:
         try:
+            if recovery_surfaces.is_link(current):
+                return
             current.rmdir()
         except OSError:
             return
@@ -711,6 +766,9 @@ def _drift_lines(report: LessonsMigrationReport) -> list:
     changed files without healing one, and the findings it could not clear, one line each. The backup
     folder is named whenever a write changed files, and when a refused write left a copy behind."""
     lines = []
+    if getattr(report, "heal", "") == "unverified":
+        return [("Lessons index: generated; --write ran but the post-write check failed; "
+                 f"the index state is unknown (backups: {report.backup_dir})")]
     if getattr(report, "healed", None):
         lines.append(f"Lessons index: generated; healed {len(report.healed)} drift finding(s) "
                      f"(backups: {report.backup_dir})")
@@ -731,7 +789,7 @@ def _emit_lessons_migration_banner(report: LessonsMigrationReport) -> None:
     `generated`, unless a generated index was healed or still has a finding
     `--write` cannot clear. Never raises."""
     silent = report.state in SILENT_STATES
-    if silent and not any(getattr(report, name, None) for name in ("healed", "findings", "rewritten")):
+    if silent and not any(getattr(report, name, None) for name in ("healed", "findings", "rewritten", "heal")):
         return
     try:
         lines = [*_drift_lines(report), *([] if silent else _banner_lines(report))]

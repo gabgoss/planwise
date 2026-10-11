@@ -38,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 try:
     import config_loader
+    import flip_plan_status
     import generate_plans_index as gen
     import migrate_plans_index as mig
     from config_gen import InitConfig
@@ -76,6 +77,7 @@ class PlansMigrationReport:
     counts: dict = dataclasses.field(default_factory=dict)
     git_dirty: bool | None = None
     anomalies: list = dataclasses.field(default_factory=list)  # the generator --check's tree anomalies, on `generated`
+    plans_dir: Path | None = None  # set with `anomalies`: the writer's Path check needs it to predict a refusal
 
 
 def migrate_plans_if_legacy(cfg: "InitConfig", from_version: str, to_version: str,
@@ -122,8 +124,9 @@ def _migrate(cfg, from_version: str, to_version: str, report, defer_legacy: bool
         check = gen.check_plans_index(config)
         report.detail = f"index --check exit {check.exit_code}"
         report.anomalies = list(check.anomalies)
-        if any(found.get("class") == "unknown-status" for found in report.anomalies):
-            report.fix = (f'python "{Path(cfg.plugin_root) / "scripts" / WRITER}" --config "{config_path}" '
+        report.plans_dir = Path(plans_dir)
+        if any(_writer_refusal(found, report.plans_dir) is None for found in report.anomalies):
+            report.fix =(f'python "{Path(cfg.plugin_root) / "scripts" / WRITER}" --config "{config_path}" '
                           '{map file}   (one line "{Path}: {STATUS}" per Master Plan)')
         return
     if defer_legacy:
@@ -283,10 +286,44 @@ def _plan_path_of(master_plan_file: str) -> str:
     return "" if folder == "." else folder + "/"
 
 
+def _value_refusal(found: dict) -> str | None:
+    """None when `found` is an `unknown-status` anomaly whose Status value the writer can flip. Otherwise the
+    reason it cannot, or "" for an anomaly of another class, which has no writer line at all."""
+    if found.get("class") != "unknown-status":
+        return ""
+    if not found.get("file"):
+        return "the anomaly names no Master Plan file"
+    raw = found.get("raw")
+    if not raw:
+        return "the Status value is not available"
+    reason = flip_plan_status.status_value_refusal(raw)
+    return None if reason is None else reason.removesuffix(" -- edit by hand")
+
+
+def _path_refusal(found: dict, plans_dir) -> str | None:
+    """None when the writer can reach the anomaly's Master Plan: one plan on its Path, and no link on the way.
+    The writer's own `plan_path_refusal` decides. Without a plans directory there is nothing to ask, so None."""
+    if plans_dir is None:
+        return None
+    reason = flip_plan_status.plan_path_refusal(plans_dir, _plan_path_of(found["file"]))
+    return None if reason is None else reason.rpartition(" -- ")[0] or reason
+
+
+def _writer_refusal(found: dict, plans_dir=None) -> str | None:
+    """None when `found` is an `unknown-status` anomaly the writer can flip: its Status value passes
+    `status_value_refusal`, and (with `plans_dir`) its Path passes `plan_path_refusal`. Otherwise the
+    reason it cannot, or "" for an anomaly of another class."""
+    reason = _value_refusal(found)
+    return reason if reason is not None else _path_refusal(found, plans_dir)
+
+
 def _anomaly_lines(report: PlansMigrationReport) -> list:
-    """The generated index's `--check` anomalies: one block per anomaly. An `unknown-status` block shows the
-    exact map line the writer accepts and is followed by the writer command. A `missing-status` block shows
-    a hand fix, because the writer refuses a plan with no `**Status:**` line."""
+    """The generated index's `--check` anomalies: one block per anomaly. An `unknown-status` block whose value
+    the writer can flip shows the exact map line the writer accepts, and the writer command follows once for
+    all of them. An `unknown-status` block whose value the writer refuses (a multi-word value, for one), or
+    whose Path it refuses (two Master Plans on the Path, a linked folder), shows a hand fix naming the
+    refusal, and no map line. A `missing-status` block shows a hand fix too, because
+    the writer refuses a plan with no `**Status:**` line."""
     lines = [f"Plans index: generated; --check reports {len(report.anomalies)} anomaly(ies)"]
     for found in report.anomalies:
         kind = found.get("class", "?")
@@ -295,14 +332,21 @@ def _anomaly_lines(report: PlansMigrationReport) -> list:
         if kind == "unknown-status":
             lines += [f"    Status line: {found.get('raw')}",
                       f"    reduced to:  {found.get('status')}  (not in plan_statuses)"]
-            if found.get("file"):
+            refusal = _writer_refusal(found, report.plans_dir)
+            if refusal is None:
                 lines.append(f"    map line:    {_plan_path_of(found['file'])}: {{STATUS}}")
+            elif _value_refusal(found) is None:
+                lines.append(f"    hand-fix:    {WRITER} refuses this plan ({refusal}); "
+                             "resolve that, then edit the **Status:** line by hand to one plan status")
+            else:
+                lines.append(f"    hand-fix:    {WRITER} refuses this value ({refusal}); "
+                             "edit the **Status:** line by hand to one plan status")
         elif kind == "missing-status":
             lines += ["    Status line: none (the Master Plan has no **Status:** line)",
                       f"    hand-fix:    add a **Status:** line to that Master Plan ({WRITER} refuses a plan with none)"]
         else:
             lines.append(f"    {found.get('message', '')}")
-    if report.fix and any(found.get("class") == "unknown-status" for found in report.anomalies):
+    if report.fix and any(_writer_refusal(found, report.plans_dir) is None for found in report.anomalies):
         lines.append(f"  fix: {report.fix}")
     return lines
 

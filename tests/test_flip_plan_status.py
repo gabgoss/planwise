@@ -16,6 +16,7 @@ import contextlib
 import datetime
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -76,6 +77,18 @@ class FlipPlanStatusTestCase(unittest.TestCase):
         path = directory / (filename or f"{name}-Master-Plan.md")
         path.write_bytes(text.encode("utf-8"))
         return path
+
+    def make_dir_link(self, link: Path, target: Path) -> None:
+        """Make `link` a directory symlink, else a Windows junction (which needs no privilege)."""
+        try:
+            link.symlink_to(target, target_is_directory=True)
+            return
+        except (OSError, NotImplementedError):
+            pass
+        made = (subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                               capture_output=True, check=False) if os.name == "nt" else None)
+        if made is None or made.returncode != 0:
+            self.skipTest("neither a symlink nor a junction can be made here")
 
     def _write_map(self, content: str) -> Path:
         path = self.tmp_path / "map.txt"
@@ -364,6 +377,32 @@ class TestSpanContinuationRule(FlipPlanStatusTestCase):
                 self.assertIn(f"**Status:** COMPLETE{suffix}\n", path.read_bytes().decode("utf-8"))
                 self.assert_reader_agrees(path, "COMPLETE")
 
+    DIGIT_KEPT = (" 2026-10-01", " 2026-10-01 — shipped", " 3 of 5 tasks", " 1.5", " 12/10 (x)")
+    DIGIT_REFUSED = ("IN 2 PROGRESS", "COMPLETE 2026-10-01 PROGRESS")
+
+    def test_a_number_or_date_after_the_token_is_prose_and_stays_byte_for_byte(self):
+        for suffix in self.DIGIT_KEPT:
+            with self.subTest(suffix=suffix):
+                path = self.write_plan("Alpha", f"COMPLETE{suffix}")
+
+                code, out = self.flip("Alpha", "BLOCKED")
+
+                self.assertEqual(code, 0, out)
+                self.assertIn(f"**Status:** BLOCKED{suffix}\n", path.read_bytes().decode("utf-8"))
+                self.assert_reader_agrees(path, "BLOCKED")
+
+    def test_a_number_between_status_words_stays_refused(self):
+        for value in self.DIGIT_REFUSED:
+            with self.subTest(value=value):
+                path = self.write_plan("Alpha", value)
+                before = path.read_bytes()
+
+                code, out = self.flip("Alpha", "BLOCKED")
+
+                self.assertEqual(code, 1)
+                self.assertIn("multi-word", out)
+                self.assertEqual(path.read_bytes(), before)
+
     def test_title_case_with_non_alphanumeric_continuation_is_replaced(self):
         path = self.write_plan("Alpha", "Complete (shipped)")
 
@@ -451,11 +490,15 @@ class TestStatusValueRefusal(FlipPlanStatusTestCase):
     ACCEPTED = (
         "IN_PROGRESS", "✅ IN_PROGRESS — prose", "Complete (shipped)", "**IN_PROGRESS_** now",
         "_IN_PROGRESS_", "ON_hold since March", "COMPLETE", "**COMPLETE**",
+        "COMPLETE 2026-10-01", "DONE 2026-10-01 — shipped", "BLOCKED 3 of 5 tasks",
     )
     REFUSED = (
         ("IN PROGRESS", "multi-word"),
         ("Not started", "multi-word"),
+        ("In review", "multi-word"),
         ("**IN** PROGRESS", "multi-word"),
+        ("IN 2 PROGRESS", "a number between"),
+        ("COMPLETE 2026-10-01 PROGRESS", "a number between"),
         ("IN-PROGRESS", "glues"),
         ("COMPLETE.x", "glues"),
         ("COMPLETE** now", "glues"),
@@ -608,12 +651,46 @@ class TestPerFileWriteDiscipline(FlipPlanStatusTestCase):
         path = self.write_plan("Alpha", "IN_PROGRESS")
         before = path.read_bytes()
 
-        with mock.patch.object(flip_plan_status, "_is_link", lambda p: True):
+        with mock.patch.object(flip_plan_status.recovery_surfaces, "is_link", lambda p: True):
             code, out = self.flip("Alpha", "COMPLETE")
 
         self.assertEqual(code, 1)
         self.assertIn("symlink or junction", out)
         self.assertEqual(path.read_bytes(), before)
+
+    def test_the_writer_asks_the_shared_link_check_about_the_file_and_each_folder_above_it(self):
+        import flip_plan_status
+
+        self.write_plan("Alpha", "IN_PROGRESS")
+        asked = []
+
+        def record(p):
+            asked.append(Path(p))
+            return False
+
+        with mock.patch.object(flip_plan_status.recovery_surfaces, "is_link", record):
+            code, _out = self.flip("Alpha", "COMPLETE", "--dry-run")
+
+        self.assertEqual(code, 0)
+        self.assertIn(self.plans_dir / "Alpha", asked)
+        self.assertIn(self.plans_dir / "Alpha" / "Alpha-Master-Plan.md", asked)
+        self.assertNotIn(self.plans_dir, asked)  # the configured plans directory itself may be a link
+
+    def test_a_junctioned_plan_folder_is_refused_and_the_real_file_is_untouched(self):
+        real = self.write_plan("Alpha", "IN_PROGRESS")
+        moved = self.tmp_path / "elsewhere" / "Alpha"
+        moved.parent.mkdir()
+        real.parent.rename(moved)
+        self.make_dir_link(self.plans_dir / "Alpha", moved)
+        target = moved / "Alpha-Master-Plan.md"
+        before = target.read_bytes()
+
+        code, out = self.flip("Alpha", "COMPLETE")
+
+        self.assertEqual(code, 1)
+        self.assertIn("REFUSED", out)
+        self.assertIn("symlink or junction", out)
+        self.assertEqual(target.read_bytes(), before)
 
     def test_real_symlink_is_refused_and_not_replaced(self):
         path = self.write_plan("Alpha", "IN_PROGRESS")
@@ -631,6 +708,86 @@ class TestPerFileWriteDiscipline(FlipPlanStatusTestCase):
         self.assertIn("REFUSED", out)
         self.assertTrue(os.path.islink(path), "the link must not be replaced by a regular file")
         self.assertEqual(real.read_bytes(), before)
+
+
+class TestPlanPathRefusal(FlipPlanStatusTestCase):
+    """`plan_path_refusal` is the writer's own Path decision, side-effect free: the same entry lookup and the
+    same link check `main` runs, so a caller can predict a Path refusal without writing."""
+
+    def refusal(self, path: str):
+        import flip_plan_status
+
+        return flip_plan_status.plan_path_refusal(self.plans_dir, path)
+
+    def test_none_for_a_plain_plan_with_or_without_the_trailing_slash(self):
+        self.write_plan("Alpha", "IN_PROGRESS")
+
+        self.assertIsNone(self.refusal("Alpha/"))
+        self.assertIsNone(self.refusal("Alpha"))
+
+    def test_a_path_with_no_master_plan_is_refused(self):
+        self.write_plan("Alpha", "IN_PROGRESS")
+
+        self.assertIn("no Master Plan", self.refusal("Missing/"))
+
+    def test_two_master_plans_on_one_path_are_refused(self):
+        self.write_plan("Alpha", "IN_PROGRESS")
+        self.write_plan("Alpha", "IN_PROGRESS", filename="ALT-Master-Plan.md")
+
+        self.assertIn("2 Master Plans", self.refusal("Alpha/"))
+
+    def test_a_junctioned_plan_folder_is_refused(self):
+        real = self.write_plan("Alpha", "IN_PROGRESS")
+        moved = self.tmp_path / "elsewhere" / "Alpha"
+        moved.parent.mkdir()
+        real.parent.rename(moved)
+        self.make_dir_link(self.plans_dir / "Alpha", moved)
+
+        self.assertIn("symlink or junction", self.refusal("Alpha/"))
+
+    def test_a_linked_master_plan_file_is_refused(self):
+        self.write_plan("Alpha", "IN_PROGRESS")
+        import flip_plan_status
+
+        def only_files(p):  # a stand-in for a linked file
+            return Path(p).is_file()
+
+        with mock.patch.object(flip_plan_status.recovery_surfaces, "is_link", only_files):
+            self.assertIn("symlink or junction", self.refusal("Alpha/"))
+
+    def test_an_unreadable_entry_is_a_refusal_not_a_crash(self):
+        self.write_plan("Alpha", "IN_PROGRESS")
+        import flip_plan_status
+
+        def broken(_p):
+            raise PermissionError("denied")
+
+        with mock.patch.object(flip_plan_status.recovery_surfaces, "is_link", broken):
+            self.assertIn("denied", self.refusal("Alpha/"))
+
+    def test_agrees_with_the_writer_for_every_path_shape(self):
+        self.write_plan("Alpha", "IN_PROGRESS")
+        self.write_plan("Bravo", "IN_PROGRESS")
+        self.write_plan("Bravo", "IN_PROGRESS", filename="ALT-Master-Plan.md")
+        for path in ("Alpha/", "Bravo/", "Missing/"):
+            with self.subTest(path=path):
+                verdict = self.refusal(path)
+
+                code, out = self.flip(path.rstrip("/"), "COMPLETE", "--dry-run")
+
+                if verdict is None:
+                    self.assertEqual(code, 0, out)
+                else:
+                    self.assertEqual(code, 1, out)
+                    self.assertIn(verdict, out)
+
+    def test_has_no_side_effects(self):
+        path = self.write_plan("Alpha", "IN_PROGRESS")
+        before = path.read_bytes()
+
+        self.refusal("Alpha/")
+
+        self.assertEqual(path.read_bytes(), before)
 
 
 class TestMapParsing(FlipPlanStatusTestCase):

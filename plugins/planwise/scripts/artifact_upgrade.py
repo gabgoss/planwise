@@ -559,9 +559,8 @@ def _compare_versions(pinned: str, target: str) -> "int | None":
 
 
 # Recovery-artifact disposition classes — see _scan_recovery_artifacts() /
-# _emit_recovery_artifacts_banner() below. Two of these previously had NO
-# stated end-of-life anywhere (pre-change backups, the consumed verdict
-# cache) — this taxonomy is that end-of-life.
+# _emit_recovery_artifacts_banner() below. Pre-change backups and the consumed
+# verdict cache had no stated end-of-life before; this taxonomy is it.
 RECOVERY_ARTIFACT_CLASSES: dict[str, str] = {
     "action-required": "unresolved conflict sidecars",
     "review-then-discard": "transferred customizations awaiting re-homing",
@@ -592,7 +591,7 @@ def _scan_recovery_artifacts(cfg: "InitConfig") -> list[tuple[str, int, str]]:
         if pair_dir.is_dir():
             groups = classify_backup_pair(pair_dir)
             backup_count += len(groups["refresh"])
-            index_count += len(groups["index"])
+            index_count += len(groups["index"] + groups["held"])
     if backup_count:
         surfaces.append((f"{backups_root}/*/{REFRESH_SURFACE_NOTE}", backup_count, "safe-to-discard"))
     if index_count:

@@ -2,7 +2,9 @@
 lessons index migrator. One test per report state, plus the DISPOSITIONS
 row, backup byte-equality, and banner cases. Fixtures live under tmp_path,
 never under plugins/planwise/, and are written as bytes."""
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -242,6 +244,212 @@ def test_failing_to_list_the_generated_files_skips_the_heal_and_writes_nothing(t
     lm._emit_lessons_migration_banner(report)
     out = capsys.readouterr().out
     assert "BACKUP FAILED -- no write was attempted" in out and "heal skipped" in out
+
+
+def _extra_generated_files(monkeypatch, extras: list):
+    """Make the heal see `extras` (existing files) as generated index files, as a sharded index would."""
+    real = lm.parse_lessons.generated_index_files
+
+    def listing(*args, **kwargs):
+        found = list(real(*args, **kwargs))
+        if sys._getframe(1).f_code.co_name in ("_heal_generated", "_created_since"):
+            found += [p for p in extras if p.exists()]
+        return found
+
+    monkeypatch.setattr(lm.parse_lessons, "generated_index_files", listing)
+
+
+def test_a_heal_that_rewrites_one_file_keeps_only_the_copies_of_files_that_changed(tmp_path, monkeypatch):
+    cfg, lessons_dir = _project(tmp_path, STALE_INDEX)
+    hub = lessons_dir / "00-Index-LessonsLearned.md"
+    shard_a, shard_b = lessons_dir / "Shard-A.md", lessons_dir / "Shard-B.md"
+    stale = lessons_dir / "Shard-Stale.md"
+    for shard in (shard_a, shard_b, stale):
+        _write(shard, f"# {shard.stem}\n")
+    _extra_generated_files(monkeypatch, [shard_a, shard_b, stale])
+    real = lm.gen._cmd_write_lessons
+
+    def write_and_remove_one(*args, **kwargs):
+        stale.unlink()  # a stale shard the write removes: its copy is the only restore point
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(lm.gen, "_cmd_write_lessons", write_and_remove_one)
+    report = _migrate(cfg)
+    assert [(f["class"], f["id"]) for f in report.healed] == [("stale-title", "LL-001")]
+    root = _pair(cfg) / "lessons"
+    assert {p.relative_to(root).as_posix() for p in _backup_files(cfg)} == {hub.name, stale.name}
+    assert (root / stale.name).read_bytes() == b"# Shard-Stale\n"
+    assert sorted(Path(p).name for p in report.backed_up) == sorted([hub.name, stale.name])
+    rows = {Path(path).name: action for path, action, _reason in _disposition_rows(cfg)}
+    assert rows == {hub.name: "lessons-rewritten", stale.name: "lessons-deleted"}
+
+
+def test_a_copy_that_does_not_equal_its_file_is_kept_even_when_the_heal_rewrote_another(tmp_path, monkeypatch):
+    cfg, lessons_dir = _project(tmp_path, STALE_INDEX)
+    shard = lessons_dir / "Shard-A.md"
+    _write(shard, "# Shard-A\n")
+    _extra_generated_files(monkeypatch, [shard])
+    copy = _pair(cfg) / "lessons" / shard.name
+    real = lm.gen._cmd_write_lessons
+
+    def spoil(*args, **kwargs):
+        copy.write_bytes(b"not the same")  # the copy no longer equals the file or the pre-image
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(lm.gen, "_cmd_write_lessons", spoil)
+    report = _migrate(cfg)
+    assert copy.read_bytes() == b"not the same" and str(copy) in report.backed_up
+
+
+def _copy_fails_on(monkeypatch, nth: int, *, spoil_first: bool = False) -> list:
+    """Make the `nth` backup copy raise a full-disk OSError. With `spoil_first`, the first copy is altered
+    after it is made, so it no longer equals its file. Returns the list of destinations tried."""
+    real, tried = upgrade_io._copy_bytes_exact, []
+
+    def copy(src, dst):
+        tried.append(Path(dst))
+        if len(tried) == nth:
+            raise OSError("simulated full disk")
+        real(src, dst)
+        if spoil_first and len(tried) == 1:
+            Path(dst).write_bytes(Path(dst).read_bytes() + b"x")
+
+    monkeypatch.setattr(upgrade_io, "_copy_bytes_exact", copy)
+    return tried
+
+
+def _sharded_stale_project(tmp_path, monkeypatch):
+    """A stale hub plus two extra generated files, so the heal backs up three files."""
+    cfg, lessons_dir = _project(tmp_path, STALE_INDEX)
+    shards = [lessons_dir / "Shard-A.md", lessons_dir / "Shard-B.md"]
+    for shard in shards:
+        _write(shard, f"# {shard.stem}\n")
+    _extra_generated_files(monkeypatch, shards)
+    return cfg, lessons_dir, lessons_dir / "00-Index-LessonsLearned.md", shards
+
+
+def test_a_backup_that_fails_part_way_removes_the_copies_it_made_and_skips_the_heal(tmp_path, capsys, monkeypatch):
+    cfg, lessons_dir, _hub, _shards = _sharded_stale_project(tmp_path, monkeypatch)
+    before = _snapshot(lessons_dir)
+    tried = _copy_fails_on(monkeypatch, 3)
+    monkeypatch.setattr(lm.gen, "_cmd_write_lessons", lambda *_a, **_k: pytest.fail("the heal wrote after a failed backup"))
+    report = _migrate(cfg)
+    assert len(tried) == 3  # two copies were made before the third failed
+    assert report.state == "backup_failed" and "simulated full disk" in report.detail and "heal skipped" in report.detail
+    assert report.backed_up == [] and _backup_files(cfg) == set()
+    assert not (cfg.project_root / "planwise" / "upgrade-backups").exists()
+    assert _snapshot(lessons_dir) == before
+    lm._emit_lessons_migration_banner(report)
+    assert "BACKUP FAILED -- no write was attempted" in capsys.readouterr().out
+
+
+def test_a_partial_backup_copy_that_differs_from_its_file_is_kept_and_logged(tmp_path, monkeypatch):
+    cfg, lessons_dir, hub, _shards = _sharded_stale_project(tmp_path, monkeypatch)
+    before = _snapshot(lessons_dir)
+    _copy_fails_on(monkeypatch, 3, spoil_first=True)
+    report = _migrate(cfg)
+    copy = _pair(cfg) / "lessons" / hub.name
+    assert report.state == "backup_failed"
+    assert copy.read_bytes() == STALE_INDEX.encode("utf-8") + b"x" and report.backed_up == [str(copy)]
+    assert {p.name for p in _backup_files(cfg)} == {hub.name}  # the identical copy went, the changed one stayed
+    assert {Path(r[0]).name for r in _disposition_rows(cfg)} == {hub.name}  # and it has a ledger row
+    assert _snapshot(lessons_dir) == before
+
+
+def test_a_legacy_backup_that_fails_part_way_leaves_no_copy_without_a_ledger_row(tmp_path, monkeypatch):
+    cfg, lessons_dir = _project(tmp_path)
+    before = _snapshot(lessons_dir)
+    tried = _copy_fails_on(monkeypatch, 2)
+    report = _migrate(cfg)
+    assert len(tried) == 2 and report.state == "backup_failed"
+    assert report.backed_up == [] and _backup_files(cfg) == set()
+    assert _snapshot(lessons_dir) == before
+
+
+def test_a_write_that_raises_after_changing_one_file_keeps_that_copy_logged_and_drops_the_rest(tmp_path, monkeypatch):
+    cfg, _lessons_dir, hub, _shards = _sharded_stale_project(tmp_path, monkeypatch)
+    real = lm.gen._cmd_write_lessons
+
+    def write_then_crash(*args, **kwargs):
+        real(*args, **kwargs)  # rewrites the hub
+        raise RuntimeError("crash after write")
+
+    monkeypatch.setattr(lm.gen, "_cmd_write_lessons", write_then_crash)
+    report = _migrate(cfg)
+    assert report.state == "error" and "crash after write" in report.detail
+    assert str(report.backup_dir) in report.detail  # the error names where the restore point is
+    assert {p.name for p in _backup_files(cfg)} == {hub.name}  # the changed file's copy stays, the unchanged shards' go
+    assert (_pair(cfg) / "lessons" / hub.name).read_bytes() == STALE_INDEX.encode("utf-8")
+    assert {Path(r[0]).name for r in _disposition_rows(cfg)} == {p.name for p in _backup_files(cfg)}
+    assert report.backed_up == [str(_pair(cfg) / "lessons" / hub.name)]
+
+
+def test_a_write_that_raises_before_changing_anything_leaves_no_copy(tmp_path, monkeypatch):
+    cfg, lessons_dir, _hub, _shards = _sharded_stale_project(tmp_path, monkeypatch)
+    before = _snapshot(lessons_dir)
+
+    def crash(*_a, **_k):
+        raise RuntimeError("crash before write")
+
+    monkeypatch.setattr(lm.gen, "_cmd_write_lessons", crash)
+    report = _migrate(cfg)
+    assert report.state == "error" and "crash before write" in report.detail
+    assert report.backed_up == [] and _backup_files(cfg) == set()
+    assert not (cfg.project_root / "planwise" / "upgrade-backups").exists()
+    assert _snapshot(lessons_dir) == before
+
+
+def test_a_post_write_check_that_does_not_complete_claims_no_heal(tmp_path, capsys, monkeypatch):
+    cfg, _lessons_dir = _project(tmp_path, STALE_INDEX)
+    real, calls = lm.mig._check_index_findings, []
+
+    def check(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs) if len(calls) == 1 else (lm.gen.LessonsDisposition.REFUSED, [])
+
+    monkeypatch.setattr(lm.mig, "_check_index_findings", check)
+    report = _migrate(cfg)
+    assert len(calls) == 2 and report.healed == [] and report.heal == "unverified"
+    lm._emit_lessons_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "healed" not in out.replace("healed no finding", "")
+    assert ("Lessons index: generated; --write ran but the post-write check failed; "
+            f"the index state is unknown (backups: {report.backup_dir})") in out
+
+
+def test_a_refused_or_no_op_heal_leaves_no_empty_pair_or_backups_directory(tmp_path):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _write(lessons_dir / "LL-001-PROC-Dup.md", LESSON_001)  # `--write` refuses
+    _migrate(cfg)
+    assert not _pair(cfg).exists() and not (cfg.project_root / "planwise" / "upgrade-backups").exists()
+
+
+def test_pruning_stops_at_a_directory_that_still_holds_something(tmp_path):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _write(lessons_dir / "LL-001-PROC-Dup.md", LESSON_001)
+    other = cfg.project_root / "planwise" / "upgrade-backups" / "0.9-to-1.0" / "keep.txt"
+    _write(other, "x")
+    _migrate(cfg)
+    assert other.is_file() and not _pair(cfg).exists()  # this pair went; the other pair and the top stay
+    sibling = _pair(cfg, "1.1-to-1.2") / "plans" / "p.md"
+    _write(sibling, "y")
+    _migrate(cfg, ("1.1", "1.2"))
+    assert sibling.is_file()  # a non-empty pair is never removed
+
+
+def test_pruning_never_removes_or_follows_a_linked_directory(tmp_path):
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):  # no symlink right: a Windows junction needs none
+        made = (subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True, check=False)
+                if os.name == "nt" else None)
+        if made is None or made.returncode != 0:
+            pytest.skip("neither a symlink nor a junction can be made here")
+    lm._prune_empty_dirs(link, link)
+    assert os.path.lexists(link) and target.is_dir()
 
 
 @pytest.mark.parametrize("index", [GENERATED_INDEX, GENERATED_INDEX.replace("LL-002", "LL-009")],

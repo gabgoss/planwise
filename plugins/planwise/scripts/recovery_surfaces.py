@@ -26,8 +26,9 @@ INDEX_SUBDIRS = ("backlog", "lessons", "plans")
 # Surface-path suffix and banner text for the index pre-image surface.
 INDEX_SURFACE_SUFFIX = "/{backlog,lessons,plans}/"
 INDEX_BANNER_TEXT = (
-    "index-migration pre-images: the only restore point for the files the "
-    "migration rewrote; review against the migration ledger first"
+    "index-migration pre-images, counting any link or unreadable entry that "
+    "may hide one: the only restore point for the files the migration "
+    "rewrote; review against the migration ledger first"
 )
 # Doctor report text for the same surface (meaning and action lines).
 INDEX_MEANING = (
@@ -38,6 +39,13 @@ INDEX_ACTION = (
     "review against the migration ledger (DISPOSITIONS.md) first; "
     "never pruned automatically"
 )
+# Doctor report text for a link or an unreadable entry the walk did not enter.
+HELD_SURFACE = "upgrade-backups (links and unreadable entries, not followed)"
+HELD_MEANING = (
+    "a link was not followed or an entry was unreadable; "
+    "it may hide index-migration pre-images"
+)
+HELD_ACTION = "inspect it by hand; never pruned automatically"
 # Action line for every other review-then-discard or action-required surface.
 DEFAULT_ACTION = (
     "resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md "
@@ -49,13 +57,21 @@ REFRESH_SURFACE_NOTE = " excluding the backlog/, lessons/ and plans/ subfolders"
 
 LOG_NAME = "DISPOSITIONS.md"
 
+# Reparse tags that make an entry a link: a symlink and a mount point (junction).
+_LINK_TAGS = (
+    getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C),
+    getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003),
+)
+
 
 def is_link(p) -> bool:
-    """True when `p` is a symlink, a junction or any other reparse point.
+    """True when `p` is a symlink or a junction.
 
-    The reparse attribute is read on every Python, because `Path.is_junction`
-    exists only on 3.12+. An OSError from lstat other than "absent" propagates:
-    an entry that cannot be examined is not safely traversable.
+    The reparse tag is read on every Python, because `Path.is_junction` exists
+    only on 3.12+. A reparse point with any other tag (a cloud placeholder, a
+    deduplicated file) is an ordinary entry. An OSError from lstat other than
+    "absent" propagates: an entry that cannot be examined is not safely
+    traversable.
     """
     p = Path(p)
     if os.path.islink(p):
@@ -67,7 +83,9 @@ def is_link(p) -> bool:
         st = os.lstat(p)
     except (FileNotFoundError, NotADirectoryError):
         return False
-    return bool(getattr(st, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+    if not getattr(st, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        return False
+    return getattr(st, "st_reparse_tag", 0) in _LINK_TAGS
 
 
 def _walk(root: Path) -> tuple:
@@ -102,15 +120,17 @@ def _walk(root: Path) -> tuple:
     return files, dirs, links, bad
 
 
-def classify_backup_pair(pair_dir: Path) -> dict:
+def classify_backup_pair(pair_dir: Path, quiet: bool = False) -> dict:
     """Split a pair directory's files into `index`, `refresh` and `logs`.
 
     `index` holds every file under `{backlog,lessons,plans}/`, `logs` holds
     every `DISPOSITIONS.md` outside them, and `refresh` holds the rest. `links`
-    holds each linked directory skipped. A pair root that is a link yields
-    itself in `refresh` and `links`, so the writer sees it and refuses it.
-    `unreadable` holds each entry that could not be examined or listed. It may
-    hide an index pre-image, so the pair is never cleared and a line names it.
+    holds each linked directory skipped, or the pair root when it is a link,
+    and then nothing is walked. `unreadable` holds each entry that could not be
+    examined or listed. Either may hide an index pre-image, so `held` lists
+    both: they are reported for review, never counted as safe-to-discard, and
+    the pair is never cleared. `quiet` suppresses the stderr line that names
+    each unreadable entry.
     """
     groups: dict = {"index": [], "refresh": [], "logs": [], "links": [], "unreadable": []}
     try:
@@ -119,11 +139,12 @@ def classify_backup_pair(pair_dir: Path) -> dict:
         root_linked = False
         groups["unreadable"] = [pair_dir]
     if root_linked:
-        groups["refresh"] = groups["links"] = [pair_dir]
+        groups["links"] = groups["held"] = [pair_dir]
         return groups
     files, _dirs, groups["links"], bad = _walk(pair_dir)
     groups["unreadable"] += bad
-    for p in groups["unreadable"]:
+    groups["held"] = groups["links"] + groups["unreadable"]
+    for p in () if quiet else groups["unreadable"]:
         print(f"UNREADABLE {p}: not scanned, its pair is never cleared", file=sys.stderr)
     for f in files:
         rel = f.relative_to(pair_dir)
@@ -138,10 +159,13 @@ def classify_backup_pair(pair_dir: Path) -> dict:
     return groups
 
 
-def pair_is_clearable(pair_dir: Path) -> bool:
-    """True when no index pre-image remains and no link or unreadable entry is skipped."""
-    g = classify_backup_pair(pair_dir)
-    return not (g["index"] or g["links"] or g["unreadable"])
+def pair_is_clearable(pair) -> bool:
+    """True when no index pre-image remains and no link or unreadable entry is skipped.
+
+    `pair` is a pair directory or the dict `classify_backup_pair` returned for it.
+    """
+    g = pair if isinstance(pair, dict) else classify_backup_pair(pair)
+    return not (g["index"] or g["held"])
 
 
 def _rmdir_quietly(dirs: list) -> None:
