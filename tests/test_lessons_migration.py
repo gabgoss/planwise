@@ -525,6 +525,20 @@ def test_changelog_refusal_keeps_a_keep_it_fix(tmp_path):
     assert "fix the changelog line named above" not in report.fix
 
 
+def test_changelog_tool_defect_refusal_gets_no_rerun_text(tmp_path):
+    report = lm.LessonsMigrationReport(state="generated", index_path=tmp_path / "x.md", backup_dir=None)
+    lm._refuse_changelog(report, sup.Refusal("it would change", lm.changelog.TOOL_DEFECT_FIX))
+    assert report.state == "refused" and report.detail == "it would change"
+    assert report.fix == lm.changelog.TOOL_DEFECT_FIX and "re-run" not in report.fix
+
+
+def test_changelog_edit_refusal_still_gets_the_rerun_text(tmp_path):
+    report = lm.LessonsMigrationReport(state="generated", index_path=tmp_path / "x.md", backup_dir=None)
+    lm._refuse_changelog(report, sup.Refusal("bad line", "move that text under an entry heading, then re-run"))
+    assert report.fix.endswith("(the changelog is re-checked on every run; nothing else repeats)")
+    assert "then re-run /planwise upgrade" in report.fix
+
+
 def test_second_run_after_changelog_split_is_silent(tmp_path, capsys):
     cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
     _seed_changelog(lessons_dir, [(n, _FILLER) for n in range(30, 0, -1)])
@@ -883,6 +897,15 @@ def test_banner_names_each_state(capsys, state, headline):
     assert headline in out.splitlines()[0]
     if state == "refused":
         assert "  fix:    do this" in out and "then re-run /planwise upgrade" in out
+
+
+@pytest.mark.parametrize("clean,token", [(True, "clean"), (False, "not clean")])
+def test_the_generator_check_token_states_the_verdict_and_gives_no_instruction(clean, token):
+    report = lm.LessonsMigrationReport(
+        state="migrated", index_path=Path("LessonsLearned") / "00-Index-LessonsLearned.md", detail="",
+        counts={"shards": 1, "generator_check_clean": clean}, git_dirty=False)
+    [line] = [ln for ln in lm._migrated_lines(report) if "generator --check" in ln]
+    assert line.endswith(token) and "re-run" not in line
 
 
 def test_lessons_deferred_fix_names_no_flag(tmp_path):

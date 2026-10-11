@@ -306,8 +306,19 @@ def test_a_plan_time_refusal_is_reported_untouched(tmp_path, monkeypatch):
     before = plans_tree(tmp_path)
     monkeypatch.setattr(gen, "HUB_TOKEN_BUDGET", 10)
     report = migrate(tmp_path)
-    assert report.state == "refused" and "budget" in report.detail and "re-run /planwise upgrade" in report.fix
+    assert report.state == "refused" and "budget" in report.detail and "then re-run" in report.detail
+    assert report.fix == "close each refusal listed above as its text says"
     assert plans_tree(tmp_path) == before and not pair_dir(tmp_path).exists()
+
+
+def test_an_unaccounted_bytes_refusal_tells_the_user_to_keep_the_index_and_not_to_rerun(tmp_path, monkeypatch):
+    fixture_a(tmp_path)
+    before = plans_tree(tmp_path)
+    monkeypatch.setattr(mig, "accounting", lambda _plan: {"unaccounted": 7})
+    report = migrate(tmp_path)
+    assert report.state == "refused" and "migrator defect" in report.detail
+    assert report.fix == mig.UNACCOUNTED_FIX and "re-run" not in report.fix
+    assert plans_tree(tmp_path) == before
 
 
 def test_backup_failed_makes_zero_writes(tmp_path, monkeypatch):
@@ -545,6 +556,17 @@ def test_the_migrated_banner_counts_and_names_the_ledger_and_the_backups(tmp_pat
     assert "unattributed notes:      3" in out and "status changes:" in out
     assert str(report.ledger_path) in out and str(report.backup_dir) in out
     assert "generator --check:" in out and "clean" in out
+
+
+@pytest.mark.parametrize("verdict,token", [
+    ("clean", "clean"),
+    ("accepted", "clean apart from tree anomalies"),
+    ("dirty", "not clean"),
+])
+def test_the_generator_check_token_states_the_verdict_and_gives_no_instruction(verdict, token):
+    report = _report("migrated", counts={"generator_verdict": verdict}, git_dirty=False)
+    [line] = [ln for ln in pm._migrated_lines(report) if "generator --check" in ln]
+    assert line.endswith(token) and "re-run" not in line
 
 
 def test_the_migrated_banner_counts_status_changes(tmp_path, capsys):

@@ -759,6 +759,18 @@ def test_unaccounted_bytes_fix_names_feedback(tmp_path, monkeypatch):
     [gap] = [r for r in caught.value.reason.split("\n") if "cannot account for 7 byte(s)" in r]
     assert "run /planwise feedback with the --report output attached" in gap
     assert gap.endswith("and keep the index as it is") and "migrate_plans_index.py --report" not in gap
+    # A sole migrator-defect refusal carries that fix alone, with no instruction to re-run.
+    assert caught.value.fix == mig.UNACCOUNTED_FIX and "re-run" not in caught.value.fix
+
+
+def test_a_refusal_set_with_the_defect_in_it_keeps_the_generic_fix_without_a_rerun(tmp_path, monkeypatch):
+    config, _plans_dir, index = fixture_a(tmp_path)
+    monkeypatch.setattr(mig, "accounting", lambda _plan: {"unaccounted": 7})
+    monkeypatch.setattr(mig.gen, "HUB_TOKEN_BUDGET", 10)
+    with pytest.raises(mig.Refusal) as caught:
+        plan_of(config, index)
+    assert len(caught.value.reason.split("\n")) == 2
+    assert caught.value.fix == "close each refusal listed above as its text says"
 
 
 ARCHIVED = "## Archived\n\nOld plans we dropped:\n\n- Zeta was cancelled in March.\n"

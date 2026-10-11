@@ -76,6 +76,9 @@ _ENTRY_NUMBER_RE = re.compile(r"(## Entry )\d+")
 _ARCHIVE_YEAR_RE = re.compile(r"-Archive-(\d{4})$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 BOM = "﻿"
+# The fix for a planned file that does not read back as planned. The tool is wrong, not the changelog, so no
+# edit and no re-run closes it. A caller that adds re-run advice to a changelog fix skips this one.
+TOOL_DEFECT_FIX = "keep the changelog as it is and report the entry named above as a tool defect"
 
 
 def _today() -> str:
@@ -345,7 +348,7 @@ def _render_checked(pos: int, group: list, names: dict, older: bool) -> str:
         num = (group[k] if k < len(group) else back[k])[0]
         raise Refusal(f"{name}: the planned file would not read back as the entries planned for it: Entry {num} "
                       f"would change ({len(group)} entries planned, {len(back)} read back); nothing was written",
-                      "keep the changelog as it is and report the entry named above as a tool defect")
+                      TOOL_DEFECT_FIX)
     return text
 
 

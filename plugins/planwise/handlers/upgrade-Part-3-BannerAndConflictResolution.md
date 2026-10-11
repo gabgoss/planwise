@@ -109,7 +109,7 @@ Plans index migration:                                     (silent — nothing p
     ledger:                  {plans_dir}/00-Plans-Migration-Ledger.md
     backups:                 {planwise_root}/upgrade-backups/{from}-to-{to}/plans/ ({N} file(s) this run, listed in DISPOSITIONS.md)
     git tree was dirty:      {yes|no|unknown} (informational -- the backup above is the restore point)
-    generator --check:       {clean|clean apart from tree anomalies|not clean; re-run /planwise upgrade}
+    generator --check:       {clean|clean apart from tree anomalies|not clean}
   — or, on a hand-authored index the script refuses to touch:
 Plans index migration: REFUSED (index and Master Plans left untouched)
   reason: {the migrator's own refusal text, verbatim}

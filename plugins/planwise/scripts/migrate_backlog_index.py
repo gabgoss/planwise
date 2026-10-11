@@ -240,7 +240,9 @@ def refuse_reciprocal(items: dict, unapplied: str = "") -> None:
     if reciprocal:
         pairs = ", ".join(f"{a}<->{b}" for a, b in reciprocal)
         raise Refusal(f"the generator would refuse to write: reciprocal blocks edge(s) {pairs}{unapplied}",
-                      "keep one direction: remove the other item's id from one of the two blocks: lists, then re-run",
+                      "answer the reciprocal-edge question in an interactive /planwise upgrade (it passes your answer "
+                      "in a --migration-answers file), or, in a standalone run, keep one direction: remove the other "
+                      "item's id from one of the two blocks: lists by hand, then re-run",
                       question={"questions": [reciprocal_question(a, b) for a, b in reciprocal]})
 
 
@@ -675,7 +677,8 @@ def _remove_blocks_entry(body: str, dst: str, name: str) -> str:
     """`body` with every `blocks:` entry naming `dst` removed and every other byte kept: the other
     entries with their quoting, padding and order, the inline comment, and the flow or block form.
     Membership is the generator's own parse. Raises `Refusal` when the edit would change anything else."""
-    fix = f"remove {dst} from the blocks: list of {name} by hand, then re-run"
+    fix = (f"the answered edge drop could not be applied to {name}, and answering again will not change that: "
+           f"remove {dst} from its blocks: list by hand, then re-run")
     lines = body.split("\n")
     span = _blocks_extent(lines)
     if span is None:

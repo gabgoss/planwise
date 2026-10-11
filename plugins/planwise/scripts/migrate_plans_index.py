@@ -86,6 +86,10 @@ from reconcile_common import read_text_preserving_newlines as read_text
 
 LEDGER_FILENAME = "00-Plans-Migration-Ledger.md"
 CLI_PAIR = "manual"
+# The refusal for a byte the accounting cannot place is a migrator defect, so its fix is to report it and keep
+# the index. A re-run cannot close it, which is why `plan_migration` gives a sole refusal of this kind no re-run advice.
+UNACCOUNTED_HEAD = "the migrator cannot account for"
+UNACCOUNTED_FIX = "run /planwise feedback with the --report output attached, and keep the index as it is"
 
 # The plans index seed as shipped through 1.0.5.1, by sha256: LF (the git blob) and CRLF (Windows checkout).
 SEED_SHAPES = {
@@ -321,7 +325,7 @@ def _analyze(config: dict, index_path: Path, text: str, migration_date: str | No
     if render.tokens > gen.HUB_TOKEN_BUDGET:
         refusals.append(f"the regenerated plans index would measure {render.num_bytes} bytes ({render.tokens} "
                         f"tokens), over the {gen.HUB_TOKEN_BUDGET}-token budget; the index is one file, so "
-                        "shorten the Master Plan set or shard the index before migrating")
+                        "shorten the Master Plan set or shard the index, then re-run")
     lines = classify_lines(text, table, items)
     index_bytes = text.encode("utf-8")
     plan = {
@@ -337,9 +341,9 @@ def _analyze(config: dict, index_path: Path, text: str, migration_date: str | No
     }
     gap = accounting(plan)["unaccounted"]
     if gap:
-        refusals.append(f"the migrator cannot account for {gap} byte(s) of {index_path.name} (a line falls in no "
+        refusals.append(f"{UNACCOUNTED_HEAD} {gap} byte(s) of {index_path.name} (a line falls in no "
                         "category, or in two), so it moves nothing; this is a migrator defect, not an index defect: "
-                        "run /planwise feedback with the --report output attached, and keep the index as it is")
+                        + UNACCOUNTED_FIX)
     return plan
 
 
@@ -351,9 +355,11 @@ def plan_migration(config: dict, index_path: Path, text: str, migration_date: st
         raise Refusal(f"the index shape is {shape}, not legacy: {detail}",
                       "run the migration only on a hand-authored plans index; this index needs no migration")
     plan = _analyze(config, index_path, text, migration_date)
-    if plan["refusals"]:
-        raise Refusal("\n".join(plan["refusals"]),
-                      fix="close each refusal listed above as its text says, then re-run")
+    refusals = plan["refusals"]
+    if refusals:
+        sole_defect = len(refusals) == 1 and refusals[0].startswith(UNACCOUNTED_HEAD)
+        raise Refusal("\n".join(refusals),
+                      fix=UNACCOUNTED_FIX if sole_defect else "close each refusal listed above as its text says")
     return plan
 
 

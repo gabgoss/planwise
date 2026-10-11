@@ -221,4 +221,8 @@ def test_reciprocal_fix_names_an_edit(tmp_path, monkeypatch, capsys):
     assert len(captured) == 1
     exc = captured[0]
     assert exc.fix != exc.reason
-    assert "remove the other item's id" in exc.fix
+    # The upgrade handler asks the question and passes the answer in a file, so the fix names both routes.
+    assert "answer the reciprocal-edge question in an interactive /planwise upgrade" in exc.fix
+    assert "--migration-answers" in exc.fix
+    assert "in a standalone run" in exc.fix and "remove the other item's id" in exc.fix
+    assert [q["id"] for q in mig.refusal_questions(exc)] == ["reciprocal-edge"]

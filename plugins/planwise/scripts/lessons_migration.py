@@ -450,8 +450,12 @@ def _refuse_changelog(report, exc) -> None:
     (or says to keep the changelog and report a defect). The re-run text must
     NOT claim the index is hand-authored -- it is generated -- unlike
     `_refuse`'s shared `RERUN` text, which is written for the legacy-migration
-    refusal path and does make that claim."""
+    refusal path and does make that claim. A tool-defect fix gets no re-run
+    text at all: a re-run cannot close a defect the tool raised itself."""
     report.state, report.detail = "refused", exc.reason
+    if exc.fix == changelog.TOOL_DEFECT_FIX:
+        report.fix = exc.fix
+        return
     report.fix = (f"{exc.fix}\nthen re-run /planwise upgrade "
                   "(the changelog is re-checked on every run; nothing else repeats)")
 
@@ -757,7 +761,7 @@ def _migrated_lines(report: LessonsMigrationReport) -> list:
     dirty = {True: "yes", False: "no", None: "unknown"}[report.git_dirty]
     lines += [f"    git tree was dirty:      {dirty} (informational -- the backup above is the restore point)",
               ("    generator --check:      clean" if c.get("generator_check_clean")
-               else "    generator --check:      not clean; re-run /planwise upgrade")]
+               else "    generator --check:      not clean")]
     return lines
 
 
