@@ -346,7 +346,11 @@ Skipped (action required):
   ! {planwise_root}/{lessons_dir}/00-Categorization-By-Domain.md
       reason:      PyYAML not installed (cannot read config.yaml from the script path)
       affects:     /planwise lessons curate, /planwise lessons promote-batch
-      remediation: Install PyYAML (`pip install pyyaml`), or run /planwise init and let the handler's Step 5.1 fallback render the file via Read+Write.
+      remediation: Install PyYAML into {python_executable} (`{install_command}`), or run /planwise init and let the handler's Step 5.1 fallback render the file via Read+Write.
+  ! {planwise_root}/config.yaml
+      reason:      gap detection degraded: PyYAML is not importable by {python_executable}; reason: {degraded_reason}
+      affects:     every planwise handler — all of them load this file
+      remediation: install PyYAML into {python_executable}: {install_command}; then re-run /planwise init
 
 Next steps:
   /planwise plan          — Create your first plan
@@ -380,6 +384,11 @@ Replace `{settings_file}` with the actual path used based on scope. Adjust the o
 >
 > Done!
 > ```
+
+When the `gap detection degraded` row appears, the SKIPPED section is incomplete by construction: the script could not check any config key or the pinned version. Re-run `/planwise init` after the PyYAML install.
+
+<!-- AUTO-MODE: critical -->
+When the banner carries the `gap detection degraded` row, use `AskUserQuestion` once: "PyYAML is not importable by {python_executable}. Run `{install_command}` now and re-run the skipped steps?" Take `{install_command}` from the row's remediation line. On yes, run that command, then re-run the init script with the same arguments. On no, stop with the row in the summary. An install changes the environment, so this question is `critical`: never answer it by inference in Auto Mode.
 
 When running the fallback path manually (Steps 3-8 in [init-fallback.md](init-fallback.md) instead of the Python script), Claude MUST reproduce the SKIPPED section by tracking, for each step that did not produce its expected artifact, the (artifact, reason, affects, remediation) tuple and emitting them under the `Skipped (action required):` heading. Reference the manifest at [../manifests/artifacts.yaml](../manifests/artifacts.yaml) for the canonical artifact / consumer / remediation mapping.
 

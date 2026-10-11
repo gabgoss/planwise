@@ -137,7 +137,8 @@ def load_artifact_manifest(plugin_root: Path) -> dict:
     same defaults the manifest documents.
     """
     if not HAS_YAML:
-        return {"artifacts": []}
+        return {"artifacts": [], "degraded_reason": (
+            f"PyYAML is not importable by {sys.executable}; the artifact manifest could not be read")}
     manifest_path = plugin_root / "manifests" / "artifacts.yaml"
     try:
         text = manifest_path.read_text(encoding="utf-8")
@@ -802,8 +803,16 @@ def _run_upgrade(
     downgrade is not an exception to it.
     """
     if not HAS_YAML:
+        try:
+            from pyyaml_remedy import pyyaml_install_command
+
+            install_cmd = pyyaml_install_command(cfg.project_root)
+        except Exception:  # noqa: BLE001 -- the refusal must print and exit 2 whatever happens here
+            install_cmd = f'"{sys.executable}" -m pip install pyyaml'
         print(
-            "Upgrade failed: PyYAML is required for --upgrade. Install with `pip install pyyaml`.",
+            "Upgrade failed: PyYAML is required for --upgrade. "
+            f"PyYAML is not importable by {sys.executable}. "
+            f"Install it into that interpreter with `{install_cmd}`, then re-run.",
             file=sys.stderr,
         )
         return 2
