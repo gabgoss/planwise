@@ -143,8 +143,8 @@ regardless of what a hint says.
 
 **Migrating a hand-authored index.** An index that still uses the
 pre-generation table shape -- one table, one footer line for the whole
-changelog -- is hand-authored. `/planwise upgrade` and `/planwise init`
-both recognize that shape and migrate it: backfilling missing or partial
+changelog -- is hand-authored. `/planwise init`
+detects that shape and defers it. Only `/planwise upgrade` migrates it: backfilling missing or partial
 frontmatter, moving the changelog footer and dependency notes into their
 own files, then regenerating and checking the index. An ambiguous
 feature-cell sentence, one that only partly matches its item file, is

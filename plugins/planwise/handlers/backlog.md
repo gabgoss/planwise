@@ -79,6 +79,8 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 
 ## Phase 1: FETCH
 
+> [!gate] Index shape gate — run first, before any write: run `index_shape_preflight.py` as [`index-shape-gate.md`](../references/index-shape-gate.md) directs <!-- AUTO-MODE: critical -->
+
 **Check the generated index against item frontmatter, then parse it:**
 
 ```bash
@@ -87,9 +89,9 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 ```
 
 - `--check` computes each Score cell the same way `--write` would (8 configurable factors, weights from `config.yaml`, a blocker bonus per blocked item) — there is no separate scoring call. Exit `0` is clean. Exit `1` names drift or an anomaly on stderr; a `stale-score` report alone never causes exit `1` and needs no action. Exit `2` means the generator refused an item file it cannot render — a missing required key, an unresolvable `blocks:` id, a row whose token budget cannot be met — **or a hand-authored (legacy) index**. Show the `Error:` line on stderr to the user verbatim, and stop before ranking: the index cannot be trusted until the named item file is fixed.
-  - If it prints a stderr `Warning: N title(s) truncated to 120 chars (items: …)` line or an `Anomaly: …` line, surface it to the user verbatim rather than swallowing it — the same discipline this handler applied to the retired `score_backlog.py` shortfall warning transfers to the generator's own warnings. An `Anomaly:` line means the displayed ranking may not match what the item files actually say. The truncation warning is one line per run that lists every affected item id. The full title stays in the item file, and only the index row is shortened.
+  - If it prints a stderr `Warning: N title(s) truncated to 120 chars (items: …)` line or an `Anomaly: …` line, surface it to the user verbatim. An `Anomaly:` line means the displayed ranking may not match what the item files actually say. The truncation warning is one line per run that lists every affected item id. The full title stays in the item file, and only the index row is shortened.
 
-- If the exit-2 `Error:` line contains `hand-authored index`, the index has not been migrated to the generated format. Print that line to the user verbatim, tell them to run `/planwise upgrade` (it migrates the index automatically, with backups), and STOP — do not proceed to Phase 2 while the index is hand-authored.
+- If the exit-2 `Error:` line contains `hand-authored index`, the Index shape gate above was bypassed. Print that line verbatim, run the gate (it runs the `/planwise upgrade` migration, with backups), and STOP unless the user migrates — do not proceed to Phase 2 while the index is hand-authored.
 - If the exit-2 `Error:` line says the index has an `unrecognized index shape`, `/planwise upgrade` will not migrate it either. Print that line to the user verbatim, point them at the `migrate_backlog_index.py --config {planwise_root}/config.yaml --report` command it names to see why, and STOP.
 - `parse_backlog.py` reads the backlog index at `{backlog_dir}/{backlog_index}`
 - Outputs a formatted table of **selectable** items (excludes COMPLETE, CLOSED, and items blocked by open dependencies)
@@ -107,19 +109,19 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 
 **Detect archival drift (always-on unless `--no-check`):**
 
-This is a second, narrower audit than `--check` above, and the two do not overlap. `--check` renders each row from wherever an item's file actually sits, so it never flags an unmoved file as wrong. What it cannot catch is a COMPLETE/CLOSED item whose file never got physically moved into `Archive/` — that move is `update_backlog.py`'s job when the status transition happens (Phase 6), but an item that reaches a closed status by another path (a session closeout that hand-edits the frontmatter directly) leaves the file stranded in the top-level backlog dir, and nothing on the read side heals it. This audit reads each item file's frontmatter status and location, never the index, so it sees a stranded file on a generated index too.
+This audit is narrower than `--check` above and does not overlap it. `--check` renders each row from wherever an item's file sits, so it never flags an unmoved file. It cannot catch a COMPLETE/CLOSED item whose file never moved into `Archive/`. `update_backlog.py` makes that move at the status transition (Phase 6), but an item that reaches a closed status another way (a closeout that hand-edits the frontmatter) leaves the file stranded in the top-level backlog dir. This audit reads each item file's frontmatter status and location, never the index, so it sees a stranded file on a generated index too.
 
-**`--no-check` skips this archival audit and the body-status audit below.** The `--check` call above is unconditional, the same as the `score_backlog.py` call it replaces.
+**`--no-check` skips this archival audit and the body-status audit below.** The `--check` call above is unconditional.
 
 **If `--no-check` is present:** skip this step and the body-status step below (a fast triage), and go straight to displaying the table.
 
-Otherwise, run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) against the **backlog** index (`reconcile_backlog.py`, banner `planwise backlog — backlog index archival drift audit`) — the JSON shape, banner format, and write-on-consent reconcile flow (including the consent prompt) all live there. This is the read-side counterpart of `/planwise list` Step 2's plans-index drift check, and the same detect pass `/planwise doctor` Stage 12 reuses; none re-implements another's comparison.
+Otherwise, run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) against the **backlog** index (`reconcile_backlog.py`, banner `planwise backlog — backlog index archival drift audit`) — the JSON shape, banner format, and write-on-consent reconcile flow (including the consent prompt) all live there. This is the read-side counterpart of `/planwise list` Step 2's plans-index drift check, and the same detect pass `/planwise doctor` Stage 12 reuses.
 
-The consented `--write` moves item files into `Archive/` and never writes the index. If it moved a file, run `generate_backlog_index.py --config {planwise_root}/config.yaml --write` so the index links follow the moved files. Then re-run Phase 1's parse so this same invocation shows the regenerated index. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
+The consented `--write` moves item files into `Archive/` and never writes the index. If it moved a file, run `generate_backlog_index.py --config {planwise_root}/config.yaml --write` so the index links follow the moved files. Then re-run Phase 1's parse so this same invocation shows the regenerated index. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
 
 **Detect body status lines (always-on unless `--no-check`):**
 
-This pass is separate from the archival one because it audits what an item file says, not where the file sits. An older item writer can leave a `**Status:**` line under an item's title, a second copy of the frontmatter `status:` that nothing keeps in sync. A file in the right place can still carry that stale line, so neither `--check` nor the archival audit sees it.
+This pass audits what an item file says, not where the file sits. An older item writer can leave a `**Status:**` line under an item's title, a second copy of the frontmatter `status:` that nothing keeps in sync. A file in the right place can still carry it, so neither `--check` nor the archival audit sees it.
 
 ```bash
 python {plugin_root}/scripts/reconcile_backlog.py --config {planwise_root}/config.yaml --body-status --json
@@ -167,7 +169,7 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 
 In loop mode only the one popped item is set IN_PROGRESS. After that write, run `python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --phase selected --run {run-id} --id {item_id}`.
 
-`--status` writes frontmatter only; a non-zero `--write` exit does not undo it — fix what it names and re-run `--write`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
+`--status` writes frontmatter only; a non-zero `--write` exit does not undo it — fix what it names and re-run `--write`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
 
 ---
 
@@ -479,15 +481,15 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
 ```
 
-`--write` rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. Exit `0` is clean. Exit `1` is unexpected — record it and keep going. Exit `2` means it refused and wrote nothing; the item's frontmatter is still correct, so fix what it names and re-run `--write` rather than repeating `--status`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
+`--write` rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. Exit `0` is clean. Exit `1` is unexpected — record it and keep going. Exit `2` means it refused and wrote nothing; the item's frontmatter is still correct, so fix what it names and re-run `--write` rather than repeating `--status`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
 
 **Automatic archival:** When status is set to COMPLETE or CLOSED, `update_backlog.py` automatically moves the item file(s) to the Archive/ directory within `{backlog_dir}`. It no longer repoints the index link itself — the `--write` run above does that, because it renders each row from wherever the file actually lives.
 
-**Twin-plan reconciliation (run when the outcome is COMPLETE/CLOSED):** If this item shipped deliverables that a live plan was authored to produce, retire that twin plan in the **same** closeout. A plan's status fields are written only by session closeout (`/planwise run`), and the plans index is regenerated from them with `generate_plans_index.py --write`; a plan whose deliverables were instead satisfied through this backlog route is written nowhere, so it is left live and independently runnable — and a later `/planwise run` will accept it and re-execute idempotency-unsafe steps ("append N rows", "insert at max+1", "add the next check number") against already-satisfied state, corrupting it.
+**Twin-plan reconciliation (run when the outcome is COMPLETE/CLOSED):** If this item shipped deliverables that a live plan was authored to produce, retire that twin plan in the **same** closeout. Only session closeout (`/planwise run`) writes a plan's status fields, so a plan satisfied through this backlog route stays live and runnable, and a later `/planwise run` re-executes idempotency-unsafe steps ("append N rows", "insert at max+1") against already-satisfied state.
 
 > [!constraint] Retire or link the twin plan at backlog closeout
 > 1. **Detect the twin.** Grep the plans index (`{plans_dir}/{plans_index}`) and the Master Plans under `{plans_dir}/**` for a plan that names the same deliverables — or targets the same files — this item just shipped.
-> 2. **Reconcile it in this closeout.** For each twin found, set its Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{item_id} {route} {date})` (and the Master Plan's footer date), then run `generate_plans_index.py --write` (exit 2 means the index is still hand-authored or unrecognized, and nothing was written: tell the user to run `/planwise upgrade`, which migrates it, and to use `migrate_plans_index.py --report` if upgrade reports it unrecognized) — OR explicitly link the two so the plan is not independently runnable.
+> 2. **Reconcile it in this closeout.** For each twin found, set its Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{item_id} {route} {date})` (and the Master Plan's footer date), then run `generate_plans_index.py --write` (exit 2 wrote nothing; print the `Error:` line verbatim: `hand-authored plans index` means the Phase 1 Index shape gate was bypassed, so run it; `neither a hand-authored nor a generated` means point the user at `migrate_plans_index.py --report`; `over the … -token budget` means tell the user to shard or shorten the index) — OR explicitly link the two so the plan is not independently runnable.
 > 3. **If you cannot reconcile now, do not leave it silently runnable** — record the twin plan and the blocker so a later closeout retires it.
 >
 > WRONG — close the item, leave the twin plan alone → `/planwise run` starts it → a task step "append N rows" runs against rows that already exist → N duplicate rows, or a duplicate `## N` section colliding with the shipped one.
@@ -637,7 +639,7 @@ Task {
    ```bash
    python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
    ```
-   The generator rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
+   The generator rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
 
 ### Step 7.4: Output Summary
 

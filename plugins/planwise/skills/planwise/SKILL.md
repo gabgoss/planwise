@@ -23,6 +23,8 @@ The shell line below runs before you see this prompt. Its output replaces the li
 
 !`python -B "${CLAUDE_PLUGIN_ROOT}/scripts/skill_preflight.py" '$sub' || true`
 
+The injected line above also prints a `planwise: …` version notice when the config pin differs from this plugin. Pass any such line to the user verbatim before routing.
+
 | Subcommand | Handler |
 |-----------|---------|
 | `init` | Read [handlers/init.md](../../handlers/init.md) |
@@ -46,7 +48,7 @@ If `$0` is not in the table, respond: "Unknown subcommand: {$0}. Run `/planwise`
 
 The shell line under Routing renders the `list` answer before you run. Check rule 5 first, then apply the first of rules 1-3 that matches.
 
-1. **Block present, no fallback line.** Display everything between `<!-- planwise:list:begin -->` and `<!-- planwise:list:end -->` verbatim as the whole answer. Run nothing. If the banner reports drift, add one sentence offering to reconcile, and wait.
+1. **Block present, no fallback line.** Display everything between `<!-- planwise:list:begin -->` and `<!-- planwise:list:end -->` verbatim as the whole answer, after any `planwise:` notice line. Run nothing. If the banner reports drift, add one sentence offering to reconcile, and wait.
 2. **A `PLANWISE_LIST_FALLBACK:` line is present.** Answer by its cause:
    - `config.yaml not found`: say no planwise `config.yaml` was found in that directory, and tell the user to run `/planwise init`. Never initialise from `list`.
    - `config.yaml parse error`: fail loud with `config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise list.` Then stop.

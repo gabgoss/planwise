@@ -180,7 +180,9 @@ Example: an index row reads `IN_PROGRESS` and its Master Plan reads `READY_TO_EX
   | `id-mismatch` | A lesson file's filename number disagrees with its own frontmatter `id:` | No — `--write` refuses (exit 2) until resolved |
   | `row-shape` | A row's cell count disagrees with the header | No — reported only |
   | `location-anomaly` | A lesson's directory disagrees with its status | No — location is never a routing input; the generator never moves a file |
+  | `legacy-shape` | The index is still hand-authored | No — the generator exits 2 in every mode, and the fix is `/planwise upgrade`, which migrates the index |
 
+- A `legacy-shape` finding means the index has not been migrated. Print the generator's line verbatim and tell the user to run `/planwise upgrade`. Never offer `--write` or `--replace-legacy` for it: `--replace-legacy` drops the hand-written sections without a backup.
 - Banner drift line: `{class}: {id} — {detail}`, per the finding shape above.
 - Consent prompt: "Regenerate the lessons index to resolve {K} drifted finding(s)?" — `--write` on the reconciler prints the regenerate command rather than editing any single row or line; there is no per-row heal.
 - A stale counter is worth surfacing beyond the number itself: it means some lesson was authored off the capture path, so that lesson's generated-index row and its categorisation entry were hand-made too and may carry their own gaps. Say so in the report rather than presenting the regenerate as a bookkeeping nit.

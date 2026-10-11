@@ -100,6 +100,8 @@ Example: /planwise run @Plans/MyPlan/Sprint-01/APM-S01-01-Orchestration.md
 
 ### Step 0.2: Locate Session Files
 
+> [!gate] Before any Recovery or Outputs write, run `index_shape_preflight.py` as [`index-shape-gate.md`](../references/index-shape-gate.md) directs. <!-- AUTO-MODE: critical -->
+
 1. Read the orchestration file
 2. Extract from orchestration:
    - **Session ID** (e.g., `APM-S01-01`)
@@ -158,12 +160,12 @@ While reading, watch for structural findings beyond the literal task scope -- la
 
 **The two-hop propagation model (why the receiver routes the last hop):**
 
-A coordination flag reaches an executing task in two hops, and each hop has exactly one owner:
+A coordination flag reaches an executing task in two hops, each with one owner:
 
-- **Hop 1 — upstream closeout (sender).** The closing session delivers every flag to the downstream session's FRONT DOOR: the orchestration file's `Pre-Known Cross-Task Coordination Flags` section when that session is already scaffolded, else the sprint plan's `Carried-Forward Coordination Flags` section. The sender NEVER reaches into another session's task files — it does not own that decomposition and would race a concurrent session editing the same files.
-- **Hop 2 — downstream session start (receiver, THIS preflight).** This session routes each flag the final hop into its own task files, because it already reads every task file, knows its own decomposition, and is the single writer of its own files.
+- **Hop 1 — upstream closeout (sender).** Delivers every flag to the downstream session's front door: its orchestration file's `Pre-Known Cross-Task Coordination Flags` section when already scaffolded, else the sprint plan's `Carried-Forward Coordination Flags` section. The sender NEVER reaches into another session's task files.
+- **Hop 2 — downstream session start (receiver, THIS preflight).** Routes each flag into its own task files, as their single writer.
 
-Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the flag MUST say so explicitly (e.g. "the LIVE implementation supersedes EI §N"). A runner copying a "verbatim" spec has no reason to doubt it otherwise. Spawn-prompt injection alone (without the task-file write) is acceptable ONLY for informational flags; a binding contract belongs in the task file so it survives session resumption and is visible to reviewers.
+Corollary — when an upstream contract SUPERSEDES an EI-verbatim block, the flag MUST say so explicitly (e.g. "the LIVE implementation supersedes EI §N"). Spawn-prompt injection alone is acceptable ONLY for informational flags. A binding contract belongs in the task file so it survives resumption and is visible to reviewers.
 
 ### Step 1.1b: PEER-WORK READ
 
@@ -612,7 +614,7 @@ Ask the user: "Were any lessons learned during this session?"
 
    > [!practice] User-Action-Gate Check
    > When all sprints COMPLETE, check Master Plan's "Project Complete When" section for user-action gates. If user-action gates remain, set IN_PROGRESS with note — NOT COMPLETE.
-5. Set the Master Plan `*Last Updated:*` footer to today. Run `python {plugin_root}/scripts/generate_plans_index.py --config {planwise_root}/config.yaml --write`. On exit 2 (a hand-authored or unrecognized index, nothing written), tell the user to run `/planwise upgrade`, or `migrate_plans_index.py --report` if upgrade calls it unrecognized.
+5. Set the Master Plan `*Last Updated:*` footer to today. Run `python {plugin_root}/scripts/generate_plans_index.py --config {planwise_root}/config.yaml --write`. On exit 2 nothing was written. Print the `Error:` line verbatim and route by cause. `hand-authored plans index`: the Phase 0 Index shape gate was bypassed, so run it. `neither a hand-authored nor a generated`: `/planwise upgrade` will not migrate it, so point the user at `migrate_plans_index.py --report`. `over the … -token budget`: the render is too large, so tell the user to shard or shorten the index.
 6. **Close the backlog items this plan resolves** — only when step 4 just set the Master Plan to `Status: COMPLETE`:
    1. `Read` the Master Plan header `**Resolves:**` field. Absent, or `none`: skip this step. A Master Plan authored before the field existed names the item under `## References` instead — treat that citation as the field.
    2. For each item id listed, `Edit` the item file **first**: append a dated line under its `## Notes` section (create the section if absent) — `{today}: resolved by plan {Abbrev}; closed at session {session-id}`. Edit before the status write, because the status write archives the file.
@@ -628,7 +630,7 @@ Ask the user: "Were any lessons learned during this session?"
    5. Record the closed ids in the Summary's Context Notes.
 
 > [!constraint] Twin-BB reconciliation — if a backlog route already shipped this plan's deliverables, reconcile instead of duplicating
-> A plan and a backlog item that name the same deliverables are twins. If this session found its deliverables **already satisfied** at the first dispatch layer — you grepped each deliverable against the live target and it already existed — the work was shipped through a backlog route (`/planwise backlog` Route A/B, a direct commit) and this twin plan was never retired at that route's closeout. Do NOT re-author or re-run idempotency-unsafe steps ("append N rows", "insert at max+1") against already-satisfied state. Reconcile instead: set this plan's Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{NNN} {route} {date})` (and its footer date), run `generate_plans_index.py --write`, and record the linkage in the Summary. A plan that is entirely already-satisfied at its first dispatch layer is the signal that its twin was never retired. The reverse defect is the same class: a Master Plan that reaches COMPLETE while the items in its `**Resolves:**` field are still `PLANNING`. Step 6 above closes them.
+> A plan and a backlog item that name the same deliverables are twins. If this session found its deliverables **already satisfied** at the first dispatch layer (you grepped each deliverable against the live target and it already existed), a backlog route (`/planwise backlog` Route A/B, a direct commit) shipped them and never retired this twin plan. Do NOT re-author or re-run idempotency-unsafe steps ("append N rows", "insert at max+1") against already-satisfied state. Reconcile instead: set this plan's Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{NNN} {route} {date})` (and its footer date), run `generate_plans_index.py --write`, and record the linkage in the Summary. The reverse defect is the same class: a Master Plan that reaches COMPLETE while the items in its `**Resolves:**` field are still `PLANNING`. Step 6 above closes them.
 
 ### Step 4.4: Propagate Cross-Task Coordination Flags
 

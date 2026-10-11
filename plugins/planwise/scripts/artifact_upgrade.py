@@ -927,6 +927,7 @@ def _run_upgrade(
                 print(line)
         except Exception as exc:  # noqa: BLE001 -- never change the exit code
             print(f"  Warning: style rule step raised unexpectedly: {exc}", file=sys.stderr)
+        emit_mirror_sweep(cfg, sweep_orphaned_agent_mirrors)
         if needs_repoint:
             _repoint_plugin_root(config_path, cfg.plugin_root)
             print(f"Plugin version: {pinned_version}")
@@ -1162,20 +1163,12 @@ def _run_upgrade(
         # picked up as inert rather than missed as still-active.
         _emit_recovery_artifacts_banner(_scan_recovery_artifacts(cfg))
 
+        # 4d. Orphaned agent mirrors still under .claude/agents/ (read-only).
+        emit_mirror_sweep(cfg, sweep_orphaned_agent_mirrors)
+
         # 5. Post-upgrade advisory: flag any installed rule still scoped to
         # plan/backlog/lessons globs (read-only — never mutates).
-        overscoped = lint_rule_overscope(cfg)
-        if overscoped:
-            total_tokens = sum(item["approx_tokens"] for item in overscoped)
-            print("Advisory — rules scoped to plan/backlog/lessons globs:")
-            for item in overscoped:
-                print(
-                    f"  ~ {item['path']} ({item['line_count']} lines, "
-                    f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
-                )
-                print("      hint: re-scope to code paths or convert to a handler-loaded reference")
-            print(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
-            print()
+        emit_overscope_advisory(cfg, lint_rule_overscope)
 
         # 5b. One notice when this run added the `style:` block. Silent otherwise.
         style_notice = style_rules.style_announcement(cfg, added)
@@ -1227,7 +1220,8 @@ except ImportError as exc:
     ) from exc
 
 try:
-    from doctor_sweeps import lint_rule_overscope
+    from doctor_sweeps import lint_rule_overscope, sweep_orphaned_agent_mirrors
+    from upgrade_mirror_report import emit_mirror_sweep, emit_overscope_advisory
 except ImportError as exc:
     raise ImportError(
         "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "

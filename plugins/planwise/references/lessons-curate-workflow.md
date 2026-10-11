@@ -64,7 +64,7 @@ Report a summary at the end with the new ID ranges processed and any anomalies (
 > Report every drift and anomaly under **Anomalies** in the §6 summary — a stale counter is not a fix-in-passing but a signal in its own right: some lesson was authored off the capture path, so its generated-index row and its categorisation entry were hand-made too and may carry their own gaps.
 
 1. Run `generate_lessons_index.py --config {config_path} --companion --check --json` and read its `drift` list.
-2. If any entry is class `legacy-shape`, the companion has not been migrated to the generated shape: follow the legacy-companion line in §7 (`--companion --write --replace-legacy`, after relocating its prose) and stop here — do not read this run's `missing-row` entries as the uncategorised set; on a legacy-shaped file every known lesson reports `missing-row` by design.
+2. If any entry is class `legacy-shape`, the companion has not been migrated to the generated shape: follow the legacy-companion line in §7 (run `/planwise upgrade`) and stop here — do not read this run's `missing-row` entries as the uncategorised set; on a legacy-shaped file every known lesson reports `missing-row` by design.
 3. Otherwise, take every `missing-row` entry's `LL-NNN` id as the uncategorised set — a lesson file exists with no row in the generated companion yet. List the result in the chat before reading any lesson body.
 4. If the result is empty, skip to Phase 2 with the message *"All lessons are already categorised."*
 
@@ -356,7 +356,7 @@ After both phases run, emit a markdown summary to the chat (NOT to a file) with 
 > CORRECT: Tag frontmatter and regenerate the companion whole (§3.4) — nothing in it is hand-appended. In `00-Categorization-Notes-LessonsLearned.md`, append new edge-cases rows and observations in the right slot; touch an existing observation only if the new evidence makes it numerically wrong (e.g., severity-distribution counts).
 
 > [!constraint] A Legacy-Shaped Companion Is Not Silently Overwritten
-> A companion on disk still carrying `**Last Updated:**` or `## Cross-cutting observations` is a legacy file; run `--companion --write --replace-legacy` once after relocating its prose, never overwrite it silently.
+> A companion on disk still carrying `**Last Updated:**` or `## Cross-cutting observations` is a legacy file. Run `/planwise upgrade`: it renames the legacy companion into the notes file, regenerates the companion, and backs up every file it rewrites. Never overwrite it silently. Standalone `migrate_lessons_index.py --write` folds a foreign changelog, promotion-log or notes file in place and first keeps a first-wins `{name}.pre-migration.bak` beside it, printing `BACKUP: <file> kept as <copy>`. The upgrade path uses its own backups.
 
 > [!constraint] Resolve Paths from config.yaml
 > WRONG: Hard-code `planwise/LessonsLearned/` (or any other project-specific path) inside rule prose, error messages, or grep commands.

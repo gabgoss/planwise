@@ -256,6 +256,106 @@ class TestSilentForEveryRoutedSubcommand(_Fixture):
                 self.assertFalse(imported)
 
 
+class TestVersionNoticeRoute(_Fixture):
+    """The injected line also carries the version notice, for every subcommand."""
+
+    @staticmethod
+    def shipped():
+        manifest = REPO_DIR / "plugins" / "planwise" / ".claude-plugin" / "plugin.json"
+        return json.loads(manifest.read_text(encoding="utf-8"))["version"]
+
+    def pin(self, version):
+        (self.planwise_dir / "config.yaml").write_text(
+            CONFIG_YAML + f'plugin_version: "{version}"\n', encoding="utf-8")
+
+    def test_non_list_prints_the_behind_notice(self):
+        self.pin("0.0.1")
+        for args in (["run", "", ""], ["", "", ""], ["help", "--active", ""]):
+            with self.subTest(args=args):
+                proc = run_router(args, self.tmp)
+                self.assertEqual(proc.returncode, 0)
+                self.assertEqual(proc.stderr, "")
+                self.assertEqual(
+                    proc.stdout,
+                    f"planwise: dispatching from {self.shipped()}, config pins 0.0.1"
+                    " — run /planwise upgrade to refresh\n",
+                )
+
+    def test_config_warning_never_reaches_the_injected_line(self):
+        # `plan_statuses: [1]` makes config_loader.load_config warn on stderr.
+        (self.planwise_dir / "config.yaml").write_text(
+            CONFIG_YAML + 'plan_statuses: [1]\nplugin_version: "0.0.1"\n', encoding="utf-8")
+        notice = (
+            f"planwise: dispatching from {self.shipped()}, config pins 0.0.1"
+            " — run /planwise upgrade to refresh\n"
+        )
+        for args in (["run", "", ""], ["", "", ""]):
+            with self.subTest(args=args):
+                proc = run_router(args, self.tmp)
+                self.assertEqual(proc.returncode, 0)
+                self.assertEqual(proc.stderr, "")
+                self.assertEqual(proc.stdout, notice)
+
+    def test_config_warning_with_equal_pin_prints_nothing_at_all(self):
+        (self.planwise_dir / "config.yaml").write_text(
+            CONFIG_YAML + f'plan_statuses: [1]\nplugin_version: "{self.shipped()}"\n',
+            encoding="utf-8")
+        proc = run_router(["run", "", ""], self.tmp)
+        self.assertEqual((proc.stdout, proc.stderr), ("", ""))
+
+    def test_equal_versions_print_nothing_for_non_list(self):
+        self.pin(self.shipped())
+        proc = run_router(["run", "", ""], self.tmp)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
+        self.assertEqual(proc.stderr, "")
+
+    def test_list_keeps_its_markers_after_the_notice(self):
+        self.build_plans([("AAA", "Alpha", "COMPLETE")])
+        self.pin("0.0.1")
+        proc = run_router(["list", "", ""], self.tmp)
+        self.assertEqual(proc.returncode, 0)
+        lines = proc.stdout.split("\n")
+        self.assertTrue(lines[0].startswith("planwise: dispatching from "))
+        self.assertEqual(lines[1], BEGIN)
+        self.assertEqual(proc.stdout.count(BEGIN), 1)
+        self.assertEqual(proc.stdout.count(END), 1)
+        self.assertIn("| AAA | Alpha | COMPLETE |", proc.stdout)
+        self.assertNotIn(FALLBACK, proc.stdout)
+
+    def test_list_with_equal_versions_still_starts_with_begin(self):
+        self.build_plans([("AAA", "Alpha", "COMPLETE")])
+        self.pin(self.shipped())
+        proc = run_router(["list", "", ""], self.tmp)
+        self.assertEqual(proc.stdout.split("\n")[0], BEGIN)
+
+    def test_broken_config_prints_no_traceback(self):
+        (self.planwise_dir / "config.yaml").write_text(
+            "plugin_version: [unclosed\n  : : {\n", encoding="utf-8")
+        for args in (["run", "", ""], ["", "", ""]):
+            with self.subTest(args=args):
+                proc = run_router(args, self.tmp)
+                self.assertEqual(proc.returncode, 0)
+                self.assertEqual(proc.stdout, "")
+                self.assertNotIn("Traceback", proc.stderr)
+
+    def test_import_failure_of_the_notice_prints_nothing_extra(self):
+        self.pin("0.0.1")
+        code = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(SCRIPTS_DIR)!r})\n"
+            "sys.modules['version_notice'] = None\n"
+            "import skill_preflight\n"
+            "sys.exit(skill_preflight.main(['run']))\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-B", "-c", code], capture_output=True, text=True,
+            encoding="utf-8", cwd=str(self.tmp), timeout=60, check=False)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
+        self.assertNotIn("Traceback", proc.stderr)
+
+
 class TestFallbackRoutes(_Fixture):
     def fallback_lines(self, stdout):
         return [ln for ln in stdout.split("\n") if ln.startswith(FALLBACK)]

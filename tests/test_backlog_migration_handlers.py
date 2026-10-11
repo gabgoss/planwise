@@ -160,6 +160,18 @@ class TestDoctorHandlerStage20(unittest.TestCase):
         # other settings-file sweep.
         self.assertEqual(found, _PRE_EDIT_STAGE_SET | {"15b", "20", "21", "22", "23"})
 
+    def test_prune_upgrade_leftovers_command_carries_root(self):
+        # init_project.py defaults --root to "planwise", so a command that
+        # omits it scans the wrong directory on a custom planwise root.
+        command_lines = [
+            line
+            for line in self.part2_text.splitlines()
+            if "init_project.py" in line and "--prune-upgrade-leftovers" in line
+        ]
+        self.assertTrue(command_lines, "no prune-upgrade-leftovers command found")
+        for line in command_lines:
+            self.assertIn('--root "{planwise_root}"', line)
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -229,8 +241,173 @@ class TestUpgradeAndInitHandlersBacklogMigration(unittest.TestCase):
         self.assertNotIn("inspect it with", span)
         self.assertGreaterEqual(span.count("detail:"), 3)
 
-    def test_upgrade_step_3_plans_refused_block_names_the_rerun(self):
+    def test_upgrade_step_3_refused_blocks_carry_the_fix_alone(self):
+        # The preflight asks before the write, so no REFUSED block tells the
+        # user to re-run; each prints the migrator's fix and stops.
         text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        self.assertNotIn("then re-run /planwise upgrade", text)
         span = _span_between(text, "### Step 3 ", "### Step 4 ")
-        block = _span_between(span, "Plans index migration: REFUSED", "— or")
-        self.assertIn("then re-run /planwise upgrade", block)
+        for family in ("Backlog", "Lessons", "Plans"):
+            block = _span_between(span, f"{family} index migration: REFUSED", "— or")
+            self.assertIn("fix:    {the migrator's fix, verbatim}", block)
+
+    def test_upgrade_step_2_3b_runs_the_preflight_and_writes_the_answers_file(self):
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 2.3b", "### Step 2.4")
+        self.assertIn("index_shape_preflight.py", span)
+        self.assertIn("--questions", span)
+        self.assertIn("AskUserQuestion", span)
+        self.assertIn("upgrade-conflicts/{from}-to-{to}/migration-answers.json", span)
+        self.assertIn("at most 4 questions", span)
+
+    def test_upgrade_step_2_4_passes_the_answers_file(self):
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 2.4", "### Step 2.5")
+        self.assertIn('--migration-answers "{answers_path}"', span)
+
+    def test_upgrade_step_4_3_prunes_through_the_writer(self):
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 4.3", "### Step 4.4")
+        self.assertIn("--prune-upgrade-leftovers", span)
+        self.assertIn("--prune-classes", span)
+        self.assertIn('--root "{planwise_root}"', span)
+        self.assertIn("review-then-discard", span)
+        self.assertNotIn("delete the matched files", span)
+
+    def test_upgrade_step_3_offers_the_plan_status_writer_per_anomaly(self):
+        # Anchor on the procedure paragraph itself. The banner template above
+        # it already holds some of these tokens, so a whole-Step-3 span would
+        # pass with the paragraph deleted. The paragraph is absent at the base
+        # revision, where this slice cannot be taken at all.
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "**Plans anomalies.**", "**Lessons findings.**")
+        self.assertIn("flip_plan_status.py", span)
+        self.assertIn("map line:", span)
+        self.assertIn("hand-fix:", span)
+        self.assertIn("AskUserQuestion", span)
+
+    def test_upgrade_step_3_regenerates_the_plans_index_on_any_change(self):
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "**Plans anomalies.**", "**Lessons findings.**")
+        self.assertIn("any change", span)
+        self.assertIn("even if it exited 1", span)
+        self.assertNotIn("After a clean run", span)
+
+    def test_upgrade_step_3_mirror_prune_asks_over_the_full_removable_set(self):
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "Orphaned agent mirrors:` block", "#### Style rule announcement")
+        self.assertIn("read-only `/planwise doctor` report", span)
+        self.assertIn("stale de-scoped rules", span)
+        self.assertIn("never list a `PRESERVE` row as removable", span)
+        self.assertLess(span.index("read-only `/planwise doctor` report"), span.index("AskUserQuestion"))
+
+    def test_upgrade_step_4_3_backup_sentence_does_not_forbid_case_c_deletions(self):
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 4.3", "### Step 4.4")
+        self.assertNotIn("Never remove a recovery file by hand", span)
+        self.assertIn("Never remove a file in these backup classes by hand", span)
+
+    def test_upgrade_step_2_3b_answers_nothing_in_auto_mode_and_runs_step_2_4(self):
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 2.3b", "### Step 2.4")
+        self.assertIn("AUTO-MODE: convenience", span)
+        self.assertNotIn("AUTO-MODE: critical", span)
+        self.assertNotIn("STOP before Step 2.4", span)
+        self.assertIn("run Step 2.4 without `--migration-answers`", span)
+        self.assertIn("action required", span)
+        self.assertIn("answer the reciprocal-edge question in an interactive /planwise upgrade", span)
+
+    def test_upgrade_headless_note_and_step_table_cover_step_2_3b(self):
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        table = _span_between(text, "[!decide] Interactive upgrade sequence", "### Step 2.1")
+        self.assertIn("Step 2.3b", table)
+        note = table[table.index("Headless / non-interactive"):]
+        self.assertIn("Step 2.3b", note)
+        self.assertIn("no `--migration-answers`", note)
+
+    def test_doctor_prune_stale_command_carries_the_planwise_root(self):
+        text = DOCTOR_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Stage 8b", "### Stage 9")
+        commands = [ln for ln in span.splitlines() if "init_project.py" in ln and "--prune-stale" in ln]
+        self.assertEqual(len(commands), 1, commands)
+        self.assertIn('--root "{planwise_root}"', commands[0])
+        part3 = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        prune = _span_between(part3, "Orphaned agent mirrors:` block", "#### Style rule announcement")
+        self.assertIn("Stage 8b", prune)
+        self.assertIn("doctor.md", prune)
+
+
+GATE_REFERENCE = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "references" / "index-shape-gate.md"
+)
+RUN_HANDLER = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "handlers" / "run.md"
+)
+LESSONS_HANDLER_FOR_GATE = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "handlers" / "lessons.md"
+)
+_SHIPPED = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
+
+
+class TestIndexShapeGateIsDefinedOnce(unittest.TestCase):
+    """The gate lives in references/index-shape-gate.md. The run, lessons and
+    backlog handlers point at it, and every route into the Step 2.4 writer
+    asks the Step 2.3b questions first."""
+
+    def test_every_route_into_step_2_4_names_step_2_3b_first(self):
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        gate = _span_between(text, "[!gate] Upgrade Gate", "[!constraint] Compare the two versions")
+        branches = [ln for ln in gate.splitlines() if "run Step 2.3b" in ln or "Step 2.4 script invocation" in ln]
+        self.assertGreaterEqual(len(branches), 2)
+        for line in branches:
+            if "Step 2.4 script invocation" in line:
+                self.assertLess(line.index("Step 2.3b"), line.index("Step 2.4 script invocation"), line)
+        reference = GATE_REFERENCE.read_text(encoding="utf-8-sig")
+        self.assertLess(reference.index("Step 2.3b"), reference.index("Step 2.4 with"))
+
+    def test_reference_holds_the_rerun_and_stop_branches(self):
+        text = GATE_REFERENCE.read_text(encoding="utf-8-sig")
+        self.assertIn("index_shape_preflight.py", text)
+        self.assertIn("any_legacy", text)
+        self.assertIn("Run the preflight again", text)
+        self.assertIn("a family reads `REFUSED`", text)
+        self.assertIn("the writer exited non-zero", text)
+        self.assertIn("the script is missing", text)
+        self.assertIn("STOP", text)
+        self.assertIn("AUTO-MODE: critical", text)
+        self.assertIn("{install_scope}", text)
+
+    def test_reference_binds_every_placeholder_of_the_step_2_4_command(self):
+        # Derive the placeholder set from the Step 2.4 code fence at test time.
+        upgrade = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        step = _span_between(upgrade, "### Step 2.4", "### Step 2.5")
+        fence = re.search(r"```bash\n(.*?)```", step, re.DOTALL)
+        self.assertIsNotNone(fence)
+        placeholders = set(re.findall(r"\{([a-z_]+)\}", fence.group(1)))
+        # The migration-answers flag sits in prose beside the fence.
+        placeholders |= set(re.findall(r'--migration-answers "\{([a-z_]+)\}"', step))
+        self.assertGreaterEqual(len(placeholders), 9, placeholders)
+        reference = GATE_REFERENCE.read_text(encoding="utf-8-sig")
+        for name in sorted(placeholders):
+            self.assertIn("`{" + name + "}`", reference, name)
+        self.assertIn("project.name", reference)
+        self.assertIn("exit code 2", reference)
+        self.assertIn("/planwise upgrade", reference)
+        self.assertNotIn("{plugin_version}", reference)
+
+    def test_run_lessons_and_backlog_point_at_the_reference(self):
+        for path in (RUN_HANDLER, LESSONS_HANDLER_FOR_GATE, BACKLOG_HANDLER):
+            text = path.read_text(encoding="utf-8-sig")
+            self.assertIn("index_shape_preflight.py", text, path.name)
+            self.assertIn("../references/index-shape-gate.md", text, path.name)
+            self.assertNotIn("Step 2.4 with `--upgrade-pair", text, path.name)
+
+    def test_no_shipped_file_names_the_removed_run_part_file(self):
+        self.assertFalse((_SHIPPED / "handlers" / "run-Part-2-PreflightGate.md").exists())
+        for path in sorted(_SHIPPED.rglob("*.md")):
+            self.assertNotIn(
+                "run-Part-2-PreflightGate", path.read_text(encoding="utf-8-sig"), path.name
+            )

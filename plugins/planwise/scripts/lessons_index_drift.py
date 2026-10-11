@@ -90,8 +90,9 @@ def _counter_floor(index_path: Path, derived_next: int) -> int:
 #                            with its own frontmatter `id:`               --write)
 #   location-anomaly         a directory/status disagreement              1
 #                            (reported, never healed)
-#   legacy-shape             the hub path holds a `## Master Table` or   1 (2 on
-#                            `## Rule Promotion Log` heading             --write w/o
+#   legacy-shape             the hub path holds a `## Master Table` or   2 (report
+#                            `## Rule Promotion Log` heading             modes too;
+#                                                                        --write w/o
 #                                                                        --replace-legacy)
 #
 # A row reorder within one file is NOT detected: `_wrapper_text` excludes

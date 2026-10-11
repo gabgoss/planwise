@@ -125,6 +125,7 @@ Run in this order. `{plugin_root}` and `{planwise_root}` arrive in the spawn pro
    | `0` | Clean. The index now lists every filed item | `yes` |
    | `1` | Drift or anomaly, naming the items. `--check` returns it. `--write` does not, so treat it as unexpected | `no — exit 1: {stderr}` |
    | `2` | Refused before writing anything: unrenderable input, a missing required frontmatter key, an unresolvable `blocks:` id, or a reciprocal `blocks:` edge | `no — exit 2: {stderr}` |
+| `2` | Refused because the index is hand-authored (stderr names `hand-authored index`). Nothing was written. The fix is the caller's Index shape gate, which migrates through `/planwise upgrade`, not a change to your input. Report it in `ISSUES` | `no — exit 2: {stderr}` |
 
    A non-zero exit does not make the item files wrong. They are the source of truth, and the index is derived from them. Do not roll them back or file them again. Capture stderr and continue to §4. A `stale-score` report alone never fails the exit code and needs no action. A `title(s) truncated` warning on stderr is one line that lists every item whose frontmatter `title:` exceeds 120 characters. Report each item you filed this run that appears in that list in `ISSUES`.
 

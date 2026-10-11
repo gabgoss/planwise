@@ -189,5 +189,8 @@ Two rules follow, and a handler must satisfy both:
 | Route C or fix-agent `BLOCKED` (backlog.md Phase 4, loop mode) | Documented skip. A loop run never dispatches a planner. |
 | Follow-up candidate filing (backlog.md Phase 7, loop mode) | File none. Print each candidate in the iteration summary. |
 | Held-item notice (backlog.md Phase 2, loop mode) | Not reached. The loop queue never holds a `BLOCKED` item. |
+| Reciprocal-edge migration questions (upgrade.md Step 2.3b) | Answer nothing. Write no answers file and run Step 2.4 without `--migration-answers`. An edge direction cannot be inferred safely. The migrator refuses only the unanswered family and writes nothing for it, and the chat summary names that family as action required. |
+| Stale mirror prune question (upgrade handler, orphaned agent mirrors banner) | Do not prune. Deleting files is never inferred. The `REMOVABLE` rows stay in place and the banner keeps listing them. |
+| Plan status anomaly question (upgrade handler, Plans anomalies) | Keep the status as is. The inference is logged and the anomaly stays reported. |
 
 The only questions a loop run asks after setup are Q1, Q2, Q3 (in `specific` mode) and the HALT question for an item that died mid-work.

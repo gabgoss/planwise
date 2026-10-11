@@ -9,8 +9,12 @@ string. This script strips each value, drops empty strings and any unexpanded
 
 `list` prints the `list_plans` output between two marker comments
 (`<!-- planwise:list:begin -->` and `<!-- planwise:list:end -->`). Every other
-input prints nothing and never imports `list_plans`. Any failure prints one
+input prints nothing (apart from the notice below) and never imports `list_plans`. Any failure prints one
 `PLANWISE_LIST_FALLBACK: <type>: <message>` line. The exit code is always 0.
+
+For every input, a `planwise: ...` version notice line prints first when the
+config pin differs from this plugin. It prints before the BEGIN marker, never
+raises and never changes the exit code.
 
 CLI: python -B skill_preflight.py <sub> <flag1> <flag2>
 """
@@ -30,7 +34,24 @@ def normalise(argv: list[str]) -> list[str]:
     return [t for t in tokens if t and t not in PLACEHOLDERS]
 
 
+def print_version_notice() -> None:
+    """Print the version notice line, if any. Never raises and prints nothing on failure."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import version_notice
+
+        config = version_notice.resolve_config(Path.cwd())
+        line = version_notice.notice(config, Path(__file__).resolve().parent.parent) if config else ""
+        if line:
+            sys.stdout.flush()
+            sys.stdout.buffer.write((line + "\n").encode("utf-8"))
+            sys.stdout.buffer.flush()
+    except BaseException:  # noqa: BLE001 - a notice must never block a subcommand
+        return
+
+
 def run(argv: list[str]) -> None:
+    print_version_notice()
     tokens = normalise(argv)
     if not tokens or tokens[0] != "list":
         return

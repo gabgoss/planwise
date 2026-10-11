@@ -77,7 +77,7 @@ path that mutates (alongside `--prune-stale`, Stage 8b in
 the writer:
 
 ```bash
-python "{plugin_root}/scripts/init_project.py" --prune-upgrade-leftovers --project-root "{project_root}"
+python "{plugin_root}/scripts/init_project.py" --prune-upgrade-leftovers --project-root "{project_root}" --root "{planwise_root}"
 ```
 
 Before invoking it, ask one `AskUserQuestion` per PRESENT prunable class

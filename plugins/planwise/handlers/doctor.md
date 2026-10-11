@@ -174,7 +174,7 @@ that mutate (the others are `--prune-upgrade-leftovers`, Stage 14b, and
 `--create-feedback-dir`, Stage 17b). Run the writer:
 
 ```bash
-python "{plugin_root}/scripts/init_project.py" --prune-stale --project-root "{project_root}"
+python "{plugin_root}/scripts/init_project.py" --prune-stale --project-root "{project_root}" --root "{planwise_root}"
 ```
 
 It deletes REMOVABLE-marked artifacts from BOTH sweeps in the same pass — the
@@ -412,6 +412,11 @@ the forward-only counter floor) and the file-level anomalies `extra-row`,
 `missing-row`, and `duplicate-id` that this same `--check --json` run
 reports. This is the lessons-index analogue of Stages 11 and 12; none
 re-implements another's comparison.
+
+A `legacy-shape` finding means the index is still hand-authored. The
+generator exits 2 on it. Print the generator's line verbatim, report the
+index as unmigrated, and say "run /planwise upgrade; it migrates the
+index". Offer no `--write` and no `--replace-legacy`.
 
 ---
 
