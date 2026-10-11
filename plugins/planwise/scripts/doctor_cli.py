@@ -47,6 +47,15 @@ except ImportError:
         "installed"
     )
 
+from recovery_surfaces import (
+    DEFAULT_ACTION,
+    classify_backup_pair,
+    clear_empty_parents,
+    copy_files,
+    pair_is_clearable,
+    unlink_files,
+)
+
 try:
     from transfer_review import (
         STATUS_NOW_UPSTREAM,
@@ -264,12 +273,20 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
         except ValueError:
             rel = Path(f["pair"]) / src.name  # fallback if src ever lands outside planwise_root
         backup_dst = out_dir / rel
+        # An index pre-image in the pair: prune refresh files only.
+        partial = f["klass"] == "safe-to-discard" and not pair_is_clearable(src)
+        if partial:
+            targets = classify_backup_pair(src)["refresh"]
+        else:
+            targets = [p for p in src.rglob("*") if p.is_file()] if src.is_dir() else [src]
 
         # STEP 1 — copy. A failure here is safe to roll back: nothing has been
         # removed yet, so discarding a half-written copy loses nothing.
         try:
             backup_dst.parent.mkdir(parents=True, exist_ok=True)
-            if src.is_dir():
+            if partial:
+                copy_files(targets, src, backup_dst, _copy_bytes_exact)
+            elif src.is_dir():
                 shutil.copytree(src, backup_dst, dirs_exist_ok=True)
             else:
                 _copy_bytes_exact(src, backup_dst)
@@ -289,7 +306,11 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
         # source partially deleted. Deleting the backup in that state destroys
         # the sole copy of the files that are already gone.
         try:
-            if src.is_dir():
+            for t in targets:
+                print(f"Removing {t}")
+            if partial:
+                unlink_files(targets, src)
+            elif src.is_dir():
                 shutil.rmtree(src)
             else:
                 src.unlink()
@@ -300,6 +321,8 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
                                    f"pre-removal copy is preserved at `{backup_dst}`; "
                                    "the original may be partially deleted, restore from "
                                    "that copy rather than re-running"})
+
+    clear_empty_parents(planwise_root)
 
     lines = [f"# Upgrade recovery-leftover prune — {today}", ""]
     lines.append(f"## Removed ({len(removed)})")
@@ -910,7 +933,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
             print(f"      path:    {f['path']}")
             print(f"      size:    {f['count']} file(s), {format_bytes(f['bytes'])}, "
                   f"{f['age_days']}d old")
-            print(f"      meaning: {RECOVERY_ARTIFACT_CLASSES[f['klass']]}")
+            print(f"      meaning: {f.get('reason', RECOVERY_ARTIFACT_CLASSES[f['klass']])}")
             if f["surface"] == "upgrade-transfers":
                 mine = [r for r in transfer_rows if r["pair"] == f["pair"]]
                 upstream = sum(r["status"] == STATUS_NOW_UPSTREAM for r in mine)
@@ -923,7 +946,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
             elif f["klass"] in ("inert", "safe-to-discard"):
                 print("      action:  remove with /planwise doctor --prune-upgrade-leftovers")
             else:
-                print("      action:  resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md Step 4 — never auto-pruned")
+                print(f"      action:  {f.get('action', DEFAULT_ACTION)}")
         prunable = [f for f in leftovers if f["klass"] in ("inert", "safe-to-discard")]
         print()
         # The reclaimable total is reported over the PRUNABLE subset only.

@@ -24,6 +24,7 @@ import plans_migration as pm
 import upgrade_io
 from config_gen import InitConfig
 from test_migrate_plans_index import (
+    A_PLANS,
     DATE,
     build,
     fixture_a,
@@ -32,6 +33,7 @@ from test_migrate_plans_index import (
     fixture_d,
     fixture_e,
     legacy_index,
+    master_plan,
 )
 
 
@@ -93,6 +95,103 @@ def test_a_generated_index_is_silent_and_writes_nothing(tmp_path, capsys):
     pm._emit_plans_migration_banner(report)
     assert capsys.readouterr().out == ""
     assert plans_tree(tmp_path) == before and not (tmp_path / "proj" / "planwise" / "upgrade-backups").exists()
+
+
+def test_generated_index_with_unknown_status_prints_the_anomaly(tmp_path, capsys):
+    plans = dict(A_PLANS)
+    raw = "NEEDS_REDESIGN — trailing prose"
+    plans["Beta/BET-Master-Plan.md"] = master_plan("Beta", raw, "2026-02-01", "2026-02-10")
+    config, _plans_dir, _index = build(tmp_path, None, plans)
+    assert gen.write_plans_index(config).exit_code == 1  # the write keeps the anomaly and still writes the index
+    before = plans_tree(tmp_path)
+    report = migrate(tmp_path)
+    assert report.state == "generated" and "--check exit 1" in report.detail
+    assert [a["class"] for a in report.anomalies] == ["unknown-status"]
+    pm._emit_plans_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "Plans index: generated; --check reports 1 anomaly(ies)" in out
+    assert "  unknown-status: Beta/BET-Master-Plan.md" in out
+    assert f"    Status line: {raw}" in out
+    assert "    reduced to:  NEEDS_REDESIGN  (not in plan_statuses)" in out
+    assert f'  fix: python "{SCRIPTS / pm.WRITER}" --config "' in out and "flip_plan_status.py" in out
+    assert plans_tree(tmp_path) == before and not (tmp_path / "proj" / "planwise" / "upgrade-backups").exists()
+
+
+def _banner_map_line(out, anomaly_file):
+    """The `map line:` the banner prints under the anomaly for `anomaly_file`."""
+    lines = out.splitlines()
+    block = lines[lines.index(next(ln for ln in lines if ln.endswith(f": {anomaly_file}"))) + 1:]
+    shown = next(ln for ln in block if ln.strip().startswith("map line:"))
+    return shown.split("map line:", 1)[1].strip()
+
+
+def _run_writer(tmp_path, map_text):
+    """Run the real `flip_plan_status.main()` on the fixture project with a map built from banner text."""
+    import flip_plan_status
+
+    config_path = tmp_path / "proj" / "planwise" / "config.yaml"
+    map_file = tmp_path / "map.txt"
+    map_file.write_text(map_text, encoding="utf-8")
+    old_argv = sys.argv
+    sys.argv = ["flip_plan_status.py", "--config", str(config_path), str(map_file)]
+    try:
+        return flip_plan_status.main()
+    finally:
+        sys.argv = old_argv
+
+
+@pytest.mark.parametrize("rel", ["Beta/BET-Master-Plan.md", "Alpha/Exec-ALP/ALP-Master-Plan.md"],
+                         ids=["top-level", "nested-exec"])
+def test_the_banner_map_line_is_accepted_by_the_real_writer(tmp_path, capsys, rel):
+    plans = dict(A_PLANS)
+    plans[rel] = master_plan("Plan", "NEEDS_REDESIGN — trailing prose", "2026-02-01", "2026-02-10")
+    config, _plans_dir, _index = build(tmp_path, None, plans)
+    assert gen.write_plans_index(config).exit_code == 1
+    report = migrate(tmp_path)
+    assert [a["file"] for a in report.anomalies] == [rel]
+    pm._emit_plans_migration_banner(report)
+    out = capsys.readouterr().out
+    shown = _banner_map_line(out, rel)
+    assert "{Path}" not in shown and shown.endswith(": {STATUS}")
+    assert _run_writer(tmp_path, shown.replace("{STATUS}", "COMPLETE") + "\n") == 0  # not REFUSED
+    flipped = (tmp_path / "proj" / "planwise" / "Plans" / rel).read_text(encoding="utf-8")
+    assert "**Status:** COMPLETE — trailing prose" in flipped
+
+
+def test_missing_status_gets_a_hand_fix_hint_and_no_writer_command(tmp_path, capsys):
+    plans = dict(A_PLANS)
+    plans["Beta/BET-Master-Plan.md"] = b"# Beta Master Plan\n\n**Created:** 2026-02-01\n\nBody.\n\n*Last Updated: 2026-02-10*\n"
+    config, _plans_dir, _index = build(tmp_path, None, plans)
+    assert gen.write_plans_index(config).exit_code == 1
+    report = migrate(tmp_path)
+    assert [a["class"] for a in report.anomalies] == ["missing-status"] and report.fix == ""
+    pm._emit_plans_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "  missing-status: Beta/BET-Master-Plan.md" in out
+    assert "    hand-fix:    add a **Status:** line to that Master Plan" in out
+    assert "  fix: " not in out and 'python "' not in out and "map line:" not in out
+
+
+def test_unknown_plus_missing_prints_one_writer_command_and_a_map_line_only_for_the_unknown(tmp_path, capsys):
+    plans = dict(A_PLANS)
+    plans["Beta/BET-Master-Plan.md"] = master_plan("Beta", "NEEDS_REDESIGN — x", "2026-02-01", "2026-02-10")
+    plans["Gamma/GAM-Master-Plan.md"] = b"# Gamma Master Plan\n\n**Created:** 2026-03-01\n\nBody.\n"
+    config, _plans_dir, _index = build(tmp_path, None, plans)
+    gen.write_plans_index(config)
+    report = migrate(tmp_path)
+    assert sorted(a["class"] for a in report.anomalies) == ["missing-status", "unknown-status"]
+    pm._emit_plans_migration_banner(report)
+    out = capsys.readouterr().out
+    assert out.count("  fix: python ") == 1 and out.count("map line:") == 1
+    assert "    map line:    Beta/: {STATUS}" in out
+
+
+def test_generated_index_clean_stays_silent(tmp_path, capsys):
+    fixture_d(tmp_path)
+    report = migrate(tmp_path)
+    assert report.state == "generated" and report.anomalies == [] and report.fix == ""
+    pm._emit_plans_migration_banner(report)
+    assert capsys.readouterr().out == ""
 
 
 def test_an_unrecognized_index_is_reported_and_untouched(tmp_path):

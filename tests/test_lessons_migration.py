@@ -36,12 +36,16 @@ LEGACY_INDEX = (
     "| LL-001 | Fixture Lesson One | process | medium | python | claude-code | PROC | fixture | documented |\n"
     "\n---\n"
 )
+# The generator's own render of the one-lesson fixture, so a `--check` of it reports no drift. A
+# hand-shaped near-miss reads as a healable `stale-wrapper` finding, which the routine now heals.
 GENERATED_INDEX = (
-    "Generated: 2024-01-01\n**Next available ID:** LL-002\n\n"
+    "Generated: 2024-01-01\n\n**Next available ID:** LL-002\n\n"
     "| ID | Title | Category | Severity | Language | Technology | Domain | Source | Status | File |\n"
-    "|----|----|----|----|----|----|----|----|----|----|\n"
+    "|---|---|---|---|---|---|---|---|---|---|\n"
     "| LL-001 | Fixture Lesson One | process | medium | python | claude-code | PROC | fixture | documented | "
-    "[001](LL-001-PROC-One.md) |\n"
+    "[001](LL-001-PROC-One.md) |\n\n"
+    "## Shards\n\n| Range | File |\n|---|---|\n\n"
+    "[Changelog](00-Changelog-LessonsLearned.md)\n[Promotion Log](00-PromotionLog-LessonsLearned.md)\n"
 )
 UNRECOGNIZED_INDEX = "# Some Other Document\n\nJust prose, no table, no heading.\n"
 
@@ -103,6 +107,152 @@ def test_generated_shape_is_silent_and_checks_both(tmp_path, capsys):
     assert "index --check exit" in report.detail and "companion --check exit" in report.detail
     assert capsys.readouterr().out == ""
     assert _snapshot(tmp_path) == before
+
+
+def test_generated_index_non_healable_finding_prints(tmp_path, capsys):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _write(lessons_dir / "LL-001-PROC-Dup.md", LESSON_001)  # a second file claiming LL-001: `--write` refuses
+    before = _snapshot(lessons_dir)
+    report = _migrate(cfg)
+    assert report.state == "generated" and report.healed == []
+    assert [(f["class"], f["id"]) for f in report.findings] == [("duplicate-id", "LL-001")]
+    assert _snapshot(lessons_dir) == before
+    lm._emit_lessons_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "Lessons index: generated; --check reports 1 finding(s)" in out
+    assert "  [duplicate-id] LL-001: claimed by " in out and "healed" not in out
+
+
+def test_generated_index_healable_drift_is_healed_with_backup(tmp_path, capsys, monkeypatch):
+    stale = GENERATED_INDEX.replace("| Fixture Lesson One |", "| Old Title |")
+    cfg, lessons_dir = _project(tmp_path, stale)
+    hub = lessons_dir / "00-Index-LessonsLearned.md"
+    backup = _pair(cfg) / "lessons" / hub.name
+    real, at_write = lm.gen._cmd_write_lessons, {}
+
+    def spy(*args, **kwargs):
+        at_write["backup"] = backup.read_bytes() if backup.is_file() else None
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(lm.gen, "_cmd_write_lessons", spy)
+    report = _migrate(cfg)
+    assert at_write["backup"] == stale.encode("utf-8")  # the pre-image existed before the write
+    assert report.state == "generated" and report.findings == []
+    assert [(f["class"], f["id"]) for f in report.healed] == [("stale-title", "LL-001")]
+    assert b"Fixture Lesson One" in hub.read_bytes() and b"Old Title" not in hub.read_bytes()
+    assert report.backed_up == [str(backup)]
+    lm._emit_lessons_migration_banner(report)
+    assert f"Lessons index: generated; healed 1 drift finding(s) (backups: {report.backup_dir})" in capsys.readouterr().out
+    again = _migrate(cfg, ("1.1", "1.2"))  # healed once: the next upgrade is silent
+    lm._emit_lessons_migration_banner(again)
+    assert again.healed == [] and again.findings == [] and capsys.readouterr().out == ""
+
+
+STALE_INDEX = GENERATED_INDEX.replace("| Fixture Lesson One |", "| Old Title |")
+
+
+def test_a_refused_write_leaves_no_orphan_backup_and_says_nothing_changed(tmp_path, capsys):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _write(lessons_dir / "LL-001-PROC-Dup.md", LESSON_001)  # a persistent duplicate-id: `--write` refuses
+    report = _migrate(cfg)
+    assert report.backed_up == [] and _backup_files(cfg) == set()  # byte-identical copies were removed
+    assert not (_pair(cfg) / "lessons").exists()
+    lm._emit_lessons_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "--write refused; no file changed" in out and "backups kept" not in out and "(backups:" not in out
+    again = _migrate(cfg, ("1.1", "1.2"))  # the finding repeats on every upgrade, and so must not leave copies
+    assert again.backed_up == [] and not (_pair(cfg, "1.1-to-1.2") / "lessons").exists()
+
+
+def test_a_refused_write_whose_copy_cannot_be_proved_identical_is_kept_and_logged(tmp_path, capsys, monkeypatch):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _write(lessons_dir / "LL-001-PROC-Dup.md", LESSON_001)
+    hub = lessons_dir / "00-Index-LessonsLearned.md"
+    copy = _pair(cfg) / "lessons" / hub.name
+    real = lm.gen._cmd_write_lessons
+
+    def spoil(*args, **kwargs):
+        copy.write_bytes(copy.read_bytes() + b"x")  # the copy no longer equals the file
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(lm.gen, "_cmd_write_lessons", spoil)
+    report = _migrate(cfg)
+    assert copy.is_file() and str(copy) in report.backed_up
+    rows = [r for r in _disposition_rows(cfg) if r[0].endswith(hub.name)]
+    assert rows and rows[0][1] == "lessons-unchanged" and "pre-image at upgrade-backups/1.0-to-1.1/lessons/" in rows[0][2]
+    lm._emit_lessons_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "--write refused; no file changed" in out and f"backups kept: {report.backup_dir}" in out
+
+
+def test_a_write_that_changes_files_but_heals_nothing_is_logged_and_the_banner_names_the_backups(tmp_path, capsys, monkeypatch):
+    cfg, lessons_dir = _project(tmp_path, STALE_INDEX)
+    hub = lessons_dir / "00-Index-LessonsLearned.md"
+
+    def rewrite_but_keep_the_drift(*_a, **_k):
+        hub.write_bytes(STALE_INDEX.replace("Old Title", "Other Title").encode("utf-8"))
+        return 0
+
+    monkeypatch.setattr(lm.gen, "_cmd_write_lessons", rewrite_but_keep_the_drift)
+    report = _migrate(cfg)
+    assert report.healed == [] and [(f["class"], f["id"]) for f in report.findings] == [("stale-title", "LL-001")]
+    assert (_pair(cfg) / "lessons" / hub.name).read_bytes() == STALE_INDEX.encode("utf-8")
+    rows = [r for r in _disposition_rows(cfg) if r[0].endswith(hub.name)]
+    assert [r[1] for r in rows] == ["lessons-rewritten"]
+    lm._emit_lessons_migration_banner(report)
+    out = capsys.readouterr().out
+    assert f"--write changed 1 file(s) but healed no finding (backups: {report.backup_dir})" in out
+    assert "--check reports 1 finding(s)" in out
+
+
+def test_a_write_that_succeeds_and_changes_nothing_leaves_no_backup(tmp_path, monkeypatch):
+    cfg, lessons_dir = _project(tmp_path, GENERATED_INDEX)
+    _write(lessons_dir / "LL-001-PROC-Dup.md", LESSON_001)
+    monkeypatch.setattr(lm.gen, "_cmd_write_lessons", lambda *_a, **_k: 0)
+    report = _migrate(cfg)
+    assert report.backed_up == [] and _backup_files(cfg) == set()
+
+
+def test_a_healed_drift_logs_one_row_per_backed_up_file(tmp_path):
+    cfg, _lessons_dir = _project(tmp_path, STALE_INDEX)
+    report = _migrate(cfg)
+    assert len(report.healed) == 1
+    backups = {p.relative_to(_pair(cfg) / "lessons").as_posix() for p in _backup_files(cfg)}
+    assert backups == {r[0].split("/")[-1] for r in _disposition_rows(cfg)} == {"00-Index-LessonsLearned.md"}
+
+
+def test_failing_to_list_the_generated_files_skips_the_heal_and_writes_nothing(tmp_path, capsys, monkeypatch):
+    cfg, _lessons_dir = _project(tmp_path, STALE_INDEX)
+    before = _snapshot(tmp_path)
+    real = lm.parse_lessons.generated_index_files
+    calls = []
+
+    def boom(*args, **kwargs):
+        if sys._getframe(1).f_code.co_name != "_heal_generated":  # the first check lists the files too
+            return real(*args, **kwargs)
+        calls.append(1)
+        raise OSError("listing denied")
+
+    monkeypatch.setattr(lm.parse_lessons, "generated_index_files", boom)
+    monkeypatch.setattr(lm.gen, "_cmd_write_lessons", lambda *_a, **_k: pytest.fail("the heal wrote after a failed listing"))
+    report = _migrate(cfg)
+    assert calls
+    assert report.state == "backup_failed" and "heal skipped" in report.detail and "listing denied" in report.detail
+    assert _snapshot(tmp_path) == before  # no write and no backup
+    lm._emit_lessons_migration_banner(report)
+    out = capsys.readouterr().out
+    assert "BACKUP FAILED -- no write was attempted" in out and "heal skipped" in out
+
+
+@pytest.mark.parametrize("index", [GENERATED_INDEX, GENERATED_INDEX.replace("LL-002", "LL-009")],
+                         ids=["no-finding", "accepted-class-only"])
+def test_generated_index_clean_stays_silent(tmp_path, capsys, index):
+    cfg, _lessons_dir = _project(tmp_path, index)
+    before = _snapshot(tmp_path)
+    report = _migrate(cfg)
+    assert report.state == "generated" and report.healed == [] and report.findings == []
+    lm._emit_lessons_migration_banner(report)
+    assert capsys.readouterr().out == "" and _snapshot(tmp_path) == before
 
 
 def _seed_changelog(lessons_dir: Path, entries: list) -> None:

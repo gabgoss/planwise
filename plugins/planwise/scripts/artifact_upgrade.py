@@ -50,6 +50,20 @@ except ImportError:
     )
 
 try:
+    from recovery_surfaces import (
+        INDEX_BANNER_TEXT,
+        INDEX_SURFACE_SUFFIX,
+        REFRESH_SURFACE_NOTE,
+        classify_backup_pair,
+    )
+except ImportError:
+    raise ImportError(
+        "recovery_surfaces is required for artifact_upgrade's backup "
+        "classification; the scripts/ directory appears to be partially "
+        "installed"
+    )
+
+try:
     from rule_divergence import (
         _classify_diverged,
         _extract_paths_value,
@@ -573,15 +587,18 @@ def _scan_recovery_artifacts(cfg: "InitConfig") -> list[tuple[str, int, str]]:
     surfaces: list[tuple[str, int, str]] = []
 
     backups_root = root / "upgrade-backups"
-    backup_count = sum(
-        1
-        for pair_dir in backups_root.glob("*-to-*")
-        if pair_dir.is_dir()
-        for f in pair_dir.rglob("*")
-        if f.is_file() and f.name != "DISPOSITIONS.md"
-    )
+    backup_count = index_count = 0
+    for pair_dir in backups_root.glob("*-to-*"):
+        if pair_dir.is_dir():
+            groups = classify_backup_pair(pair_dir)
+            backup_count += len(groups["refresh"])
+            index_count += len(groups["index"])
     if backup_count:
-        surfaces.append((f"{backups_root}/*/", backup_count, "safe-to-discard"))
+        surfaces.append((f"{backups_root}/*/{REFRESH_SURFACE_NOTE}", backup_count, "safe-to-discard"))
+    if index_count:
+        surfaces.append(
+            (f"{backups_root}/*{INDEX_SURFACE_SUFFIX}", index_count, "review-then-discard")
+        )
 
     transfers_root = root / "upgrade-transfers"
     transfer_count = sum(
@@ -650,7 +667,10 @@ def _emit_recovery_artifacts_banner(surfaces: list[tuple[str, int, str]]) -> Non
         print()
         return
     for path, count, klass in surfaces:
-        print(f"  {path} ({count} file(s)) — {klass}: {RECOVERY_ARTIFACT_CLASSES[klass]}")
+        if path.endswith(INDEX_SURFACE_SUFFIX):
+            print(f"  {path} ({count} pre-image(s)) — {klass}: {INDEX_BANNER_TEXT}")
+        else:
+            print(f"  {path} ({count} file(s)) — {klass}: {RECOVERY_ARTIFACT_CLASSES[klass]}")
     print(
         "  Nothing above is loaded as a rule or needed for planwise to run — "
         "keeping or deleting is housekeeping only."

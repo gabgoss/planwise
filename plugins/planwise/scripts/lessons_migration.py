@@ -11,7 +11,9 @@ finished one never repeats:
   the plan rewrites byte-exact, run the migrator's staged write, then run
   the generator for the index and the categorization companion and check
   both.
-- `generated`: check the index and the companion; stay silent either way.
+- `generated`: check the index and the companion. Heal drift `--write` clears,
+  with a backup first, and print what it healed and any finding it cannot
+  clear. Otherwise stay silent.
 - `unrecognized`: report the classifier's reason and touch nothing.
 
 Recognise-or-refuse, never best-effort. Every step before the backup is
@@ -79,6 +81,10 @@ class LessonsMigrationReport:
     counts: dict = dataclasses.field(default_factory=dict)
     git_dirty: bool | None = None
     companion_regenerated: bool = False
+    healed: list = dataclasses.field(default_factory=list)  # `--check` findings a generated-path `--write` cleared
+    findings: list = dataclasses.field(default_factory=list)  # `--check` findings `--write` cannot clear, not accepted
+    rewritten: list = dataclasses.field(default_factory=list)  # files a generated-path `--write` rewrote, created or removed
+    heal: str = ""  # "refused" when the generated-path `--write` refused and changed nothing
 
 
 def migrate_lessons_if_legacy(cfg: "InitConfig", from_version: str, to_version: str,
@@ -164,18 +170,124 @@ def _check_generated(cfg, from_version: str, to_version: str, config: dict, inde
     """A generated index: check it and the companion, then re-split the
     changelog if it has grown over budget, or renumber it if its entry
     numbers do not strictly descend (the `changelog_split` state). Within
-    budget and in order, state stays `generated` and the caller's banner
-    never prints."""
+    budget and in order, with no unaccepted finding left, state stays
+    `generated` and the caller's banner never prints.
+
+    A finding outside `ACCEPTED_CHECK_CLASSES` triggers a heal: the
+    generated files are backed up, the generator `--write` runs, and the
+    index is checked again. A finding the second check no longer reports
+    is `healed`. A finding it still reports (or every finding, when
+    `--write` refuses) is in `findings`, which the banner prints."""
     lessons_dir = config["_lessons_dir"]
     archive_dir = lessons_dir / "Archive"
     naming = mig._index_naming(index_path)
-    index_exit, _out = _captured(mig._check_index, lessons_dir, archive_dir, index_path, naming, config)
+    (index_exit, found), _out = _captured(mig._check_index_findings, lessons_dir, archive_dir, index_path, naming, config)
+    if any(f["class"] not in mig.ACCEPTED_CHECK_CLASSES for f in found):
+        healed = _heal_generated(cfg, from_version, to_version, config, index_path, naming,
+                                 index_exit, found, report)
+        if healed is None:
+            # The backup failed: state `backup_failed`, and nothing was written. The findings still print.
+            report.findings = [f for f in found if f["class"] not in mig.ACCEPTED_CHECK_CLASSES]
+            return
+        index_exit, found = healed
+    report.findings = [f for f in found if f["class"] not in mig.ACCEPTED_CHECK_CLASSES]
     companion_exit, _out = _captured(
         gen._run_companion_cli, SimpleNamespace(write=False, json=False, replace_legacy=False),
         lessons_dir, archive_dir, index_path, naming, config)
     report.state = "generated"
     report.detail = f"index --check exit {index_exit}, companion --check exit {companion_exit}"
     _resplit_changelog(cfg, from_version, to_version, config, index_path, report)
+
+
+def _heal_generated(cfg, from_version: str, to_version: str, config: dict, index_path: Path, naming,
+                    first_exit: int, first: list, report) -> tuple | None:
+    """Back up every generated index file, run the generator `--write`, and check again. Returns the
+    final `(exit, findings)`, or None when the backup failed (nothing was written). A failure to list
+    the generated files is a failed backup: the shards would be rewritten with no pre-image, so the
+    heal is skipped. Fills `report.healed` with the first check's findings the second check no longer
+    reports, and `report.rewritten` with every file the write changed.
+
+    The generator offers no plan of what `--write` would change, so the backup comes first. When the
+    write then changed nothing (it refused, or it rewrote identical bytes), each copy this run made is
+    removed once its bytes are proved equal to the file's, so a finding that repeats on every upgrade
+    leaves no orphan copy. Every copy that stays gets a DISPOSITIONS row, whatever the outcome."""
+    lessons_dir = config["_lessons_dir"]
+    archive_dir = lessons_dir / "Archive"
+    try:
+        generated = [Path(p) for p in parse_lessons.generated_index_files(lessons_dir, archive_dir, index_path)]
+    except OSError as exc:
+        _backup_failed(report, "the generated lessons index files", exc)
+        report.detail = (f"heal skipped: could not list the generated lessons index files ({exc}); "
+                         "no file was written")
+        report.fix = "fix the lessons directory's permissions, then re-run /planwise upgrade (the heal retries on every run)"
+        return None
+    targets = list(dict.fromkeys([Path(index_path), *generated]))
+    pre = _backup(targets, lessons_dir, report)
+    if pre is None:
+        return None
+    write_exit, _out = _captured(lambda: gen._cmd_write_lessons(
+        lessons_dir, archive_dir, index_path, naming, config, replace_legacy=False, json_out=False))
+    created = _created_since(pre, lessons_dir, archive_dir, index_path)
+    report.rewritten = [str(p) for p, data in pre.items() if data is not None and _action_on(p, data) != "lessons-unchanged"]
+    report.rewritten += [str(p) for p in created]
+    if not report.rewritten:
+        _discard_identical_backups(report, pre, lessons_dir)
+        report.heal = "refused" if write_exit != 0 else ""
+        pre = {p: d for p, d in pre.items() if (report.backup_dir / _rel(p, lessons_dir)).exists()}  # a copy that stayed
+    if report.rewritten or report.backed_up:
+        _log_dispositions(cfg, from_version, to_version, pre, created, lessons_dir, report)
+    if write_exit != 0:
+        return first_exit, first
+    (index_exit, final), _out = _captured(mig._check_index_findings, lessons_dir, archive_dir, index_path, naming, config)
+    still = {(f["class"], f["id"]) for f in final}
+    report.healed = [f for f in first if (f["class"], f["id"]) not in still]
+    return index_exit, final
+
+
+def _created_since(pre: dict, lessons_dir: Path, archive_dir: Path, index_path: Path) -> list:
+    """The generated index files on disk now that were not among the files `pre` holds."""
+    try:
+        now = [Path(p) for p in parse_lessons.generated_index_files(lessons_dir, archive_dir, index_path)]
+    except OSError:
+        return []
+    known = {Path(p).resolve() for p in pre}
+    return [p for p in now if p.resolve() not in known]
+
+
+def _discard_identical_backups(report, pre: dict, lessons_dir: Path) -> None:
+    """Remove each backup copy this run made when its bytes equal both the pre-image read after the
+    backup and the file's bytes now, so the copy records nothing the file does not. A copy that fails
+    either comparison, or that cannot be read, stays. A copy an earlier run made is never touched."""
+    for src, data in pre.items():
+        if data is None:
+            continue
+        dst = report.backup_dir / _rel(src, lessons_dir)
+        for copy in dict.fromkeys([str(dst), report.diverged.get(str(dst))]):
+            if copy is None or copy not in report.backed_up:
+                continue
+            try:
+                if Path(copy).read_bytes() != data or Path(src).read_bytes() != data:
+                    continue
+                Path(copy).unlink()
+            except OSError:
+                continue
+            report.backed_up.remove(copy)
+            if copy != str(dst):
+                report.diverged.pop(str(dst), None)
+            _prune_empty_dirs(Path(copy).parent, report.backup_dir)
+
+
+def _prune_empty_dirs(start: Path, stop: Path) -> None:
+    """Remove `start` and each parent up to and including `stop` while it is empty."""
+    current = start
+    while True:
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        if current == stop or stop not in current.parents:
+            return
+        current = current.parent
 
 
 def write_changelog_plan(plan: dict, lessons_dir: Path, report, rerun: str) -> list | None:
@@ -594,13 +706,35 @@ def _migrated_lines(report: LessonsMigrationReport) -> list:
     return lines
 
 
+def _drift_lines(report: LessonsMigrationReport) -> list:
+    """The generated index's check outcome: the findings a `--write` healed (named by count), a write that
+    changed files without healing one, and the findings it could not clear, one line each. The backup
+    folder is named whenever a write changed files, and when a refused write left a copy behind."""
+    lines = []
+    if getattr(report, "healed", None):
+        lines.append(f"Lessons index: generated; healed {len(report.healed)} drift finding(s) "
+                     f"(backups: {report.backup_dir})")
+    elif getattr(report, "rewritten", None):
+        lines.append(f"Lessons index: generated; --write changed {len(report.rewritten)} file(s) "
+                     f"but healed no finding (backups: {report.backup_dir})")
+    if getattr(report, "findings", None):
+        refused = "; --write refused; no file changed" if getattr(report, "heal", "") == "refused" else ""
+        lines.append(f"Lessons index: generated; --check reports {len(report.findings)} finding(s){refused}")
+        lines += [f"  [{f['class']}] {f['id']}: {f['detail']}" for f in report.findings]
+        if refused and report.backed_up:
+            lines.append(f"  backups kept: {report.backup_dir} (listed in DISPOSITIONS.md)")
+    return lines
+
+
 def _emit_lessons_migration_banner(report: LessonsMigrationReport) -> None:
     """Print one banner block for the report; silent on `absent` and
-    `generated`. Never raises."""
-    if report.state in SILENT_STATES:
+    `generated`, unless a generated index was healed or still has a finding
+    `--write` cannot clear. Never raises."""
+    silent = report.state in SILENT_STATES
+    if silent and not any(getattr(report, name, None) for name in ("healed", "findings", "rewritten")):
         return
     try:
-        lines = _banner_lines(report)
+        lines = [*_drift_lines(report), *([] if silent else _banner_lines(report))]
     except Exception as exc:  # noqa: BLE001 -- a banner must never fail the caller
         lines = [f"Lessons index migration: {report.state} ({report.detail or exc!r})"]
     for line in lines:

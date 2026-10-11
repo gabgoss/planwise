@@ -10,7 +10,8 @@ never repeats:
 - `legacy` (hand-authored): plan every move in memory, back up each file the
   plan rewrites byte-exact, append the index's notes to the Master Plans, then
   run the generator for the index and check it.
-- `generated`: check the index and stay silent either way.
+- `generated`: check the index. Silent when the check reports no tree anomaly. Otherwise the
+  banner prints each anomaly and names the writer that fixes a Status line.
 - `unrecognized`: report the classifier's reason and touch nothing.
 
 Recognise-or-refuse, never best-effort. Every step before the backup is
@@ -31,7 +32,7 @@ import contextlib
 import dataclasses
 import io
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -53,6 +54,7 @@ except ImportError as exc:
 RERUN = ("then re-run /planwise upgrade (the migration re-fires on a hand-authored index; "
          "nothing else repeats)")
 MIGRATOR = "migrate_plans_index.py"
+WRITER = "flip_plan_status.py"  # the guarded writer that fixes a Master Plan's `**Status:**` line
 STATES = ("absent", "generated", "unrecognized", "deferred", "refused", "backup_failed", "write_failed", "migrated",
           "changelog_split", "error")
 SILENT_STATES = ("absent", "generated")
@@ -73,6 +75,7 @@ class PlansMigrationReport:
     diverged: dict = dataclasses.field(default_factory=dict)  # backup dst (str) -> sibling pre-image (str)
     counts: dict = dataclasses.field(default_factory=dict)
     git_dirty: bool | None = None
+    anomalies: list = dataclasses.field(default_factory=list)  # the generator --check's tree anomalies, on `generated`
 
 
 def migrate_plans_if_legacy(cfg: "InitConfig", from_version: str, to_version: str,
@@ -116,7 +119,12 @@ def _migrate(cfg, from_version: str, to_version: str, report, defer_legacy: bool
         return
     if shape == "generated":
         report.state = "generated"
-        report.detail = f"index --check exit {gen.check_plans_index(config).exit_code}"
+        check = gen.check_plans_index(config)
+        report.detail = f"index --check exit {check.exit_code}"
+        report.anomalies = list(check.anomalies)
+        if any(found.get("class") == "unknown-status" for found in report.anomalies):
+            report.fix = (f'python "{Path(cfg.plugin_root) / "scripts" / WRITER}" --config "{config_path}" '
+                          '{map file}   (one line "{Path}: {STATUS}" per Master Plan)')
         return
     if defer_legacy:
         report.state = "deferred"
@@ -268,12 +276,45 @@ def _migrated_lines(report: PlansMigrationReport) -> list:
     return lines
 
 
+def _plan_path_of(master_plan_file: str) -> str:
+    """The Path the writer's map needs for the Master Plan file at `master_plan_file` (relative to the
+    plans directory): its folder with a trailing slash, as `enumerate_master_plans` builds it."""
+    folder = PurePosixPath(master_plan_file.replace("\\", "/")).parent.as_posix()
+    return "" if folder == "." else folder + "/"
+
+
+def _anomaly_lines(report: PlansMigrationReport) -> list:
+    """The generated index's `--check` anomalies: one block per anomaly. An `unknown-status` block shows the
+    exact map line the writer accepts and is followed by the writer command. A `missing-status` block shows
+    a hand fix, because the writer refuses a plan with no `**Status:**` line."""
+    lines = [f"Plans index: generated; --check reports {len(report.anomalies)} anomaly(ies)"]
+    for found in report.anomalies:
+        kind = found.get("class", "?")
+        shown = found.get("file") or found.get("path") or "?"
+        lines.append(f"  {kind}: {shown}")
+        if kind == "unknown-status":
+            lines += [f"    Status line: {found.get('raw')}",
+                      f"    reduced to:  {found.get('status')}  (not in plan_statuses)"]
+            if found.get("file"):
+                lines.append(f"    map line:    {_plan_path_of(found['file'])}: {{STATUS}}")
+        elif kind == "missing-status":
+            lines += ["    Status line: none (the Master Plan has no **Status:** line)",
+                      f"    hand-fix:    add a **Status:** line to that Master Plan ({WRITER} refuses a plan with none)"]
+        else:
+            lines.append(f"    {found.get('message', '')}")
+    if report.fix and any(found.get("class") == "unknown-status" for found in report.anomalies):
+        lines.append(f"  fix: {report.fix}")
+    return lines
+
+
 def _emit_plans_migration_banner(report: PlansMigrationReport) -> None:
-    """Print one banner block for the report; silent on `absent` and `generated`. Never raises."""
-    if report.state in SILENT_STATES:
+    """Print one banner block for the report; silent on `absent` and `generated`, unless the
+    generated index's `--check` reported anomalies. Never raises."""
+    silent = report.state in SILENT_STATES
+    if silent and not getattr(report, "anomalies", None):
         return
     try:
-        lines = _banner_lines(report)
+        lines = _anomaly_lines(report) if silent else _banner_lines(report)
     except Exception as exc:  # noqa: BLE001 -- a banner must never fail the caller
         lines = [f"Plans index migration: {report.state} ({report.detail or exc!r})"]
     for line in lines:
