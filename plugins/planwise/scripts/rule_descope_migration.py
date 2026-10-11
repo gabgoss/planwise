@@ -83,13 +83,18 @@ def migrate_installed_rules(
     cfg: "InitConfig",
     from_version: str,
     to_version: str,
+    *,
+    force_filenames: "frozenset[str]" = frozenset(),
 ) -> dict:
     """Remove install-set rules that the de-scope moved to handler-loading.
 
     Version-gated: acts only when
     ``from_version < RESCOPE_MIGRATION_VERSION <= to_version`` (the single
     upgrade that crosses the de-scope boundary). Outside that window it is a
-    pure no-op and touches nothing.
+    pure no-op and touches nothing, except for the filenames in
+    ``force_filenames``: each named de-scoped file passes the window gate and
+    is dispositioned exactly as inside the window (a cached verdict for a
+    leftover must reach its consumer on any version pair).
 
     For each (filename, old_template) in DESCOPED_RULES, the installed copy at
     ``.claude/rules/planwise/{filename}`` is dispositioned as follows.
@@ -138,15 +143,19 @@ def migrate_installed_rules(
     is contained as a ``skipped`` entry — the loop always completes and
     reports. Rules outside DESCOPED_RULES are never inspected or modified.
 
-    Returns ``{"removed": [...], "preserved": [...], "skipped": [...]}`` where
-    each list holds human-readable strings (filename + reason). The shape is
-    intentionally loose so the upgrade banner can fold it in directly.
+    Returns ``{"removed": [...], "preserved": [...], "skipped": [...],
+    "acted_on": [...]}`` where the first three lists hold human-readable
+    strings (filename + reason) and ``acted_on`` holds the bare filename of
+    every installed file the loop dispositioned. The shape is intentionally
+    loose so the upgrade banner can fold it in directly.
     """
-    report: dict[str, list[str]] = {"removed": [], "preserved": [], "skipped": []}
+    report: dict[str, list[str]] = {
+        "removed": [], "preserved": [], "skipped": [], "acted_on": []}
 
     # Version gate — run exactly once, on the upgrade that crosses the boundary.
     gate = _version_tuple(RESCOPE_MIGRATION_VERSION)
-    if not (_version_tuple(from_version) < gate <= _version_tuple(to_version)):
+    in_window = _version_tuple(from_version) < gate <= _version_tuple(to_version)
+    if not in_window and not force_filenames:
         return report
 
     refs_dir = cfg.plugin_root / "references"
@@ -248,7 +257,10 @@ def migrate_installed_rules(
             "handler-loaded from references/")
 
     for filename, old_template in DESCOPED_RULES:
+        if not in_window and filename not in force_filenames:
+            continue
         dst = rules_dir / filename
+        skipped_before = len(report["skipped"])
         try:
             if not dst.exists():
                 # Already absent (fresh install on the new version, or a prior
@@ -270,6 +282,7 @@ def migrate_installed_rules(
                     f"{filename}: kept — shipped reference unavailable to compare; "
                     "re-home to a project-local rule or upstream the edit if it is custom"
                 )
+                report["acted_on"].append(filename)
                 continue
 
             installed_norm = normalize_rule_for_diff(installed_raw)
@@ -394,14 +407,42 @@ def migrate_installed_rules(
                             "paths: to code dirs, or upstream the change. Installed copy "
                             "unchanged.",
                             paths_match=paths_match)
-        except OSError as exc:
-            # Per-file containment: one unreadable/read-only file must not abort
-            # the migration mid-loop (earlier deletions would then go unreported).
+            # Only a removed or preserved file counts as acted on: a skipped file
+            # (failed backup, failed unlink) stays in the caller's untracked list.
+            if len(report["skipped"]) == skipped_before:
+                report["acted_on"].append(filename)
+        except (OSError, ValueError) as exc:
+            # Per-file containment: one unreadable/read-only/non-UTF-8 file must
+            # not abort the migration mid-loop (earlier deletions would then go
+            # unreported).
             report["skipped"].append(
                 f"{filename}: skipped — disposition failed ({exc}); installed file "
                 "left in place")
 
     return report
+
+
+def descoped_force_set(cfg: "InitConfig", verdicts: dict) -> "frozenset[str]":
+    """The installed de-scoped filenames whose cached verdict the loader accepts.
+
+    These are the files the migration must process on every version pair, so
+    a cached verdict for a leftover reaches its consumer. A malformed entry or
+    one bound to different installed bytes is rejected by the same loader the
+    migration uses, so it never opens the version window.
+    """
+    rules_dir = cfg.project_root / ".claude" / "rules" / "planwise"
+    forced = set()
+    for name, _template in DESCOPED_RULES:
+        if name not in verdicts:
+            continue
+        path = rules_dir / name
+        try:
+            raw = path.read_text(encoding="utf-8-sig")
+        except (OSError, ValueError):
+            continue
+        if _load_verdict_override(verdicts, name, raw, path) is not None:
+            forced.add(name)
+    return frozenset(forced)
 
 
 # Below the definitions: init_project re-exports names from this module, so

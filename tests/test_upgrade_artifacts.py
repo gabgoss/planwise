@@ -1211,6 +1211,48 @@ class TestUpgradeBannerOrphanedAgentMirrors(unittest.TestCase):
         self.assertIn("Already up to date", out)
         self.assertNotIn("Orphaned agent mirrors", out)
 
+    def test_descoped_leftover_with_cached_verdict_is_not_untracked_outside_window(self):
+        import upgrade_io
+
+        old, new = "1.0.4", "1.0.5"
+        filename = "session-context-budget.md"
+        cfg = ip.InitConfig(
+            project_name="MirrorFixtureProject",
+            project_root=self.project_root,
+            plugin_root=self.plugin_root,
+            plugin_version=new,
+        )
+        refs = self.plugin_root / "references"
+        refs.mkdir(parents=True, exist_ok=True)
+        (refs / filename).write_text(
+            "---\ndescription: fixture rule\npaths: {plans_path}\n---\n"
+            "# Session Context Budget\n\nShipped body.\n", encoding="utf-8")
+        rules_dir = self.project_root / ".claude" / "rules" / "planwise"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        installed = rules_dir / filename
+        installed.write_text(
+            f"---\ndescription: fixture rule\npaths: {ip.resolve_rule_paths_value(cfg, '{plans_path}')}\n---\n"
+            "# Session Context Budget\n\nShipped body.\n# Extra\nUser-added block.\n",
+            encoding="utf-8")
+        self._pin(old)
+        cache = upgrade_io.verdicts_cache_path(cfg, old, new)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({filename: {
+            "classification": "HAS_UNIQUE", "confidence": "unique",
+            "unique_blocks": ["# Extra"],
+            "installed_sha256": upgrade_io._installed_hash(installed),
+        }}), encoding="utf-8")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = ip._run_upgrade(cfg)
+        out = buf.getvalue()
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("Untracked preserved", out)
+        self.assertIn(filename, out)
+        self.assertIn("re-home", out)
+
     def _run_with_raising_sweep(self):
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.object(
