@@ -155,10 +155,18 @@ def _run(config, *args):
 # ---------------------------------------------------------------------------
 
 
-def test_refuses_id_resolving_to_zero_files(tmp_path):
-    config, index_path, _lessons_dir = _build(tmp_path, drop_lesson="LL-002-PROC-Two.md")
-    with pytest.raises(mig.Refusal, match="resolves to 0 file"):
-        _plan(config, index_path)
+def test_row_resolving_to_zero_files_relocates_verbatim(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path, drop_lesson="LL-002-PROC-Two.md")
+    row = next(ln for ln in index_path.read_text(encoding="utf-8").split("\n") if ln.startswith("| LL-002 "))
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    assert plan["relocated"]["rows"] == 1 and sorted(plan["resolved"]) == [1, 3]
+    assert any(h == "Master Table row with no lesson file" and row in body for h, body in plan["relocate_sections"])
+    assert _run(config, *_WRITE_ARGS) == 0
+    changelog = (lessons_dir / "00-Changelog-LessonsLearned.md").read_bytes().decode("utf-8")
+    assert "### Master Table row with no lesson file\n" in changelog and row in changelog
+    ledger = _ledger(lessons_dir)
+    assert ledger["relocated"]["rows"] == 1 and ledger["unaccounted"] == 0
+    assert ledger["verification"]["verified"] is True
 
 
 def test_refuses_id_resolving_to_more_than_one_file(tmp_path):
@@ -198,11 +206,13 @@ def test_refuses_prose_section_differing_without_relocate_flag(tmp_path):
         _plan(config, index_path, mig.RepairOptions(backfill_frontmatter=True))
 
 
-def test_refuses_companion_rename_target_already_exists(tmp_path):
+def test_companion_rename_target_already_exists_keeps_its_bytes_and_gains_a_dated_heading(tmp_path):
     config, index_path, lessons_dir = _build(tmp_path)
     (lessons_dir / gen.NOTES_FILENAME).write_bytes(b"already here\n")
-    with pytest.raises(mig.Refusal, match="already exists"):
-        _plan(config, index_path, mig.RepairOptions.all_on())
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    heading = f"## Companion migrated {plan['migration_date']}"
+    assert plan["companion_rename"] == f"already here\n\n{heading}\n\n" + COMPANION_LEGACY
+    assert plan["relocated"]["foreign_files"] == [gen.NOTES_FILENAME]
 
 
 # ---------------------------------------------------------------------------
@@ -526,26 +536,23 @@ def test_partly_filled_idless_log_row_still_refuses_naming_its_line(tmp_path, nl
 # Every refusal in one run, grouped by what closes it
 # ---------------------------------------------------------------------------
 
-def test_three_refusal_causes_are_all_reported_in_one_run(tmp_path):
-    # LL-003's file is gone (hand fix), LL-001/LL-002 lack keys (--backfill-frontmatter), and
-    # Quick Reference differs from the seed (--relocate-prose).
+def test_two_refusal_causes_are_all_reported_in_one_run(tmp_path):
+    # LL-001/LL-002 lack keys (--backfill-frontmatter) and Quick Reference differs from the seed
+    # (--relocate-prose). LL-003's missing file relocates, so it is no refusal group.
     config, index_path, lessons_dir = _build(tmp_path, drop_lesson="LL-003-PROC-Three.md")
     with pytest.raises(mig.Refusal) as exc:
         _plan(config, index_path)
     message = str(exc.value)
-    for fix, needle in ((sup.FIX_RESOLVE, "resolves to 0 file"), (sup.FIX_BACKFILL, "LL-002-PROC-Two.md"),
-                        (sup.FIX_RELOCATE, "'Quick Reference'")):
+    for fix, needle in ((sup.FIX_BACKFILL, "LL-002-PROC-Two.md"), (sup.FIX_RELOCATE, "'Quick Reference'")):
         assert f"{fix} (" in message and needle in message
-    assert {fix for fix, _detail in exc.value.items} == {sup.FIX_RESOLVE, sup.FIX_BACKFILL, sup.FIX_RELOCATE}
+    assert {fix for fix, _detail in exc.value.items} == {sup.FIX_BACKFILL, sup.FIX_RELOCATE}
 
-    # --report plans with every repair flag on, so it lists only the refusals no flag closes:
-    # the missing LL-003 file plus two foreign files placed at output paths.
+    # --report plans with every repair flag on. The missing LL-003 file and the two foreign files
+    # placed at output paths all relocate, so no refusal is left (3 before the relocations).
     (lessons_dir / "00-Changelog-LessonsLearned.md").write_bytes(b"foreign changelog content\n")
     (lessons_dir / gen.NOTES_FILENAME).write_bytes(b"foreign notes content\n")
     report = json.loads(_capture_json(config, "--report", "--json"))
-    assert len(report["would_refuse"]) == 3
-    assert sum(line.endswith(sup.FIX_RESOLVE) for line in report["would_refuse"]) == 1
-    assert sum(line.endswith(sup.FIX_FOREIGN) for line in report["would_refuse"]) == 2
+    assert report["would_refuse"] == [] and report["ready_with_all_repairs"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -633,12 +640,16 @@ def test_foreign_companion_is_renamed_to_the_notes_file_not_overwritten(tmp_path
     assert gen.is_generated_companion((lessons_dir / gen.COMPANION_FILENAME).read_text(encoding="utf-8"))
 
 
-def test_foreign_companion_refuses_when_the_notes_file_holds_other_content(tmp_path):
+def test_notes_path_collision_appends_under_a_dated_heading(tmp_path):
     config, index_path, lessons_dir = _build(tmp_path, companion=False)
     (lessons_dir / gen.COMPANION_FILENAME).write_bytes(COMPANION_FOREIGN.encode("utf-8"))
     (lessons_dir / gen.NOTES_FILENAME).write_bytes(b"other notes\n")
-    with pytest.raises(mig.Refusal, match="already exists"):
-        _plan(config, index_path, mig.RepairOptions.all_on())
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    expected = f"other notes\n\n## Companion migrated {plan['migration_date']}\n\n" + COMPANION_FOREIGN
+    assert plan["companion_rename"] == expected
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert (lessons_dir / gen.NOTES_FILENAME).read_bytes() == expected.encode("utf-8")
+    assert _ledger(lessons_dir)["relocated"]["foreign_files"] == [gen.NOTES_FILENAME]
 
 
 def test_generated_or_empty_companion_is_not_renamed(tmp_path):
@@ -698,12 +709,59 @@ def test_promotion_log_prose_is_relocated_verbatim_or_refused(tmp_path):
     assert _ledger(lessons_dir)["unaccounted"] == 0
 
 
-def test_promotion_log_table_with_an_unrecognised_header_refuses(tmp_path):
-    config, index_path, _lessons_dir = _build(tmp_path, promo=False)
-    foreign = "## Rule Promotion Log\n\n| When | What |\n|---|---|\n| 2024-01-02 | LL-003 |\n\n---\n"
+def test_unrecognised_promotion_log_header_relocates_as_residue(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path, promo=False)
+    table = "| When | What |\n|---|---|\n| 2024-01-02 | LL-003 |\n"
+    foreign = f"## Rule Promotion Log\n\n{table}\n---\n"
     index_path.write_bytes((index_path.read_bytes().decode("utf-8") + foreign).encode("utf-8"))
-    with pytest.raises(mig.Refusal, match="not the recognised header"):
-        _plan(config, index_path, mig.RepairOptions.all_on())
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    assert plan["relocated"]["promotion_log_lines"] == 3 and plan["promo_rows"] == []
+    assert any(h == "Rule Promotion Log" and table in body for h, body in plan["relocate_sections"])
+    with pytest.raises(mig.Refusal, match="--relocate-prose"):
+        _plan(config, index_path, mig.RepairOptions(backfill_frontmatter=True))
+    assert _run(config, *_WRITE_ARGS) == 0
+    changelog = (lessons_dir / "00-Changelog-LessonsLearned.md").read_bytes().decode("utf-8")
+    assert "### Rule Promotion Log\n" in changelog and table in changelog
+    assert _ledger(lessons_dir)["relocated"]["promotion_log_lines"] == 3
+
+
+def test_foreign_changelog_file_folds_in_as_newest_entry(tmp_path, monkeypatch):
+    config, index_path, lessons_dir = _build(tmp_path)
+    foreign = "# My own changelog\n\n## Entry 7\n\nHand-written history.\n\n```\nan unclosed fence\n"
+    changelog_path = lessons_dir / "00-Changelog-LessonsLearned.md"
+    changelog_path.write_bytes(foreign.encode("utf-8"))
+    monkeypatch.setattr(mig, "_today", lambda: "2026-01-01")
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    assert plan["relocated"]["foreign_files"] == [changelog_path.name]
+    with patch("migrate_lessons_index.gen._cmd_write_lessons", side_effect=RuntimeError("boom")):
+        assert _run(config, *_WRITE_ARGS) == 1
+    monkeypatch.setattr(mig, "_today", lambda: "2026-01-02")
+    assert _run(config, *_WRITE_ARGS) == 0  # the resume plans the same fold from its own earlier output
+    title = "Pre-migration changelog file (migrated 2026-01-01)"
+    changelog = changelog_path.read_bytes().decode("utf-8")
+    assert changelog.count(title) == 1 and foreign.strip("\n") in changelog
+    newest = re.search(r"^## Entry \d+\n\n(.*)", changelog, re.MULTILINE).group(1)
+    assert newest == title  # the fold is the first entry in the file
+    ledger = _ledger(lessons_dir)
+    assert ledger["relocated"]["foreign_files"] == [changelog_path.name] and ledger["unaccounted"] == 0
+    plan["folds"].append("a byte sequence nobody wrote")
+    assert any("folded foreign file" in miss for miss in mig.verify_written(plan))
+
+
+def test_foreign_promotion_log_folds_in_as_residue(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path)
+    name = gen._promotion_log_filename(mig._index_naming(index_path))
+    foreign = "# My promotion notes\n\nKept by hand.\n"
+    (lessons_dir / name).write_bytes(foreign.encode("utf-8"))
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    assert plan["relocated"]["foreign_files"] == [name]
+    assert _run(config, *_WRITE_ARGS) == 0
+    changelog = (lessons_dir / "00-Changelog-LessonsLearned.md").read_bytes().decode("utf-8")
+    assert f"### Pre-migration promotion-log file {name}\n" in changelog
+    assert foreign.strip("\n") in changelog
+    assert "Kept by hand" not in (lessons_dir / name).read_bytes().decode("utf-8")
+    ledger = _ledger(lessons_dir)
+    assert ledger["relocated"]["foreign_files"] == [name] and ledger["unaccounted"] == 0
 
 
 def test_resume_on_a_later_day_recognises_its_own_earlier_output(tmp_path, monkeypatch):
@@ -750,12 +808,16 @@ def test_seed_equal_notes_file_counts_as_absent_for_the_rename(tmp_path, variant
     assert notes.read_bytes() == COMPANION_LEGACY.encode("utf-8")
 
 
-def test_hand_edited_notes_file_still_refuses_the_rename(tmp_path):
+def test_hand_edited_notes_file_keeps_its_bytes_and_gains_the_companion_under_a_dated_heading(tmp_path):
     config, index_path, lessons_dir = _build(tmp_path)
     edited = lessons_bootstrap.NOTES_SEED_CONTENT + "| LL-001 | a judgment call | A. Things |\n"
     (lessons_dir / gen.NOTES_FILENAME).write_bytes(edited.encode("utf-8"))
-    with pytest.raises(mig.Refusal, match="already exists"):
-        _plan(config, index_path, mig.RepairOptions.all_on())
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    assert plan["companion_rename"].startswith(edited)
+    assert f"## Companion migrated {plan['migration_date']}" in plan["companion_rename"]
+    assert _run(config, *_WRITE_ARGS) == 0
+    written = (lessons_dir / gen.NOTES_FILENAME).read_bytes().decode("utf-8")
+    assert written.startswith(edited) and written.endswith(COMPANION_LEGACY)
 
 
 def _seed_logs_like_the_bootstrap(lessons_dir, index_name: str) -> list:
@@ -954,26 +1016,31 @@ def test_resume_overwrites_a_zero_row_hub_that_carries_a_parts_line(tmp_path):
     assert other not in _hub_parts_hrefs(lessons_dir)  # the century file never existed on disk
 
 
-def test_resume_refuses_a_hub_that_holds_a_data_row(tmp_path):
+def test_resume_merges_a_hub_data_row_into_the_planned_log(tmp_path):
     config, index_path, lessons_dir = _build(tmp_path)
     part = sup.century_log_filenames(mig._index_naming(index_path))[1]
     hub = lessons_dir / HUB_LOG_NAME
-    hub.write_bytes(_zero_row_hub_listing(index_path, [part]) + b"| 2024-01-01 | LL-060 | a rule | [r](r.md) |\n")
-    before = hub.read_bytes()
-    with pytest.raises(mig.Refusal, match="already exists"):
-        _plan(config, index_path, mig.RepairOptions.all_on())
-    assert _run(config, *_WRITE_ARGS) != 0
-    assert hub.read_bytes() == before
+    row = "| 2024-01-01 | LL-060 | a rule | [r](r.md) |"
+    hub.write_bytes(_zero_row_hub_listing(index_path, [part]) + f"{row}\n".encode())
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    assert plan["relocated"]["foreign_files"] == [HUB_LOG_NAME]
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert row in (lessons_dir / part).read_bytes().decode("utf-8")  # the row is in the structured log
+    assert row not in (lessons_dir / "00-Changelog-LessonsLearned.md").read_bytes().decode("utf-8")
+    assert _hub_parts_hrefs(lessons_dir) == _on_disk_archive_parts(lessons_dir) and part in _hub_parts_hrefs(lessons_dir)
+    ledger = _ledger(lessons_dir)
+    assert ledger["promotion_log"]["rows"] == 2 and ledger["unaccounted"] == 0
 
 
-def test_resume_refuses_a_zero_row_hub_whose_line_is_prose_not_a_parts_listing(tmp_path):
+def test_resume_folds_in_a_zero_row_hub_whose_line_is_prose_not_a_parts_listing(tmp_path):
     config, index_path, lessons_dir = _build(tmp_path)
     hub = lessons_dir / HUB_LOG_NAME
     hub.write_bytes(_zero_row_hub_listing(index_path, [], parts_line="Parts: see the archive folder"))
-    before = hub.read_bytes()
-    with pytest.raises(mig.Refusal, match="already exists"):
-        _plan(config, index_path, mig.RepairOptions.all_on())
-    assert hub.read_bytes() == before
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    assert plan["relocated"]["foreign_files"] == [HUB_LOG_NAME]
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert "Parts: see the archive folder" in (lessons_dir / "00-Changelog-LessonsLearned.md").read_bytes().decode("utf-8")
+    assert "see the archive folder" not in hub.read_bytes().decode("utf-8")
 
 
 def test_resume_accepts_a_hub_equal_to_the_planned_text(tmp_path):
@@ -985,3 +1052,244 @@ def test_resume_accepts_a_hub_equal_to_the_planned_text(tmp_path):
     _plan(config, index_path, mig.RepairOptions.all_on())  # no refusal: a resumed run's own output
     assert _run(config, *_WRITE_ARGS) == 0
     assert _hub_parts_hrefs(lessons_dir) == _on_disk_archive_parts(lessons_dir)
+
+
+def test_resume_keeps_a_hub_row_beside_hand_prose_that_cannot_parse(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path)
+    part = sup.century_log_filenames(mig._index_naming(index_path))[1]
+    row = "| 2024-01-01 | LL-060 | a rule | [r](r.md) |"
+    hub_text = _zero_row_hub_listing(index_path, [part]) + f"HAND-PROSE kept by hand.\n{row}\n".encode()
+    (lessons_dir / HUB_LOG_NAME).write_bytes(hub_text)
+    assert _run(config, *_WRITE_ARGS) == 0
+    changelog = (lessons_dir / CHANGELOG_NAME).read_bytes().decode("utf-8")
+    assert row in (lessons_dir / part).read_bytes().decode("utf-8") and row not in changelog
+    assert changelog.count("HAND-PROSE kept by hand.") == 1
+    assert _ledger(lessons_dir)["unaccounted"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: a resumed run recognises its own folds, relocation spans stay
+# inside their section, folds are byte-exact, foreign files keep a copy, and
+# each relocated unit is counted once.
+# ---------------------------------------------------------------------------
+
+CHANGELOG_NAME = "00-Changelog-LessonsLearned.md"
+HUB_MARKER_TEXT = "# My promotion notes\n\nHUB-MARKER kept by hand.\n"
+CL_MARKER_TEXT = "# Own changelog\n\nCL-MARKER history.\n"
+
+
+def _crash_then_replan(config, index_path):
+    """A `--write` whose generator step raises, then the plan a resume makes."""
+    with patch("migrate_lessons_index.gen._cmd_write_lessons", side_effect=RuntimeError("boom")):
+        assert _run(config, *_WRITE_ARGS) == 1
+    return _plan(config, index_path, mig.RepairOptions.all_on())
+
+
+def _changelog_text(lessons_dir) -> str:
+    return (lessons_dir / CHANGELOG_NAME).read_bytes().decode("utf-8")
+
+
+def test_resume_keeps_a_folded_foreign_hub(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path)
+    (lessons_dir / HUB_LOG_NAME).write_bytes(HUB_MARKER_TEXT.encode())
+    plan = _crash_then_replan(config, index_path)
+    assert plan["relocated"]["foreign_files"] == [HUB_LOG_NAME]
+    planned = {path.name: text for path, text in plan["outputs"]}
+    assert planned[CHANGELOG_NAME] == _changelog_text(lessons_dir)  # the resume re-plans what is on disk
+    assert _run(config, *_WRITE_ARGS) == 0
+    changelog = _changelog_text(lessons_dir)
+    assert changelog.count("HUB-MARKER") == 1 and "Pre-migration changelog file" not in changelog
+    assert changelog.count("Relocated hand-written index sections") == 1
+    ledger = _ledger(lessons_dir)
+    assert ledger["relocated"]["foreign_files"] == [HUB_LOG_NAME] and ledger["unaccounted"] == 0
+
+
+def test_resume_keeps_both_a_folded_foreign_hub_and_a_folded_foreign_changelog(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path)
+    (lessons_dir / HUB_LOG_NAME).write_bytes(HUB_MARKER_TEXT.encode())
+    (lessons_dir / CHANGELOG_NAME).write_bytes(CL_MARKER_TEXT.encode())
+    plan = _crash_then_replan(config, index_path)
+    assert sorted(plan["relocated"]["foreign_files"]) == sorted([HUB_LOG_NAME, CHANGELOG_NAME])
+    planned = {path.name: text for path, text in plan["outputs"]}
+    assert planned[CHANGELOG_NAME] == _changelog_text(lessons_dir)
+    assert _run(config, *_WRITE_ARGS) == 0
+    changelog = _changelog_text(lessons_dir)
+    assert changelog.count("HUB-MARKER") == 1 and changelog.count("CL-MARKER") == 1
+    assert changelog.count("Pre-migration changelog file") == 1
+    assert changelog.count("Relocated hand-written index sections") == 1
+    assert _ledger(lessons_dir)["unaccounted"] == 0
+
+
+_LOG_HEADER_LINE = "| Date | Lesson ID | Artifact Created | File |\n"
+_LOG_ROW = "| 2024-01-02 | LL-003 | a rule | [rule.md](rule.md) |\n"
+_BAD_SEPARATOR = ("## Rule Promotion Log\n\n| Date | Lesson ID | Artifact Created | File (MY-HEADER) |\n"
+                  "| not a separator |\n" + _LOG_ROW + "\n---\n")
+_NO_SEPARATOR = ("## Rule Promotion Log\n\n| Date | Lesson ID | Artifact Created | File (MY-HEADER) |\n"
+                 + _LOG_ROW + "\n---\n")
+
+
+def _build_with_log(tmp_path, log_text):
+    config, index_path, lessons_dir = _build(tmp_path, promo=False)
+    index_path.write_bytes(index_path.read_bytes() + log_text.encode("utf-8"))
+    return config, index_path, lessons_dir
+
+
+@pytest.mark.parametrize("log_text", [_BAD_SEPARATOR, _NO_SEPARATOR], ids=["bad-separator", "no-separator"])
+def test_recognised_header_without_its_separator_relocates_with_its_table(tmp_path, log_text):
+    config, _index_path, lessons_dir = _build_with_log(tmp_path, log_text)
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert "MY-HEADER" in "".join(p.read_text(encoding="utf-8") for p in lessons_dir.rglob("*.md"))
+    table = log_text.split("\n\n")[1] + "\n"
+    assert table in _changelog_text(lessons_dir)  # header line, then the table it heads, unbroken
+    assert _ledger(lessons_dir)["unaccounted"] == 0
+
+
+def test_refused_row_span_stays_inside_the_promotion_log_section(tmp_path):
+    five_cells = "| 2024-01-02 | LL-003 | a rule | [rule.md](rule.md) | extra |\n"
+    log_text = "## Rule Promotion Log\n\n" + _LOG_HEADER_LINE + "|------|---|---|---|\n" + five_cells \
+        + "## Extra Notes\nhand prose line\n"
+    config, _index_path, lessons_dir = _build_with_log(tmp_path, log_text)
+    assert _run(config, *_WRITE_ARGS) == 0
+    changelog = _changelog_text(lessons_dir)
+    assert changelog.count("hand prose line") == 1 and "\n## Extra Notes\n" not in changelog
+    assert f"### Rule Promotion Log\n{five_cells}" in changelog  # the row is the whole residue
+
+
+def test_refused_row_span_does_not_copy_a_later_sections_counter_line(tmp_path):
+    five_cells = "| 2024-01-02 | LL-003 | a rule | [rule.md](rule.md) | extra |\n"
+    log_text = "## Rule Promotion Log\n\n" + _LOG_HEADER_LINE + "|------|---|---|---|\n" + five_cells \
+        + "## Extra Notes\nhand prose line\n**Next available ID:** LL-004\n\n---\n"
+    config, _index_path, lessons_dir = _build_with_log(tmp_path, log_text)
+    assert _run(config, *_WRITE_ARGS) == 0
+    changelog = _changelog_text(lessons_dir)
+    assert changelog.count("Next available ID") == 1  # once, inside its own section
+    assert f"### Rule Promotion Log\n{five_cells}### Extra Notes\n" in changelog  # the row alone is the residue
+
+
+_FOLD_BYTES = {
+    "crlf": b"# Mine\r\n\r\nline one\r\nline two\r\n",
+    "bom": b"\xef\xbb\xbf# Mine\n\nbody\n",
+    "no-trailing-newline": b"# Mine\n\nbody without newline",
+    "fences": b"# Mine\n\n```\ncode\n```\n\n````md\n```inner```\n````\n## Entry 9\n",
+    "blank-edges": b"\n\n# Mine\n\nbody\n\n\n",
+    "lone-cr": b"# Mine\n\nA\rB\n",
+    "mixed": b"# Mine\r\nlf line\nend\r\n",
+    "trailing-space": b"# Mine\n\nbody   \n   \n",
+}
+
+
+@pytest.mark.parametrize("crlf_index", [False, True], ids=["lf-index", "crlf-index"])
+@pytest.mark.parametrize("raw", list(_FOLD_BYTES.values()), ids=list(_FOLD_BYTES))
+def test_foreign_changelog_fold_is_byte_exact(tmp_path, raw, crlf_index):
+    config, index_path, lessons_dir = _build(tmp_path, crlf=crlf_index)
+    (lessons_dir / CHANGELOG_NAME).write_bytes(raw)
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    assert plan["folds"] == [raw.decode("utf-8")]
+    assert _run(config, *_WRITE_ARGS) == 0
+    nl = b"\r\n" if crlf_index else b"\n"
+    data = (lessons_dir / CHANGELOG_NAME).read_bytes()
+    assert nl + raw + nl in data  # only the wrapper lines the migrator adds use the index newline
+    assert _ledger(lessons_dir)["verification"]["verified"] is True
+
+
+@pytest.mark.parametrize("crlf_index", [False, True], ids=["lf-index", "crlf-index"])
+def test_foreign_hub_fold_is_byte_exact(tmp_path, crlf_index):
+    config, _index_path, lessons_dir = _build(tmp_path, crlf=crlf_index)
+    raw = b"\xef\xbb\xbf# Mine\r\nHUB-MARKER\nend\r\n\r\n"
+    (lessons_dir / HUB_LOG_NAME).write_bytes(raw)
+    assert _run(config, *_WRITE_ARGS) == 0
+    nl = b"\r\n" if crlf_index else b"\n"
+    assert nl + raw + nl in (lessons_dir / CHANGELOG_NAME).read_bytes()
+
+
+def test_verify_written_checks_the_exact_fold_bytes(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path, crlf=True)
+    (lessons_dir / CHANGELOG_NAME).write_bytes(_FOLD_BYTES["mixed"])
+    text = mig.read_text(index_path)  # newlines kept: `_plan` reads text mode and would plan LF
+    plan = mig.plan_migration(config, index_path, text, sup.classify_shape(text)[1], mig.RepairOptions.all_on())
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert mig.verify_written(plan) == []
+    path = lessons_dir / CHANGELOG_NAME
+    path.write_bytes(path.read_bytes().replace(b"# Mine\r\nlf line\nend\r\n", b"# Mine\r\nlf line\r\nend\r\n"))
+    assert any("folded foreign file" in miss for miss in mig.verify_written(plan))
+
+
+def test_standalone_write_keeps_a_recoverable_copy_of_every_foreign_file(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path, companion=False)
+    foreign = {HUB_LOG_NAME: HUB_MARKER_TEXT.encode(), CHANGELOG_NAME: CL_MARKER_TEXT.encode(),
+               gen.NOTES_FILENAME: b"other notes\n"}
+    for name, data in foreign.items():
+        (lessons_dir / name).write_bytes(data)
+    (lessons_dir / gen.COMPANION_FILENAME).write_bytes(COMPANION_FOREIGN.encode())
+    _crash_then_replan(config, index_path)
+    copies = {name: lessons_dir / (name + mig.relocate.COPY_SUFFIX) for name in foreign}
+    assert {name: path.read_bytes() for name, path in copies.items()} == foreign
+    assert _run(config, *_WRITE_ARGS) == 0  # the resume must not replace a copy with the migrator's own output
+    assert {name: path.read_bytes() for name, path in copies.items()} == foreign
+
+
+def test_standalone_write_announces_each_new_copy_once_and_lists_all_in_the_ledger(tmp_path, capsys):
+    config, index_path, lessons_dir = _build(tmp_path)
+    (lessons_dir / HUB_LOG_NAME).write_bytes(HUB_MARKER_TEXT.encode())
+    (lessons_dir / CHANGELOG_NAME).write_bytes(CL_MARKER_TEXT.encode())
+    capsys.readouterr()
+    _crash_then_replan(config, index_path)
+    first = capsys.readouterr().out.splitlines()
+    copies = {name: lessons_dir / (name + mig.relocate.COPY_SUFFIX) for name in (HUB_LOG_NAME, CHANGELOG_NAME)}
+    for name, copy in copies.items():
+        assert f"BACKUP: {lessons_dir / name} kept as {copy}" in first
+    assert len([ln for ln in first if ln.startswith("BACKUP: ")]) == 2
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert not [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("BACKUP: ")]  # kept from an earlier run: silent
+    assert sorted(_ledger(lessons_dir)["relocated"]["backups"]) == sorted(str(p) for p in copies.values())
+
+
+def test_a_standalone_write_with_nothing_foreign_writes_no_copy(tmp_path):
+    config, _index_path, lessons_dir = _build(tmp_path)
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert list(lessons_dir.rglob("*" + mig.relocate.COPY_SUFFIX)) == []
+
+
+def test_resume_recovers_a_hub_fold_that_rotated_into_an_archive_part(tmp_path):
+    """A foreign changelog larger than the read budget folds in as the newest
+    entry and stays whole in the main file, so the relocated entry carrying
+    the hub fold lands in an archive part before the generator step crashes."""
+    config, index_path, lessons_dir = _build(tmp_path)
+    (lessons_dir / HUB_LOG_NAME).write_bytes(HUB_MARKER_TEXT.encode())
+    filler = ("Lorem ipsum filler text describing a fixture entry body in full. " * 15 + "\n") * 120
+    (lessons_dir / CHANGELOG_NAME).write_bytes((CL_MARKER_TEXT + filler).encode())
+    plan = _crash_then_replan(config, index_path)
+    parts = [p for p in lessons_dir.glob("00-Changelog-LessonsLearned-*.md")]
+    assert parts and "HUB-MARKER" in "".join(p.read_text(encoding="utf-8") for p in parts)
+    assert "HUB-MARKER" not in _changelog_text(lessons_dir)  # the main file holds only the newest entry
+    assert {p.name: t for p, t in plan["outputs"]}[parts[0].name] == parts[0].read_bytes().decode("utf-8")
+    assert _run(config, *_WRITE_ARGS) == 0
+    family = "".join(p.read_text(encoding="utf-8") for p in [lessons_dir / CHANGELOG_NAME, *parts])
+    assert family.count("HUB-MARKER") == 1 and family.count("CL-MARKER") == 1
+    assert family.count("Pre-migration changelog file") == 1
+    assert _ledger(lessons_dir)["unaccounted"] == 0
+
+
+def test_resume_keeps_a_hub_row_and_hand_prose_once_each(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path)
+    part = sup.century_log_filenames(mig._index_naming(index_path))[1]
+    row = "| 2024-01-01 | LL-060 | a rule | [r](r.md) |"
+    hub_text = _zero_row_hub_listing(index_path, [part]) + f"HAND-PROSE kept by hand.\n{row}\n".encode()
+    (lessons_dir / HUB_LOG_NAME).write_bytes(hub_text)
+    plan = _crash_then_replan(config, index_path)
+    assert {p.name: t for p, t in plan["outputs"]}[CHANGELOG_NAME] == _changelog_text(lessons_dir)
+    assert _run(config, *_WRITE_ARGS) == 0
+    assert (lessons_dir / part).read_bytes().decode("utf-8").count(row) == 1
+    changelog = _changelog_text(lessons_dir)
+    assert changelog.count("HAND-PROSE kept by hand.") == 1 and row not in changelog
+    assert _ledger(lessons_dir)["unaccounted"] == 0
+
+
+def test_each_relocated_unit_is_counted_in_one_bucket(tmp_path):
+    config, index_path, lessons_dir = _build(tmp_path, drop_lesson="LL-002-PROC-Two.md")
+    plan = _plan(config, index_path, mig.RepairOptions.all_on())
+    assert plan["prose_relocated"] == ["Quick Reference"] and plan["relocated"]["rows"] == 1
+    assert "prose: 1 dropped, 1 relocated" in mig.format_report(plan)
+    assert _run(config, *_WRITE_ARGS) == 0
+    ledger = _ledger(lessons_dir)
+    assert ledger["prose"]["relocate"] == ["Quick Reference"] and ledger["relocated"]["rows"] == 1

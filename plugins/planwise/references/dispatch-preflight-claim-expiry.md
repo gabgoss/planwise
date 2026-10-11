@@ -1,5 +1,5 @@
 ---
-description: What expires between authoring a plan and dispatching it — the six surfaces a stale premise hides on, quantifier-to-enumeration drift in prerequisites, why a prerequisite-COMPLETE gate re-validates nothing, the Depends On / Required Context split, the sibling-sprint sweep, and why a re-measure instruction needs a threshold and an action. Consult at Phase 1, before dispatching any session authored earlier or held behind a gate.
+description: What expires between authoring a plan and dispatching it — the six surfaces a stale premise hides on, quantifier-to-enumeration drift in prerequisites, why a prerequisite-COMPLETE gate re-validates nothing, the Depends On / Required Context split, the sibling-sprint sweep, why a re-measure instruction needs a threshold and an action, and how a router classifies every literal in a routed flag as a decision or a measurement (re-measure the cheap, de-anchor the expensive), why a requirement derived from an unbuilt upstream artifact is tagged and grepped against the shipped artifact at dispatch, why a brief's class-defect count is re-measured over the adjacent directories the class can move to, and why a user-run probe sheet pins the expected build at its head, stops when a launch's banner differs, and treats the first run on a new build as a re-verification of the design, and why a doc section that narrates a pending decision is re-synced by the task that wrote it once the decision lands (swept with `Grep` for the escalation phrase over that task's own prior write-set). Consult at Phase 1, before dispatching any session authored earlier or held behind a gate.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Preflight — Claim Expiry (What Aged Between Authoring and Dispatch)
@@ -18,6 +18,11 @@ Two neighbouring rules own machinery this file builds on and does not restate. [
 - [4. `Depends On` and `Required Context` Are Two Different Assertions](#4-depends-on-and-required-context-are-two-different-assertions)
 - [5. Sweep Sibling Sprints That Closed On or After Your Scaffold Date](#5-sweep-sibling-sprints-that-closed-on-or-after-your-scaffold-date)
 - [6. A "Re-Measure at Dispatch" Instruction Without a Divergence Action Is a No-Op](#6-a-re-measure-at-dispatch-instruction-without-a-divergence-action-is-a-no-op)
+- [7. A Routed Flag Carries Decisions and Measurements: Classify Every Literal, Re-Measure the Cheap, De-Anchor the Expensive](#7-a-routed-flag-carries-decisions-and-measurements-classify-every-literal-re-measure-the-cheap-de-anchor-the-expensive)
+- [8. A Requirement Derived From an Unbuilt Upstream Artifact Is Tagged, Then Grepped Against the Shipped One at Dispatch](#8-a-requirement-derived-from-an-unbuilt-upstream-artifact-is-tagged-then-grepped-against-the-shipped-one-at-dispatch)
+- [9. A Class Defect Migrates Across a Brief's Scope Boundary: Re-Measure the Adjacent Directories at CONFIRM](#9-a-class-defect-migrates-across-a-briefs-scope-boundary-re-measure-the-adjacent-directories-at-confirm)
+- [10. A User-Run Probe Sheet Pins the Build at Its Head, and the First Run on a New Build Re-Verifies the Design](#10-a-user-run-probe-sheet-pins-the-build-at-its-head-and-the-first-run-on-a-new-build-re-verifies-the-design)
+- [11. A Doc Section That Narrates a Pending Decision Is Re-Synced by the Task That Wrote It](#11-a-doc-section-that-narrates-a-pending-decision-is-re-synced-by-the-task-that-wrote-it)
 
 ---
 
@@ -47,7 +52,7 @@ One sprint held BLOCKED for two days guarded this thoroughly and still shipped s
 
 Each carries its threshold and its action, per §6.
 
-1. **Stamp every measured figure with its measurement date, inline.** The refresh pass then finds them by `Grep` rather than by reading. No threshold applies — this is an authoring rule, not a measurement.
+1. **Stamp every measured figure with its measurement date, inline, and name its source command.** The refresh pass then finds them by `Grep` rather than by reading. No threshold applies — this is an authoring rule, not a measurement.
 2. **Enumerate the expiring surfaces explicitly**, using the table above as the checklist. **Threshold:** any surface whose re-take disagrees with the recorded value. **Action:** correct it in every copy together, record the cause rather than only the new value, and where the disagreement touches a success criterion or a gate specification, revise that criterion **before dispatch** — not at closeout, where it is unsatisfiable.
 3. **Re-derive conclusions, not just counts.** One headline conclusion here survived only by coincidence, resting on eight entirely different lessons, while a sibling claim was outright refuted because the defect it named had been fixed and its owner archived COMPLETE. **Threshold:** the re-derived conclusion differs from the recorded one, in any direction. **Action:** revise the plan before dispatch. Do not annotate the old conclusion and proceed.
 4. **A downstream consumer's existence is a measurement too.** Before drafting a coordination flag, check its target is still a future session. **Threshold:** the named consumer has already completed. **Action:** do not draft the flag. Route the observation to the genuine consumer, or record it as discharged with the date the target closed.
@@ -178,6 +183,191 @@ Without the third part the runner has no licence to act, so it does the only thi
 **When a divergence-action clause exists on some siblings and not others, that is a defect, not a style difference.** Sibling task files are usually written by one pass over one template, so a clause present on one and missing on two is an authoring slip that a reviewer reads as intentional variation. `Grep` the sibling set for the clause and normalize it.
 
 This section binds §1 and §5 of this file, and both carry their threshold and their action inline. A rule that prescribes re-measurement without them would ship the exact defect it records.
+
+---
+
+## 7. A Routed Flag Carries Decisions and Measurements: Classify Every Literal, Re-Measure the Cheap, De-Anchor the Expensive
+
+> [!constraint] A flag's decisions route verbatim. A flag's measurements expire on their own
+> The orchestrator's protocol routes a validated flag as context and does not re-derive it. That protection covers the flag's decisions. It does not cover a measurement the flag happens to carry. A count, a byte offset, a line number, a wall time and a file inventory expire through a change made in another file, in another session, by another agent.
+>
+> [read-confirm-act-protocol.md](read-confirm-act-protocol.md) §1.4.C is the receiver side: every inherited value is expired. This section is the router side. [scaffolding-hygiene.md](scaffolding-hygiene.md) §12.5 owns gate-bound figures and is not restated here.
+
+**First example, a test count.** At the close of one session a flag said the proven invocation gave "29 passed / 5 skipped". The next session's preflight routed it verbatim into three briefs as "Step 3's expected tests line reads `tests (ok: 29 passed, 5 skipped)`". The first runner measured the pre-task default tier and got 38 passed / 5 skipped before any edit. The gap predated the session. Six test modules existed that the flag's author had not counted, and the author had quoted an earlier run, not the closing run. A runner that trusted the brief would have reported a defect against correct work, or shrunk the suite to 29.
+
+**Second example, a corpus count.** A closing session measured a corpus on a morning: 238 item files, 50 active and 188 archived. The next session's evening preflight routed the figures as orchestrator-validated context marked "do NOT re-derive". The runner's dry run reported 376 items (183 open, 193 closed). The orchestrator first suspected the scanner. One file count settled it: 185 and 193 files in the two directories. `git log --since=<date> --diff-filter=A` then showed 140 files added by that day's commits. A batch harvest had landed between the two readings.
+
+> [!constraint] Route the decision, and re-anchor or de-anchor the number
+> WRONG — route the flag's number as the expected value:
+> ```
+> Flag:  "proven invocation -> 29 passed / 5 skipped"
+> Brief: "Step 3's expected tests line reads `tests (ok: 29 passed, 5 skipped)`"
+> # Runner measures 38 before its first edit. The brief now asserts a false number.
+> ```
+> CORRECT — route the decision, and re-anchor or de-anchor the number:
+> ```
+> Flag:  "proven invocation -> path argument carries scope; $0 depends on X and Y"
+> Brief: "Step 3 records the observed count and asserts on scope: zero node IDs
+>         outside <tests-dir>/. The last recorded count was 29
+>         (<session>, <date>); a different figure is data, not a defect."
+> ```
+> WRONG — route a morning measurement as validated context in the evening:
+> ```
+> 1. Corpus facts the scanner will meet: 238 item files (50 active / 188 archived). Do NOT re-derive.
+> ```
+> CORRECT — re-measure at dispatch, and route the number with its provenance:
+> ```
+> 1. Corpus measured at this session's dispatch (<date> evening, `ls <dir>/*.md | wc -l`,
+>    `ls <dir>/Archive/*.md | wc -l`): 376 items (183 / 193). The earlier morning count was 238;
+>    140 files landed in today's commits between the two readings.
+> ```
+
+### Five rules for the router
+
+1. **Classify every literal in a flag as a decision or a measurement.** A decision routes verbatim: which invocation, which path argument, which `$0` condition. A measurement gets rule 2 or rule 3.
+2. **Re-measure a cheap anchor at preflight.** Do it in the orchestrator's own window, when the command is read-only and finishes in under a minute (`--collect-only -q | wc -l`, `wc -l`, `grep -c`, `ls | wc -l`). Route the fresh figure with today's date and the earlier figure as history.
+3. **De-anchor an expensive anchor.** When re-measuring costs a dispatch, route the number as history ("last recorded N on DATE"). Route the assertion as a property: scope, membership or presence. Never route the assertion as the number.
+4. **Write every routed figure with its date and its source command.** "238 files (measured `<date>` morning, `ls <dir>/*.md`)" tells the reader how to refresh it. "238 files" tells the reader to trust it. The sender of a flag has the mirror duty: name the run the count came from, and its date.
+5. **When a runner's number disagrees with a routed number, count before diagnosing.** One file count settles whether the scanner or the figure is wrong. Read the commit log afterwards to explain the movement.
+
+**Applies to** any `Pre-Known Cross-Task Coordination Flags` block carrying a pass count, a file count, a line count, an offset, a wall time or a token estimate. Test-suite sizes are the common case, because a suite grows through every session that touches its tree. Corpus sizes are the second, because a concurrent session can add a batch in one commit.
+
+---
+
+## 8. A Requirement Derived From an Unbuilt Upstream Artifact Is Tagged, Then Grepped Against the Shipped One at Dispatch
+
+> [!constraint] A decision row is a claim about a future artifact. Once the artifact ships, the two records are independent
+> A row in a Decisions table records what its author believed at planning time. When the implementing plan ships, the decision's wording and the artifact's behaviour are two separate records. Only one of them is what a downstream task's success criterion is measured against.
+>
+> A task whose acceptance is "matches the upstream tool's output" turns every other content requirement on the same artifact into a claim about that tool. Each such claim is one `Grep` of the tool away from being verified or refuted.
+
+A Master Plan locked two decisions on one day. One said a changelog moves to its own file, with a one-line pointer left behind. The other said a `## Dependencies` section survives as a generated section sourced from `blocks:` frontmatter. A later plan's task files were scaffolded the same day from those decisions.
+
+The first task told the runner to derive a shipped seed from the generator's zero-item output and prove it byte-identical. In the same Execution Steps it told the runner to give the seed a changelog pointer, a title-budget comment and a `## Dependencies` section. The last task and the orchestration's first success criterion asserted all three in a fresh-init hub.
+
+Three weeks later the upstream plan built the generator. It implemented the second decision as a `Blocks` column, not a section, and it emitted no footer at all. Its review recorded that the legacy table and footer disappear at cutover, and routed that to the cutover session. Nothing re-read the earlier plan's task files. They still carried the decision's wording as if it were the tool's behaviour.
+
+One `Grep` per requirement showed the generator matched none of `Dependencies`, `Last Updated`, `Changelog` or a title comment. The init routine copied a fixed list of three seeds, so the changelog seed the first task was told to create could never reach a fresh project. Executed literally, the first task could not satisfy its own success criterion. The last task would have failed against correct upstream behaviour. The gap surfaced at CONFIRM as a structural finding and cost four task-file amendments before the first dispatch.
+
+> [!constraint] Tag the requirement, then check it against the tool before dispatch
+> WRONG — the task text is the decision verbatim, and the success criterion measures the tool:
+> ```
+> Step 2: derive the seed from the generator; diff MUST be empty       <- measures the tool
+> Step 7: keep `## Dependencies`, marked as generated from `blocks:`   <- restates the decision
+> SC:     `## Dependencies` present and generated                      <- the tool never emits it
+> ```
+> CORRECT — the requirement carries its provenance, and the orchestrator checks it against the tool before dispatch:
+> ```
+> Step 7 (per <decision> — verify against <generator> before dispatch): `## Dependencies` generated from `blocks:`
+> Orchestrator, Phase-1 READ:  Grep 'Dependencies' <generator> -> no section emitted; blocks -> a column
+>                              -> structural finding -> Option A: seed = generator output; decision wording routed for amendment
+> ```
+
+Three rules follow.
+
+1. **Tag at scaffold time.** Tag every requirement that depends on an unbuilt upstream artifact with the decision it derives from ("per `<decision>`, generated"). The tag lets the dispatching orchestrator find the claims that need re-checking.
+2. **Grep at dispatch time, before CONFIRM.** Search the shipped artifact for each tagged requirement. The cost is one search per requirement. In the example the four searches took under a minute and turned a guaranteed FAIL into an approved scope decision.
+3. **Route a departure to every downstream session.** When the implementing plan departs from a locked decision, route the departure as a flag to every downstream session scaffolded from that decision, and amend the Decisions table. Routing it only to the session whose runtime would notice misses the session whose task text already assumed the decision.
+
+**Applies to** any task scaffolded before the artifact it verifies exists. The decision was honest when written and the implementation moved afterwards. This differs from a decision that knowingly expires a downstream criterion. There, the check belongs at the decision. Here, it belongs at dispatch. §4 ("`Depends On` and `Required Context` Are Two Different Assertions") splits what a task needs from what it merely reads. A tagged requirement is a third kind: a claim about an artifact that did not exist when the task was written.
+
+---
+
+## 9. A Class Defect Migrates Across a Brief's Scope Boundary: Re-Measure the Adjacent Directories at CONFIRM
+
+> [!constraint] A baseline count is taken inside a boundary at a date. The class does not respect the boundary
+> When items move between directories, a defect moves with them. A re-measurement confined to the brief's own glob reports the class as shrinking while it has only relocated. A "re-enumerate at execution" instruction is correct and insufficient, because it re-runs the same scope.
+
+A brief said 51 of 118 active backlog items lacked frontmatter, measured on `<date-1>`. It scoped the enumeration to `<backlog>/BB-*.md`. The brief was careful. It told the runner to re-enumerate and to treat a different count as a finding.
+
+Twenty-four days later the same command returned 6. The 51 had not been repaired. Forty-five of them had been archived, and `<backlog>/Archive/` now held 53 frontmatter-less files in a directory the brief never named. The literal scope would have backfilled 6 files and reported a clean gate.
+
+A later task strips the body `**Status:**` line corpus-wide. It assumed the first task had given every stripped file a `status:` key. On 53 archived files that strip would have deleted the only status record they had. The existing drift command (`frontmatter != body` over the archive) would then have read clean, because both sides were empty. The orchestrator caught it by running the enumeration over the adjacent directory during CONFIRM, before any dispatch. Three of the session's five scope-expansion decisions came from measurements taken outside the briefs' named directories.
+
+> [!constraint] Re-measure every directory the class can occupy, then reconcile the movement
+> WRONG — re-measure inside the brief's glob and accept the smaller count:
+> ```
+> for f in <backlog>/BB-*.md; do ...; done | wc -l     # 51 -> 6: "the class shrank"
+> ```
+> CORRECT — re-measure every directory the class can occupy, then reconcile:
+> ```
+> active:   6      archived: 53      total: 59 (brief said 51 — the set moved, and grew)
+> -> Option A / Option B gate before the first dispatch; the later task's precondition re-derived from 59, not 51
+> ```
+
+Three rules follow.
+
+1. **Widen the enumeration at CONFIRM.** Run the brief's enumeration over every directory the class can legally live in, not only the one the brief names. [read-confirm-act-protocol.md](read-confirm-act-protocol.md) §1.4.A ("enumerate the input set") states the duty. This rule says what the set includes. For a backlog corpus it is the active directory and its archive. If the count fell inside the boundary, the first question is where it went, not whether the work shrank.
+2. **Check downstream assumptions against the widened count.** Do it before dispatching the first task. A later task whose scope is wider than an earlier task's, but whose brief assumes the earlier task covered it, is where a scope gap turns into data loss.
+3. **Ask whether the after-state is reachable by deletion.** A gate whose two sides can both be empty passes on destruction. A drift command counts disagreements, and two absent values do not disagree. [gate-denominator-integrity.md](gate-denominator-integrity.md) covers the gate with an empty denominator. Before trusting a before-versus-after proof, ask whether the after-state could be reached by deleting the subject rather than repairing it.
+
+**Applies to** any brief whose baseline count was taken on a tree that has since had items moved, archived, split or promoted between directories. That covers backlog and lessons corpora, plan trees with `Archive/` folders, and any migration whose "remaining" set is measured by a glob.
+
+---
+
+## 10. A User-Run Probe Sheet Pins the Build at Its Head, and the First Run on a New Build Re-Verifies the Design
+
+> [!constraint] A version-era claim expires the instant the tool updates, and an auto-updating tool can do that between two lines of one sheet
+> A design's declarations, refusal strings, surface counts and type assumptions are inherited claims, each keyed to one build. None of them carries a check that the build is still the one it describes. An auto-update in the middle of a sheet is a stop condition, not a footnote.
+
+A probe sheet asked the user to launch an auto-updating CLI three times in a row. The banner of launch one read `v<N>`. The banner of launch two, minutes later, read `v<N+1>`. The design had been measured on the build before both.
+
+The new build differed from the design's reference by 218 diff hunks. A first type-check against regenerated declarations found 8 mismatches, including a design assumption the new API no longer supports. The design's counted surface was 24/42/33 names on the design build and 32/45/33 on the new build. The sheet had recorded a version pin at grade time. That pin named the build on disk after the launches, not the build that answered launch one.
+
+> [!constraint] Name the expected build, check it on every launch, and stop on a difference
+> WRONG — the version is recorded once, at grade time, from whatever build happens to answer:
+> ```
+> <cli> --version    # pin value (run after the launches)
+> ```
+> CORRECT — the expected build is named, every launch's banner is checked against it, and a change stops the sheet:
+> ```
+> # Expected banner on EVERY launch: <cli> v<X.Y.Z>
+> # A different version on any launch -> stop, report the two banners, do not run the next launch.
+> # Before grading on a new build: re-extract declarations, re-run the type check,
+> # re-count the surface, diff against the design.
+> ```
+
+Three consequences follow.
+
+1. **Pin the build at probe start and make the sheet check it.** The sheet does not say "record the version at grade time". It names the expected value, prints the version on the first line of every launch, and stops the run before the next launch if the banner differs.
+2. **Treat the first run after a version change as a re-verification of the design, not as the probe.** Re-extract the declarations, re-run the type check, re-count the surface, and diff each against the design's stated values before grading anything. In the measured case the 218-hunk diff and the 8 type-check mismatches were the real result. The answer the probe was written to collect was secondary.
+3. **Freeze the binary for a lab that measures a tool's behaviour, or accept that every sheet re-pins.** A lab cannot share a binary with a workflow that updates it silently. Where the binary cannot be frozen, the first launch of every sheet is a version gate.
+
+**Identity point.** A pin file read after the fact records the build at pin time, not the build that ran each launch. When a sheet has more than one launch, record the banner per launch. [measure-artifact-identity.md](measure-artifact-identity.md) § "Treat a Disputed File Reading as a Question About Which Artifact Was Read" governs the copy-and-instant side of the same problem.
+
+**Applies to** any sheet, probe or lab run by a person against a tool that updates itself, and to any design whose counts or signatures were measured on one build and consumed on another. §1 ("A Held Plan Re-Takes Every Measurement It Asserts, at the Moment the Gate Clears") covers the same expiry for a held plan. This section covers the case where the expiry lands inside a single run. [verify-against-shipped-artifact.md](verify-against-shipped-artifact.md) § "A Declared API Drifts Between Builds: Regenerate the Declarations and Type-Check on Every Build Change" carries the type-check step.
+
+---
+
+## 11. A Doc Section That Narrates a Pending Decision Is Re-Synced by the Task That Wrote It
+
+> [!constraint] A doc section drafted to describe an in-flight decision is a snapshot of a state expected to change
+> Nothing marks the section for a re-visit once the state changes. The task that wrote the narration is the one that knows it is conditional. A downstream task has no way to tell "this reads as final" from "this was true when written".
+
+Two docs (`<doc-a>`, `<doc-b>`) were written while a ceiling escalation was still open. They said: "escalated, not resolved; the ceiling's numeric value is unchanged pending an explicit re-statement decision". The first resume of the task applied the fix, which re-stated the ceiling to `0.25`. That resume was scoped to touch only the test file. The two doc sections kept narrating a decision that had already landed. Left alone, the closeout task would have quoted the superseded `0.05` value and the "unresolved" framing into the sprint's permanent record.
+
+> [!constraint] When a decision lands, sweep every doc section the deciding task itself wrote that narrated the pending state
+> WRONG — resolve the decision but scope the fix to only the file that encodes it:
+> ```
+> Resume scope: <test file> only (the constant + its comment)
+> # <doc-a> section still says "escalated, not resolved" — a downstream reader,
+> # or a downstream task quoting it, now has an internally inconsistent picture.
+> ```
+> CORRECT — sweep the narration in the same resume:
+> ```
+> Resume scope: <test file> (the constant + its comment)
+> Resume scope (same round or an immediate follow-up): every doc section THIS task already wrote
+>   that describes the decision as pending — Grep the task's own prior edits for the escalation language.
+> ```
+
+Two operative points follow.
+
+- **The task that authors a decision-pending doc section owns re-syncing it once the decision lands.** That holds even when the resolution happens in a different resume round with a narrower write-set. Do not assume a downstream consumer will catch the staleness. It will quote the doc's prose as ground truth.
+- **A downstream "quote, never run" task is the shape most exposed.** A closeout is the usual case. Its whole contract is trusting an upstream output file or doc section verbatim, so it has no mechanism to notice the source went stale between writing and quoting.
+
+**The mechanical step.** When a resume resolves an escalation, the resume brief lists the escalation phrase. The orchestrator runs `Grep` for that phrase over the task's own prior write-set before it marks the resume complete. A hit is a narration to re-sync, not a quote to preserve.
+
+**Applies to** any doc, report or recovery section written while a decision, escalation or ceiling was open. The section "The same expiry lands on what the session publishes" under §2 covers the freshness predicate a published "final" figure owes. This section covers the prose a task writes about a state it expects to change.
 
 ---
 

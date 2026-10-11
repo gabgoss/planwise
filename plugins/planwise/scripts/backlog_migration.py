@@ -59,6 +59,8 @@ RERUN = ("then re-run /planwise upgrade (the migration re-fires on a hand-author
 MIGRATOR = "migrate_backlog_index.py"
 SILENT_STATES = ("absent", "generated")
 CREATED = "created; no pre-image (the file did not exist before this run)"
+WINNERS = {"file-name": "file name wins", "frontmatter": "frontmatter wins", "index": "index cell wins",
+           "config-match": "configured key"}  # each reconcile `winner`, as the banner names it
 
 
 @dataclasses.dataclass
@@ -82,24 +84,27 @@ class BacklogMigrationReport:
 
 def migrate_backlog_if_legacy(cfg: "InitConfig", from_version: str, to_version: str,
                               *, reconcile: str | None = None,
-                              defer_legacy: bool = False) -> BacklogMigrationReport:
+                              defer_legacy: bool = False, answers: dict | None = None) -> BacklogMigrationReport:
     """Migrate the project's backlog index when it is hand-authored. Never raises.
+
+    `answers` is the parsed answers file. Its `edge_drops` list settles a reciprocal `blocks:` pair
+    the migrator would otherwise refuse; any other key is ignored here.
 
     `defer_legacy` makes the call detect-only for a hand-authored index: it writes nothing,
     reports state `deferred`, and names `/planwise upgrade` as the step that migrates it. A
     generated index is handled the same either way. Plain `init` sets it, because a
     row/frontmatter reconcile only has something to resolve once a project already carries
-    item frontmatter, and `/planwise upgrade` is where `--backlog-reconcile` is accepted."""
+    item frontmatter, and `/planwise upgrade` is where the reconcile choice is accepted."""
     report = BacklogMigrationReport(state="absent", index_path=None)
     try:
-        _migrate(cfg, from_version, to_version, reconcile, report, defer_legacy)
+        _migrate(cfg, from_version, to_version, reconcile, report, defer_legacy, answers)
     except Exception as exc:  # noqa: BLE001 -- the caller's upgrade must never fail on this step
         report.state, report.detail = "error", repr(exc)
     return report
 
 
 def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, report,
-             defer_legacy: bool = False) -> None:
+             defer_legacy: bool = False, answers: dict | None = None) -> None:
     config_path = Path(cfg.project_root) / cfg.planwise_root / "config.yaml"
     if not config_path.is_file():
         return
@@ -122,28 +127,38 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     if defer_legacy:
         report.state = "deferred"
         report.detail = "the index is hand-authored; this run changed no backlog file"
-        report.fix = ("run /planwise upgrade, which migrates it; pass --backlog-reconcile "
-                      "index-wins or frontmatter-wins there to choose how a row/frontmatter "
-                      "disagreement resolves")
+        report.fix = "run /planwise upgrade, which migrates it"
         return
     inputs = [index_path, *sorted(config["_backlog_dir"].glob("*.md")), *sorted(config["_archive_dir"].glob("*.md"))]
     dirty, _reason = chk.git_state(config["_project_root"], inputs)
     report.git_dirty = None if dirty is None else bool(dirty)
     mode = reconcile or "index-wins"
-    options = mig.RepairOptions.unattended(mode)  # AMBIGUOUS units are parked in the ledger, never refused
-    try:
-        plan = mig.plan_migration(config, index_path, text, detail, options)
+    drops = frozenset(str(e) for e in (answers or {}).get("edge_drops") or ())
+    options = mig.RepairOptions.unattended(mode, drops)  # AMBIGUOUS units are parked in the ledger, never refused
+    paths = mig.artifact_paths(index_path)
+    try:  # names an interrupted run already added are judged as it judged them
+        plan_config, added = mig.abbrev_prepass(config, detail, text, index_path, mig.pending_abbrevs(paths[1]))
+        plan = mig.plan_migration(plan_config, index_path, text, detail, options)
     except mig.Refusal as exc:
-        _refuse(report, str(exc), f"{command} --write --backfill-frontmatter --write-edges "
+        _refuse(report, exc, f"{command} --write --backfill-frontmatter --write-edges "
                                   f"--extract-dependency-notes --reconcile {mode} --append-ambiguous")
         return
-    paths = mig.artifact_paths(index_path)
     backlog_dir = config["_backlog_dir"]
     if plan is not None:
+        logged = plan["abbreviations"]["added"]  # this run's new names, and any an interrupted run added
         targets = mig.plan_targets(plan) + ([paths[1]] if paths[1].is_file() else [])  # a ledger or journal left earlier
+        targets += [config_path] if logged else []
         pre = _backup(targets, backlog_dir, report, [*(p for p, _t in plan["outputs"]), paths[1]])
         if pre is None:
             return
+        if added:  # the names go into the journal first, then config.yaml, both only after their backups
+            try:
+                mig.record_pending_abbrevs(paths[1], plan["abbreviations"])
+                _write_abbreviations(config_path, added)
+            except (OSError, sup.ReplaceError, mig.Refusal) as exc:
+                report.detail = f"could not add the abbreviation(s) to config.yaml: {exc}"
+                _write_failed(report, pre, f"fix config.yaml, {RERUN}")
+                return
         try:
             rc, output = _captured(mig.execute, plan, paths, index_path, False)
         except (OSError, sup.ReplaceError) as exc:
@@ -156,8 +171,15 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
         for path in [*(p for p, _t in plan["outputs"]), paths[1]]:
             reason = _kept_at(path, backlog_dir, report) if path.resolve() in backed else CREATED
             _log(cfg, from_version, to_version, path, "backlog-migrated", reason, report)
+        if logged:
+            _log(cfg, from_version, to_version, config_path, "backlog-migrated",
+                 f"added {', '.join(logged)} under abbreviations:; " + _kept_at(config_path, backlog_dir, report),
+                 report)
     else:
         report.detail = "an earlier run migrated the index; this run regenerated it only (its counts are in that ledger)"
+        if mig.interrupted_journal(paths[1]) is not None and not _settle_journal(cfg, from_version, to_version,
+                                                                                  paths, backlog_dir, report):
+            return
     if not _regenerate(cfg, from_version, to_version, config, index_path, report):
         if report.state != "backup_failed":
             report.state, report.fix = "write_failed", f"fix what the generator names, {RERUN}"
@@ -168,12 +190,66 @@ def _migrate(cfg, from_version: str, to_version: str, reconcile: str | None, rep
     _count_shards(config, index_path, report)
 
 
+def _replace_bytes(path: Path, data: bytes) -> None:
+    """Write `data` to a temp file beside `path`, then move it over `path` in one step."""
+    sup.replace_all(sup.stage_all([(path, data.decode("utf-8"))]))
+
+
+def _write_abbreviations(config_path: Path, added: list) -> None:
+    """Splice one `NAME: "description"` line per `added` pair onto the end of the top-level
+    `abbreviations:` block of config.yaml (`sup.splice_abbreviations`), keeping every other byte,
+    comment and key, and replace the file atomically. Raises `Refusal` when the block is not one the
+    splice can extend, and OSError after restoring the original bytes when the edited file does not
+    load with the new keys."""
+    before = config_path.read_bytes()
+    _replace_bytes(config_path, sup.splice_abbreviations(before, added))
+    try:
+        reloaded = config_loader.load_config(Path(__file__), config_path=config_path)
+        ok = {n for n, _d in added} <= (sup.configured_abbrevs(reloaded) or set())
+    except Exception:  # noqa: BLE001 -- any load failure means the edit is rejected
+        ok = False
+    if not ok:
+        _replace_bytes(config_path, before)
+        raise OSError("the edited config.yaml did not load with the new abbreviations; the original bytes were restored")
+
+
+def _settle_journal(cfg, from_version: str, to_version: str, paths: tuple, backlog_dir: Path, report) -> bool:
+    """The index is migrated but the ledger path still holds an interrupted run's journal. Back it up,
+    rename it to `-Interrupted-{date}`, log the rename and any abbreviations the interrupted run added to
+    config.yaml, and go on. False means stop: `report` says why."""
+    ledger_path = paths[1]
+    config_path = Path(cfg.project_root) / cfg.planwise_root / "config.yaml"
+    added = mig.pending_abbrevs(ledger_path)
+    pre = _backup([ledger_path, *([config_path] if added else [])], backlog_dir, report, [ledger_path])
+    if pre is None:
+        return False
+    parked = mig.interrupted_journal(ledger_path) or 0
+    try:
+        renamed = mig.settle_interrupted_journal(ledger_path)
+    except (OSError, sup.ReplaceError) as exc:
+        report.detail = f"could not rename the interrupted journal {ledger_path.name}: {exc}"
+        _write_failed(report, pre, f"rename {ledger_path.name} by hand, {RERUN}")
+        return False
+    report.counts["journal_renamed_to"], report.counts["journal_parked_units"] = str(renamed), parked
+    report.detail += (f"\n{ledger_path.name} held the journal of an interrupted run; it is kept whole as {renamed.name}, "
+                      f"and its {parked} parked unit(s) remain there for review")
+    _log(cfg, from_version, to_version, renamed, "backlog-migrated",
+         f"interrupted journal renamed from {ledger_path.name}; " + _kept_at(ledger_path, backlog_dir, report), report)
+    _log(cfg, from_version, to_version, ledger_path, "backlog-migrated",
+         "replaced by a ledger note naming the renamed journal; " + _kept_at(ledger_path, backlog_dir, report), report)
+    if added:
+        _log(cfg, from_version, to_version, config_path, "backlog-migrated",
+             f"added {', '.join(added)} under abbreviations: by the interrupted run; "
+             + _kept_at(config_path, backlog_dir, report), report)
+    return True
+
+
 def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, index_path: Path, report) -> None:
     """A generated index: re-split an over-budget changelog, with backups, or stay silent."""
     try:
         plan = mig.plan_changelog_resplit(config, index_path)
     except mig.Refusal as exc:
-        _refuse(report, str(exc), "")
+        _refuse(report, exc, "")
         return
     if plan is None:
         report.state = "generated"
@@ -204,12 +280,12 @@ def _resplit_changelog(cfg, from_version: str, to_version: str, config: dict, in
     report.counts["changelog_parts"] = expected
 
 
-def _refuse(report, message: str, command: str) -> None:
-    """State `refused`: the migrator's text verbatim, and the exact action it names."""
-    action = message.rsplit(" -- ", 1)[1] if " -- " in message else message
-    if command and "--append-ambiguous" in message:
+def _refuse(report, exc, command: str) -> None:
+    """State `refused`: the refusal's reason as the detail, and the edit it names as the fix."""
+    action = exc.fix
+    if command and "--append-ambiguous" in str(exc):
         action += f"; or append them with: {command}"
-    report.state, report.detail, report.fix = "refused", message, f"{action}\n{RERUN}"
+    report.state, report.detail, report.fix = "refused", exc.reason, f"{action}\n{RERUN}"
 
 
 def _rel(path: Path, backlog_dir: Path) -> Path:
@@ -393,7 +469,13 @@ def _ledger_counts(ledger: dict, mode: str) -> dict:
     return {
         "backfilled": len(ledger["backfill"]),
         "partial": sum(1 for b in ledger["backfill"] if len(b["keys_added"]) < len(mig.KEYS)),
-        "edges": len(ledger["edges"]),
+        "edges": sum(1 for e in ledger["edges"] if "action" not in e),  # written; answered drops and skips are not
+        "edges_dropped": [f"{e['src']}->{e['dst']}" for e in ledger["edges"]
+                          if e.get("action") == "dropped" and e.get("source") != "journal"],
+        "edges_dropped_by_prior_run": [f"{e['src']}->{e['dst']}" for e in ledger["edges"]
+                                       if e.get("action") == "dropped" and e.get("source") == "journal"],
+        "answers_not_applied": [f"{e['src']}->{e['dst']} ({e['reason']})" for e in ledger["edges"]
+                                if e.get("action") == "answer-not-applied"],
         "dependency_notes": sum(n["bullets"] for n in notes),
         "dependency_note_files": sum(1 for n in notes if n["bullets"]),
         "changelog_entries": log["entries"],
@@ -404,10 +486,23 @@ def _ledger_counts(ledger: dict, mode: str) -> dict:
         "prose_units": ledger["dedup"]["appended_units"],
         "parked_units": ledger["dedup"].get("parked_units", 0),
         "parked_bytes": ledger["dedup"].get("parked_bytes", 0),
+        "relocated_lines": len(ledger.get("relocated_index_lines") or []),
+        "relocated_bytes": sum(r["bytes"] for r in ledger.get("relocated_index_lines") or []),
         "reconciled_cells": len(cells),
         "reconcile_mode": ledger["reconcile"]["mode"] or mode,
-        "reconciled": [f"{c['id']}.{c['key']}: {c['frontmatter']} -> {c['index']}" for c in cells],
+        "reconciled": [_cell_line(c) for c in cells],
+        "abbreviations_added": list((ledger.get("abbreviations") or {}).get("added") or []),
+        "abbreviations_matched": [f"{m['from']} -> {m['to']}" for m in (ledger.get("abbreviations") or {}).get("matched") or []],
+        "oversized_entries": len(ledger.get("oversized_single_entries") or []),
     }
+
+
+def _cell_line(cell: dict) -> str:
+    """One reconciled cell, as the banner lists it: the value it had and the value written."""
+    if cell.get("winner"):
+        who = WINNERS.get(cell["winner"], cell["winner"])
+        return f"{cell['id']}.{cell['key']}: {cell['index']} -> {cell['written']} ({who})"
+    return f"{cell['id']}.{cell['key']}: {cell['frontmatter']} -> {cell.get('written', cell['index'])}"
 
 
 def _count_shards(config: dict, index_path: Path, report) -> None:
@@ -441,7 +536,7 @@ def _banner_lines(report: BacklogMigrationReport) -> list:
                 f"  reason: {report.detail}", f"  fix:    {fix}"]
     if report.state == "unrecognized":
         return [f"Backlog index migration: {index} is not a hand-authored or generated index — left untouched",
-                f"  reason: {report.detail}; inspect it with: {report.fix}"]
+                *(f"  detail: {line}" for line in report.detail.splitlines() or [""])]
     if report.state == "backup_failed":
         return ["Backlog index migration: BACKUP FAILED — no write was attempted",
                 f"  {report.detail}", f"  fix:    {fix}"]
@@ -467,15 +562,33 @@ def _migrated_lines(report: BacklogMigrationReport) -> list:
              f"entries, {c['changelog_bytes']} bytes; each file ≤ {READ_TOKEN_WARN} tokens; {accounted})"),
             f"    frontmatter backfilled: {c['backfilled']} item file(s) ({c['partial']} had a partial block)",
             f"    blocks: edges written:  {c['edges']}",
+            *([f"    blocks: edges dropped by answer: {len(c['edges_dropped'])} ({', '.join(c['edges_dropped'])})"]
+              if c.get("edges_dropped") else []),
+            *([(f"    blocks: edges dropped by an interrupted run's answer: {len(c['edges_dropped_by_prior_run'])} "
+                f"({', '.join(c['edges_dropped_by_prior_run'])})")] if c.get("edges_dropped_by_prior_run") else []),
+            *([f"    answers not applied:    {len(c['answers_not_applied'])} ({'; '.join(c['answers_not_applied'])})"]
+              if c.get("answers_not_applied") else []),
             f"    dependency notes moved: {c['dependency_notes']} bullet(s) into {c['dependency_note_files']} item file(s)",
             f"    feature-cell prose moved: {c['prose_units']} unit(s)",
+            *([(f"    relocated index lines:  {c['relocated_lines']} ({c['relocated_bytes']} bytes) "
+                f"into {c['changelog_path']}")] if c.get("relocated_lines") else []),
             *([f"    {mig.parked_line(c['parked_units'], c['parked_bytes'], report.ledger_path)}"]
               if c.get("parked_units") else []),
             f"    reconciled cells:       {c['reconciled_cells']} ({c['reconcile_mode']})"
             + (" — " + "; ".join(c["reconciled"][:5]) + reconciled if c["reconciled"] else ""),
+            *([(f"    abbreviations added:    {', '.join(c['abbreviations_added'])} (placeholder descriptions in "
+                "config.yaml; edit them)")] if c.get("abbreviations_added") else []),
+            *([f"    abbreviations matched:  {'; '.join(c['abbreviations_matched'])}"]
+              if c.get("abbreviations_matched") else []),
+            *([f"    oversized entries kept whole: {c['oversized_entries']} (each under the Read page cap)"]
+              if c.get("oversized_entries") else []),
         ]
     elif report.detail:
         lines.append(f"    counts:                 unavailable — {report.detail.splitlines()[-1]}")
+    if c.get("journal_renamed_to"):
+        held = c.get("journal_parked_units", 0)
+        lines.append(f"    interrupted journal:    renamed to {c['journal_renamed_to']}"
+                     + (f"; its {held} parked unit(s) remain there and need review" if held else ""))
     lines += [f"    ledger:                 {report.ledger_path or 'none'}"]
     if report.backed_up:
         lines.append(f"    backups:                {report.backup_dir} ({len(report.backed_up)} file(s), "

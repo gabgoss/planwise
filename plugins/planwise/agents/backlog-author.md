@@ -67,7 +67,7 @@ Full discipline: `references/verify-backlog-citation-freshness.md` §10.
 
 ## 2. DRAFT — Make Each Item Executable From Itself Alone
 
-Fill `templates/backlog-item.md`. Frontmatter fields (`id`, `title`, `priority`, `status`, `abbrev`, `created`, `blocks`) are required and machine-parsed by the scoring script — `status: NOT_STARTED` and `created:` today's date for every new item.
+Fill `templates/backlog-item.md`. Frontmatter fields (`id`, `title`, `priority`, `status`, `abbrev`, `created`, `blocks`) are required and machine-parsed by the scoring script — `status: NOT_STARTED` and `created:` today's date for every new item. Draft the `title` at 120 characters or fewer, and put the detail in `## Summary` (§3 step 2 covers the writer's check).
 
 > [!binding] Inline the content the item depends on
 > When an item's value rests on specific content — a block to promote, the evidence behind a finding, an exact spec or recipe — **paste that content into the item verbatim**. A pointer (another repo, a path, a session-only artifact) is welcome *alongside* the inlined content for provenance, but it must NOT be the sole carrier of the substance.
@@ -125,8 +125,9 @@ Run in this order. `{plugin_root}` and `{planwise_root}` arrive in the spawn pro
    | `0` | Clean. The index now lists every filed item | `yes` |
    | `1` | Drift or anomaly, naming the items. `--check` returns it. `--write` does not, so treat it as unexpected | `no — exit 1: {stderr}` |
    | `2` | Refused before writing anything: unrenderable input, a missing required frontmatter key, an unresolvable `blocks:` id, or a reciprocal `blocks:` edge | `no — exit 2: {stderr}` |
+| `2` | Refused because the index is hand-authored (stderr names `hand-authored index`). Nothing was written. The fix is the caller's Index shape gate, which migrates through `/planwise upgrade`, not a change to your input. Report it in `ISSUES` | `no — exit 2: {stderr}` |
 
-   A non-zero exit does not make the item files wrong. They are the source of truth, and the index is derived from them. Do not roll them back or file them again. Capture stderr and continue to §4. A `stale-score` report alone never fails the exit code and needs no action. A `title truncated` warning on stderr names an item whose frontmatter `title:` exceeds 120 characters. Report that item in `ISSUES`.
+   A non-zero exit does not make the item files wrong. They are the source of truth, and the index is derived from them. Do not roll them back or file them again. Capture stderr and continue to §4. A `stale-score` report alone never fails the exit code and needs no action. A `title(s) truncated` warning on stderr is one line that lists every item whose frontmatter `title:` exceeds 120 characters. Report each item you filed this run that appears in that list in `ISSUES`.
 
 ---
 

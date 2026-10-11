@@ -1,5 +1,5 @@
 ---
-description: Task file template and structure, completion tracking rules, and cross-sprint deferred-finding ownership
+description: Task file template and structure, completion tracking rules, cross-sprint deferred-finding ownership, a user gate that leads with a plain-language brief and carries a "something else" answer, and walking a brief's worked example through its contract prose before dispatch
 ---
 
 # Task Files and Completion Tracking
@@ -188,6 +188,33 @@ The Orchestration file MUST include a Task Files table:
 | 2 | [{Abbrev}-S{XX}-{YY}-02-Sonnet-{Task}.md]({filename}) | Sonnet |
 ```
 
+### Walk the Worked Example Through the Contract Prose Before Dispatch
+
+A contract stated as prose and a worked example stated as a table are two instruments for one behaviour. When both sit in the same brief, the author has the material to run one against the other by hand, and nothing else in the pipeline will.
+
+**Example.** A task specified a claim predicate in a contract table: `claims(file, key)` is true when the file is sorted and `first <= key <= last` under plain string order, or when the file is unsorted-by-range but every key shares one family and the key shares it. The same brief's test table fixed the fixtures and the expected result. One fixture held `AMBER_ONE`, `GAMMA_A`, `GAMMA_C`, `OMEGA_LOG_A` (sorted, mixed families). The test required `DELTA_ECHO` to land in a different file with exactly one claimant. Under the contract prose the mixed-family file is sorted and `AMBER_ONE <= DELTA_ECHO <= OMEGA_LOG_A` holds, so it claims the key too. Two claimants means undetermined. The brief's own test could not pass under the brief's own rule. The plan review passed the task, because each section was well-formed alone. The runner found the contradiction when the test failed, refined the rule (a mixed-family sorted file claims by family only, not by range), documented it in the docstring and reported it. The orchestrator adjudicated after the fact.
+
+> [!constraint] Walk every example row through the rule before the brief is done
+> WRONG — write the rule, write the example, ship both:
+> ```
+> | claims(file, key) | True when sorted and first <= key <= last ... |
+> ...
+> | test_placement_against_known_sort_convention | DELTA_ECHO in the single-family file between DELTA_ALPHA and DELTA_KILO |
+> # AMBER_ONE <= DELTA_ECHO <= OMEGA_LOG_A also holds -> two claimants -> the test cannot pass
+> ```
+> CORRECT — walk every example row through the rule before the brief is done:
+> ```
+> single-family file: sorted -> range claim -> DELTA_ECHO in [DELTA_ALPHA, DELTA_KILO] -> claims
+> other file:         sorted, MIXED families -> range [AMBER_ONE, OMEGA_LOG_A] -> also claims DELTA_ECHO   <- contradiction
+> -> the rule needs a mixed-family branch: sorted + one family -> range; sorted + mixed -> family membership
+> ```
+
+- **The author runs the example, not the runner.** Walking four keys through a three-branch rule is a two-minute desk check. The runner otherwise discovers the same fact after writing the implementation and owns a spec decision it was not dispatched to make.
+- **A reviewer reads each section for internal consistency. The cross-section check is a separate pass.** The review confirmed the contract was well-formed and the test table was well-formed. Neither reading asks whether the second is reachable under the first.
+- **A runner-reported "refined beyond the literal prose" is a spec defect recorded against the brief,** not initiative to praise or scope to gate. Adjudicate it per `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.25, accept the minimum fix, and file the lesson against the authoring step.
+
+**Applies to** any task brief that carries both a contract (API table, predicate definition, schema pin) and a worked example (test table, fixture set, expected output) for the same symbol. It covers placement, classification and routing predicates where a range rule and a membership rule can both be true of one input, and plan reviews of DELEGATED task files.
+
 ### Task Content Fidelity (cross-reference)
 
 Task file Required Context sections and Execution Steps are subject to the rules in [`task-content-fidelity.md`](task-content-fidelity.md). The critical fidelity rules for task file authoring are:
@@ -283,6 +310,39 @@ Task files MAY include a Declarative Follow-Up block enumerating actionable reco
 ```
 
 The `> [!followup]` callout type signals to `handlers/backlog.md` Phase 7 that these recommendations should be surfaced for auto-creation as backlog items.
+
+### A User Gate Leads With a Plain-Language Brief
+
+A plan-authored user gate has two readers. The orchestrator reads it to know what to present and where the answer goes. The user reads it to decide. Recommendation columns, surface names and row counts are orchestrator vocabulary. They compress the decision for an agent that holds the design, and they hide it from a person who does not. [`skill-authoring.md`](skill-authoring.md) §4b ("Auto Mode Policy (summary)") covers how a gate behaves in auto mode. This subsection covers what the gate says.
+
+> [!constraint] The task that produces a gate's review artifact also produces a plain-language brief, and the answer set carries a "something else" frame
+> **Example.** An orchestration placed a user gate between two tasks. The orchestrator presented the first task's review table (surface, path, evidence, row count, accept or reject, reason) and asked which suggested registrations to approve. The user answered "I don't understand what you are asking" twice. The table and the question assumed the reader knew what the registry file is, what registering an entry changes, and what it does not change. It took a third explanation, with one concrete file, one quoted line, and what the tool would say on the next run if the file were on the list versus off it, before the user could decide. The user then answered from a different frame entirely, which the gate had no slot for.
+>
+> Three operative points:
+>
+> - **Produce the brief in the task that produces the review artifact.** The brief is one paragraph: what the decision changes, what it does not change, and what happens on each answer. It reads without the design doc. The orchestrator presents the brief first and the table second.
+> - **Include an "I want something else" answer.** A user who declines every option may be rejecting the premise, not the rows. Record that as a coordination flag toward the plan level, and still take a concrete answer for the row-level question so the session can close.
+> - **Test the gate text against a reader who has not read the plan.** If the question cannot be answered from the brief alone, the brief is incomplete. This is the same discipline as a success criterion that cannot be checked from the task file alone.
+>
+> WRONG — the gate presents the artifact's own vocabulary:
+> ```
+> Which suggested <registry> registrations do you approve for <task>?
+>   - The 3 ACCEPT rows (<row-a>, <row-b>, <row-c>)
+>   - None
+>   - All 15
+> # "I don't understand what you are asking."
+> ```
+> CORRECT — the gate leads with what the decision does, in the reader's terms, then asks:
+> ```
+> The tool keeps a list of files to re-check when a build changes text they quote.
+> Adding a file to the list edits one JSON line. It does not edit the file or file an item.
+> The scanner found 15 files that quote changed text and are not on the list:
+>   3 are documentation you maintain, so watching them is useful.
+>   12 are the tool's own test data, so warnings would be noise.
+> Which should go on the list?  [the 3 docs / none / all 15 / something else is unclear]
+> ```
+
+**Applies to** any orchestration or task file that declares a user gate: approve or reject tables, dry-run summaries before a live write, scope confirmations. It matters most where the presented artifact was specified in the vocabulary of the tool or the plan rather than of the person answering.
 
 ### Selective Helper Enumeration in Spawn Prompts
 

@@ -1,5 +1,5 @@
 ---
-description: Mandatory execution protocol - READ-CONFIRM-ACT, recovery, git workflow
+description: Mandatory execution protocol - READ-CONFIRM-ACT, recovery, git workflow, and recording a runner's planned stop and the session commit in Recovery before a user gate
 ---
 
 # Session Execution Protocol
@@ -150,6 +150,8 @@ Those two defaults are chosen operating points derived from measured accumulatio
 > - [ ] A session-boundary note names the **exact next dispatch** — task id, its agent, and the dependency layer it belongs to
 > - [ ] Every output Recovery claims exists on disk at the path claimed for it
 > - [ ] The carrying-cost arithmetic is logged — projected window, the threshold that tripped, the break-even — on both branches, since a declined split is evidence too
+> - [ ] Every planned stop a runner returned is a Change Log row (`GATE_PENDING` plus its `ROUTE/FLAGS` value), and the open question is named
+> - [ ] Every commit and push this session made is in the session commit pin, with its SHA and push state
 >
 > An unchecked box means the resume state is not yet complete: finish it, then offer the boundary. If a box cannot be checked at all, do not offer the boundary — continue the session and record why.
 
@@ -171,6 +173,30 @@ Those two defaults are chosen operating points derived from measured accumulatio
 > - [ ] `orchestrator_window_total` and `summed_dispatch_budgets` are recorded as distinct values, never summed into one figure
 >
 > See [templates/summary-template.md § Consumption Record](../templates/summary-template.md#consumption-record) for field semantics — this checklist verifies completeness, it does not restate the field list.
+
+### Record State Changes in Recovery Before a User Gate
+
+> [!binding] Write every state change that precedes a user gate into Recovery before asking the question
+> A user gate is a pause of unknown length. The orchestrator window can end, compact, or be cleared while the question is open. A state change made before the gate and absent from Recovery is invisible to the resumed orchestrator. It finds the change only by inference from `git log` and report headings. Nothing raises an error, and the inferred reading looks plausible.
+>
+> WRONG — act, then ask, and record later:
+> ```
+> runner returns user-gate-<name> -> commit -> push -> AskUserQuestion -> (window ends)
+>   -> Recovery still says "IN_PROGRESS, commit -"
+> ```
+> CORRECT — record each step as it lands:
+> ```
+> runner returns user-gate-<name> -> Change Log row "GATE_PENDING: user-gate-<name>"
+> commit -> push -> pin "Session commit = <SHA>, pushed"
+> -> AskUserQuestion -> record the answer verbatim
+> ```
+>
+> Three rules:
+> 1. **A runner's planned stop is a Recovery event.** Record `GATE_PENDING` with the runner's `ROUTE/FLAGS` value in the Change Log as soon as the return is accepted. Do not wait for the gate's answer.
+> 2. **A commit or push is a Recovery event.** Write the SHA and the push state into the Session Commit Pin immediately after the push succeeds. It is the one fact a resume cannot get from the plan files.
+> 3. **On resume, distrust a pin that reads `-` when the tree says otherwise.** A clean tree with an un-pinned session commit means the record is behind the repo. Read `git log` and the runner's report, and fix the record first, before acting.
+>
+> **Applies to** every delegated session whose orchestrator owns a user gate after a commit (a release decision, an issue close, a destructive approval). It also applies to every orchestrator step that changes repo state (commit, push, tag, worktree removal) while a question to the user is pending. The Session Commit Pin and the `GATE_PENDING` Change Log status are defined in [templates/recovery.md](../templates/recovery.md).
 
 ### Iteration Loop
 
@@ -394,6 +420,9 @@ Fix: Add the blast-radius gate matching the edit type per references/session-exe
 > - If session produced code changes and `/code-review` has not already been run on all changed files, run `/code-review` before committing
 > - **Push** automatically (no confirmation needed)
 > - **git add** specific files (never `git add .` or `git add -A`)
+> - **commit by pathspec**: `git commit -m <msg> -- <paths>`. `git add` by path alone does not protect the commit, because a bare commit takes the whole index
+> - **Record the commit** — write the SHA and push state into Recovery's session commit pin right after the push succeeds, before any question to the user
+> - **attribute a guard finding by author** before choosing restore or override. See `handlers/run.md` Step 4.0
 > - **Prior-sprint Outputs guard** (run handler Step 4.0) must have passed before the session-end commit, or carry a recorded Recovery override
 
 ---

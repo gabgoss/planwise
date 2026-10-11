@@ -80,14 +80,24 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
-- If planning a scaffolded multi-sprint plan (Discovery → Scaffolding workflow): Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§17) — the hygiene reference is split across two files, and Part 2 carries the rules a scaffold must satisfy before it closes
-- If the plan contains verification tasks (grep/awk match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
-- If a task's deliverable is a gate (guard, hook, linter, validation pass), or an acceptance criterion cites a gate run as proof: Read `references/verification-gate-evidence.md`
+- If planning a scaffolded multi-sprint plan (Discovery → Scaffolding workflow): Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§19) — the hygiene reference is split across two files, and Part 2 carries the rules a scaffold must satisfy before it closes
+- If the plan contains verification tasks (grep/awk match-pattern + pass/fail gate): Read `references/verification-task-authoring.md` (the family index and its §7 checklist), then `references/gate-heuristic-verifier-patterns.md` (per-unit assertions, sibling formats, denominators, a counting predicate's unit; Checks 058 and 059), `references/gate-verdict-contract-and-adjudication.md` (PASS requires Actual = Expected; Check 060) and `references/gate-absence-and-consistency.md` (absence greps, population, a fact encoded twice)
+- If a task's Verification Commands carry an After block, or a Success Criteria item states an expectation over a measured value: Read `references/gate-pre-edit-baseline.md` (every gate records its measured pre-edit value; Check 082) and `references/gate-input-set-and-compared-window.md` (a diff-pinned or sweep criterion records its input-set counts; a verbatim proof prints its compared-set size) (Step 8e)
+- If an anchor, exit criterion or Execution Input gate enumerates outcomes, or a gate pins a `git diff --stat` allowed set over a directory a tool regenerates: Read `references/gate-anchor-outcome-set.md` (the anchor accepts exactly the task's terminal branches; Check 095)
+- If a task pins any `grep`, `diff`, `wc` or `awk` gate, or pins a pattern, count or count method before its subject exists: Read `references/gate-command-semantics.md` (the four command-semantics traps, regex dialect, digit boundaries, window size) and `references/gate-pinned-from-real-content.md` (a verdict line's bytes, a heading counted by anchor, a gate run over the real content first) (Step 8e)
+- If a task's deliverable is a gate (guard, hook, linter, validation pass), or an acceptance criterion cites a gate run as proof: Read `references/verification-gate-evidence.md` (the family index), then `references/gate-positive-and-mutation-controls.md` (the positive control, the mutation control, the dry-run pair) and `references/gate-fixture-provenance.md` (an input set that could have contained the defect; what the proof does not cover)
+- If a task's content is a live gate's subject, or a runner may report that it shaped content to satisfy a gate: Read `references/gate-artifact-over-instrument.md` (the artifact is authoritative; pre-adjudicate the collision at dispatch)
+- If a task moves a section between references, gates a generated path list or row count, claims bytes or line endings preserved, or grades a decision log or an exit code: Read `references/gate-old-home-citation-sweep.md`, `references/gate-generated-input-integrity.md` and `references/gate-script-output-assertions.md`
+- If a proof run builds fixture trees in a repo whose working tree ships, or a Python package re-exports or guards imports: Read `references/gate-environment-inputs.md` (§20, §22)
 - If a task's Verification Commands assert a property of a diff (comment-only, no-logic-change, N-files-touched), or the task creates or relocates the file it then gates: Read `references/gate-baseline-independence.md` — an untracked target makes the gate vacuous and `git add -N` inverts it, so pin a baseline copy before the first edit (Step 8e)
 - If a task's Verification Commands include a match pattern, a count, or a diff filter: Read `references/gate-predicate-discrimination.md` — write each anchor so it can be paired against a known-bad state, scope a negative claim to a query whose positive would be believed, and anchor a diff filter on the sign alone (Step 8e)
+- If a task's Verification Commands include a count, a coverage ratio, an absence criterion, or an `N in = N out` balance: Read `references/gate-denominator-integrity.md` — prove the property on your own hunk or on a literal you authored, not on a count over a shared file, and pair every absence criterion with a positive criterion over the full item set
 - If planning a task with DB writes (SQL INSERT/UPDATE/MERGE): Read `references/schema-pin-requirement.md`
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
-- If a task's deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec): Read `references/verification-gates.md` before populating that task's Verification Commands (Step 8e)
+- If a task's deliverable creates or modifies a cross-process boundary (IPC layer, wire-protocol serialization, file-format codec), in-process numeric or codec code, a deploy step, or multi-target runtime code: Read `references/verification-gates.md` (the family index) and `references/gate-runtime-boundary-evidence.md` before populating that task's Verification Commands (Step 8e); `references/gate-exit-verdict-and-smoke-reports.md` governs the Sprint exit verdict and the Verification Commands presence checks
+- If a task's Verification Commands use `git diff`: Read `references/gate-diff-baseline-pinning.md` — record `$..._BASE` before the first edit and scope every gate to it (Step 8e)
+- If a task's deliverable is a gate, guard, hook, linter or validation pass, or the plan composes a verification battery: Read `references/gate-instrument-proof-obligations.md` (the four obligations) and `references/gate-change-vs-state-detecting.md` (name at least one state-detecting gate)
+- If a task writes a run sheet or probe driver that pins flags on a reset or launch line, or a grader over a numeric log field: Read `references/gate-run-sheet-and-grader-fields.md` (§13-§14) — pin the field the hook reads, not the flag whose name matches the intent
 - If a task spec cites third-party SDK identifiers, type names, enum members, delegate shapes, framework presence, or destination file paths under scoped-rule triggers: Read `references/verify-against-shipped-artifact.md`
 - If the plan authors a task that creates or modifies a rule, agent, skill, handler, or CLAUDE.md callout (promoting lesson/backlog content): Read `references/artifact-self-containment.md`
 
@@ -102,6 +112,8 @@ This status is the **execution gate**. The `/planwise run` command checks this b
 ---
 
 ## Workflow
+
+> [!gate] Before any write in any mode (Standard, Discovery or Scaffolding), run `index_shape_preflight.py` as [`index-shape-gate.md`](../references/index-shape-gate.md) directs. <!-- AUTO-MODE: critical -->
 
 ### Step 0: Detect Mode
 
@@ -453,7 +465,7 @@ Run the generator once, after every sprint is scaffolded:
 python "{plugin_root}/scripts/generate_plans_index.py" --config "{planwise_root}/config.yaml" --write
 ```
 
-Exit 2 means the index is still hand-authored or unrecognized, and nothing was written. Tell the user to run `/planwise upgrade`, which migrates it. If upgrade reports the index as unrecognized, name `migrate_plans_index.py --report`.
+Exit 2 means nothing was written. Print the `Error:` line verbatim and route by cause. `hand-authored plans index`: the gate before Step 0 was bypassed, so run it. `neither a hand-authored nor a generated`: `/planwise upgrade` will not migrate it, so name `migrate_plans_index.py --report` and never `--replace-legacy`. `over the … -token budget` (an over-budget render): the render is too large, so tell the user to shard or shorten the index.
 
 To change a plan's row later, edit the Master Plan's `**Status:**` line (and its footer date), then run `generate_plans_index.py --write`. See [`references/plans-schema.md`](../references/plans-schema.md) § The One-Writer Rule.
 
@@ -482,6 +494,14 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
    exec or smoke test). A task missing one of these types uses the `<!-- NEEDS-COMMAND -->`
    marker carried in the `> [!verify]` skeleton (`templates/task-file.md`) in place of that
    type's command line, so the gap is visible at review time, NOT silently left blank.
+5. **Measure at the gate's scope.** Run each per-task Before/After command against the task's
+   own paths. Record that value as the gate's pre-edit annotation. Run a whole-population
+   command once per plan, before the first task file. A whole-population command is the full
+   suite or the whole-repo lint. Run it in the foreground with a timeout above its expected
+   duration, and state that duration. Record the value with the repo's `HEAD` sha in the Master
+   Plan § Decisions (Locked). Reuse it only in gates that run before any edit to that population.
+   Re-check the tree identity at each dispatch. See `references/gate-pre-edit-baseline.md`
+   §10.1.1 Scope the measurement to the gate's population.
 
 **Per-File-Type Command Map** (mirrors `templates/task-file.md` §Per-File-Type Commands):
 
@@ -513,13 +533,15 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
 > > [!verify] Before / After Commands
 > > **Before:**
 > > ```
-> > {lint-cmd} src/{module}/        # lint baseline
-> > {test-cmd} src/{module}/        # test baseline
+> > {lint-cmd} src/{module}/        # lint baseline, this module only
+> > {test-cmd} src/{module}/        # test baseline, this module only — never the whole suite per task
 > > ```
 > > **After:**
 > > ```
-> > {lint-cmd} src/{module}/        # expect: pass
-> > {test-cmd} src/{module}/        # expect: green
+> > {lint-cmd} src/{module}/
+> > # pre-edit: 0 findings → invariant: 0
+> > {test-cmd} src/{module}/
+> > # pre-edit: 41 passed → expect 43 passed
 > > ```
 > ```
 >

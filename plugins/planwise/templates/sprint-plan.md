@@ -73,20 +73,21 @@ sprint's write-set can be checked against it, independent of landing order.
      scaffold-time failure — it returns the same verdict on an untouched tree as on a
      finished sprint. Rewrite it; do not ship it annotated. The recorded value is also the
      Before baseline any "unchanged vs Before" / "Before + 1" criterion needs to be
-     computable at all. See references/verification-task-authoring.md §10. -->
+     computable at all. See references/gate-pre-edit-baseline.md §10. -->
 
 <!-- BRANCH-SET PARITY. Where a criterion enumerates outcomes, its accepted set MUST equal
      the terminal branch set of the task that produces them — count them from that task's
      Execution Steps, not from the outcome you expect. Zero-hit, nothing-to-do and
      already-resolved branches are the ones dropped most often, and are often the expected
-     result. A criterion accepting fewer FAILs a correct execution. §10.7 of the same file. -->
+     result. A criterion accepting fewer FAILs a correct execution. See
+     references/gate-anchor-outcome-set.md §10.7. -->
 
 - [ ] {Measurable criterion 1} <!-- pre-change: {measured} → expect {expectation} -->
 - [ ] {Measurable criterion 2} <!-- pre-change: {measured} → expect {expectation} -->
 - [ ] {Measurable criterion 3} <!-- accepts {a} outcomes; task {ID} defines {a} terminal branches -->
 
 <!-- Before shipping any criterion above, check its command against the four semantics traps
-     in references/verification-task-authoring.md §10.8: grep -c counts matching LINES not
+     in references/gate-command-semantics.md §10.8: grep -c counts matching LINES not
      matches; -B1/-A1 emit the match line itself; a set-membership claim must not be hardened
      into a count equality; every path resolves from the cwd its own block declares. -->
 

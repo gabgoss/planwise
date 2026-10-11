@@ -13,7 +13,12 @@ modules this monolith was split into; those live in conftest.py.
 Run with:  python -m unittest tests/test_upgrade_artifacts.py
 """
 
+import contextlib
+import io
+import json
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -1108,3 +1113,187 @@ class TestClassifyDivergedDegradedFallback(unittest.TestCase):
         )
 
 
+class TestUpgradeBannerOrphanedAgentMirrors(unittest.TestCase):
+    """_run_upgrade() runs the orphaned-agent-mirror sweep on both exits.
+
+    The block names each mirror, its class and the prune action. A customised
+    mirror is reported as PRESERVE and never offered for pruning."""
+
+    LIVE_VERSION = "1.1.0"
+    OLD_VERSION = "1.0.0"
+    AGENT_FILENAME = "fix-agent.md"
+    SHIPPED_BODY = "# Fix agent\n\nShipped body.\n"
+
+    def setUp(self):
+        if not artifact_upgrade.HAS_YAML:
+            self.skipTest("PyYAML required for --upgrade")
+        self.tmp = Path(tempfile.mkdtemp(prefix="pw_upgrade_mirror_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.project_root = self.tmp / "project"
+        self.plugin_root = self.tmp / "plugin"
+        self.agents_dir = self.project_root / ".claude" / "agents"
+        (self.project_root / "planwise").mkdir(parents=True)
+        (self.plugin_root / ".claude-plugin").mkdir(parents=True)
+        (self.plugin_root / "agents").mkdir(parents=True)
+        self.agents_dir.mkdir(parents=True)
+        (self.plugin_root / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"version": self.LIVE_VERSION}), encoding="utf-8")
+        template = Path(ip.__file__).resolve().parent.parent / "config.yaml.template"
+        shutil.copy(str(template), str(self.plugin_root / "config.yaml.template"))
+        (self.plugin_root / "agents" / self.AGENT_FILENAME).write_text(
+            self.SHIPPED_BODY, encoding="utf-8")
+        self.cfg = ip.InitConfig(
+            project_name="MirrorFixtureProject",
+            project_root=self.project_root,
+            plugin_root=self.plugin_root,
+            plugin_version=self.LIVE_VERSION,
+        )
+        patch = mock.patch.object(artifact_upgrade, "INSTALLED_RULES", [])
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def _pin(self, version: str) -> None:
+        root = str(self.plugin_root).replace("\\", "/")
+        (self.project_root / "planwise" / "config.yaml").write_text(
+            f'plugin_root: "{root}"\nplugin_version: "{version}"\n', encoding="utf-8")
+
+    def _install_mirror(self, body: str) -> Path:
+        dst = self.agents_dir / self.AGENT_FILENAME
+        dst.write_text(body, encoding="utf-8")
+        return dst
+
+    def _banner(self) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = ip._run_upgrade(self.cfg)
+        self.assertEqual(code, 0)
+        return buf.getvalue()
+
+    def test_stale_mirror_prints_in_the_upgrade_banner_on_the_up_to_date_branch(self):
+        self._pin(self.LIVE_VERSION)
+        mirror = self._install_mirror(self.SHIPPED_BODY)
+
+        out = self._banner()
+
+        self.assertIn("Already up to date", out)
+        self.assertIn("Orphaned agent mirrors: 1", out)
+        self.assertIn(f"REMOVABLE  {mirror}", out)
+        self.assertIn("remove the REMOVABLE set with: /planwise doctor --prune-stale", out)
+
+    def test_stale_mirror_prints_on_the_real_upgrade_branch(self):
+        self._pin(self.OLD_VERSION)
+        mirror = self._install_mirror(self.SHIPPED_BODY)
+
+        out = self._banner()
+
+        self.assertIn("Upgrade complete.", out)
+        self.assertIn("Orphaned agent mirrors: 1", out)
+        self.assertIn(f"REMOVABLE  {mirror}", out)
+        self.assertIn("remove the REMOVABLE set with: /planwise doctor --prune-stale", out)
+        self.assertTrue(mirror.exists(), "The sweep is read-only: the mirror must stay")
+
+    def test_customised_mirror_is_preserve_never_offered(self):
+        self._pin(self.LIVE_VERSION)
+        mirror = self._install_mirror(self.SHIPPED_BODY + "# Mine\nUser-added block.\n")
+
+        out = self._banner()
+
+        self.assertIn("Orphaned agent mirrors: 1", out)
+        self.assertIn(f"PRESERVE   {mirror}", out)
+        self.assertNotIn("remove the REMOVABLE set", out)
+        self.assertNotIn("REMOVABLE  ", out)
+
+    def test_no_mirrors_prints_no_block(self):
+        self._pin(self.LIVE_VERSION)
+
+        out = self._banner()
+
+        self.assertIn("Already up to date", out)
+        self.assertNotIn("Orphaned agent mirrors", out)
+
+    def _run_with_raising_sweep(self):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(
+            artifact_upgrade, "sweep_orphaned_agent_mirrors",
+            side_effect=PermissionError("denied by fixture"),
+        ), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = ip._run_upgrade(self.cfg)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_raising_sweep_does_not_skip_the_pin_commit_on_the_real_branch(self):
+        self._pin(self.OLD_VERSION)
+
+        code, out, err = self._run_with_raising_sweep()
+
+        self.assertEqual(code, 0)
+        self.assertIn("Upgrade complete.", out)
+        self.assertIn(f'plugin_version: "{self.LIVE_VERSION}"', (
+            self.project_root / "planwise" / "config.yaml").read_text(encoding="utf-8"))
+        self.assertIn("orphaned agent mirror sweep", err)
+        self.assertIn("denied by fixture", err)
+
+    def _run_with_overscope(self, **patch_kwargs):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(
+            artifact_upgrade, "lint_rule_overscope", **patch_kwargs,
+        ) as lint, contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = ip._run_upgrade(self.cfg)
+        return code, out.getvalue(), err.getvalue(), lint
+
+    def test_raising_overscope_advisory_does_not_skip_the_pin_commit(self):
+        self._pin(self.OLD_VERSION)
+
+        code, out, err, _lint = self._run_with_overscope(
+            side_effect=PermissionError("overscope denied by fixture"))
+
+        self.assertEqual(code, 0)
+        self.assertIn("Upgrade complete.", out)
+        self.assertIn(f"Plugin version pinned: {self.LIVE_VERSION}", out)
+        self.assertIn(f'plugin_version: "{self.LIVE_VERSION}"', (
+            self.project_root / "planwise" / "config.yaml").read_text(encoding="utf-8"))
+        self.assertIn("overscope advisory", err)
+        self.assertIn("overscope denied by fixture", err)
+        self.assertNotIn("Upgrade failed", err)
+
+    def test_overscope_advisory_lines_are_unchanged_when_it_does_not_raise(self):
+        self._pin(self.OLD_VERSION)
+        finding = {
+            "path": "rules/big.md", "line_count": 12, "approx_tokens": 340,
+            "matched_glob": "**/plans/**",
+        }
+
+        code, out, err, _lint = self._run_with_overscope(return_value=[finding])
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("overscope advisory", err)
+        self.assertIn(
+            "Advisory — rules scoped to plan/backlog/lessons globs:\n"
+            "  ~ rules/big.md (12 lines, ~340 tokens; matches **/plans/**)\n"
+            "      hint: re-scope to code paths or convert to a handler-loaded reference\n"
+            "  Total always-on injected budget from flagged rules: ~340 tokens\n\n",
+            out)
+
+    def test_up_to_date_branch_never_runs_the_overscope_advisory(self):
+        self._pin(self.LIVE_VERSION)
+
+        code, out, err, lint = self._run_with_overscope(
+            side_effect=PermissionError("must not be reached"))
+
+        self.assertEqual(code, 0)
+        self.assertIn("Already up to date", out)
+        self.assertEqual(lint.call_count, 0)
+        self.assertNotIn("overscope advisory", err)
+
+    def test_raising_sweep_does_not_skip_the_repoint_on_the_up_to_date_branch(self):
+        stale = (self.tmp / "reaped-cache").as_posix()
+        (self.project_root / "planwise" / "config.yaml").write_text(
+            f'plugin_root: "{stale}"\nplugin_version: "{self.LIVE_VERSION}"\n', encoding="utf-8")
+
+        code, out, err = self._run_with_raising_sweep()
+
+        self.assertEqual(code, 0)
+        self.assertIn("Already up to date (plugin_root repointed).", out)
+        text = (self.project_root / "planwise" / "config.yaml").read_text(encoding="utf-8")
+        self.assertNotIn("reaped-cache", text)
+        self.assertIn("orphaned agent mirror sweep", err)
+        self.assertIn("denied by fixture", err)

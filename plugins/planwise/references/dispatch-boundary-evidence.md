@@ -1,5 +1,5 @@
 ---
-description: Every statement crossing the orchestrator/runner boundary is a hypothesis authored inside one window about a world visible only from the other. Covers withholding the figures a dispatched task exists to re-derive, resolving an inbound flag's named consumer against the partition key, why diff attribution belongs to the orchestrator and not the runner, and what a silent resume actually means. Consult while composing a spawn prompt, while routing an inherited artifact into task files, and while reading what comes back.
+description: Every statement crossing the orchestrator/runner boundary is a hypothesis authored inside one window about a world visible only from the other. Covers withholding the figures a dispatched task exists to re-derive, resolving an inbound flag's named consumer against the partition key, why diff attribution belongs to the orchestrator and not the runner, what a silent resume actually means, and why a findings relay carries the findings and not only the path of an output file. Consult while composing a spawn prompt, while routing an inherited artifact into task files, and while reading what comes back.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Boundary — What Crosses It Is a Hypothesis, Not Evidence
@@ -19,6 +19,7 @@ Three neighbouring rules own machinery this file builds on. [`agent-orchestratio
 - [3. Diff Attribution Is the Orchestrator's Job, Not the Runner's](#3-diff-attribution-is-the-orchestrators-job-not-the-runners)
 - [4. A Silent Resume Means the Reply Exists and Did Not Route](#4-a-silent-resume-means-the-reply-exists-and-did-not-route)
 - [5. A Flag the Sender Says It Delivered Is a Claim; Only the Destination File Is Evidence](#5-a-flag-the-sender-says-it-delivered-is-a-claim-only-the-destination-file-is-evidence)
+- [6. A Findings Relay Carries the Findings, Not Only the Path of the File That Holds Them](#6-a-findings-relay-carries-the-findings-not-only-the-path-of-the-file-that-holds-them)
 
 ---
 
@@ -209,6 +210,37 @@ Sustained silence with **no** idle signal at all is a different question again. 
 > §2's subject is a flag that **arrived and named the wrong consumer**. §5's is a flag that **never arrived**. The correctives run in opposite directions: one re-adjudicates a row that is in front of you, the other goes looking for a row that is not. This is the same arrived-but-wrong versus never-arrived distinction that keeps §3 and §4 apart. Merged, the pair collapses into "check your flags", which is true of neither.
 
 [`../handlers/run.md`](../handlers/run.md) Step 1.1a owns the four-source enumeration and the union-diff against task files. This section is the half that check does not specify: **how to match.** A union-diff run on ids alone returns a false negative exactly when the destination already carries that id, which is the condition the measured incident was in.
+
+---
+
+## 6. A Findings Relay Carries the Findings, Not Only the Path of the File That Holds Them
+
+A background task's output-file path is not a reliable carrier across agents. The notification the orchestrator receives may be the only complete copy of the result. A resume message that says "read the output file" hands the runner a path that may hold nothing.
+
+> [!constraint] Put the findings in the resume message, and treat the path as a supplement
+> - **Put the findings in the resume message.** For each finding give its id, `file:line`, the defect in one sentence, and the disposition (fix, or route and where).
+> - **Treat the output path as a supplement.** Name it as optional context, never as the only source.
+> - **Have the runner record its source.** The runner states in its gate file which text it worked from, so a reviewer can tell a thin relay from a missed finding.
+>
+> WRONG — the path is the only carrier:
+> ```
+> resume: "Fix the review findings. Read <review-output-file>."
+> # The file is 0 bytes. The runner has nothing to act on.
+> ```
+> CORRECT — the findings travel in the message, the path is a supplement:
+> ```
+> resume: "Fix these 10 findings:
+>          F1  <file-a>:42   missing null check on <value>      -> fix
+>          F2  <file-b>:118  stale count in the summary row     -> fix
+>          F3  <file-c>:7    naming nit                         -> route to the backlog
+>          ...
+>          Optional context: <review-output-file> (may be empty; the list above is the source).
+>          In your gate file, record which text you worked from."
+> ```
+
+**The measured case.** A review ran as a forked background skill. Its 10 findings reached the orchestrator in a task notification. The resume message carried the triage lines plus the file path. The file was 0 bytes when the runner opened it. The runner fixed every finding from the triage lines and recorded the gap. That worked only because each triage line restated file, line and remedy. A bare "see the output file" resume would have left it nothing to act on.
+
+**Applies to** any DELEGATED session where the orchestrator runs a skill or a background agent (a code review, a reviewer fan-out) and resumes a task-runner with the result. It also applies to any hand-off that points at a temp-directory output file rather than a session `Outputs/` file.
 
 ---
 

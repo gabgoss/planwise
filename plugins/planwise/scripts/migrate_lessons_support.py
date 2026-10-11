@@ -79,7 +79,11 @@ class RefusalSet(Refusal):
         for fix, details in groups.items():
             lines.append(f"{fix} ({len(details)}):")
             lines += [f"  - {detail}" for detail in details]
-        super().__init__("\n".join(lines))
+        message = "\n".join(lines)
+        Exception.__init__(self, message)  # the multi-line message is never split or rejected
+        self.reason = message
+        self.fix = "; ".join(groups)
+        self.question = None
 
     def lines(self) -> list:
         """One line per refusal: its detail, then what closes it."""
@@ -482,7 +486,7 @@ def walk_promotion_log(text: str, refusals: list | None = None, skipped: list | 
 
     def refuse(detail: str) -> None:
         if refusals is None:
-            raise Refusal(detail)
+            raise Refusal(detail, fix=FIX_LOG_ROW)
         refusals.append((FIX_LOG_ROW, detail))
 
     i, header_seen, sep_seen = 0, False, False
@@ -596,7 +600,8 @@ def log_destination(lesson_id: int, naming) -> str:
     rows after migration routes each row through this same function, so
     keep its `(lesson_id: int, naming) -> str` signature stable."""
     if lesson_id is None or lesson_id < 1:
-        raise Refusal(f"promotion-log row names lesson id {lesson_id!r}, out of the expected range")
+        raise Refusal(f"promotion-log row names lesson id {lesson_id!r}, out of the expected range",
+                      "correct the lesson id in that row to an existing lesson, or delete the row")
     hub_name = _promotion_log_filename(naming)
     stem = Path(hub_name).stem.removeprefix("00-")
     for upper_bound, label in _CENTURY_BANDS:

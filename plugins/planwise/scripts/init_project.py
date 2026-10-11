@@ -55,6 +55,7 @@ if __name__ == "__main__":
     sys.modules.setdefault("init_project", sys.modules[__name__])
 
 from constants import InstallScope
+from migration_answers import AnswersError, load_answers
 
 try:
     from upgrade_io import (
@@ -449,6 +450,14 @@ except ImportError:
         "re-exports; the scripts/ directory appears to be partially installed"
     )
 
+try:
+    from transfer_review import run_review_transfers
+except ImportError:
+    raise ImportError(
+        "transfer_review is required for init_project's --review-transfers "
+        "diagnostic; the scripts/ directory appears to be partially installed"
+    )
+
 
 def install_rules(cfg: InitConfig) -> list[str]:
     """Copy reference files as rules with updated paths: frontmatter.
@@ -766,6 +775,10 @@ def main():
                              "(omit the flag) is index-wins. frontmatter-wins "
                              "drops the mismatched index cell instead of "
                              "rewriting the lesson file.")
+    parser.add_argument("--migration-answers", default=None, metavar="FILE",
+                        help="With --upgrade: a JSON file of answers to questions a "
+                             "migration cannot settle alone. A malformed file is "
+                             "refused before any write.")
     parser.add_argument("--doctor", action="store_true",
                         help="Read-only diagnostic: scan installed rules and report any "
                              "still scoped to plan/backlog/lessons globs (always-on context "
@@ -776,6 +789,14 @@ def main():
                              "files whose body diverges from the plugin-shipped version "
                              "(filename, kind, installed path, shipped path). Prints [] when "
                              "none diverge. Does not modify anything and does not require --name.")
+    parser.add_argument("--review-transfers", action="store_true",
+                        help="Read-only diagnostic: print a JSON array with one row per "
+                             "file under upgrade-transfers/*-to-*/, comparing each preserved "
+                             "body with the current plugin-shipped file (status now-upstream, "
+                             "still-unique, no-counterpart, not-a-transfer or unreadable). "
+                             "Pass --upgrade-pair FROM-to-TO to skip this run's own pair. "
+                             "Prints [] when no transfer is on disk. Does not modify "
+                             "anything and does not require --name.")
     parser.add_argument("--prune-stale", action="store_true",
                         help="WRITER (opt-in): delete the stale de-scoped rules and "
                              "orphaned agent mirrors that --doctor's read-only sweeps mark "
@@ -812,8 +833,9 @@ def main():
     # writer's refusal gate depends on it being well-formed.
     expected_pair = None
     if args.upgrade_pair is not None:
-        if not args.upgrade:
-            parser.error("--upgrade-pair only applies together with --upgrade")
+        if not (args.upgrade or args.review_transfers):
+            parser.error("--upgrade-pair only applies together with --upgrade "
+                         "or --review-transfers")
         parts = args.upgrade_pair.split("-to-")
         if len(parts) != 2 or not parts[0] or not parts[1]:
             parser.error("--upgrade-pair must be FROM-to-TO (e.g. 1.0.4-to-1.0.5), "
@@ -832,6 +854,9 @@ def main():
     if args.lessons_reconcile and not args.upgrade:
         parser.error("--lessons-reconcile requires --upgrade")
 
+    if args.migration_answers and not args.upgrade:
+        parser.error("--migration-answers requires --upgrade")
+
     if args.hash_installed:
         # The upgrade handler interpolates an absolute path here once per verdict
         # entry, so a typo'd or moved path must surface as a one-line error, not a
@@ -844,14 +869,14 @@ def main():
             sys.exit(2)
         sys.exit(0)
 
-    # --doctor, --list-diverged, and the two --prune-* writers are self-scoped
-    # modes that do not use the project name; every other mode
+    # --doctor, --list-diverged, --review-transfers, and the two --prune-* writers
+    # are self-scoped modes that do not use the project name; every other mode
     # (init / --migrate / --upgrade) requires it.
     if (not args.doctor and not args.prune_stale and not args.prune_upgrade_leftovers
-            and not args.list_diverged and not args.name):
-        parser.error("--name is required (omit it only for the read-only --doctor "
-                     "or --list-diverged diagnostics, or --prune-stale / "
-                     "--prune-upgrade-leftovers)")
+            and not args.list_diverged and not args.review_transfers and not args.name):
+        parser.error("--name is required (omit it only for the read-only --doctor, "
+                     "--list-diverged or --review-transfers diagnostics, or "
+                     "--prune-stale / --prune-upgrade-leftovers)")
 
     _plugin_root = get_plugin_root()
     cfg = InitConfig(
@@ -883,13 +908,24 @@ def main():
     if args.list_diverged:
         sys.exit(_run_list_diverged(cfg))
 
+    if args.review_transfers:
+        sys.exit(run_review_transfers(cfg, args.upgrade_pair))
+
     if args.upgrade:
         if args.migrate:
             print("Note: --migrate is redundant when --upgrade is used (upgrade internally calls migrate).", file=sys.stderr)
+        answers = None
+        if args.migration_answers:
+            try:
+                answers = load_answers(Path(args.migration_answers))
+            except AnswersError as exc:
+                print(f"Upgrade refused: {exc.reason} -- {exc.fix}", file=sys.stderr)
+                sys.exit(2)
         sys.exit(_run_upgrade(cfg, expected_pair=expected_pair,
                               allow_downgrade=args.allow_downgrade,
                               backlog_reconcile=args.backlog_reconcile,
-                              lessons_reconcile=args.lessons_reconcile))
+                              lessons_reconcile=args.lessons_reconcile,
+                              answers=answers))
 
     if args.migrate:
         sys.exit(_run_migrate(cfg))

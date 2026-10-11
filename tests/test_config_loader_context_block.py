@@ -152,6 +152,45 @@ class TestSpliceContextBlockReplace(unittest.TestCase):
         twice = config_loader.splice_context_block(once, {"token_saver": "true"})
         self.assertEqual(once, twice, "re-splicing the same value must be a no-op")
 
+    def test_value_with_own_comment_replaces_existing_comment(self):
+        text = "context:\n  k: 1  # old\n"
+        result = config_loader.splice_context_block(text, {"k": "2  # new"})
+        line = next(ln for ln in result.split("\n") if ln.lstrip().startswith("k:"))
+        self.assertEqual(line, "  k: 2  # new")
+        self.assertEqual(line.count("#"), 1)
+
+    def test_value_with_own_comment_collapses_repeated_comments(self):
+        text = (
+            "context:\n"
+            "  k: {min: 1}  # uncalibrated-range (single capture)"
+            "  # uncalibrated-range (capture failed)\n"
+        )
+        result = config_loader.splice_context_block(
+            text, {"k": "{min: 2}  # uncalibrated-range (single capture)"}
+        )
+        line = next(ln for ln in result.split("\n") if ln.lstrip().startswith("k:"))
+        self.assertEqual(line.count("#"), 1)
+        self.assertNotIn("(capture failed)", line)
+        self.assertEqual(line, "  k: {min: 2}  # uncalibrated-range (single capture)")
+
+    def test_quoted_value_containing_hash_keeps_existing_comment(self):
+        text = "context:\n  k: 1  # keep me\n"
+        result = config_loader.splice_context_block(text, {"k": '"run #2"'})
+        line = next(ln for ln in result.split("\n") if ln.lstrip().startswith("k:"))
+        self.assertEqual(line, '  k: "run #2"  # keep me')
+
+    def test_existing_quoted_hash_does_not_hide_real_comment(self):
+        text = 'context:\n  k: "a #b"  # keep me\n'
+        result = config_loader.splice_context_block(text, {"k": "2"})
+        line = next(ln for ln in result.split("\n") if ln.lstrip().startswith("k:"))
+        self.assertEqual(line, "  k: 2  # keep me")
+
+    def test_value_without_comment_still_preserves_existing_comment(self):
+        text = "context:\n  k: 1  # keep me\n"
+        result = config_loader.splice_context_block(text, {"k": "2"})
+        line = next(ln for ln in result.split("\n") if ln.lstrip().startswith("k:"))
+        self.assertEqual(line, "  k: 2  # keep me")
+
 
 # ---------------------------------------------------------------------------
 # splice_context_block — the shared SPLICE half, append path

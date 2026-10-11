@@ -7,10 +7,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPTS = Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import backlog_index_schema as schema
 import migrate_backlog_index as mig
+import migrate_backlog_relocate as reloc
 import migrate_backlog_repairs as repairs
 import migrate_backlog_support as sup
 
@@ -125,14 +128,19 @@ def test_r3_split_keeps_every_part_within_budget_at_real_scale():
     assert sup.parse_changelog([text for _n, text in result]) == segments
 
 
-def test_r3_unsplittable_first_entry_is_refused_not_written_over_budget(tmp_path, monkeypatch, capsys):
+def test_r3_unsplittable_first_entry_under_the_page_cap_is_kept_whole(tmp_path, monkeypatch, capsys):
+    # The entry plus its part header reaches the warn budget but sits far under the page cap, so it keeps
+    # its file whole and the ledger names it.
     body, _ = body_under(BUDGET - 20)
     footer = f"*Last Updated: 2024-01-01 — {body} Prior entry: 2023-12-01 — small entry.*\n"
-    config_path, _index = project(tmp_path, index(row("001"), footer=footer), {"001": item("001")})
-    before = snapshot(tmp_path)
+    config_path, index_path = project(tmp_path, index(row("001"), footer=footer), {"001": item("001")})
     code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write")
-    assert code == 2 and "REFUSED" in err and "per-file budget" in err, err + out
-    assert snapshot(tmp_path) == before
+    assert code == 0, err + out
+    log = json.loads(mig.artifact_paths(index_path)[1].read_bytes().decode("utf-8"))
+    [kept] = log["oversized_single_entries"]
+    assert Path(kept["path"]).name == part_name(1) and BUDGET <= kept["tokens"] < sup.READ_PAGE_CAP_TOKENS
+    assert log["changelog"]["unaccounted"] == 0 and log["verification"] == {"verified": True, "misses": []}
+    assert body in (index_path.parent / part_name(1)).read_bytes().decode("utf-8")
 
 
 # --- R5: a CRLF re-split writes CRLF only ----------------------------------
@@ -239,17 +247,27 @@ def test_r8_rerun_resumes_after_an_item_file_was_already_replaced(tmp_path, monk
     assert json.loads(mig.artifact_paths(_index)[1].read_bytes())["mode"] == "write"
 
 
-# --- R1: index-wins never silently drops a Dependencies edge ---------------
+# --- R1: index-wins unions a Dependencies edge instead of dropping it ------
 
-def test_r1_index_wins_refuses_to_drop_a_dependencies_edge(tmp_path, monkeypatch, capsys):
+def test_index_wins_unions_a_dependencies_edge(tmp_path, monkeypatch, capsys):
     items = {i: item(i) for i in ("001", "002", "003")}
     text = index(row("001", blocks="002"), row("002"), row("003"), deps=DEPS_001_003)
-    config_path, _index = project(tmp_path, text, items)
-    before = snapshot(tmp_path)
+    config_path, index_path = project(tmp_path, text, items)
     code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write", "--write-edges",
                          "--reconcile", "index-wins")
-    assert code == 2 and "would drop" in err and "001 blocks 003" in err, err + out
-    assert snapshot(tmp_path) == before
+    assert code == 0, err + out
+    assert "blocks: [002, 003]" in (index_path.parent / name("001")).read_text(encoding="utf-8")
+    edges = json.loads(mig.artifact_paths(index_path)[1].read_bytes())["edges"]
+    assert edges == [{"src": "001", "dst": "003", "source": "dependencies-table"}]
+    cells = json.loads(mig.artifact_paths(index_path)[1].read_bytes())["reconcile"]["cells"]
+    assert [(c["index"], c["written"]) for c in cells] == [(["002"], ["002", "003"])]
+    # the check is exact: a written list that differs from the planned union is a miss
+    item_path = index_path.parent / name("001")
+    stale = {"changelog": {"segments": [], "parts": [(index_path, None)]}, "dests": [],
+             "reconcile": {"mode": "index-wins", "cells": [{**cells[0], "path": item_path, "written": ["002", "004"]}]},
+             "index_text": index_path.read_text(encoding="utf-8")}
+    misses = mig.verify_written(stale, mig.artifact_paths(index_path), index_path)
+    assert [m for m in misses if m.startswith("reconciled blocks: [002, 004]")]
 
 
 # --- L5, L6, L4 -------------------------------------------------------------
@@ -270,3 +288,117 @@ def test_l6_header_only_changelog_with_a_bom_counts_as_absent(tmp_path, monkeypa
 def test_l4_replace_key_line_replaces_an_unindented_block_list():
     text = "---\nid: 001\nblocks:\n- 002\n- 004\n---\n\nbody\n"
     assert repairs.replace_key_line(text, "blocks", "[002, 003]") == "---\nid: 001\nblocks: [002, 003]\n---\n\nbody\n"
+
+
+# --- S3: a large relocated entry verifies, and one at the page cap is refused -
+
+PREAMBLE_LINE = "Preamble note number {:05d} about something the team once wrote down here."
+
+
+def preamble_index(n):
+    """An index whose lines 3 to n + 2 are preamble text the migration relocates."""
+    pre = "".join(PREAMBLE_LINE.format(i) + "\n" for i in range(n))
+    return index(row("001")).replace("# Backlog Index\n\n", f"# Backlog Index\n\n{pre}\n", 1)
+
+
+def relocated_tokens(n):
+    records = [{"line": i + 3, "kind": "preamble", "text": PREAMBLE_LINE.format(i)} for i in range(n)]
+    return sup.changelog_tokens(f"## Entry 1\n\n{reloc.render_relocated_entry(records, '2024-01-01')}\n\n")
+
+
+def changelog_texts(index_path):
+    return [p.read_bytes().decode("utf-8") for p in sorted(index_path.parent.glob("00-Changelog-Backlog*.md"))]
+
+
+def test_s3_a_relocated_entry_split_at_its_paragraph_verifies(tmp_path, monkeypatch, capsys):
+    assert BUDGET <= relocated_tokens(600) < sup.READ_PAGE_CAP_TOKENS, "setup must reach the paragraph split"
+    config_path, index_path = project(tmp_path, preamble_index(600), {"001": item("001")})
+    code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write")
+    texts = changelog_texts(index_path)
+    assert any("## Entry 1 (continued)" in text for text in texts), texts[0][:300]
+    assert code == 0, err + out
+    log = json.loads(mig.artifact_paths(index_path)[1].read_bytes().decode("utf-8"))
+    assert log["changelog"]["unaccounted"] == 0 and log["verification"] == {"verified": True, "misses": []}
+    assert all(f"(preamble): {PREAMBLE_LINE.format(i)}\n" in "".join(texts) for i in range(600))
+
+
+def test_s3_a_relocated_entry_at_the_page_cap_is_refused_before_any_write(tmp_path, monkeypatch, capsys):
+    assert relocated_tokens(700) >= sup.READ_PAGE_CAP_TOKENS, "setup must reach the page cap"
+    config_path, _index = project(tmp_path, preamble_index(700), {"001": item("001")})
+    before = snapshot(tmp_path)
+    code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write")
+    assert code == 2 and "REFUSED" in err, err + out
+    fix = err.strip().rsplit(" -- ", 1)[1]
+    assert "index lines 3-702" in fix and "entry" not in fix.lower(), fix
+    assert snapshot(tmp_path) == before
+
+
+# --- S4: a '## Dependencies' row note keeps the targets it was written beside --
+
+def deps(row_text):
+    return f"## Dependencies\n\n| ID | Blocks |\n|---|---|\n{row_text}\n\n"
+
+
+def test_s4_a_dependencies_row_note_keeps_its_targets(tmp_path, monkeypatch, capsys):
+    text = index(row("001", blocks="002, 003"), row("002"), row("003"),
+                 deps=deps("| 001 | 002, 003 (only once the `API` lands) |"))
+    items = {"001": item("001", blocks="[002, 003]"), "002": item("002"), "003": item("003")}
+    config_path, index_path = project(tmp_path, text, items)
+    code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write", "--extract-dependency-notes")
+    assert code == 0, err + out
+    body = (index_path.parent / name("001")).read_bytes().decode("utf-8")
+    assert body.split(sup.NOTES_HEADING_DEPS)[1].strip() == "- 002, 003: only once the `API` lands"
+
+
+@pytest.mark.parametrize("cell,note", [
+    ("002 (needs the  `selector`)", "needs the  `selector`"),
+    ("002 (see [the design](Archive/d.md) first)", "see [the design](Archive/d.md) first"),
+], ids=["code-span-and-double-space", "link"])
+def test_s4_a_dependencies_note_is_the_cells_own_text(cell, note):
+    assert sup.dependency_cell_parts(cell) == ([(None, "002")], note)
+
+
+# --- L5, L7: id prefixes in a Blocks cell and in the '## Dependencies' table --
+
+def prow(cell_id, i, blocks=""):
+    """An items-table row whose ID cell reads `cell_id`."""
+    return f"| {cell_id} | {title(i)} | High | NOT_STARTED | 2024-01-01 | {blocks} | [{i}]({name(i)}) |\n"
+
+
+ACCEPTED_PREFIXES = [
+    # controls: the items table's own prefix in a Blocks cell, in either case
+    ("blocks-own-prefix", index(prow("ITM-001", "001", "ITM-002"), prow("ITM-002", "002")), "[002]", ()),
+    ("blocks-own-prefix-lower-case", index(prow("ITM-001", "001", "itm-002"), prow("ITM-002", "002")), "[002]", ()),
+    ("deps-lower-case", index(prow("ITM-001", "001", "ITM-002"), prow("ITM-002", "002"),
+                              deps=deps("| itm-001 | itm-002 |")), "[002]", ()),
+    ("deps-prefix-from-a-later-row", index(prow("001", "001", "002"), prow("ITM-002", "002"),
+                                           deps=deps("| 001 | ITM-002 |")), "[002]", ()),
+]
+
+
+@pytest.mark.parametrize("text,blocks,args", [pytest.param(*r[1:], id=r[0]) for r in ACCEPTED_PREFIXES])
+def test_l7_the_items_prefix_matches_in_any_case_and_from_any_row(tmp_path, monkeypatch, capsys, text, blocks, args):
+    config_path, index_path = project(tmp_path, text, {"001": item("001", blocks=blocks), "002": item("002")})
+    code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write", *args)
+    assert code == 0, err + out
+    assert "blocks: [002]" in (index_path.parent / name("001")).read_bytes().decode("utf-8")
+
+
+def test_l7_mixed_items_prefixes_are_all_named_in_the_foreign_prefix_fix(tmp_path, monkeypatch, capsys):
+    text = index(prow("ABC-001", "001"), prow("ITM-002", "002"), deps=deps("| XYZ-001 | 002 |"))
+    config_path, _index = project(tmp_path, text, {"001": item("001"), "002": item("002")})
+    before = snapshot(tmp_path)
+    code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write", "--write-edges")
+    assert code == 2 and "uses a prefix other than the items table's" in err, err + out
+    assert "(the items table writes ABC- or ITM-)" in err, err
+    assert snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize("args", [(), ("--write-edges",)], ids=["no-flags", "write-edges"])
+def test_l7_a_self_edge_is_refused_with_its_own_fix(tmp_path, monkeypatch, capsys, args):
+    config_path, _index = project(tmp_path, index(row("001"), deps=deps("| 001 | 001 |")), {"001": item("001")})
+    before = snapshot(tmp_path)
+    code, out, err = run(monkeypatch, capsys, config_path, NO_GIT, "--write", *args)
+    assert code == 2 and "names its own item 001 as a blocker" in err, err + out
+    assert "001<->001" not in err and "001 blocks 001" not in err, err
+    assert snapshot(tmp_path) == before

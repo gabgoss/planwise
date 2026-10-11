@@ -70,6 +70,19 @@ class TestUpgradeAndInitHandlersLessonsMigration(unittest.TestCase):
         self.assertIn("Lessons index migration:", span)
         self.assertIn("Lessons index:", span)
 
+    def test_upgrade_step_3_lessons_refused_block_has_no_rerun_sentence(self):
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 3 ", "### Step 4 ")
+        block = _span_between(span, "Lessons index migration: REFUSED", "— or")
+        self.assertNotIn("re-run", block)
+        self.assertIn("fix:    {the migrator's fix, verbatim}", block)
+
+    def test_upgrade_step_3_lessons_findings_block_has_no_writer(self):
+        text = UPGRADE_HANDLER_PART3.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 3 ", "### Step 4 ")
+        self.assertIn("Lessons index: generated; --check reports", span)
+        self.assertIn("has no writer", span)
+
     def test_upgrade_step_1_gate_names_the_lessons_migration_block(self):
         text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
         span = _span_between(
@@ -90,6 +103,13 @@ class TestUpgradeAndInitHandlersLessonsMigration(unittest.TestCase):
     def test_init_fallback_step_4_names_the_lessons_upgrade_instruction(self):
         text = INIT_FALLBACK_HANDLER.read_text(encoding="utf-8-sig")
         self.assertIn("hand-shaped lessons index", text)
+
+    def test_upgrade_step_2_4_names_no_lessons_reconcile_flag(self):
+        # The handler's command never passes the flag, so naming it in the
+        # prose documents an option the run cannot reach.
+        text = UPGRADE_HANDLER.read_text(encoding="utf-8-sig")
+        span = _span_between(text, "### Step 2.4", "### Step 2.5")
+        self.assertNotIn("--lessons-reconcile", span)
 
 
 class TestDoctorHandlerStage21(unittest.TestCase):
@@ -221,6 +241,33 @@ class TestLessonsHandlerRegenerateCommands(unittest.TestCase):
         self.assertIn("{plugin_root}", span)
         self.assertIn("--write", span)
         self.assertIn("--companion --write", span)
+
+
+class TestLessonsIndexShapeGatePointer(unittest.TestCase):
+    """lessons.md holds one gate line that points at the shared reference. The
+    reference carries the branches, so the handler never restates them."""
+
+    def setUp(self):
+        self.text = LESSONS_HANDLER.read_text(encoding="utf-8-sig")
+        self.reference = (_PLUGIN / "references" / "index-shape-gate.md").read_text(encoding="utf-8-sig")
+
+    def test_gate_subsection_points_at_the_reference_and_names_the_script(self):
+        span = _span_between(self.text, "### Index shape gate", "## List Mode")
+        self.assertIn("index_shape_preflight.py", span)
+        self.assertIn("../references/index-shape-gate.md", span)
+        self.assertIn("AUTO-MODE: critical", span)
+        self.assertNotIn("--upgrade-pair", span)
+
+    def test_every_mode_still_links_the_gate_subsection(self):
+        self.assertGreaterEqual(self.text.count("(#index-shape-gate)"), 4)
+
+    def test_reference_runs_step_2_3b_before_step_2_4_and_reruns_the_preflight(self):
+        self.assertLess(self.reference.index("Step 2.3b"), self.reference.index("Step 2.4 with"))
+        self.assertLess(self.reference.index("Step 2.4 with"), self.reference.index("Run the preflight again"))
+
+    def test_no_handler_names_the_removed_run_part_file(self):
+        for path in sorted((_PLUGIN / "handlers").glob("*.md")):
+            self.assertNotIn("run-Part-2-PreflightGate", path.read_text(encoding="utf-8-sig"), path.name)
 
 
 if __name__ == "__main__":

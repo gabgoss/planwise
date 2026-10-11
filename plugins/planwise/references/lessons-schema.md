@@ -53,7 +53,7 @@ An overflow leaf exists only when the hub-family content will not fit one file u
 
 ## Changelog Contract
 
-`00-Changelog-LessonsLearned.md` opens with a backlink to the hub (`[← 00-Index-LessonsLearned.md](00-Index-LessonsLearned.md)`), then `## Entry N` sections newest-first. An archive part, when the current file grows past its budget, is linked both ways. The current entry replaces the previous value:
+`00-Changelog-LessonsLearned.md` opens with a backlink to the hub (`[← 00-Index-LessonsLearned.md](00-Index-LessonsLearned.md)`), then `## Entry N` sections newest-first. Numbers are stable and ascend from the oldest entry, so the headings descend top to bottom and a number never changes once assigned. Cite an entry by its date or heading text. An archive part, when the current file grows past its budget, is linked both ways. The current entry replaces the previous value:
 
 > **"Replace the previous value — do not preserve it. History belongs in a changelog file, not in this line."**
 

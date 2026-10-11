@@ -48,8 +48,8 @@ Every allowed executable reads and none writes, so read-only behaviour follows
 from the allowlist itself rather than from anything this module has to remember
 to do at call time.
 
-The seven checks are registered separately; this module supplies the extraction
-and execution substrate they are built on.
+The checks are registered separately in ``CHECK_REGISTRY``; this module
+supplies the extraction and execution substrate they are built on.
 """
 
 import argparse
@@ -289,6 +289,25 @@ def _exit_criterion_commands(line: str, rel: str, path: Path, number: int) -> li
     return [command] if command is not None else []
 
 
+def _quote_closes_in_fence(lines: list, index: int) -> bool:
+    """True when the quote left open on ``lines[index]`` closes before the fence ends.
+
+    A stray quote in a one-line command must not swallow the gates after it, so
+    a line is joined with its successors only when the join is known to close.
+    Otherwise the line stays a command of its own and the resolver refuses it
+    as an unterminated quote, as it always has.
+    """
+    joined = _strip_blockquote(lines[index]).rstrip()
+    for raw in lines[index + 1:]:
+        line = _strip_blockquote(raw).rstrip()
+        if line.strip().startswith("```"):
+            return False
+        joined = joined + "\n" + line
+        if not _scan(joined).unterminated:
+            return True
+    return False
+
+
 def _extract_from_file(path: Path, plan_root: Path, text: str) -> list:
     """Extract every command from one markdown file."""
     rel = _relative_name(path, plan_root)
@@ -298,12 +317,30 @@ def _extract_from_file(path: Path, plan_root: Path, text: str) -> list:
     fence_block: str | None = None
     in_fence = False
     previous: ExtractedCommand | None = None
+    # A quoted argument can span lines (``python -c "`` followed by a script
+    # body). The lines of one such command are held here, with the number of
+    # the first, until the quote closes -- otherwise each continuation line
+    # would be linted as a command of its own.
+    open_lines: list = []
+    open_start = 0
 
-    for number, raw in enumerate(text.split("\n"), start=1):
+    lines = text.split("\n")
+    for number, raw in enumerate(lines, start=1):
         line = _strip_blockquote(raw).rstrip()
         stripped = line.strip()
 
         if in_fence:
+            if open_lines:
+                open_lines.append(line)
+                joined = "\n".join(open_lines)
+                if _scan(joined).unterminated:
+                    continue
+                command = _build_command(joined, rel, path, open_start, fence_block)
+                open_lines = []
+                if command is not None:
+                    found.append(command)
+                    previous = command
+                continue
             if stripped.startswith("```"):
                 in_fence = False
                 fence_block = None
@@ -321,6 +358,10 @@ def _extract_from_file(path: Path, plan_root: Path, text: str) -> list:
                 # this is where a recorded pre-edit value lives.
                 if previous is not None and not previous.annotation:
                     previous.annotation = stripped
+                continue
+            if _scan(line).unterminated and _quote_closes_in_fence(lines, number - 1):
+                open_lines = [line]
+                open_start = number
                 continue
             command = _build_command(line, rel, path, number, fence_block)
             if command is not None:
@@ -577,14 +618,11 @@ def _run_gates(context: LintContext) -> list:
     return findings
 
 
-def lint_plan(plan_root, execute: bool = True) -> list:
-    """Lint every verification gate in a plan tree and return its findings.
+def _lint(plan_root, execute: bool):
+    """Lint a plan tree and return ``(findings, context)``.
 
-    With ``execute`` false, no command is run and the checks that need a
-    measurement stand down; the checks that read command text still report.
-    Nothing is run in that mode, so nothing is refused in it either -- the
-    caller turned execution off, rather than the allowlist turning a command
-    away.
+    The context keeps each gate's execution result, which is what a coverage
+    count is read from.
     """
     plan_root = Path(plan_root)
     context = LintContext(
@@ -598,19 +636,62 @@ def lint_plan(plan_root, execute: bool = True) -> list:
         findings.extend(_run_gates(context))
     for check in CHECK_REGISTRY:
         findings.extend(check(context))
+    return findings, context
+
+
+def lint_plan(plan_root, execute: bool = True) -> list:
+    """Lint every verification gate in a plan tree and return its findings.
+
+    With ``execute`` false, no command is run and the checks that need a
+    measurement stand down; the checks that read command text still report.
+    Nothing is run in that mode, so nothing is refused in it either -- the
+    caller turned execution off, rather than the allowlist turning a command
+    away.
+    """
+    findings, _ = _lint(plan_root, execute)
     return findings
 
 
+def coverage_line(context: LintContext) -> str:
+    """Say how many gates the executor actually ran, in one line.
+
+    A report made only of refusals carries no findings about the gates, yet it
+    reads as a quiet scan. This line states the denominator so the two cannot
+    be confused: ``checked`` counts gates that ran, ``refused`` counts gates
+    the allowlist turned away. When gates exist and none ran, the line starts
+    with ``NOT CHECKED``.
+    """
+    gates = [c for c in context.commands if c.is_gate and not c.is_placeholder]
+    total = len(gates)
+    if not context.execute:
+        return f"Coverage: execution disabled; {total} gates not run."
+    checked = sum(1 for c in gates if c.result and c.result["executed"])
+    refused = total - checked
+    if total and not checked:
+        return (
+            f"Coverage: NOT CHECKED -- 0 of {total} gates ran; {refused} refused. "
+            "Derive the verification gates by hand."
+        )
+    return f"Coverage: checked {checked} of {total} gates; {refused} refused."
+
+
 # ---------------------------------------------------------------------------
-# The seven checks
+# The checks
 #
 # Checks 2-6 are static: they read extracted command text (and, where a check
 # needs cross-file reasoning, sibling file content) and never run anything.
+# Check 8 is static too, but reads markdown lines directly: a native tool call
+# never becomes an extracted command, because the extractor reads only fenced
+# blocks and lowercase shell verbs.
 # Checks 1 and 7 read the ``result`` the executor already stored on a command
 # in ``_run_gates`` -- they never execute a command themselves, so a refused
 # command they cannot reason about is simply skipped, and its own UNCERTAIN
 # finding (already produced by ``_run_gates``) stands as the only report for
 # it. Nothing here ever concludes a gate passed.
+# Checks 9-16 are static shape checks over a gate's command text and, where a
+# check needs it, the bytes of the file the gate targets. They read a piped
+# command stage by stage, which the executor refuses whole. Each mechanises a
+# rule one of the gate references states in prose.
 # ---------------------------------------------------------------------------
 
 _PRE_EDIT_TOKEN = "pre-edit:"
@@ -1229,6 +1310,530 @@ def _check7_contradicted_before_baseline(context: LintContext) -> list:
     return findings
 
 
+# A native ``Grep`` tool call written as ``Grep  pattern='...'``. The value runs
+# to the matching quote, so a quote of the other kind may sit inside it.
+_GREP_TOOL_CALL_RE = re.compile(r"\bGrep\b[^\n]*?\bpattern\s*=\s*(['\"])(.*?)\1")
+
+# A backslash-pipe with a word character directly on each side, such as
+# ``a\|b``. That is the shape of an alternation. A backslash-pipe beside
+# whitespace, at the pattern start, or after ``^`` anchors a literal pipe in a
+# markdown table row and is not matched. The ``(?<!\\\w)`` guard keeps a class
+# escape such as ``\w\|`` from counting as a word character.
+_ESCAPED_PIPE_ALTERNATION_RE = re.compile(r"(?<=\w)(?<!\\\w)\\\|(?=\w)")
+
+
+def _check8_grep_tool_escaped_pipe_alternation(context: LintContext) -> list:
+    """Check 8 -- a native ``Grep`` call whose pattern writes alternation as a
+    backslash-pipe. The tool uses ripgrep syntax, where that escape matches a
+    literal pipe, so the pattern matches nothing and a negative result reads
+    as a real absence. A table cell forces the escape for a literal pipe,
+    which is how it reaches the agent as raw text.
+
+    Reads markdown lines directly, because a ``Grep`` call in a table row never
+    becomes an extracted command. WARNING, not ERROR: the heuristic reads
+    intent from the characters beside the escape. A line containing the word
+    WRONG is a counter-example, not a gate, and is skipped. A template
+    placeholder on the line does not exempt it.
+    """
+    findings = []
+    for path in context.markdown_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = _relative_name(path, context.plan_root)
+        for number, line in enumerate(text.split("\n"), start=1):
+            # No placeholder skip: a template slot elsewhere on the line, such
+            # as in an output cell, says nothing about the pattern's dialect.
+            if "WRONG" in line:
+                continue
+            for call in _GREP_TOOL_CALL_RE.finditer(line):
+                if not _ESCAPED_PIPE_ALTERNATION_RE.search(call.group(2)):
+                    continue
+                findings.append(
+                    make_finding(
+                        check=8,
+                        severity=SEVERITY_WARNING,
+                        file=rel,
+                        line=number,
+                        command=call.group(0),
+                        message=(
+                            "This Grep tool pattern writes alternation as a "
+                            "backslash-pipe. The tool uses ripgrep syntax, "
+                            "where that matches a literal pipe, so the pattern "
+                            "matches nothing. Use a bare pipe outside a table "
+                            "cell, or split it into one Grep call per "
+                            "alternative"
+                        ),
+                    )
+                )
+                break
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Checks 9-16 -- static shape checks over a gate's command text.
+#
+# A pipeline tokenises with a bare ``|`` token between its stages, so a static
+# check can read each stage even though the executor refuses the whole command.
+# Every check below reads the first stage's pattern and target the way Checks
+# 3-6 do, and reads a target file's bytes only to classify a shape it has
+# already matched. None of them runs anything, and none concludes a gate passed.
+# ---------------------------------------------------------------------------
+
+# A grep pattern that is one bare word: no anchor, no space, no metacharacter.
+_SINGLE_WORD_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+# A grep pattern that is nothing but three or more digits.
+_BARE_DIGITS_RE = re.compile(r"^\d{3,}$")
+# A grep pattern that starts with a Markdown heading marker instead of ``^``.
+_HEADING_PATTERN_RE = re.compile(r"^#{1,6} ")
+# A verdict, gate, result or status label followed by its value, as a report
+# skeleton prescribes it. The group spans label, colon and value so a caller can
+# test whether any emphasis marker sits between them.
+_VERDICT_LABEL_RE = re.compile(
+    r"(Verdict|Gate|Result|Status):\s*(PASS|FAIL|HALT|WRITTEN|COMPLETE|UNCERTAIN)\b"
+)
+# A grep context flag: ``-B1``, ``-A2``, ``-C1``, a combined ``-nB1``, or the
+# bare letter whose count follows as the next token.
+_CONTEXT_FLAG_RE = re.compile(r"^-[a-zA-Z]*[ABC]\d*$|^--(before-context|after-context|context)(=\d+)?$")
+# pytest flags that consume the next token as their value, so that token is
+# never a path argument.
+_PYTEST_VALUE_FLAGS = frozenset(
+    {"-c", "-k", "-m", "-p", "-o", "-W", "-n", "--rootdir", "--confcutdir", "--tb",
+     "--maxfail", "--durations", "--deselect", "--ignore"}
+)
+_PLAN_LEVEL_SUFFIXES = ("Master-Plan.md", "Sprint-Plan.md")
+
+
+def _pipeline_stages(argv) -> list:
+    """Split a tokenised command on bare ``|`` tokens into its stages.
+
+    ``shlex`` leaves a pipe as its own token, so ``grep -B1 x f | grep -c y``
+    becomes two stages. A command with no pipe is one stage. Empty stages
+    (a leading or doubled pipe) are dropped rather than reasoned about.
+    """
+    stages: list = []
+    current: list = []
+    for token in argv:
+        if token == "|":
+            if current:
+                stages.append(current)
+            current = []
+        else:
+            current.append(token)
+    if current:
+        stages.append(current)
+    return stages
+
+
+def _first_grep_stage(command: ExtractedCommand):
+    """Return ``(stage, stages)`` when the command's first stage is a grep, else
+    ``(None, stages)``. ``stages`` is None when the text does not tokenise."""
+    argv = _static_argv(command.command)
+    if not argv:
+        return None, None
+    stages = _pipeline_stages(argv)
+    if not stages or stages[0][0] not in ("grep", "rg"):
+        return None, stages
+    return stages[0], stages
+
+
+def _target_bytes(target: Path):
+    try:
+        return target.read_bytes()
+    except OSError:
+        return None
+
+
+def _check9_dollar_anchor_over_crlf_target(context: LintContext) -> list:
+    """Check 9 -- a pattern anchored on ``$`` with no ``\\r?`` guard. On a CRLF
+    file the carriage return sits between the last character and the line
+    break, so ``$`` never matches and the gate returns a zero that reads like a
+    real absence. ERROR when the target is a readable file with CRLF endings,
+    WARNING when the target does not exist yet (its endings are unknown), and
+    silent on an LF-only file, a directory target, an escaped ``\\$``, or a
+    pattern that already carries a ``\\r`` guard.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or not command.is_gate:
+            continue
+        stage, _ = _first_grep_stage(command)
+        if stage is None:
+            continue
+        pattern, target = _grep_pattern_and_target(stage, context.plan_root)
+        if pattern is None or not pattern.endswith("$") or pattern.endswith("\\$"):
+            continue
+        if "\\r" in pattern:
+            continue
+        if target is not None and target.is_dir():
+            continue
+        severity = SEVERITY_WARNING
+        detail = "the target cannot be read here, so its line endings are unknown"
+        if target is not None and target.is_file():
+            data = _target_bytes(target)
+            if data is None or b"\r\n" not in data:
+                continue
+            severity = SEVERITY_ERROR
+            detail = (
+                f"{target.name} carries CRLF line endings, so `$` never matches "
+                "before the carriage return and the gate returns 0 on a correct file"
+            )
+        findings.append(
+            make_finding(
+                check=9,
+                severity=severity,
+                file=command.file,
+                line=command.line,
+                command=command.command,
+                message=(
+                    "This pattern anchors on `$` with no `\\r?` guard; "
+                    f"{detail}. Anchor on `^` only, write `\\r\\?$`, or "
+                    "normalise with `tr -d '\\r'` first"
+                ),
+            )
+        )
+    return findings
+
+
+def _check10_single_term_coverage_count(context: LintContext) -> list:
+    """Check 10 -- ``grep -c <one word> <file>.md`` against a threshold of two
+    or more. ``grep -c`` counts lines, and a soft-wrapped paragraph is one
+    line, so the number measures layout: a well-written paragraph that covers
+    every clause fails it, and repeating the word anywhere passes it.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or not command.is_gate:
+            continue
+        if _INVARIANT_TOKEN in command.annotation:
+            continue
+        stage, stages = _first_grep_stage(command)
+        if stage is None or stage[0] != "grep" or len(stages) != 1:
+            continue
+        if not _has_count_flag(stage):
+            continue
+        pattern, target = _grep_pattern_and_target(stage, context.plan_root)
+        if pattern is None or target is None or not _SINGLE_WORD_RE.match(pattern):
+            continue
+        if target.suffix.lower() != ".md":
+            continue
+        expectation = _parse_expectation(_note_for(command))
+        if expectation is None or expectation.comparator not in (">=", ">") or expectation.value < 2:
+            continue
+        findings.append(
+            make_finding(
+                check=10,
+                severity=SEVERITY_WARNING,
+                file=command.file,
+                line=command.line,
+                command=command.command,
+                message=(
+                    f"This gate counts lines holding the single term {pattern!r} "
+                    "in a prose file against a threshold of "
+                    f"{expectation.comparator}{expectation.value}. `grep -c` "
+                    "counts lines, so the number measures layout, not coverage: "
+                    "a well-written paragraph fails it and a padded one passes. "
+                    "Assert each clause by its own distinctive phrase, or use "
+                    "`grep -o … | wc -l` and say what an occurrence count proves"
+                ),
+            )
+        )
+    return findings
+
+
+def _check11_verdict_pattern_drops_emphasis(context: LintContext) -> list:
+    """Check 11 -- a verdict-line pattern typed from the rendered line. A
+    skeleton that prescribes ``**Gate:** PASS`` puts two asterisks between the
+    label and the value, so ``grep 'Gate: PASS'`` returns 0 on a passing
+    artifact. ERROR when the target file exists and carries the bold form,
+    WARNING when the target does not exist yet, silent when the target carries
+    the bare form the pattern matches.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or not command.is_gate:
+            continue
+        stage, _ = _first_grep_stage(command)
+        if stage is None:
+            continue
+        pattern, target = _grep_pattern_and_target(stage, context.plan_root)
+        if pattern is None:
+            continue
+        match = _VERDICT_LABEL_RE.search(pattern)
+        if not match or "*" in match.group(0):
+            continue
+        label = match.group(1)
+        severity = SEVERITY_WARNING
+        detail = "the target cannot be read here, so copy the verdict line's bytes from its skeleton"
+        if target is not None and target.is_file():
+            data = _target_bytes(target)
+            if data is None:
+                continue
+            text = data.decode("utf-8", errors="replace")
+            if f"**{label}:**" in text:
+                severity = SEVERITY_ERROR
+                detail = (
+                    f"{target.name} writes the line as `**{label}:** …`, so the "
+                    "literal the pattern wants is absent and the gate returns 0 "
+                    "on a passing artifact"
+                )
+            else:
+                continue
+        findings.append(
+            make_finding(
+                check=11,
+                severity=severity,
+                file=command.file,
+                line=command.line,
+                command=command.command,
+                message=(
+                    f"This pattern reads the verdict label `{label}:` with no "
+                    f"emphasis between label and value; {detail}. Use "
+                    f"`grep -cF '**{label}:** …'` or `\\*\\*{label}:\\*\\* …`, "
+                    "and dry-run it on a passing and a failing copy"
+                ),
+            )
+        )
+    return findings
+
+
+def _check12_heading_counted_by_substring(context: LintContext) -> list:
+    """Check 12 -- a heading counted by substring. A pattern that starts with
+    the heading marker and no ``^`` also matches every prose line that quotes
+    the heading, which the plan that defines the convention always does.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or not command.is_gate:
+            continue
+        stage, _ = _first_grep_stage(command)
+        if stage is None:
+            continue
+        pattern, _ = _grep_pattern_and_target(stage, context.plan_root)
+        if pattern is None or not _HEADING_PATTERN_RE.match(pattern):
+            continue
+        findings.append(
+            make_finding(
+                check=12,
+                severity=SEVERITY_WARNING,
+                file=command.file,
+                line=command.line,
+                command=command.command,
+                message=(
+                    f"This pattern counts a Markdown heading by substring ({pattern!r}), "
+                    "so every prose line that quotes the heading counts too. Anchor it "
+                    "at the start of the line (`^## …`) and record both counts when "
+                    "they differ"
+                ),
+            )
+        )
+    return findings
+
+
+def _check13_bare_numeric_literal(context: LintContext) -> list:
+    """Check 13 -- a pattern that is nothing but digits. It matches every
+    longer number that contains it, and the near-multiples of one constant
+    co-occur in exactly the files where the constant is searched for.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or not command.is_gate:
+            continue
+        stage, _ = _first_grep_stage(command)
+        if stage is None:
+            continue
+        pattern, _ = _grep_pattern_and_target(stage, context.plan_root)
+        if pattern is None or not _BARE_DIGITS_RE.match(pattern):
+            continue
+        findings.append(
+            make_finding(
+                check=13,
+                severity=SEVERITY_WARNING,
+                file=command.file,
+                line=command.line,
+                command=command.command,
+                message=(
+                    f"This pattern is the bare number {pattern}, which also matches "
+                    f"{pattern}0 and 1{pattern}. Guard the digit boundaries: "
+                    f"`grep -E '(^|[^0-9]){pattern}([^0-9]|$)'`; `\\b` is not enough, "
+                    "because a digit is a word character"
+                ),
+            )
+        )
+    return findings
+
+
+def _is_context_flag(token: str) -> bool:
+    return bool(_CONTEXT_FLAG_RE.match(token))
+
+
+def _check14_context_window_counted(context: LintContext) -> list:
+    """Check 14 -- a pipeline that counts the output of a ``grep -B/-A/-C``
+    context window. The window emits the matching line as well as its
+    neighbours, so a per-hit budget is off by the hit count, and a tag written
+    on the same line as its call is invisible to a filter aimed at the
+    neighbouring line.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or not command.is_gate:
+            continue
+        argv = _static_argv(command.command)
+        if not argv:
+            continue
+        stages = _pipeline_stages(argv)
+        if len(stages) < 2:
+            continue
+        window_at = None
+        for index, stage in enumerate(stages):
+            if stage[0] == "grep" and any(_is_context_flag(token) for token in stage[1:]):
+                window_at = index
+                break
+        if window_at is None:
+            continue
+        counted = False
+        for stage in stages[window_at + 1:]:
+            if stage[0] == "grep" and _has_count_flag(stage):
+                counted = True
+            if stage[0] == "wc":
+                counted = True
+        if not counted:
+            continue
+        findings.append(
+            make_finding(
+                check=14,
+                severity=SEVERITY_WARNING,
+                file=command.file,
+                line=command.line,
+                command=command.command,
+                message=(
+                    "This pipeline counts the output of a grep context window. "
+                    "The window emits the matching line as well as its neighbours, "
+                    "so a per-hit budget is off by the hit count, and a tag on the "
+                    "same line as its call is invisible to a filter aimed at the "
+                    "neighbouring line. Count the shape on one line, or assert each "
+                    "site by anchor"
+                ),
+            )
+        )
+    return findings
+
+
+def _check15_anchored_aggregate_threshold(context: LintContext) -> list:
+    """Check 15 -- an anchored aggregate count threshold: ``grep -c '^…'``
+    against ``>= N`` with N of two or more. If the sibling tasks produce more
+    than one format for the counted construct, the threshold is structurally
+    unreachable, and the verifier either fails correct work or fudges to PASS.
+    """
+    findings = []
+    for command in context.commands:
+        if command.is_placeholder or not command.is_gate:
+            continue
+        if _INVARIANT_TOKEN in command.annotation:
+            continue
+        stage, stages = _first_grep_stage(command)
+        if stage is None or stage[0] != "grep" or len(stages) != 1:
+            continue
+        if not _has_count_flag(stage):
+            continue
+        pattern, _ = _grep_pattern_and_target(stage, context.plan_root)
+        if pattern is None or not pattern.startswith("^"):
+            continue
+        expectation = _parse_expectation(_note_for(command))
+        if expectation is None or expectation.comparator not in (">=", ">") or expectation.value < 2:
+            continue
+        findings.append(
+            make_finding(
+                check=15,
+                severity=SEVERITY_WARNING,
+                file=command.file,
+                line=command.line,
+                command=command.command,
+                message=(
+                    "This gate ships an anchored aggregate count threshold "
+                    f"({expectation.comparator}{expectation.value} over {pattern!r}) as "
+                    "its verdict. If the sibling tasks produce more than one format "
+                    "for the counted construct, the threshold is unreachable on "
+                    "correct work. Enumerate the units and assert the property per "
+                    "unit; derive any total from the per-unit results"
+                ),
+            )
+        )
+    return findings
+
+
+def _pytest_path_arguments(stage: list):
+    """Return the positional path arguments of a pytest stage, or None when the
+    stage is not a pytest invocation."""
+    if stage[0] == "pytest":
+        rest = stage[1:]
+    elif stage[0] in ("python", "python3", "py") and "-m" in stage:
+        at = stage.index("-m")
+        if at + 1 >= len(stage) or stage[at + 1] != "pytest":
+            return None
+        rest = stage[at + 2:]
+    else:
+        return None
+    positional = []
+    skip_next = False
+    for token in rest:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in _PYTEST_VALUE_FLAGS:
+            skip_next = True
+            continue
+        if token.startswith("-"):
+            continue
+        positional.append(token)
+    return positional
+
+
+def _check16_unscoped_suite_gate(context: LintContext) -> list:
+    """Check 16 -- a task file's Before or After gate that runs ``pytest`` with
+    no path argument. The whole suite costs minutes per task and moves for
+    reasons outside the task. A per-task gate names the task's own test files;
+    a whole-suite baseline is measured once per plan with its tree identity
+    recorded. A Master Plan or Sprint Plan is where that once-per-plan value
+    belongs, so those files are exempt.
+    """
+    findings = []
+    for command in context.commands:
+        if command.block not in (BLOCK_BEFORE, BLOCK_AFTER):
+            continue
+        if command.is_placeholder or not command.is_gate:
+            continue
+        if command.file.endswith(_PLAN_LEVEL_SUFFIXES):
+            continue
+        argv = _static_argv(command.command)
+        if not argv:
+            continue
+        stages = _pipeline_stages(argv)
+        if not stages:
+            continue
+        positional = _pytest_path_arguments(stages[0])
+        if positional is None or positional:
+            continue
+        findings.append(
+            make_finding(
+                check=16,
+                severity=SEVERITY_WARNING,
+                file=command.file,
+                line=command.line,
+                command=command.command,
+                message=(
+                    "This per-task gate runs the whole test suite: the pytest "
+                    "invocation carries no path argument, so the measurement costs "
+                    "minutes and moves for reasons outside the task. Scope it to the "
+                    "task's own test files, and measure any whole-suite baseline once "
+                    "per plan with its tree identity recorded"
+                ),
+            )
+        )
+    return findings
+
+
 CHECK_REGISTRY.extend(
     [
         _check1_vacuous_after_gate,
@@ -1238,6 +1843,15 @@ CHECK_REGISTRY.extend(
         _check5_stale_ownership,
         _check6_substring_over_own_vocabulary,
         _check7_contradicted_before_baseline,
+        _check8_grep_tool_escaped_pipe_alternation,
+        _check9_dollar_anchor_over_crlf_target,
+        _check10_single_term_coverage_count,
+        _check11_verdict_pattern_drops_emphasis,
+        _check12_heading_counted_by_substring,
+        _check13_bare_numeric_literal,
+        _check14_context_window_counted,
+        _check15_anchored_aggregate_threshold,
+        _check16_unscoped_suite_gate,
     ]
 )
 
@@ -1252,6 +1866,11 @@ CHECK_REGISTRY.extend(
 #   0  no findings at all.
 #   1  findings present, none at ERROR -- WARNING and UNCERTAIN advise only.
 #   2  at least one finding at ERROR -- the caller should halt.
+#
+# The first line of stdout is always a ``Coverage:`` line. It starts with
+# ``Coverage: NOT CHECKED`` when gates exist and the executor ran none of them.
+# That case still exits 1 (all findings are UNCERTAIN), so the line is the only
+# signal that separates it from a scan that found real advisory findings.
 # ---------------------------------------------------------------------------
 
 EXIT_NO_FINDINGS = 0
@@ -1276,7 +1895,7 @@ def main() -> None:
     parser.add_argument(
         "--no-execute",
         action="store_true",
-        help="Disable the read-only executor; only the five static checks run",
+        help="Disable the read-only executor; only the static checks run",
     )
     args, _ = parser.parse_known_args()
 
@@ -1285,7 +1904,8 @@ def main() -> None:
         print(f"Error: plan root not found at {plan_root}", file=sys.stderr)
         sys.exit(EXIT_ERROR_PRESENT)
 
-    findings = lint_plan(plan_root, execute=not args.no_execute)
+    findings, context = _lint(plan_root, execute=not args.no_execute)
+    print(coverage_line(context))
 
     if not findings:
         print("No findings.")

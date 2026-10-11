@@ -117,9 +117,11 @@ def _unconfigure_abbrev(cfg, abbrev: str = "INFRA") -> None:
 
 
 def test_c_refusal_never_changes_the_return_code_and_the_pin_still_commits(tmp_path, monkeypatch, capsys):
-    # An unconfigured abbrev refuses; an AMBIGUOUS unit no longer does (it is parked in the ledger).
-    cfg, _backlog = _legacy_project(tmp_path, pinned="1.0.5.1")
-    _unconfigure_abbrev(cfg)
+    # A Files cell carrying text besides its link refuses. An AMBIGUOUS unit no longer does (it is
+    # parked in the ledger), and neither does an abbrev cell a higher-precedence value outranks.
+    from test_backlog_migration import legacy_index
+    cell = legacy_index().replace("[001](001-Sample.md) |", "[001](001-Sample.md) see notes |")
+    cfg, _backlog = _legacy_project(tmp_path, pinned="1.0.5.1", index_text=cell)
     monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
 
     exit_code = artifact_upgrade._run_upgrade(cfg)
@@ -205,7 +207,7 @@ def test_e_deferred_init_names_the_index_and_the_upgrade_fix_under_skipped(tmp_p
     assert "00-Index-Backlog.md" in skipped_section
     assert "/planwise backlog" in skipped_section
     assert "/planwise upgrade" in skipped_section
-    assert "--backlog-reconcile" in skipped_section
+    assert "--backlog-reconcile" not in skipped_section
 
 
 def test_e2_auto_from_init_still_prints_the_skipped_section(tmp_path, monkeypatch, capsys):
@@ -254,9 +256,9 @@ def test_g_backlog_reconcile_with_upgrade_is_forwarded_as_a_kwarg(tmp_path, monk
     calls = []
     real = artifact_upgrade.migrate_backlog_if_legacy
 
-    def spy(cfg, from_version, to_version, *, reconcile=None):
+    def spy(cfg, from_version, to_version, *, reconcile=None, answers=None):
         calls.append(reconcile)
-        return real(cfg, from_version, to_version, reconcile=reconcile)
+        return real(cfg, from_version, to_version, reconcile=reconcile, answers=answers)
 
     monkeypatch.setattr(artifact_upgrade, "migrate_backlog_if_legacy", spy)
     monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
@@ -280,6 +282,64 @@ def test_g_backlog_reconcile_with_upgrade_is_forwarded_as_a_kwarg(tmp_path, monk
 
     assert excinfo.value.code == 0
     assert calls == ["index-wins"]
+
+
+# ---------------------------------------------------------------------------
+# (h)-(j): --migration-answers is argparse-guarded, forwarded, and validated before any write.
+# ---------------------------------------------------------------------------
+def test_h_migration_answers_without_upgrade_is_a_parser_error(tmp_path):
+    answers = tmp_path / "answers.json"
+    answers.write_text('{"edge_drops": []}', encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(INIT_PROJECT), "--name", "X",
+         "--migration-answers", str(answers)],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 2
+    assert "--migration-answers requires --upgrade" in result.stderr
+
+
+def test_i_migration_answers_is_forwarded_as_a_kwarg(tmp_path, monkeypatch):
+    answers = {"edge_drops": ["002->001", "003<->004:both"]}
+    seen = []
+    real = artifact_upgrade.migrate_backlog_if_legacy
+
+    def spy(cfg, from_version, to_version, **kwargs):
+        seen.append(kwargs.get("answers"))
+        return real(cfg, from_version, to_version, **kwargs)
+
+    monkeypatch.setattr(artifact_upgrade, "migrate_backlog_if_legacy", spy)
+    monkeypatch.setattr(artifact_upgrade, "INSTALLED_RULES", [])
+
+    # Branch one: the already-up-to-date early return. Branch two: the main upgrade path.
+    for sub, pinned in (("up_to_date", TARGET_VERSION), ("main_path", "1.0.5.1")):
+        cfg, _backlog = _legacy_project(tmp_path / sub, pinned=pinned)
+        assert artifact_upgrade._run_upgrade(cfg, answers=answers) == 0
+
+    assert seen == [answers, answers]
+
+
+def test_j_malformed_answers_refuses_before_any_write(tmp_path, monkeypatch, capsys):
+    cfg, backlog = _legacy_project(tmp_path, pinned="1.0.5.1")
+    config_path = cfg.project_root / "planwise" / "config.yaml"
+    config_before = config_path.read_bytes()
+    tree_before = _backlog_tree_bytes(backlog)
+    bad = tmp_path / "answers.json"
+    bad.write_text('{"edge_drops": ["not-an-edge"]}', encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _init_argv(cfg, "--upgrade", "--migration-answers", str(bad)))
+
+    with pytest.raises(SystemExit) as excinfo:
+        ip.main()
+    err = capsys.readouterr().err
+
+    assert excinfo.value.code == 2
+    assert err.startswith("Upgrade refused: ")
+    assert " -- " in err
+    assert "edge_drops" in err
+    assert _backlog_tree_bytes(backlog) == tree_before
+    assert config_path.read_bytes() == config_before  # the pin was not committed
+    assert _read_config(cfg)["plugin_version"] == "1.0.5.1"
+    assert not (cfg.project_root / "planwise" / "upgrade-backups").exists()
 
 
 if __name__ == "__main__":

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Unit tests for the vacuous-verification-gate linter's seven checks.
+"""Unit tests for the vacuous-verification-gate linter's checks.
 
 This suite is written against `lint_verification_gates.py`, a module that
 does NOT exist yet on this branch. It MUST fail on import/collection when
 this file is first written -- a green run at this point would mean the
 suite is not exercising the module under test, not that the module is
 correct. Sprint-02's later tasks implement the module (the extractor and
-the allowlisted read-only executor, then the seven checks and the CLI)
+the allowlisted read-only executor, then the checks and the CLI)
 against the contract fixed here; this file is not to be edited to make the
 import succeed once they do.
 
@@ -31,7 +31,7 @@ module exists yet to read the contract off of):
       Walks plan_root, extracts every command from task files' Verification
       Commands Before/After blocks and from EI exit criteria, and returns
       one dict per finding:
-        {"check": int (1-7) or None, "severity": "ERROR" | "WARNING" | "UNCERTAIN",
+        {"check": int (a registered check number) or None, "severity": "ERROR" | "WARNING" | "UNCERTAIN",
          "file": str, "message": str}
       Checks 2-6 are static analysis over extracted command text and fire
       identically whether execute is True or False. Checks 1 and 7 require
@@ -40,7 +40,7 @@ module exists yet to read the contract off of):
       never silently treated as passing and never omitted.
 
 Fixture corpus this suite asserts against: `tests/fixtures/verification_gates/`
-(13 self-contained miniature plan trees + README.md, the authoritative
+(self-contained miniature plan trees + README.md, the authoritative
 fixture -> check -> expected-finding -> severity map).
 
 Run with:  python -m pytest tests/test_lint_verification_gates.py -q
@@ -63,6 +63,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 from lint_verification_gates import (
     ALLOWED_EXECUTABLES,
     _count_line_and_occurrence_totals,
+    _lint,
+    coverage_line,
     extract_commands,
     lint_plan,
     run_command,
@@ -146,6 +148,116 @@ class TestPerCheckShapes(unittest.TestCase):
         self.assertEqual(len(findings), 2)
         self.assertEqual(_severities_for_check(findings, 7), ["ERROR", "ERROR"])
 
+    def test_check8_grep_tool_escaped_pipe_is_warning(self):
+        # Three native Grep calls fire: one in a table row (the shape the
+        # extractor never reads), one in a fenced block, and one in a row whose
+        # output cell carries template slots, which must not exempt the line.
+        findings = _lint_fixture("shape_08_grep_tool_escaped_pipe")
+        self.assertEqual(_checks_present(findings), [8, 8, 8])
+        self.assertEqual(len(findings), 3)
+        self.assertEqual(_severities_for_check(findings, 8), ["WARNING"] * 3)
+        self.assertEqual(sorted(f["line"] for f in findings), [12, 19, 28])
+
+    def test_check9_dollar_anchor_absent_target_is_warning(self):
+        # The checked-in arm: the target does not exist yet, so its line
+        # endings are unknown and the `$` anchor is a WARNING. The CRLF
+        # (ERROR) and LF (silent) arms are built at test time in
+        # TestCheck9LineEndingArms, because a checked-in file's bytes depend
+        # on the checkout (README.md Group A, and the rule in
+        # gate-generated-input-integrity.md §21).
+        findings = _lint_fixture("shape_09_dollar_anchor_crlf")
+        self.assertEqual(_checks_present(findings), [9])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
+    def test_check10_single_term_coverage_is_warning(self):
+        findings = _lint_fixture("shape_10_single_term_coverage")
+        self.assertEqual(_checks_present(findings), [10])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
+    def test_check11_verdict_emphasis_dropped_is_error(self):
+        findings = _lint_fixture("shape_11_verdict_emphasis_dropped")
+        self.assertEqual(_checks_present(findings), [11])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "ERROR")
+
+    def test_check12_heading_substring_is_warning(self):
+        findings = _lint_fixture("shape_12_heading_substring")
+        self.assertEqual(_checks_present(findings), [12])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
+    def test_check13_bare_numeric_literal_is_warning(self):
+        findings = _lint_fixture("shape_13_bare_numeric_literal")
+        self.assertEqual(_checks_present(findings), [13])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
+    def test_check14_context_window_counted_is_warning(self):
+        # A pipeline: the executor refuses it whole (one UNCERTAIN refusal,
+        # check None), and the static check still reads its stages.
+        findings = _lint_fixture("shape_14_context_window_counted")
+        self.assertEqual(_checks_present(findings), [14])
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(_severities_for_check(findings, 14), ["WARNING"])
+        self.assertEqual([f["severity"] for f in findings if f["check"] is None], ["UNCERTAIN"])
+
+    def test_check15_anchored_aggregate_threshold_is_warning(self):
+        findings = _lint_fixture("shape_15_anchored_aggregate_threshold")
+        self.assertEqual(_checks_present(findings), [15])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "WARNING")
+
+    def test_check16_unscoped_suite_gate_is_warning(self):
+        # `python` is not on the allowlist, so the executor refuses the gate
+        # (one UNCERTAIN refusal, check None) and the static check reads it.
+        findings = _lint_fixture("shape_16_unscoped_suite_gate")
+        self.assertEqual(_checks_present(findings), [16])
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(_severities_for_check(findings, 16), ["WARNING"])
+        self.assertEqual([f["severity"] for f in findings if f["check"] is None], ["UNCERTAIN"])
+
+
+class TestCheck9LineEndingArms(unittest.TestCase):
+    """Check 9's two file-backed arms, built in a temp directory so the
+    target's bytes are what the test wrote and not what the checkout did.
+    The CRLF arm must fire ERROR; the LF arm must stay silent. Together with
+    the checked-in absent-target WARNING arm they are the dry-run pair."""
+
+    _TASK = (
+        "# Task: ExactSentenceGate\n\n"
+        "**Output:** `deliverable.md`\n\n"
+        "## Verification Commands\n\n"
+        "> [!verify] Before / After Commands\n"
+        "> **Before:** *(runner)*\n"
+        "> ```bash\n"
+        "> ls deliverable.md\n"
+        "> ```\n"
+        "> **After:** *(runner)*\n"
+        "> ```bash\n"
+        "> grep -c '^The exact required sentence\\.$' deliverable.md\n"
+        "> # pre-edit: 0 → expect 1\n"
+        "> ```\n"
+    )
+
+    def _lint_with_endings(self, newline: bytes):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "TASK-09.md").write_text(self._TASK, encoding="utf-8")
+            body = b"# Deliverable" + newline + newline + b"The exact required sentence." + newline
+            (plan_root / "deliverable.md").write_bytes(body)
+            return lint_plan(plan_root, execute=False)
+
+    def test_crlf_target_is_error(self):
+        findings = self._lint_with_endings(b"\r\n")
+        self.assertEqual(_checks_present(findings), [9])
+        self.assertEqual(_severities_for_check(findings, 9), ["ERROR"])
+
+    def test_lf_target_is_silent(self):
+        findings = self._lint_with_endings(b"\n")
+        self.assertEqual(findings, [])
+
 
 class TestInvariantExemption(unittest.TestCase):
     """The corpus's false-positive guard (README.md Group B). Six of the
@@ -155,6 +267,28 @@ class TestInvariantExemption(unittest.TestCase):
 
     def test_invariant_preservation_fixture_produces_zero_findings(self):
         findings = _lint_fixture("invariant_preservation")
+        self.assertEqual(findings, [])
+
+    def test_grep_literal_pipe_fixture_produces_zero_findings(self):
+        # Check 8's false-positive guard: a table-row anchor, a pipe beside
+        # whitespace, a bare-pipe alternation and a WRONG-marked counter-
+        # example. Without it, "Check 8 fires" and "Check 8 fires on every
+        # Grep call" are indistinguishable.
+        findings = _lint_fixture("grep_literal_pipe_ok")
+        self.assertEqual(findings, [])
+
+    def test_anchored_heading_fixture_produces_zero_findings(self):
+        # The guard for Checks 9 to 15: an anchored heading, a two-word
+        # phrase, the skeleton's bold bytes, guarded digit boundaries, a
+        # count with no threshold, and a `\r\?` guard before the anchor.
+        findings = _lint_fixture("anchored_heading_ok")
+        self.assertEqual(findings, [])
+
+    def test_scoped_suite_fixture_produces_zero_findings(self):
+        # The guard for Checks 14 and 16: a context window read by eye and a
+        # pytest gate scoped to one module. Executor off, because `python` is
+        # refused by the allowlist and the refusal is not a check finding.
+        findings = _lint_fixture("scoped_suite_ok", execute=False)
         self.assertEqual(findings, [])
 
 
@@ -172,12 +306,17 @@ class TestRegressionFixtures(unittest.TestCase):
         self.assertEqual(_severities_for_check(findings, 1), ["ERROR"])
         self.assertEqual(_severities_for_check(findings, 2), ["WARNING"])
 
-    def test_regression_r2_count_gate_eleven_flags_check1_and_check2(self):
+    def test_regression_r2_count_gate_eleven_flags_checks_1_2_and_10(self):
+        # The recorded gate is `grep -c 'AUTO-MODE' … # ≥2`: a single term
+        # counted in a Markdown file against a threshold of two, which is
+        # the single-term coverage shape Check 10 reads. Like the Check-2
+        # co-finding, it is a real property of the recorded instance.
         findings = _lint_fixture("regression_R2_count_gate_eleven")
-        self.assertEqual(_checks_present(findings), [1, 2])
-        self.assertEqual(len(findings), 2)
+        self.assertEqual(_checks_present(findings), [1, 2, 10])
+        self.assertEqual(len(findings), 3)
         self.assertEqual(_severities_for_check(findings, 1), ["ERROR"])
         self.assertEqual(_severities_for_check(findings, 2), ["WARNING"])
+        self.assertEqual(_severities_for_check(findings, 10), ["WARNING"])
 
     def test_regression_r3_count_gate_four_flags_check1_and_check2(self):
         findings = _lint_fixture("regression_R3_count_gate_four")
@@ -306,6 +445,11 @@ class TestExecutorDisabled(unittest.TestCase):
         self.assertEqual(_checks_present(findings), [3, 3])
         self.assertEqual(_severities_for_check(findings, 3), ["ERROR", "ERROR"])
 
+    def test_check8_fires_with_executor_disabled(self):
+        findings = _lint_fixture("shape_08_grep_tool_escaped_pipe", execute=False)
+        self.assertEqual(_checks_present(findings), [8, 8, 8])
+        self.assertEqual(_severities_for_check(findings, 8), ["WARNING"] * 3)
+
     def test_check4_fires_with_executor_disabled(self):
         findings = _lint_fixture("shape_04_self_matching_sweep", execute=False)
         self.assertIn(4, _checks_present(findings))
@@ -320,6 +464,27 @@ class TestExecutorDisabled(unittest.TestCase):
         findings = _lint_fixture("shape_06_substring_own_vocabulary", execute=False)
         self.assertIn(6, _checks_present(findings))
         self.assertEqual(_severities_for_check(findings, 6), ["WARNING"])
+
+    def test_checks_9_to_16_fire_with_executor_disabled(self):
+        # Every one of the eight shape checks is static. With the executor
+        # off, the pipeline and pytest fixtures also lose their refusal
+        # finding, so each fixture carries exactly its own finding.
+        expected = {
+            "shape_09_dollar_anchor_crlf": (9, "WARNING"),
+            "shape_10_single_term_coverage": (10, "WARNING"),
+            "shape_11_verdict_emphasis_dropped": (11, "ERROR"),
+            "shape_12_heading_substring": (12, "WARNING"),
+            "shape_13_bare_numeric_literal": (13, "WARNING"),
+            "shape_14_context_window_counted": (14, "WARNING"),
+            "shape_15_anchored_aggregate_threshold": (15, "WARNING"),
+            "shape_16_unscoped_suite_gate": (16, "WARNING"),
+        }
+        for fixture, (check, severity) in expected.items():
+            with self.subTest(fixture=fixture):
+                findings = _lint_fixture(fixture, execute=False)
+                self.assertEqual(_checks_present(findings), [check])
+                self.assertEqual(len(findings), 1)
+                self.assertEqual(_severities_for_check(findings, check), [severity])
 
 
 class TestRefusedCommandIsUncertainNeverPass(unittest.TestCase):
@@ -458,6 +623,106 @@ class TestCheck3AbsorptionFiresOnEscapedMetacharacterPattern(unittest.TestCase):
             findings = lint_plan(plan_root, execute=False)
         self.assertEqual(_checks_present(findings), [3])
         self.assertEqual(_severities_for_check(findings, 3), ["ERROR"])
+
+
+def _write_task(plan_root, fence_lines):
+    """Write one task file whose After block holds ``fence_lines``."""
+    body = "".join(f"> {line}\n" for line in fence_lines)
+    (plan_root / "TASK-01-Fixture.md").write_text(
+        "# Task: Fixture\n\n"
+        "## Verification Commands\n\n"
+        "> [!verify] Before / After Commands\n"
+        "> **After:** *(runner)*\n"
+        "> ```bash\n" + body + "> ```\n",
+        encoding="utf-8",
+    )
+
+
+class TestMultiLineQuotedCommand(unittest.TestCase):
+    """A quoted argument that spans lines is one command, not one per line."""
+
+    SCRIPT = (
+        'python -c "',
+        "import sys",
+        "print(sys.argv)\"",
+        "# pre-edit: error -> expect: ok",
+    )
+
+    def test_script_body_is_one_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            _write_task(plan_root, self.SCRIPT)
+            commands = extract_commands(plan_root)
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0].command, 'python -c "\nimport sys\nprint(sys.argv)"')
+        self.assertEqual(commands[0].line, 8)
+        self.assertEqual(commands[0].annotation, "# pre-edit: error -> expect: ok")
+
+    def test_refusal_names_the_executable_not_an_unterminated_quote(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            _write_task(plan_root, self.SCRIPT)
+            findings = lint_plan(plan_root)
+        refusals = [f for f in findings if f["check"] is None]
+        self.assertEqual(len(refusals), 1)
+        self.assertIn("not one of the four allowed", refusals[0]["message"])
+        self.assertNotIn("unterminated", refusals[0]["message"])
+
+    def test_stray_quote_does_not_swallow_the_gates_after_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "target.md").write_text("X\n", encoding="utf-8")
+            _write_task(
+                plan_root,
+                [
+                    "echo don't",
+                    "grep -c 'X' target.md   # expect >=1",
+                ],
+            )
+            commands = extract_commands(plan_root)
+        self.assertEqual(
+            [c.command for c in commands],
+            ["echo don't", "grep -c 'X' target.md"],
+        )
+
+
+class TestCoverageLine(unittest.TestCase):
+    """The first stdout line states how many gates ran, so a report made only
+    of refusals cannot read as a quiet scan."""
+
+    def _coverage(self, fence_lines, execute=True):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "target.md").write_text("X\n", encoding="utf-8")
+            _write_task(plan_root, fence_lines)
+            _, context = _lint(plan_root, execute)
+            return coverage_line(context)
+
+    def test_all_refused_reads_not_checked(self):
+        line = self._coverage(
+            [
+                "git status --porcelain   # expect: empty",
+                "python -c \"print(1)\"   # expect: 1",
+            ]
+        )
+        self.assertTrue(line.startswith("Coverage: NOT CHECKED -- 0 of 2 gates ran"), line)
+
+    def test_mixed_tree_reports_the_split(self):
+        line = self._coverage(
+            [
+                "grep -c 'X' target.md   # expect >=1",
+                "git status --porcelain   # expect: empty",
+            ]
+        )
+        self.assertEqual(line, "Coverage: checked 1 of 2 gates; 1 refused.")
+
+    def test_no_gates_is_not_flagged_as_unchecked(self):
+        line = self._coverage(["grep -c 'X' target.md"])
+        self.assertEqual(line, "Coverage: checked 0 of 0 gates; 0 refused.")
+
+    def test_execution_disabled_says_so(self):
+        line = self._coverage(["grep -c 'X' target.md   # expect >=1"], execute=False)
+        self.assertEqual(line, "Coverage: execution disabled; 1 gates not run.")
 
 
 if __name__ == "__main__":

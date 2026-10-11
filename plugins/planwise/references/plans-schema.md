@@ -1,5 +1,5 @@
 ---
-description: The plans index's generated contract — the six columns, the enumeration rule, the status definitions and normalization, the one-writer rule, the Index Notes convention for harvested prose, and the one-file budget. Every consumer of the generated plans index defers here.
+description: The plans index's generated contract — the six columns, the enumeration rule, the status definitions and normalization, the one-writer rule (and the separate writers of a Master Plan's status line), the Index Notes convention for harvested prose, and the one-file budget. Every consumer of the generated plans index defers here.
 ---
 
 # Plans Schema
@@ -82,6 +82,8 @@ The index is never hand-edited. To change a plan's row, a handler edits the Mast
 ```
 python {plugin_root}/scripts/generate_plans_index.py --config {planwise_root}/config.yaml --write
 ```
+
+The index has one writer. A Master Plan's `**Status:**` line has its own writers: the run handler, a reviewer's verdict write, and, in a plan tree that holds test fixtures beside real plans, a reset script that restores the file from a pristine copy between runs. When an index row and a Master Plan status disagree, regenerate the index. Do not edit the Master Plan to match the row until you have read the line's writers and its history (see `index-drift-audit.md`, "A Disagreeing Pair Is Read Through Its Writers Before Any Source File Is Edited").
 
 Nothing edits a row by hand. The check compares each cell with a fresh render, so a hand-written free-form Name or Status is drift, and the next `--write` replaces it. A row whose Master Plan no longer exists on disk is an `orphan-row` finding, and `--write` drops it.
 

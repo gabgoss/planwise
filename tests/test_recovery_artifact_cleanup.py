@@ -22,6 +22,8 @@ Run with:  python -m unittest tests/test_recovery_artifact_cleanup.py
 import contextlib
 import datetime
 import io
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -33,6 +35,7 @@ import artifact_upgrade
 import doctor_cli
 import doctor_sweeps
 import init_project as ip
+import recovery_surfaces
 
 from conftest import _MigrationFixtureBase
 
@@ -613,6 +616,693 @@ class TestLeftoverSweepReportsBytes(_RecoveryArtifactFixtureMixin,
         self.assertEqual(doctor_sweeps.format_bytes(512), "512 B")
         self.assertEqual(doctor_sweeps.format_bytes(1536), "1.5 KiB")
         self.assertEqual(doctor_sweeps.format_bytes(3 * 1024 * 1024), "3.0 MiB")
+
+
+class TestIndexPreImagesAreNotSafeToDiscard(_RecoveryArtifactFixtureMixin,
+                                            _MigrationFixtureBase):
+    """An index-migration pre-image under `{backlog,lessons,plans}/` is the
+    only restore point for the files the migration rewrote. It reports as
+    review-then-discard on its own line, and no prune ever deletes it."""
+
+    PAIR = "1.0.0-to-1.1.0"
+    REFRESH = ".claude/rules/planwise/x.md"
+    INDEX = "plans/00-Index-Plans.md"
+
+    def _write_log(self) -> Path:
+        return self.write_backup(self.PAIR, "DISPOSITIONS.md", b"log\n")
+
+    def _prune(self) -> None:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+
+    def test_index_migration_backup_classified_review_then_discard(self):
+        self.write_backup(self.PAIR, self.INDEX)
+        self._write_log()
+
+        surfaces = artifact_upgrade._scan_recovery_artifacts(self.cfg)
+
+        self.assertEqual([klass for _p, _c, klass in surfaces], ["review-then-discard"])
+        self.assertEqual(surfaces[0][1], 1, "DISPOSITIONS.md is never counted")
+        self.assertTrue(surfaces[0][0].endswith("/{backlog,lessons,plans}/"))
+
+    def test_refresh_backup_still_safe_to_discard(self):
+        self.write_backup(self.PAIR, self.REFRESH)
+        self._write_log()
+
+        surfaces = artifact_upgrade._scan_recovery_artifacts(self.cfg)
+
+        self.assertEqual([(c, k) for _p, c, k in surfaces], [(1, "safe-to-discard")])
+
+    def test_scan_and_sweep_agree_on_classes(self):
+        self.write_backup(self.PAIR, self.REFRESH)
+        self.write_backup(self.PAIR, "backlog/BB-001-x.md")
+        self.write_backup(self.PAIR, "lessons/00-Index-LessonsLearned.md")
+        self.write_backup(self.PAIR, self.INDEX)
+        self._write_log()
+
+        scan = {}
+        for _p, count, klass in artifact_upgrade._scan_recovery_artifacts(self.cfg):
+            scan[klass] = scan.get(klass, 0) + count
+        sweep = {}
+        for f in doctor_sweeps.sweep_upgrade_leftovers(self.cfg):
+            sweep[f["klass"]] = sweep.get(f["klass"], 0) + f["count"]
+
+        self.assertEqual(scan, {"safe-to-discard": 1, "review-then-discard": 3})
+        self.assertEqual(scan, sweep)
+
+    def test_prune_safe_to_discard_leaves_index_subdir_and_its_log(self):
+        self.write_gate_ok_config()
+        refresh = self.write_backup(self.PAIR, self.REFRESH)
+        index = self.write_backup(self.PAIR, self.INDEX)
+        log = self._write_log()
+
+        self._prune()
+
+        self.assertFalse(refresh.exists(), "the refresh pre-image is pruned")
+        self.assertTrue(index.exists(), "an index pre-image is never pruned")
+        self.assertTrue(log.exists(), "the log stays while an index pre-image remains")
+        self.assertTrue(index.parent.is_dir())
+
+    def test_prune_clears_dispositions_and_empty_dirs_when_nothing_recoverable_remains(self):
+        self.write_gate_ok_config()
+        refresh = self.write_backup(self.PAIR, self.REFRESH)
+        self._write_log()
+        self.write_consumed_cache(self.PAIR)
+
+        self._prune()
+
+        root = self._planwise_root()
+        self.assertFalse(refresh.exists())
+        self.assertFalse((root / "upgrade-backups" / self.PAIR).exists(),
+                         "the pair directory goes with its DISPOSITIONS.md")
+        self.assertFalse((root / "upgrade-backups").exists(),
+                         "the empty upgrade-backups/ parent is removed")
+        self.assertFalse((root / "upgrade-conflicts").exists(),
+                         "the empty upgrade-conflicts/ parent is removed")
+
+    def test_banner_labels_pre_images(self):
+        self.write_backup(self.PAIR, self.INDEX)
+        self.write_backup(self.PAIR, self.REFRESH)
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            artifact_upgrade._emit_recovery_artifacts_banner(
+                artifact_upgrade._scan_recovery_artifacts(self.cfg))
+        lines = buf.getvalue().splitlines()
+
+        index_line = [ln for ln in lines if "{backlog,lessons,plans}" in ln]
+        self.assertEqual(len(index_line), 1)
+        self.assertIn("1 pre-image(s)", index_line[0])
+        self.assertIn("the only restore point", index_line[0])
+        self.assertIn("review against the migration ledger first", index_line[0])
+        refresh_line = [ln for ln in lines if "safe-to-discard" in ln]
+        self.assertEqual(len(refresh_line), 1)
+        self.assertNotIn("the only restore point", refresh_line[0])
+
+
+class TestSafeSurfaceNamesTheIndexExclusion(_RecoveryArtifactFixtureMixin,
+                                            _MigrationFixtureBase):
+    """The safe-to-discard path must not read as a glob over the index subdirs."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def test_safe_surface_label_names_the_three_excluded_subdirs(self):
+        self.write_backup(self.PAIR, ".claude/rules/planwise/x.md")
+        self.write_backup(self.PAIR, "plans/00-Index-Plans.md")
+
+        surfaces = artifact_upgrade._scan_recovery_artifacts(self.cfg)
+        safe = [p for p, _c, k in surfaces if k == "safe-to-discard"]
+
+        self.assertEqual(len(safe), 1)
+        self.assertFalse(safe[0].endswith("/*/"), "a bare glob also matches the index subdirs")
+        self.assertIn("excluding the backlog/, lessons/ and plans/ subfolders", safe[0])
+
+    def test_safe_surface_banner_line_carries_the_exclusion(self):
+        self.write_backup(self.PAIR, ".claude/rules/planwise/x.md")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            artifact_upgrade._emit_recovery_artifacts_banner(
+                artifact_upgrade._scan_recovery_artifacts(self.cfg))
+
+        line = [ln for ln in buf.getvalue().splitlines() if "safe-to-discard" in ln]
+        self.assertEqual(len(line), 1)
+        self.assertIn("excluding the backlog/, lessons/ and plans/ subfolders", line[0])
+
+
+class TestResidueOnlyPairIsReportedAndRemoved(_RecoveryArtifactFixtureMixin,
+                                              _MigrationFixtureBase):
+    """A pair holding only DISPOSITIONS.md and empty subdirs has nothing
+    recoverable: the sweep reports it and the writer removes it."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def _residue(self) -> Path:
+        self.write_backup(self.PAIR, "DISPOSITIONS.md", b"log\n")
+        pair = self._planwise_root() / "upgrade-backups" / self.PAIR
+        (pair / "plans").mkdir()
+        (pair / "backlog" / "nested").mkdir(parents=True)
+        return pair
+
+    def _prune(self) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        return buf.getvalue()
+
+    def test_scan_and_sweep_report_the_residue_pair_as_safe_to_discard(self):
+        self._residue()
+
+        scan = artifact_upgrade._scan_recovery_artifacts(self.cfg)
+        sweep = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+
+        self.assertEqual([k for _p, _c, k in scan], ["safe-to-discard"])
+        self.assertEqual([f["klass"] for f in sweep], ["safe-to-discard"])
+
+    def test_prune_removes_the_residue_pair_and_both_empty_parents(self):
+        self.write_gate_ok_config()
+        self._residue()
+        self.write_consumed_cache(self.PAIR)
+
+        self._prune()
+
+        root = self._planwise_root()
+        self.assertFalse((root / "upgrade-backups").exists())
+        self.assertFalse((root / "upgrade-conflicts").exists())
+
+    def test_prune_keeps_a_pair_that_still_holds_an_index_file(self):
+        self.write_gate_ok_config()
+        pair = self._residue()
+        index = self.write_backup(self.PAIR, "lessons/deep/00-Index-LessonsLearned.md")
+
+        self._prune()
+
+        self.assertTrue(index.exists())
+        self.assertTrue((pair / "DISPOSITIONS.md").exists())
+
+
+class TestIndexPreImageHasItsOwnMeaningAndAction(_RecoveryArtifactFixtureMixin,
+                                                 _MigrationFixtureBase):
+    """The index pre-image surface is not "transferred customizations", and
+    its action is not the transfer-resolution step."""
+
+    PAIR = "1.0.0-to-1.1.0"
+    OLD_MEANING = "transferred customizations awaiting re-homing"
+
+    def test_doctor_report_uses_the_pre_image_meaning_and_action(self):
+        self.write_gate_ok_config()
+        self.write_backup(self.PAIR, "plans/00-Index-Plans.md")
+        self.write_transfer(self.PAIR)
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            ip._run_doctor(self.cfg)
+        text = buf.getvalue()
+
+        block = text.split("index-migration pre-images)", 1)[1].split("~ ", 1)[0]
+        self.assertIn(recovery_surfaces.INDEX_MEANING, block)
+        self.assertIn(recovery_surfaces.INDEX_ACTION, block)
+        self.assertNotIn(self.OLD_MEANING, block)
+        self.assertNotIn("Step 4", block)
+        self.assertIn(self.OLD_MEANING, text, "the transfer surface keeps its meaning")
+
+    def test_preserved_section_uses_the_pre_image_meaning(self):
+        self.write_gate_ok_config()
+        self.write_backup(self.PAIR, "plans/00-Index-Plans.md")
+        self.write_backup(self.PAIR, ".claude/rules/planwise/x.md")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            ip._run_prune_upgrade_leftovers(self.cfg)
+        log = next((self._planwise_root() / "upgrade-prune-logs").glob(
+            "*/PRUNED-LEFTOVERS.md")).read_text(encoding="utf-8")
+
+        preserved = log.split("## Preserved", 1)[1]
+        self.assertIn(recovery_surfaces.INDEX_MEANING, preserved)
+        self.assertNotIn(self.OLD_MEANING, preserved)
+
+
+class TestPruneNeverFollowsALink(_RecoveryArtifactFixtureMixin, _MigrationFixtureBase):
+    """A symlink or junction inside an upgrade-backups pair must never lead
+    the prune out of the planwise root."""
+
+    PAIR = "1.0.0-to-1.1.0"
+    REFRESH = ".claude/rules/planwise/x.md"
+
+    def _prune(self) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        return buf.getvalue()
+
+    def _outside(self) -> Path:
+        outside = self.project_root / "outside-target"
+        outside.mkdir()
+        (outside / "victim.md").write_text("keep\n", encoding="utf-8")
+        return outside
+
+    def _symlink_or_skip(self, link: Path, target: Path) -> None:
+        link.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.symlink(target, link, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlink creation is not permitted here: {exc}")
+
+    def test_detector_flagged_subdirectory_is_not_descended_into(self):
+        self.write_gate_ok_config()
+        real = self.write_backup(self.PAIR, self.REFRESH)
+        behind = self.write_backup(self.PAIR, "linked/victim.md")
+
+        def fake(p):
+            return Path(p).name == "linked"
+
+        with mock.patch.object(recovery_surfaces, "is_link", side_effect=fake):
+            self._prune()
+
+        self.assertFalse(real.exists(), "the real refresh file is still pruned")
+        self.assertTrue(behind.exists(), "nothing behind a linked directory is deleted")
+
+    def test_detector_flagged_pair_root_is_not_attempted(self):
+        self.write_gate_ok_config()
+        real = self.write_backup(self.PAIR, self.REFRESH)
+
+        def fake(p):
+            return Path(p).name == self.PAIR
+
+        with mock.patch.object(recovery_surfaces, "is_link", side_effect=fake):
+            out = self._prune()
+
+        self.assertTrue(real.exists())
+        self.assertNotIn("Removing", out)
+        self.assertNotIn("REMOVE_FAILED", out)
+
+    def test_copy_files_still_refuses_a_linked_source(self):
+        src = self._planwise_root() / "upgrade-backups" / self.PAIR
+        src.mkdir(parents=True)
+        with mock.patch.object(recovery_surfaces, "is_link", return_value=True), \
+                contextlib.redirect_stdout(io.StringIO()) as buf, self.assertRaises(OSError):
+            recovery_surfaces.copy_files([], src, self.project_root / "dst", lambda a, b: None)
+        self.assertIn("REFUSED", buf.getvalue())
+
+    def test_junction_pair_root_and_subdirectory_leave_the_target_untouched(self):
+        if os.name != "nt":
+            self.skipTest("junctions exist only on Windows")
+        self.write_gate_ok_config()
+        outside = self._outside()
+        real = self.write_backup(self.PAIR, self.REFRESH)
+        pair = self._planwise_root() / "upgrade-backups" / self.PAIR
+        other = self._planwise_root() / "upgrade-backups" / "2.0.0-to-2.1.0"
+        for link, target in ((pair / "linked", outside), (other, outside)):
+            made = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                                  capture_output=True, text=True, check=False)
+            if made.returncode:
+                self.skipTest(f"junction creation failed: {made.stderr or made.stdout}")
+
+        out = self._prune()
+
+        self.assertFalse(real.exists(), "the real refresh file is still pruned")
+        self.assertTrue((outside / "victim.md").exists())
+        self.assertTrue(other.exists(), "the junctioned pair root is left in place")
+        self.assertNotIn("REMOVE_FAILED", out)
+
+    def test_symlinked_pair_root_leaves_the_target_untouched(self):
+        self.write_gate_ok_config()
+        outside = self._outside()
+        self._symlink_or_skip(self._planwise_root() / "upgrade-backups" / self.PAIR, outside)
+
+        out = self._prune()
+
+        self.assertTrue((outside / "victim.md").exists())
+        self.assertNotIn("Removing", out)
+
+    def test_symlinked_subdirectory_leaves_the_target_untouched(self):
+        self.write_gate_ok_config()
+        outside = self._outside()
+        real = self.write_backup(self.PAIR, self.REFRESH)
+        self._symlink_or_skip(
+            self._planwise_root() / "upgrade-backups" / self.PAIR / "linked", outside)
+
+        self._prune()
+
+        self.assertFalse(real.exists())
+        self.assertTrue((outside / "victim.md").exists())
+
+
+def _iterdir_denied(name: str):
+    """A `Path.iterdir` replacement that raises PermissionError for `name`."""
+    real = Path.iterdir
+
+    def fake(self):
+        if self.name == name:
+            raise PermissionError(13, "denied", str(self))
+        return real(self)
+
+    return mock.patch.object(Path, "iterdir", fake)
+
+
+class TestUnreadableEntryIsSurfacedNotFatal(_RecoveryArtifactFixtureMixin, _MigrationFixtureBase):
+    """One unreadable or locked entry must neither abort a surface nor read as empty."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def _prune(self) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        return buf.getvalue()
+
+    def _pair(self) -> Path:
+        return self._planwise_root() / "upgrade-backups" / self.PAIR
+
+    def test_classify_lists_the_unreadable_directory_and_does_not_raise(self):
+        self.write_backup(self.PAIR, "x.md")
+        self.write_backup(self.PAIR, "locked/inner.md")
+        with _iterdir_denied("locked"), contextlib.redirect_stderr(io.StringIO()):
+            groups = recovery_surfaces.classify_backup_pair(self._pair())
+            clearable = recovery_surfaces.pair_is_clearable(self._pair())
+        self.assertEqual([p.name for p in groups["unreadable"]], ["locked"])
+        self.assertEqual([p.name for p in groups["refresh"]], ["x.md"])
+        self.assertFalse(clearable, "a pair with an unreadable entry is never cleared whole")
+
+    def test_unreadable_only_pair_is_not_promoted_to_residue(self):
+        self.write_backup(self.PAIR, "locked/inner.md")
+        with _iterdir_denied("locked"), contextlib.redirect_stderr(io.StringIO()):
+            groups = recovery_surfaces.classify_backup_pair(self._pair())
+        self.assertEqual(groups["refresh"], [])
+
+    def test_upgrade_scan_and_doctor_sweep_survive_an_unreadable_directory(self):
+        self.write_backup(self.PAIR, "x.md")
+        self.write_backup(self.PAIR, "locked/inner.md")
+        with _iterdir_denied("locked"), contextlib.redirect_stderr(io.StringIO()):
+            surfaces = artifact_upgrade._scan_recovery_artifacts(self.cfg)
+            findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+        self.assertEqual(sum(c for _p, c, _k in surfaces), 2)
+        self.assertEqual(sum(f["count"] for f in findings), 2)
+
+    def test_prune_with_an_unreadable_directory_keeps_it_and_finishes(self):
+        self.write_gate_ok_config()
+        real = self.write_backup(self.PAIR, "x.md")
+        inner = self.write_backup(self.PAIR, "locked/inner.md")
+        with _iterdir_denied("locked"), contextlib.redirect_stderr(io.StringIO()):
+            self._prune()
+        self.assertFalse(real.exists())
+        self.assertTrue(inner.exists(), "nothing behind an unreadable directory is deleted")
+
+    def test_lstat_failure_is_unreadable_never_a_plain_directory(self):
+        self.write_gate_ok_config()
+        real = self.write_backup(self.PAIR, "x.md")
+        inner = self.write_backup(self.PAIR, "locked/inner.md")
+        real_lstat = os.lstat
+
+        def fake(p, *a, **k):
+            if Path(p).name == "locked":
+                raise PermissionError(13, "denied", str(p))
+            return real_lstat(p, *a, **k)
+
+        with mock.patch.object(recovery_surfaces.os, "lstat", fake), \
+                contextlib.redirect_stderr(io.StringIO()):
+            groups = recovery_surfaces.classify_backup_pair(self._pair())
+            self._prune()
+        self.assertEqual([p.name for p in groups["unreadable"]], ["locked"])
+        self.assertFalse(real.exists())
+        self.assertTrue(inner.exists())
+
+
+class TestClearEmptyParentsNeverAbortsThePrune(_RecoveryArtifactFixtureMixin, _MigrationFixtureBase):
+    """A failure while tidying pairs the prune never touched must not lose the log."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def test_unreadable_untouched_pair_does_not_stop_the_log(self):
+        self.write_gate_ok_config()
+        real = self.write_backup(self.PAIR, "x.md")
+        self.write_conflict_sidecar("2.0.0-to-2.1.0", "locked/a.md.new")
+        buf = io.StringIO()
+        with _iterdir_denied("2.0.0-to-2.1.0"), contextlib.redirect_stdout(buf), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        self.assertFalse(real.exists())
+        logs = list((self._planwise_root() / "upgrade-prune-logs").glob("*/PRUNED-LEFTOVERS.md"))
+        self.assertEqual(len(logs), 1, "the log is written once anything was deleted")
+
+    def test_glob_failure_is_swallowed_and_reported(self):
+        top = self._planwise_root() / "upgrade-backups"
+        (top / "1.0.0-to-1.1.0").mkdir(parents=True)
+
+        def boom(self, pattern):
+            raise PermissionError(13, "denied", str(self))
+
+        buf = io.StringIO()
+        with mock.patch.object(Path, "glob", boom), contextlib.redirect_stdout(buf):
+            recovery_surfaces.clear_empty_parents(self._planwise_root())
+        self.assertIn("NOT CLEARED", buf.getvalue())
+        self.assertTrue((top / "1.0.0-to-1.1.0").is_dir())
+
+
+class TestJunctionIsRefusedOnEveryPython(_RecoveryArtifactFixtureMixin, _MigrationFixtureBase):
+    """`Path.is_junction` exists only on Python 3.12+; a junction must still be refused."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def _junction_or_skip(self, link: Path, target: Path) -> None:
+        if os.name != "nt":
+            self.skipTest("junctions exist only on Windows")
+        link.parent.mkdir(parents=True, exist_ok=True)
+        made = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                              capture_output=True, text=True, check=False)
+        if made.returncode:
+            self.skipTest(f"junction creation failed: {made.stderr or made.stdout}")
+
+    def _setup(self):
+        outside = self.project_root / "outside-target"
+        outside.mkdir()
+        (outside / "victim.md").write_text("keep\n", encoding="utf-8")
+        real = self.write_backup(self.PAIR, "x.md")
+        pair = self._planwise_root() / "upgrade-backups" / self.PAIR
+        self._junction_or_skip(pair / "linked", outside)
+        return outside, real, pair
+
+    def test_is_link_sees_a_real_junction_without_path_is_junction(self):
+        _outside, _real, pair = self._setup()
+        with mock.patch.object(Path, "is_junction", None):
+            self.assertTrue(recovery_surfaces.is_link(pair / "linked"))
+            self.assertFalse(recovery_surfaces.is_link(pair))
+
+    def test_prune_refuses_a_junction_without_path_is_junction(self):
+        self.write_gate_ok_config()
+        outside, real, _pair = self._setup()
+        self.write_backup(self.PAIR, "lessons/pre.md")  # forces the partial prune
+        buf = io.StringIO()
+        with mock.patch.object(Path, "is_junction", None), contextlib.redirect_stdout(buf):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        self.assertFalse(real.exists())
+        self.assertTrue((outside / "victim.md").exists())
+
+    def test_symlink_reparse_tag_marks_a_link(self):
+        target = self._planwise_root() / "attr-probe"
+        target.mkdir(parents=True)
+        with mock.patch.object(Path, "is_junction", None), \
+                _lstat_reparse("attr-probe", _TAG_SYMLINK):
+            self.assertTrue(recovery_surfaces.is_link(target))
+
+
+_TAG_SYMLINK = 0xA000000C
+_TAG_MOUNT_POINT = 0xA0000003
+_TAG_CLOUD = 0x9000001A  # IO_REPARSE_TAG_CLOUD_6, a OneDrive Files-On-Demand placeholder
+
+
+def _lstat_reparse(name: str, tag: int):
+    """Make `os.lstat` report a reparse point carrying `tag` for entries named `name`."""
+    import stat as stat_mod
+    real_lstat = os.lstat
+
+    class _St:
+        def __init__(self, st):
+            self.st_mode = st.st_mode
+            self.st_file_attributes = stat_mod.FILE_ATTRIBUTE_REPARSE_POINT
+            self.st_reparse_tag = tag
+
+    def fake(p, *a, **k):
+        st = real_lstat(p, *a, **k)
+        return _St(st) if Path(p).name == name else st
+
+    return mock.patch.object(recovery_surfaces.os, "lstat", fake)
+
+
+class TestOnlyLinkReparseTagsAreLinks(_RecoveryArtifactFixtureMixin, _MigrationFixtureBase):
+    """A cloud placeholder or dedup file is a reparse point, not a link."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def test_cloud_placeholder_tag_is_not_a_link(self):
+        target = self._planwise_root() / "cloud-probe"
+        target.mkdir(parents=True)
+        with mock.patch.object(Path, "is_junction", None), \
+                _lstat_reparse("cloud-probe", _TAG_CLOUD):
+            self.assertFalse(recovery_surfaces.is_link(target))
+
+    def test_symlink_and_mount_point_tags_are_links(self):
+        target = self._planwise_root() / "tag-probe"
+        target.mkdir(parents=True)
+        for tag in (_TAG_SYMLINK, _TAG_MOUNT_POINT):
+            with self.subTest(tag=hex(tag)), mock.patch.object(Path, "is_junction", None), \
+                    _lstat_reparse("tag-probe", tag):
+                self.assertTrue(recovery_surfaces.is_link(target))
+
+    def test_cloud_tagged_pair_is_classified_swept_and_pruned_like_a_plain_pair(self):
+        self.write_gate_ok_config()
+        real = self.write_backup(self.PAIR, "x.md")
+        pair = self._planwise_root() / "upgrade-backups" / self.PAIR
+        buf = io.StringIO()
+        with mock.patch.object(Path, "is_junction", None), \
+                _lstat_reparse(self.PAIR, _TAG_CLOUD), contextlib.redirect_stdout(buf):
+            groups = recovery_surfaces.classify_backup_pair(pair)
+            findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        self.assertEqual([p.name for p in groups["refresh"]], ["x.md"])
+        self.assertEqual(groups["links"], [])
+        self.assertEqual([f["klass"] for f in findings], ["safe-to-discard"])
+        self.assertNotIn("REMOVE_FAILED", buf.getvalue())
+        self.assertFalse(real.exists())
+
+
+class TestLinkedEntriesAreNeverSafeToDiscard(_RecoveryArtifactFixtureMixin,
+                                             _MigrationFixtureBase):
+    """A link is reported as review-then-discard, says it was not followed,
+    and the prune never attempts it."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def _fake_pair_root_link(self):
+        return mock.patch.object(recovery_surfaces, "is_link",
+                                 side_effect=lambda p: Path(p).name == self.PAIR)
+
+    def test_linked_pair_root_is_held_not_refresh(self):
+        real = self.write_backup(self.PAIR, "x.md")
+        pair = real.parent
+        with self._fake_pair_root_link():
+            groups = recovery_surfaces.classify_backup_pair(pair)
+        self.assertEqual(groups["refresh"], [])
+        self.assertEqual(groups["links"], [pair])
+
+    def test_sweep_and_scan_report_a_linked_pair_root_but_not_as_safe(self):
+        self.write_backup(self.PAIR, "x.md")
+        with self._fake_pair_root_link():
+            findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+            surfaces = artifact_upgrade._scan_recovery_artifacts(self.cfg)
+        self.assertEqual([f["klass"] for f in findings], ["review-then-discard"])
+        self.assertIn("not followed", findings[0]["surface"])
+        self.assertIn("link", findings[0]["reason"])
+        self.assertEqual([k for _p, _c, k in surfaces], ["review-then-discard"])
+
+    def test_prune_never_attempts_a_linked_pair_root(self):
+        self.write_gate_ok_config()
+        real = self.write_backup(self.PAIR, "x.md")
+        buf = io.StringIO()
+        with self._fake_pair_root_link(), contextlib.redirect_stdout(buf):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        out = buf.getvalue()
+        self.assertTrue(real.exists())
+        self.assertNotIn("REFUSED", out)
+        self.assertNotIn("Removing", out)
+        self.assertEqual(
+            list((self._planwise_root() / "upgrade-prune-logs").glob("*/PRUNED-LEFTOVERS.md")),
+            [], "nothing was removed, so no log is written")
+
+    def test_linked_subdirectory_is_held_beside_the_refresh_files(self):
+        self.write_backup(self.PAIR, "x.md")
+        self.write_backup(self.PAIR, "linked/victim.md")
+        with mock.patch.object(recovery_surfaces, "is_link",
+                               side_effect=lambda p: Path(p).name == "linked"):
+            findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+        self.assertEqual(sorted((f["klass"], f["count"]) for f in findings),
+                         [("review-then-discard", 1), ("safe-to-discard", 1)])
+
+
+class TestUnreadableEntriesReachTheSurfaces(_RecoveryArtifactFixtureMixin,
+                                            _MigrationFixtureBase):
+    """An entry that cannot be listed may hide an index pre-image, so the
+    doctor sweep, the doctor report and the upgrade scan each name it."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def test_unreadable_only_pair_gets_a_review_finding(self):
+        self.write_backup(self.PAIR, "locked/inner.md")
+        with _iterdir_denied("locked"), contextlib.redirect_stderr(io.StringIO()):
+            findings = doctor_sweeps.sweep_upgrade_leftovers(self.cfg)
+            surfaces = artifact_upgrade._scan_recovery_artifacts(self.cfg)
+        self.assertEqual([(f["klass"], f["count"]) for f in findings],
+                         [("review-then-discard", 1)])
+        self.assertIn("unreadable", findings[0]["reason"])
+        self.assertEqual([(k, c) for _p, c, k in surfaces], [("review-then-discard", 1)])
+
+    def test_doctor_report_prints_the_unreadable_finding(self):
+        self.write_gate_ok_config()
+        self.write_backup(self.PAIR, "locked/inner.md")
+        buf = io.StringIO()
+        with _iterdir_denied("locked"), contextlib.redirect_stdout(buf), \
+                contextlib.redirect_stderr(io.StringIO()):
+            ip._run_doctor(self.cfg)
+        self.assertIn("unreadable entries, not followed", buf.getvalue())
+
+    def test_the_upgrade_banner_text_says_what_the_count_includes(self):
+        self.assertIn("unreadable", recovery_surfaces.INDEX_BANNER_TEXT)
+        self.assertIn("link", recovery_surfaces.INDEX_BANNER_TEXT)
+
+    def test_unreadable_pair_is_never_prunable(self):
+        self.write_gate_ok_config()
+        inner = self.write_backup(self.PAIR, "locked/inner.md")
+        with _iterdir_denied("locked"), contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        self.assertTrue(inner.exists())
+
+
+class TestPruneClassifiesEachPairOnce(_RecoveryArtifactFixtureMixin, _MigrationFixtureBase):
+    """The sweep classifies a pair once and the prune classifies it once more."""
+
+    PAIR = "1.0.0-to-1.1.0"
+
+    def _counting(self, calls: list):
+        real = recovery_surfaces.classify_backup_pair
+
+        def wrapper(*a, **k):
+            calls.append(a[0])
+            return real(*a, **k)
+
+        return (mock.patch.object(recovery_surfaces, "classify_backup_pair", wrapper),
+                mock.patch.object(doctor_cli, "classify_backup_pair", wrapper),
+                mock.patch.object(doctor_sweeps, "classify_backup_pair", wrapper))
+
+    def test_partial_prune_classifies_the_pair_twice_in_total(self):
+        self.write_gate_ok_config()
+        self.write_backup(self.PAIR, "x.md")
+        self.write_backup(self.PAIR, "lessons/pre.md")
+        calls: list = []
+        a, b, c = self._counting(calls)
+        with a, b, c, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        self.assertEqual(len(calls), 2, "one sweep pass and one prune pass")
+
+    def test_unreadable_line_prints_once_per_prune(self):
+        self.write_gate_ok_config()
+        self.write_backup(self.PAIR, "x.md")
+        self.write_backup(self.PAIR, "locked/inner.md")
+        err = io.StringIO()
+        with _iterdir_denied("locked"), contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(err):
+            self.assertEqual(ip._run_prune_upgrade_leftovers(self.cfg), 0)
+        self.assertEqual(err.getvalue().count("UNREADABLE"), 1)
+
+    def test_pair_is_clearable_accepts_a_classification(self):
+        self.write_backup(self.PAIR, "x.md")
+        pair = self._planwise_root() / "upgrade-backups" / self.PAIR
+        groups = recovery_surfaces.classify_backup_pair(pair)
+        self.assertTrue(recovery_surfaces.pair_is_clearable(groups))
+        groups["index"].append(pair / "lessons" / "pre.md")
+        self.assertFalse(recovery_surfaces.pair_is_clearable(groups))
+        self.assertTrue(recovery_surfaces.pair_is_clearable(pair))
 
 
 if __name__ == "__main__":

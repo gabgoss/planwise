@@ -15,6 +15,7 @@ from pathlib import Path
 
 import migrate_backlog_repairs as repairs
 import migrate_backlog_support as sup
+from markdown_parser import retried_cells
 
 METADATA_PREFIXES = ("**Purpose:**", "**Last Updated:**")  # preamble lines with no item content
 SHARDS, DEPENDENCIES = "## Shards", "## Dependencies"
@@ -34,18 +35,75 @@ def _table_header_ok(lines: list, start: int, end: int, expected: list) -> bool:
     return header == expected and start + 1 < end and bool(sup.SEP_RE.match(lines[start + 1].strip()))
 
 
-def _dependency_table(lines: list, start: int, end: int, problems: list, edges: list) -> None:
+FOREIGN_PREFIX = "uses a prefix other than the items table's"
+SELF_EDGE = "as a blocker of itself"
+
+
+def _column(lines: list, header_idx: int, role: str):
+    header = [sup.COLUMN_ROLES.get(c.strip().lower()) for c in sup.row_cells(lines[header_idx])]
+    return header.index(role) if role in header else None
+
+
+def items_prefixes(lines: list, header_idx: int) -> frozenset:
+    """Every id prefix the items table writes in its ID column, upper-cased, from all its rows.
+    Empty when every row is bare digits. With mixed prefixes, a cell elsewhere may use any of
+    them. Bare digits are always accepted."""
+    column, found = _column(lines, header_idx, "id"), set()
+    width = len(sup.row_cells(lines[header_idx]))
+    for i, cells in sup.iter_rows(lines, header_idx):
+        cells = retried_cells(lines[i], cells, width)
+        parts = sup.row_id_parts(cells[column]) if column is not None and column < len(cells) else None
+        if parts and parts[0]:
+            found.add(parts[0].upper())
+    return frozenset(found)
+
+
+def foreign(prefixes, ids) -> bool:
+    """True when an id prefix in `ids` is one the items table does not write, compared case-insensitively."""
+    return any(p.upper() not in prefixes for p in ids if p)
+
+
+def _items_blocks(lines: list, header_idx: int, prefixes, problems: list) -> None:
+    column = _column(lines, header_idx, "blocks")
+    if column is None:
+        return
+    width = len(sup.row_cells(lines[header_idx]))
+    for i, cells in sup.iter_rows(lines, header_idx):
+        cells = retried_cells(lines[i], cells, width)
+        cell = cells[column] if column < len(cells) else ""
+        if sup.blocks_text_ok(cell) and foreign(prefixes, (p for p, _n in sup._CELL_ID_RE.findall(sup.plain(cell)))):
+            problems.append(f"line {i + 1}: Blocks cell {cell!r} {FOREIGN_PREFIX}")
+
+
+def _dependency_table(lines: list, start: int, end: int, problems: list, edges: list, notes: list,
+                      prefixes, extract_notes: bool) -> None:
     if not _table_header_ok(lines, start, end, ["id", "blocks"]):
         problems.append(f"line {start + 1}: unrecognised table under '{DEPENDENCIES}' (expected '| ID | Blocks |')")
         return
     for i in range(start + 2, end):
         cells = sup.row_cells(lines[i])
-        ok = len(cells) == 2 and sup.plain(cells[0]).isdigit() and sup.blocks_text_ok(cells[1])
-        if not ok:
+        id_match = sup._CELL_ID_RE.fullmatch(sup.plain(cells[0])) if len(cells) == 2 else None
+        parts = sup.dependency_cell_parts(cells[1]) if id_match else None
+        if parts is None:
             problems.append(f"line {i + 1}: unrecognised '{DEPENDENCIES}' row {lines[i].strip()[:60]!r}")
             continue
-        source = sup.plain(cells[0]).zfill(3)
-        edges += [(i + 1, source, target) for target in sup.ids_in(cells[1])]
+        source = (id_match.group(1), id_match.group(2).zfill(3))
+        targets, note = parts
+        if foreign(prefixes, [source[0], *(p for p, _n in targets)]):
+            problems.append(f"line {i + 1}: '{DEPENDENCIES}' row {lines[i].strip()[:60]!r} {FOREIGN_PREFIX}")
+            continue
+        if source[1] in {n for _p, n in targets}:
+            problems.append(f"line {i + 1}: '{DEPENDENCIES}' row {lines[i].strip()[:60]!r} names its own item "
+                            f"{source[1]} {SELF_EDGE}")
+            continue
+        if note and not extract_notes:
+            problems.append(f"line {i + 1}: note in a '{DEPENDENCIES}' row, {note[:60]!r}")
+            continue
+        edges += [(i + 1, source[1], target) for target in sorted({n for _p, n in targets})]
+        if note:
+            notes.append({"kind": "remainder", "line": i + 1, "count": 0, "owner": source[1], "text": note,
+                          "targets": list(dict.fromkeys(n for _p, n in targets))})
+            # count 0: `build_plan` drops index lines by count, and this entry owns none
 
 
 def _shards_table(lines: list, start: int, end: int, problems: list) -> None:
@@ -80,11 +138,17 @@ def scan_index(text: str, header_idx: int, extract_notes: bool = False):
     content: one `# ` title and metadata lines in the preamble; the items
     table; a Shards table; a Dependencies table; `---`; blank lines; the
     footer. Every other line, anywhere in the file, is a problem naming its
-    line number. With `extract_notes`, a `- ` bullet under `## Dependencies`
+    line number. So is a Blocks cell or `## Dependencies` row whose id prefix
+    the items table does not write, and a `## Dependencies` row that names its
+    own item as a target. With `extract_notes`, a `- ` bullet under `## Dependencies`
     is returned as a note (kind "bullet") instead, and a bold heading line
-    there is structural (kind "heading"); the list is empty otherwise."""
+    there is structural (kind "heading"); the list is empty otherwise. A
+    parenthetical note in a `## Dependencies` row is returned as kind
+    "remainder" under the same condition."""
     lines = text.split("\n")
-    problems, edges, seen, candidates = [], [], set(), set()
+    problems, edges, seen, candidates, remainders = [], [], set(), set(), []
+    prefixes = items_prefixes(lines, header_idx)
+    _items_blocks(lines, header_idx, prefixes, problems)
     section, titled, i = None, False, 0
     while i < len(lines):
         s = lines[i].strip()
@@ -102,7 +166,7 @@ def scan_index(text: str, header_idx: int, extract_notes: bool = False):
         if s.startswith("|") and section in (SHARDS, DEPENDENCIES):
             end = _table_end(lines, i)
             if section == DEPENDENCIES:
-                _dependency_table(lines, i, end, problems, edges)
+                _dependency_table(lines, i, end, problems, edges, remainders, prefixes, extract_notes)
             else:
                 _shards_table(lines, i, end, problems)
             i = end
@@ -122,7 +186,7 @@ def scan_index(text: str, header_idx: int, extract_notes: bool = False):
             problems.append(f"line {i + 1}: text under '{section}', {s[:60]!r}")
         i += 1
     notes = _dependency_notes(lines, candidates, problems) if candidates else []
-    return problems, edges, notes
+    return problems, edges, sorted(notes + remainders, key=lambda entry: entry["line"])
 
 
 def missing_edges(edges: list, items: dict) -> list:

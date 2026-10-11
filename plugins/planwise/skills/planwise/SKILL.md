@@ -5,8 +5,10 @@ description: >
   with structured workflows. Use when user wants to create plans, run sessions,
   review plans, manage backlog items, or search lessons learned.
 argument-hint: "<init|plan|review|run|upgrade|doctor|token-saver|backlog|list|lessons|feedback|harvest|help> [args]"
+arguments: sub
 user-invocable: true
 disable-model-invocation: false
+allowed-tools: Bash(python -B "${CLAUDE_PLUGIN_ROOT}/scripts/skill_preflight.py" *)
 ---
 
 # /planwise — Agentic Project Management
@@ -16,6 +18,12 @@ disable-model-invocation: false
 Parse `$ARGUMENTS`:
 - `$0` = subcommand
 - Remaining = subcommand arguments (forwarded as context)
+
+The shell line below runs before you see this prompt. Its output replaces the line.
+
+!`python -B "${CLAUDE_PLUGIN_ROOT}/scripts/skill_preflight.py" '$sub' || true`
+
+The injected line above also prints a `planwise: …` version notice when the config pin differs from this plugin. Pass any such line to the user verbatim before routing.
 
 | Subcommand | Handler |
 |-----------|---------|
@@ -27,7 +35,7 @@ Parse `$ARGUMENTS`:
 | `doctor` | Read [handlers/doctor.md](../../handlers/doctor.md) |
 | `token-saver` | Read [handlers/token-saver.md](../../handlers/token-saver.md) |
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
-| `list` | Read [handlers/list.md](../../handlers/list.md) |
+| `list` | Follow [List](#list) below (normally zero tool calls) |
 | `lessons` | Read [handlers/lessons.md](../../handlers/lessons.md) |
 | `feedback` | Read [handlers/feedback.md](../../handlers/feedback.md) |
 | `harvest` | Read [handlers/harvest.md](../../handlers/harvest.md) |
@@ -35,6 +43,25 @@ Parse `$ARGUMENTS`:
 
 If `$0` is empty, display help (below).
 If `$0` is not in the table, respond: "Unknown subcommand: {$0}. Run `/planwise` for usage."
+
+## List
+
+The shell line under Routing renders the `list` answer before you run. Check rule 5 first, then apply the first of rules 1-3 that matches.
+
+1. **Block present, no fallback line.** Display everything between `<!-- planwise:list:begin -->` and `<!-- planwise:list:end -->` verbatim as the whole answer, after any `planwise:` notice line. Run nothing. If the banner reports drift, add one sentence offering to reconcile, and wait.
+2. **A `PLANWISE_LIST_FALLBACK:` line is present.** Answer by its cause:
+   - `config.yaml not found`: say no planwise `config.yaml` was found in that directory, and tell the user to run `/planwise init`. Never initialise from `list`.
+   - `config.yaml parse error`: fail loud with `config.yaml parse error at {path}: {error}. Fix or delete the file before running /planwise list.` Then stop.
+   - `Plans index not found`: print the line. Suggest `generate_plans_index.py --write` to generate it from the Master Plans, or a check of `config.yaml`.
+   - Any other cause: print the line.
+3. **No block at all, or the line reads `[shell command execution disabled by policy]`.** Run this command once with Bash. Copy it byte for byte and add only the flags the user typed. Apply rules 1 and 2 to its output. Do not Read any file.
+
+   ```
+   python -B "${CLAUDE_PLUGIN_ROOT}/scripts/skill_preflight.py" list
+   ```
+
+4. **Reconcile on consent.** The writer is `reconcile_plans.py --write`, and it regenerates the whole plans index. Run it only after the user agrees. A permission prompt on this path is acceptable. [handlers/list.md](../../handlers/list.md) gives the exit-code meanings.
+5. **Typed flags.** If the `ARGUMENTS:` line holds `--active` or `--no-check`, ignore any injected block. The shell line passes only the subcommand, so that block is unfiltered and always checked. Take the one-call route of rule 3 with those flags.
 
 ## Help
 
@@ -59,8 +86,9 @@ Available subcommands:
   doctor --prune-upgrade-leftovers  Delete past-upgrade backups and caches flagged prunable (writer; opt-in)
   doctor --create-feedback-dir Create the missing feedback drafts directory (writer; opt-in)
   token-saver on|off|status    Toggle Token Saver mode anytime (--plan to override one plan)
-  backlog [item-id]            Triage backlog items; capture follow-up BLIs from resolution outputs
-  list                         List all plans with status
+  backlog [item-id] [--loop-resume <run-id>]  Triage backlog items; capture follow-up BLIs from resolution outputs
+                               --loop-resume re-enters a one-item-per-session loop (needs the plugin's hooks module)
+  list [--active] [--no-check] List all plans with status
   lessons [search-terms]       Search lessons learned
   lessons capture              Capture a lesson mid-session
   lessons promote <id>         Promote lesson to artifact
@@ -104,9 +132,10 @@ ARGUMENTS: $ARGUMENTS
 **Loaded on demand, NOT pre-injected** — each is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. Key references (not exhaustive — handlers own the full set):
 
 - [Scaffolding hygiene](../../references/scaffolding-hygiene.md) — §1–§12, what the scaffold emits
-- [Scaffolding hygiene — Part 2: derivation and parallelism](../../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) — §13–§17, what the scaffold must compute before it closes
+- [Scaffolding hygiene — Part 2: derivation and parallelism](../../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) — §13–§19, what the scaffold must compute before it closes
 - [Discovery and exit criteria](../../references/discovery-and-exit-criteria.md)
 - [Exit-criteria fidelity](../../references/exit-criteria-fidelity.md)
+- [Exit-criteria fidelity, Part 2 — a decision rewrites the criteria that depend on it](../../references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md)
 - [Execution-time binding rules](../../references/execution-time-binding-rules.md)
 - [EI fidelity](../../references/ei-fidelity.md)
 - [EI citation and token reconciliation](../../references/ei-citation-and-token-reconciliation.md)
@@ -117,6 +146,7 @@ ARGUMENTS: $ARGUMENTS
 - [Verify-before-cite](../../references/verify-before-cite.md)
 - [Verification gates](../../references/verification-gates.md)
 - [Measurement discipline](../../references/measurement-discipline.md)
+- [Measurement discipline, Part 3 — recorded delta and pinned count](../../references/measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md)
 - [Verify against shipped artifact](../../references/verify-against-shipped-artifact.md)
 - [Verify discovery-phase consolidation](../../references/verify-discovery-consolidation.md)
 - [Cross-repo fix-task discipline](../../references/verify-cross-repo-fix-discipline.md)

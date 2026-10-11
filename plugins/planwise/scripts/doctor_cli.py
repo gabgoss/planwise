@@ -47,6 +47,27 @@ except ImportError:
         "installed"
     )
 
+from recovery_surfaces import (
+    DEFAULT_ACTION,
+    classify_backup_pair,
+    clear_empty_parents,
+    copy_files,
+    pair_is_clearable,
+    unlink_files,
+)
+
+try:
+    from transfer_review import (
+        STATUS_NOW_UPSTREAM,
+        STATUS_STILL_UNIQUE,
+        review_transfers,
+    )
+except ImportError:
+    raise ImportError(
+        "transfer_review is required for doctor_cli's transfer-file labels; "
+        "the scripts/ directory appears to be partially installed"
+    )
+
 def _run_prune_stale(cfg: "InitConfig") -> int:
     """WRITER (opt-in): delete ONLY the REMOVABLE stale de-scoped rules and
     orphaned agent mirrors, log to PRUNED.md.
@@ -228,9 +249,8 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
     # `upgrade-backups/` would reclaim nothing — it would relocate the pair to
     # `upgrade-backups/<log>/upgrade-backups/{pair}`, where the sweep's
     # `*-to-*` glob can never see it again, so the surface would be neither
-    # gone nor reportable. A separate root keeps "pruned" and "swept" disjoint,
-    # and makes non-collision with the de-scoped-rule prune log structural
-    # rather than a matter of naming.
+    # gone nor reportable. A separate root keeps "pruned" and "swept" disjoint
+    # and cannot collide with the de-scoped-rule prune log.
     logs_root = planwise_root / "upgrade-prune-logs"
     out_dir = logs_root / f"upgrade-leftovers-{today}"
     suffix = 2
@@ -252,12 +272,21 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
         except ValueError:
             rel = Path(f["pair"]) / src.name  # fallback if src ever lands outside planwise_root
         backup_dst = out_dir / rel
+        # An index pre-image in the pair: prune refresh files only.
+        groups = classify_backup_pair(src, quiet=True) if f["klass"] == "safe-to-discard" else {}
+        partial = bool(groups) and not pair_is_clearable(groups)
+        if partial:
+            targets = groups["refresh"]
+        else:
+            targets = [p for p in src.rglob("*") if p.is_file()] if src.is_dir() else [src]
 
         # STEP 1 — copy. A failure here is safe to roll back: nothing has been
         # removed yet, so discarding a half-written copy loses nothing.
         try:
             backup_dst.parent.mkdir(parents=True, exist_ok=True)
-            if src.is_dir():
+            if partial:
+                copy_files(targets, src, backup_dst, _copy_bytes_exact)
+            elif src.is_dir():
                 shutil.copytree(src, backup_dst, dirs_exist_ok=True)
             else:
                 _copy_bytes_exact(src, backup_dst)
@@ -277,7 +306,11 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
         # source partially deleted. Deleting the backup in that state destroys
         # the sole copy of the files that are already gone.
         try:
-            if src.is_dir():
+            for t in targets:
+                print(f"Removing {t}")
+            if partial:
+                unlink_files(targets, src)
+            elif src.is_dir():
                 shutil.rmtree(src)
             else:
                 src.unlink()
@@ -288,6 +321,8 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
                                    f"pre-removal copy is preserved at `{backup_dst}`; "
                                    "the original may be partially deleted, restore from "
                                    "that copy rather than re-running"})
+
+    clear_empty_parents(planwise_root)
 
     lines = [f"# Upgrade recovery-leftover prune — {today}", ""]
     lines.append(f"## Removed ({len(removed)})")
@@ -888,17 +923,30 @@ def _run_doctor(cfg: "InitConfig") -> int:
     else:
         pairs = sorted({f["pair"] for f in leftovers})
         print(f"Leftover recovery artifacts across {len(pairs)} version pair(s):")
+        # One read-only comparison of every transfer file with the current
+        # shipped file, taken only when a transfer surface exists.
+        transfer_rows = (review_transfers(cfg) if any(
+            f["surface"] == "upgrade-transfers" for f in leftovers) else [])
         for f in leftovers:
             mark = "!" if f["klass"] == "action-required" else "~"
             print(f"  {mark} {f['pair']}   {f['surface']}   {f['klass']}")
             print(f"      path:    {f['path']}")
             print(f"      size:    {f['count']} file(s), {format_bytes(f['bytes'])}, "
                   f"{f['age_days']}d old")
-            print(f"      meaning: {RECOVERY_ARTIFACT_CLASSES[f['klass']]}")
-            if f["klass"] in ("inert", "safe-to-discard"):
+            print(f"      meaning: {f.get('reason', RECOVERY_ARTIFACT_CLASSES[f['klass']])}")
+            if f["surface"] == "upgrade-transfers":
+                mine = [r for r in transfer_rows if r["pair"] == f["pair"]]
+                upstream = sum(r["status"] == STATUS_NOW_UPSTREAM for r in mine)
+                unique = sum(r["status"] == STATUS_STILL_UNIQUE for r in mine)
+                print(f"      review:  {upstream} now upstream, {unique} still unique, "
+                      f"{len(mine) - upstream - unique} other "
+                      "(compared with the current shipped files, read-only)")
+                print("      action:  resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md "
+                      "Step 4.1 case C — never auto-pruned")
+            elif f["klass"] in ("inert", "safe-to-discard"):
                 print("      action:  remove with /planwise doctor --prune-upgrade-leftovers")
             else:
-                print("      action:  resolve per handlers/upgrade-Part-3-BannerAndConflictResolution.md Step 4 — never auto-pruned")
+                print(f"      action:  {f.get('action', DEFAULT_ACTION)}")
         prunable = [f for f in leftovers if f["klass"] in ("inert", "safe-to-discard")]
         print()
         # The reclaimable total is reported over the PRUNABLE subset only.

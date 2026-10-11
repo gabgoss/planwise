@@ -1,5 +1,5 @@
 ---
-description: Nine binding hygiene rules plus three advisory practices for what a multi-sprint scaffold emits — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, mega-scaffold review-gate, and run-time-sound verification commands and context pointers. Part 1 of 2 — the five derivation-and-parallelism rules (§13–§17) live in scaffolding-hygiene-Part-2-DerivationAndParallelism.md
+description: Nine binding hygiene rules plus three advisory practices for what a multi-sprint scaffold emits — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, mega-scaffold review-gate, and run-time-sound verification commands and context pointers. Part 1 of 2 — the five derivation-and-parallelism rules (§13–§17), the §18 sheet-authoring rule and the §19 replay-command rule live in scaffolding-hygiene-Part-2-DerivationAndParallelism.md
 ---
 # Scaffolding Hygiene — Part 1: What the Scaffold Emits
 
@@ -7,10 +7,10 @@ description: Nine binding hygiene rules plus three advisory practices for what a
 
 This file is the §14 expansion referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols). Read it before generating any `Sprint-{XX}-{Name}/` folders.
 
-> [!important] This reference is split across two files — §13–§17 live in Part 2
-> This part carries §1–§12: the rules governing what the scaffold **emits**. The five rules governing what a scaffold must **compute before it closes** — retirement deletion-set derivation (§13), config-editing permission round-trips (§14), the first-task diff baseline (§15), the sprint-level write-set intersection (§16), and the dispatch-layer write-target intersection (§17) — live in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md).
+> [!important] This reference is split across two files — §13–§19 live in Part 2
+> This part carries §1–§12: the rules governing what the scaffold **emits**. The five rules governing what a scaffold must **compute before it closes** — retirement deletion-set derivation (§13), config-editing permission round-trips (§14), the first-task diff baseline (§15), the sprint-level write-set intersection (§16), and the dispatch-layer write-target intersection (§17) — live in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md). So does §18, the rule for a sheet a human pastes and follows (break the paste line, echo the resolved parameters, add a general halt clause). §19 covers an orchestrator re-verify item: the producing task ships the replay command.
 >
-> Section numbers are continuous across the two files: a section keeps its `§N` wherever it lands, so there is no `§1` in Part 2. Read Part 2 as well before closing a scaffold — §13–§17 are the rules a scaffolder needs at scaffold close.
+> Section numbers are continuous across the two files: a section keeps its `§N` wherever it lands, so there is no `§1` in Part 2. Read Part 2 as well before closing a scaffold — §13–§19 are the rules a scaffolder needs at scaffold close.
 
 ## Table of Contents
 
@@ -782,4 +782,4 @@ Fix: State the total once as a derived caption of the deliverable table, cite th
 
 ---
 
-*Nine binding hygiene rules plus three advisory practices for what a multi-sprint scaffold emits — Part 1 of 2. The five derivation-and-parallelism rules (§13–§17) live in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md). Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*
+*Nine binding hygiene rules plus three advisory practices for what a multi-sprint scaffold emits — Part 1 of 2. The five derivation-and-parallelism rules (§13–§17), the §18 sheet-authoring rule and the §19 replay-command rule live in [scaffolding-hygiene-Part-2-DerivationAndParallelism.md](scaffolding-hygiene-Part-2-DerivationAndParallelism.md). Cross-referenced from the Companion Files and Extracted Protocols table in [session-planning-protocol.md](session-planning-protocol.md#companion-files-and-extracted-protocols).*

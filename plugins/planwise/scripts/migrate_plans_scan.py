@@ -66,6 +66,7 @@ class Item:
     basis_line: int | None = None
     present: bool = False
     row: object = None
+    unclosed: bool = False
 
     @property
     def nbytes(self) -> int:
@@ -81,11 +82,12 @@ class Item:
         return self.line + (self.text.count("\n") if self.kind == KIND_COMMENT else 0)
 
 
-def scan_comments(text: str, table) -> tuple:
-    """`(items, unclosed)`: every HTML comment in the file, by a whole-file scan, and the line of a `<!--`
-    that is never closed (None when every comment closes). The parser's `skipped` list covers only the table
+def scan_comments(text: str, table) -> list:
+    """Every HTML comment in the file, by a whole-file scan. The parser's `skipped` list covers only the table
     region, so a comment before the header row or after the legend appears in none of its lists. A comment
-    that spans lines is one item, copied from `<!--` through `-->` with its own line endings."""
+    that spans lines is one item, copied from `<!--` through `-->` with its own line endings. An opener with
+    no closer before the end of the file is a one-line item flagged `unclosed`, and the lines after it are
+    scanned as ordinary lines."""
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()
@@ -100,16 +102,16 @@ def scan_comments(text: str, table) -> tuple:
         if not bare.strip().startswith("<!--"):
             i += 1
             continue
-        end = i
+        end, unclosed = i, False
         if "-->" not in bare.strip()[len("<!--"):]:
-            end = next((j for j in range(i + 1, len(lines)) if "-->" in lines[j]), None)
-            if end is None:
-                return items, number
+            found = next((j for j in range(i + 1, len(lines)) if "-->" in lines[j]), None)
+            unclosed = found is None
+            end = i if unclosed else found
         chunk = lines[i:end + 1]
         chunk[0] = chunk[0].lstrip()
-        items.append(Item(number, KIND_COMMENT, "\n".join(chunk).rstrip(), in_region))
+        items.append(Item(number, KIND_COMMENT, "\n".join(chunk).rstrip(), in_region, unclosed=unclosed))
         i = end + 1
-    return items, None
+    return items
 
 
 def narrative(status_raw: str, token: str | None) -> str:

@@ -23,11 +23,12 @@ This handler spans **three files**, split by topic because the combined text exc
   - [Step 2.1 — `--list-diverged` pre-scan](#step-21--list-diverged-pre-scan)
   - [Step 2.2 — Comparator fan-out (interactive only)](#step-22--comparator-fan-out-interactive-only)
   - [Step 2.3 — Write `verdicts.json`](#step-23--write-verdictsjson)
+  - [Step 2.3b — Ask the migration questions](#step-23b--ask-the-migration-questions)
   - [Step 2.4 — Invoke the upgrade script](#step-24--invoke-the-upgrade-script)
   - [Step 2.5 — Refresh Token Saver calibration](#step-25--refresh-token-saver-calibration)
   - [Step 2.6 — Lessons scaffolding backfill (PyYAML-missing fallback)](#step-26--lessons-scaffolding-backfill-pyyaml-missing-fallback)
   - [Step 2.7 — Feedback directory backfill and creation](#step-27--feedback-directory-backfill-and-creation)
-- [Part 3 — Banner Rendering and Conflict Resolution](#part-3--banner-rendering-and-conflict-resolution) — pointer to the separate file [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) (Step 3 — Render the banner; Step 4 — Resolve conflicts; Step 4.1 — Assisted relocation; Step 4.2 — Opt-in upstream GitHub issue; Step 4.3 — Interactive per-class cleanup offer; Step 4.4 — Settings-grant normalization offer; Step 4.5 — GitHub CLI availability offer; Step 4.6 — Task-tools env var offer; Step 4.7 — Thrifty-sonic env var offer)
+- [Part 3 — Banner Rendering and Conflict Resolution](#part-3--banner-rendering-and-conflict-resolution) — pointer to the separate file [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md) (Step 3 — Render the banner; Step 4 — Resolve conflicts; Step 4.1 — Assisted relocation, cases A–C (case C reviews earlier version pairs' transfer files); Step 4.2 — Opt-in upstream GitHub issue; Step 4.3 — Interactive per-class cleanup offer; Step 4.4 — Settings-grant normalization offer; Step 4.5 — GitHub CLI availability offer; Step 4.6 — Task-tools env var offer; Step 4.7 — Thrifty-sonic env var offer)
 - [Part 2 — Conflict Resolution Reference and Recovery](#part-2--conflict-resolution-reference-and-recovery) — pointer to the separate file [upgrade-Part-2-RecoveryAndReference.md](upgrade-Part-2-RecoveryAndReference.md) (Conflict Resolution Reference, Auto-Init Fallback, Mid-Upgrade Failure, Config Recovery)
 
 ---
@@ -57,8 +58,8 @@ Extract from `config.yaml`:
 Read `{plugin_root}/.claude-plugin/plugin.json` and extract `version` — the live root resolved in the Config Gate, always, so this comparison can never be fooled by a stale configured `plugin_root:`. Compare to the user's pinned `plugin_version:`:
 
 > [!gate] Upgrade Gate
-> If `pinned == shipped` **and** the config's stored `plugin_root` matches the live `{plugin_root}` → run the Step 2.4 script invocation, then report "Plugin version: {version} — already up to date." and exit. The script re-checks the backlog, lessons and plans index shapes on this branch too and migrates any hand-authored index automatically; pass its `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` and `Plans index migration:` blocks, plus any `Style rule` lines, through verbatim per the Step 3 callout below — the handler names no migration procedure of its own, only the one-word chat-summary label it derives from each block.
-> If `pinned == shipped` **but** the stored `plugin_root` differs → do NOT exit; skip the comparator fan-out (Steps 2.1–2.3 have nothing to compare — no artifact changed) and run the Step 2.4 script invocation, which repoints the root on its own. Report the result as "Plugin root repointed", not as a version change. See the mismatch note below.
+> If `pinned == shipped` **and** the config's stored `plugin_root` matches the live `{plugin_root}` → run Step 2.3b, then the Step 2.4 script invocation, then report "Plugin version: {version} — already up to date." and exit. The script re-checks the backlog, lessons and plans index shapes on this branch too and migrates any hand-authored index automatically; pass its `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` and `Plans index migration:` blocks, plus any `Style rule` lines, through verbatim per the Step 3 callout below — the handler names no migration procedure of its own, only the one-word chat-summary label it derives from each block.
+> If `pinned == shipped` **but** the stored `plugin_root` differs → do NOT exit; skip the comparator fan-out (Steps 2.1–2.3 have nothing to compare — no artifact changed) and run Step 2.3b, then the Step 2.4 script invocation, which repoints the root on its own. Report the result as "Plugin root repointed", not as a version change. See the mismatch note below.
 > If `pinned < shipped` (or `pinned` is absent) → proceed to Step 2.1.
 > If `pinned > shipped` → emit a warning ("Your config pins {pinned} but the installed plugin is {shipped} — did you downgrade?") and ask the user with `AskUserQuestion` whether to proceed. On decline, exit without writing. On approval, continue and append `--allow-downgrade` to the Step 2.4 invocation.
 
@@ -109,14 +110,17 @@ Token Saver is a budget mode that keeps task sessions under ~150K and warns when
 > | 2 | Step 2.1 — `--list-diverged` pre-scan | both | no |
 > | 3 | Step 2.2 — comparator fan-out | interactive only | no |
 > | 4 | Step 2.3 — write `verdicts.json` | interactive only | cache only |
-> | 5 | Step 2.4 — invoke `--upgrade` (the single writer) consuming `verdicts.json` | both | **yes** |
-> | 6 | Step 2.5 — Token Saver recalibration | both | config |
-> | 7 | Step 2.6 — Lessons scaffolding backfill fallback | both | config (PyYAML-missing case only) |
-> | 8 | Step 2.7 — Feedback directory backfill/creation — see cross-reference; the write itself is part of Step 2.4's script call | both | (documented by Step 2.4) |
+> | 5 | Step 2.3b — ask the migration questions; Auto Mode answers nothing and writes no file | both | `migration-answers.json` only |
+> | 6 | Step 2.4 — invoke `--upgrade` (the single writer) consuming `verdicts.json` | both | **yes** |
+> | 7 | Step 2.5 — Token Saver recalibration | both | config |
+> | 8 | Step 2.6 — Lessons scaffolding backfill fallback | both | config (PyYAML-missing case only) |
+> | 9 | Step 2.7 — Feedback directory backfill/creation — see cross-reference; the write itself is part of Step 2.4's script call | both | (documented by Step 2.4) |
 >
-> Headless / non-interactive: skip rows 3–4; the writer (row 5) runs with no `verdicts.json` and disposes
+> Headless / non-interactive: skip rows 3–4. Step 2.3b (row 5) asks nothing and writes no answers file.
+> The writer (row 6) runs with no `verdicts.json` and no `--migration-answers`. It disposes
 > every diverged file via the inline `_classify_diverged()` primitive — including the automated
-> transfer-then-adopt path for customization-bearing verdicts (see Step 2.4, item 8).
+> transfer-then-adopt path for customization-bearing verdicts (see Step 2.4, item 8). It refuses
+> only the migration family that needed an answer.
 
 ### Step 2.1 — `--list-diverged` pre-scan
 
@@ -237,15 +241,40 @@ Write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to
 > outward handoffs (Steps 4.1/4.2) only raise fidelity / ergonomics on the
 > diverged minority — never required for correctness.
 
+### Step 2.3b — Ask the migration questions
+
+The migrators refuse some inputs only a person can settle, such as two backlog items that each block the other. Ask before the writer runs. Run the preflight, which reads the three indexes and changes nothing:
+
+```bash
+python "{plugin_root}/scripts/index_shape_preflight.py" --config "{planwise_root}/config.yaml" --questions
+```
+
+The JSON holds one entry per index family (`backlog`, `lessons`, `plans`). Each entry has a `questions` list. Gather every question from the three lists.
+
+1. When every list is empty, write no file and set `{answers_path}` to none. Go to Step 2.4.
+2. Otherwise, call `AskUserQuestion` <!-- AUTO-MODE: convenience --> with one question per entry. Use the entry's `prompt` as the question text and each `options[].label` as an option. One call holds at most 4 questions, so send the questions in batches of 4.
+3. Each option carries an `answer` fragment. Merge the fragments of the chosen options by concatenating each key's list. Never write a key the fragments do not hold.
+4. Write the merged object with the Write tool to `{planwise_root}/upgrade-conflicts/{from}-to-{to}/migration-answers.json`. Write creates the directory. Record this path as `{answers_path}`.
+
+```json
+{"edge_drops": ["002->001", "003<->004:both"]}
+```
+
+Never infer a direction. When a question has no answer because the user declines, write no file for that question. The migrator then refuses in the Step 3 banner, and the chat summary names the refusal as action required. In Auto Mode, do not call `AskUserQuestion`. The safe default is no answer: write no answers file, set `{answers_path}` to none, log `Auto-Mode inference: migration answers=none (reason: an edge direction cannot be inferred)`, and run Step 2.4 without `--migration-answers`. The migrator then refuses only the unanswered family and writes nothing for it. The rest of the upgrade still refreshes artifacts, pins the version and repoints `plugin_root`. In the chat summary, name each unanswered family as action required: "answer the reciprocal-edge question in an interactive /planwise upgrade".
+
+Every route into Step 2.4 passes through this step first, including the equal-version branches of the Step 1 gate. On those branches `{from}` and `{to}` both equal the pinned version.
+
 ### Step 2.4 — Invoke the upgrade script
 
-Append `--token-saver` only when `{token_saver}` (from Step 1.5) is `yes`:
+Append `--token-saver` only when `{token_saver}` (from Step 1.5) is `yes`. Append `--migration-answers "{answers_path}"` only when Step 2.3b wrote the file:
 
 ```bash
 python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --upgrade --upgrade-pair "{from}-to-{to}" --token-saver
 ```
 
 Omit the trailing `--token-saver` when `{token_saver}` is `no` — the upgrade leaves the existing `context.token_saver` value untouched (migration is non-destructive; it never flips a user-set toggle off).
+
+`--migration-answers "{answers_path}"` goes after `--upgrade-pair`, and only when the file exists. The script checks the file before any write. An `Upgrade refused: … answers …` line with exit code 2 means the file is malformed. Rewrite it from the same answers in the form Step 2.3b shows, then run the command again.
 
 `--upgrade-pair "{from}-to-{to}"` carries the pair pinned in Step 1 — pass it verbatim, always. The script resolves the pair itself (pinned `plugin_version` vs the live `plugin.json`) and, when the two disagree, **refuses** with exit code 2 before writing anything (`Upgrade refused: the handler pinned upgrade pair … but the pair now resolves live as …`). That is the plugin cache or the version pin having moved mid-session, not a script fault: restart from Step 1 so the fan-out and the writer agree on one pair. Never retry by dropping the flag.
 
@@ -258,15 +287,16 @@ If `python` is not found, try `python3`.
 The script:
 1. Runs `migrate_config()` to merge any new top-level keys into `config.yaml`
 2. Calls `bootstrap_lessons_artifacts()` to backfill the lessons scaffolding — seeds the lessons index hub (`{lessons_dir}/00-Index-LessonsLearned.md`) plus its two companions (`00-Changelog-LessonsLearned.md`, `00-PromotionLog-LessonsLearned.md`), and renders `{lessons_dir}/00-Categorization-By-Domain.md` — whenever any is missing. Idempotent and non-destructive: a no-op when every artifact already exists, and an existing (possibly user-customised) file is preserved verbatim. This recovers the categorization file that gates `/planwise lessons curate` and `promote-batch` on projects adopted via `/planwise upgrade` rather than a fresh `/planwise init` (the render used to be fresh-init-only). Runs after `migrate_config()` so a freshly-migrated `categorization:` block is picked up; falls back to the built-in default buckets (and flags it in the banner) when the block is absent
-3. Runs `migrate_backlog_if_legacy()` — when the backlog index is hand-authored it backs up every file it will write under `upgrade-backups/{from}-to-{to}/backlog/`, moves the changelog footer, feature-cell prose and dependency notes into their homes, backfills frontmatter, regenerates the index and checks it; recognise-or-refuse, never best-effort, never fails the upgrade; a refusal names the exact fix and re-fires on the next run. `--backlog-reconcile frontmatter-wins` overrides the default `index-wins` for row/frontmatter disagreements.
-4. Runs `migrate_lessons_if_legacy()` — when the lessons index is hand-authored it backs up every file it will write under `upgrade-backups/{from}-to-{to}/lessons/`, relocates the header changelog and the Promotion Log into their own files, drops a prose section whose text equals the seed's and relocates one that differs verbatim into the changelog, renames a hand-written companion to `00-Categorization-Notes-LessonsLearned.md` and regenerates the companion, then runs the generator and checks it; recognise-or-refuse, never best-effort, never fails the upgrade; a refusal names the exact fix and re-fires on the next run. `--lessons-reconcile frontmatter-wins` overrides the default `index-wins` for row/frontmatter disagreements.
+3. Runs `migrate_backlog_if_legacy()` — when the backlog index is hand-authored it backs up every file it will write under `upgrade-backups/{from}-to-{to}/backlog/`, moves the changelog footer, feature-cell prose and dependency notes into their homes, backfills frontmatter, regenerates the index and checks it; recognise-or-refuse, never best-effort, never fails the upgrade; a refusal names the exact fix and re-fires on the next run.
+4. Runs `migrate_lessons_if_legacy()` — when the lessons index is hand-authored it backs up every file it will write under `upgrade-backups/{from}-to-{to}/lessons/`, relocates the header changelog and the Promotion Log into their own files, drops a prose section whose text equals the seed's and relocates one that differs verbatim into the changelog, renames a hand-written companion to `00-Categorization-Notes-LessonsLearned.md` and regenerates the companion, then runs the generator and checks it; recognise-or-refuse, never best-effort, never fails the upgrade; a refusal names the exact fix and re-fires on the next run.
 5. Runs `migrate_plans_if_legacy()` — when the plans index is hand-authored it backs up the index and every Master Plan it appends to under `upgrade-backups/{from}-to-{to}/plans/`, attaches each index note to the row it followed (appended to that row's Master Plan), regenerates the index from the Master Plans and checks it, and writes `{plans_dir}/00-Plans-Migration-Ledger.md`; recognise-or-refuse, never best-effort, never fails the upgrade; a refusal names the exact fix and re-fires on the next run. The Master Plan's status wins a row/Master Plan disagreement, so this step takes no reconcile flag.
 6. Iterates `manifests/artifacts.yaml` rows where `upgrade_behavior == "refresh_or_sidecar"`
 7. Refreshes installed copies whose normalised body matches the shipped body
 8. Classifies each **diverged** installed copy with the structural verdict — consuming `verdicts.json` when present (a comparator verdict for a filename **supersedes** the inline primitive; a missing entry, a malformed entry, or an entry whose `installed_sha256` is missing/stale falls back to the primitive). A clean **stale subset** is auto-adopted in place directly: rules refresh via `update_frontmatter()` (the project's `paths:` line is preserved). Any OTHER divergence — HAS_UNIQUE or a subset whose `notes` flag installed-only tolerated content — is **customization-bearing**, gated by `upgrade.customization_handoff`: under `report+relocate` (the shipped template default) the writer first **transfers** the full installed body (plus a generic provenance header — source filename, kind, upgrade pair, date, verdict summary) to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` — a **dormant preservation document** outside `.claude/rules/`, never loaded as a rule (a collision is uniquified with a numeric suffix loop, never clobbered) — **verifies** the write by reading it back, mirrors the pre-image under `upgrade-backups/`, and only then adopts the shipped body in place (the `DISPOSITIONS.md` row is appended only after the adoption write succeeds). Under `report` / `report+issue` (or the key absent) the writer is conservative: the customization-bearing file is preserved in place + a `.new` sidecar is written — no transfer, no adoption. A failed transfer write, a failed pre-image backup, a failed adoption write, or a degraded not-analyzed stand-in verdict (`structural_compare` unavailable at call time — no evidence to act on) likewise falls back to that conservative branch: installed file untouched, `.new` sidecar under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Every auto-adoption — stale-subset or transfer-then-adopt — first mirrors the pre-change file under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (failed backup = no destructive write) and deletes any sidecar it obsoletes from an earlier interrupted run
 9. Runs `migrate_installed_rules()` (version-gated on `RESCOPE_MIGRATION_VERSION`) to retire rules that are now handler-loaded from `references/`: it **removes** an installed `.claude/rules/**` copy when it is untouched (normalized-identical body, `paths:` match) **or** when its body is a high-confidence **stale subset** of the grown shipped reference with no installed-only content flagged; it **preserves** byte-for-byte any HAS_UNIQUE (customised) copy, any subset verdict with reorg confidence or a non-empty installed-only-content flag, and — while `upgrade.descope_preserve_paths_edits` is `true` (the default) — any copy with a customised `paths:` line, even over a stale body. Setting that key to `false` opts in to removing paths-edited copies (reported with an `[INFO]` marker). Every removal is backed up under `upgrade-backups/` first, so a disposition is always recoverable without VCS
 10. Runs `lint_rule_overscope()` and appends a post-upgrade advisory listing any `.claude/rules/**` still scoped to plan/backlog/lessons paths, with size
-11. Bumps `plugin_version:` AND repoints `plugin_root:` together, in `config.yaml`, LAST, as the commit point — one write, so the pair can never disagree (see `_commit_upgrade_pin()` in `scripts/init_project.py`)
+11. Runs `sweep_orphaned_agent_mirrors()` on both exits, including "Already up to date", and appends the orphaned-mirror block: each leftover `.claude/agents/` mirror with its class (`REMOVABLE` or `PRESERVE`) and reason, plus the `--prune-stale` action when any row is `REMOVABLE`. Read-only: it deletes nothing
+12. Bumps `plugin_version:` AND repoints `plugin_root:` together, in `config.yaml`, LAST, as the commit point — one write, so the pair can never disagree (see `_commit_upgrade_pin()` in `scripts/init_project.py`)
 
 Capture stdout — the banner is rendered from it.
 

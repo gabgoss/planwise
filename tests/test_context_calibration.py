@@ -62,6 +62,87 @@ CONTEXT_REPORT_FIXTURE = """## Context Usage
 | deep-research | Built-in | ~160 |
 """
 
+# A real `/context` capture (claude-code 2.1.292), split into parts so a helper can
+# place the MCP Tools and Memory Files tables before the agents table or after the
+# skills table. The parser does not consume those two tables; their rows must not
+# land in the category, agent or skill collections.
+_REAL_REPORT_HEAD = """## Context Usage
+
+**Model:** claude-opus-5-5
+**Tokens:** 12.4k / 1m (1%)
+
+### Estimated usage by category
+
+| Category | Tokens | Percentage |
+|----------|--------|------------|
+| System prompt | 1.5k | 0.2% |
+| System tools | 2.5k | 0.2% |
+| MCP tools | 2.1k | 0.2% |
+| MCP server instructions | 717 | 0.1% |
+| Memory files | 5.5k | 0.5% |
+| Messages | 120 | 0.0% |
+| Free space | 954.6k | 95.5% |
+| Autocompact buffer | 33k | 3.3% |
+"""
+
+_REAL_REPORT_MCP_TOOLS = """
+### MCP Tools
+
+| Tool | Server | Tokens |
+|------|--------|--------|
+| mcp__claude_ai_Claude_Docs__batch | claude_ai_Claude_Docs | 165 |
+| mcp__claude_ai_Claude_Docs__create | claude_ai_Claude_Docs | 256 |
+| mcp__claude_ai_Claude_Docs__delete | claude_ai_Claude_Docs | 343 |
+| mcp__claude_ai_Claude_Docs__export | claude_ai_Claude_Docs | 324 |
+| mcp__claude_ai_Claude_Docs__guide | claude_ai_Claude_Docs | 208 |
+| mcp__claude_ai_Claude_Docs__query | claude_ai_Claude_Docs | 182 |
+| mcp__claude_ai_Claude_Docs__read | claude_ai_Claude_Docs | 324 |
+| mcp__claude_ai_Claude_Docs__update | claude_ai_Claude_Docs | 298 |
+"""
+
+_REAL_REPORT_MEMORY_FILES = """
+### Memory Files
+
+| Type | Path | Tokens |
+|------|------|--------|
+| Project | C:\\project\\CLAUDE.md | 5.5k |
+"""
+
+_REAL_REPORT_AGENTS = """
+### Custom Agents
+
+| Agent Type | Source | Tokens |
+|------------|--------|--------|
+| planwise:task-runner | Plugin | 84 |
+"""
+
+_REAL_REPORT_SKILLS = """
+### Skills
+
+| Skill | Source | Tokens |
+|-------|--------|--------|
+| planwise | Plugin (planwise) | ~80 |
+"""
+
+
+def _report_with_extra_tables(position: str) -> str:
+    """Build the real capture with agents and skills tables added.
+
+    `position` places the MCP Tools and Memory Files tables either
+    "before_agents" or "after_skills".
+    """
+    extras = _REAL_REPORT_MCP_TOOLS + _REAL_REPORT_MEMORY_FILES
+    if position == "before_agents":
+        return _REAL_REPORT_HEAD + extras + _REAL_REPORT_AGENTS + _REAL_REPORT_SKILLS
+    if position == "after_skills":
+        return _REAL_REPORT_HEAD + _REAL_REPORT_AGENTS + _REAL_REPORT_SKILLS + extras
+    raise ValueError(f"unknown position: {position}")
+
+
+CONTEXT_REPORT_WITH_EXTRA_TABLES_FIXTURE = _report_with_extra_tables("before_agents")
+
+_EXTRA_TABLE_POSITIONS = ("before_agents", "after_skills")
+
 
 # ---------------------------------------------------------------------------
 # Step 6 — /context parser
@@ -100,6 +181,61 @@ class TestContextParser(unittest.TestCase):
         # deep-research (Built-in) is excluded. Total ~= 466.
         self.assertGreaterEqual(attributed, 450)
         self.assertLessEqual(attributed, 480)
+
+    def test_mcp_tools_and_memory_files_rows_are_not_categories(self):
+        ts = _engine()
+        expected = {
+            "System prompt",
+            "System tools",
+            "MCP tools",
+            "MCP server instructions",
+            "Memory files",
+            "Messages",
+            "Free space",
+            "Autocompact buffer",
+        }
+        self.assertEqual(
+            CONTEXT_REPORT_WITH_EXTRA_TABLES_FIXTURE,
+            _report_with_extra_tables("before_agents"),
+        )
+        for position in _EXTRA_TABLE_POSITIONS:
+            with self.subTest(position=position):
+                report = ts.parse_context_report(_report_with_extra_tables(position))
+                categories = report["categories"]
+                self.assertEqual(set(categories), expected)
+                self.assertFalse([k for k in categories if k.startswith("mcp__")])
+                self.assertNotIn("Tool", categories)
+                self.assertNotIn("Type", categories)
+                self.assertEqual(report["total_active"], 12400)
+
+    def test_deeper_subheadings_do_not_end_section(self):
+        ts = _engine()
+        text = (
+            _REAL_REPORT_HEAD
+            + "\n### Custom Agents\n\n"
+            + "#### Plugin\n\n"
+            + "| Agent Type | Source | Tokens |\n|---|---|---|\n"
+            + "| planwise:task-runner | Plugin | 84 |\n\n"
+            + "#### Project\n\n"
+            + "| Agent Type | Source | Tokens |\n|---|---|---|\n"
+            + "| local-helper | Project | 40 |\n"
+        )
+        report = ts.parse_context_report(text)
+        self.assertEqual(len(report["agents"]), 2)
+        self.assertEqual(
+            set(report["categories"]),
+            set(ts.parse_context_report(_REAL_REPORT_HEAD)["categories"]),
+        )
+
+    def test_agents_and_skills_unaffected_by_extra_tables(self):
+        ts = _engine()
+        for position in _EXTRA_TABLE_POSITIONS:
+            with self.subTest(position=position):
+                report = ts.parse_context_report(_report_with_extra_tables(position))
+                self.assertEqual(len(report["agents"]), 1)
+                self.assertEqual(len(report["skills"]), 1)
+                names = [r["name"] for r in report["agents"] + report["skills"]]
+                self.assertNotIn("Project", names)
 
     def test_escaped_pipe_in_a_category_row_does_not_shift_columns(self):
         # A category label containing an escaped pipe used to split into an
@@ -329,6 +465,56 @@ class TestCalibrateNewKeysOnSuccessfulCapture(unittest.TestCase):
                     config_path=config_path, capture=self._stub_capture
                 )
             mock_write.assert_called_once()
+
+    def test_repeated_calibrate_leaves_one_range_comment(self):
+        import tempfile
+
+        import context_calibration
+
+        with tempfile.TemporaryDirectory(prefix="tc_calibrate_") as tmp_dir:
+            config_path = Path(tmp_dir) / "config.yaml"
+            config_path.write_text(
+                "context:\n"
+                "  token_saver: true\n"
+                "  token_saver_session_start_range: {min: 1, median: 1, max: 1}"
+                "  # uncalibrated-range (single capture)"
+                "  # uncalibrated-range (single capture)\n",
+                encoding="utf-8",
+            )
+            for _ in range(2):
+                context_calibration.calibrate(
+                    config_path=config_path, capture=self._stub_capture
+                )
+            lines = config_path.read_text(encoding="utf-8").splitlines()
+        range_line = next(
+            ln for ln in lines if ln.lstrip().startswith("token_saver_session_start_range:")
+        )
+        floor_line = next(
+            ln for ln in lines if ln.lstrip().startswith("token_saver_structural_floor:")
+        )
+        self.assertEqual(range_line.count("# uncalibrated-range"), 1)
+        self.assertEqual(floor_line.count("# tree-derived"), 1)
+
+    def test_failed_then_good_capture_leaves_single_capture_comment(self):
+        import tempfile
+
+        import context_calibration
+
+        with tempfile.TemporaryDirectory(prefix="tc_calibrate_") as tmp_dir:
+            config_path = Path(tmp_dir) / "config.yaml"
+            config_path.write_text("context:\n  token_saver: true\n", encoding="utf-8")
+            context_calibration.calibrate(
+                config_path=config_path, capture=lambda *_a, **_k: None
+            )
+            context_calibration.calibrate(
+                config_path=config_path, capture=self._stub_capture
+            )
+            lines = config_path.read_text(encoding="utf-8").splitlines()
+        range_line = next(
+            ln for ln in lines if ln.lstrip().startswith("token_saver_session_start_range:")
+        )
+        self.assertIn("(single capture)", range_line)
+        self.assertNotIn("(capture failed)", range_line)
 
 
 # ---------------------------------------------------------------------------

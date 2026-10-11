@@ -22,9 +22,11 @@ What a run does, in order:
    re-read every output, and write the ledger.
 
 A note with no preceding row, or whose row has no resolvable Master Plan, is
-kept verbatim in the ledger under `## Unattributed Index Notes`. Any other
+kept verbatim in the ledger under `## Unattributed Index Notes`. So is an HTML
+comment that never closes, whatever row precedes it: an open comment written
+into a Master Plan would hide everything appended after it. Any other
 non-blank line the generator does not re-render is listed verbatim under
-`## Uncarried Index Lines`. An HTML comment that never closes is refused. A
+`## Uncarried Index Lines`. A
 status disagreement resolves in the Master Plan's favour and is listed as
 `status-changed`. A Master Plan's `**Status:**` line is never edited.
 
@@ -248,11 +250,7 @@ def _analyze(config: dict, index_path: Path, text: str, migration_date: str | No
             resolved[row.line_number] = file
             via_child += child
 
-    items, unclosed = scan_comments(text, table)
-    if unclosed is not None:
-        refusals.append(f"line {unclosed} of {index_path.name} opens an HTML comment (`<!--`) that never closes, "
-                        "so every line after it would be read as comment and lost; close the comment with `-->`, "
-                        "then re-run")
+    items = scan_comments(text, table)
     in_comment = {n for i in items for n in range(i.line, i.last_line + 1)}
     for line in table.unparsed:
         if line.line_number in in_comment:
@@ -284,6 +282,10 @@ def _analyze(config: dict, index_path: Path, text: str, migration_date: str | No
             item.reason = "unresolvable-master-plan"
         else:
             item.dest, item.basis_line = resolved[row.line_number], row.line_number
+    for item in items:
+        if item.unclosed:  # an opener left open would hide whatever is appended after it, so it never moves
+            item.dest, item.basis_line = None, None
+            item.reason = f"{item.reason or 'unclosed-opener'} (opener never closed; treated as a one-line note)"
 
     groups: dict = {}  # one group per Master Plan file, its items in index order
     for item in items:
@@ -334,10 +336,10 @@ def _analyze(config: dict, index_path: Path, text: str, migration_date: str | No
         "uncarried": lines["listed"], "index_sha256": hashlib.sha256(index_bytes).hexdigest(), "backup_dir": None,
     }
     gap = accounting(plan)["unaccounted"]
-    if gap and unclosed is None:
+    if gap:
         refusals.append(f"the migrator cannot account for {gap} byte(s) of {index_path.name} (a line falls in no "
-                        "category, or in two), so it moves nothing; inspect the index with "
-                        "`migrate_plans_index.py --report`")
+                        "category, or in two), so it moves nothing; this is a migrator defect, not an index defect: "
+                        "run /planwise feedback with the --report output attached, and keep the index as it is")
     return plan
 
 
@@ -346,10 +348,12 @@ def plan_migration(config: dict, index_path: Path, text: str, migration_date: st
     the fix that closes it."""
     shape, detail = classify_shape(text)
     if shape != "legacy":
-        raise Refusal(f"the index shape is {shape}, not legacy: {detail}")
+        raise Refusal(f"the index shape is {shape}, not legacy: {detail}",
+                      "run the migration only on a hand-authored plans index; this index needs no migration")
     plan = _analyze(config, index_path, text, migration_date)
     if plan["refusals"]:
-        raise Refusal("\n".join(plan["refusals"]))
+        raise Refusal("\n".join(plan["refusals"]),
+                      fix="close each refusal listed above as its text says, then re-run")
     return plan
 
 
@@ -523,8 +527,11 @@ def build_report(config: dict, index_path: Path) -> dict:
     if shape != "legacy":
         return {"shape": shape, "detail": detail, "index": str(index_path), "rows": 0, "comments": 0,
                 "narrative_cells": 0, "attributable": 0, "unattributed": 0, "uncarried_lines": 0, "root_path_rows": 0,
-                "prefixed_rows": 0, "status_changes": 0, "append_targets": [], "ready": False, "would_refuse": []}
-    return _summary(_analyze(config, index_path, text, migration_date(ledger_path_for(config["_plans_dir"]))))
+                "prefixed_rows": 0, "status_changes": 0, "append_targets": [], "ready": False, "would_refuse": [],
+                "questions": []}
+    report = _summary(_analyze(config, index_path, text, migration_date(ledger_path_for(config["_plans_dir"]))))
+    report["questions"] = []  # a plans refusal is a plain string, so it asks nothing
+    return report
 
 
 def _safe_report(config: dict, index_path: Path) -> dict:

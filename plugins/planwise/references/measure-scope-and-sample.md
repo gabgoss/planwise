@@ -1,5 +1,5 @@
 ---
-description: A finding is scoped to the sample it was taken from, the project it was measured in, and the corpus that was searched — and the sentence that states it has to carry that boundary. Covers why one dispatch is an anecdote and how to sample without cherry-picking, why a hypothesis about a consuming project cannot be settled in the tool's own repository, why "the record does not capture X" is true only of the shelf that was swept, and the three sentence forms that keep the boundary attached. Consult when measuring model or harness behaviour, testing a hypothesis whose magnitude lives outside the tool, or accepting an evidence-gap statement.
+description: A finding is scoped to the sample it was taken from, the project it was measured in, and the corpus that was searched — and the sentence that states it has to carry that boundary. Covers why one dispatch is an anecdote and how to sample without cherry-picking, why a hypothesis about a consuming project cannot be settled in the tool's own repository, why "the record does not capture X" is true only of the shelf that was swept, and the three sentence forms that keep the boundary attached. Consult when measuring model or harness behaviour, testing a hypothesis whose magnitude lives outside the tool, or accepting an evidence-gap statement. Also covers why a column that reads the same value before the first boundary measures the floor every session pays, and must be baselined before arms are compared on it.
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Measurement Scope and Sample — Write the Boundary Into the Sentence
@@ -18,6 +18,8 @@ One neighbouring rule owns a corollary this file generalises. [`dispatch-boundar
 - [2. Classify a Hypothesis as Tool-Intrinsic or Consumer-Conditional Before Testing It](#2-classify-a-hypothesis-as-tool-intrinsic-or-consumer-conditional-before-testing-it)
 - [3. An Evidence Gap Is Scoped to the Corpus You Swept — Enumerate the Record-Keeping Layers First](#3-an-evidence-gap-is-scoped-to-the-corpus-you-swept--enumerate-the-record-keeping-layers-first)
 - [4. Write the Boundary Into the Sentence](#4-write-the-boundary-into-the-sentence)
+- [5. A Column That Reads the Same Before the Boundary Measures the Floor — Baseline It](#5-a-column-that-reads-the-same-before-the-boundary-measures-the-floor--baseline-it)
+- [6. A Negative Is Scoped to the Invocation That Produced It](#6-a-negative-is-scoped-to-the-invocation-that-produced-it)
 
 ---
 
@@ -118,6 +120,66 @@ This is the section most likely to be cut for cost, because its remedy multiplie
 > | Corpus | "X is not recorded" | "the planning artifacts do not record X; the harness transcripts were not swept" |
 >
 > A downstream reader needs the discriminator, not the conclusion.
+
+---
+
+## 5. A Column That Reads the Same Before the Boundary Measures the Floor — Baseline It
+
+> [!constraint] A figure that already appears before the first boundary is the floor every session pays
+> A mechanism cannot be credited with carrying a figure that the session read before the mechanism existed. A number the mechanism cannot change is not evidence about the mechanism.
+
+A ledger prints a `carry` column per boundary: the first call's cached-prefix read after the boundary. The design read it as "how much of the working context survived". Three runs on three mechanisms printed the same number:
+
+- Compaction carried 39,383 at all three boundaries.
+- Auto-compaction carried 39,383 at all four.
+- A clear into a fresh session id carried 39,383 at all three clears.
+
+The ORIGINAL session's first call, before any boundary existed, also read 39,383. A clear starts from nothing, so a carry equal to a compaction's carry cannot be preserved conversation. It is the cache hit on the static prefix: system prompt, tool schemas, project instructions and plugin context. Every session on that machine with that prefix reads it. A control with no plugin read 18,944. That difference is a difference in static prefix, not in what either mechanism preserved.
+
+> ```
+> WRONG — the design reads carry as preserved state and compares arms on it:
+> compaction:  carry 39383 × 3   → "carries 39K across each boundary"
+> /clear:      carry 39383 × 3   → "carries 39K across each clear"   ← a clear preserves nothing
+>
+> CORRECT — the pre-boundary first call fixes the floor, and the arms are compared on what moved:
+> original session, call 1: read 39383      → static-prefix floor = 39383
+> compaction:  carry − floor = 0, rebuild 14.8K / 13.4K / 13.8K
+> /clear:      carry − floor = 0, rebuild  2.6K /  2.5K /  2.7K
+> ```
+
+Three consequences follow.
+
+1. **Baseline the column on the pre-boundary first call.** Print the baseline in the ledger header and report `carry − baseline`. Zero is the honest reading for a mechanism that starts fresh.
+2. **Name the substrate the metric can see.** A metric that reads identically across compaction, auto-compaction and a fresh session id measures their shared substrate, not any one of them. Say which substrate in the column's definition.
+3. **Route the comparison to the columns that moved.** Rebuild (creation on the first post-boundary call) and true post-context are where a boundary choice shows its cost. Here they differed five-fold: 2.6K for the clear and 13K to 15K for compaction. A write-up that ranks mechanisms on carry ranks them on their prompt cache.
+
+The general test: before comparing arms on a column, ask whether the column has the same value on a session that cannot have the property.
+
+---
+
+## 6. A Negative Is Scoped to the Invocation That Produced It
+
+> [!constraint] A negative result is true of the exact invocation that produced it
+> An error text that names the modes where an API would bind scopes the negative to the modes it does not name. Do not generalize "this failed under print mode" to "this fails headless". Name the invocation (`-p`, `-p --input-format stream-json`, an SDK-built session) in the sentence that records the result.
+
+A hook module armed a boundary after the turn completed, and the deferred call threw `no session is bound in this process`. The error text named two modes where the API binds: the interactive REPL, and a built headless session. A print-mode run (`<cli> -p`) is neither, because it answers one prompt and exits. A session built through the SDK, and `-p --input-format stream-json` with one process held open, are separate questions that nobody asked. The honest sentence is "failed under `-p`". The tempting sentence is "does not work headless".
+
+**An under-run cost is a signal, not a saving.** A cost estimate for a chained run assumes the chain. This run cost 0.68 USD against an estimate of 3 to 4 USD, about a fifth. It had stopped after step 1, and the reported `num_turns` of 14 and `is_error: false` looked healthy. Report the cost beside its cause. Treat a large under-run as evidence that the chain broke.
+
+> [!constraint] Name the invocation in the result sentence
+> WRONG — the scope drops out of the sentence, and a later design reads it as a ruling on every headless mode:
+> ```
+> deferred boundary: FAIL, does not work headless
+> cost: 0.68 USD (under budget)
+> ```
+> CORRECT — the invocation stays attached, and the cost carries its cause:
+> ```
+> deferred boundary: FAIL under `<cli> -p` (error names the REPL and a built headless session; -p is neither)
+> NOT TESTED: -p --input-format stream-json, an SDK-built session
+> cost: 0.68 USD against a 3-4 USD estimate — the chain stopped after step 1
+> ```
+
+**Applies to** probe designs that ask "does X survive headless", cost estimates for chained runs, and any hook or plugin that schedules work for "after the answer".
 
 ---
 

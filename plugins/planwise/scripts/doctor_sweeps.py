@@ -51,6 +51,22 @@ except ImportError:
         "estimates; the scripts/ directory appears to be partially installed"
     )
 
+try:
+    from recovery_surfaces import (
+        HELD_ACTION,
+        HELD_MEANING,
+        HELD_SURFACE,
+        INDEX_ACTION,
+        INDEX_MEANING,
+        classify_backup_pair,
+    )
+except ImportError:
+    raise ImportError(
+        "recovery_surfaces is required for doctor_sweeps's backup "
+        "classification; the scripts/ directory appears to be partially "
+        "installed"
+    )
+
 # Frozen filename list for the post-boundary orphaned-mirror sweep: the agent
 # files formerly mirrored into .claude/agents/ on init. No live install list
 # remains after the mirror drop; this frozen copy lets the sweep recognize an
@@ -691,7 +707,9 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
 
     Each finding is a dict:
       {pair (the "{from}-to-{to}" directory name), surface
-       ("upgrade-backups" | "upgrade-transfers" | "upgrade-conflicts" |
+       ("upgrade-backups" | "upgrade-backups (index-migration pre-images)"
+       (review-then-discard, never prunable) | "upgrade-transfers" |
+       "upgrade-conflicts" |
        "upgrade-conflicts/issue-drafts" | "upgrade-conflicts (consumed
        verdict cache)"), path, count (file(s) at that surface), bytes
        (total on-disk size of those files), age_days (days since the
@@ -735,14 +753,24 @@ def sweep_upgrade_leftovers(cfg: "InitConfig") -> list[dict]:
 
     backups_root = root / "upgrade-backups"
     for pair_dir in sorted(p for p in backups_root.glob("*-to-*") if p.is_dir()):
-        files = [
-            f for f in pair_dir.rglob("*") if f.is_file() and f.name != "DISPOSITIONS.md"
-        ]
-        if files:
-            findings.append({"pair": pair_dir.name, "surface": "upgrade-backups",
-                             "path": str(pair_dir), "count": len(files),
-                             "bytes": _bytes_of(files),
-                             "age_days": _age_days(pair_dir), "klass": "safe-to-discard"})
+        groups = classify_backup_pair(pair_dir)
+        for surface, files, klass, text in (
+            ("upgrade-backups", groups["refresh"], "safe-to-discard", None),
+            ("upgrade-backups (index-migration pre-images)", groups["index"],
+             "review-then-discard", (INDEX_MEANING, INDEX_ACTION)),
+            (HELD_SURFACE, groups["held"], "review-then-discard",
+             (HELD_MEANING, HELD_ACTION)),
+        ):
+            if files:
+                finding = {"pair": pair_dir.name, "surface": surface,
+                           "path": str(pair_dir), "count": len(files),
+                           "bytes": _bytes_of(files),
+                           "age_days": _age_days(pair_dir), "klass": klass}
+                if text:
+                    # Its own meaning and action: the doctor report and the
+                    # prune log print "reason" and "action" when a finding has them.
+                    finding.update(reason=text[0], action=text[1])
+                findings.append(finding)
 
     transfers_root = root / "upgrade-transfers"
     for pair_dir in sorted(p for p in transfers_root.glob("*-to-*") if p.is_dir()):

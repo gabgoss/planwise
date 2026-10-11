@@ -137,13 +137,27 @@ def test_oversized_entry_gets_a_continued_section():
     assert sup.parse_changelog([t for _n, t in result]) == segments
 
 
-def test_single_oversized_paragraph_is_refused():
+def test_single_oversized_paragraph_is_kept_whole_under_the_cap():
+    # The entry is over the (tight) per-file budget but far under the page cap: it keeps a file to itself.
     naming = schema._index_naming(Path("00-Index-Backlog.md"))
     body = "One giant paragraph with no blank line inside it at all, " * 20
     segments = [body.encode("utf-8")]
     tight_budget = sup.changelog_tokens(f"## Entry 1\n\n{body}\n\n") - 5
-    with pytest.raises(sup.Refusal, match=r"entry 1, which begins 'One giant.*', is one paragraph .* never splits an entry mid-line"):
-        sup.split_changelog(segments, naming, "00-Index-Backlog.md", "\n", budget=tight_budget)
+    result = sup.split_changelog(segments, naming, "00-Index-Backlog.md", "\n", budget=tight_budget)
+    assert sup.check_parts_budget(result, tight_budget) == result
+    assert sup.changelog_tokens(result[0][1]) >= tight_budget
+    assert sup.parse_changelog([t for _n, t in result]) == segments
+
+
+def test_entry_at_the_page_cap_is_still_refused():
+    naming = schema._index_naming(Path("00-Index-Backlog.md"))
+    cap = sup.READ_PAGE_CAP_TOKENS
+    assert sup.entry_fits_alone(cap - 1) and not sup.entry_fits_alone(cap)
+    body = ("padding words " * (int(cap * 2.6 / 14) + 50)).strip()
+    assert sup.changelog_tokens(f"## Entry 1\n\n{body}\n\n") >= cap, "setup must reach the page cap"
+    with pytest.raises(sup.Refusal, match=r"entry 1, which begins 'padding words.*', is one paragraph of ~\d+ tokens") as hit:
+        sup.split_changelog([body.encode("utf-8")], naming, "00-Index-Backlog.md", "\n")
+    assert hit.value.fix == "shorten entry 1 by hand, or split it into smaller entries, then re-run"
 
 
 def test_split_is_deterministic():

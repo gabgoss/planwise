@@ -286,6 +286,32 @@ class TestRowsPastComments(unittest.TestCase):
         self.assertEqual([s.kind for s in result.skipped], ["comment"] * 4)
         self.assertEqual(result.unparsed, [])
 
+    def test_an_unclosed_comment_opener_skips_only_its_own_line(self):
+        content = table(
+            row(abbrev="AAA", path="A/"),
+            "<!-- never closed",
+            row(abbrev="BBB", path="B/"),
+            "stray prose",
+            row(abbrev="CCC", path="C/"),
+        )
+        result = parse_index_table(content)
+        self.assertEqual([r.abbrev for r in result.rows], ["AAA", "BBB", "CCC"])
+        self.assertEqual([(s.kind, s.text) for s in result.skipped],
+                         [("comment", "<!-- never closed"), ("prose", "stray prose")])
+        self.assertEqual(result.unparsed, [])
+
+    def test_a_closed_comment_after_an_unclosed_opener_still_hides_its_lines(self):
+        content = table(
+            row(abbrev="AAA", path="A/"),
+            "<!-- opens here",
+            row(abbrev="BBB", path="B/"),
+            "closes here -->",
+            row(abbrev="CCC", path="C/"),
+        )
+        result = parse_index_table(content)
+        self.assertEqual([r.abbrev for r in result.rows], ["AAA", "CCC"])
+        self.assertEqual([s.kind for s in result.skipped], ["comment"] * 3)
+
     def test_prose_and_blank_lines_are_recorded_and_skipped(self):
         content = table(row(abbrev="AAA", path="A/"), "", "stray prose", row(abbrev="BBB", path="B/"))
         result = parse_index_table(content)

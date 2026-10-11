@@ -50,6 +50,20 @@ except ImportError:
     )
 
 try:
+    from recovery_surfaces import (
+        INDEX_BANNER_TEXT,
+        INDEX_SURFACE_SUFFIX,
+        REFRESH_SURFACE_NOTE,
+        classify_backup_pair,
+    )
+except ImportError:
+    raise ImportError(
+        "recovery_surfaces is required for artifact_upgrade's backup "
+        "classification; the scripts/ directory appears to be partially "
+        "installed"
+    )
+
+try:
     from rule_divergence import (
         _classify_diverged,
         _extract_paths_value,
@@ -545,9 +559,8 @@ def _compare_versions(pinned: str, target: str) -> "int | None":
 
 
 # Recovery-artifact disposition classes — see _scan_recovery_artifacts() /
-# _emit_recovery_artifacts_banner() below. Two of these previously had NO
-# stated end-of-life anywhere (pre-change backups, the consumed verdict
-# cache) — this taxonomy is that end-of-life.
+# _emit_recovery_artifacts_banner() below. Pre-change backups and the consumed
+# verdict cache had no stated end-of-life before; this taxonomy is it.
 RECOVERY_ARTIFACT_CLASSES: dict[str, str] = {
     "action-required": "unresolved conflict sidecars",
     "review-then-discard": "transferred customizations awaiting re-homing",
@@ -573,15 +586,18 @@ def _scan_recovery_artifacts(cfg: "InitConfig") -> list[tuple[str, int, str]]:
     surfaces: list[tuple[str, int, str]] = []
 
     backups_root = root / "upgrade-backups"
-    backup_count = sum(
-        1
-        for pair_dir in backups_root.glob("*-to-*")
-        if pair_dir.is_dir()
-        for f in pair_dir.rglob("*")
-        if f.is_file() and f.name != "DISPOSITIONS.md"
-    )
+    backup_count = index_count = 0
+    for pair_dir in backups_root.glob("*-to-*"):
+        if pair_dir.is_dir():
+            groups = classify_backup_pair(pair_dir)
+            backup_count += len(groups["refresh"])
+            index_count += len(groups["index"] + groups["held"])
     if backup_count:
-        surfaces.append((f"{backups_root}/*/", backup_count, "safe-to-discard"))
+        surfaces.append((f"{backups_root}/*/{REFRESH_SURFACE_NOTE}", backup_count, "safe-to-discard"))
+    if index_count:
+        surfaces.append(
+            (f"{backups_root}/*{INDEX_SURFACE_SUFFIX}", index_count, "review-then-discard")
+        )
 
     transfers_root = root / "upgrade-transfers"
     transfer_count = sum(
@@ -650,7 +666,10 @@ def _emit_recovery_artifacts_banner(surfaces: list[tuple[str, int, str]]) -> Non
         print()
         return
     for path, count, klass in surfaces:
-        print(f"  {path} ({count} file(s)) — {klass}: {RECOVERY_ARTIFACT_CLASSES[klass]}")
+        if path.endswith(INDEX_SURFACE_SUFFIX):
+            print(f"  {path} ({count} pre-image(s)) — {klass}: {INDEX_BANNER_TEXT}")
+        else:
+            print(f"  {path} ({count} file(s)) — {klass}: {RECOVERY_ARTIFACT_CLASSES[klass]}")
     print(
         "  Nothing above is loaded as a rule or needed for planwise to run — "
         "keeping or deleting is housekeeping only."
@@ -732,8 +751,12 @@ def _run_upgrade(
     allow_downgrade: bool = False,
     backlog_reconcile: "str | None" = None,
     lessons_reconcile: "str | None" = None,
+    answers: "dict | None" = None,
 ) -> int:
     """Execute the --upgrade flow and print a banner. Returns exit code.
+
+    `answers` is the validated answers file (None when no file was given). It forwards to
+    `migrate_backlog_if_legacy()`'s own `answers` kwarg on both exits.
 
     `backlog_reconcile` forwards to `migrate_backlog_if_legacy()`'s own
     `reconcile` kwarg (None defaults to "index-wins" there) -- the backlog-
@@ -879,7 +902,7 @@ def _run_upgrade(
         # /planwise init — both real recalibration points.
         _apply_feedback_dir(cfg, config_path)
         report = migrate_backlog_if_legacy(
-            cfg, pinned_version, target_version, reconcile=backlog_reconcile)
+            cfg, pinned_version, target_version, reconcile=backlog_reconcile, answers=answers)
         _emit_backlog_migration_banner(report)
         # 2e. Lessons-index retrofit, same shape and same pair as the backlog
         # retrofit above -- never changes this branch's return code either.
@@ -904,6 +927,7 @@ def _run_upgrade(
                 print(line)
         except Exception as exc:  # noqa: BLE001 -- never change the exit code
             print(f"  Warning: style rule step raised unexpectedly: {exc}", file=sys.stderr)
+        emit_mirror_sweep(cfg, sweep_orphaned_agent_mirrors)
         if needs_repoint:
             _repoint_plugin_root(config_path, cfg.plugin_root)
             print(f"Plugin version: {pinned_version}")
@@ -997,7 +1021,7 @@ def _run_upgrade(
         # never abort an upgrade that has already started writing.
         try:
             _backlog_report = migrate_backlog_if_legacy(
-                cfg, pinned_version, target_version, reconcile=backlog_reconcile)
+                cfg, pinned_version, target_version, reconcile=backlog_reconcile, answers=answers)
             _emit_backlog_migration_banner(_backlog_report)
         except Exception as exc:  # noqa: BLE001 -- the retrofit must never abort an upgrade
             print(
@@ -1139,20 +1163,12 @@ def _run_upgrade(
         # picked up as inert rather than missed as still-active.
         _emit_recovery_artifacts_banner(_scan_recovery_artifacts(cfg))
 
+        # 4d. Orphaned agent mirrors still under .claude/agents/ (read-only).
+        emit_mirror_sweep(cfg, sweep_orphaned_agent_mirrors)
+
         # 5. Post-upgrade advisory: flag any installed rule still scoped to
         # plan/backlog/lessons globs (read-only — never mutates).
-        overscoped = lint_rule_overscope(cfg)
-        if overscoped:
-            total_tokens = sum(item["approx_tokens"] for item in overscoped)
-            print("Advisory — rules scoped to plan/backlog/lessons globs:")
-            for item in overscoped:
-                print(
-                    f"  ~ {item['path']} ({item['line_count']} lines, "
-                    f"~{item['approx_tokens']} tokens; matches {item['matched_glob']})"
-                )
-                print("      hint: re-scope to code paths or convert to a handler-loaded reference")
-            print(f"  Total always-on injected budget from flagged rules: ~{total_tokens} tokens")
-            print()
+        emit_overscope_advisory(cfg, lint_rule_overscope)
 
         # 5b. One notice when this run added the `style:` block. Silent otherwise.
         style_notice = style_rules.style_announcement(cfg, added)
@@ -1204,7 +1220,8 @@ except ImportError as exc:
     ) from exc
 
 try:
-    from doctor_sweeps import lint_rule_overscope
+    from doctor_sweeps import lint_rule_overscope, sweep_orphaned_agent_mirrors
+    from upgrade_mirror_report import emit_mirror_sweep, emit_overscope_advisory
 except ImportError as exc:
     raise ImportError(
         "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "

@@ -1747,6 +1747,36 @@ class TestCmdCheckMatchesMainOnFourDigitFixture(_GeneratorFixtureBase):
         self.assertEqual(direct_code, 0)
 
 
+class TestTruncationWarningIsOneLinePerRun(_GeneratorFixtureBase):
+    """Every mode that renders rows names the truncated items on ONE stderr
+    line, so a backlog with many over-cap titles cannot bury an `Error:` or
+    `Anomaly:` line. A run with no over-cap title prints no warning."""
+
+    def _long_title(self):
+        return "word " * 30
+
+    def test_many_truncated_titles_print_one_warning_naming_every_id(self):
+        for item_id in ("001", "002", "003"):
+            self.write_item(item_id, title=self._long_title())
+        self.write_item("004", title="Short title")
+
+        for mode in ("--write", "--check", "--dry-run"):
+            with self.subTest(mode=mode):
+                _code, _out, err = self.run_main(mode)
+                warnings = [ln for ln in err.splitlines() if ln.startswith("Warning:")]
+                self.assertEqual(len(warnings), 1, err)
+                self.assertIn("3 title(s) truncated to 120 chars", warnings[0])
+                self.assertIn("001, 002, 003", warnings[0])
+                self.assertNotIn("004", warnings[0])
+
+    def test_no_truncated_title_prints_no_warning(self):
+        self.write_item("001", title="Short title")
+
+        _code, _out, err = self.run_main("--write")
+
+        self.assertNotIn("truncated", err)
+
+
 class TestTruncatedTableReasonReplacesMisleadingText(_GeneratorFixtureBase):
     """BB-380: a stray non-row line splitting an otherwise continuous table
     used to report a genuinely-present row as "no on-disk row yet". Proves

@@ -1,10 +1,10 @@
 ---
-description: EI source-promise integrity — body⇄citation presence in Consolidated Context parts, pre-extraction verification protocol, fallback hierarchy, and verbatim-block behavioral freshness (ei-fidelity.md §10-§11)
+description: EI source-promise integrity — body⇄citation presence in Consolidated Context parts, pre-extraction verification protocol, fallback hierarchy, verbatim-block behavioral freshness (ei-fidelity.md §10-§11), and a brief that cites a design pin quoting it verbatim with its fallback clause (§12)
 ---
 
 # EI Source-Promise Integrity
 
-**Segment D of a 4-way split of `ei-fidelity.md`** (934 lines, split 2026-08-10). Carries §10 (+10.1-10.4) and §11 verbatim; original §-numbers are preserved — a citation like "§10.2" names the section, not the file. See the anchor's segment index for the full 4-way map: [ei-fidelity.md](ei-fidelity.md) (§1-§4, this split's segment A), [ei-citation-and-token-reconciliation.md](ei-citation-and-token-reconciliation.md) (§5-§8, segment B), [ei-completeness.md](ei-completeness.md) (§9, segment C).
+**Segment D of a 4-way split of `ei-fidelity.md`** (934 lines, split 2026-08-10). Carries §10 (+10.1-10.4) and §11 verbatim, and §12 (added after the split); original §-numbers are preserved — a citation like "§10.2" names the section, not the file. See the anchor's segment index for the full 4-way map: [ei-fidelity.md](ei-fidelity.md) (§1-§4, this split's segment A), [ei-citation-and-token-reconciliation.md](ei-citation-and-token-reconciliation.md) (§5-§8, segment B), [ei-completeness.md](ei-completeness.md) (§9, segment C).
 
 ---
 
@@ -284,6 +284,50 @@ Three timing rules make the staleness surface auditable and the check mechanical
 3. **Flag-routing time.** A sprint that changes a behavior described in a later sprint's PENDING verbatim block MUST flag it, naming the later sprint (or its session) as the downstream consumer, so the paste-time check has a pointer to what changed. Route the flag per the two-hop model in [`handlers/run.md`](../handlers/run.md) (closeout delivers to the downstream front door; the receiving session routes it into its task files at its Phase-1 preflight).
 
 This rule is the behavioral-claim analogue of §10.2's source-presence check: §10.2 verifies the cited section physically CARRIES the prose before extraction; §11 verifies the prose's factual CLAIMS still hold against the live world before paste. A block can pass §10.2 (the source carries it verbatim) and still fail §11 (the world it describes has moved).
+
+---
+
+## 12. A Brief That Cites a Design Pin Quotes It Verbatim, Fallback Included
+
+> [!constraint] When a task brief depends on a design pin, quote the pin verbatim, with its fallback and exception clauses. Never restate it
+> A paraphrase keeps the main rule and tends to drop the conditional branch. The branch is the part the runner needs when the measurement comes in. A brief that restates a pin can also invent a stop rule the pin never had, and the runner obeys the brief.
+
+A design pin read: "If a `<unit>` file would exceed 22,000 tokens, split that `<unit>` at 50." A task brief restated it. It kept "three files as a function of the id". It turned the budget clause into a stop rule. The runner measured one file at about 33.2K tokens, obeyed the brief, and returned HOLD. The pin had already decided that case. The user was asked a question the pin answered. The brief's own stated reason pointed at the pin that said otherwise.
+
+> [!constraint] WRONG and CORRECT — quote the pin and point at its fallback
+> WRONG — the brief restates the pin and invents a stop rule:
+> ```text
+> If any <unit> file measures WARN or OVER, return HOLD. <pin> pins three files; do not invent a fourth.
+> ```
+> CORRECT — the brief quotes the pin and points at its fallback:
+> ```text
+> <pin> (<Execution Input section>), verbatim: "If a <unit> file would exceed 22,000 tokens, split that <unit> at 50
+> (<file>-001-050.md, <file>-051-100.md)." Apply it when the measurement trips it. HOLD only when the pin's own
+> fallback does not cover the case.
+> ```
+
+**Review step.** At review, check every "because pin X says" sentence in a brief against pin X's text. A brief whose stated reason points at a pin that says otherwise is a finding.
+
+**Where it applies.** Scaffolded task briefs that cite design pins, decision rows or Execution Input sections. The risk is highest for pins that carry a size, count or budget threshold with a remedy attached.
+
+**Relationship to §11.** This section is the brief-side counterpart of §11 (verbatim-block behavioral freshness). §11 freezes wording and re-verifies the claims. This section forbids a restatement where a quotation is available.
+
+#### Reviewer Check 097 — Brief Restates a Design Pin and Drops Its Fallback
+
+- **Severity / Role / Type:** WARNING (HIGH confidence) | Task Reviewer | NEW
+- **What:** For each task brief that cites a pin, a decision row or an Execution Input section as the reason for a stop rule, locate the cited text. Confirm the brief quotes it verbatim, or that the brief's paraphrase carries every fallback and exception clause.
+- **Detection:**
+  1. Find each brief sentence of the form "because `<pin>` says" or "`<pin>` fixes N" that supports a HOLD, stop or do-not rule.
+  2. Open the cited pin, decision row or Execution Input section and read its full text, including every "if", "unless" and "split" clause.
+  3. Compare. A paraphrase that omits a fallback or exception clause the pin carries → WARNING.
+  4. A stop rule whose stated reason the cited text contradicts → WARNING.
+- **Finding template:**
+```
+[WARNING] Brief restates a design pin and drops its fallback clause
+File: {task file path} | Location: {step or stop-rule sentence}
+Issue: Brief cites {pin} as the reason to {stop rule}; the pin also says "{fallback clause}", which decides the case the stop rule halts on
+Fix: Quote the pin verbatim and point the runner at its fallback, per references/ei-source-promise-integrity.md §12 | Confidence: HIGH
+```
 
 ---
 

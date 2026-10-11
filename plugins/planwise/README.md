@@ -50,6 +50,7 @@ Three dependencies, and only the first is needed to use planwise at all. Each ro
 | **Python 3.8+** | Every script-backed step — backlog scoring, config read/write, `init`, `upgrade`, `doctor` | Most of the plugin does not function |
 | **PyYAML** | Config validation, the artifact manifest, and `/planwise upgrade` | `/planwise upgrade` stops with `PyYAML is required for --upgrade` and changes nothing. Elsewhere planwise degrades quietly: config writes go through unverified, and the artifact manifest reads as empty so categorization falls back to built-in defaults |
 | **[GitHub CLI](https://cli.github.com/) (`gh`), authenticated** | `/planwise feedback` posting upstream, and the optional `upgrade.github_issue` report | **Optional — nothing breaks.** Both flows degrade to a written draft plus the issues URL, so you file it by hand |
+| **A Claude Code build with the function-hooks runtime** (early access; no environment variable needed) | Automatic re-entry in `/planwise backlog` loop mode | **Optional — nothing else breaks.** The loop ends after the first item and you continue by hand with `--loop-resume` |
 
 **Installing them**
 
@@ -234,6 +235,18 @@ Opens an interactive view of all your tracked items, scored and prioritized. For
 /planwise backlog BUG-042
 ```
 
+#### Loop mode
+
+Loop mode works through several items without you at the keyboard. Each session triages exactly one item. Then the plugin's hooks module compacts the context and re-enters `/planwise backlog` for the next item.
+
+- **Q1** asks whether to loop. The default is No, a single session.
+- **Q2** asks which items the loop covers: all eligible items, specific items you pick, or the top N by score.
+- **The hooks module.** Looping needs a Claude Code build that loads the plugin's hooks module. No environment variable is needed.
+- **Graceful degradation.** Without the module the marker line prints and nothing else happens. Continue by hand with `/planwise backlog --loop-resume <run-id>`.
+- **Where state lives.** Each run keeps one file, `Backlog-Runs/{YYYYMMDD-HHMMSS}.json`, in your backlog folder. The run id is the file name without `.json`.
+
+After the setup questions, loop mode asks nothing. An item that needs a user decision is skipped. It gets a dated `## Loop Decision Needed` section in its own item file, and its status returns to its pre-loop value. The end summary lists every such item, and the next interactive `/planwise backlog <id>` run answers it. Phase 8 files any lesson on its own.
+
 **Archival stays in sync.** Closing an item moves its file to `Archive/`, and re-runs are safe. The next `generate_backlog_index.py --write` renders the new link from the file's new location. If an item was closed by hand and its file left stranded, `backlog` detects the drift on open and offers to reconcile it — nothing is moved without your consent. It also detects a legacy `**Status:**` line that an older item writer left under an item's title, and offers to strip it, so frontmatter `status:` stays the only status field. `--no-check` skips both detect passes for fast triage.
 
 #### How `backlog` works
@@ -250,10 +263,16 @@ flowchart LR
 **List all your plans and their status.**
 
 ```
-/planwise list
+/planwise list [--active] [--no-check]
 ```
 
-Shows a table of every plan in your project with its status, sprint count, and when it was created.
+Shows a table of every plan in your project. The table has five columns: Abbrev, Name, Status, Created and Last Updated.
+
+A bare `/planwise list` renders the table when the skill loads, before Claude replies, so it uses no model tool calls. If your settings turn off skill shell commands, Claude runs one command to produce the same table. Each of `--active` and `--no-check` runs one command.
+
+`--active` keeps only plans with the status `PLANNING`, `READY_TO_EXECUTE`, `REVIEWED`, `APPROVED`, `NEEDS_FIXES` or `IN_PROGRESS`.
+
+Outside an initialised project, `list` says so and points you to `/planwise init`. It does not initialise the project.
 
 `list` also cross-checks the index against a fresh render of every Master Plan and flags any drift before the table, offering to reconcile the index on the spot — nothing is written without your consent (`--no-check` skips the check). It prints "No drift detected" only after a full comparison. When the check could not compare every row, it says so instead. When the index is still hand-authored, it points you to [`/planwise upgrade`](#10-planwise-upgrade) and offers no write.
 
@@ -261,7 +280,7 @@ Shows a table of every plan in your project with its status, sprint count, and w
 
 ```mermaid
 flowchart LR
-    A([Run command]) --> B[See table of<br/>all your plans]
+    A([Run command]) --> B[Skill renders the table<br/>before Claude replies] --> C[See table of<br/>all your plans]
 ```
 
 ---
@@ -442,7 +461,7 @@ When a new plugin version is published, upgrading happens in two stages:
    - Backfills missing lessons scaffolding — seeds the generated lessons index (hub, overflow leaves, Archive shards) and the categorization file that gates `lessons curate` / `promote-batch` when either is absent (idempotent; an existing file, customised or not, is preserved verbatim)
    - Refreshes installed rules whose local body still matches the previously-shipped body
    - **Auto-adopts stale copies:** a diverged file whose content is a clean structural subset of the newer shipped version (an old copy you never edited, that the plugin has since grown) is refreshed in place — rules keep your `paths:` line. Before any overwrite or removal, the pre-change file is copied under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (with a `DISPOSITIONS.md` log), so every automatic disposition is recoverable even without git
-   - **Hands off customisations per `upgrade.customization_handoff`:** under `report+relocate` (the shipped default), a file that carries content of your own is first transferred verbatim — with a provenance header — to `{planwise_root}/upgrade-transfers/<from>-to-<to>/` as a dormant preservation document (outside `.claude/rules/`, never loaded as a rule), the transfer is verified by reading it back, and only then is the shipped body adopted in place. Under `report` / `report+issue` — or whenever a transfer, backup, or adoption write fails, or the verdict isn't analyzable — the file is preserved in place and a `.new` sidecar is written under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Either way, your content is never destroyed
+   - **Hands off customisations per `upgrade.customization_handoff`:** under `report+relocate` (the shipped default), a file that carries content of your own is first transferred verbatim — with a provenance header — to `{planwise_root}/upgrade-transfers/<from>-to-<to>/` as a dormant preservation document (outside `.claude/rules/`, never loaded as a rule), the transfer is verified by reading it back, and only then is the shipped body adopted in place. Under `report` / `report+issue` — or whenever a transfer, backup, or adoption write fails, or the verdict isn't analyzable — the file is preserved in place and a `.new` sidecar is written under `{planwise_root}/upgrade-conflicts/<from>-to-<to>/` for manual merge. Either way, your content is never destroyed. Each later upgrade also re-reads the transfer files an earlier upgrade left behind and compares each with the current shipped file. It prints one verdict per file, and it offers to delete a file only when the shipped file now carries its content, after your confirm
    - **Retires de-scoped rules:** author-time rules that are now loaded on demand from the plugin's `references/` are removed from `.claude/rules/planwise/` when your installed copy is untouched **or is a high-confidence stale subset** of the grown shipped reference (backed up first). Under `report+relocate`, a copy with content of your own is transferred to `upgrade-transfers/` before removal; under the conservative handoff modes it is **preserved byte-for-byte with an action-required notice**. A copy whose only edit is its `paths:` line is preserved while `upgrade.descope_preserve_paths_edits` is `true` (the default) — re-home it as a project-local rule, re-scope its `paths:`, or upstream the change.
    - **Re-calibrates Token Saver** overheads (the same `/context` capture `token-saver on` runs) so the budget tracks your current install.
    - **Over-scope advisory:** after upgrading, the script lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. Run [`/planwise doctor`](#8-planwise-doctor) any time for the full read-only report.
@@ -452,74 +471,6 @@ When a new plugin version is published, upgrading happens in two stages:
 > Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
 
 **A note on "already up to date":** this comparison is entirely local — it checks your pinned `plugin_version:` against the plugin files already sitting in your local cache, never the marketplace source directly. If you haven't run Stage 1's refresh in a while, `/planwise upgrade` can report "already up to date" even though a newer release exists upstream, because fetching new versions into the local cache is Claude Code's own job, not this plugin's. Run `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace` periodically so the comparison has something current to compare against.
-
-### Upgrading from 1.0.5.1: backlog index
-
-Versions before 1.0.5.2 use a hand-authored backlog index: one table, one footer line for the whole changelog, and no generated Archive shards. From 1.0.5.2 on, an open item renders into a generated hub, and a closed item renders into a generated Archive shard. Each item's YAML frontmatter is the single source of truth for its row. The changelog moves into its own file. One item blocks another through the frontmatter `blocks:` key, not a `## Dependencies` table.
-
-`/planwise upgrade` migrates a hand-authored index automatically. Plain `/planwise init` only detects one. Init writes nothing to the index or to any item file. It reports the index as deferred under its Skipped section and names `/planwise upgrade` as the fix. Init still re-splits an over-budget changelog on an already-generated index. The upgrade migration:
-
-- Backs up every file it is about to write, under `{planwise_root}/upgrade-backups/{from}-to-{to}/backlog/`.
-- Moves the changelog footer, the feature-cell prose, and the dependency notes into their new homes.
-- Backfills missing or partial frontmatter.
-- Regenerates the index and checks it.
-- Records what it did in a migration ledger.
-- Parks each ambiguous feature-cell sentence — one that only partly matches its item file — verbatim in that ledger, instead of appending it or refusing. The banner names the parked count.
-
-The migration recognizes only two shapes: hand-authored or generated. An index it recognizes as neither is left untouched and reported through `migrate_backlog_index.py --report` — never migrated silently, and never called hand-authored.
-
-The migration refuses on a data conflict it cannot resolve on its own, such as a reciprocal block edge. When it refuses, nothing is written, and the banner names the exact reason and the exact fix. Re-run `/planwise upgrade` after applying the fix. The migration re-fires. A failed *write*, unlike a refusal, rolls every touched file back to its state before the run. `generate_backlog_index.py --write --replace-legacy` skips the migration and overwrites a hand-authored or unrecognized index directly, WITHOUT a backup.
-
-Backups are first-wins within one `{from}-to-{to}` version pair — the first run in that pair keeps its backup. A later run in the same pair may find the target changed since that kept backup. That run also writes the current file to a numbered sibling, `{name}.{n}.bak`, so its own restore point survives. An identical re-run, one that finds the target unchanged, writes no new sibling.
-
-Pass `--backlog-reconcile index-wins` or `--backlog-reconcile frontmatter-wins` to `/planwise upgrade` to choose how a row/frontmatter disagreement resolves. The default is `index-wins`. This flag applies only together with `--upgrade`. Plain `/planwise init` does not accept it, because init never migrates a hand-authored index.
-
-Pass `--lessons-reconcile index-wins` or `--lessons-reconcile frontmatter-wins` to `/planwise upgrade` for the same choice over the lessons index. The default is `index-wins`. This flag applies only together with `--upgrade`.
-
-Plain `/planwise init` over a hand-authored index leaves it untouched, on a fresh project and on a re-run. A reconcile only has work to do when an index row and an item's frontmatter both exist and disagree, and that needs an earlier planwise version. The Skipped section prints in subroutine mode (`--auto-from`) too, so the fix line always reaches you. A refusal, such as an abbreviation the config does not define, can only happen in `/planwise upgrade`.
-
-Until the migration finishes, both [`/planwise backlog`](#5-planwise-backlog) and the index generator refuse to run against a hand-authored index.
-
-Every index and changelog file stays readable in one call: the hub holds to a 12,500-token budget, and both the Archive shards and the changelog parts hold to a wider 22,000-token budget. When a changelog outgrows that budget after further use, the next `/planwise upgrade` re-splits it into more parts, backing up every file it rewrites first.
-
-### Upgrading from 1.0.5.1: lessons index
-
-Versions before 1.0.5.2 use a hand-authored lessons index: one Master Table, a header changelog block, and a Rule Promotion Log table, all in the same file. From 1.0.5.2 on, the index is generated from each lesson file's frontmatter, the changelog moves into its own file, and the Promotion Log moves into its own files. Directory membership is never a routing input — a lesson's `status:` decides whether it lists in the hub or shards to `Archive/`.
-
-`/planwise upgrade` migrates a hand-authored lessons index automatically. Plain `/planwise init` only detects one. Init writes nothing to the index or to any lesson file. It reports the index as deferred under its Skipped section and names `/planwise upgrade` as the fix. Init still re-splits an over-budget changelog on an already-generated index. The upgrade migration:
-
-- Backs up every file it is about to write, under `{planwise_root}/upgrade-backups/{from}-to-{to}/lessons/`.
-- Relocates the header changelog and the Rule Promotion Log into their own files.
-- Drops a hand-written prose section whose text already matches the seed, and relocates one that differs verbatim into the changelog.
-- Renames a hand-written categorization companion out of the way and regenerates it.
-- Backfills missing or partial frontmatter, and quotes an unquoted title that needs it.
-- Regenerates the index and checks it.
-- Records what it did in a migration ledger.
-
-The migration recognizes only two shapes: hand-authored or generated. An index it recognizes as neither is left untouched and reported through `migrate_lessons_index.py --report` — never migrated silently, and never called hand-authored.
-
-The migration refuses on a data conflict it cannot resolve on its own. When it refuses, nothing is written, and the banner names the exact reason and the exact fix. Re-run `/planwise upgrade` after applying the fix. The migration re-fires. A failed *write*, unlike a refusal, rolls every touched file back to its state before the run. `generate_lessons_index.py --write --replace-legacy` skips the migration and overwrites a hand-authored or unrecognized index directly, WITHOUT a backup.
-
-Until the migration finishes, any `/planwise lessons` mode that writes a lesson file (Capture, Curate, Promote, Batch-Promote), and the index generator itself, refuse to run against a hand-authored index.
-
-### Upgrading from 1.0.5.1: plans index
-
-Versions before 1.0.5.2 use a hand-authored plans index: one table whose rows, statuses and notes you edited by hand. From 1.0.5.2 on, the index is generated from each plan's Master Plan. The Master Plan's `**Status:**` line and dates decide each row, and a row is never edited directly.
-
-`/planwise upgrade` migrates a hand-authored plans index automatically. Plain `/planwise init` only detects one. Init writes nothing to the index or to any Master Plan. It reports the index as deferred under its Skipped section and names `/planwise upgrade` as the fix. The upgrade migration:
-
-- Backs up the index and every Master Plan it appends to, under `{planwise_root}/upgrade-backups/{from}-to-{to}/plans/`.
-- Attaches each note in the index to the row it followed, and appends it to that row's Master Plan without changing any byte already there.
-- Keeps a note it cannot attach, and every row it cannot resolve, verbatim in the migration ledger.
-- Lets the Master Plan's status win when a row and its Master Plan disagree, and counts each change.
-- Regenerates the index and checks it.
-- Records what it did in `{plans_dir}/00-Plans-Migration-Ledger.md`, with a byte accounting that shows no byte of the old index was lost. Any line the generator does not re-render, such as hand-written prose below the table, is listed there verbatim.
-
-The migration recognizes only two shapes: hand-authored or generated. An index it recognizes as neither is left untouched and reported through `migrate_plans_index.py --report`. The index generator refuses to overwrite such an index too.
-
-The migration refuses on a data conflict it cannot resolve, such as an HTML comment that never closes. When it refuses, nothing is written, and the banner names the exact reason and the exact fix. It does not refuse on the git state. `/planwise upgrade` backs up every Master Plan it appends to byte-exact before the append, so uncommitted edits are kept, and the banner reports whether the git tree was dirty. The standalone `migrate_plans_index.py --write` refuses a tree that git cannot vouch for, or a dirty Master Plan in its append set, unless you pass `--allow-untracked-tree` or `--force`. Re-run `/planwise upgrade` after applying the fix. A failed *write* rolls every touched file back to its state before the run. `generate_plans_index.py --write --replace-legacy` skips the migration and overwrites a hand-authored index directly, WITHOUT a backup and without keeping its notes.
-
-Until the migration finishes, `generate_plans_index.py --write` exits 2 against a hand-authored index, and `/planwise plan`, `/planwise run` and `/planwise backlog` tell you to run `/planwise upgrade`.
 
 ---
 
@@ -614,8 +565,8 @@ flowchart LR
 | `/planwise plan --scaffold [abbrev]` | Build a plan from a Discovery phase |
 | `/planwise review` | AI-review a plan before running it |
 | `/planwise run` | Execute a planned session |
-| `/planwise backlog` | Triage and work on backlog items |
-| `/planwise list` | See all plans and their status |
+| `/planwise backlog` | Triage and work on backlog items (optionally one per session, looping) |
+| `/planwise list [--active] [--no-check]` | See all plans and their status (no model tool calls without a flag) |
 | `/planwise lessons` | Search the lessons learned index |
 | `/planwise lessons capture` | Capture a lesson mid-session |
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
@@ -705,7 +656,8 @@ planwise/                           # Plugin root
   references/                       # Knowledge base documents (4 installed as path-scoped rules + 2 installed as global style rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   seed/                             # Index file seeds for init
-  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py)
+  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py and skill_preflight.py (the zero-call list))
+  hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
   examples/                         # Sample outputs
   config.yaml.template              # Config template
 ```

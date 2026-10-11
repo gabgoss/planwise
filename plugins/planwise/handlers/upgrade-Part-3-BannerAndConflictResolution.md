@@ -38,8 +38,11 @@ Backlog index migration:                                   (silent — nothing p
     changelog:              {path} + {N-1} part(s) ({N} entries, {N} bytes; each file ≤ {budget} tokens; every footer byte accounted for)
     frontmatter backfilled: {N} item file(s) ({M} had a partial block)
     blocks: edges written:  {N}
+    blocks: edges dropped by answer: {N} ({a->b}, …)   (omitted when N == 0; an interrupted run's journaled drop prints as `dropped by an interrupted run's answer: {N} (…)`)
+    answers not applied:    {each answer with its reason}   (omitted when every answer applied)
     dependency notes moved: {N} bullet(s) into {N} item file(s)
     feature-cell prose moved: {N} unit(s)
+    parked ambiguous units:  {N} ({B} bytes) — see {ledger}   (omitted when N == 0)
     reconciled cells:       {N} ({index-wins|frontmatter-wins}) — {id}.{key}: {frontmatter} -> {index}; …
     ledger:                 {path}
     backups:                {planwise_root}/upgrade-backups/{from}-to-{to}/backlog/ ({N} file(s), listed in DISPOSITIONS.md)
@@ -48,11 +51,10 @@ Backlog index migration:                                   (silent — nothing p
   — or, on a hand-authored index the script refuses to touch:
 Backlog index migration: REFUSED (index and item files left untouched)
   reason: {the migrator's own refusal text, verbatim}
-  fix:    {the exact edit the refusal names}
-          then re-run /planwise upgrade (the migration re-fires on a hand-authored index; nothing else repeats)
+  fix:    {the migrator's fix, verbatim}
   — or, on an index the script cannot classify as either hand-authored or generated:
 Backlog index migration: {index} is not a hand-authored or generated index — left untouched
-  reason: {the classifier's reason}; inspect it with: {migrate_backlog_index.py --report command}
+  detail: {each line of the classifier's reason, one `detail:` line per line}
   — or, on an already-generated index whose changelog grew past the per-file budget:
 Backlog changelog: re-split into {N} part(s), each ≤ {budget} tokens; backups: {planwise_root}/upgrade-backups/{from}-to-{to}/backlog/
 
@@ -79,11 +81,10 @@ Lessons changelog: renumbered {N} entries by position (the oldest is Entry 1) ac
   — or, on a hand-authored index the script refuses to touch:
 Lessons index migration: REFUSED (index and lesson files left untouched)
   reason: {the migrator's own refusal text, verbatim}
-  fix:    {the exact edit the refusal names}
-          then re-run /planwise upgrade (the migration re-fires on a hand-authored index; nothing else repeats)
+  fix:    {the migrator's fix, verbatim}
   — or, on an index the script cannot classify as either hand-authored or generated:
 Lessons index migration: {index} is not a hand-authored or generated index -- left untouched
-  reason: {the classifier's reason}; inspect it with: {migrate_lessons_index.py --report command}
+  detail: {each line of the classifier's reason, one `detail:` line per line}
   — or, on a backup failure before any write:
 Lessons index migration: BACKUP FAILED -- no write was attempted
   {detail}
@@ -112,10 +113,10 @@ Plans index migration:                                     (silent — nothing p
   — or, on a hand-authored index the script refuses to touch:
 Plans index migration: REFUSED (index and Master Plans left untouched)
   reason: {the migrator's own refusal text, verbatim}
-  fix:    {the exact edit the refusal names}
+  fix:    {the migrator's fix, verbatim}
   — or, on an index the script cannot classify as either hand-authored or generated:
 Plans index migration: {index} is not a hand-authored or generated index -- left untouched
-  reason: {the classifier's reason}; inspect it with: {migrate_plans_index.py --report command}
+  detail: {each line of the classifier's reason, one `detail:` line per line}
   — or, on a backup failure before any write:
 Plans index migration: BACKUP FAILED -- no write was attempted
   {detail}
@@ -128,6 +129,25 @@ Plans index migration: WRITE FAILED
   — or, on an unexpected exception the routine caught rather than raised:
 Plans index migration: ERROR (nothing else in this run depends on it)
   {detail}
+  — or, on a generated index whose --check reports anomalies:
+Plans index: generated; --check reports {N} anomaly(ies)
+  unknown-status: {Path}{Master Plan file}
+    Status line: {the raw Status line}
+    reduced to:  {token}  (not in plan_statuses)
+    map line:    {Path}: {STATUS}
+  fix: python "{plugin_root}/scripts/flip_plan_status.py" --config "{planwise_root}/config.yaml" {map file}   (one line "{Path}: {STATUS}" per Master Plan)
+  — or, on an anomaly the writer would refuse (a multi-word value, a Path two Master Plans claim, a linked folder), no map line and no `fix:` line:
+  unknown-status: {Path}{Master Plan file}
+    Status line: {the raw Status line}
+    reduced to:  {token}  (not in plan_statuses)
+    hand-fix:    {why the writer refuses}; edit the **Status:** line by hand to one plan status
+  — or, on a Master Plan with no Status line:
+  missing-status: {Path}{Master Plan file}
+    Status line: none (the Master Plan has no **Status:** line)
+    hand-fix:    add a **Status:** line to that Master Plan (flip_plan_status.py refuses a plan with none)
+
+Lessons index: generated; --check reports {N} finding(s)   (a finding the heal could not fix; the line before it reads `healed {N} drift finding(s) (backups: {path})` when a heal ran)
+  [{kind}] {lesson id}: {detail}
 
 Refreshed: {N}
   ({M} were stale subsets, auto-adopted shipped)   ({sub-line omitted when M == 0; pre-change copies live under {planwise_root}/upgrade-backups/<from>-to-<to>/})
@@ -164,6 +184,11 @@ Recovery artifacts:
   …   ("  None found." when no surface has any content — report-what-exists, never assumes all four surfaces exist)
   Nothing above is loaded as a rule or needed for planwise to run — keeping or deleting is housekeeping only.   (printed only when at least one surface exists)
 
+Orphaned agent mirrors: {N}   (printed only when at least one mirror is still installed under .claude/agents/; also printed on the "Already up to date" exit)
+  REMOVABLE  {path}  — {reason}
+  PRESERVE   {path}  — {reason}
+  remove the REMOVABLE set with: /planwise doctor --prune-stale   (printed only when at least one row is REMOVABLE)
+
 Over-scope advisory: {N} rule(s) still scoped to plan/backlog paths (~{X}K injected per task-runner)
   run `/planwise doctor` for the full report
 
@@ -174,10 +199,12 @@ Upgrade complete.
 ```
 
 > [!practice] The index migration blocks are a pass-through, never a handler procedure
-> Pass the `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` (or `Lessons changelog:`) and `Plans index migration:` blocks through verbatim, exactly as the script's own banner prints them — the handler names no repair step of its own. On `refused`, the `fix:` line already carries the re-run instruction; add nothing further to it.
+> Pass the `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` (or `Lessons changelog:`) and `Plans index migration:` blocks through verbatim, exactly as the script's own banner prints them — the handler names no repair step of its own. Step 2.3b asked the answerable questions before the writer ran, so a refusal that still prints is one only a hand edit settles (a non-UTF-8 file, an id on two files, an entry at the page cap). On `refused`, report the `fix:` line as printed, and name the refusal as action required in the chat summary.
+>
+> The `({index-wins|frontmatter-wins})` token on a `reconciled` line is the reconcile mode. The default is `index-wins`. `--backlog-reconcile` and `--lessons-reconcile` are CLI-only overrides of `init_project.py --upgrade`, and this handler never passes them.
 
 > [!practice] Recovery-artifact disposition classes
-> `action-required` — unresolved conflict sidecars. `review-then-discard` — transferred customizations awaiting re-homing. `safe-to-discard` — pre-change backups, once you are satisfied with the upgrade. `inert` — a consumed verdict cache. Step 4.3 offers per-class cleanup for `safe-to-discard` and `inert` only; `action-required` and `review-then-discard` are reported here but resolved through Step 4 / Step 4.1 / Step 4.2.
+> `action-required` — unresolved conflict sidecars. `review-then-discard` — transferred customizations awaiting re-homing. `safe-to-discard` — pre-change backups, once you are satisfied with the upgrade. `inert` — a consumed verdict cache. Step 4.3 offers per-class cleanup for `safe-to-discard` and `inert` only; `action-required` and `review-then-discard` are reported here but resolved through Step 4 / Step 4.1 / Step 4.2. A `review-then-discard` file from an earlier version pair is resolved through Step 4.1 case C.
 
 > [!practice] Interactive elaboration — home hints (when `verdicts.json` exists)
 > Raw stdout has no `home_hints` access (handler-side cache only). When `verdicts.json` exists, append to the
@@ -212,7 +239,9 @@ Recovery artifacts:      {N} dir(s) across {M} version pair(s) — run /planwise
 Upgrade complete.
 ```
 
-If customizations-transferred > 0, list each transferred file and its target path, and point the user at Step 4.1 to promote it into an active rule or Step 4.2 to propose upstreaming it — the file is already safe (moved before the shipped body was adopted); this is a "when convenient" follow-up, not a blocker. If conflicts > 0, append the conflict list verbatim from the script's stdout and direct the user to Step 4 (or Step 4.1 if they want to complete a relocation the automated transfer couldn't). If de-scoped-preserved > 0, surface the re-home notice for each (the action choices: project-local rule / re-scope `paths:` / upstream). If the over-scope advisory is > 0, point the user at `/planwise doctor`.
+If customizations-transferred > 0, list each transferred file and its target path, and point the user at Step 4.1 to promote it into an active rule or Step 4.2 to propose upstreaming it — the file is already safe (moved before the shipped body was adopted); this is a "when convenient" follow-up, not a blocker. Run Step 4.1 case C in every upgrade that reaches this summary, since the `Recovery artifacts:` line counts an earlier pair's transfer files and case A never lists them. If conflicts > 0, append the conflict list verbatim from the script's stdout and direct the user to Step 4 (or Step 4.1 if they want to complete a relocation the automated transfer couldn't). If de-scoped-preserved > 0, surface the re-home notice for each (the action choices: project-local rule / re-scope `paths:` / upstream). If the over-scope advisory is > 0, point the user at `/planwise doctor`.
+
+If the banner holds an `Orphaned agent mirrors:` block with at least one `REMOVABLE` row, first run the read-only `/planwise doctor` report. Collect every `REMOVABLE` row it shows, the stale de-scoped rules as well as the orphaned agent mirrors, because `/planwise doctor --prune-stale` deletes the whole `REMOVABLE` set in one pass. Then call `AskUserQuestion` <!-- AUTO-MODE: convenience --> once: "Remove these {N} stale item(s) with `/planwise doctor --prune-stale`?" List every `REMOVABLE` path with its kind, and never list a `PRESERVE` row as removable. On a yes, run the command in Stage 8b (`--prune-stale`) of [`doctor.md`](doctor.md), with the same `{planwise_root}`. Report each `PRESERVE` row with its reason and leave it in place. In Auto Mode, do not prune, and log the inference.
 
 #### Style rule announcement and reconcile lines
 
@@ -251,6 +280,24 @@ A rule whose managed copy exists in both scopes is written only by the cross-sco
 
 Each backup lands under `{planwise_root}/upgrade-backups/{from}-to-{to}/`. The script never overwrites an earlier backup. A second backup of a different version of the same file carries a numeric suffix such as `.1`. To find one, use Glob on that directory, then Read the file.
 
+**Plans anomalies.** Handle a `Plans index: generated; --check reports {N} anomaly(ies)` block here. Each anomaly in it ends in a `map line:` or a `hand-fix:` line.
+
+- An anomaly with a `hand-fix:` line (a `missing-status` anomaly, a multi-word value, or a Path the writer refuses): tell the user to fix the `**Status:**` line by hand, and ask nothing.
+- An anomaly with a `map line:`: call `AskUserQuestion` <!-- AUTO-MODE: convenience --> once for that anomaly. Name the Master Plan, the raw token, and up to three valid `plan_statuses` values closest to it, plus "Keep as is". The user's own text answer may name any other valid status. In Auto Mode, keep the plan as is and log the inference.
+- On a status choice for one or more anomalies, write one `{Path}: {STATUS}` line per choice to a temporary file outside the project. Use the `Path` from the `map line:`. Run the writer once on that file:
+
+```bash
+python "{plugin_root}/scripts/flip_plan_status.py" --config "{planwise_root}/config.yaml" "{map_file}"
+```
+
+The writer exits 1 and writes nothing for a Path it refuses: a multi-word value, a Path with conflicting duplicate lines, a link, or a file that changed since the writer read it. The writer still writes every other Path in the map when it refuses some. Report each refusal with its reason, and name it as action required in the chat summary. When the writer reports any change, regenerate the index even if it exited 1. It prints this command in that case:
+
+```bash
+python "{plugin_root}/scripts/generate_plans_index.py" --config "{planwise_root}/config.yaml" --write
+```
+
+**Lessons findings.** A `Lessons index: generated; --check reports {N} finding(s)` block has no writer. Pass its `[{kind}]` lines through verbatim and name them as action required in the chat summary.
+
 ---
 
 ### Step 4 — Resolve conflicts
@@ -270,7 +317,7 @@ The `upgrade-conflicts/` directory and its `INDEX.md` can be cleaned up once all
 
 ### Step 4.1 — Assisted relocation
 
-Under `upgrade.customization_handoff: report+relocate`, upgrade.md's Step 2.4 writer already performs an automated transfer for the customization-bearing majority: it writes the full installed body to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` as a **dormant preservation document** (outside `.claude/rules/` — never loaded as a rule; see the file's own provenance header) before adopting the shipped body. Two cases land here, both interactive-only:
+Under `upgrade.customization_handoff: report+relocate`, upgrade.md's Step 2.4 writer already performs an automated transfer for the customization-bearing majority: it writes the full installed body to `{planwise_root}/upgrade-transfers/{from}-to-{to}/{filename}` as a **dormant preservation document** (outside `.claude/rules/` — never loaded as a rule; see the file's own provenance header) before adopting the shipped body. Three cases land here. Cases A and B are interactive-only. Case C prints its verdicts in every run and takes its confirms only in an interactive session:
 
 **A. File is listed under "Customizations transferred before adoption"** — the transfer already succeeded; offer to promote the dormant transfer file into an active, `paths:`-scoped project rule:
 
@@ -278,7 +325,7 @@ Under `upgrade.customization_handoff: report+relocate`, upgrade.md's Step 2.4 wr
 2. On confirm, `AskUserQuestion` for the code-path glob the new rule should scope to (`paths:`). **Default when the user skips:** write `paths: # TODO scope` plus an advisory comment (`# TODO: scope this rule to the code dirs it governs — do NOT use plan/backlog/lessons globs`).
 3. **Copy, strip, scope.** Read the transfer file and extract ONLY the original transferred body: drop everything above it — the provenance frontmatter block (`source_filename:` … `classification:`), the `# Transferred customization: {filename}` heading, the "review and re-home" boilerplate paragraph, and the `---` separator line that precedes the body. What remains must be exactly the original installed file content (which may open with its own `---` frontmatter — that one STAYS; it is the rule's real frontmatter, not the wrapper's).
 4. Apply `update_frontmatter(content, paths_value)` to the stripped body so the promoted file carries a real `paths:` line, and **Write** the result to `.claude/rules/{project_name}/{filename}`. The promoted file must be a clean, valid, `paths:`-scoped rule — no provenance keys, no wrapper heading, no doubled frontmatter fences. (If the transferred body is an **agent** file, its frontmatter is agent-shaped — tell the user and let them adapt it into rule form or keep it dormant instead; do not blind-promote.)
-5. The transfer file itself stays in place as the preservation record; tell the user it can be deleted once they are satisfied with the promoted rule. Step 4.3 lists this surface (`review-then-discard`) alongside every other recovery-artifact class for visibility, but never offers it for deletion there — a genuine customization needs this human read before it is discarded, so the delete stays a manual step here.
+5. The transfer file itself stays in place as the preservation record; tell the user it can be deleted once they are satisfied with the promoted rule. Step 4.3 lists this surface (`review-then-discard`) alongside every other recovery-artifact class for visibility, but never offers it for deletion there — a genuine customization needs this human read before it is discarded, so the delete stays a manual step here. A transfer file that this step leaves in place is reviewed again by case C on every later upgrade.
 
 **B. File is listed under "Conflicts (preserved in place — action required)"** — the customization was never moved; secure it FIRST, then resolve the conflict through the existing sidecar mechanism. The installed location is **kind-aware**: rules live at `.claude/rules/planwise/{filename}`, agents at `.claude/agents/{filename}` — never assume the rules path for an agent.
 
@@ -287,7 +334,29 @@ Under `upgrade.customization_handoff: report+relocate`, upgrade.md's Step 2.4 wr
 3. **Secure the customization:** Read the preserved installed body (from its kind-aware installed path) and Write it to `.claude/rules/{project_name}/{filename}` via `update_frontmatter(content, paths_value)`. Read the new copy back and confirm it contains the customization before touching anything else — this copy is the pre-image that makes the next step safe. (For an agent body, same caveat as case A step 4.)
 4. **Adopt shipped via the sidecar** — the already-documented Step 4 resolution action, not a new write surface: move the `.new` sidecar content over the installed file at its kind-aware path (overwrite installed with sidecar, then delete the `.new`). Do this **only after** step 3's copy is verified — nothing is ever overwritten without a confirmed surviving copy (the relocated project-owned file; the writer's `upgrade-backups/` pre-image, when one was made, is a second recovery path). Never simply delete the installed file: the shipped body must land in the freed slot, or the install is left missing a managed artifact.
 
-The handler's write surface in both cases stays within its documented boundary — `verdicts.json`, `.claude/rules/{project_name}/**` promotion copies, issue-draft files, and the Step 4 sidecar-over-installed conflict resolution. The `--upgrade` script remains the only automated mutator of the managed tree; everything here is an explicit, per-file, user-confirmed interactive action.
+**C. A transfer file sits under an earlier version pair's folder** — a file under `{planwise_root}/upgrade-transfers/{pair}/` where `{pair}` is not this run's `{from}-to-{to}`. The banner lists only this run's transfers, so case A never reaches an earlier pair's file. Without this case, nothing ever tells the user that a later release now ships the content.
+
+1. Run the read-only review. Pass this run's pair so case A keeps its own files:
+   ```bash
+   python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --root "{planwise_root}" --review-transfers --upgrade-pair "{from}-to-{to}"
+   ```
+   The script prints a JSON array with one row per file. A `[]` result means no earlier transfer exists, so skip the rest of case C. The script strips the provenance wrapper and compares the preserved body with the **current** shipped `references/{filename}`. It uses the same structural comparison as Step 2.4, so it needs no agent and gives the same verdict in a headless run.
+2. Print one line per file in the chat summary, whatever the status: `{pair}/{filename}: {status} — {detail}`. A file the user keeps is then a recorded decision and not silence.
+3. Act on each file by its `status`:
+
+   | `status` | Meaning | Action |
+   |---|---|---|
+   | `now-upstream` | The shipped file contains the preserved body | Use Grep to find each title in `recorded_unique_blocks` inside `{plugin_root}/references/{filename}`. Quote the matching shipped headings. Then `AskUserQuestion` per file: "Delete the transfer file `{path}`? The shipped file now carries its content." |
+   | `still-unique` | Part of the preserved body is not in the shipped file | List every entry in `unique_blocks`. Mark each entry that is also in `unique_blocks_titled_in_shipped` as "title exists upstream — likely revised, read the shipped section". Then offer the case A promotion for this file, or keep it. Never offer plain deletion. |
+   | `no-counterpart` | The shipped file no longer exists | Report the file and its `recorded_unique_blocks`. Keep it. Never offer deletion. |
+   | `not-a-transfer` or `unreadable` | The file lacks the wrapper, or the script could not read it | Report the path. Keep it. Never offer deletion. |
+
+   The delete confirm is `<!-- AUTO-MODE: convenience -->`, and its inferred default is **skip**, so an unattended run never deletes a transfer file. Delete only on an explicit yes, and print each removed path. The promotion offer follows case A, including its `<!-- AUTO-MODE: critical -->` gate.
+
+   > [!constraint] A title match is a hint, never a SUBSET verdict
+   > The comparison calls a block unique when its content is not inside the shipped file. A block whose title still exists upstream was usually revised there, so it stays `still-unique`. Only the script's `now-upstream` status makes a file deletable. Do not upgrade a `still-unique` file to deletable because its titles match.
+
+The handler's write surface in all three cases stays within its documented boundary — `verdicts.json`, `.claude/rules/{project_name}/**` promotion copies, issue-draft files, the Step 4 sidecar-over-installed conflict resolution, and the confirmed deletion of one `now-upstream` transfer file under `upgrade-transfers/`. The `--upgrade` script remains the only automated mutator of the managed tree; everything here is an explicit, per-file, user-confirmed interactive action.
 
 ---
 
@@ -330,14 +399,28 @@ Runs after the Step 3 banner has reported which `Recovery artifacts:` surfaces c
 | Class | Surface(s) | Offered for deletion here? |
 |---|---|---|
 | `action-required` | `{planwise_root}/upgrade-conflicts/*/` (unresolved `.new` sidecars); `{planwise_root}/upgrade-conflicts/*/issue-drafts/` | Never — resolve the sidecars via Step 4, the issue drafts via Step 4.2 |
-| `review-then-discard` | `{planwise_root}/upgrade-transfers/*/` | Never — a genuine customization needs a human read before it is discarded; promote or delete by hand via Step 4.1 case A |
-| `safe-to-discard` | `{planwise_root}/upgrade-backups/*/` | Yes |
+| `review-then-discard` | `{planwise_root}/upgrade-transfers/*/` | Never in bulk — a genuine customization needs a human read before it is discarded. Step 4.1 case A promotes this run's files. Step 4.1 case C reviews an earlier pair's files and offers deletion one file at a time |
+| `safe-to-discard` | `{planwise_root}/upgrade-backups/*/` excluding the `backlog/`, `lessons/` and `plans/` subfolders (refresh pre-images) | Yes |
+| `review-then-discard` | `{planwise_root}/upgrade-backups/*/{backlog,lessons,plans}/` (index-migration pre-images) | Never — they are the only restore point for the files the migration rewrote. Show the banner text below, and leave them |
 | `inert` | `{planwise_root}/upgrade-conflicts/*/verdicts.json.consumed` | Yes |
 
 For each of the two deletable classes that has at least one match:
 
 1. `AskUserQuestion` (`<!-- AUTO-MODE: convenience -->` — a plain confirm-to-delete, not structural; inferred default is **skip**, so an unattended/non-interactive run never deletes a recovery artifact): "Delete the {N} `{class}` recovery artifact(s) at `{path}`?" — state the class's plain-language reason inline (`safe-to-discard`: "pre-change backups, once you are satisfied with the upgrade"; `inert`: "a consumed verdict cache").
-2. On confirm → delete the matched files and print each removed path as it goes. On decline, or when no interactive answer is available → skip that class; nothing under it is touched.
+2. On confirm → run the prune writer with the classes the user confirmed, and print its output. On decline, or when no interactive answer is available → skip that class; nothing under it is touched.
+
+```bash
+python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --root "{planwise_root}" --prune-upgrade-leftovers --prune-classes {confirmed classes, comma-separated}
+```
+
+Never remove a file in these backup classes by hand. The writer holds links and unreadable entries without following them. It removes `DISPOSITIONS.md` and empty directories only when nothing recoverable remains. It logs every removal to `PRUNED-LEFTOVERS.md`.
+
+The two backup classes print these banner lines. Show the `review-then-discard` line to the user verbatim, and never offer that surface for deletion here:
+
+```
+  {planwise_root}/upgrade-backups/*/ excluding the backlog/, lessons/ and plans/ subfolders ({n} file(s)) — safe-to-discard: pre-change backups, once you are satisfied with the upgrade
+  {planwise_root}/upgrade-backups/*/{backlog,lessons,plans}/ ({n} pre-image(s)) — review-then-discard: index-migration pre-images, counting any link or unreadable entry that may hide one: the only restore point for the files the migration rewrote; review against the migration ledger first
+```
 
 `action-required` and `review-then-discard` are listed alongside the two deletable classes so the offer gives a complete picture, but deletion never covers them — see the table above for where each is actually resolved. The default across every class, every run, is **skip-all**: deletion is opt-in and per-class, never assumed.
 

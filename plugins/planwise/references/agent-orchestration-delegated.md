@@ -4,7 +4,7 @@ description: DELEGATED dispatch discipline, Part 1 of 3 — declaration, foundat
 
 # DELEGATED Dispatch Discipline — Part 1: Foundations and Dispatch-Prompt Construction
 
-**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.31) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
+**Purpose:** Operational dispatch protocols for an orchestrator running a DELEGATED session (spawning task-runner subagents). These subsections (§1.1–§1.32) were extracted from [`agent-orchestration.md`](agent-orchestration.md) §11–§12 to keep the core orchestration reference compact on every invocation; they load conditionally when DELEGATED mode is declared.
 
 The discipline spans **three files**, split by topic because the combined text exceeds the Read-tool page cap. Section numbers are continuous and unique across all three. A section keeps its `§1.N` identifier wherever it lands, so an existing `§`-anchor still names exactly one section — only the filename that holds it changes.
 
@@ -12,7 +12,7 @@ The discipline spans **three files**, split by topic because the combined text e
 |---|---|---|---|
 | 1 (this file) | `agent-orchestration-delegated.md` | §1.1–§1.13 | Declaration, foundations, and dispatch-prompt construction |
 | 2 | [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) | §1.14–§1.22 | Dispatch mechanics and post-return handling |
-| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.31 | Cross-cutting dispatch-prompt and orchestrator discipline |
+| 3 | [`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md`](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) | §1.23–§1.32 | Cross-cutting dispatch-prompt and orchestrator discipline |
 
 This file holds the foundation and everything that shapes a spawn before it goes out. §1.1 Mandatory Triggers, §1.2 Task-File Error Recovery and §1.3 Orchestration Context Boundary establish the ground rules. §1.4–§1.13 then cover dispatch-prompt construction: diagnostics verification, tool-use budget reservation, path-scoped rule injection, the wake-up protocol, the HARD CONSTRAINTS skeleton, fix tier-ranking, forward-looking-verb detection, ceiling disclaimers, the N>25 resume protocol, and the shared-edit-target strategy matrix.
 
@@ -34,7 +34,7 @@ Part 2 carries dispatch mechanics and what happens after a runner returns. Part 
 - [1.12 N>25 Edit-Task Resume Protocol with Tool-Use Budget Estimation](#112-n25-edit-task-resume-protocol-with-tool-use-budget-estimation)
 - [1.13 Shared-Edit-Target Strategy Matrix](#113-shared-edit-target-strategy-matrix)
 
-**Continued in Part 2** (§1.14–§1.22) and **Part 3** (§1.23–§1.31) — see the pointer table above.
+**Continued in Part 2** (§1.14–§1.22) and **Part 3** (§1.23–§1.32) — see the pointer table above.
 
 ---
 
@@ -326,6 +326,8 @@ This task operates within:
 - **Out of scope:** {list of adjacent files/modules this task must NOT touch}
 ```
 
+Check each prohibition and each narrowed write permission against every step of the brief before dispatch. See `dispatch-brief-neutrality.md` for the enumeration rule ("A Prohibition Claims That No Step Needs the Prohibited Thing") and the both-branches rule ("A Scope Boundary That Narrows a Write Permission Names Every Branch of the Task's Own Decision Rule").
+
 > [!constraint] HARD CONSTRAINTS Presence
 > WRONG — spawn prompt omits HARD CONSTRAINTS; subagent reads adjacent files and expands scope:
 > ```
@@ -351,6 +353,8 @@ When a DELEGATED task produces results requiring fixes, rank the fixes by invasi
 | Tier 3 | Multi-file refactor | High | New session with full context |
 
 Start with Tier 1 fixes before escalating; do not over-dispatch high-invasiveness fixes when lower-tier corrections suffice.
+
+When the follow-up is a remediation brief, derive its write set from where each fix lands, not from what each file is for. See [Part 3](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) §1.32 ("Derive a Remediation Brief's Write Set From Where Each Fix Lands").
 
 ## 1.10 Forward-Looking-Verb Detection + SendMessage Resume Protocol
 
@@ -495,7 +499,7 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 
 ---
 
-**Continues in:** [Part 2 — Dispatch Mechanics and Returns](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.31)
+**Continues in:** [Part 2 — Dispatch Mechanics and Returns](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) (§1.14–§1.22) · [Part 3 — Cross-Cutting Dispatch Discipline](agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md) (§1.23–§1.32)
 
 *Originally extracted from [`agent-orchestration.md`](agent-orchestration.md) §11-§12 (DELEGATED Dispatch Discipline + Verify-Before-Acting on LSP Diagnostics); §1.19–§1.22 folded from `handlers/run.md`'s Delegated Execution Protocol (2026-08-10). That file now carries only a short §11 pointer stub back to this file. Split into three topical parts (2026-09-06) because the combined text exceeded the Read-tool page cap; section numbers were frozen across the split.*
 *Cross-reference: [agent-orchestration.md](agent-orchestration.md), [agent-authoring.md](agent-authoring.md), [skill-authoring.md](skill-authoring.md)*

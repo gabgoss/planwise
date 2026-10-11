@@ -53,7 +53,11 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config_loader import load_config
 from generate_backlog_index import _index_naming, _list_disk_generated_files
-from markdown_parser import is_section_boundary, split_row_cells
+from markdown_parser import (
+    is_section_boundary,
+    split_row_cells,
+    split_row_cells_code_aware,
+)
 
 # The single ID-cell regex: bare, bold, linked, any digit count. Group 1 is
 # the digits only. Every other reader in this project imports this rather
@@ -202,11 +206,20 @@ def _walk_rows(section: str, base_line: int, source) -> list:
                 continue
             row_id = int(match.group(1))
             if header_cell_count and len(cells) != header_cell_count:
+                # Retry with the code-aware split; accept only an exact match.
+                retried = split_row_cells_code_aware(probe)
+                if len(retried) == header_cell_count:
+                    rows.append(Row(id=row_id, cells=retried, source=source, line=line_no))
+                    continue
                 rows.append(
                     Row(
                         id=row_id, cells=cells, source=source, line=line_no,
                         malformed=True,
-                        reason=f"expected {header_cell_count} cells, found {len(cells)}",
+                        reason=(
+                            f"expected {header_cell_count} cells, found {len(cells)} "
+                            "(a | inside backticks is the usual cause; "
+                            "escape it as \\| or close the backtick)"
+                        ),
                     )
                 )
                 continue

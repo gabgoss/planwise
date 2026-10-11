@@ -1,10 +1,10 @@
 ---
-description: DELEGATED dispatch discipline, Part 3 of 3. This file holds §1.23–§1.31, the cross-cutting dispatch-prompt and orchestrator discipline. Part 1 of 3 is agent-orchestration-delegated.md.
+description: DELEGATED dispatch discipline, Part 3 of 3. This file holds §1.23–§1.32, the cross-cutting dispatch-prompt and orchestrator discipline, including pinning foreground execution and a long timeout for a long suite (§1.27.1) and deriving a remediation brief's write set from where each fix lands (§1.32). Part 1 of 3 is agent-orchestration-delegated.md.
 ---
 
 # DELEGATED Dispatch Discipline — Part 3: Cross-Cutting Dispatch Discipline
 
-**Purpose:** Part 3 of the DELEGATED dispatch discipline. It covers the constraints that bind every spawn prompt and the orchestrator's own conduct, whatever the task: triple-scoping a single-task dispatch, giving a structure contract a literal template, adjudicating a decision a runner surfaces, keeping verification read-only inside a runner's ownership window, naming the interpreter, the status-block return contract, what a spawn prompt must name in both directions, how to establish that a silent runner is dead before dispatching a replacement, and who resolves a precondition a whole dispatch layer shares.
+**Purpose:** Part 3 of the DELEGATED dispatch discipline. It covers the constraints that bind every spawn prompt and the orchestrator's own conduct, whatever the task: triple-scoping a single-task dispatch, giving a structure contract a literal template, adjudicating a decision a runner surfaces, keeping verification read-only inside a runner's ownership window, naming the interpreter and pinning foreground execution for a long suite (§1.27.1), the status-block return contract, what a spawn prompt must name in both directions, how to establish that a silent runner is dead before dispatching a replacement, and who resolves a precondition a whole dispatch layer shares.
 
 Section numbers are continuous across all three parts. A section keeps its `§1.N` identifier wherever it lands, so an existing `§`-anchor still names exactly one section — only the filename that holds it changes.
 
@@ -12,7 +12,7 @@ Section numbers are continuous across all three parts. A section keeps its `§1.
 |---|---|---|---|
 | 1 | [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) | §1.1–§1.13 | Declaration, foundations, and dispatch-prompt construction |
 | 2 | [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) | §1.14–§1.22 | Dispatch mechanics and post-return handling |
-| 3 (this file) | `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` | §1.23–§1.31 | Cross-cutting dispatch-prompt and orchestrator discipline |
+| 3 (this file) | `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` | §1.23–§1.32 | Cross-cutting dispatch-prompt and orchestrator discipline |
 
 These sections apply to every DELEGATED spawn. Read this file whenever you construct a spawn prompt, adjudicate a runner's report, or decide what to do about a runner that has gone quiet — Part 1 alone does not carry them.
 
@@ -27,6 +27,7 @@ These sections apply to every DELEGATED spawn. Read this file whenever you const
 - [1.29 A Subagent's World Is Its Definition Plus Its Prompt](#129-a-subagents-world-is-its-definition-plus-its-prompt)
 - [1.30 Liveness — Establish Death Before Dispatching a Replacement](#130-liveness--establish-death-before-dispatching-a-replacement)
 - [1.31 A Shared Precondition Belongs to the Orchestrator](#131-a-shared-precondition-belongs-to-the-orchestrator)
+- [1.32 Derive a Remediation Brief's Write Set From Where Each Fix Lands](#132-derive-a-remediation-briefs-write-set-from-where-each-fix-lands)
 
 ---
 
@@ -98,6 +99,8 @@ Three requirements, in order of durability:
 
 A runner that returns a `BRIEF COLLISION` report — a breach, a better pattern, or a contradiction its brief did not anticipate — has done the right thing. The orchestrator, not the runner, owns the decision. Two classes, decided differently.
 
+A collision at a write-set boundary is the cheapest to prevent. §1.32 ("Derive a Remediation Brief's Write Set From Where Each Fix Lands") says how the author derives the write set before dispatch, so the runner never meets the boundary.
+
 ### 1.25.1 Binding-rule breach → Option A / Option B gate
 
 Treat it exactly as a Phase-1 structural finding, except that it surfaced mid-execution: present the user an explicit **Option A (coherent — apply the prescribed remedy, naming the files and the structural impact)** vs **Option B (literal — ship the breach, naming the residual defect)**, call `AskUserQuestion`, and record the outcome as a `Scope-Expansion Decisions` row in Recovery plus its Summary mirror. Do not pick before the user answers.
@@ -160,6 +163,8 @@ A file named in a task's `Output:` line is **owned by that runner** from the mom
 
 Highest-risk shapes: notebooks and any artifact where **execution is the verification**, and high-fanout batches where several runners hold adjacent files.
 
+**A replay command runs only after the window closes.** An Orchestration re-verify item names a command the producing task ships (`scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §19). That command runs only after the runner reports and the orchestrator accepts. It creates files only in a temp directory and removes them. It does not write the runner's Output files.
+
 > [!constraint] Do Not Run a Mutating Verification Against a File a Runner Still Owns
 > WRONG — the orchestrator verifies by executing the runner's in-flight artifact:
 > ```
@@ -194,6 +199,8 @@ platform default, not this project's environment:
   test/notebook runner: {env-runner-path}
 Confirm connectivity/setup with `{env-interpreter-path} {project-precheck}` BEFORE
 doing dependent work.
+Run every {suite} invocation in the FOREGROUND, with a timeout up to 600000 ms.
+The full suite takes about {N} minutes. Never background it and wait.
 ```
 
 Emit the POSIX (`./.venv/bin/{tool}`) or the Windows (`.\.venv\Scripts\{tool}.exe`) form per the project's platform; do not emit both and leave the runner to choose.
@@ -228,6 +235,29 @@ HALT if the output does not resolve inside the project environment.
 > # Cost: ~50 tokens per dispatch. Cost of omitting it: one lost verification
 > # cycle per dispatch, plus a false PASS on every gate that silently did not run.
 > ```
+
+### 1.27.1 Pin foreground execution and a long timeout for any suite longer than about a minute
+
+A backgrounded long command turns "waiting" into "stopped" for a dispatched runner. The runner cannot poll without spending turns. A background job's completion reaches the runner's own harness, not the orchestrator. The idle notification reads like progress ("waiting on it"), so it is easy to mistake for a live task. §1.21 of Part 2 covers how the orchestrator launches the runner. This subsection covers a command the runner backgrounds itself.
+
+> [!constraint] Pin the execution mode and the timeout in the spawn prompt
+> - **State the foreground requirement in the ENVIRONMENT DISCIPLINE block of every spawn prompt whose task runs a suite longer than about one minute.** Give the expected duration too, so the runner sizes its timeout and does not reach for the background.
+> - **Cap and pin the timeout.** Name the timeout in milliseconds, up to the harness maximum.
+>
+> WRONG — the spawn prompt says only which command to run:
+> ```
+> Tests: python -m pytest -q <path-to-suite>
+> # runner: Bash(..., run_in_background=true) -> "waiting on it" -> idle, forever
+> ```
+> CORRECT — the spawn prompt pins the execution mode and the timeout, and names the failure:
+> ```
+> Run every pytest invocation in the FOREGROUND, with a timeout up to 600000 ms.
+> The full suite takes about 3-4 minutes. Never background it and wait.
+> ```
+
+Measured case. The suite held about 1,950 tests and took about 4 minutes. The first runner backgrounded it, ended its turn with "The full suite is still running, so I'm waiting on it", and stalled with a dirty tree and a draft summary. The resume cost one round trip and one duplicated 4-minute run. After the pinned lines entered every later spawn prompt, five further runners and two fix rounds did not repeat the stall.
+
+**Applies to** DELEGATED task-runner spawn prompts and to any task whose verification includes a multi-minute suite, build or migration run. The orchestrator-side classification and resume of a runner that stalled this way is Part 2 §1.17.1 and §1.17.3.
 
 ## 1.28 Status-Block Return Contract
 
@@ -310,6 +340,8 @@ Two practices follow.
 **Acceptance may proceed on disk evidence while telemetry is recovered.** The on-disk deliverable gate confirms COMPLETE independently of the status block; §1.17.4 specifies that gate and this section does not restate it. The recovered block then supplies `KEY_FINDINGS` for Recovery reconciliation.
 
 **Name the tool and the recipient when re-requesting a missing block.** A generic re-request — "reply with your status block" — reproduces the original failure, because it leaves the channel unnamed a second time. In one measured 7-runner parallel dispatch every runner had executed correctly and written its deliverables, yet the orchestrator received only idle notifications. All 7 blocks arrived only after an explicit instruction to call the SendMessage tool with `to="team-lead"`. The generic re-request cost one wasted round-trip per runner.
+
+The same rule applies when you resume a runner with a review's result: the findings travel in the message, and an output-file path is only a supplement. See "A Findings Relay Carries the Findings, Not Only the Path of the File That Holds Them" in [`dispatch-boundary-evidence.md`](dispatch-boundary-evidence.md).
 
 ### 1.29.2 Push a lead-resolved condition into the spawn prompt
 
@@ -444,6 +476,35 @@ The same defect reaches the producing task's own first step whenever that step a
 **Why the eligibility check missed it.** Every task in the measured batch honestly declared no dependency, because the *file write-sets* really were disjoint — and disjoint write-sets are the criterion the parallel-eligibility check applies. The dependency was on a **shared variable**, and no field in the task schema represents one. Disjoint outputs are **necessary but not sufficient** for parallel dispatch: a shared input that one member generates serialises the layer exactly as hard as a shared output file does. So apply the check by reading the layer, not by trusting the field.
 
 [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §17 computes a layer's write-target intersection at scaffold time, and §17.2 covers the sibling case where the shared object is an **allocation** — a next-free number — rather than a path. Those are the plan-time gates. This section is the dispatch-time obligation, and it stands whether or not the plan carried one.
+
+## 1.32 Derive a Remediation Brief's Write Set From Where Each Fix Lands
+
+A remediation task written at a review gate carries two lists. The Fixes table lists intents. The `Output:` line (the runner's write set) lists locations. An author who writes the second from memory of the first drops every fix whose location the author did not picture. The runner then finds the fix, reproduces the defect with a failing test, and correctly refuses to edit a file or line outside its write set.
+
+> [!constraint] Derive the write set row by row from the Fixes table
+> WRONG — the write set written from what each file is "for":
+> ```
+> Output: <style module>, <upgrade module> (try/except wrap only), <io module> (one function), tests
+> Fix 3: "the style render callable keeps an installed paths: value"   # lives in <upgrade module>:373
+> ```
+> CORRECT — the write set derived row by row from the Fixes table:
+> ```
+> | # | Fix | Lands at |
+> | 3 | keep installed paths: on adoption | <upgrade module>:373 (render lambda) |
+> | 9 | wrap main-path reconcile          | <upgrade module>:1032 |
+> Output: union of the "Lands at" column, plus tests and the Output file
+> ```
+> In the measured case the file was allowed only for "the try/except wrap" and one condition. Fix 3 lived in a render lambda at a third site. The runner returned PARTIAL with a `BRIEF COLLISION` and parked the test as an expected failure.
+
+**Step 1 — Add a "Lands at" column.** Give the Fixes table a "Lands at" column (`file:symbol` or `file:line`). Make the `Output:` line the union of that column. Where the location is unknown, `Grep` for the symbol before writing the brief. A `Grep` costs one call. A halted runner costs a resume.
+
+**Step 2 — Add a row for each reader of a changed scope, key or predicate.** For each fix that changes a scope, a key or a predicate, add a row for each existing call site that depends on the old meaning. Example: a fix narrows a sync to two managed paths. A skip condition elsewhere was keyed on "any other copy" and is now inconsistent with the new scope. Nothing owned that row. `Grep` for every reader of the changed scope, key or predicate before writing the table.
+
+**Step 3 — A halt on a write-set boundary is correct behavior.** Fix the brief, authorize the line, and record the adjudication. Do not loosen the boundary language for the next brief. A loosened boundary invites the edits the boundary exists to prevent.
+
+**The cost to inline.** The measured halt cost a full resume round trip. The runner had used about 200K tokens, so the resume re-entered a nearly full window. §1.17.5 of [`agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md`](agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md) ("Name a write-by turn in the spawn prompt, and size the brief by its proof count") covers the neighbouring rule on brief size. The two rules compound. A large brief with an incomplete write set halts late.
+
+**Applies to** remediation tasks written at a review gate, where the orchestrator authors a brief under time pressure from a findings list. It also applies to any brief that lists permitted edits per file by purpose ("only the X block") rather than by location. For how to rank the fixes themselves, see [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.9 and §1.25.3.
 
 ---
 

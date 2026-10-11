@@ -38,12 +38,20 @@ Run with:  python -m pytest tests/test_no_naive_table_split.py -q
 """
 
 import io
+import sys
 import tokenize
 from pathlib import Path
 
 SCRIPTS_DIR = (
     Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"
 )
+
+# Allow imports whether pytest is launched from the repo root or tests/.
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import markdown_parser
+import migrate_backlog_index
+import migrate_backlog_support
 
 # The one permitted implementation site. markdown_parser.py is the module
 # that OWNS pipe-splitting semantics for every other script; every other
@@ -212,3 +220,122 @@ def test_scan_scripts_dir_reports_per_file_and_skips_named_exemptions(tmp_path):
     violations = scan_scripts_dir(tmp_path)
     assert "markdown_parser.py" not in violations
     assert "some_other_script.py" in violations
+
+
+# ---------------------------------------------------------------------------
+# The code-aware retry splitter
+# ---------------------------------------------------------------------------
+def test_code_aware_split_keeps_a_pipe_inside_backticks():
+    line = "| LL-001 | Title `a | b` | process |"
+    assert len(markdown_parser.split_row_cells(line)) == 4
+    cells = markdown_parser.split_row_cells_code_aware(line)
+    assert cells == ["LL-001", "Title `a | b`", "process"]
+
+
+def test_code_aware_split_matches_plain_split_outside_code():
+    rows = [
+        "| a | b | c |",
+        "| a \\| b | c |",
+        "|  padded  | `x` | |",
+        "| `y` | z \\| w | `q` |",
+    ]
+    for row in rows:
+        assert markdown_parser.split_row_cells_code_aware(row) == markdown_parser.split_row_cells(row)
+
+
+def test_an_escaped_backtick_opens_no_span():
+    # `\`` is a literal backtick, so the later pipe is a real cell boundary: the row has five cells,
+    # not four. A caller comparing that count with a four-cell header keeps the finding.
+    line = "| a | x \\` y | z ` | w |"
+    plain = markdown_parser.split_row_cells(line)
+    assert len(plain) == 4
+    assert markdown_parser.split_row_cells_code_aware(line) == plain
+    # A backslash before the closing backtick leaves the span open, so the opener is unbalanced.
+    assert markdown_parser.split_row_cells_code_aware("| `a \\` | b |") == ["`a \\`", "b"]
+    assert markdown_parser.split_row_cells_code_aware("| `a | b \\` | c |") == ["`a", "b \\`", "c"]
+
+
+def test_a_backtick_pair_across_two_plain_cells_is_a_code_span():
+    # CommonMark closes a backtick run at the next run of equal length, wherever it sits. In a table the
+    # row is cut into cells first, but this reader's contract is the retry only, and it accepts the
+    # merged result only when the count then equals the header's. A pair that spans two cells merges them.
+    line = "| a | b` | `c | d |"
+    assert len(markdown_parser.split_row_cells(line)) == 4
+    assert markdown_parser.split_row_cells_code_aware(line) == ["a", "b` | `c", "d"]
+
+
+def test_unbalanced_backtick_does_not_swallow_the_row():
+    line = "| a | `b | c | d |"
+    plain = markdown_parser.split_row_cells(line)
+    cells = markdown_parser.split_row_cells_code_aware(line)
+    # An opening backtick with no close opens no span, so the count equals the
+    # plain split's and a caller comparing it with the header keeps the finding.
+    assert len(cells) == len(plain) == 4
+    assert len(cells) > 3
+
+
+# ---------------------------------------------------------------------------
+# The backlog resolve_rows retry
+# ---------------------------------------------------------------------------
+def _resolve_backlog_rows(tmp_path, feature_cell):
+    (tmp_path / "item.md").write_text("x\n", encoding="utf-8")
+    text = (
+        "| ID | Feature | Files |\n"
+        "|----|---------|-------|\n"
+        f"| 1 | {feature_cell} | [a](item.md) |\n"
+    )
+    header = migrate_backlog_support.row_cells(text.split("\n")[0])
+    roles, _ = migrate_backlog_support.column_map(header)
+    config = {"_backlog_dir": tmp_path, "_archive_dir": tmp_path}
+    rows = migrate_backlog_index.resolve_rows(text, 0, roles, config, tmp_path / "index.md", [])
+    return rows, roles, text
+
+
+def test_backlog_resolve_rows_retry_accepts_a_piped_code_row(tmp_path):
+    rows, roles, _ = _resolve_backlog_rows(tmp_path, "`x | y`")
+    assert len(rows) == 1
+    assert len(rows[0]["cells"]) == len(roles)
+    assert rows[0]["cells"][roles["feature"]] == "`x | y`"
+
+
+def test_backlog_report_applies_the_same_retry_as_the_write(tmp_path):
+    # The row's item file has no frontmatter. The write resolves the piped-code row to it, so the report
+    # must count the file as referenced, not as unreferenced.
+    (tmp_path / "Archive").mkdir()
+    (tmp_path / "BB-001-a.md").write_text("# no frontmatter\n", encoding="utf-8")
+    text = ("# Backlog\n\n## Backlog Items\n\n| ID | Feature | Files |\n|----|----|----|\n"
+            "| BB-001 | run `a | b` | [a](BB-001-a.md) |\n\n*Last Updated: 2026-01-01*\n")
+    index = tmp_path / "00-Index-Backlog.md"
+    index.write_text(text, encoding="utf-8")
+    header_idx, roles = migrate_backlog_support.classify_shape(text)[1]
+    config = {"_backlog_dir": tmp_path, "_archive_dir": tmp_path / "Archive", "_project_root": tmp_path,
+              "_planwise_root": tmp_path}
+    written = migrate_backlog_index.resolve_rows(text, header_idx, roles, config, index, [])
+    assert [r["path"].name for r in written] == ["BB-001-a.md"]
+    items = migrate_backlog_index.build_report(config, index)["items"]
+    assert items["without_frontmatter"] == 1
+    assert items["unreferenced_without_frontmatter"] == 0
+
+
+def test_backlog_checks_read_the_prefix_of_an_id_after_a_piped_code_cell():
+    import migrate_backlog_checks
+    lines = ["| Feature | ID | Files |", "|----|----|----|", "| run `a | b` | BB-001 | [a](x.md) |"]
+    # the plain split reads the ID column as "b`" and finds no prefix
+    assert migrate_backlog_checks.items_prefixes(lines, 0) == frozenset({"BB"})
+
+
+def test_backlog_checks_read_a_blocks_cell_after_a_piped_code_cell():
+    import migrate_backlog_checks
+    lines = ["| ID | Feature | Blocks | Files |", "|----|----|----|----|",
+             "| BB-001 | run `a | b` | ZZ-002 | [a](x.md) |"]
+    problems = []
+    migrate_backlog_checks._items_blocks(lines, 0, frozenset({"BB"}), problems)
+    assert len(problems) == 1 and "ZZ-002" in problems[0]
+
+
+def test_backlog_resolve_rows_retry_keeps_an_escaped_pipe(tmp_path):
+    rows, roles, _ = _resolve_backlog_rows(tmp_path, r"`x | y` and a\|b")
+    ordinary = migrate_backlog_support.row_cells(r"| 1 | a\|b | [a](item.md) |")
+    assert ordinary[1] == r"a\|b"
+    assert len(rows) == 1
+    assert rows[0]["cells"][roles["feature"]] == r"`x | y` and a\|b"

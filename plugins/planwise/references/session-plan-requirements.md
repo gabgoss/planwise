@@ -79,6 +79,8 @@ description: Required file specifications per plan level and the DELEGATED-trigg
 - Every file cited in Cross-References MUST appear in the `Extracted from:` header
 - Cross-sprint sources (used by multiple sprints) are listed in each EI's header like any other source
 
+- Every plan deliverable that states a format, a cap or a threshold names its writer (the script or agent that emits the form) or its gate (the check that rejects the wrong form). The plan-level form is "every deliverable is a writer or a gate, not a paragraph". See [rule-authoring.md](rule-authoring.md), "A Rule Is Not a Control: Pair Every Format Rule, Cap or Threshold With a Writer or a Gate".
+
 **Global Source Map:** When using global numbering for spec outputs (recommended for multi-sprint plans), the Master Plan MUST include a Global Source Map table assigning each spec output a number, its primary sprint, and any additional sprints that use it.
 
 **Multi-Tier Discovery Extraction:**
@@ -244,7 +246,7 @@ The planner (`/planwise plan`) MUST evaluate Execution Strategy triggers and dec
 
 ## 9. Data-Persistence Verification Gates
 
-These gates bind the Verification Commands section of ingestion-shaped, load-shaped, and constraint-adding deploy tasks. See `templates/task-file.md` §Per-File-Type Commands for where per-file-type verification rows live, and [verification-gates.md](verification-gates.md) for the broader build-clean-is-not-runtime-correct discipline this section extends into the data-persistence case.
+These gates bind the Verification Commands section of ingestion-shaped, load-shaped, and constraint-adding deploy tasks. See `templates/task-file.md` §Per-File-Type Commands for where per-file-type verification rows live, and [gate-runtime-boundary-evidence.md](gate-runtime-boundary-evidence.md) for the broader build-clean-is-not-runtime-correct discipline this section extends into the data-persistence case.
 
 > **Exit code 0 does not prove data was persisted.** A verification command that runs a notebook or script and checks only its exit code proves the process ran, not that it wrote. Every ingestion-shaped or load-shaped task's Verification Commands MUST include a row-count assertion against the target, executed after the run.
 > - WRONG: `{exec-cmd} {notebook}   # exit 0 -> declared complete` — a silent empty fetch, skipped persist branch, or rolled-back transaction all exit 0.

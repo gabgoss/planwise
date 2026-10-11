@@ -1,0 +1,4 @@
+{
+  "description": "Backlog loop: after a one-item /planwise backlog session prints its BACKLOG LOOP marker, compact the session and re-enter the handler with --loop-resume.",
+  "modules": ["./register.ts"]
+}

@@ -202,6 +202,7 @@ __all__ = [
     "_normalize_id_text",
     "_parse_list_field",
     "_print_file_report",
+    "_print_truncation_warning",
     "_read_disk_table",
     "_read_frontmatter_map",
     "_reciprocal_anomalies",
@@ -329,6 +330,22 @@ def _file_summary(report: dict) -> list:
     ]
 
 
+def _print_truncation_warning(truncated_ids: list) -> None:
+    """One stderr line per run naming every truncated item, printed only
+    when the list is nonempty. Replaces the earlier one-line-per-title
+    warning, which buried a real `Error:` or `Anomaly:` line under a
+    backlog with many titles over the cap. The ids stay on the line, so
+    the reader still learns which items to shorten.
+    """
+    if truncated_ids:
+        ids = ", ".join(dict.fromkeys(truncated_ids))
+        print(
+            f"Warning: {len(truncated_ids)} title(s) truncated to {TITLE_MAX_LEN} "
+            f"chars (items: {ids})",
+            file=sys.stderr,
+        )
+
+
 def _reciprocal_anomalies(items: list, reciprocal: list) -> list:
     paths_by_id = {item["id"]: item["_path"] for item in items}
     return [
@@ -429,11 +446,7 @@ def _cmd_write(
         print(f"Error: write failed and was rolled back ({path}): {exc}", file=sys.stderr)
         return Disposition.REFUSED
 
-    for item_id in report["truncated_ids"]:
-        print(
-            f"Warning: title truncated to {TITLE_MAX_LEN} chars for item {item_id}",
-            file=sys.stderr,
-        )
+    _print_truncation_warning(report["truncated_ids"])
     for p in stale:
         print(f"Removed stale generated file: {p}")
 
@@ -466,11 +479,7 @@ def _cmd_check(
         print(f"Error: {exc}", file=sys.stderr)
         return Disposition.REFUSED
 
-    for item_id in report["truncated_ids"]:
-        print(
-            f"Warning: title truncated to {TITLE_MAX_LEN} chars for item {item_id}",
-            file=sys.stderr,
-        )
+    _print_truncation_warning(report["truncated_ids"])
 
     reciprocal_anomalies = _reciprocal_anomalies(items, reciprocal)
     for entry in reciprocal_anomalies:
@@ -579,11 +588,7 @@ def main() -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return Disposition.REFUSED
 
-    for item_id in report["truncated_ids"]:
-        print(
-            f"Warning: title truncated to {TITLE_MAX_LEN} chars for item {item_id}",
-            file=sys.stderr,
-        )
+    _print_truncation_warning(report["truncated_ids"])
 
     reciprocal_anomalies = _reciprocal_anomalies(items, reciprocal)
     for entry in reciprocal_anomalies:

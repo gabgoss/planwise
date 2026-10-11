@@ -378,7 +378,8 @@ def parse_index_table(content: str) -> IndexTable:
     so a legend table under a heading is outside it. Inside the region a line
     whose first non-space character is `|` is table-shaped. Any other line is
     recorded in `skipped` and the walk continues: it never stops at a comment.
-    A comment that spans lines is skipped as a whole.
+    A comment that spans lines is skipped as a whole. A `<!--` opener with no
+    closer before the end of the file is a one-line comment.
 
     A table-shaped line needs six cells. A line with another count, or with an
     empty Abbrev or Path, goes to `unparsed` with its reason. Every row is kept
@@ -438,7 +439,8 @@ def parse_index_table(content: str) -> IndexTable:
             continue
         if stripped.startswith("<!--"):
             skipped.append(SkippedLine(line_number, "comment", line))
-            in_comment = "-->" not in stripped[len("<!--") :]
+            # An opener no later line closes is a one-line comment, so the lines after it parse as usual.
+            in_comment = "-->" not in stripped[len("<!--") :] and any("-->" in later for later in lines[index + 1 :])
             continue
         if not stripped:
             skipped.append(SkippedLine(line_number, "blank", line))

@@ -142,18 +142,6 @@ Reinstalling the plugin does **not** refresh the rules in `.claude/rules/planwis
 
 > **Run Stage 2 once per upgrade.** If you skip it, `/planwise init` and `/planwise doctor` both notice the version drift and remind you to run `/planwise upgrade`.
 
-### Upgrading from 1.0.5.1: backlog index
-
-Older installs use a hand-authored backlog index. Newer ones use a generated hub plus Archive shards, with each item's YAML frontmatter as the source of truth and the changelog in its own file. `/planwise upgrade` migrates a hand-authored index automatically, backing up every file it touches under `upgrade-backups/{from}-to-{to}/backlog/` before writing. An ambiguous feature-cell sentence, one that only partly matches its item file, is parked verbatim in the migration ledger rather than appended or refused. A refusal — for a data conflict the migration cannot resolve on its own, or for an index shape it does not recognize — leaves your index untouched and names the fix to apply before you re-run `/planwise upgrade`. Until the migration finishes, `/planwise backlog` and the index generator both refuse to run against a hand-authored index.
-
-### Upgrading from 1.0.5.1: lessons index
-
-Older installs use a hand-authored lessons index — a Master Table, a header changelog block, and a Rule Promotion Log table, all in one file. Newer ones generate the index from lesson frontmatter, with the changelog and the Promotion Log each in their own files. `/planwise upgrade` migrates a hand-authored lessons index automatically, backing up every file it touches under `upgrade-backups/{from}-to-{to}/lessons/` before writing, relocating the changelog and Promotion Log content, renaming a hand-written categorization companion out of the way, and regenerating both. A refusal leaves your index untouched and names the fix to apply before you re-run `/planwise upgrade`. Until the migration finishes, any `/planwise lessons` mode that writes a lesson file, and the index generator itself, refuse to run against a hand-authored index.
-
-### Upgrading from 1.0.5.1: plans index
-
-Older installs use a hand-authored plans index — one table whose rows, statuses and notes you edited by hand. Newer ones generate the index from each plan's Master Plan, whose `**Status:**` line and dates decide each row. `/planwise upgrade` migrates a hand-authored plans index automatically, backing up the index and every Master Plan it appends to under `upgrade-backups/{from}-to-{to}/plans/` before writing, attaching each index note to the row it followed, and regenerating the index. A migration ledger records every note and row it moved or set aside. A refusal leaves your index untouched and names the fix to apply before you re-run `/planwise upgrade`. Until the migration finishes, the index generator refuses to overwrite a hand-authored index.
-
 ---
 
 ## Full user guide
@@ -174,8 +162,8 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise run` | Execute a planned session |
 | `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, backlog/lessons/plans index shape audits, backlog item body status lines, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
-| `/planwise backlog` | Triage and work on backlog items |
-| `/planwise list` | See all plans and their status |
+| `/planwise backlog` | Triage and work on backlog items (optionally one per session, looping) |
+| `/planwise list [--active] [--no-check]` | See all plans and their status (no model tool calls without a flag) |
 | `/planwise lessons` | Search the lessons learned index |
 | `/planwise lessons capture` | Capture a lesson mid-session |
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |

@@ -63,16 +63,21 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
-- If reviewing a scaffolded multi-sprint plan: Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§17) — the hygiene reference is split across two files, and Checks 078, 083 and 093 live in Part 2
+- If reviewing a scaffolded multi-sprint plan: Read `references/ei-fidelity.md`, `references/task-content-fidelity.md`, `references/discovery-and-exit-criteria.md`, `references/scaffolding-hygiene.md` (§1–§12) **and** `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` (§13–§19) — the hygiene reference is split across two files, and Checks 078, 083, 093 and 099 live in Part 2
 - If reviewing a plan with DB-write tasks: Read `references/schema-pin-requirement.md`
-- If reviewing IPC/protocol/codec sessions: Read `references/verification-gates.md`
+- If reviewing IPC/protocol/codec sessions, Sprint exit verdicts, `git diff` gates or a verification battery's shape: Read `references/verification-gates.md` (the family index), then `references/gate-runtime-boundary-evidence.md`, `references/gate-exit-verdict-and-smoke-reports.md` (Checks 013, 014, 015, 034, 035, 036), `references/gate-diff-baseline-pinning.md` (Check 077), `references/gate-instrument-proof-obligations.md` (Checks 087, 088), `references/gate-change-vs-state-detecting.md`, and `references/gate-run-sheet-and-grader-fields.md` for a run sheet or a grader
 - If reviewing tasks with cross-sprint/cross-version symbol citations: Read `references/verify-against-shipped-artifact.md`
 - If reviewing a gate anchor, a named landing zone, a lifted `§N` citation, a cross-plan status assertion, or a projected set size: Read `references/verify-anchor-against-artifact.md` — an anchor derived from the criterion it verifies inherits every false premise that criterion holds, and the two then corroborate each other
-- If reviewing a plan with verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md`
-- If reviewing a plan whose deliverable is a gate (guard, hook, linter, validation pass), or whose acceptance criteria cite a gate run as proof: Read `references/verification-gate-evidence.md` — check that the gate was exercised in the direction that fires, that the reported proof states what its fixture set does not cover, and, where a task's content is a live gate's subject, that the dispatch brief pre-classifies the collision (§13)
+- If reviewing a plan with verification tasks (match-pattern + pass/fail gate): Read `references/verification-task-authoring.md` (the family index and its §7 checklist), then `references/gate-heuristic-verifier-patterns.md` (Checks 058 and 059), `references/gate-verdict-contract-and-adjudication.md` (Check 060) and `references/gate-absence-and-consistency.md`
+- If reviewing a plan whose task files carry After-block gates or measured Success Criteria: Read `references/gate-pre-edit-baseline.md` (Check 082) and `references/gate-input-set-and-compared-window.md` — check every gate carries a measured pre-edit value that contradicts its expectation, and every diff-pinned criterion records its input-set counts
+- If reviewing Signoff anchors, exit criteria or Execution Input gates that enumerate outcomes: Read `references/gate-anchor-outcome-set.md` (Check 095) — enumerate the task's terminal branches first
+- If reviewing pinned `grep`, `diff`, `wc` or `awk` gates, or a gate pinned before its subject exists: Read `references/gate-command-semantics.md` (the four semantics traps and the dialect, boundary and window rules) and `references/gate-pinned-from-real-content.md` (was the gate run over the content it judges, and does a verdict grep copy the skeleton's bytes)
+- If reviewing a plan whose deliverable is a gate (guard, hook, linter, validation pass), or whose acceptance criteria cite a gate run as proof: Read `references/verification-gate-evidence.md` (the family index), then `references/gate-positive-and-mutation-controls.md` and `references/gate-fixture-provenance.md` — check that the gate was exercised in the direction that fires and that the reported proof states what its fixture set does not cover — and `references/gate-artifact-over-instrument.md` where a task's content is a live gate's subject (the dispatch brief pre-classifies the collision, §13)
+- If reviewing a citation sweep after a reference split, a gate over a generated path list or row count, a byte-preservation claim, a grader over a decision log or an exit code, or a proof run's scratch root or import order: Read `references/gate-old-home-citation-sweep.md`, `references/gate-generated-input-integrity.md`, `references/gate-script-output-assertions.md` and `references/gate-environment-inputs.md` as the plan's gates require
 - If a plan's Verification Commands assert a property of a diff (comment-only, no-logic-change, N-files-touched): Read `references/gate-baseline-independence.md` — check each named target is tracked, that no `git add -N` precedes such a gate, and that any baseline was recorded before the first edit (§5 is the pre-dispatch checklist)
 - If a plan's acceptance criteria, or a runner's status block, cite a match pattern, a count, or a diff filter as evidence: Read `references/gate-predicate-discrimination.md` — check the anchor was shown to move between a known-bad and the current state, that a negative claim rests on a query whose positive result would have been believed, and that no diff filter puts a character class immediately after `^[+-]`
-- If reviewing a DELEGATED-orchestration plan: Read all three parts of the DELEGATED dispatch discipline — `references/agent-orchestration-delegated.md` (§1.1–§1.13), `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` (§1.14–§1.22), and `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` (§1.23–§1.31). The orchestration checks draw on all three. Each part sits under the Read-tool page cap; the combined text does not, which is why it ships split.
+- If a plan's gates assert a count, a coverage ratio, an absence criterion, or an `N in = N out` balance: Read `references/gate-denominator-integrity.md` — check each denominator comes from outside the artifact it gates, each `no X survives` has a paired presence criterion over the full set, and no balance gate is asserted against a standing artifact (§5)
+- If reviewing a DELEGATED-orchestration plan: Read all three parts of the DELEGATED dispatch discipline — `references/agent-orchestration-delegated.md` (§1.1–§1.13), `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` (§1.14–§1.22), and `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` (§1.23–§1.32). The orchestration checks draw on all three. Each part sits under the Read-tool page cap; the combined text does not, which is why it ships split.
 - If the **effective** Token Saver value is `true` for the plan under review (its Master-Plan `Token Saver:` field over the project `context.token_saver` default — `get_effective_token_saver_config(config, plan_override)`): Read `references/task-content-fidelity.md` §9.A.8 (the Token Saver Large-File Ladder — source of truth for the [Token Saver Compliance Check](../references/review-classification.md#token-saver-compliance-check))
 - When citing Error Pattern Catalog rows during synthesis or in a finding's Fix field: Read `references/error-pattern-catalog.md` (on demand -- not loaded up front)
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
@@ -172,7 +177,7 @@ Runs on **both** paths, after Scale Detection and **before any reviewer is spawn
 python "{plugin_root}/scripts/lint_verification_gates.py" "{PlanPath}" > "{GateLintPath}"
 ```
 
-The plan tree is a single positional argument; there is no output-path flag, so stdout is redirected to `{GateLintPath}`. Add `--no-execute` to disable the read-only executor — that skips the two checks that decide by running a command and leaves the five static checks — when the plan tree sits on a slow or untrusted mount.
+The plan tree is a single positional argument; there is no output-path flag, so stdout is redirected to `{GateLintPath}`. Add `--no-execute` to disable the read-only executor — that skips the two checks that decide by running a command (Checks 1 and 7) and leaves the static checks — when the plan tree sits on a slow or untrusted mount.
 
 3. Read the exit code as a findings verdict, not a success flag:
 
@@ -184,7 +189,9 @@ The plan tree is a single positional argument; there is no output-path flag, so 
 
 Exit `1` and exit `2` are the **normal findings-present outcomes**. Neither is a failure of this step and neither halts the review — a linter that exits non-zero because it found something is doing its job. A plan tree that does not resolve also exits `2` but writes nothing, so a `2` over an empty findings file is the unavailable case below, not an ERROR case.
 
-4. If the script could not be run at all, or exit `2` produced no findings, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did.
+The first line of the findings file is always a `Coverage:` line. `Coverage: checked N of M gates; K refused.` means N gates ran and K were turned away by the read-only allowlist. A refused gate appears as an `[UNCERTAIN] Refusal` entry, not as a pass. Record the line in the report so a reader sees the denominator. `Coverage: NOT CHECKED` means gates exist and none ran: treat that case as **unavailable** (step 4).
+
+4. If the script could not be run at all, exit `2` produced no findings, or the first line starts `Coverage: NOT CHECKED`, continue the review with `{GateLintPath}` recorded as **unavailable** and say so in the report — the owning reviewer then derives its verification-gate findings by hand and states that it did. When only some gates were refused, the reviewer derives just those by hand.
 
 5. Pass `{GateLintPath}` into the spawn prompt of the reviewer that owns verification gates on the selected path: the No-Team Path's combined content reviewer, or the Team Path's Verification-Gate Reviewer.
 
@@ -305,8 +312,10 @@ Agent(
     Gate lint findings: {GateLintPath absolute path} -- mechanical verification-gate
     findings from scripts/lint_verification_gates.py, already measured against the live
     pre-edit tree. Read them and classify each one into your finding format rather than
-    re-deriving the same gates by hand. If the path reads `unavailable`, derive them
-    yourself and say explicitly that you did.
+    re-deriving the same gates by hand. The first line, `Coverage:`, says how many
+    gates the linter ran. An `[UNCERTAIN] Refusal` entry is a gate it did not run:
+    derive that gate yourself and say explicitly that you did. If the path reads
+    `unavailable`, derive them all yourself and say explicitly that you did.
     {DelegatedReviewBlock}
 
     Global numbering note: Spec numbers are assigned globally across all sprints.
@@ -589,8 +598,10 @@ Agent(
     Gate lint findings: {GateLintPath absolute path} -- mechanical verification-gate
     findings from scripts/lint_verification_gates.py, already measured against the live
     pre-edit tree. Read them and classify each one into your finding format rather than
-    re-deriving the same gates by hand. If the path reads `unavailable`, derive them
-    yourself and say explicitly that you did.
+    re-deriving the same gates by hand. The first line, `Coverage:`, says how many
+    gates the linter ran. An `[UNCERTAIN] Refusal` entry is a gate it did not run:
+    derive that gate yourself and say explicitly that you did. If the path reads
+    `unavailable`, derive them all yourself and say explicitly that you did.
     ...
 )
 ```

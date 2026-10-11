@@ -127,12 +127,13 @@ def test_abbreviation_is_backfilled_against_the_configured_mapping(tmp_path):
     assert report.state == "migrated", report.detail
     third = (backlog / "ITEM-003-INFRA-Third.md").read_text(encoding="utf-8")
     assert third.startswith("---\n") and "\nabbrev: INFRA\n" in third and "\nid: 003\n" in third
-    # Control: the same run against a mapping without INFRA refuses, so the
+    # Control: with INFRA unconfigured and a configured SMP cell, the cell wins over the file name, so the
     # assertion above rests on the configured keys, not on the file name alone.
-    cfg2, backlog2 = _project(tmp_path / "control")
+    control = legacy_index().replace("| Medium | NOT_STARTED | INFRA |", "| Medium | NOT_STARTED | SMP |")
+    cfg2, backlog2 = _project(tmp_path / "control", control)
     _write(backlog2.parent / "config.yaml", CONFIG.replace("  INFRA: Infrastructure and DevOps\n", ""))
-    refused = _migrate(cfg2)
-    assert refused.state == "refused" and "abbrev" in refused.detail, refused.detail
+    assert _migrate(cfg2).state == "migrated"
+    assert "\nabbrev: SMP\n" in (backlog2 / "ITEM-003-INFRA-Third.md").read_text(encoding="utf-8")
 
 
 def test_header_only_changelog_is_filled(tmp_path):
@@ -178,7 +179,7 @@ def test_ambiguous_unit_is_parked_in_the_ledger_not_appended(tmp_path, capsys):
     assert _snapshot(tmp_path) == after
 
 
-def test_parked_units_survive_a_crash_between_the_index_write_and_the_ledger_write(tmp_path, monkeypatch):
+def test_parked_units_survive_a_crash_between_the_index_write_and_the_ledger_write(tmp_path, monkeypatch, capsys):
     cfg, backlog = _project(tmp_path, legacy_index(f"{TITLE}. {AMBIG}"), body1=AMBIG_BODY)
     ledger_path = backlog / "00-Index-Backlog-Migration-Ledger.json"
 
@@ -194,18 +195,28 @@ def test_parked_units_survive_a_crash_between_the_index_write_and_the_ledger_wri
     journal = json.loads(mig.read_text(ledger_path))
     assert journal["mode"] == sup.JOURNAL_MODE
     assert [(p["row"], p["unit"]) for p in journal["parked_ambiguous"]] == [("001", AMBIG)]
-    # A rerun must not regenerate over it: it refuses, names the journal, and touches nothing.
-    before = _snapshot(tmp_path)
+    # A rerun must not regenerate over it: it renames the journal to a dated sibling, keeps every byte
+    # of it, logs the rename, and finishes the migration.
+    journal_bytes = ledger_path.read_bytes()
+    # Why the parked unit cannot be re-derived: the crashed run already replaced the index, so the plan is None.
+    config = config_loader.load_config(Path(bm.__file__), config_path=backlog.parent / "config.yaml")
+    text = mig.read_text(backlog / INDEX)
+    assert mig.plan_migration(config, backlog / INDEX, text, sup.classify_shape(text)[1],
+                              mig.RepairOptions.unattended()) is None
     again = _migrate(cfg)
-    assert again.state == "refused", again.detail
-    assert ledger_path.name in again.detail and "1 parked unit(s)" in again.detail
-    assert again.fix.startswith("keep that file: rename it")
-    assert _snapshot(tmp_path) == before
-    # Following the fix finishes the migration and keeps the renamed journal.
-    kept = ledger_path.with_name(f"{ledger_path.stem}-Interrupted.json")
-    ledger_path.rename(kept)
-    assert _migrate(cfg).state == "migrated"
-    assert AMBIG in kept.read_text(encoding="utf-8")
+    assert again.state == "migrated", again.detail
+    kept = ledger_path.with_name(f"{ledger_path.stem}-Interrupted-{mig._today()}.json")
+    assert kept.read_bytes() == journal_bytes and AMBIG in kept.read_text(encoding="utf-8")
+    assert again.counts["journal_renamed_to"] == str(kept)
+    note = json.loads(mig.read_text(ledger_path))
+    assert note["mode"] == "journal-renamed" and note["journal_renamed_to"] == str(kept)
+    assert note["parked_units_in_journal"] == 1 and "remain verbatim in the renamed journal and need review" in note["note"]
+    assert "re-derived" not in note["note"].replace("did not re-derive", "")
+    bm._emit_backlog_migration_banner(again)
+    assert f"    interrupted journal:    renamed to {kept}; its 1 parked unit(s) remain there and need review" in capsys.readouterr().out
+    rows = (_pair(cfg) / "DISPOSITIONS.md").read_text(encoding="utf-8")
+    assert f"interrupted journal renamed from {ledger_path.name}; pre-image at upgrade-backups/1.0-to-1.1/backlog/" in rows
+    assert (_pair(cfg) / "backlog" / ledger_path.name).read_bytes() == journal_bytes
 
 
 def test_standalone_cli_still_refuses_an_ambiguous_unit_by_default(tmp_path):
@@ -260,6 +271,38 @@ def test_every_newly_created_file_gets_a_created_disposition_row(tmp_path):
         assert "created; no pre-image" in row, row
     for path in (Path(p).resolve() for p in report.written if Path(p).resolve() in existed):
         assert not any("created; no pre-image" in r for r in rows[path]), rows[path]
+
+
+def test_banner_names_relocated_index_lines(tmp_path, capsys):
+    preamble, note = "Intro prose before the heading.", "> note: keep the sprocket ids stable."
+    index = "# Backlog\n\n" + preamble + "\n\n" + legacy_index().replace(
+        "Partial.md) |\n\n## Dependencies", f"Partial.md) |\n\n{note}\n\n## Dependencies")
+    assert note in index
+    cfg, backlog = _project(tmp_path, index)
+    report = _migrate(cfg)
+    bm._emit_backlog_migration_banner(report)
+    banner = capsys.readouterr().out
+    assert report.state == "migrated", report.detail
+    ledger = json.loads(mig.read_text(report.ledger_path))
+    size = len(preamble.encode("utf-8")) + len(note.encode("utf-8"))
+    assert sorted(r["bytes"] for r in ledger["relocated_index_lines"]) == sorted([len(preamble), len(note)])
+    line = f"    relocated index lines:  2 ({size} bytes) into {ledger['changelog']['path']}"
+    assert line in banner.splitlines(), banner
+    assert ledger["changelog"]["unaccounted"] == 0
+    log = (backlog / "00-Changelog-Backlog.md").read_text(encoding="utf-8")
+    assert preamble in log and note in log and "Relocated index text (migrated " in log
+
+
+def test_unknown_owner_bullet_relocates(tmp_path):
+    bullet = BULLET.replace("002", "099", 1)
+    cfg, backlog = _project(tmp_path, legacy_index().replace(BULLET, bullet))
+    report = _migrate(cfg)
+    assert report.state == "migrated", report.detail
+    ledger = json.loads(mig.read_text(report.ledger_path))
+    assert [r["kind"] for r in ledger["relocated_index_lines"]] == ["unknown-owner bullet"]
+    log = (backlog / "00-Changelog-Backlog.md").read_text(encoding="utf-8")
+    assert f"(unknown-owner bullet): {bullet}" in log
+    assert ledger["changelog"]["unaccounted"] == 0 and ledger["verification"]["verified"] is True
 
 
 def test_unrecognized_shape_is_reported_and_untouched(tmp_path):
@@ -393,6 +436,42 @@ def test_banner_names_each_state(capsys, state, headline):
         assert "  fix:    do this" in out and "then re-run /planwise upgrade" in out
     if state == "migrated":
         assert "generator --check:      clean" in out and "git tree was dirty:     no" in out
+
+
+def test_backlog_deferred_fix_names_no_flag(tmp_path):
+    cfg, _backlog = _project(tmp_path)
+    report = _migrate(cfg, defer_legacy=True)
+    assert report.state == "deferred", report.detail
+    assert report.fix and "--" not in report.fix
+
+
+def test_refused_fix_line_names_an_edit(tmp_path):
+    # Rows 001 and 002 block each other, and item 002's own frontmatter blocks 001: a reciprocal pair.
+    header = "| ID | Feature | Priority | Status | Abbrev | Blocks | Files |\n|---|---|---|---|---|---|---|\n"
+    rows = (f"| 001 | {TITLE}. {DUP} | High | NOT_STARTED | SMP | 002 | [001](001-Sample.md) |\n"
+            f"| 002 | {TITLE} | High | NOT_STARTED | SMP | 001 | [002](Archive/ITEM-002-SMP-Other.md) |\n"
+            "| 003 | Third item | Medium | NOT_STARTED | INFRA |  | [003](ITEM-003-INFRA-Third.md) |\n"
+            "| 004 | Partial item | Low | NOT_STARTED | SMP |  | [004](ITEM-004-SMP-Partial.md) |\n")
+    cfg, backlog = _project(tmp_path, f"## Backlog Items\n\n{header}{rows}\n---\n\n{FOOTER}")
+    _write(backlog / "Archive" / "ITEM-002-SMP-Other.md", item_text("002", "Other item.", blocks="[001]"))
+    report = _migrate(cfg)
+    assert report.state == "refused" and "reciprocal" in report.detail, (report.state, report.detail)
+    assert "remove the other item's id" in report.fix
+    assert "remove the other item's id" not in report.detail
+
+
+def test_answers_edge_drops_reach_the_migrator(tmp_path):
+    header = "| ID | Feature | Priority | Status | Abbrev | Blocks | Files |\n|---|---|---|---|---|---|---|\n"
+    rows = (f"| 001 | {TITLE}. {DUP} | High | NOT_STARTED | SMP | 002 | [001](001-Sample.md) |\n"
+            f"| 002 | {TITLE} | High | NOT_STARTED | SMP | 001 | [002](Archive/ITEM-002-SMP-Other.md) |\n"
+            "| 003 | Third item | Medium | NOT_STARTED | INFRA |  | [003](ITEM-003-INFRA-Third.md) |\n"
+            "| 004 | Partial item | Low | NOT_STARTED | SMP |  | [004](ITEM-004-SMP-Partial.md) |\n")
+    cfg, backlog = _project(tmp_path, f"## Backlog Items\n\n{header}{rows}\n---\n\n{FOOTER}")
+    _write(backlog / "Archive" / "ITEM-002-SMP-Other.md", item_text("002", "Other item.", blocks="[001]"))
+    report = _migrate(cfg, answers={"edge_drops": ["002->001"]})
+    assert report.state == "migrated", (report.state, report.detail)
+    assert "blocks: [002]" in (backlog / "001-Sample.md").read_text(encoding="utf-8")
+    assert "blocks: []" in (backlog / "Archive" / "ITEM-002-SMP-Other.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("state", ["absent", "generated"])

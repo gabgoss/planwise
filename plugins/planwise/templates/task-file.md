@@ -207,6 +207,12 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
      here as an explicit checklist. State that the post-dispatch acceptance step greps the
      produced file for these headings/columns before accepting it. -->
 
+### References Moved That May Now Be False (Required when the task moves or splits text)
+
+Where the task moves, splits or relocates text (a module split, a file move, a section relocation), the output MUST carry a short slot named "references I moved that may now be false". List each comment, docstring or prose pointer the task moved but did not fix, in the form `{symbol or location} — "{quoted text}" — {why it may now be false}`. Write `none` when there are none. A blank slot reads as work not done.
+
+The later stale-reference sweep task lists this slot in its `## Required Context` and seeds each entry as a candidate, in addition to its own search terms (per `references/dispatch-edit-surface-sweep.md` §11). Route the entries through the Recovery file's `## Cross-Task Coordination Flags` table, with the sweep task as the Downstream Consumer.
+
 ---
 
 ## Verification Commands <!-- CONDITIONAL — required if task touches code, tests, or schemas -->
@@ -221,7 +227,7 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > ```
 > {cmd_after_1}    # e.g., {lint-cmd} on files from git diff $..._BASE -- <paths> (expect: pass)
 > # pre-edit: {measured value} → expect {post-edit expectation}
-> {cmd_after_2}    # e.g., {test-cmd} or specific test
+> {cmd_after_2}    # e.g., {test-cmd} on this task's own test files — never the whole suite per task
 > # pre-edit: {measured value} → expect {post-edit expectation}
 > {cmd_after_3}    # e.g., {test-cmd} on the touched module
 > # pre-edit: {measured value} → invariant: {value}   (mark invariant only if this gate must NOT move)
@@ -257,7 +263,7 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > recorded once — by the sprint's first task that touches the repo, in Recovery Key
 > Findings, before that task's first edit — behind a clean-scope precondition
 > (`git status --porcelain -- <write paths>` empty, else HALT). See
-> `references/verification-gates.md` §8 for the full rule; this block states the
+> `references/gate-diff-baseline-pinning.md` §8 for the full rule; this block states the
 > requirement, the reference carries the doctrine.
 >
 > WRONG — no operand, so the command reads the entire working tree:
@@ -279,8 +285,11 @@ Ambiguous copy-paste of helpers without enumeration = BLOCKER at `/planwise revi
 > must NOT move (a count a refactor must preserve, a block that must survive untouched) is
 > exempt from this finding, but only when marked `invariant:` in place of `expect` on the
 > annotation line — an unmarked gate whose pre-edit value already satisfies `expect` is not
-> exempt, whatever the surrounding prose claims. See `references/verification-task-authoring.md`
+> exempt, whatever the surrounding prose claims. See `references/gate-pre-edit-baseline.md`
 > §10 for the full doctrine; this block states the requirement, the reference carries the rule.
+> A per-task gate measures the files its task touches. Measure a whole-suite or whole-repo
+> baseline once per plan and reuse it with its tree identity recorded. See
+> `references/gate-pre-edit-baseline.md` §10.1.1.
 >
 > WRONG — the expectation stands alone; nothing records what the value was before the edit:
 > ```bash

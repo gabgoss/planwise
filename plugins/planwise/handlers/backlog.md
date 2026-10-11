@@ -9,6 +9,9 @@
 - `--abbrev APP` — filter by domain abbreviation
 - `--status IN_PROGRESS` — filter by status
 - `--no-check` — skip both Phase 1 item-file audits, archival drift and body status lines (fast triage)
+- `--loop-resume <run-id>` — re-enter a loop run after the hooks module compacts the session; skips the loop questions and processes exactly one item
+
+Loop mode is offered by Q1 on every interactive no-args run. The full contract is in `handlers/backlog-Part-2-LoopMode.md`.
 
 ---
 
@@ -70,10 +73,13 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - If resolving a BLI cluster (≥ 2 BLIs same Surfaced by + created): Read `references/verify-against-shipped-artifact.md`
 - For the backlog index format, item file schema, scoring formula, script interfaces, status flow, or error handling: Read `references/backlog-schema.md`
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
+- In loop mode, or on `--loop-resume`: Read `handlers/backlog-Part-2-LoopMode.md`
 
 ---
 
 ## Phase 1: FETCH
+
+> [!gate] Index shape gate — run first, before any write: run `index_shape_preflight.py` as [`index-shape-gate.md`](../references/index-shape-gate.md) directs <!-- AUTO-MODE: critical -->
 
 **Check the generated index against item frontmatter, then parse it:**
 
@@ -83,9 +89,9 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 ```
 
 - `--check` computes each Score cell the same way `--write` would (8 configurable factors, weights from `config.yaml`, a blocker bonus per blocked item) — there is no separate scoring call. Exit `0` is clean. Exit `1` names drift or an anomaly on stderr; a `stale-score` report alone never causes exit `1` and needs no action. Exit `2` means the generator refused an item file it cannot render — a missing required key, an unresolvable `blocks:` id, a row whose token budget cannot be met — **or a hand-authored (legacy) index**. Show the `Error:` line on stderr to the user verbatim, and stop before ranking: the index cannot be trusted until the named item file is fixed.
-  - If it prints a stderr `Warning: title truncated …` or `Anomaly: …` line, surface it to the user verbatim rather than swallowing it — the same discipline this handler applied to the retired `score_backlog.py` shortfall warning transfers to the generator's own warnings; it means the displayed ranking may not match what the item files actually say.
+  - If it prints a stderr `Warning: N title(s) truncated to 120 chars (items: …)` line or an `Anomaly: …` line, surface it to the user verbatim. An `Anomaly:` line means the displayed ranking may not match what the item files actually say. The truncation warning is one line per run that lists every affected item id. The full title stays in the item file, and only the index row is shortened.
 
-- If the exit-2 `Error:` line contains `hand-authored index`, the index has not been migrated to the generated format. Print that line to the user verbatim, tell them to run `/planwise upgrade` (it migrates the index automatically, with backups), and STOP — do not proceed to Phase 2 while the index is hand-authored.
+- If the exit-2 `Error:` line contains `hand-authored index`, the Index shape gate above was bypassed. Print that line verbatim, run the gate (it runs the `/planwise upgrade` migration, with backups), and STOP unless the user migrates — do not proceed to Phase 2 while the index is hand-authored.
 - If the exit-2 `Error:` line says the index has an `unrecognized index shape`, `/planwise upgrade` will not migrate it either. Print that line to the user verbatim, point them at the `migrate_backlog_index.py --config {planwise_root}/config.yaml --report` command it names to see why, and STOP.
 - `parse_backlog.py` reads the backlog index at `{backlog_dir}/{backlog_index}`
 - Outputs a formatted table of **selectable** items (excludes COMPLETE, CLOSED, and items blocked by open dependencies)
@@ -103,25 +109,27 @@ python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.ya
 
 **Detect archival drift (always-on unless `--no-check`):**
 
-This is a second, narrower audit than `--check` above, and the two do not overlap. `--check` renders each row from wherever an item's file actually sits, so it never flags an unmoved file as wrong. What it cannot catch is a COMPLETE/CLOSED item whose file never got physically moved into `Archive/` — that move is `update_backlog.py`'s job when the status transition happens (Phase 6), but an item that reaches a closed status by another path (a session closeout that hand-edits the frontmatter directly) leaves the file stranded in the top-level backlog dir, and nothing on the read side heals it. This audit reads each item file's frontmatter status and location, never the index, so it sees a stranded file on a generated index too.
+This audit is narrower than `--check` above and does not overlap it. `--check` renders each row from wherever an item's file sits, so it never flags an unmoved file. It cannot catch a COMPLETE/CLOSED item whose file never moved into `Archive/`. `update_backlog.py` makes that move at the status transition (Phase 6), but an item that reaches a closed status another way (a closeout that hand-edits the frontmatter) leaves the file stranded in the top-level backlog dir. This audit reads each item file's frontmatter status and location, never the index, so it sees a stranded file on a generated index too.
 
-**`--no-check` skips this archival audit and the body-status audit below.** The `--check` call above is unconditional, the same as the `score_backlog.py` call it replaces.
+**`--no-check` skips this archival audit and the body-status audit below.** The `--check` call above is unconditional.
 
 **If `--no-check` is present:** skip this step and the body-status step below (a fast triage), and go straight to displaying the table.
 
-Otherwise, run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) against the **backlog** index (`reconcile_backlog.py`, banner `planwise backlog — backlog index archival drift audit`) — the JSON shape, banner format, and write-on-consent reconcile flow (including the consent prompt) all live there. This is the read-side counterpart of `/planwise list` Step 2's plans-index drift check, and the same detect pass `/planwise doctor` Stage 12 reuses; none re-implements another's comparison.
+Otherwise, run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) against the **backlog** index (`reconcile_backlog.py`, banner `planwise backlog — backlog index archival drift audit`) — the JSON shape, banner format, and write-on-consent reconcile flow (including the consent prompt) all live there. This is the read-side counterpart of `/planwise list` Step 2's plans-index drift check, and the same detect pass `/planwise doctor` Stage 12 reuses.
 
-The consented `--write` moves item files into `Archive/` and never writes the index. If it moved a file, run `generate_backlog_index.py --config {planwise_root}/config.yaml --write` so the index links follow the moved files. Then re-run Phase 1's parse so this same invocation shows the regenerated index. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
+The consented `--write` moves item files into `Archive/` and never writes the index. If it moved a file, run `generate_backlog_index.py --config {planwise_root}/config.yaml --write` so the index links follow the moved files. Then re-run Phase 1's parse so this same invocation shows the regenerated index. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
 
 **Detect body status lines (always-on unless `--no-check`):**
 
-This pass is separate from the archival one because it audits what an item file says, not where the file sits. An older item writer can leave a `**Status:**` line under an item's title, a second copy of the frontmatter `status:` that nothing keeps in sync. A file in the right place can still carry that stale line, so neither `--check` nor the archival audit sees it.
+This pass audits what an item file says, not where the file sits. An older item writer can leave a `**Status:**` line under an item's title, a second copy of the frontmatter `status:` that nothing keeps in sync. A file in the right place can still carry it, so neither `--check` nor the archival audit sees it.
 
 ```bash
 python {plugin_root}/scripts/reconcile_backlog.py --config {planwise_root}/config.yaml --body-status --json
 ```
 
 Run the index-drift audit procedure in [`references/index-drift-audit.md`](../references/index-drift-audit.md) with the body-status binding (banner `planwise backlog — backlog item body-status drift audit`). The [Backlog item body status](../references/index-drift-audit.md#backlog-item-body-status--reconcile_backlogpy---body-status) binding carries the detect flow, the anomaly classes, the consent prompt and the `--body-status --write` run. This is the same detect pass `/planwise doctor` Stage 19 runs. A consented strip changes no frontmatter, so no index regeneration follows it.
+
+**On `--loop-resume`:** skip both drift audits above (they ran once at init). The `--check` call and the parse still run.
 
 Display the table to the user.
 
@@ -142,6 +150,16 @@ Display the table to the user.
   - User can select one or more, or type a custom ID
   - Do NOT offer blocked items — they cannot be worked until their blockers are resolved
 
+**Loop questions (interactive, no `$1`, not `--loop-resume`).** Read `handlers/backlog-Part-2-LoopMode.md` § The three questions for the wording. Ask Q1 first, then Q2, then Q3 in `specific` mode only. Then run `backlog_loop.py --init`.
+<!-- AUTO-MODE: convenience -->
+<!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Loop opt-in (backlog.md Phase 2 Q1)". -->
+- Q1 — loop through the backlog this run? (default: No, single session)
+<!-- AUTO-MODE: convenience -->
+<!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Loop mode / count (backlog.md Phase 2 Q2)". -->
+- Q2 — which items should the loop cover? (all / specific / top N)
+
+**On `--loop-resume`:** ask nothing. Run `backlog_loop.py --next --run {run-id}` and read its JSON line. Exit 3 means a halted item, so follow Part 2 § Resume model. Exit 2 means the run file is gone, so continue as a normal single-item run.
+
 **For each selected item**, update status to IN_PROGRESS. After the last one, regenerate the index once:
 
 ```bash
@@ -149,7 +167,9 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write                        # once, after the loop
 ```
 
-`--status` writes frontmatter only; a non-zero `--write` exit does not undo it — fix what it names and re-run `--write`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
+In loop mode only the one popped item is set IN_PROGRESS. After that write, run `python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --phase selected --run {run-id} --id {item_id}`.
+
+`--status` writes frontmatter only; a non-zero `--write` exit does not undo it — fix what it names and re-run `--write`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
 
 ---
 
@@ -188,6 +208,7 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
       - No hint → the script vector alone.
 
       Never adopt a stored hint bare, and never skip a gate because a route is already stored: a stored route is a dated claim about the repository and rots like every other claim.
+   In loop mode, re-run `--route --id` anyway and note any divergence from the run's `route_at_init` in `Reason:`.
    d. Override the script's route only on a signal it cannot see — a keyword hit you read and classified as self-quotation, edit evidence you judged insufficient, a `##` count inflated by appended coordination flags — and name that signal in `Reason:`. Carry the script's `LARGE_SCOPE` forward unchanged when the route stays C.
 
 <!-- AUTO-MODE: critical — discharged by auto-escalation, not by a prompt. See step 7's Auto Mode paragraph. -->
@@ -210,6 +231,8 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
    decision cannot be inferred, and the Phase-5 mechanical gate cannot backstop it — a
    misplaced-but-valid file builds clean and leaks nothing, so nothing downstream would
    report the error.
+
+   In loop mode a conflict is a documented skip (Part 2 § Documented skip), never an escalation to Route C.
 
 8. Present the scope assessment to the user:
 
@@ -260,6 +283,8 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 - Option 2: Alternative route
 - Option 3: Skip this item
 
+**In loop mode:** ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (Part 2 § Documented skip), with a `--decision` text that starts `LOOP: re-assessed to Route C`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`. Every other decision point follows Part 2 § No questions after setup.
+
 ### Route A: Direct Fix (fix-agent delegation)
 
 For bugs and targeted fixes with clear scope:
@@ -283,6 +308,8 @@ Task {
     Cross-cutting audit candidates (in-scope by default): {list extracted from BLI cross-cutting sections, or "none identified" if absent}
 }
 ```
+
+A backlog item whose deliverable edits the permission configuration is not a Route A item. See references/backlog-triage-pivot-detection.md, section "A Permission-Change Deliverable Is Not Agent-Executable".
 
 **Result handling:**
 - If fix-agent returns status FIXED → proceed to Phase 5 (verify + approve)
@@ -400,6 +427,8 @@ directly with item scope only."
 
    If a hit needs repointing, return it to the fix-agent (Route A) or open a follow-up task (Route B) requesting the shell command be repointed. Do NOT proceed to step 4 with unrepointed hits outstanding.
 
+In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 4 and step 5: all gates passing means COMPLETE, and a failing gate is a documented skip that reverts nothing (Part 2 § No questions after setup).
+
 <!-- AUTO-MODE: critical -->
 4. Use `AskUserQuestion`:
    - **Approve** — Accept changes, mark COMPLETE
@@ -414,6 +443,7 @@ directly with item scope only."
 **After Route B (Task List):**
 1. Verify all tasks are marked completed
 2. Show summary of changes made
+   In loop mode, before step 3 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 3: every task completed means COMPLETE, and any other state is a documented skip.
 <!-- AUTO-MODE: critical -->
 3. Use `AskUserQuestion`: Approve (COMPLETE) or Revert (NOT_STARTED)
 
@@ -443,21 +473,23 @@ directly with item scope only."
 python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status "{new_status}"
 ```
 
+**In loop mode,** after the `update_backlog.py --status` call, record the outcome with `backlog_loop.py --mark --outcome {COMPLETE|NOT_STARTED|SKIPPED} --run {run-id} --id {item_id}`. Approved or task list done maps to COMPLETE, reverted or planner blocked to NOT_STARTED, skipped to SKIPPED (see Part 2 § Per-iteration contract).
+
 **Regenerate the index once after status changes** (skip if outcome was "Skipped" — nothing changed):
 
 ```bash
 python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
 ```
 
-`--write` rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. Exit `0` is clean. Exit `1` is unexpected — record it and keep going. Exit `2` means it refused and wrote nothing; the item's frontmatter is still correct, so fix what it names and re-run `--write` rather than repeating `--status`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
+`--write` rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. Exit `0` is clean. Exit `1` is unexpected — record it and keep going. Exit `2` means it refused and wrote nothing; the item's frontmatter is still correct, so fix what it names and re-run `--write` rather than repeating `--status`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
 
 **Automatic archival:** When status is set to COMPLETE or CLOSED, `update_backlog.py` automatically moves the item file(s) to the Archive/ directory within `{backlog_dir}`. It no longer repoints the index link itself — the `--write` run above does that, because it renders each row from wherever the file actually lives.
 
-**Twin-plan reconciliation (run when the outcome is COMPLETE/CLOSED):** If this item shipped deliverables that a live plan was authored to produce, retire that twin plan in the **same** closeout. A plan's status fields are written only by session closeout (`/planwise run`), and the plans index is regenerated from them with `generate_plans_index.py --write`; a plan whose deliverables were instead satisfied through this backlog route is written nowhere, so it is left live and independently runnable — and a later `/planwise run` will accept it and re-execute idempotency-unsafe steps ("append N rows", "insert at max+1", "add the next check number") against already-satisfied state, corrupting it.
+**Twin-plan reconciliation (run when the outcome is COMPLETE/CLOSED):** If this item shipped deliverables that a live plan was authored to produce, retire that twin plan in the **same** closeout. Only session closeout (`/planwise run`) writes a plan's status fields, so a plan satisfied through this backlog route stays live and runnable, and a later `/planwise run` re-executes idempotency-unsafe steps ("append N rows", "insert at max+1") against already-satisfied state.
 
 > [!constraint] Retire or link the twin plan at backlog closeout
 > 1. **Detect the twin.** Grep the plans index (`{plans_dir}/{plans_index}`) and the Master Plans under `{plans_dir}/**` for a plan that names the same deliverables — or targets the same files — this item just shipped.
-> 2. **Reconcile it in this closeout.** For each twin found, set its Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{item_id} {route} {date})` (and the Master Plan's footer date), then run `generate_plans_index.py --write` (exit 2 means the index is still hand-authored or unrecognized, and nothing was written: tell the user to run `/planwise upgrade`, which migrates it, and to use `migrate_plans_index.py --report` if upgrade reports it unrecognized) — OR explicitly link the two so the plan is not independently runnable.
+> 2. **Reconcile it in this closeout.** For each twin found, set its Master Plan / sprint / orchestration `Status: COMPLETE (superseded — shipped via BB-{item_id} {route} {date})` (and the Master Plan's footer date), then run `generate_plans_index.py --write` (exit 2 wrote nothing; print the `Error:` line verbatim: `hand-authored plans index` means the Phase 1 Index shape gate was bypassed, so run it; `neither a hand-authored nor a generated` means point the user at `migrate_plans_index.py --report`; `over the … -token budget` means tell the user to shard or shorten the index) — OR explicitly link the two so the plan is not independently runnable.
 > 3. **If you cannot reconcile now, do not leave it silently runnable** — record the twin plan and the blocker so a later closeout retires it.
 >
 > WRONG — close the item, leave the twin plan alone → `/planwise run` starts it → a task step "append N rows" runs against rows that already exist → N duplicate rows, or a duplicate `## N` section colliding with the shipped one.
@@ -474,11 +506,13 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 > 003 | Add user profile page                | Skipped       | IN_PROGRESS
 > ```
 
+In loop mode this prints the one row of the session. The cross-run table comes from `--end`, which Phase 9 triggers at the last item.
+
 ---
 
 ## Phase 7: FOLLOW-UP BLI CAPTURE
 
-After closing all triaged items, auto-surface actionable recommendations from resolution Outputs as candidate backlog items.
+After closing the triaged items of this session (one, in loop mode), auto-surface actionable recommendations from resolution Outputs as candidate backlog items.
 
 ### Step 7.1: Grep Resolution Outputs
 
@@ -526,6 +560,8 @@ Present each candidate to the user with the auto-recommendation heuristic:
 > Originating item: {BLI-NNN-..}
 > ─────────────────────────────────────────────
 > ```
+
+**In loop mode:** ask nothing, file nothing, and print each candidate in the iteration summary. Skip the rest of Step 7.
 
 <!-- AUTO-MODE: convenience -->
 <!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Follow-up candidate filing (backlog.md Phase 7)". -->
@@ -603,7 +639,7 @@ Task {
    ```bash
    python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
    ```
-   The generator rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's stop was bypassed — run `/planwise upgrade`.
+   The generator rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
 
 ### Step 7.4: Output Summary
 
@@ -623,13 +659,15 @@ When the number of items filed differs from the number of candidates surfaced, n
 
 ## Phase 8: LESSON CAPTURE
 
-After closing all triaged items, prompt for lessons learned.
+After closing the triaged items of this session (one, in loop mode), prompt for lessons learned.
+
+**In loop mode:** ask nothing. Decide whether the iteration surfaced a lesson, file it when it did, and record the ids with `backlog_loop.py --mark --lessons`. Follow `handlers/backlog-Part-2-LoopMode.md` § Phase 8 in loop mode, then continue to Phase 9.
 
 <!-- AUTO-MODE: convenience -->
 <!-- Default: per references/auto-mode-policy.md § Inference Defaults, row "Lessons capture acknowledgment". -->
 **Ask the user:** "Were any lessons learned during this triage session? (y/n)"
 
-**If no:** Skip this phase and finish.
+**If no:** Skip this phase; in loop mode continue to Phase 9, otherwise finish.
 
 **If yes:** Derive the next ID with `python {plugin_root}/scripts/parse_lessons.py --config {planwise_root}/config.yaml --next-id`; take the lesson file template from `templates/lesson.md`. Create a lesson file at `{lessons_dir}/LL-{NNN}-{Domain}-{Name}.md`; run the generator; append the changelog entry.
 
@@ -640,6 +678,28 @@ After closing all triaged items, prompt for lessons learned.
 | `triage-routing` | Routing decision was non-obvious | "Item appeared simple but required planning due to cross-cutting dependencies" |
 | `scope-assessment` | Scope signals were misleading | "Bug keyword but actual issue was architectural" |
 | `resolution-outcome` | Fix succeeded or failed in a noteworthy way | "Direct fix worked but revealed a related issue" |
+
+---
+
+## Phase 9: LOOP BOUNDARY
+
+Loop mode only. Skip this phase in a single-session run. Run:
+
+```bash
+python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --boundary --run {run-id}
+```
+
+Print its stdout. Copy the line that starts `BACKLOG LOOP:` (or the JSON `marker` field) verbatim. That line MUST be the last line of the final message. Ask no question and write no sentence after it. When remaining is 0, write `Loop complete.` above it. See `handlers/backlog-Part-2-LoopMode.md` § The marker.
+
+> [!constraint] The marker is the last line of the final message
+> WRONG — a paraphrased marker, or any text after it:
+> ```
+> Item 004 is done, 2 items remain. Shall I continue?
+> ```
+> CORRECT — the verbatim `--boundary` line, last:
+> ```
+> BACKLOG LOOP: run=20261007-141502 done=004 remaining=2 state=C:/proj/planwise/Backlog/Backlog-Runs/20261007-141502.json
+> ```
 
 ---
 
@@ -697,7 +757,7 @@ ELSE:
 
 3. Present recommendation via AskUserQuestion (include LARGE_SCOPE in the Scope
    Assessment Block when Route = SESSION_PLANNING)
-4. User can override to any route or skip. If the user overrides TO Route C from a
+4. User can override to any route or skip (except in loop mode, where C is not selectable). If the user overrides TO Route C from a
    different recommended route, LARGE_SCOPE defaults to false (a manual override is,
    by construction, not a signal-driven large-scope match) unless the strong-signal
    conditions above independently hold.

@@ -1,5 +1,5 @@
 ---
-description: Required Context fidelity — measured estimates, freshness across file splits, bytes-per-token ratios, and the Token Saver large-file ladder — for planwise task files
+description: Required Context fidelity — measured estimates, freshness across file splits, bytes-per-token ratios, the Token Saver large-file ladder, and giving a copy or quote task every source it quotes from — for planwise task files
 ---
 
 # Task Content Fidelity
@@ -624,6 +624,36 @@ Two of the scan's outputs are decisions rather than documentation, which is why 
 
 **Token figures come from bytes, never from lines.** The scan defines no band of its own; it delegates to `classify_file`, which computes `bytes ÷ the reading model's bytes-per-token ratio`. Measured per-line rates range 7–365 tokens/line depending on content, so a per-line model under-reports worst on exactly the dense index files the scan exists to catch.
 
+### 9.A.16 Give the copier every source a quote comes from
+
+A task that asks a runner to copy, quote or transcribe recorded content has a second contract besides its Required Context budget. Every quote must come from a source the runner can read. The gap between "quote this" and "you may not read where it is recorded" is where a fluent approximation appears.
+
+> [!constraint] Reconcile the list of quote sources against Required Context before dispatch
+> **Rule.** A task that asks for a verbatim copy must carry the source of every quote in its Required Context. Widen Required Context at scaffold or dispatch time when a quote's source is known to sit outside it.
+>
+> A documentation task told its runner to quote a hook's mutated-direction output and the installed settings block. Both were recorded in an earlier task's Output file. The documentation task's Required Context did not list that file. The runner could not read the source it was told to copy from. It composed a plausible block from the message template in the brief. The invention passed every structural gate: all required headings, a clean file-measure gate and a two-line index diff.
+>
+> Three operative points:
+>
+> 1. **Record the source file next to each quote the brief names.** Reconcile that list against Required Context before dispatch. A source missing from Required Context is a defect in the task, not in the runner.
+> 2. **Write the per-quote acceptance criterion into the brief itself.** For example: "Every quote traces to a line in `<output-file>`. A command with no recorded output is not pinned. A missing output is written as `(not recorded in <output-file> — run it and paste the output)`." The orchestrator checks it with the per-quote search in [verify-verdict-source.md](verify-verdict-source.md) §10.
+> 3. **When the quote's source cannot be added, direct the runner to write the stock gap line.** Do not leave it to reconstruct the content.
+>
+> WRONG — the brief demands verbatim quotes and hides their source:
+> ```
+> Required Context: <template>, <spec>
+> Brief: "Quote every command's output verbatim from <output-file>."
+> → the runner cannot read <output-file>, so it composes the quote
+> ```
+> CORRECT — every quote source is readable, and the gap line is named:
+> ```
+> Required Context: <template>, <spec>, <output-file>
+> Brief: "Every quote traces to a line in <output-file>. A missing output is written as
+> `(not recorded in <output-file> — run it and paste the output)`."
+> ```
+
+**Applies to** any task that quotes, copies or transcribes recorded content: READMEs, runbooks, reports and changelogs. §9.A.1 covers updating Required Context when a prior task changes file structure. This subsection covers the case where the structure is unchanged and the source was never listed.
+
 ---
 
 ## Plan-Review Enforcement Summary
@@ -643,6 +673,7 @@ The structural and content reviewers in `/planwise review` MUST surface BLOCKING
 | 9 | Assertion label and validation cell not 1:1 | A task file enumerating validation cells carries no assertion-label ↔ cell-ID table; or a label appears twice within one task file; or one label's assert-vs-report disposition differs between two files | §9.A.13 |
 | 10 | Required Context row not measured at row grain | A row disagrees with a live measurement of the span it cites while a sibling row is measured; or a `§` span row carries no resolution; or a command-corpus row was never dry-run; or a size adjective stands in place of a number | §9.A.14 |
 | 11 | Large-file scan hand-reproduced | `context.token_saver: true` AND a task carries a `⚠ PAGED` / `⚠ REFACTOR` annotation with no recorded scan run behind it; or the Step 8c checklist item is ticked with no exit code recorded | §9.A.15 |
+| 12 | Quote source outside Required Context | A task brief demands a verbatim copy or quote of recorded content, and a source file the brief names for any quote is absent from the task's Required Context | §9.A.16 |
 
 For the Verify-Before-Cite checks (§9.B: cited-artifact verification, field-name drift, facade re-export, upsert column-presence, Schema Pin / Pre-SQL verification), see [verify-before-cite.md](verify-before-cite.md)'s Plan-Review Enforcement Summary.
 

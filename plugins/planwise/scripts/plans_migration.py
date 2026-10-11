@@ -10,7 +10,8 @@ never repeats:
 - `legacy` (hand-authored): plan every move in memory, back up each file the
   plan rewrites byte-exact, append the index's notes to the Master Plans, then
   run the generator for the index and check it.
-- `generated`: check the index and stay silent either way.
+- `generated`: check the index. Silent when the check reports no tree anomaly. Otherwise the
+  banner prints each anomaly and names the writer that fixes a Status line.
 - `unrecognized`: report the classifier's reason and touch nothing.
 
 Recognise-or-refuse, never best-effort. Every step before the backup is
@@ -31,12 +32,13 @@ import contextlib
 import dataclasses
 import io
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 try:
     import config_loader
+    import flip_plan_status
     import generate_plans_index as gen
     import migrate_plans_index as mig
     from config_gen import InitConfig
@@ -53,6 +55,7 @@ except ImportError as exc:
 RERUN = ("then re-run /planwise upgrade (the migration re-fires on a hand-authored index; "
          "nothing else repeats)")
 MIGRATOR = "migrate_plans_index.py"
+WRITER = "flip_plan_status.py"  # the guarded writer that fixes a Master Plan's `**Status:**` line
 STATES = ("absent", "generated", "unrecognized", "deferred", "refused", "backup_failed", "write_failed", "migrated",
           "changelog_split", "error")
 SILENT_STATES = ("absent", "generated")
@@ -73,6 +76,8 @@ class PlansMigrationReport:
     diverged: dict = dataclasses.field(default_factory=dict)  # backup dst (str) -> sibling pre-image (str)
     counts: dict = dataclasses.field(default_factory=dict)
     git_dirty: bool | None = None
+    anomalies: list = dataclasses.field(default_factory=list)  # the generator --check's tree anomalies, on `generated`
+    plans_dir: Path | None = None  # set with `anomalies`: the writer's Path check needs it to predict a refusal
 
 
 def migrate_plans_if_legacy(cfg: "InitConfig", from_version: str, to_version: str,
@@ -116,7 +121,13 @@ def _migrate(cfg, from_version: str, to_version: str, report, defer_legacy: bool
         return
     if shape == "generated":
         report.state = "generated"
-        report.detail = f"index --check exit {gen.check_plans_index(config).exit_code}"
+        check = gen.check_plans_index(config)
+        report.detail = f"index --check exit {check.exit_code}"
+        report.anomalies = list(check.anomalies)
+        report.plans_dir = Path(plans_dir)
+        if any(_writer_refusal(found, report.plans_dir) is None for found in report.anomalies):
+            report.fix =(f'python "{Path(cfg.plugin_root) / "scripts" / WRITER}" --config "{config_path}" '
+                          '{map file}   (one line "{Path}: {STATUS}" per Master Plan)')
         return
     if defer_legacy:
         report.state = "deferred"
@@ -128,7 +139,7 @@ def _migrate(cfg, from_version: str, to_version: str, report, defer_legacy: bool
     try:
         plan = mig.plan_migration(config, index_path, text, mig.migration_date(ledger_file))
     except Refusal as exc:
-        _refuse(report, str(exc))
+        _refuse(report, exc)
         return
     targets = mig.plan_targets(plan)
     dirty, _reason = git_state(config["_project_root"], targets)
@@ -157,10 +168,10 @@ def _migrate(cfg, from_version: str, to_version: str, report, defer_legacy: bool
     _fill_counts(ledger_file, report)
 
 
-def _refuse(report, message: str) -> None:
-    """State `refused`: the migrator's text verbatim, which names each refusal and the fix that closes it."""
-    report.state, report.detail = "refused", message
-    report.fix = f"close each refusal in the reason as its text says,\n{RERUN}"
+def _refuse(report, exc) -> None:
+    """State `refused`: the refusal's reason as the detail, and its fix as the fix."""
+    report.state, report.detail = "refused", exc.reason
+    report.fix = f"{exc.fix}\n{RERUN}"
 
 
 def _write_failed(report, pre: dict, created: list) -> None:
@@ -222,7 +233,7 @@ def _banner_lines(report: PlansMigrationReport) -> list:
                 "  reason: " + report.detail.replace("\n", "\n          "), f"  fix:    {fix}"]
     if report.state == "unrecognized":
         return [f"Plans index migration: {index} is not a hand-authored or generated index -- left untouched",
-                f"  reason: {report.detail}; inspect it with: {report.fix}"]
+                *(f"  detail: {line}" for line in report.detail.splitlines() or [""])]
     if report.state == "backup_failed":
         return ["Plans index migration: BACKUP FAILED -- no write was attempted",
                 f"  {report.detail}", f"  fix:    {fix}"]
@@ -268,12 +279,86 @@ def _migrated_lines(report: PlansMigrationReport) -> list:
     return lines
 
 
+def _plan_path_of(master_plan_file: str) -> str:
+    """The Path the writer's map needs for the Master Plan file at `master_plan_file` (relative to the
+    plans directory): its folder with a trailing slash, as `enumerate_master_plans` builds it."""
+    folder = PurePosixPath(master_plan_file.replace("\\", "/")).parent.as_posix()
+    return "" if folder == "." else folder + "/"
+
+
+def _value_refusal(found: dict) -> str | None:
+    """None when `found` is an `unknown-status` anomaly whose Status value the writer can flip. Otherwise the
+    reason it cannot, or "" for an anomaly of another class, which has no writer line at all."""
+    if found.get("class") != "unknown-status":
+        return ""
+    if not found.get("file"):
+        return "the anomaly names no Master Plan file"
+    raw = found.get("raw")
+    if not raw:
+        return "the Status value is not available"
+    reason = flip_plan_status.status_value_refusal(raw)
+    return None if reason is None else reason.removesuffix(" -- edit by hand")
+
+
+def _path_refusal(found: dict, plans_dir) -> str | None:
+    """None when the writer can reach the anomaly's Master Plan: one plan on its Path, and no link on the way.
+    The writer's own `plan_path_refusal` decides. Without a plans directory there is nothing to ask, so None."""
+    if plans_dir is None:
+        return None
+    reason = flip_plan_status.plan_path_refusal(plans_dir, _plan_path_of(found["file"]))
+    return None if reason is None else reason.rpartition(" -- ")[0] or reason
+
+
+def _writer_refusal(found: dict, plans_dir=None) -> str | None:
+    """None when `found` is an `unknown-status` anomaly the writer can flip: its Status value passes
+    `status_value_refusal`, and (with `plans_dir`) its Path passes `plan_path_refusal`. Otherwise the
+    reason it cannot, or "" for an anomaly of another class."""
+    reason = _value_refusal(found)
+    return reason if reason is not None else _path_refusal(found, plans_dir)
+
+
+def _anomaly_lines(report: PlansMigrationReport) -> list:
+    """The generated index's `--check` anomalies: one block per anomaly. An `unknown-status` block whose value
+    the writer can flip shows the exact map line the writer accepts, and the writer command follows once for
+    all of them. An `unknown-status` block whose value the writer refuses (a multi-word value, for one), or
+    whose Path it refuses (two Master Plans on the Path, a linked folder), shows a hand fix naming the
+    refusal, and no map line. A `missing-status` block shows a hand fix too, because
+    the writer refuses a plan with no `**Status:**` line."""
+    lines = [f"Plans index: generated; --check reports {len(report.anomalies)} anomaly(ies)"]
+    for found in report.anomalies:
+        kind = found.get("class", "?")
+        shown = found.get("file") or found.get("path") or "?"
+        lines.append(f"  {kind}: {shown}")
+        if kind == "unknown-status":
+            lines += [f"    Status line: {found.get('raw')}",
+                      f"    reduced to:  {found.get('status')}  (not in plan_statuses)"]
+            refusal = _writer_refusal(found, report.plans_dir)
+            if refusal is None:
+                lines.append(f"    map line:    {_plan_path_of(found['file'])}: {{STATUS}}")
+            elif _value_refusal(found) is None:
+                lines.append(f"    hand-fix:    {WRITER} refuses this plan ({refusal}); "
+                             "resolve that, then edit the **Status:** line by hand to one plan status")
+            else:
+                lines.append(f"    hand-fix:    {WRITER} refuses this value ({refusal}); "
+                             "edit the **Status:** line by hand to one plan status")
+        elif kind == "missing-status":
+            lines += ["    Status line: none (the Master Plan has no **Status:** line)",
+                      f"    hand-fix:    add a **Status:** line to that Master Plan ({WRITER} refuses a plan with none)"]
+        else:
+            lines.append(f"    {found.get('message', '')}")
+    if report.fix and any(_writer_refusal(found, report.plans_dir) is None for found in report.anomalies):
+        lines.append(f"  fix: {report.fix}")
+    return lines
+
+
 def _emit_plans_migration_banner(report: PlansMigrationReport) -> None:
-    """Print one banner block for the report; silent on `absent` and `generated`. Never raises."""
-    if report.state in SILENT_STATES:
+    """Print one banner block for the report; silent on `absent` and `generated`, unless the
+    generated index's `--check` reported anomalies. Never raises."""
+    silent = report.state in SILENT_STATES
+    if silent and not getattr(report, "anomalies", None):
         return
     try:
-        lines = _banner_lines(report)
+        lines = _anomaly_lines(report) if silent else _banner_lines(report)
     except Exception as exc:  # noqa: BLE001 -- a banner must never fail the caller
         lines = [f"Plans index migration: {report.state} ({report.detail or exc!r})"]
     for line in lines:

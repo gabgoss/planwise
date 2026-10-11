@@ -640,6 +640,26 @@ _BEFORE_AFTER_RE = re.compile(
     r"|\breplace\b[^\n]{0,120}\bwith\b",
     re.IGNORECASE,
 )
+
+
+def _label_then_fence(word: str) -> str:
+    """Pattern text for a label line (`word` alone, optionally a heading, a
+    list bullet, bold or italic markers, a trailing colon) followed, after
+    any blank lines, by the opening line of a fenced block."""
+    mark = r"(?:\*\*|__|\*|_)?"
+    return (
+        rf"^[ \t]*(?:#{{1,6}}[ \t]+|[-*+][ \t]+)?{mark}{word}{mark}[ \t]*:?{mark}[ \t]*\r?\n"
+        r"(?:[ \t]*\r?\n)*[ \t]*(?:```|~~~)"
+    )
+
+
+# -- a `Before` label with a fenced block under it and, on a LATER line, an
+#    `After` label with a fenced block under it. No single line holds both
+#    words, so the single-line clause above cannot see this shape.
+_BEFORE_AFTER_BLOCKS_RE = re.compile(
+    _label_then_fence("before") + r"[\s\S]*?" + _label_then_fence("after"),
+    re.IGNORECASE | re.MULTILINE,
+)
 # -- a scope-confinement bound
 _SCOPE_BOUND_RE = re.compile(
     r"out of scope|do not touch|must not touch|touch no other|edit only|scope[- ]confinement"
@@ -839,7 +859,11 @@ def compute_route_signals(item: dict, frontmatter: dict) -> dict:
     clear_fix = {
         "line_anchor": bool(_LINE_ANCHOR_RE.search(body)),
         "edit_target": bool(_EDIT_TARGET_RE.search(body)),
-        "before_after": bool(_BEFORE_AFTER_RE.search(body)) or ("WRONG" in body and "CORRECT" in body),
+        "before_after": (
+            bool(_BEFORE_AFTER_RE.search(body))
+            or bool(_BEFORE_AFTER_BLOCKS_RE.search(body))
+            or ("WRONG" in body and "CORRECT" in body)
+        ),
         "scope_bound": bool(_SCOPE_BOUND_RE.search(body)),
     }
     clear_fix["evidence_present"] = (
@@ -976,6 +1000,49 @@ def write_route_json(payload) -> str:
     return json_path
 
 
+def load_scored_items(
+    config: dict,
+) -> tuple[list[dict], dict[str, dict], dict[str, ScoreBreakdown], set[str]]:
+    """Load and score every open item; `main()` and `backlog_loop.py --init` are the two callers.
+
+    Returns `(items, frontmatters, scores, open_item_ids)`. Never exits: an
+    empty backlog returns an empty list and the caller decides what to do.
+    """
+    weights = get_scoring_weights(config)
+    index_path = config["_index_path"]
+    backlog_dir = config["_backlog_dir"]
+    archive_dir = config["_archive_dir"]
+
+    # Report modes (--dry-run, --review, --id/--explain, and the no-flag
+    # report) all read the UNION of the hub and every hub overflow leaf -- an
+    # open item living in a leaf must be scored and reported like any hub
+    # item.
+    items = _read_hub_family_items(index_path, backlog_dir)
+
+    # Read frontmatter for each open item
+    frontmatters: dict[str, dict] = {}
+    for item in items:
+        if item["status"] in OPEN_STATUSES:
+            filepath = get_first_file_path(item, backlog_dir)
+            if filepath:
+                frontmatters[item["id"]] = read_item_frontmatter(filepath)
+            else:
+                frontmatters[item["id"]] = {}
+
+    # Count archived items for momentum
+    archive_counts = count_archived_by_abbrev(archive_dir)
+
+    # Compute scores
+    open_item_ids = {item["id"] for item in items if item["status"] in OPEN_STATUSES}
+    scores: dict[str, ScoreBreakdown] = {}
+    for item in items:
+        if item["status"] in OPEN_STATUSES:
+            fm = frontmatters.get(item["id"], {})
+            scores[item["id"]] = compute_score(item, fm, archive_counts, weights, open_item_ids)
+
+    return items, frontmatters, scores, open_item_ids
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compute priority scores for backlog items."
@@ -1002,45 +1069,17 @@ def main():
 
     # Load config
     config = load_config(Path(__file__))
-    weights = get_scoring_weights(config)
     index_path = config["_index_path"]
-    backlog_dir = config["_backlog_dir"]
-    archive_dir = config["_archive_dir"]
 
     if not index_path.exists():
         print(f"Error: Backlog index not found at {index_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Report modes (--dry-run, --review, --id/--explain, and the no-flag
-    # report) all read the UNION of the hub and every hub overflow leaf -- an
-    # open item living in a leaf must be scored and reported like any hub
-    # item.
-    items = _read_hub_family_items(index_path, backlog_dir)
+    items, frontmatters, scores, open_item_ids = load_scored_items(config)
 
     if not items:
         print("No items found in backlog index.", file=sys.stderr)
         sys.exit(1)
-
-    # Read frontmatter for each open item
-    frontmatters: dict[str, dict] = {}
-    for item in items:
-        if item["status"] in OPEN_STATUSES:
-            filepath = get_first_file_path(item, backlog_dir)
-            if filepath:
-                frontmatters[item["id"]] = read_item_frontmatter(filepath)
-            else:
-                frontmatters[item["id"]] = {}
-
-    # Count archived items for momentum
-    archive_counts = count_archived_by_abbrev(archive_dir)
-
-    # Compute scores
-    open_item_ids = {item["id"] for item in items if item["status"] in OPEN_STATUSES}
-    scores: dict[str, ScoreBreakdown] = {}
-    for item in items:
-        if item["status"] in OPEN_STATUSES:
-            fm = frontmatters.get(item["id"], {})
-            scores[item["id"]] = compute_score(item, fm, archive_counts, weights, open_item_ids)
 
     if args.id:
         target = normalize_id(args.id)

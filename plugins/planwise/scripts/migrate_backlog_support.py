@@ -22,7 +22,20 @@ from reconcile_common import read_text_preserving_newlines as read_text
 
 
 class Refusal(Exception):
-    """A condition that stops the run before any write (exit 2)."""
+    """A recognise-or-refuse stop. ``reason`` says what was found; ``fix``
+    names the edit that closes it. A reason written as ``"<reason> -- <fix>"``
+    is split on the last ``" -- "``, the split the consumers used before.
+    A refusal with no fix is a defect at construction time, so it raises
+    TypeError here rather than printing a banner whose fix line repeats
+    its reason."""
+
+    def __init__(self, reason: str, fix: str | None = None, *, question: dict | None = None):
+        if fix is None and " -- " in reason:
+            reason, fix = reason.rsplit(" -- ", 1)
+        if not fix:
+            raise TypeError(f"Refusal without a fix: {reason!r}")
+        self.reason, self.fix, self.question = reason, fix, question
+        super().__init__(f"{reason} -- {fix}")
 
 
 SHINGLE_N = 5
@@ -50,8 +63,14 @@ _PUNCT_RE = re.compile(r"[^\w\s]")
 _WS_RE = re.compile(r"\s+")
 _DIGITS_RE = re.compile(r"\d+")
 # A Blocks cell may hold only ids and separators, a dash, or "none". Other
-# text in it is prose the regeneration would drop.
-_BLOCKS_TEXT_RE = re.compile(r"(\d+([\s,;]+\d+)*)?|[-–—]|none", re.IGNORECASE)
+# text in it is prose the regeneration would drop. An id may carry a prefix.
+_CELL_ID = r"(?:[A-Za-z]+-)?\d+"
+_BLOCKS_TEXT_RE = re.compile(rf"({_CELL_ID}([\s,;]+{_CELL_ID})*)?|[-–—]|none", re.IGNORECASE)
+# A '## Dependencies' Blocks cell may also end in one parenthetical note. The items table
+# never accepts one, so its note could not be moved.
+_DEP_CELL_RE = re.compile(rf"(?P<ids>{_CELL_ID}(?:[\s,;]+{_CELL_ID})*|[-–—]|none)?\s*(?:\((?P<note>[^()]*)\))?",
+                          re.IGNORECASE)
+_CELL_ID_RE = re.compile(r"(?:([A-Za-z]+)-)?(\d+)")
 _FILES_GLUE_RE = re.compile(r"[\s,;]+|<br\s*/?>", re.IGNORECASE)
 _ABBREV_RE = re.compile(r"[A-Z][A-Z0-9]*")  # the shape an item file name's abbrev segment takes
 _ABBREV_CELL_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*")  # an Abbrev cell that carries a value, in any case
@@ -251,6 +270,25 @@ def blocks_text_ok(cell: str) -> bool:
     return bool(_BLOCKS_TEXT_RE.fullmatch(plain(cell)))
 
 
+def dependency_cell_parts(cell: str):
+    """(ids as (prefix or None, NNN) pairs, note text or "") for a '## Dependencies' Blocks cell
+    of ids and at most one trailing parenthetical, else None. The note is the cell's own text
+    inside that parenthetical, markup kept, when its plain form matches the parsed note."""
+    m = _DEP_CELL_RE.fullmatch(plain(cell))
+    if m is None:
+        return None
+    ids = [(prefix or None, digits.zfill(3)) for prefix, digits in _CELL_ID_RE.findall(m.group("ids") or "")]
+    note, raw, depth = (m.group("note") or "").strip(), cell.strip(), 0
+    if note and raw.endswith(")"):
+        for i in range(len(raw) - 1, -1, -1):  # find the "(" that opens the trailing parenthetical
+            depth += {")": 1, "(": -1}.get(raw[i], 0)
+            if depth == 0:
+                if plain(raw[i + 1:-1]) == note:
+                    note = raw[i + 1:-1].strip()
+                break
+    return ids, note
+
+
 def files_links(cell: str):
     """Return (links as (text, href) pairs, any text outside the links)."""
     return _LINK_RE.findall(cell), _FILES_GLUE_RE.sub("", _LINK_RE.sub("", cell))
@@ -286,6 +324,99 @@ def abbrev_usable(value: str, valid) -> bool:
     """True when `value` can stand as an abbrev: a configured one when `valid`
     is a set, else any value shaped like a file name's abbrev segment."""
     return bool(value) and (value in valid if valid is not None else bool(_ABBREV_RE.fullmatch(value)))
+
+
+def case_match_abbrev(value: str, valid) -> str | None:
+    """The configured key that equals `value` ignoring case, when `value` itself is not configured
+    and exactly one key matches; else None."""
+    if not valid or value in valid:
+        return None
+    hits = sorted(k for k in valid if k.lower() == value.lower())
+    return hits[0] if len(hits) == 1 else None
+
+
+ABBREV_SOURCES = ("file-name", "frontmatter", "index")  # an item's abbrev values, in precedence order
+YAML_WORDS = frozenset({"YES", "NO", "ON", "OFF", "TRUE", "FALSE", "NULL"})  # PyYAML reads these bare as bool/null
+
+
+def abbrev_token(value) -> str:
+    """`value` stripped of quotes when it carries an abbrev in any case, else "" (empty, or not a token)."""
+    value = str(value or "").strip().strip("\"'")
+    return value if _ABBREV_CELL_RE.fullmatch(value) else ""
+
+
+def decide_abbrev(seg, frontmatter, cell, configured) -> dict | None:
+    """Settle one item's abbrev from its file name's segment, its frontmatter `abbrev:` and its index
+    Abbrev cell, in that order. The first value in `configured` wins; a value that equals one configured
+    key ignoring case counts as that key (source "config-match"). When none is configured, the file
+    name's segment wins if shaped like one, else the frontmatter value, then the cell, uppercased.
+    Returns {"value", "source", "from", "appended"}, `appended` when the winner is not configured, or
+    None when no value can stand."""
+    values = [(source, abbrev_token(v)) for source, v in zip(ABBREV_SOURCES, (seg, frontmatter, cell))]
+    values = [(source, v) for source, v in values if v]
+    for source, value in values:
+        if configured and value in configured:
+            return {"value": value, "source": source, "from": value, "appended": False}
+        hit = case_match_abbrev(value, configured)
+        if hit:
+            return {"value": hit, "source": "config-match", "from": value, "appended": False}
+    for source, value in values:
+        candidate = value if source == "file-name" else value.upper()
+        if _ABBREV_RE.fullmatch(candidate):
+            return {"value": candidate, "source": source, "from": value, "appended": True}
+    return None
+
+
+_ABBREVIATIONS_LINE_RE = re.compile(r"abbreviations:\s*(#.*)?$")
+
+
+def splice_abbreviations(data: bytes, added: list) -> bytes:
+    """config.yaml's bytes with one `NAME: "description"` line per (name, description) in `added`,
+    spliced after the last entry of the top-level `abbreviations:` block mapping. Each new line takes
+    that entry's own line ending, and a file that ends without a newline still does. Every other byte
+    is kept. Raises `Refusal` for a block this cannot extend: a byte-order mark on its line, flow style,
+    two blocks, no indented entry, or a name YAML would not read back as text."""
+    text = data.decode("utf-8")
+    lines = text.split("\n")
+    names = ", ".join(name for name, _d in added)
+    by_hand = f"add {names} under abbreviations: in config.yaml by hand"
+    words = [name for name, _d in added if name in YAML_WORDS]
+    if words:
+        raise Refusal(f"YAML reads a bare {', '.join(words)} as a boolean or null, not as an abbreviation",
+                      f"rename that abbreviation, or add {', '.join(words)} under abbreviations: in config.yaml "
+                      "by hand as a quoted key")
+    if text.startswith("﻿") and lines[0].lstrip("﻿").startswith("abbreviations:"):
+        raise Refusal("config.yaml starts with a byte-order mark on its abbreviations: line",
+                      f"remove the byte-order mark from the start of config.yaml, or {by_hand}")
+    starts = [i for i, line in enumerate(lines) if _ABBREVIATIONS_LINE_RE.match(line.rstrip("\r"))]
+    if not starts:
+        flow = any(re.match(r"abbreviations:\s*[{\[]", line) for line in lines)
+        raise Refusal("config.yaml writes abbreviations: in flow style on one line" if flow
+                      else "config.yaml has no top-level abbreviations: block mapping",
+                      f"rewrite abbreviations: as a block mapping with one indented NAME: description line "
+                      f"per key, or {by_hand}")
+    if len(starts) > 1:
+        raise Refusal("config.yaml has more than one top-level abbreviations: line",
+                      f"merge them into one block, or {by_hand}")
+    last = indent = None
+    for j in range(starts[0] + 1, len(lines)):
+        body = lines[j].rstrip("\r")
+        if not body.strip() or body.lstrip().startswith("#"):
+            continue
+        if not body[0].isspace():
+            break
+        last, indent = j, indent or body[:len(body) - len(body.lstrip())]
+    if last is None:
+        raise Refusal("config.yaml's abbreviations: block has no indented entry to extend", by_hand)
+    new = [f'{indent}{name}: "{description}"' for name, description in added]
+    if last == len(lines) - 1:  # the block's last entry ends the file, with no newline after it
+        eol = "\r" if "\r\n" in text else ""
+        lines[last] += eol
+        new = [line + eol for line in new[:-1]] + new[-1:]
+    else:
+        eol = "\r" if lines[last].endswith("\r") else ""
+        new = [line + eol for line in new]
+    return "\n".join([*lines[:last + 1], *new, *lines[last + 1:]]).encode("utf-8")
 
 
 def row_diffs(cells: list, roles: dict, fields: dict, valid_abbrevs=None) -> list:
@@ -566,15 +697,31 @@ def _entry_section(label: str, body: str, nl: str) -> str:
     return f"## Entry {label}{nl}{nl}{body}{nl}{nl}"
 
 
+def entry_fits_alone(tokens: int) -> bool:
+    """True when a single changelog entry of `tokens` can keep a file to itself: it measures
+    under the Read tool's page cap, so a reader still gets it whole in one call."""
+    return tokens < READ_PAGE_CAP_TOKENS
+
+
+def oversized_single_entries(parts: list) -> list:
+    """One `{path, tokens}` record for each part that holds a single entry and measures at or
+    over the per-file warn budget, for the ledger. `parts` is `[(path, text), ...]`."""
+    found = []
+    for path, text in parts:
+        tokens = changelog_tokens(text)
+        if tokens >= READ_TOKEN_WARN and len(ENTRY_HEADING_RE.findall(text.replace("\r\n", "\n"))) <= 1:
+            found.append({"path": str(path), "tokens": tokens})
+    return found
+
+
 def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = None) -> list:
     """Split each footer entry into one or more (label, body) chunks. An
     entry whose own section reaches `target` (default `budget`) is split at
     blank-line boundaries into 'N' and 'N (continued)' pieces. A single
-    paragraph whose own section alone still exceeds `budget` raises
-    `Refusal`, naming the entry and its token count -- a data error this
-    tool cannot decide. An entry with no paragraph boundary at all (a
-    footer entry is one line) is refused the same way and is never split
-    mid-line. Each body takes `nl` line endings."""
+    paragraph whose own section alone still exceeds `budget` stays whole
+    as its own chunk while `entry_fits_alone`; at or above the page cap it
+    raises `Refusal`, naming the entry and its token count -- a data error
+    this tool cannot decide. Each body takes `nl` line endings."""
     target = budget if target is None else target
     chunks = []
     for i, seg in enumerate(segments, start=1):
@@ -596,6 +743,9 @@ def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = Non
         for j, piece in enumerate(pieces):
             label = str(i) if j == 0 else f"{i}{CONTINUED}"
             tokens = changelog_tokens(_entry_section(label, piece, nl))
+            if tokens >= budget and entry_fits_alone(tokens):
+                chunks.append((label, piece))  # one entry under the page cap keeps its file whole
+                continue
             if tokens >= budget and len(paras) == 1:
                 raise Refusal(
                     f"changelog entry {i}, which begins {body.strip()[:60]!r}, is one paragraph of ~{tokens} tokens, over "
@@ -605,7 +755,8 @@ def _entry_chunks(segments: list, nl: str, budget: int, target: int | None = Non
             if tokens >= budget:
                 raise Refusal(
                     f"changelog entry {i} has a paragraph of ~{tokens} tokens, over the "
-                    f"{budget}-token per-file budget; add a blank line inside it by hand, then re-run")
+                    f"{budget}-token per-file budget",
+                    "add a blank line inside it by hand, then re-run")
             chunks.append((label, piece))
     return chunks
 
@@ -661,13 +812,16 @@ def split_changelog(segments: list, naming, index_name: str, nl: str, budget: in
 
 def check_parts_budget(split: list, budget: int = READ_TOKEN_WARN) -> list:
     """Return `split` unchanged, or raise `Refusal` naming the first part
-    that measures at or over `budget`."""
+    that measures at or over `budget`. A part holding one entry stays whole
+    while that entry `entry_fits_alone`."""
     for name, text in split:
         tokens = changelog_tokens(text)
-        if tokens >= budget:
+        single = len(ENTRY_HEADING_RE.findall(text.replace("\r\n", "\n"))) <= 1
+        if tokens >= budget and not (single and entry_fits_alone(tokens)):
             raise Refusal(f"changelog part {name} would measure ~{tokens} tokens, over the {budget}-token "
                           "per-file budget: an entry in it has a paragraph too large to sit beside the part's "
-                          "header; add a blank line inside it by hand, then re-run")
+                          "header",
+                          "add a blank line inside it by hand, then re-run")
     return split
 
 
@@ -687,9 +841,14 @@ def journal_paths(ledger_path: Path) -> set:
 
 
 def joined_entries(texts: list) -> str:
-    """Every part's entry text, in order, with the backlink/Parts lines and
-    the `## Entry` section headers removed -- the basis `verify_written` and
-    `unaccounted` check footer segments against."""
+    """Every entry's text, in order, one newline apart -- the basis `verify_written` and
+    `unaccounted` check segments against. `parse_changelog` re-joins an entry split into
+    'N (continued)' sections, so a split entry reads back byte for byte. Text it refuses falls
+    back to each part with the backlink/Parts lines and `## Entry` headers removed."""
+    try:
+        return "\n".join(segment.decode("utf-8") for segment in parse_changelog(texts))
+    except Refusal:
+        pass
     chunks = []
     for text in texts:
         norm = text.replace("\r\n", "\n")
@@ -712,7 +871,9 @@ def parse_changelog(texts: list) -> list:
         i, n = 0, len(lines)
         if i >= n or not BACKLINK_RE.match(lines[i].strip()):
             found = lines[i] if i < n else ""
-            raise Refusal(f"part {pi + 1} line {i + 1}: expected the backlink line, found {found!r}")
+            raise Refusal(f"part {pi + 1} line {i + 1}: expected the backlink line, found {found!r}",
+                          "restore the backlink line the migration writes as the first line of that part, "
+                          "then re-run")
         i += 1
         if i < n and lines[i] == "":
             i += 1
@@ -726,12 +887,15 @@ def parse_changelog(texts: list) -> list:
             stripped = line.strip()
             match = ENTRY_HEADING_RE.match(stripped)
             if stripped.startswith("## ") and not match:
-                raise Refusal(f"part {pi + 1} line {i + j + 1}: unrecognised section heading {line!r}")
+                raise Refusal(f"part {pi + 1} line {i + j + 1}: unrecognised section heading {line!r}",
+                              "rename the heading to an entry heading the migration wrote, or delete it, "
+                              "then re-run")
             if match:
                 headings.append((j, int(match.group(1)), bool(match.group(2))))
         if not headings or headings[0][0] != 0:
             bad = remainder[0] if remainder else ""
-            raise Refusal(f"part {pi + 1} line {i + 1}: text outside any '## Entry' section: {bad!r}")
+            raise Refusal(f"part {pi + 1} line {i + 1}: text outside any '## Entry' section: {bad!r}",
+                          "move that text under an entry heading or delete it, then re-run")
         for h, (start, num, is_cont) in enumerate(headings):
             body_start = start + 1
             if body_start < len(remainder) and remainder[body_start] == "":
@@ -749,7 +913,9 @@ def parse_changelog(texts: list) -> list:
             current = {"num": num, "parts": [body]}
         else:
             if current is None or current["num"] != num:
-                raise Refusal(f"entry {num} (continued) has no matching entry heading before it")
+                raise Refusal(f"entry {num} (continued) has no matching entry heading before it",
+                              "restore the entry heading above that continued section, or merge the section "
+                              "into its entry, then re-run")
             current["parts"].append(body)
     if current is not None:
         result.append("\n\n".join(current["parts"]))

@@ -29,6 +29,7 @@ maxTurns: 50
 2. Read every file listed in the Required Context table — fully. A row flagged `⚠ PAGED ≥25K {model}-tok` or `⚠ REFACTOR ≥256 KiB`, and ANY Read that returns a `[Truncated: PARTIAL view …]` banner, MUST be paged with `offset`/`limit` (or Grep for the needed sections) until the whole file is covered — one Read that silently returned only the first page (~21K of the 25K-token cap) does not count as read. Size each page under the cap: an explicit `limit` whose window spans more than ~25K tokens hard-errors with zero content (the truncation banner's `offset`/`limit` hint is a safe next-page size).
 3. Note the Execution Steps, Expected Output, and Success Criteria sections
 4. If any Required Context file is missing, report the error and stop
+5. When a resume message points at an output file for review findings, read the file but treat the findings listed in the message as the source. If the file is empty or missing, say so in your gate file and work from the message. Record in the gate file which text you worked from.
 
 ## 2. EXECUTE — Perform the Work
 
@@ -39,6 +40,8 @@ maxTurns: 50
 - Run the environment's own tools (interpreter, linter, notebook executor, test runner), not the platform's.
 
 Never report a verification as environmentally impossible without first confirming you invoked it with the project's interpreter. If a verification cannot run, your report must state the exact command you ran and the exact error — never a summary judgement about the environment.
+
+- Run every command that takes longer than about a minute (a full test suite, a build, a migration) in the foreground, with a timeout up to the harness maximum. Never start it as a background job and end your turn waiting on it. A backgrounded job's completion does not wake you, and the orchestrator cannot see it.
 
 1. Follow Execution Steps in the exact order listed
 2. Verify each step's output before proceeding to the next
@@ -161,7 +164,7 @@ Disambiguation when unsure:
 
 1. Read the recovery file
 2. Update the task row: set Status to COMPLETE and add Completed timestamp
-3. Add any Key Findings discovered during execution
+3. Add any Key Findings discovered during execution. If an observation names a file or task that a different session owns and that session must act, also return it as a flag candidate (a `FLAG:` bullet in `KEY_FINDINGS` naming the owner and the action), not only as a Key Finding
 4. Add all Files Modified during this task
 5. Add a Change Log row with date, step number, status, and notes — write a new row after each major step, not one batched row at task end
 6. Update Current Step to the next task number
@@ -181,6 +184,8 @@ In parallel mode you share the Recovery file with sibling runners dispatched in 
    KEY_FINDINGS:   {2-5 short bullets, one per line, prefixed with "- "}
    ISSUES:         {one line per issue, or "none"}
    ```
+
+   If an observation names a file or task that a different session owns and that session must act, start its `KEY_FINDINGS` bullet with `FLAG:` and name the owner and the action, so the orchestrator can re-file it as a coordination flag.
 
 3. The status block MUST be the last content in your response — no trailing prose, no follow-up paragraphs. The orchestrator parses it by reading your final message.
 4. If you hit a partial-completion ceiling (early stop, edit ceiling, context pressure): emit `TASK_STATUS: PARTIAL` with OUTPUT_FILES listing what was written so far and ISSUES describing what remains. Do NOT write a recovery-style partial-progress note to Recovery — the orchestrator handles partials by re-dispatching from your status block.

@@ -108,7 +108,8 @@ def _read_rows(text: str, dest_path: Path) -> list:
     lines = text.replace("\r\n", "\n").split("\n")
     sep_hits = [i for i, ln in enumerate(lines) if _SEP_RE.match(ln.strip())]
     if not sep_hits:
-        raise Refusal(f"{dest_path} has no recognised promotion-log table header/separator")
+        raise Refusal(f"{dest_path} has no recognised promotion-log table header/separator",
+                      "restore the promotion-log table header and separator row, then re-run")
     rows = []
     for i in range(sep_hits[0] + 1, len(lines)):
         raw = lines[i]
@@ -116,10 +117,12 @@ def _read_rows(text: str, dest_path: Path) -> list:
             continue
         cells = row_cells(raw)
         if len(cells) not in (3, 4):
-            raise Refusal(f"{dest_path} line {i + 1} does not resolve to 3 or 4 cells: {raw!r}")
+            raise Refusal(f"{dest_path} line {i + 1} does not resolve to 3 or 4 cells: {raw!r}",
+                          "repair that row so it has 3 or 4 cells, or delete it")
         m = _LESSON_CELL_RE.search(cells[1])
         if not m:
-            raise Refusal(f"{dest_path} line {i + 1} has no parseable LL- id in its Lesson ID cell: {raw!r}")
+            raise Refusal(f"{dest_path} line {i + 1} has no parseable LL- id in its Lesson ID cell: {raw!r}",
+                          "write the lesson id in the Lesson ID cell, or delete the row")
         rows.append({"line": i + 1, "cells": tuple(cells), "lesson_id": int(m.group(1))})
     return rows
 
@@ -151,7 +154,7 @@ def _read_text(path: Path) -> str:
     try:
         return read_text_preserving_newlines(path)
     except (OSError, UnicodeDecodeError) as exc:
-        raise Refusal(f"{path} could not be read: {exc}") from exc
+        raise Refusal(f"{path} could not be read: {exc}", "make the file readable, then re-run") from exc
 
 
 def _say(code: int, msg: str, json_mode: bool, err: bool = False) -> int:
@@ -205,7 +208,8 @@ def _insert_after_last_row(text: str, rows: list, new_line: str) -> str:
     else:
         sep_hits = [i for i, ln in enumerate(lines) if _SEP_RE.match(ln.strip())]
         if not sep_hits:
-            raise Refusal("the target file has no recognised promotion-log table header/separator")
+            raise Refusal("the target file has no recognised promotion-log table header/separator",
+                          "restore the promotion-log table header and separator row, then re-run")
         insert_after = sep_hits[0]
     lines.insert(insert_after + 1, new_line)
     return nl.join(lines)
