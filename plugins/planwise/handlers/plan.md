@@ -113,6 +113,8 @@ This status is the **execution gate**. The `/planwise run` command checks this b
 
 ## Workflow
 
+> [!gate] Before any write in any mode (Standard, Discovery or Scaffolding), run `index_shape_preflight.py` as [`index-shape-gate.md`](../references/index-shape-gate.md) directs. <!-- AUTO-MODE: critical -->
+
 ### Step 0: Detect Mode
 
 Before gathering information, check the user's prompt for **Discovery Mode** and **Scaffolding Mode** indicators. Check Discovery first — it is upstream of Scaffolding.
@@ -463,7 +465,7 @@ Run the generator once, after every sprint is scaffolded:
 python "{plugin_root}/scripts/generate_plans_index.py" --config "{planwise_root}/config.yaml" --write
 ```
 
-Exit 2 means the index is still hand-authored or unrecognized, and nothing was written. Tell the user to run `/planwise upgrade`, which migrates it. If upgrade reports the index as unrecognized, name `migrate_plans_index.py --report`.
+Exit 2 means nothing was written. Print the `Error:` line verbatim and route by cause. `hand-authored plans index`: the gate before Step 0 was bypassed, so run it. `neither a hand-authored nor a generated`: `/planwise upgrade` will not migrate it, so name `migrate_plans_index.py --report` and never `--replace-legacy`. `over the … -token budget` (an over-budget render): the render is too large, so tell the user to shard or shorten the index.
 
 To change a plan's row later, edit the Master Plan's `**Status:**` line (and its footer date), then run `generate_plans_index.py --write`. See [`references/plans-schema.md`](../references/plans-schema.md) § The One-Writer Rule.
 

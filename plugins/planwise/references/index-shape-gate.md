@@ -1,6 +1,6 @@
 # Index Shape Gate
 
-**Purpose:** The one preflight that `run`, `lessons` and `backlog` share. It keeps a handler from writing against a hand-authored backlog, lessons or plans index.
+**Purpose:** The one preflight that `run`, `lessons`, `backlog` and `plan` share. It keeps a handler from writing against a hand-authored backlog, lessons or plans index.
 
 > [!gate] Run before any write <!-- AUTO-MODE: critical -->
 > 1. Run `python "{plugin_root}/scripts/index_shape_preflight.py" --config "{planwise_root}/config.yaml"`. When `any_legacy` is false, continue.

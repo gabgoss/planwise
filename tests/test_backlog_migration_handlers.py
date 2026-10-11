@@ -405,6 +405,22 @@ class TestIndexShapeGateIsDefinedOnce(unittest.TestCase):
             self.assertIn("../references/index-shape-gate.md", text, path.name)
             self.assertNotIn("Step 2.4 with `--upgrade-pair", text, path.name)
 
+    def test_plan_points_at_the_reference_before_step_0(self):
+        text = (RUN_HANDLER.parent / "plan.md").read_text(encoding="utf-8-sig")
+        self.assertIn("index_shape_preflight.py", text)
+        self.assertIn("../references/index-shape-gate.md", text)
+        workflow = text.index("## Workflow")
+        self.assertLess(workflow, text.index("index_shape_preflight.py"))
+        self.assertLess(text.index("index_shape_preflight.py"), text.index("### Step 0: Detect Mode"))
+        self.assertNotIn("Step 2.4 with `--upgrade-pair", text)
+
+    def test_plan_step_8d_routes_the_three_exit_2_causes(self):
+        text = (RUN_HANDLER.parent / "plan.md").read_text(encoding="utf-8-sig")
+        step = _span_between(text, "### Step 8d", "### Step 8e")
+        self.assertIn("hand-authored plans index", step)
+        self.assertIn("migrate_plans_index.py --report", step)
+        self.assertIn("token budget", step)
+
     def test_no_shipped_file_names_the_removed_run_part_file(self):
         self.assertFalse((_SHIPPED / "handlers" / "run-Part-2-PreflightGate.md").exists())
         for path in sorted(_SHIPPED.rglob("*.md")):
