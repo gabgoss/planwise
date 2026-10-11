@@ -2116,6 +2116,25 @@ class TestCompanionOverwriteGuard(_CompanionReviewFixtureBase):
         self.assertIn("--replace-legacy", err)
         self.assertEqual(self.companion_path.read_bytes(), before)
 
+    def test_refusal_names_upgrade_before_the_flag_and_warns_of_no_backup(self):
+        self.companion_path.write_bytes(b"# My categorization\n\n## Things\n\nProse.\n")
+
+        code, _out, err = self.run_companion("--write")
+
+        self.assertEqual(code, 2)
+        # The drop listing above the refusal also names the flag, so read the
+        # order inside the refusal line itself.
+        refusal = next(line for line in err.splitlines() if line.startswith("Error:"))
+        upgrade_at = refusal.find("/planwise upgrade")
+        flag_at = refusal.find("--replace-legacy")
+        self.assertNotEqual(upgrade_at, -1)
+        self.assertNotEqual(flag_at, -1)
+        self.assertLess(upgrade_at, flag_at)
+        self.assertIn("notes file", refusal)
+        self.assertIn("backs up every file it rewrites", refusal)
+        self.assertIn("keeps no backup", refusal[flag_at:])
+        self.assertNotIn("re-run with --replace-legacy", refusal)
+
     def test_generated_line_alone_is_not_generated_shaped(self):
         self.companion_path.write_bytes(b"# Mine\n\nGenerated: 2026-01-01\n\n---\n\nBody.\n")
 

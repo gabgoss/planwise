@@ -486,8 +486,11 @@ def _run_companion_cli(args, lessons_dir: Path, archive_dir: Path, index_path, n
                     for heading in dropped:
                         print(f"  {heading}", file=sys.stderr)
                 return _companion_error(
-                    args, f"{companion_path} is {shape}. Refusing to overwrite it; "
-                    "re-run with --replace-legacy to replace it.",
+                    args, f"{companion_path} is {shape}. Refusing to overwrite it. "
+                    "Run /planwise upgrade first. It moves the companion's hand-written "
+                    "text into the notes file and backs up every file it rewrites. "
+                    "Passing --replace-legacy instead discards the listed sections "
+                    "and keeps no backup.",
                 )
             for heading in dropped:
                 print(f"dropping: {heading}", file=sys.stderr)
@@ -571,7 +574,8 @@ def main() -> int:
     parser.add_argument(
         "--replace-legacy", action="store_true",
         help="Allow --write to overwrite a legacy-shaped on-disk index after its sections have "
-        "been relocated. Prefer migrate_lessons_index.py, which relocates them first.",
+        "been relocated. Prefer migrate_lessons_index.py, which relocates them first. "
+        "This flag discards any section not relocated and keeps no backup.",
     )
     parser.add_argument(
         "--companion", action="store_true",
