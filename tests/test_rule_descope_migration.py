@@ -50,6 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 import init_project as ip
 import rule_descope_migration
+from upgrade_io import _installed_hash
 
 from conftest import (
     EXPECTED_DESCOPED_ALL,
@@ -413,6 +414,62 @@ class TestMigrationBranches(_MigrationFixtureBase):
             ),
             f"{filename} must carry a headless-inconclusive notice",
         )
+
+    def test_reorg_subset_from_agent_does_not_send_user_back_to_interactive(self):
+        filename = "session-execution-protocol.md"
+        self.write_shipped(
+            filename, "# Session Execution Protocol\n\nReflowed section A.\nReflowed section B.\n"
+        )
+        installed = self.write_installed(
+            filename,
+            "# Session Execution Protocol\n\nSection B.\nSection A.\n",
+            self.old_default_for(filename),
+        )
+        before = installed.read_bytes()
+        agent_verdict = _verdict("SUBSET", "reorg")
+        agent_verdict.source = "agent"
+
+        with mock.patch.object(
+            rule_descope_migration, "_classify_diverged", return_value=agent_verdict
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertEqual(installed.read_bytes(), before, "still kept, never removed")
+        lines = [e for e in _report_section(report, "preserved", "kept") if filename in e]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("verdict at reorg", lines[0])
+        self.assertNotIn("run /planwise upgrade interactively", lines[0])
+
+    def test_cached_reorg_verdict_through_the_loader_gets_the_review_wording(self):
+        # Drives the real _load_verdict_override: an agent cache entry at reorg,
+        # with and without a `source` key, must never get the "run interactively" text.
+        filename = "session-execution-protocol.md"
+        self.write_shipped(
+            filename, "# Session Execution Protocol\n\nReflowed section A.\nReflowed section B.\n"
+        )
+        installed = self.write_installed(
+            filename,
+            "# Session Execution Protocol\n\nSection B.\nSection A.\n",
+            self.old_default_for(filename),
+        )
+        digest = _installed_hash(installed.read_text(encoding="utf-8-sig"))
+        for with_source in (True, False):
+            with self.subTest(with_source=with_source):
+                entry = {
+                    "classification": "SUBSET", "confidence": "reorg", "unique_blocks": [],
+                    "notes": "", "installed_sha256": digest,
+                }
+                if with_source:
+                    entry["source"] = "agent"
+                with mock.patch.object(
+                    rule_descope_migration, "_load_verdicts_cache",
+                    return_value={filename: entry},
+                ):
+                    report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+                lines = [e for e in _report_section(report, "preserved", "kept") if filename in e]
+                self.assertEqual(len(lines), 1)
+                self.assertIn("verdict at reorg", lines[0])
+                self.assertNotIn("run /planwise upgrade interactively", lines[0])
 
     def test_paths_only_edit_subset_is_removed_with_info(self):
         filename = "scaffolding-hygiene.md"

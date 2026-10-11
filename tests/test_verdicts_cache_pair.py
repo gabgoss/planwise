@@ -34,11 +34,18 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import init_project as ip
-from upgrade_io import _load_verdicts_cache, verdicts_cache_path
+from structural_compare import StructuralVerdict
+from upgrade_io import (
+    _installed_hash,
+    _load_verdict_override,
+    _load_verdicts_cache,
+    verdicts_cache_path,
+)
 
 from conftest import _UpgradeArtifactsFixtureBase
 
@@ -128,6 +135,45 @@ class TestVerdictsCacheThreeStates(_UpgradeArtifactsFixtureBase):
         loaded, err = self._load()
         self.assertEqual(loaded, CACHE_ENTRY)
         self.assertEqual(err, "", "a present matching cache is simply consumed")
+
+
+class TestVerdictOverrideDegradesLoudly(unittest.TestCase):
+    """`_load_verdict_override()`: a malformed verdict degrades to None, never crashes."""
+
+    RAW = "installed body\n"
+
+    def _entry(self, **overrides) -> dict:
+        entry = dict(CACHE_ENTRY["agent-authoring.md"])
+        entry["installed_sha256"] = _installed_hash(self.RAW)
+        entry.update(overrides)
+        return entry
+
+    def _override(self, entry: dict):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            result = _load_verdict_override({"agent-authoring.md": entry}, "agent-authoring.md", self.RAW)
+        return result, stderr.getvalue()
+
+    def test_out_of_enum_confidence_override_is_none_and_names_the_field(self):
+        result, err = self._override(self._entry(confidence="high"))
+        self.assertIsNone(result, "the caller then runs the inline primitive")
+        self.assertIn("agent-authoring.md", err)
+        self.assertIn("confidence", err)
+        self.assertIn("falling back to the inline primitive", err)
+        # One line per call: a second call on the same entry prints one more line.
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        _, err2 = self._override(self._entry(confidence="high"))
+        self.assertEqual(len(err2.strip().splitlines()), 1)
+
+    def test_malformed_verdict_types_still_return_none_without_crash(self):
+        for exc in (TypeError("bad type"), AttributeError("bad attr")):
+            with self.subTest(exc=type(exc).__name__):
+                with mock.patch.object(StructuralVerdict, "from_dict", side_effect=exc):
+                    result, err = self._override(self._entry())
+                self.assertIsNone(result)
+                self.assertIn("agent-authoring.md", err)
+                self.assertIn(str(exc), err)
+                self.assertIn("falling back to the inline primitive", err)
 
 
 class TestStrayCacheWarningReachesTheWriter(_UpgradeArtifactsFixtureBase):

@@ -157,6 +157,7 @@ Agent(
     classify SEMANTICALLY (reflow / reword / reorder are SHARED, not unique).
     Return ONE fenced json verdict in the StructuralVerdict shape with
     source:"agent", filename, and a home_hints map.
+    Step 3b grants a bounded read: at most 3 siblings the shipped text names, depth 1, read by path. Report any block found there under relocated_blocks. Keep tolerated_fragments and rationale in the verdict: the writer reads them.
     End with: "Comparator complete: {filename} → {classification}"
 )
 ```
@@ -173,7 +174,7 @@ Diagnose a late comparator with the stall table in [agent-orchestration-delegate
 
 ### Step 2.3 — Write `verdicts.json`
 
-Use the Write tool to write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to}/verdicts.json`, keyed by filename. The pair directory must exist before the write: the Write tool creates a missing parent directory, and the shell form is `mkdir -p`, a filesystem operation with no native equivalent. This is the only place the writer reads this cache from disk. `{from}` / `{to}` are the values pinned in Step 1. The writer reads exactly this path for the pair it resolves: when that file is absent but a `verdicts.json` exists under a *different* pair directory, it prints a stderr warning naming both paths and falls back to the inline primitive — it never consumes another pair's verdicts, and a genuinely absent cache (headless, or fan-out declined) stays silent. Each entry is the comparator's `StructuralVerdict` shape **plus an `installed_sha256` freshness binding** (see below). A SUBSET entry's `notes` is `""` when clean — non-empty `notes` is reserved for verbatim tolerated installed-only fragment text and routes the file to the customization-handling path (see the notes-contract constraint in [rule-comparator.md](../agents/rule-comparator.md)):
+Use the Write tool to write the collected verdicts to `{planwise_root}/upgrade-conflicts/{from}-to-{to}/verdicts.json`, keyed by filename. The pair directory must exist before the write: the Write tool creates a missing parent directory, and the shell form is `mkdir -p`, a filesystem operation with no native equivalent. This is the only place the writer reads this cache from disk. `{from}` / `{to}` are the values pinned in Step 1. The writer reads exactly this path for the pair it resolves: when that file is absent but a `verdicts.json` exists under a *different* pair directory, it prints a stderr warning naming both paths and falls back to the inline primitive — it never consumes another pair's verdicts, and a genuinely absent cache (headless, or fan-out declined) stays silent. Each entry is the comparator's `StructuralVerdict` shape **plus an `installed_sha256` freshness binding** (see below). A SUBSET entry carries its verbatim tolerated installed-only text in `tolerated_fragments` (`[]` when clean) and the writer sets `notes` from that list, so a non-empty list routes the file to the customization-handling path, while a free-commentary `rationale` is ignored. An entry without the key keeps legacy behaviour (`notes` is read as is), and prose `notes` beside an empty list is contradictory, so the writer ignores the entry and the inline primitive decides (see the notes-contract constraint in [rule-comparator.md](../agents/rule-comparator.md)):
 
 ```json
 {
@@ -190,6 +191,7 @@ Use the Write tool to write the collected verdicts to `{planwise_root}/upgrade-c
     "unique_blocks": [], "home_hints": {}, "source": "agent",
     "shared_blocks": 12, "total_installed_blocks": 12,
     "installed_only_chars": 0, "unique_sample_tokens": [], "notes": "",
+    "tolerated_fragments": [], "rationale": "every installed block is present in shipped",
     "installed_sha256": "3b7e…64-hex-chars…a9f0"
   }
 }

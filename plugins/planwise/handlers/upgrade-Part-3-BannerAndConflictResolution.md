@@ -199,7 +199,7 @@ Plugin root repointed: {live_plugin_root}
 Upgrade complete.
 ```
 
-The `Comparator verdicts:` line is rendered by the handler from the Step 2.2 counts and the Step 2.3 late-verdict count, because the script cannot see the fan-out. Append the word `degraded` to it when `returned < diverged`. Omit the line when Step 2.2 did not run.
+The `Comparator verdicts:` line is rendered by the handler from the Step 2.2 counts and the Step 2.3 late-verdict count, because the script cannot see the fan-out. Count each file named in a writer output line (stdout or stderr) containing `ignoring cached verdict` or `falling back to the inline primitive` as failed, not returned, because the writer discarded its verdict. Append the word `degraded` to it when `returned < diverged`. Omit the line when Step 2.2 did not run.
 
 > [!practice] The index migration blocks are a pass-through, never a handler procedure
 > Pass the `Backlog index migration:` (or `Backlog changelog:`), `Lessons index migration:` (or `Lessons changelog:`) and `Plans index migration:` blocks through verbatim, exactly as the script's own banner prints them — the handler names no repair step of its own. Step 2.3b asked the answerable questions before the writer ran, so a refusal that still prints is one only a hand edit settles (a non-UTF-8 file, an id on two files, an entry at the page cap). On `refused`, report the `fix:` line as printed, and name the refusal as action required in the chat summary.
@@ -213,7 +213,7 @@ The `Comparator verdicts:` line is rendered by the handler from the Step 2.2 cou
 > Raw stdout has no `home_hints` access (handler-side cache only). When `verdicts.json` exists, append to the
 > **chat summary** one line per "transferred"/"preserved" file that has a hint: `! {file} ({K} unique block(s)
 > — suggested home: {localize|upstream|either})`, then point at Step 4.1 (already transferred → promote to an
-> active rule; still preserved → retry the relocation by hand) or Step 4.2 (upstream). List by name each file the primitive dispositioned because its comparator was late or failed, and point at `late-verdicts.md` for a verdict recorded after the writer ran. No `verdicts.json`
+> active rule; still preserved → retry the relocation by hand) or Step 4.2 (upstream). For EVERY `verdicts.json` entry whose `relocated_blocks` is non-empty, whatever its disposition, add one line: `{file}: {disposition}; {block} now in {sibling}`. Skip that line for a file the writer rejected (see the `Comparator verdicts:` rule above). List by name each file the primitive dispositioned because its comparator was late or failed, or because the writer rejected its verdict, and point at `late-verdicts.md` for a verdict recorded after the writer ran. No `verdicts.json`
 > (headless, or fan-out declined) → no hints to append; the writer still auto-transferred regardless.
 
 Then summarise in the chat with this template:

@@ -324,9 +324,10 @@ def migrate_installed_rules(
                             f"{filename}: skipped — backup write failed; installed "
                             "file left in place (no removal without a pre-image)")
             else:
+                cached_verdict = _load_verdict_override(
+                    verdicts, filename, installed_raw, dst)
                 verdict = _classify_diverged(
-                    installed_norm, shipped_norm,
-                    override=_load_verdict_override(verdicts, filename, installed_raw, dst),
+                    installed_norm, shipped_norm, override=cached_verdict,
                 )
                 verdict_notes = getattr(verdict, "notes", "") or ""
                 if _destructively_removable(verdict):
@@ -377,10 +378,20 @@ def migrate_installed_rules(
                         # Headless-inconclusive reorg is a confidence gap, not a
                         # genuine customization — it always preserves regardless
                         # of customization_handoff (nothing to transfer).
-                        report["preserved"].append(
-                            f"{filename}: kept — headless inconclusive (content reorganized, "
-                            "not a clean subset); run /planwise upgrade interactively to "
-                            "agent-verify, or /planwise doctor, before removal")
+                        if cached_verdict is not None or (
+                                getattr(verdict, "source", "inline") == "agent"):
+                            # A cached verdict (or an agent-sourced one) was already
+                            # produced interactively; sending the user back to an
+                            # interactive run would loop.
+                            report["preserved"].append(
+                                f"{filename}: kept — verdict at reorg (content "
+                                "relocated in shipped); review before removal")
+                        else:
+                            report["preserved"].append(
+                                f"{filename}: kept — headless inconclusive (content "
+                                "reorganized, not a clean subset); run /planwise upgrade "
+                                "interactively to agent-verify, or /planwise doctor, "
+                                "before removal")
                 else:                                      # HAS_UNIQUE
                     unique_blocks = getattr(verdict, "unique_blocks", []) or []
                     if _verdict_not_analyzed(verdict):

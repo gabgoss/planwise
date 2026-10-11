@@ -91,9 +91,10 @@ class StructuralVerdict:
     def from_dict(cls, d: dict) -> "StructuralVerdict":
         """Build a StructuralVerdict from a dict, tolerating extra keys.
 
-        ``classification`` and ``confidence`` are required — a dict missing
-        either raises ValueError so callers can degrade to a conservative
-        preserve verdict. The remaining fields default to empty/zero so a
+        ``classification`` and ``confidence`` are required and must be
+        in-enum — a dict missing either, or carrying a value outside
+        ``SUBSET``/``HAS_UNIQUE`` or ``_CONFIDENCE_ORDER``, raises ValueError
+        so callers can degrade to a conservative preserve verdict. The remaining fields default to empty/zero so a
         partial (e.g. agent-produced) verdict never crashes deserialization.
         """
         field_names = {f.name for f in dataclasses.fields(cls)}
@@ -102,6 +103,31 @@ class StructuralVerdict:
         if missing:
             raise ValueError(
                 f"verdict dict missing required field(s): {', '.join(missing)}"
+            )
+        if kwargs["classification"] not in ("SUBSET", "HAS_UNIQUE"):
+            raise ValueError(
+                f"verdict classification {kwargs['classification']!r} is not "
+                "SUBSET or HAS_UNIQUE"
+            )
+        if kwargs["confidence"] not in _CONFIDENCE_ORDER:
+            raise ValueError(
+                f"verdict confidence {kwargs['confidence']!r} is not one of "
+                f"{', '.join(_CONFIDENCE_ORDER)}"
+            )
+        # A SUBSET verdict that carries installed-only content AND empty notes
+        # would read as a clean subset and be overwritten. With non-empty notes
+        # the writer's notes gate already routes it to transfer, so accept it.
+        # The emptiness test is the writer gate's own predicate, with no strip,
+        # so whitespace-only notes count as non-empty here exactly as there.
+        if (
+            kwargs["classification"] == "SUBSET"
+            and (kwargs.get("unique_blocks") or kwargs["confidence"] == "unique")
+            and not (kwargs.get("notes") or "")
+        ):
+            raise ValueError(
+                "verdict is SUBSET but carries installed-only content "
+                "(non-empty unique_blocks or confidence 'unique') with empty notes; "
+                "unique_blocks and confidence contradict the classification"
             )
         kwargs.setdefault("unique_blocks", [])
         kwargs.setdefault("shared_blocks", 0)

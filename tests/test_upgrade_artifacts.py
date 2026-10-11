@@ -77,6 +77,56 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         )
         self.assertFalse(sidecar.exists(), "A SUBSET refresh must NOT write a .new sidecar")
 
+    def _stage_agent_subset(self, installed_body, notes):
+        """Stage a shipped/installed rule pair and an agent SUBSET cache entry."""
+        import upgrade_io
+
+        self.enable_relocate()
+        self.write_shipped_rule("# Rule\n\nShipped superset body.\nExtra shipped-only line.\n")
+        installed = self.write_installed_rule(installed_body, ".claude/agents/**, custom/**")
+        cache = upgrade_io.verdicts_cache_path(self.cfg, "1.0.0", "1.1.0")
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({self.RULE_FILENAME: {
+            "classification": "SUBSET", "confidence": "contained",
+            "unique_blocks": [], "home_hints": {}, "source": "agent",
+            "notes": notes,
+            "rationale": "every installed block is present in the shipped file",
+            "tolerated_fragments": [],
+            "installed_sha256": upgrade_io._installed_hash(installed.read_text(encoding="utf-8")),
+        }}), encoding="utf-8")
+        return installed
+
+    def test_agent_subset_with_empty_notes_rationale_and_empty_fragments_is_refreshed(self):
+        installed = self._stage_agent_subset("# Rule\n\nShipped superset body.\n", "")
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            _refreshed, _unchanged, conflicts, _untracked, refreshed_subsets, transferred = (
+                self.run_upgrade()
+            )
+
+        self.assertIn(str(installed), refreshed_subsets)
+        self.assertEqual(transferred, [], "a clean agent SUBSET must auto-adopt")
+        self.assertEqual(conflicts, [])
+
+    def test_agent_subset_with_prose_notes_and_empty_fragments_falls_back_to_the_primitive(self):
+        # The agent claims a clean SUBSET, but the installed file really carries a
+        # block shipped lacks. The contradictory entry is ignored, so the inline
+        # primitive sees the block and transfers it instead of overwriting it.
+        installed = self._stage_agent_subset(
+            "# Rule\n\nShipped superset body.\n# Extra\nUser-added block.\n",
+            "older copy of grown shipped body")
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            _refreshed, _unchanged, _conflicts, _untracked, refreshed_subsets, transferred = (
+                self.run_upgrade()
+            )
+
+        self.assertNotIn(str(installed), refreshed_subsets)
+        self.assertEqual(len(transferred), 1, "the primitive must transfer the user block")
+        self.assertIn("User-added block.", Path(transferred[0][1]).read_text(encoding="utf-8"))
+        self.assertIn("older copy of grown shipped body", err.getvalue())
+
     def test_conflict_has_unique_transfers_customization_then_adopts_shipped(self):
         self.enable_relocate()
         shipped_body = "# Rule\n\nShipped body.\n"
