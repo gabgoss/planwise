@@ -41,6 +41,7 @@ paths: {planwise_root}/{plans_dir}/**
 > - [ ] Verdict-arithmetic contract honored: if Actual contradicts Expected per the comparison operator, the verdict is FAIL or `[UNCERTAIN]`, never PASS (`gate-verdict-contract-and-adjudication.md` §5).
 > - [ ] BLOCKER-from-heuristic adjudication protocol declared in the orchestration — orchestrator validates flagged sites against source before routing rework (`gate-verdict-contract-and-adjudication.md` §6).
 > - [ ] Every gate carries its measured pre-edit value inline, and that value contradicts the expectation — or the gate is marked `invariant:` (`gate-pre-edit-baseline.md` §10.1-§10.3).
+> - [ ] Every per-task gate is scoped to its task's files. Each whole-population baseline is measured once per plan with its tree identity recorded (`gate-pre-edit-baseline.md` §10.1.1).
 > - [ ] Every anchor's accepted-outcome set diffed against its owning task's terminal branches, and the count carried inline (`gate-anchor-outcome-set.md` §10.7).
 > - [ ] All four command-semantics traps checked: `grep -c` counts lines, `-B1` emits the match, set membership is not count equality, every path resolves from the declared cwd (`gate-command-semantics.md` §10.8).
 > - [ ] A mutation-control criterion names the guard, not a test: "each guard has a test that fails when only that guard is disabled", with one minimal input per guard and the mutated symbol's own return value asserted (`gate-predicate-discrimination.md` §14 and §15).

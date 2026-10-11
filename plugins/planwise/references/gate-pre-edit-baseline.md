@@ -49,6 +49,24 @@ The annotation's grammar is one comment line adjacent to the command it annotate
 
 The literal token `pre-edit:` is the load-bearing part — a reviewer or a mechanical checker keys on it — so keep it verbatim and keep the measured value immediately after it. The arrow and the surrounding wording are readability, not syntax.
 
+#### 10.1.1 Scope the measurement to the gate's population
+
+A gate's population is the set of files its command reads. Measure the pre-edit value against that population and no wider one. A per-task gate names the task's own test module and lint paths. A whole-suite command costs minutes and moves for reasons outside the task.
+
+Measure a whole-population baseline once per plan, before the first task file. Record it with its tree identity: the repo's `HEAD` sha and an empty `git status --porcelain` over the population's paths. A recorded value with a checked identity is a measurement, so it satisfies §10.1. Reuse it only in gates that run before any edit to that population. Re-check the identity at each dispatch and re-measure when it fails.
+
+> [!constraint] One whole-population baseline per plan, one scoped measurement per task
+> WRONG — every task runs the whole suite for its own baseline:
+> ```bash
+> {test-cmd}                           # minutes, repeated per task
+> # pre-edit: 2590 passed → expect >= 2591 passed
+> ```
+> CORRECT — the task gate is scoped, and the whole-suite value is recorded once per plan:
+> ```bash
+> {test-cmd} tests/test_{module}.py
+> # pre-edit: 41 passed → expect 43 passed
+> ```
+
 A per-task gate measures the files its task touches. `scripts/lint_verification_gates.py` Check 16 fires on a task file's Before or After `pytest` gate that names no path, because a whole-suite run costs minutes per task and moves for reasons outside the task. A whole-population baseline belongs in the Master Plan, measured once with its tree identity recorded.
 
 ### 10.2 A gate whose pre-edit value already satisfies its expectation is vacuous by construction

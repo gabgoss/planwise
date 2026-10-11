@@ -492,6 +492,14 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
    exec or smoke test). A task missing one of these types uses the `<!-- NEEDS-COMMAND -->`
    marker carried in the `> [!verify]` skeleton (`templates/task-file.md`) in place of that
    type's command line, so the gap is visible at review time, NOT silently left blank.
+5. **Measure at the gate's scope.** Run each per-task Before/After command against the task's
+   own paths. Record that value as the gate's pre-edit annotation. Run a whole-population
+   command once per plan, before the first task file. A whole-population command is the full
+   suite or the whole-repo lint. Run it in the foreground with a timeout above its expected
+   duration, and state that duration. Record the value with the repo's `HEAD` sha in the Master
+   Plan § Decisions (Locked). Reuse it only in gates that run before any edit to that population.
+   Re-check the tree identity at each dispatch. See `references/gate-pre-edit-baseline.md`
+   §10.1.1 Scope the measurement to the gate's population.
 
 **Per-File-Type Command Map** (mirrors `templates/task-file.md` §Per-File-Type Commands):
 
@@ -523,13 +531,15 @@ Commands Plan-Review Enforcement table; `templates/task-file.md` §Per-File-Type
 > > [!verify] Before / After Commands
 > > **Before:**
 > > ```
-> > {lint-cmd} src/{module}/        # lint baseline
-> > {test-cmd} src/{module}/        # test baseline
+> > {lint-cmd} src/{module}/        # lint baseline, this module only
+> > {test-cmd} src/{module}/        # test baseline, this module only — never the whole suite per task
 > > ```
 > > **After:**
 > > ```
-> > {lint-cmd} src/{module}/        # expect: pass
-> > {test-cmd} src/{module}/        # expect: green
+> > {lint-cmd} src/{module}/
+> > # pre-edit: 0 findings → invariant: 0
+> > {test-cmd} src/{module}/
+> > # pre-edit: 41 passed → expect 43 passed
 > > ```
 > ```
 >

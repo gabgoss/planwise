@@ -227,7 +227,7 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > ```
 > {cmd_after_1}    # e.g., {lint-cmd} on files from git diff $..._BASE -- <paths> (expect: pass)
 > # pre-edit: {measured value} → expect {post-edit expectation}
-> {cmd_after_2}    # e.g., {test-cmd} or specific test
+> {cmd_after_2}    # e.g., {test-cmd} on this task's own test files — never the whole suite per task
 > # pre-edit: {measured value} → expect {post-edit expectation}
 > {cmd_after_3}    # e.g., {test-cmd} on the touched module
 > # pre-edit: {measured value} → invariant: {value}   (mark invariant only if this gate must NOT move)
@@ -287,6 +287,9 @@ The later stale-reference sweep task lists this slot in its `## Required Context
 > annotation line — an unmarked gate whose pre-edit value already satisfies `expect` is not
 > exempt, whatever the surrounding prose claims. See `references/gate-pre-edit-baseline.md`
 > §10 for the full doctrine; this block states the requirement, the reference carries the rule.
+> A per-task gate measures the files its task touches. Measure a whole-suite or whole-repo
+> baseline once per plan and reuse it with its tree identity recorded. See
+> `references/gate-pre-edit-baseline.md` §10.1.1.
 >
 > WRONG — the expectation stands alone; nothing records what the value was before the edit:
 > ```bash
