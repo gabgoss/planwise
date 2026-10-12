@@ -21,6 +21,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
+import doctor_cli
 import doctor_sweeps
 import init_project as ip
 
@@ -622,6 +623,51 @@ class TestDoctorStaleSweep(_MigrationFixtureBase):
         )
         second_pruned = (second_dir / "PRUNED.md").read_text(encoding="utf-8")
         self.assertIn(filename2, second_pruned)
+
+    _INDEX_AUDIT_BANNERS = (
+        "planwise doctor — plans index drift audit",
+        "planwise doctor — backlog index archival drift audit",
+        "planwise doctor — lessons index drift audit",
+        "planwise doctor — backlog item body-status drift audit",
+    )
+
+    def _doctor_stdout_on_pin_gate_fixture(self):
+        import contextlib
+        import io
+
+        self.cfg.plugin_version = "1.0.4"
+        config_dir = self.project_root / self.cfg.planwise_root
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            f'plugin_version: "{self.cfg.plugin_version}"\n'
+            "project:\n  name: Fixture\n  plans_dir: Plans\n  backlog_dir: Backlog\n"
+            "  lessons_dir: LessonsLearned\n",
+            encoding="utf-8",
+        )
+        for name in ("Plans", "Backlog", "LessonsLearned"):
+            (config_dir / name).mkdir(exist_ok=True)
+        buf = io.StringIO()
+        # `_run_doctor` resolves the probe in doctor_cli's module globals.
+        with (
+            mock.patch.object(doctor_cli, "probe_cli_version", return_value="2.1.0"),
+            contextlib.redirect_stdout(buf),
+        ):
+            exit_code = ip._run_doctor(self.cfg)
+        return exit_code, buf.getvalue()
+
+    def test_run_doctor_prints_the_index_audit_banners(self):
+        exit_code, stdout = self._doctor_stdout_on_pin_gate_fixture()
+        self.assertEqual(exit_code, 0)
+        for banner in self._INDEX_AUDIT_BANNERS:
+            self.assertIn(banner, stdout, "_run_doctor() must call the index audits")
+
+    def test_run_doctor_is_deterministic(self):
+        _, first = self._doctor_stdout_on_pin_gate_fixture()
+        _, second = self._doctor_stdout_on_pin_gate_fixture()
+        for banner in self._INDEX_AUDIT_BANNERS:
+            self.assertIn(banner, first)
+            self.assertIn(banner, second)
+        self.assertEqual(first, second, "Two consecutive doctor runs must print identical stdout")
 
 
 class TestInstalledDivergenceLint(_UpgradeArtifactsFixtureBase):

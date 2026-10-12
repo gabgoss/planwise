@@ -1,8 +1,9 @@
 """`/planwise doctor` CLI dispatchers: version-state gate, config parse
 check, and the --doctor / --prune-stale / --list-diverged report printers.
 
-Orchestrates doctor_sweeps's four read-only sweeps into printed reports, and
-owns the plugin version-state gate every dispatcher runs first.
+Orchestrates doctor_sweeps's four read-only sweeps and doctor_audits's four
+index audits (Stages 11, 12, 13, 19) into printed reports, and owns the
+plugin version-state gate every dispatcher runs first.
 """
 
 import datetime
@@ -818,7 +819,10 @@ def _run_doctor(cfg: "InitConfig") -> int:
     `claude --version` and compares it against config.yaml's
     context.verified_cli_version (populated by init, refreshed by upgrade) —
     read-only, recommends `/planwise upgrade` on drift or on an uncalibrated
-    ("") value, never writes. Then runs Stage 23, the style-rule check
+    ("") value, never writes. Then runs Stages 11, 12, 13 and 19, the index
+    drift audits (run_index_audits()). The handler's stage numbers are labels,
+    so printing them after Stage 16 and before Stage 23 is the documented
+    order. Then runs Stage 23, the style-rule check
     (run_style_stage()): per rule, its config switch, installed copy, copies
     that also load, and token cost — also always-on and read-only. Always exits
     0 (diagnostic, not a gate).
@@ -1057,6 +1061,13 @@ def _run_doctor(cfg: "InitConfig") -> int:
               "read-only and never writes config.yaml")
     else:
         print(f"Up to date — recorded {recorded} matches the live CLI.")
+
+    try:
+        from doctor_audits import run_index_audits
+
+        run_index_audits(cfg)
+    except Exception as exc:  # noqa: BLE001 -- an audit never aborts the doctor run
+        print(f"Index audits: the check failed: {exc}")
 
     # Stage 23: style rules — read-only, always-on. Reports each always-on style
     # rule's switch, installed copy, other loading copies and token cost.

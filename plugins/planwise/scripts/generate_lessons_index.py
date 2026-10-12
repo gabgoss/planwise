@@ -604,30 +604,19 @@ def main() -> int:
             replace_legacy=args.replace_legacy, json_out=args.json,
         )
 
+    from lessons_index_run import check_lessons_index, legacy_hub_message
+
     try:
-        result, next_id_info, report, location_anomalies = _run_lessons_report_pipeline(
-            lessons_dir, archive_dir, index_path, naming, config
-        )
+        checked = check_lessons_index(config)
     except LessonsGeneratorError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return LessonsDisposition.REFUSED
+    report, findings, shape, code = (checked[k] for k in ("report", "findings", "shape", "code"))
 
     _print_truncation_summary(report["truncated_ids"])
 
-    findings, shape = _check_lessons_drift(
-        result.items, report, lessons_dir, archive_dir, index_path, naming,
-        next_id_info["next"], config, location_anomalies, result.duplicate_ids,
-        result.id_mismatches,
-    )
-    code = lessons_exit_code_for(write_mode=False, findings=findings)
-
     if code == LessonsDisposition.REFUSED:
-        print(
-            f"Error: {index_path} is a hand-authored lessons index — run /planwise upgrade to "
-            "migrate it (the migrator relocates the changelog, the promotion log and the "
-            "hand-written sections with backups) before reading it as generated",
-            file=sys.stderr,
-        )
+        print(legacy_hub_message(index_path), file=sys.stderr)
         if not args.json:
             return code
 
