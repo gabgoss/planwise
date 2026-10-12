@@ -131,7 +131,7 @@ The canonical policy's Inline Tagging Convention applies: critical sites emit a 
 <!-- Default: No -->
 **H7.** The end-of-triage capture question defaults to declining — this command's own stage 4 is what captures and lands lessons; the per-item triage pass does not capture on its behalf.
 
-**Inherited gates that never fire in this handler:** the single-lesson promote/capture gates (this command uses batch-promote and never invokes single-lesson capture); the no-args select sub-case (an item id is always supplied); the config-gate collection question (the Auto-Mode branch calls the init script directly, per the Config Gate above); the heal gate (stage 4 never attempts a heal); the scoped-rule gate, which never prompts here — it auto-escalates directly to Route C (Failure Classification, below).
+**Inherited gates that never fire in this handler:** the single-lesson promote/capture gates (this command uses batch-promote and never invokes single-lesson capture); the no-args select sub-case (an item id is always supplied); the config-gate collection question (the Auto-Mode branch calls the init script directly, per the Config Gate above); the heal gate (stage 4 never attempts a heal); the scoped-rule gate, which never prompts here — a non-exempt match auto-escalates directly to Route C, and a rule-file promotion item is exempt (Failure Classification, below).
 
 ### Step 3: Auto-Approve Constraint (H8)
 
@@ -199,7 +199,7 @@ ISSUES:           {one line per issue, or "none"}
 Route C adds `PLAN_PATH`, `PLAN_MODE: standard | meta-deferred`, `REVIEW_REQUESTED: true | false` (false only when BLOCKED).
 
 **Route behaviour:**
-- **Route A** spawns the fix agent with six fields: item id, summary, and description (from the item file); **affected files re-verified via the citation-freshness preflight, never copied** from the item file — under automation, no human catches a stale path; the build command resolved once from `config.yaml`'s `build_commands.default` at Config-Gate time; cross-cutting candidates from the item's own sections (default "none identified").
+- **Route A** spawns the fix agent with six fields: item id, summary, and description (from the item file); **affected files re-verified via the citation-freshness preflight, never copied** from the item file — under automation, no human catches a stale path; the build command resolved once from `config.yaml`'s `build_commands.default` at Config-Gate time; cross-cutting candidates from the item's own sections (default "none identified"). For a rule-file promotion item (see Failure Classification, below), the prompt also carries the content of every scoped rule that matches the destination.
 - **Route B** reuses the same agent and contract — a scope-assessment distinction from Route A, not an execution one. Its internal steps are tracked as sequential tool calls inside the single dispatch, never through the shared harness task list (session-wide state would race across concurrent dispatches).
 - **Route C** dispatches the `backlog-planner` agent ([`agents/backlog-planner.md`](../agents/backlog-planner.md)) with the item's own scope. The agent authors a session plan, reports it ready for review, and stops — it never executes the plan and never writes the backlog index. This stage runs the review on the fresh plan and applies the resulting verdict: an approved plan advances the item to `PLANNING`; a verdict requiring fixes is logged and the item stays `PLANNING` unapproved, not auto-retried.
 - **Route C standing limitation:** an `APPROVED` verdict does **not** certify destructive-path safety. The review flow spawns no sub-role that audits a plan's destructive dispositions, so an approved plan may still carry a delete/overwrite/prune path nobody assessed. This is a documented limitation of the review contract, not something this command fixes — treat `APPROVED` as "the plan is well-formed", never as "the plan is safe to run unattended".
@@ -211,8 +211,9 @@ Route C adds `PLAN_PATH`, `PLAN_MODE: standard | meta-deferred`, `REVIEW_REQUEST
 
 - **Precondition:** an item reached COMPLETE this run — stage 3's central write is the source of truth.
 - **Action:** set the final status and artifact pointer on every lesson whose owning item(s) reached COMPLETE; append the promotion-log row.
-- **Failure:** never heals. Heal candidates are detected and reported, never actioned; a lesson whose owner did not complete stays promoted and lands on a later run.
+- **Failure:** never heals. Heal candidates are detected and reported, never actioned; a lesson whose owner did not complete stays `promoted`. A later `/planwise lessons curate` lands it, once its content exists in the destination artifact. A repeat harvest run does not, because the work set holds only the lessons stage 2 archived in that run.
 - **Writes:** the lesson file's status and artifact pointer, the promotion-log row. No file moves in this stage.
+- **Run-end report:** after stage 4, print one line for every lesson in this run's scope that is still `promoted`: `{lesson id} still promoted — owner {item id} is {status}: {reason}`. The reason is the owner's route and outcome, such as "Route C plan awaiting `/planwise run`", "verify failed and was reverted", or "skipped after a logged failure". End with one line naming `/planwise lessons curate` as the command that lands them. Print nothing when no lesson is left.
 
 ### Step 5: Failure Classification
 
@@ -221,7 +222,8 @@ Route C adds `PLAN_PATH`, `PLAN_MODE: standard | meta-deferred`, `REVIEW_REQUEST
 | fix-agent BLOCKED | escalate once to Route C |
 | build/test fail | revert + cascade |
 | self-containment grep hits | revert + cascade (unconditionally binding) |
-| scoped-rule conflict | auto-escalate directly to Route C, skipping A — a placement judgment the mechanical VERIFY cannot backstop (a misplaced-but-valid file builds clean) |
+| scoped-rule conflict, item not exempt | auto-escalate directly to Route C, skipping A — a placement judgment the mechanical VERIFY cannot backstop (a misplaced-but-valid file builds clean) |
+| scoped-rule match on a rule-file promotion item | exempt: take Route A with the matching rules' content injected into the fix agent's prompt. The item is exempt when an archived lesson names it in `promoted-to:`, that lesson's `promotion-target:` includes `rule`, and the destination lies under `.claude/rules/`. Stage 2 already decided placement through its existing-rule check, and Route A VERIFY still runs the self-containment grep |
 | unparseable item frontmatter | skip + log + advance |
 | planner BLOCKED | Notes `AUTO-PLAN FAILED {date}: {reason} — needs manual triage`, status `NOT_STARTED`, advance |
 | review verdict requires fixes | log only — never retried in-loop; Route C plans and reviews exactly once |

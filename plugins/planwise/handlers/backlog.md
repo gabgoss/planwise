@@ -222,12 +222,18 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 
    > **Scoped-rule conflict detected:** destination `{path}` is covered by a scoped rule in `{rule-file}`. Verify the fix targets the correct file before delegating.
 
-   This gate applies regardless of route (Route A or Route B) — do not skip it.
+   **Promotion exemption.** Do not flag a destination when both conditions hold:
+   - An archived lesson names this item in its `promoted-to:` line, and that lesson's `promotion-target:` includes `rule`.
+   - The destination lies under `.claude/rules/`.
+
+   Find the owning lesson with `Grep` for the item id over `{lessons_dir}` and `{lessons_dir}/Archive`. `promote-batch` already decided the placement of such an item. Its existing-rule check chose between extending a rule and writing a new one. Inject the matching rules' content into the fix-agent spawn prompt, per `references/agent-orchestration-delegated.md` §1.6. Route A VERIFY still runs the self-containment grep on the rules diff. A destination outside `.claude/rules/` keeps the flag. So does an item that no lesson owns.
+
+   This gate applies regardless of route (Route A or Route B) — do not skip it. The exemption above is the only exception.
 
    **Auto Mode.** This is a human-judgment gate, so it is classified `critical`. It issues
    no `AskUserQuestion`, so it is discharged differently from the critical sites in
-   `references/auto-mode-policy.md` § Critical Question Behavior: under automation the item
-   **auto-escalates to Route C** rather than prompting or failing loud. The placement
+   `references/auto-mode-policy.md` § Critical Question Behavior: under automation an item
+   that is not exempt **auto-escalates to Route C** rather than prompting or failing loud. The placement
    decision cannot be inferred, and the Phase-5 mechanical gate cannot backstop it — a
    misplaced-but-valid file builds clean and leaks nothing, so nothing downstream would
    report the error.
