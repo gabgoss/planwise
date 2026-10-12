@@ -376,7 +376,7 @@ A handler that enumerates conditional references for the orchestrator, then dele
 
 Two practices follow.
 
-**The lead already knows the trigger.** One Grep for `Execution Strategy:\s*DELEGATED` over the Master Plan and every Orchestration file decides whether to append the block. A handler that already runs that Grep for another check reuses the same result here, at no extra cost.
+**The lead already knows the trigger.** One Grep for `^(\*\*Mode:\*\*|Execution Strategy:)\s*DELEGATED\b` over the Master Plan and every Orchestration file decides whether to append the block. The pattern matches the `**Mode:**` line the Orchestration template writes, and it anchors at the line start so the template's reminder text in a DIRECT plan does not match. The lead prints the outcome with the matched and total file counts, so a miss reads as a defect and not as a DIRECT plan. A handler that already runs that Grep for another check reuses the same result here, at no extra cost.
 
 **A checklist row with no loader is a false assurance.** When auditing a checklist-driven handler, verify for each row that *some* spawn prompt causes it to be evaluated. Counting how often the handler names the reference does not answer that question. A mention in a synthesis step, or in a lead-side conditional-reference list, loads nothing into the agent that runs the check. Read each prompt.
 

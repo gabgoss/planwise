@@ -204,7 +204,9 @@ The first line of the findings file is always a `Coverage:` line. `Coverage: che
 
 Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. The Required References list above makes the three-part DELEGATED dispatch discipline (`references/agent-orchestration-delegated.md` and its Part-2 and Part-3 siblings) a **conditional** read for the lead. The lead does not run the delegated checks — spawned reviewers do, in fresh context windows that inherit nothing the lead resolved. This phase resolves the condition once and pushes the result into the prompts, so the rows that cite those references are actually evaluated rather than merely indexed (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.2).
 
-1. Grep the Master Plan and every Orchestration file for `Execution Strategy:\s*DELEGATED`. This is the same Grep Error Pattern Catalog row 66 already requires for the named-trigger check; run it once and reuse the result here.
+1. Grep the Master Plan and every Orchestration file for `^(\*\*Mode:\*\*|Execution Strategy:)\s*DELEGATED\b`. The first alternative is the line `templates/orchestration.md` writes under its `## Execution Strategy` heading. The second is the one-line form a hand-written plan may use. The pattern anchors at the start of the line because the template's reminder text also contains `Mode: DELEGATED` mid-line, and that text sits in every DIRECT plan too. This is the same Grep Error Pattern Catalog row 66 already requires for the named-trigger check; run it once and reuse the result here.
+
+   Print the outcome in the review output, so a miss is visible: `DELEGATED block: bound ({M} of {N} Orchestration files matched)` or `DELEGATED block: not bound (0 of {N} Orchestration files matched)`. `{N}` is the number of Orchestration files in the plan. A `not bound` line with `{N}` above 0 means the plan is DIRECT throughout. Confirm that by reading one Orchestration's `**Mode:**` line before moving on, because a pattern that no longer fits the template prints the same line.
 
 2. Bind `{DelegatedReviewBlock}`:
 
@@ -246,7 +248,7 @@ observation.
 > ```
 > CORRECT — the lead resolves the condition and pushes the resolved instruction into the prompt:
 > ```
-> Lead: Grep for `Execution Strategy:\s*DELEGATED` → matched
+> Lead: Grep for `^(\*\*Mode:\*\*|Execution Strategy:)\s*DELEGATED\b` → matched
 >       → bind {DelegatedReviewBlock} → append it to the four owning prompts
 > ```
 >

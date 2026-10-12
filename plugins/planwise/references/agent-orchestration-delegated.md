@@ -68,7 +68,7 @@ Declaring DELEGATED is a PLANNING decision (made in the Orchestration file), not
 
 - **Severity / Role / Type:** BLOCKER | Task Reviewer | NEW
 - **What:** When task meets DELEGATED trigger (2+ Opus tasks per session, META Discovery phase, single task >50K context, output-chaining), parent Orchestration MUST declare Execution Strategy = DELEGATED.
-- **Detection:** Grep Orchestration `Execution Strategy:\s*(DIRECT|DELEGATED)`; count Opus tasks; check largest task tokens. ≥2 Opus AND DIRECT → BLOCKER. Any task >50K AND DIRECT → BLOCKER.
+- **Detection:** Grep Orchestration `^(\*\*Mode:\*\*|Execution Strategy:)\s*(DIRECT|DELEGATED)\b`; count Opus tasks; check largest task tokens. ≥2 Opus AND DIRECT → BLOCKER. Any task >50K AND DIRECT → BLOCKER.
 - **Finding template:**
 ```
 [BLOCKER] DELEGATED mandatory trigger violated
