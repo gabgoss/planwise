@@ -235,7 +235,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > - HALT: "I notice the spec doesn't define a per-phase progress artifact.
 >   Should I add one now, defer to a backlog item, or proceed with spec-only
 >   artifacts?"
-> - BACKLOG: file `BLI-{NNN}-Progress-Visibility-During-Scaffold.md`, proceed
+> - BACKLOG: file `BB-{NNN}-01-DOC-ProgressVisibilityDuringScaffold.md`, proceed
 >   with spec-defined artifacts only.
 > - INLINE: add a Master-Plan paragraph titled "Scaffolding Progress" (existing
 >   artifact, existing prose), and mark it `**non-spec, ad hoc:**` in the
