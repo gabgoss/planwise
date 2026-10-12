@@ -69,7 +69,7 @@ A passing read-gate/cost-gate scan is a necessary signal, not a sufficient one �
 
 ### Step 6: Read-constant drift tripwire
 
-Report the FIXED Read-tool constants' measured baseline, then defer the actual staleness signal to Stage 16's project-wide check rather than re-comparing a CLI build inline here — no shipped plugin file stores a literal CLI version to compare against (see the callout below for why).
+Report the FIXED Read-tool constants' measured baseline, then defer the actual staleness signal to the verified-CLI-version drift advisory's project-wide check rather than re-comparing a CLI build inline here — no shipped plugin file stores a literal CLI version to compare against (see the callout below for why).
 
 1. Report the constants' provenance — the values themselves are the read-gate canonical in [`references/session-context-budget.md`](../references/session-context-budget.md) § Read-Tool Hard Limits; this step never restates them:
 
@@ -78,10 +78,10 @@ Report the FIXED Read-tool constants' measured baseline, then defer the actual s
      Measured on: {READ_LIMITS_MEASURED_ON}
    ```
 
-2. Point at Stage 16's own verdict (`doctor_cli.py`'s "verified CLI version drift" report, run earlier in this same `/planwise doctor` pass) rather than re-probing `claude --version` here:
+2. Point at the verified-CLI-version drift advisory's own verdict (`doctor_cli.py`'s "verified CLI version drift" report, run earlier in this same `/planwise doctor` pass) rather than re-probing `claude --version` here:
 
    ```
-   ! Read-limit constants measured {READ_LIMITS_MEASURED_ON}. Stage 16 above reports
+   ! Read-limit constants measured {READ_LIMITS_MEASURED_ON}. The verified-CLI-version drift advisory above reports
      {drift | uncalibrated | up to date} against context.verified_cli_version.
      On drift or uncalibrated: the hardcoded Read-tool caps may be stale. Re-probe with the
      read-limit re-validation procedure (headless `claude -p --model X` probes against
@@ -93,7 +93,7 @@ Report the FIXED Read-tool constants' measured baseline, then defer the actual s
    This is the drift tripwire for the hardcoded read constants. It is advisory — `doctor` never edits the constants; it surfaces the mismatch so the one-shot live re-probe can be run.
 
 > [!binding] No shipped plugin file cites a specific CLI build
-> `read_limits.py` used to carry its own `READ_LIMITS_MEASURED_CLI` constant naming the exact build its constants were validated against — a version pin baked into shipped plugin source, requiring an edit on every CLI point release just to stay accurate. A project-local drift-watch tool that scans for any non-latest version string anywhere in the repo turned that churn into a large batch of near-identical "citation is stale" backlog items on every release, most of them against citations that were never functional pins to begin with (a measurement-provenance comment, not a compatibility requirement). The constant was removed; the *build a project's harness was last confirmed against* is now consumer-side, mutable state in `config.yaml`'s `context.verified_cli_version` — populated by `/planwise init`, refreshed by `/planwise upgrade`, reported (never written) by `/planwise doctor` Stage 16. Never reintroduce a literal CLI version into a file under `cloned-repos/planwise/plugins/planwise/`.
+> `read_limits.py` used to carry its own `READ_LIMITS_MEASURED_CLI` constant naming the exact build its constants were validated against — a version pin baked into shipped plugin source, requiring an edit on every CLI point release just to stay accurate. A project-local drift-watch tool that scans for any non-latest version string anywhere in the repo turned that churn into a large batch of near-identical "citation is stale" backlog items on every release, most of them against citations that were never functional pins to begin with (a measurement-provenance comment, not a compatibility requirement). The constant was removed; the *build a project's harness was last confirmed against* is now consumer-side, mutable state in `config.yaml`'s `context.verified_cli_version` — populated by `/planwise init`, refreshed by `/planwise upgrade`, reported (never written) by `/planwise doctor`'s verified-CLI-version drift advisory. Never reintroduce a literal CLI version into a file under `cloned-repos/planwise/plugins/planwise/`.
 
 The read-constant tripwire is paired with a cross-model ratio-band assertion in the plugin's test suite, which pins two properties of `BYTES_PER_TOKEN` for the same file. A drift in either signals a tokenizer-weight change:
 
@@ -115,32 +115,7 @@ A backlog item or lesson whose substantive content is only a pointer to an exter
 
 ### Step 7: Flag pointer-only captures (advisory)
 
-1. Scan the working-set capture files (exclude `Archive/` — closed items):
-   - Backlog: `{planwise_root}/{backlog_dir}/BB-*.md` and `BLI-*.md`
-   - Lessons: `{planwise_root}/{lessons_dir}/LL-*.md`
-
-2. For each file, compute two signals (both greps case-insensitive, body only — ignore YAML frontmatter):
-
-   | Signal | How to detect |
-   |--------|---------------|
-   | **Has an external/transient pointer** | A line referencing an absolute path outside this project (`[A-Za-z]:\\…`, `/Users/`, `/home/`, `/repos/`), another-repo reference, or a transient-source phrase (`see (the )?(session\|diff\|scratch)`, `session-only`, `in scratch`) |
-   | **Lacks inlined substance** | The body contains NO fenced code block (```` ``` ````) AND no inlined verbatim example, spec, or command output — i.e., nothing the pointer could be standing in for |
-
-3. Soft-flag any file where the pointer signal fires AND the inlined-substance signal is absent:
-
-   ```
-   Capture self-containment (advisory):
-     ~ {backlog_dir}/BB-{NNN}-...md
-         pointer:  {the matched external/transient reference}
-         risk:     substance may live only at that pointer — capture could be
-                   non-executable if it vanishes
-         remedy:   inline the block/spec/evidence the item depends on
-                   (durability test: "executable from this file alone if the origin vanished?")
-   ```
-
-   If nothing fires, report: `Capture self-containment: all scanned captures inline their substance.`
-
-This is advisory only — a pointer that merely *supplements* inlined content is fine; the flag is a prompt to verify, not a failure. It complements the capture-time discipline in the handlers rather than gating anything.
+The script prints this stage (banner: Capture self-containment). Pass it through verbatim. The scan is advisory only. A pointer that merely *supplements* inlined content is fine, and the flag is a prompt to verify, not a failure.
 
 ---
 
@@ -151,49 +126,7 @@ This is advisory only — a pointer that merely *supplements* inlined content is
 
 ### Step 8: Bookkeeping index read-gate scan
 
-Step 5 scans one plan's own files. A bookkeeping index is different: it grows across every plan and every session, and nothing else in the toolchain re-checks its size once the generator (or a hand-edited index) writes it. `READ_FILE_BYTE_CAP` and `READ_PAGE_CAP_TOKENS` are properties of the Read tool itself, not of Token Saver, so this step runs whether or not `context.token_saver` is on — a 396 KB index is unreadable regardless of anyone's budgeting settings.
-
-1. **Resolve the three index files from config, never by literal filename:**
-
-   | Index | Resolution |
-   |-------|------------|
-   | Backlog | The hub at `{backlog_dir}/{backlog_index}`, plus every generated shard beside it — see step 2 |
-   | Lessons | The hub at `{lessons_dir}/{lessons_index}`, plus every generated shard, the changelog file family, and the promotion-log file family beside it — see step 2's mirror below; skip when `project.lessons_dir` is absent, same as Stage 13 |
-   | Plans | The one file at `generate_plans_index.plans_index_path(config)`, built from `{plans_dir}` and `{plans_index}` — see step 2 |
-   | Companion | `{lessons_dir}/00-Categorization-By-Domain.md` — resolved from config, skipped when `project.lessons_dir` is absent, same as the Lessons row |
-
-2. **The backlog index is a hub plus overflow leaves plus Archive shards, not one file.** Derive the naming shape from the resolved hub path with `generate_backlog_index._index_naming({backlog_dir}/{backlog_index})` — the same derivation the generator itself uses (see [`references/backlog-schema.md`](../references/backlog-schema.md) § Hub, Overflow Leaves, and Archive Shards). Then scan `{backlog_dir}` and its Archive subdirectory (`project.archive_dir`, default `{backlog_dir}/Archive`) and keep every entry where `generate_backlog_index.is_generated_index_file(name, naming)` is true. Include each matched file in the scan below. Never match by a hardcoded filename — a custom `index_files.backlog` renames the hub, its overflow leaves, and its shard stem together, and only the generator's own recognition function stays consistent with that rename.
-
-   The lessons index is the same shape, mirrored through the lessons generator's own naming resolution: derive it with `generate_lessons_index._index_naming({lessons_dir}/{lessons_index})`, then scan `{lessons_dir}` and its Archive subdirectory and keep every entry where `generate_lessons_index.is_generated_index_file(name, naming)` is true (see [`references/lessons-schema.md`](../references/lessons-schema.md) § Hub, Overflow Leaves and Archive Shards). Skip this scan entirely when `project.lessons_dir` is absent. Detecting content drift between the companion and the lessons index (row-by-row staleness) is a later release; the Companion row in step 1 only checks read-gate size.
-
-   **The plans index is one file, with no shards.** Resolve it with `generate_plans_index.plans_index_path(config)`, which returns the path `config_loader` builds from `{plans_dir}/{plans_index}` (`_plans_index`) — never a literal filename, because a custom `index_files.plans` renames it. `generate_plans_index.is_generated_plans_index_file(name, config)` recognises that one name. There is no shard scan: the generator refuses to write an index over its budget, so only a hand edit can grow the file past a Read cap, and this scan catches that.
-
-   **The lessons changelog and promotion-log file families are scanned alongside the index, never by a hardcoded filename.** Resolve the changelog main file with `generate_lessons_index._changelog_filename(naming)`, its archive part (when present) and any `-Part-{NN}` sibling through the same naming the migrator's changelog splitter derives them from (`migrate_lessons_support`'s changelog-part naming); resolve the promotion-log family with `generate_lessons_index._promotion_log_filename(naming)` for the hub-side file plus the four Archive century files `migrate_lessons_support.log_destination` resolves by lesson-id band. **The archive part's `{YYYY}` is never guessed or defaulted for this scan — it is read off the one existing `{archive-stem}-Archive-*.md` filename**, where `{archive-stem}` is `lessons_changelog._archive_base`'s own result (derived from `_archive_naming`, the writer's namer — never a naive stem of the changelog filename, which a custom index name can make different), found the same way `lessons_changelog._existing_archive_main` finds it: Glob on that pattern in the lessons directory, keeping only a name whose suffix is exactly four digits (`-Archive-\d{4}.md`, via `lessons_changelog._ARCHIVE_YEAR_RE`) so a `-Part-NN` continuation or any other non-four-digit suffix never matches, then that same regex extracts the year from the matched name. A tree with no archive part on disk has none to measure — skip it, never invent a year to probe. Include every resolved file in the scan below. **The changelog archive part is allowed to Warn — a single indivisible entry can land it between the warn threshold and the page cap — so report it at whatever level `token_saver.classify_file` computes, never suppressed to Green.**
-
-3. **Classify each resolved file** with `token_saver.classify_file(path, model=None, thresholds=None)`. Pass no model and no thresholds: a bookkeeping index has no assigned agent the way a task file does, and `model=None` resolves to `DEFAULT_BYTES_PER_TOKEN` — the smallest, most conservative ratio measured across every model family, so the report never under-counts a file some model would trip. With no `thresholds`, the cost gate stays Green by construction, so any Warn or Critical here reports `reason=read` — the mechanical Read-tool cap, never a cost budget.
-
-4. **Report at the same four levels Step 5 uses** (Green / Notice / Warn / Critical), with the same `reason=cost|read` distinction — reuse that vocabulary rather than inventing a second one:
-
-   ```
-   planwise doctor — bookkeeping index read-gate scan
-
-     backlog:  {N} file(s) scanned (hub + overflow + shards)
-     lessons:  {N} file(s) scanned (hub + overflow + shards + changelog + promotion log)
-     plans:    {path} — {level} ({bytes} B / ~{tokens} tok, reason={reason})
-     companion: {path} — {level} ({bytes} B / ~{tokens} tok, reason={reason})
-
-     {one block per Warn-or-worse file, in the Step 5 finding shape:}
-     [{level} / reason={reason}] {path}
-         size: {bytes} B / ~{tokens} tok / {lines} lines
-         remedy: paged read (offset/limit/Grep); refactor + backlog item if this
-                 index is a core/edited dependency of the current work
-   ```
-
-   If every resolved file is Green: `Bookkeeping indexes: all Green — {N} file(s) scanned.`
-
-5. **Give a Critical or Warn finding a visible acknowledgement path. Do not suppress it, and do not raise a threshold to hide it.** Read the first 20 lines of the flagged file for a comment line shaped `<!-- known-condition: {text} -->`. When present, print `Known condition: {text}` directly under the finding, so an operator sees the condition is tracked rather than new. When absent, print `No known-condition note recorded — add a "<!-- known-condition: ... -->" comment naming the plan or item that addresses this, or file a backlog item.` Either way, the finding's level stays exactly what step 3 computed. The note changes what the operator sees beside the finding. It never changes the severity.
-
-6. **This scope stays at exactly these four indexes — backlog, lessons, plans, and the companion — plus the backlog's generated shards. It does not extend to item files (`BB-*.md`) or lesson files (`LL-*.md`).** Those are unbounded populations, and scanning them here would trade one blind spot for constant noise. A hand-authored item file that grows past its own advisory sub-backlog budget (see [`references/backlog-schema.md`](../references/backlog-schema.md) `SB` row) has no checker; this step records that gap rather than closing it.
+The script prints this stage (banner: planwise doctor — bookkeeping index read-gate scan). Pass it through verbatim. Step 5 scans one plan's own files. This step scans the backlog, lessons, plans and companion indexes, and it runs whether or not `context.token_saver` is on. Its scope does not extend to item files or lesson files.
 
 ---
 

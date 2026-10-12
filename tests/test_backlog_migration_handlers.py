@@ -11,10 +11,18 @@ edit cannot silently drop either branch.
 Run with:  python -m pytest tests/test_backlog_migration_handlers.py -q
 """
 
+import ast
 import re
 import unittest
 from pathlib import Path
 
+# The doctor folds Stage 20 into doctor_audits.py. The handler keeps only
+# "the script prints this stage (banner: ...)", so the field and flag pins
+# assert against the script that now implements the stage.
+DOCTOR_AUDITS_SCRIPT = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "planwise" / "scripts" / "doctor_audits.py"
+)
 BACKLOG_HANDLER = (
     Path(__file__).resolve().parent.parent
     / "plugins" / "planwise" / "handlers" / "backlog.md"
@@ -61,6 +69,27 @@ def _span_between(text: str, start_marker: str, end_marker: str) -> str:
     start = text.index(start_marker)
     end = text.index(end_marker, start)
     return text[start:end]
+
+
+def _flat(text: str) -> str:
+    """Collapse every whitespace run, so a banner wrapped across lines compares."""
+    return " ".join(text.split())
+
+
+def _function_source(path: Path, name: str) -> str:
+    """The source text of the top-level function `name` in the script at `path`."""
+    text = path.read_text(encoding="utf-8")
+    for node in ast.parse(text).body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return ast.get_source_segment(text, node)
+    raise AssertionError(f"{path.name} defines no function {name}")
+
+
+def _script_banner(path: Path, constant: str) -> str:
+    """The banner string the script assigns to the module constant `constant`."""
+    match = re.search(rf'^{constant} = "([^"\n]+)"$', path.read_text(encoding="utf-8"), re.MULTILINE)
+    assert match, f"{path.name} assigns no banner constant {constant}"
+    return match.group(1)
 
 
 class TestBacklogHandlerHandAuthoredIndexBranch(unittest.TestCase):
@@ -129,22 +158,28 @@ class TestDoctorHandlerStage20(unittest.TestCase):
         self.assertIn("Continued in Part 3", self.part2_text)
         self.assertIn("## Token Saver Audit", self.part3_text)
 
-    def test_stage_20_contains_report_json_command(self):
+    def test_stage_20_hands_the_audit_to_the_script_and_names_no_folded_command(self):
+        # Was: the handler contains the `--report --json` command. Now: the
+        # handler says the script prints the stage (banner) and names no
+        # folded command.
         stage20_span = _span_between(
             self.part2_text,
             "### Stage 20: Backlog Index Shape Audit",
-            "**Continued in Part 3**",
+            "### Stage 21: Lessons Index Shape Audit",
         )
-        self.assertIn("--report --json", stage20_span)
+        banner = _script_banner(DOCTOR_AUDITS_SCRIPT, "_BACKLOG_SHAPE_BANNER")
+        self.assertIn(f"The script prints this stage (banner: {banner})", _flat(stage20_span))
+        self.assertNotIn("--report --json", stage20_span)
 
     def test_stage_20_contains_changelog_budget_flags(self):
-        stage20_span = _span_between(
-            self.part2_text,
-            "### Stage 20: Backlog Index Shape Audit",
-            "**Continued in Part 3**",
-        )
-        self.assertIn("changelog_over_budget", stage20_span)
-        self.assertIn("--split-changelog", stage20_span)
+        # Was: the handler names `changelog_over_budget` and `--split-changelog`.
+        # Now: the script's Stage 20 reads the field and its changelog-budget
+        # printer tells the user to run the migrator with `--split-changelog`.
+        stage_20 = _function_source(DOCTOR_AUDITS_SCRIPT, "_stage_20")
+        budget = _function_source(DOCTOR_AUDITS_SCRIPT, "_print_changelog_budget")
+        self.assertIn("changelog_over_budget", stage_20)
+        self.assertIn("changelog_over_budget", budget)
+        self.assertIn("--split-changelog", budget)
 
     def test_stage_heading_set_is_old_set_plus_20_21_22_and_23(self):
         # Stages 8-13 now live in Part 1 (doctor.md); Stages 14-23 in Part 2

@@ -29,6 +29,14 @@ PLANS_BANNER = "planwise doctor — plans index drift audit"
 BACKLOG_BANNER = "planwise doctor — backlog index archival drift audit"
 BODY_BANNER = "planwise doctor — backlog item body-status drift audit"
 LESSONS_BANNER = "planwise doctor — lessons index drift audit"
+BACKLOG_SHAPE_BANNER = "planwise doctor — backlog index shape audit"
+LESSONS_SHAPE_BANNER = "planwise doctor — lessons index shape audit"
+PLANS_SHAPE_BANNER = "planwise doctor — plans index shape audit"
+BANNERS = (
+    PLANS_BANNER, BACKLOG_BANNER, BODY_BANNER, LESSONS_BANNER,
+    BACKLOG_SHAPE_BANNER, LESSONS_SHAPE_BANNER, PLANS_SHAPE_BANNER,
+)
+STAGE_COUNT = len(BANNERS)
 
 LEGACY_INDEX = (
     "# Plans Index\n\n| Abbrev | Name | Status | Created | Last Updated | Path |\n"
@@ -85,16 +93,16 @@ def stage_text(out, banner):
     """The text of one stage: from its banner to the next banner (or the end)."""
     start = out.index(banner)
     rest = out[start + len(banner):]
-    ends = [rest.index(b) for b in (PLANS_BANNER, BACKLOG_BANNER, BODY_BANNER, LESSONS_BANNER) if b in rest]
+    ends = [rest.index(b) for b in BANNERS if b in rest]
     return rest[: min(ends)] if ends else rest
 
 
-def test_all_clear_prints_four_banners_and_verdicts(tmp_path, capsys):
+def test_all_clear_prints_every_banner_and_verdicts(tmp_path, capsys):
     cfg, planwise = make_project(tmp_path)
     write_generated_plans_index(planwise)
     (planwise / "Backlog" / "BB-001-open.md").write_text(item("BB-001", "OPEN"), encoding="utf-8")
     out = run(cfg, capsys)
-    assert out.count("planwise doctor —") == 4
+    assert out.count("planwise doctor —") == STAGE_COUNT
     assert "No drift detected" in stage_text(out, PLANS_BANNER)
     assert "1 of 1 rows compared." in stage_text(out, PLANS_BANNER)
     assert "No archival drift detected" in stage_text(out, BACKLOG_BANNER)
@@ -185,7 +193,7 @@ def test_missing_plans_directory_prints_failure_line_and_continues(tmp_path, cap
     cfg, _planwise = make_project(tmp_path, plans=False)
     out = run(cfg, capsys)
     assert "Plans index drift audit: the check failed: the plans directory does not exist" in out
-    assert out.count("planwise doctor —") == 4
+    assert out.count("planwise doctor —") == STAGE_COUNT
     assert "No archival drift detected" in stage_text(out, BACKLOG_BANNER)
     assert "No body status drift detected" in stage_text(out, BODY_BANNER)
 
@@ -214,8 +222,9 @@ def test_missing_backlog_index_prints_the_cli_error_line_for_both_backlog_stages
 def test_plugin_version_only_config_runs_every_stage_to_a_line(tmp_path, capsys):
     cfg, _planwise = make_project(tmp_path, config="plugin_version: 1.0.0\n", plans=False, backlog=False)
     out = run(cfg, capsys)
-    assert out.count("planwise doctor —") == 4
-    assert out.count("the check failed: the ") == 3
+    assert out.count("planwise doctor —") == STAGE_COUNT
+    # plans drift, both backlog drift stages, backlog shape and plans shape; lessons are unconfigured
+    assert out.count("the check failed: the ") == 5
     assert "No drift detected" not in out
 
 
@@ -224,8 +233,8 @@ def test_no_config_yaml_prints_a_failure_line_per_stage(tmp_path, capsys):
     root.mkdir()
     cfg = SimpleNamespace(project_root=root, planwise_root="planwise")
     out = run(cfg, capsys)
-    assert out.count("planwise doctor —") == 4
-    assert out.count("config.yaml could not be loaded (no config.yaml found)") == 4
+    assert out.count("planwise doctor —") == STAGE_COUNT
+    assert out.count("config.yaml could not be loaded (no config.yaml found)") == STAGE_COUNT
 
 
 LESSONS_CONFIG = CONFIG.replace("backlog_dir: Backlog\n", "backlog_dir: Backlog\n  lessons_dir: LessonsLearned\n")
@@ -335,3 +344,336 @@ def test_a_raising_stage_is_contained_and_the_next_stage_runs(tmp_path, capsys, 
     out = run(cfg, capsys)
     assert "Plans index drift audit: the check failed: boom" in out
     assert "No archival drift detected" in stage_text(out, BACKLOG_BANNER)
+
+
+# --- Stages 20-22: the index shape audits ---
+
+
+def backlog_report(**over):
+    report = {
+        "shape": "generated", "detail": "", "index": "x/00-Index-Backlog.md", "changelog": "populated",
+        "items": {"total": 3, "without_frontmatter": 0, "partial_frontmatter": 0,
+                  "unreferenced_without_frontmatter": 0},
+        "dependencies": {"bare_edges": 0, "edges_missing_from_blocks": 0, "soft_dependency_bullets": 0,
+                         "unrecognised_lines": 0},
+        "row_mismatches": 0, "parked_ambiguous": {"units": 0, "bytes": 0}, "ready_with_all_repairs": True,
+        "would_refuse": [], "questions": [],
+        "changelog_files": [{"path": "x/Changelog.md", "tokens": 100, "level": "OK"}],
+        "changelog_over_budget": False,
+    }
+    report.update(over)
+    return report
+
+
+def lessons_report(**over):
+    report = {
+        "shape": "generated", "detail": "", "index": "x/00-Index-LessonsLearned.md", "changelog": "populated",
+        "promotion_log": "populated", "companion": "generated", "changelog_resplit": "within_budget",
+        "changelog_renumber": False, "changelog_oversized": [],
+        "lessons": {"total": 0, "without_frontmatter": 0, "partial_frontmatter": 0,
+                    "titles_needing_quotes": 0, "status_mismatches": 0},
+        "cells": {"rows_with_over_title_units": 0, "units": 0}, "prose_sections": {"drop": 0, "relocate": 0},
+        "ready_with_all_repairs": True, "would_refuse": [], "questions": [],
+    }
+    report.update(over)
+    return report
+
+
+def plans_report(**over):
+    report = {
+        "shape": "generated", "detail": "", "index": "x/00-Index-Plans.md", "rows": 0, "comments": 0,
+        "narrative_cells": 0, "attributable": 0, "unattributed": 0, "uncarried_lines": 0, "root_path_rows": 0,
+        "prefixed_rows": 0, "status_changes": 0, "append_targets": [], "ready": False, "would_refuse": [],
+        "questions": [],
+    }
+    report.update(over)
+    return report
+
+
+def patch_backlog(monkeypatch, report):
+    import migrate_backlog_index as mb
+
+    monkeypatch.setattr(mb, "build_report", lambda config, index_path: report)
+
+
+def patch_lessons(monkeypatch, report):
+    import migrate_lessons_index as ml
+
+    monkeypatch.setattr(ml, "_safe_report", lambda config, index_path: report)
+
+
+def patch_plans(monkeypatch, report):
+    import migrate_plans_index as mp
+
+    monkeypatch.setattr(mp, "_safe_report", lambda config, index_path: report)
+
+
+def test_stage_20_generated_prints_fields_and_nothing_to_do(tmp_path, capsys, monkeypatch):
+    cfg, _planwise = make_project(tmp_path)
+    patch_backlog(monkeypatch, backlog_report())
+    section = stage_text(run(cfg, capsys), BACKLOG_SHAPE_BANNER)
+    for line in ("shape: generated", "changelog: populated", "items.without_frontmatter: 0",
+                 "dependencies.soft_dependency_bullets: 0", "row_mismatches: 0",
+                 "ready_with_all_repairs: True", "would_refuse: none"):
+        assert line in section
+    assert "generated shape, nothing to do" in section
+    assert "changelog file" not in section
+
+
+def test_stage_20_over_budget_prints_warn_and_over_rows_and_no_all_clear(tmp_path, capsys, monkeypatch):
+    cfg, _planwise = make_project(tmp_path)
+    files = [{"path": "x/Changelog-Part-02.md", "tokens": 30000, "level": "OVER"},
+             {"path": "x/Changelog.md", "tokens": 19000, "level": "WARN"},
+             {"path": "x/Changelog-Part-03.md", "tokens": 100, "level": "OK"}]
+    patch_backlog(monkeypatch, backlog_report(changelog_files=files, changelog_over_budget=True))
+    section = stage_text(run(cfg, capsys), BACKLOG_SHAPE_BANNER)
+    assert "changelog file Changelog-Part-02.md: OVER (30000 tokens)" in section
+    assert "changelog file Changelog.md: WARN (19000 tokens)" in section
+    assert "Part-03" not in section
+    assert "changelog file(s) over the read budget" in section
+    assert "--split-changelog" in section
+    assert "nothing to do" not in section
+
+
+def test_stage_20_legacy_prints_counts_and_upgrade_line(tmp_path, capsys, monkeypatch):
+    cfg, _planwise = make_project(tmp_path)
+    legacy = backlog_report(shape="legacy", ready_with_all_repairs=False, row_mismatches=2)
+    legacy["items"]["without_frontmatter"] = 4
+    legacy["dependencies"]["edges_missing_from_blocks"] = 5
+    patch_backlog(monkeypatch, legacy)
+    section = stage_text(run(cfg, capsys), BACKLOG_SHAPE_BANNER)
+    assert "shape: legacy" in section
+    assert "items.without_frontmatter: 4" in section
+    assert "dependencies.edges_missing_from_blocks: 5" in section
+    assert "row_mismatches: 2" in section
+    assert "run `/planwise upgrade` to migrate automatically; backups land under `upgrade-backups/`" in section
+    assert "nothing to do" not in section
+
+
+def test_stage_20_unrecognized_prints_the_reason_and_left_untouched(tmp_path, capsys, monkeypatch):
+    cfg, _planwise = make_project(tmp_path)
+    patch_backlog(monkeypatch, backlog_report(shape="unrecognized", detail="no table found",
+                                              would_refuse=["no table found"]))
+    section = stage_text(run(cfg, capsys), BACKLOG_SHAPE_BANNER)
+    assert "no table found" in section
+    assert "left untouched; see the migrator's `--report` output" in section
+    assert "nothing to do" not in section
+
+
+def test_stage_20_corrupt_index_prints_the_failure_line_and_the_run_continues(tmp_path, capsys):
+    cfg, planwise = make_project(tmp_path)
+    write_generated_plans_index(planwise)
+    (planwise / "Backlog" / "00-Index-Backlog.md").write_bytes(b"\xff\xfe\x00\x80 not a table \xc3\x28")
+    out = run(cfg, capsys)
+    section = stage_text(out, BACKLOG_SHAPE_BANNER)
+    assert "shape: unknown" in section
+    assert "the shape report failed:" in section
+    assert "nothing to do" not in section
+    assert "generated shape, nothing to do" in stage_text(out, PLANS_SHAPE_BANNER)
+    assert str(tmp_path) not in out
+
+
+def test_stage_20_missing_index_prints_the_error_line_and_no_verdict(tmp_path, capsys):
+    cfg, planwise = make_project(tmp_path, backlog_index=False)
+    section = stage_text(run(cfg, capsys), BACKLOG_SHAPE_BANNER)
+    assert f"Error: Backlog index not found at {planwise / 'Backlog' / '00-Index-Backlog.md'}" in section
+    assert "shape:" not in section
+    assert "nothing to do" not in section
+
+
+def test_stage_20_missing_backlog_directory_prints_a_failure_line(tmp_path, capsys):
+    cfg, _planwise = make_project(tmp_path, backlog=False)
+    out = run(cfg, capsys)
+    assert "Backlog index shape audit: the check failed: the backlog directory does not exist" in out
+    assert "shape:" not in stage_text(out, BACKLOG_SHAPE_BANNER)
+
+
+def test_stage_21_generated_prints_fields_and_nothing_to_do(tmp_path, capsys, monkeypatch):
+    cfg, _hub = make_lessons_project(tmp_path)
+    patch_lessons(monkeypatch, lessons_report())
+    capsys.readouterr()
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    for line in ("shape: generated", "changelog_resplit: within_budget", "changelog_renumber: False",
+                 "changelog_oversized: none", "promotion_log: populated", "companion: generated",
+                 "lessons.without_frontmatter: 0", "cells.units: 0", "prose_sections: drop=0, relocate=0",
+                 "would_refuse: none"):
+        assert line in section
+    assert "generated shape, nothing to do" in section
+
+
+def test_stage_21_legacy_prints_counts_and_upgrade_line(tmp_path, capsys, monkeypatch):
+    cfg, _hub = make_lessons_project(tmp_path)
+    legacy = lessons_report(shape="legacy", changelog_resplit="not_applicable", ready_with_all_repairs=False)
+    legacy["lessons"]["without_frontmatter"] = 7
+    legacy["cells"]["units"] = 3
+    patch_lessons(monkeypatch, legacy)
+    capsys.readouterr()
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    assert "lessons.without_frontmatter: 7" in section
+    assert "cells.units: 3" in section
+    assert "run `/planwise upgrade` to migrate automatically; backups land under `upgrade-backups/`" in section
+    assert "nothing to do" not in section
+
+
+def test_stage_21_unrecognized_prints_the_reason_and_left_untouched(tmp_path, capsys, monkeypatch):
+    cfg, _hub = make_lessons_project(tmp_path)
+    patch_lessons(monkeypatch, lessons_report(shape="unrecognized", detail="no master table",
+                                              changelog_resplit="not_applicable"))
+    capsys.readouterr()
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    assert "no master table" in section
+    assert "left untouched" in section
+    assert "nothing to do" not in section
+
+
+def test_stage_21_would_split_prints_the_resplit_line_and_the_renumber_variant(tmp_path, capsys, monkeypatch):
+    cfg, _hub = make_lessons_project(tmp_path)
+    patch_lessons(monkeypatch, lessons_report(changelog_resplit="would_split"))
+    capsys.readouterr()
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    assert "the next `/planwise upgrade` re-splits the changelog; backups land under `upgrade-backups/`" in section
+    assert "nothing to do" not in section
+    patch_lessons(monkeypatch, lessons_report(changelog_resplit="would_split", changelog_renumber=True))
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    assert "renumbers the changelog entries by position (the oldest becomes Entry 1)" in section
+    assert "re-splits the changelog" not in section
+
+
+def test_stage_21_converged_prints_nothing_to_do_and_each_oversized_entry(tmp_path, capsys, monkeypatch):
+    cfg, _hub = make_lessons_project(tmp_path)
+    oversized = [{"file": "Changelog-Part-02.md", "entry": 9, "tokens": 40000, "budget": 20000},
+                 {"file": "Changelog.md", "entry": 3, "tokens": 25000, "budget": 20000}]
+    patch_lessons(monkeypatch, lessons_report(changelog_resplit="converged", changelog_oversized=oversized))
+    capsys.readouterr()
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    assert "generated shape, nothing to do" in section
+    assert "oversized entry: Changelog-Part-02.md entry 9: 40000 tokens, budget 20000" in section
+    assert "oversized entry: Changelog.md entry 3: 25000 tokens, budget 20000" in section
+
+
+def test_stage_21_oversized_entries_carry_no_absolute_path_and_print_once(tmp_path, capsys, monkeypatch):
+    cfg, _hub = make_lessons_project(tmp_path)
+    oversized = [{"file": str(tmp_path / "Lessons" / "Changelog.md"), "entry": 3, "tokens": 25000, "budget": 20000},
+                 {"file": str(tmp_path / "Lessons" / "Changelog-Part-02.md"), "entry": 9, "tokens": 40000,
+                  "budget": 20000}]
+    patch_lessons(monkeypatch, lessons_report(changelog_resplit="converged", changelog_oversized=oversized))
+    capsys.readouterr()
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    assert str(tmp_path) not in section
+    assert "oversized entry: Changelog.md entry 3: 25000 tokens, budget 20000" in section
+    assert "changelog_oversized:" not in section
+    assert section.count("Changelog-Part-02.md") == 1
+
+
+def test_stage_21_oversized_field_renders_file_names_deterministically(tmp_path, capsys, monkeypatch):
+    cfg, _hub = make_lessons_project(tmp_path)
+    oversized = [{"tokens": 40000, "entry": 9, "budget": 20000, "file": str(tmp_path / "Lessons" / "B.md")},
+                 {"tokens": 25000, "entry": 3, "budget": 20000, "file": str(tmp_path / "Lessons" / "A.md")}]
+    patch_lessons(monkeypatch, lessons_report(changelog_resplit="would_split", changelog_oversized=oversized))
+    capsys.readouterr()
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    assert str(tmp_path) not in section
+    assert ("changelog_oversized: budget=20000 entry=3 file=A.md tokens=25000, "
+            "budget=20000 entry=9 file=B.md tokens=40000") in section
+
+
+def test_stage_21_refused_prints_the_reason_and_no_all_clear(tmp_path, capsys, monkeypatch):
+    cfg, _hub = make_lessons_project(tmp_path)
+    patch_lessons(monkeypatch, lessons_report(changelog_resplit="refused", ready_with_all_repairs=False,
+                                              would_refuse=["line 12 is not inside an entry"]))
+    capsys.readouterr()
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    assert "line 12 is not inside an entry" in section
+    assert "`/planwise upgrade` will refuse until that changelog line is fixed" in section
+    assert "nothing to do" not in section
+
+
+def test_stage_21_not_configured_prints_the_skip_line(tmp_path, capsys):
+    cfg, _planwise = make_project(tmp_path)
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    assert "Lessons index: not configured — audit skipped" in section
+    assert "shape:" not in section
+
+
+def test_stage_21_missing_index_prints_the_error_line_and_no_verdict(tmp_path, capsys):
+    cfg, hub = make_lessons_project(tmp_path)
+    hub.unlink()
+    section = stage_text(run(cfg, capsys), LESSONS_SHAPE_BANNER)
+    assert f"Error: Lessons index not found at {hub}" in section
+    assert "shape:" not in section
+    assert "nothing to do" not in section
+
+
+def test_stage_21_missing_lessons_directory_prints_a_failure_line(tmp_path, capsys):
+    cfg, _planwise = make_project(tmp_path, config=LESSONS_CONFIG)
+    out = run(cfg, capsys)
+    assert "Lessons index shape audit: the check failed: the lessons directory does not exist" in out
+    assert "shape:" not in stage_text(out, LESSONS_SHAPE_BANNER)
+
+
+def test_stage_22_generated_prints_fields_and_nothing_to_do(tmp_path, capsys, monkeypatch):
+    cfg, planwise = make_project(tmp_path)
+    write_generated_plans_index(planwise)
+    patch_plans(monkeypatch, plans_report())
+    section = stage_text(run(cfg, capsys), PLANS_SHAPE_BANNER)
+    for line in ("shape: generated", "index: 00-Index-Plans.md", "rows: 0", "append_targets: none",
+                 "ready: False", "would_refuse: none"):
+        assert line in section
+    assert "generated shape, nothing to do" in section
+
+
+def test_stage_22_legacy_prints_counts_and_upgrade_line(tmp_path, capsys, monkeypatch):
+    cfg, planwise = make_project(tmp_path)
+    write_generated_plans_index(planwise)
+    patch_plans(monkeypatch, plans_report(shape="legacy", rows=4, root_path_rows=1, ready=True,
+                                          append_targets=["Beta/B-Master-Plan.md", "Alpha/A-Master-Plan.md"]))
+    section = stage_text(run(cfg, capsys), PLANS_SHAPE_BANNER)
+    assert "rows: 4" in section
+    assert "root_path_rows: 1" in section
+    assert "append_targets: Alpha/A-Master-Plan.md, Beta/B-Master-Plan.md" in section
+    assert "run `/planwise upgrade` to migrate automatically; backups land under `upgrade-backups/`" in section
+    assert "nothing to do" not in section
+
+
+def test_stage_22_unrecognized_prints_the_reason_and_left_untouched(tmp_path, capsys, monkeypatch):
+    cfg, planwise = make_project(tmp_path)
+    write_generated_plans_index(planwise)
+    patch_plans(monkeypatch, plans_report(shape="unrecognized", detail="the header row is not the plans table"))
+    section = stage_text(run(cfg, capsys), PLANS_SHAPE_BANNER)
+    assert section.count("the header row is not the plans table") == 1
+    assert "left untouched" in section
+    assert "nothing to do" not in section
+
+
+def test_stage_22_absent_prints_no_plans_index_found(tmp_path, capsys):
+    cfg, planwise = make_project(tmp_path)
+    index = write_generated_plans_index(planwise)
+    index.write_text("", encoding="utf-8")
+    section = stage_text(run(cfg, capsys), PLANS_SHAPE_BANNER)
+    assert "shape: absent" in section
+    assert "no plans index found" in section
+    assert "nothing to do" not in section
+
+
+def test_stage_22_missing_index_file_prints_the_error_line_and_no_verdict(tmp_path, capsys):
+    cfg, _planwise = make_project(tmp_path)
+    section = stage_text(run(cfg, capsys), PLANS_SHAPE_BANNER)
+    assert "Error: Plans index not found at" in section
+    assert "shape:" not in section
+    assert "nothing to do" not in section
+
+
+def test_stage_22_missing_plans_directory_prints_a_failure_line(tmp_path, capsys):
+    cfg, _planwise = make_project(tmp_path, plans=False)
+    out = run(cfg, capsys)
+    assert "Plans index shape audit: the check failed: the plans directory does not exist" in out
+    assert "shape:" not in stage_text(out, PLANS_SHAPE_BANNER)
+
+
+def test_stage_22_report_error_prints_the_failure_line(tmp_path, capsys, monkeypatch):
+    cfg, planwise = make_project(tmp_path)
+    write_generated_plans_index(planwise)
+    patch_plans(monkeypatch, {"shape": "unknown", "index": "x", "error": "ValueError('boom')"})
+    section = stage_text(run(cfg, capsys), PLANS_SHAPE_BANNER)
+    assert "the shape report failed: ValueError('boom')" in section
+    assert "nothing to do" not in section

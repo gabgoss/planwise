@@ -8,7 +8,9 @@ than being copy-pasted three times.
 """
 
 import importlib
+import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import types
@@ -31,6 +33,59 @@ def _isolated_home(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
+
+
+# Every `gh` spawn a test attempts, recorded by `_no_real_gh` below.
+_GH_SPAWNS: list = []
+
+_GH_ABSENT = {"path": None, "note": "", "version": "", "authenticated": False, "timed_out": False}
+
+
+@pytest.fixture(autouse=True)
+def _no_real_gh(request, monkeypatch):
+    """No test may start a real `gh` process, which would reach the network.
+
+    Three guards, all removed when the test ends:
+      * `subprocess.run` passes every call through except one whose executable
+        stem is `gh` (the first list item, or the first token of a string command). That call is recorded in `_GH_SPAWNS` and raises
+        RuntimeError, so no process starts.
+      * Outside `test_doctor_probes`, `doctor_probes._gh_environment` (the one
+        function that spawns) returns "gh absent".
+      * Teardown fails the test when `_GH_SPAWNS` is not empty. The
+        RuntimeError alone is not enough, because doctor wraps each probe in
+        `except Exception` and would swallow it.
+
+    A test that mocks `subprocess.run` itself nests over the wrapper and records
+    nothing. Yields `_GH_SPAWNS` so a test can inspect and clear it.
+    """
+    real_run = subprocess.run
+
+    def guarded_run(*popenargs, **kwargs):
+        args = popenargs[0] if popenargs else kwargs.get("args")
+        if isinstance(args, str):
+            # A string command (for example with shell=True): its first token names the executable.
+            try:
+                tokens = shlex.split(args, posix=False)
+            except ValueError:
+                tokens = args.split()
+            first = tokens[0].strip("\"'") if tokens else ""
+        else:
+            first = args[0] if isinstance(args, (list, tuple)) and args else args
+        if Path(str(first)).stem.lower() == "gh":
+            _GH_SPAWNS.append(list(args) if isinstance(args, (list, tuple)) else [args])
+            raise RuntimeError(f"test tried to spawn gh: {args!r}")
+        return real_run(*popenargs, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", guarded_run)
+    if request.module.__name__.rsplit(".", 1)[-1] != "test_doctor_probes":
+        import doctor_probes
+
+        monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(_GH_ABSENT))
+    _GH_SPAWNS.clear()
+    yield _GH_SPAWNS
+    spawned = list(_GH_SPAWNS)
+    _GH_SPAWNS.clear()
+    assert not spawned, f"a test spawned gh: {spawned}"
 
 
 def _engine():

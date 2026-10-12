@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Doctor's scripted index audits: plans drift, backlog archival drift,
-backlog item body-status drift and lessons index drift.
+backlog item body-status drift, lessons index drift and the backlog, lessons
+and plans index shape audits.
 
 `run_index_audits(cfg)` loads the project's config.yaml once, then runs each
 audit in process by calling the reconcile scripts' read-only detect functions.
@@ -30,6 +31,9 @@ _PLANS_BANNER = "planwise doctor — plans index drift audit"
 _BACKLOG_BANNER = "planwise doctor — backlog index archival drift audit"
 _BODY_STATUS_BANNER = "planwise doctor — backlog item body-status drift audit"
 _LESSONS_BANNER = "planwise doctor — lessons index drift audit"
+_BACKLOG_SHAPE_BANNER = "planwise doctor — backlog index shape audit"
+_LESSONS_SHAPE_BANNER = "planwise doctor — lessons index shape audit"
+_PLANS_SHAPE_BANNER = "planwise doctor — plans index shape audit"
 
 
 def _resolve_config_path(cfg) -> "Path | None":
@@ -154,6 +158,181 @@ def _stage_13(config: dict) -> None:
     print(_format_lessons_check_report(findings))
 
 
+def _field(report: dict, dotted: str):
+    """The value at a dotted key of a report, or None when any step is missing."""
+    value = report
+    for part in dotted.split("."):
+        value = value.get(part) if isinstance(value, dict) else None
+    return value
+
+
+def _render_item(item) -> str:
+    """One list member as text. A dict prints as sorted `key=value` pairs, and
+    a `file` or `path` value prints as its file name, so no path reaches the output."""
+    if not isinstance(item, dict):
+        return str(item)
+    return " ".join(
+        f"{k}={Path(str(item[k])).name if k in ('file', 'path') else item[k]}" for k in sorted(item)
+    )
+
+
+def _print_fields(report: dict, keys) -> None:
+    """One `key: value` line per key. Lists print sorted, and the index prints
+    as its file name, so no temp path reaches the output."""
+    for key in keys:
+        value = _field(report, key)
+        if key == "index" and value:
+            value = Path(str(value)).name
+        if isinstance(value, list):
+            value = ", ".join(sorted(_render_item(v) for v in value)) or "none"
+        elif isinstance(value, dict):
+            value = ", ".join(f"{k}={value[k]}" for k in sorted(value))
+        print(f"{key}: {value}")
+
+
+def _report_failed(report: dict) -> bool:
+    """True when the report carries an `error`. Prints the failure line and no shape verdict."""
+    if "error" not in report:
+        return False
+    print(f"shape: {report.get('shape', 'unknown')}")
+    print(f"the shape report failed: {report['error']}")
+    return True
+
+
+def _print_changelog_budget(report: dict) -> None:
+    """Each changelog file at WARN or OVER, then the over-budget line."""
+    files = [f for f in report.get("changelog_files", []) if f.get("level") in ("WARN", "OVER")]
+    for entry in sorted(files, key=lambda f: Path(str(f.get("path", ""))).name):
+        print(f"changelog file {Path(str(entry.get('path', ''))).name}: "
+              f"{entry['level']} ({entry.get('tokens')} tokens)")
+    if report.get("changelog_over_budget"):
+        print("changelog file(s) over the read budget — `/planwise upgrade` re-splits them with backups, "
+              "or run `migrate_backlog_index.py --config <planwise_root>/config.yaml --split-changelog`")
+
+
+_LEGACY_VERDICT = "run `/planwise upgrade` to migrate automatically; backups land under `upgrade-backups/`"
+
+_BACKLOG_FIELDS = (
+    "shape", "changelog", "items.without_frontmatter", "items.partial_frontmatter",
+    "dependencies.edges_missing_from_blocks", "dependencies.soft_dependency_bullets",
+    "row_mismatches", "ready_with_all_repairs", "would_refuse",
+)
+_LESSONS_FIELDS = (
+    "shape", "changelog", "changelog_resplit", "changelog_renumber", "changelog_oversized",
+    "promotion_log", "companion", "lessons.without_frontmatter", "lessons.partial_frontmatter",
+    "lessons.titles_needing_quotes", "lessons.status_mismatches", "cells.units", "prose_sections",
+    "ready_with_all_repairs", "would_refuse",
+)
+_PLANS_FIELDS = (
+    "shape", "detail", "index", "rows", "comments", "narrative_cells", "attributable", "unattributed",
+    "uncarried_lines", "root_path_rows", "prefixed_rows", "status_changes", "append_targets", "ready",
+    "would_refuse",
+)
+
+
+def _stage_20(config: dict) -> None:
+    """Backlog index shape: `migrate_backlog_index.build_report`, wrapped so a corrupt index reports."""
+    import migrate_backlog_index as mb
+
+    _require_dir(config["_backlog_dir"], "backlog")
+    if not _backlog_index_present(config):
+        return
+    try:
+        report = mb.build_report(config, config["_index_path"])
+    except Exception as exc:  # noqa: BLE001 -- a corrupt index becomes an unknown shape, not a crash
+        report = {"shape": "unknown", "error": str(exc) or exc.__class__.__name__}
+    if _report_failed(report):
+        return
+    _print_fields(report, _BACKLOG_FIELDS)
+    _print_changelog_budget(report)
+    shape = report.get("shape")
+    if shape == "generated":
+        if not report.get("changelog_over_budget"):
+            print("generated shape, nothing to do")
+    elif shape == "legacy":
+        print(_LEGACY_VERDICT)
+    elif shape == "unrecognized":
+        print(report.get("detail", ""))
+        print("left untouched; see the migrator's `--report` output")
+    else:
+        print(f"the shape {shape!r} is not one the audit knows")
+
+
+def _stage_21(config: dict) -> None:
+    """Lessons index shape: `migrate_lessons_index._safe_report`."""
+    if config["_lessons_index"] is None:
+        print("Lessons index: not configured — audit skipped")
+        return
+    _require_dir(config["_lessons_dir"], "lessons")
+    index_path = config["_lessons_index"]
+    if not Path(index_path).exists():
+        print(f"Error: Lessons index not found at {index_path}")
+        return
+    import migrate_lessons_index as ml
+
+    report = ml._safe_report(config, index_path)
+    if _report_failed(report):
+        return
+    resplit = report.get("changelog_resplit")
+    oversized = sorted(report.get("changelog_oversized") or [],
+                       key=lambda o: (Path(str(o.get("file"))).name, str(o.get("entry"))))
+    shape = report.get("shape")
+    lists_oversized = shape == "generated" and resplit in ("within_budget", "converged")
+    # The oversized-entry lines below carry the same data, so the field prints once.
+    _print_fields(report, [k for k in _LESSONS_FIELDS if not (k == "changelog_oversized" and oversized and lists_oversized)])
+    if shape == "generated":
+        if lists_oversized:
+            print("generated shape, nothing to do")
+            for o in oversized:
+                print(f"oversized entry: {Path(str(o.get('file'))).name} entry {o.get('entry')}: "
+                      f"{o.get('tokens')} tokens, budget {o.get('budget')}")
+        elif resplit == "would_split" and report.get("changelog_renumber"):
+            print("the next `/planwise upgrade` renumbers the changelog entries by position "
+                  "(the oldest becomes Entry 1); backups land under `upgrade-backups/`")
+        elif resplit == "would_split":
+            print("the next `/planwise upgrade` re-splits the changelog; backups land under `upgrade-backups/`")
+        elif resplit == "refused":
+            for reason in sorted(report.get("would_refuse") or []):
+                print(reason)
+            print("`/planwise upgrade` will refuse until that changelog line is fixed")
+        else:
+            print(f"the changelog_resplit value {resplit!r} is not one the audit knows")
+    elif shape == "legacy":
+        print(_LEGACY_VERDICT)
+    elif shape == "unrecognized":
+        print(report.get("detail", ""))
+        print("left untouched")
+    else:
+        print(f"the shape {shape!r} is not one the audit knows")
+
+
+def _stage_22(config: dict) -> None:
+    """Plans index shape: `migrate_plans_index._safe_report`."""
+    import generate_plans_index as gpi
+    import migrate_plans_index as mp
+
+    _require_dir(config["_plans_dir"], "plans")
+    index_path = gpi.plans_index_path(config)
+    if not Path(index_path).exists():
+        print(f"Error: Plans index not found at {index_path}")
+        return
+    report = mp._safe_report(config, index_path)
+    if _report_failed(report):
+        return
+    _print_fields(report, _PLANS_FIELDS)
+    shape = report.get("shape")
+    if shape == "generated":
+        print("generated shape, nothing to do")
+    elif shape == "legacy":
+        print(_LEGACY_VERDICT)
+    elif shape == "unrecognized":
+        print("left untouched")
+    elif shape == "absent":
+        print("no plans index found")
+    else:
+        print(f"the shape {shape!r} is not one the audit knows")
+
+
 def _load_project_config(cfg):
     """Return `(config, None)`, or `(None, reason)` when config.yaml cannot be loaded."""
     try:
@@ -166,13 +345,16 @@ def _load_project_config(cfg):
 
 
 def run_index_audits(cfg) -> None:
-    """Run the four index audits in order. Read-only, and never raises."""
+    """Run the seven index audits in order. Read-only, and never raises."""
     config, reason = _load_project_config(cfg)
     stages = (
         ("Plans index drift audit", _PLANS_BANNER, _stage_11),
         ("Backlog archival drift audit", _BACKLOG_BANNER, _stage_12),
         ("Backlog body-status drift audit", _BODY_STATUS_BANNER, _stage_19),
         ("Lessons index drift audit", _LESSONS_BANNER, _stage_13),
+        ("Backlog index shape audit", _BACKLOG_SHAPE_BANNER, _stage_20),
+        ("Lessons index shape audit", _LESSONS_SHAPE_BANNER, _stage_21),
+        ("Plans index shape audit", _PLANS_SHAPE_BANNER, _stage_22),
     )
     for name, banner, stage in stages:
         print()

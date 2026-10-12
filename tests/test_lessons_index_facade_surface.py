@@ -4,10 +4,10 @@ reach through it.
 The facade re-exports its ten sibling modules, plus a few helpers it imports
 from `generate_backlog_index`. A split that drops one of those imports still
 passes every test that imports the sibling module directly. It fails only
-when a caller reaches the name through the facade, and shipped handler text
-does exactly that: `/planwise doctor`'s bookkeeping read-gate calls
-`generate_lessons_index.is_generated_index_file` and
-`generate_lessons_index._changelog_filename`.
+when a caller reaches the name through the facade. Handler text once did that
+for `is_generated_index_file` and `_changelog_filename`. `/planwise doctor`'s
+bookkeeping read-gate now runs in `scripts/doctor_probes.py`, which calls both
+helpers.
 
 Three checks. The pinned pair must resolve on the facade, be declared in its
 `__all__`, and be the same objects `generate_backlog_index` defines. Every
@@ -80,11 +80,31 @@ def test_pinned_backlog_helper_is_re_exported_by_the_facade(name):
     assert getattr(generate_lessons_index, name) is getattr(generate_backlog_index, name)
 
 
+def _called_names(path: Path) -> set:
+    """Names a script calls: `name(...)` or `<object>.name(...)`."""
+    names = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name):
+                names.add(func.id)
+            elif isinstance(func, ast.Attribute):
+                names.add(func.attr)
+    return names
+
+
 def test_the_citation_scans_see_their_subjects():
     # An empty scan would pass the two tests below vacuously.
-    doc_names = {name for _f, name in _doc_cited_names()}
-    assert set(PINNED_BACKLOG_HELPERS) <= doc_names, doc_names
+    # Was: the pinned pair appears in shipped markdown as
+    # `generate_lessons_index.<name>`. The doctor's Step 8 prose that carried
+    # those citations is folded into the script, so the pair's production
+    # caller is now `scripts/doctor_probes.py`, which calls both.
+    called = _called_names(SCRIPTS / "doctor_probes.py")
+    assert set(PINNED_BACKLOG_HELPERS) <= called, sorted(set(PINNED_BACKLOG_HELPERS) - called)
     assert _script_cited_names(), "no shipped script reads through the facade"
+    # The markdown scan has no live subject for the pair, so prove it can see one.
+    probe = f"{FACADE}.is_generated_index_file and {FACADE}._changelog_filename"
+    assert _DOC_CITATION_RE.findall(probe) == list(PINNED_BACKLOG_HELPERS)
 
 
 def test_every_markdown_citation_resolves_on_the_facade():

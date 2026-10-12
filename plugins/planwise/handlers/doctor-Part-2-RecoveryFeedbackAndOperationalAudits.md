@@ -237,108 +237,23 @@ user and project settings files.`
 
 ### Stage 16: Feedback capability probe
 
-> [!constraint] Read-Only — probes, never installs
-> Stage 16 runs two capability checks against the environment and reads
-> `config.yaml`'s `feedback:` block. It installs nothing, authenticates
-> nothing, and writes nothing. To install the GitHub CLI, run `/planwise
-> init` or `/planwise upgrade` — their offer steps are the only writers;
-> doctor never mutates.
-
-Always-on, independent of Token Saver. `/planwise feedback` — and the
-upstream options in `upgrade`, `lessons capture`, and `backlog` — post
-through the shared engine at
-[`references/feedback-submission.md`](../references/feedback-submission.md),
-whose gate chain degrades to a local draft when any gate fails. That
-degradation is deliberate and never blocks, which also means a consumer can
-run for a long time without discovering that their reports never left the
-machine. This stage surfaces the gate state up front rather than at the
-moment someone tries to file a report.
-
-> [!constraint] The engine defines the gates; this stage only reports them
-> The engine is the ONE place the gate chain is specified, and its consumers
-> delegate rather than re-specify. So this stage does **not** restate what each
-> gate tests or how to evaluate it — read
-> [`references/feedback-submission.md`](../references/feedback-submission.md)
-> § Gate Chain for that, and evaluate gates 1, 3 and 4 exactly as it defines
-> them. What belongs here, and only here, is the **remedy line** each unmet
-> gate prints: that is doctor's own reporting, which the engine does not own.
-> Gate 2 (interactive session) and gate 5 (explicit consent) are properties of
-> a post attempt, not of the install, so a read-only probe cannot evaluate them
-> and never reports on them.
-
-Evaluate gates 1, 3 and 4 per the engine, in its own gate order, and report each
-unmet one with the matching line:
-
-| Gate (defined by the engine) | Reported when unmet |
-|---|---|
-| 1 — `feedback.enabled` | `feedback.enabled is false — /planwise feedback drafts locally and posts nothing` |
-| 3 — `gh` resolvable | `gh not found on PATH or at a known install location — install from https://cli.github.com/, or run /planwise upgrade to be offered the install` |
-| 4 — `gh` authenticated | `gh is installed but not authenticated — run: gh auth login` |
-
-Gate 3 resolves `gh` by the engine's own order: PATH first, then the known install
-locations. When gate 3 resolves through a known install location and not through PATH,
-the gate is met. Print a note line in place of a remedy line:
-`gh found at {gh_path}, not on this session's PATH — a new terminal will resolve it`.
-Gate 4 runs `"{gh_path}" auth status`, so a `gh` found by full path is judged on its
-real auth state.
-
-`{gh_version_when_present}` is the version string `{gh_path} --version` reports once gate
-3 has resolved. It is a reporting detail of this stage, not part of the gate —
-the engine's gate 3 tests resolvability and nothing more.
-
-Print verbatim:
-
-```
-planwise doctor — feedback capability probe
-
-  feedback.enabled:  {true|false}
-  gh resolvable:     {yes — on PATH|yes — at {gh_path}|no}  {gh_version_when_present}
-  gh authenticated:  {yes|no|n/a — gh absent}
-
-  {one remedy line per unmet gate, from the table above}
-
-Upstream posting: {ENABLED — reports post directly | DRAFT-ONLY — reports are saved to {planwise_root}/{feedback_dir}/ and must be filed by hand}
-```
-
-Advisory only. Draft-only is a supported configuration, not a fault — this
-stage reports the state so the choice is deliberate, and never fails the
-doctor run.
+The script prints this stage (banner: planwise doctor — feedback capability
+probe). Pass it through verbatim. The script evaluates gates 1, 3 and 4 as
+[`references/feedback-submission.md`](../references/feedback-submission.md)
+§ Gate Chain defines them, and it prints the remedy row for each unmet gate.
+The stage is advisory: draft-only is a supported configuration, not a fault.
+To install the GitHub CLI, the user runs `/planwise init` or `/planwise
+upgrade`. Doctor never installs it.
 
 ---
 
 ### Stage 17: Feedback directory presence check
 
-> [!constraint] Read-Only — bare doctor only recommends
-> Stage 17 checks whether the feedback directory resolved from `config.yaml`'s
-> `project.feedback_dir` (absent → default `Feedback`) exists on disk. It
-> READS `config.yaml` and the filesystem, then prints a report. It writes
-> nothing. To actually create the directory, the user opts in with the
-> separate writer `/planwise doctor --create-feedback-dir` (Stage 17b below)
-> — the same opt-in-writer shape as `--prune-stale` (Stage 8b, in
-> [`doctor.md`](doctor.md)) and `--prune-upgrade-leftovers` (Stage 14b) above.
-
-Always-on, independent of Token Saver. A fresh `/planwise init` creates this
-directory alongside the plans/backlog/lessons directories, so this stage
-exists for every OTHER population an install can reach: a project whose
-config predates the key, or whose directory was removed by hand after
-creation. Resolve `{feedback_dir_path} = {planwise_root}/{project.feedback_dir}`
-(from the Config Gate) and check it with **Glob**.
-
-Print verbatim:
-
-```
-planwise doctor — feedback directory presence check
-
-  feedback directory:  {feedback_dir_path}
-  exists:               {yes|no}
-
-  {remedy line, only when absent:}
-  ! feedback directory is absent — the first draft written there will fail.
-      action: create it with /planwise doctor --create-feedback-dir,
-              or run /planwise init / /planwise upgrade (both create it)
-```
-
-If the directory exists: `Feedback directory: {feedback_dir_path} — present.`
+The script prints this stage (banner: planwise doctor — feedback directory
+presence check). Pass it through verbatim. To create a missing directory, the
+user opts in with the separate writer `/planwise doctor --create-feedback-dir`
+(Stage 17b below). Resolve `{feedback_dir_path}` as
+`{planwise_root}/{project.feedback_dir}` for that offer.
 
 ### Stage 17b: `--create-feedback-dir` (opt-in writer)
 
@@ -399,150 +314,42 @@ Task tools: absent — Claude Code omits them on this model family.
 
 ### Stage 19: Backlog Item Body-Status Audit
 
-> [!constraint] Read-Only — audit only recommends
-> Stage 19 runs `reconcile_backlog.py --body-status --json` standalone. It
-> reads each item file under `{backlog_dir}/` and its `Archive/`, never the
-> backlog index. The audit itself never mutates. It strips lines only if the
-> user explicitly consents. The consented `--body-status --write` removes each
-> drifted `**Status:**` line from the item's header block and changes no
-> frontmatter, so no index regeneration follows.
-
-Always-on (independent of Token Saver) — keeping each item's frontmatter the
-only status field is doctor's purpose, so this check has **no `--no-check`
-escape hatch** (contrast `/planwise backlog`, where the same detect pass IS
-skippable for a fast triage).
-
-Run the index-drift audit procedure in
+The script prints this stage (banner: planwise doctor — backlog item
+body-status drift audit). Pass it through verbatim. The header-block rule, the
+anomaly classes and the consent prompt live in
 [`references/index-drift-audit.md`](../references/index-drift-audit.md)
-with its body-status binding (banner `planwise doctor — backlog item
-body-status drift audit`) — the header-block rule, the anomaly classes and
-the consent prompt live there. Doctor runs this as a standing check, not a
-one-shot migration: an older item writer can re-introduce the line after a
-corpus was cleaned. This is the within-file analogue of the Stage 12
-archival audit; neither re-implements the other's comparison.
+(body-status binding).
+
+The audit never mutates. It strips lines only if the user explicitly consents.
+The consented `--body-status --write` removes each drifted `**Status:**` line
+from the item's header block and changes no frontmatter, so
+no index regeneration follows.
 
 ---
 
 ### Stage 20: Backlog Index Shape Audit
 
-> [!constraint] Read-Only — audit only reports
-> Stage 20 runs `migrate_backlog_index.py --report --json` standalone. It
-> classifies the on-disk index shape and measures every changelog file, and
-> it never writes — remediation runs only when the user invokes
-> `/planwise upgrade` or the migrator's own repair flags directly.
-
-Always-on (independent of Token Saver) — auditing backlog-index shape is
-doctor's purpose, so this check has **no `--no-check` escape hatch**.
-
-```bash
-python {plugin_root}/scripts/migrate_backlog_index.py --config {planwise_root}/config.yaml --report --json
-```
-
-Print `shape`, `changelog`, `items.without_frontmatter`,
-`items.partial_frontmatter`, `dependencies.edges_missing_from_blocks`,
-`dependencies.soft_dependency_bullets`, `row_mismatches`,
-`ready_with_all_repairs`, and `would_refuse` from the JSON. Print every
-`changelog_files` entry whose `level` is `WARN` or `OVER`.
-
-When `changelog_over_budget` is `true`, print: "changelog file(s) over the
-read budget — `/planwise upgrade` re-splits them with backups, or run
-`migrate_backlog_index.py --config {planwise_root}/config.yaml
---split-changelog`".
-
-Then one verdict line by `shape`. `generated`: "generated shape, nothing to
-do" when every changelog file is within budget. `legacy`: the counts above,
-then "run `/planwise upgrade` to migrate automatically; backups land under
-`upgrade-backups/`". `unrecognized`: the classifier's reason, then "left
-untouched; see the migrator's `--report` output".
+The script prints this stage (banner: planwise doctor — backlog index shape
+audit). Pass it through verbatim. The stage never writes. Remediation runs only
+when the user invokes `/planwise upgrade` or the migrator's own repair flags
+directly.
 
 ---
 
 ### Stage 21: Lessons Index Shape Audit
 
-> [!constraint] Read-Only — audit only reports
-> Stage 21 runs `migrate_lessons_index.py --report --json` standalone. It
-> classifies the on-disk index shape and measures every lesson file it can
-> resolve, and it never writes — remediation runs only when the user invokes
-> `/planwise upgrade` or the migrator's own repair flags directly.
-
-Always-on (independent of Token Saver) — auditing lessons-index shape is
-doctor's purpose, so this check has **no `--no-check` escape hatch**.
-
-```bash
-python {plugin_root}/scripts/migrate_lessons_index.py --config {planwise_root}/config.yaml --report --json
-```
-
-Print `shape`, `changelog`, `changelog_resplit`, `changelog_renumber`,
-`changelog_oversized`, `promotion_log`, `companion`,
-`lessons.without_frontmatter`, `lessons.partial_frontmatter`,
-`lessons.titles_needing_quotes`, `lessons.status_mismatches`, `cells.units`,
-`prose_sections`, `ready_with_all_repairs`, and `would_refuse` from the
-JSON. `changelog_resplit` is computed by the same `lessons_changelog.plan_split`
-the upgrade routine calls, and only on a `generated` index, where the
-routine calls it, so this stage and the upgrade banner can never disagree.
-It reads `not_applicable` on any other shape.
-
-`changelog_resplit` takes one of five values:
-
-- `within_budget`: every changelog file is within its budget, and the entry
-  numbers strictly descend from the newest entry to the oldest.
-- `would_split`: the next upgrade rewrites the changelog. It re-splits an
-  over-budget family, renumbers a family whose numbers do not strictly
-  descend, or both. `changelog_renumber` is `true` when it renumbers: by
-  position, so the oldest entry becomes Entry 1 and the newest gets the
-  highest number. A family numbered in order is never renumbered.
-- `converged`: a file stays over its budget only because one entry is
-  larger than the budget on its own, and no split can do better. The
-  upgrade writes nothing. `changelog_oversized` names each such file, its
-  entry, its tokens and its budget.
-- `refused`: the changelog carries text the parser cannot place in an
-  entry. The reason is in `would_refuse`.
-- `not_applicable`: the index is not `generated`, so the migration writes
-  the changelog itself.
-
-Then one verdict line by `shape`. `generated`: by `changelog_resplit` —
-`within_budget` stays "generated shape, nothing to do"; `converged` says
-"generated shape, nothing to do" and prints each `changelog_oversized`
-entry; `would_split` says "the next `/planwise upgrade` re-splits the
-changelog; backups land under `upgrade-backups/`", or, when
-`changelog_renumber` is `true`, "the next `/planwise upgrade` renumbers the
-changelog entries by position (the oldest becomes Entry 1); backups land
-under `upgrade-backups/`"; `refused` prints the report's own reason (from
-`would_refuse`) and says "`/planwise upgrade` will refuse until that
-changelog line is fixed". `legacy`: the counts above, then "run
-`/planwise upgrade` to migrate automatically; backups land under
-`upgrade-backups/`". `unrecognized`: the classifier's reason, then "left
-untouched".
+The script prints this stage (banner: planwise doctor — lessons index shape
+audit). Pass it through verbatim. The stage never writes. Remediation runs only
+when the user invokes `/planwise upgrade` or the migrator's own repair flags
+directly.
 
 ---
 
 ### Stage 22: Plans Index Shape Audit
 
-> [!constraint] Read-Only — audit only reports
-> Stage 22 runs `migrate_plans_index.py --report --json` standalone. It
-> classifies the on-disk plans index shape and counts what a migration would
-> move, and it never writes — remediation runs only when the user invokes
-> `/planwise upgrade` or the migrator's own flags directly.
-
-Always-on (independent of Token Saver) — auditing plans-index shape is
-doctor's purpose, so this check has **no `--no-check` escape hatch**.
-
-```bash
-python {plugin_root}/scripts/migrate_plans_index.py --config {planwise_root}/config.yaml --report --json
-```
-
-Print `shape`, `detail`, `index`, `rows`, `comments`, `narrative_cells`,
-`attributable`, `unattributed`, `uncarried_lines`, `root_path_rows`, `prefixed_rows`,
-`status_changes`, `append_targets`, `ready`, and `would_refuse` from the
-JSON. `shape` is `absent`, `generated`, `legacy` or `unrecognized`. A shape
-other than `legacy` prints zero counts and `ready` false. `unknown` (with an
-`error` field) means the report itself failed.
-
-Then one verdict line by `shape`. `generated`: "generated shape, nothing to
-do". `legacy`: the counts above, then "run `/planwise upgrade` to migrate
-automatically; backups land under `upgrade-backups/`". `unrecognized`: the
-classifier's reason from `detail`, then "left untouched". `absent`: "no plans
-index found".
+The script prints this stage (banner: planwise doctor — plans index shape
+audit). Pass it through verbatim. The stage never writes. Remediation runs only
+when the user invokes `/planwise upgrade` or the migrator's own flags directly.
 
 ---
 

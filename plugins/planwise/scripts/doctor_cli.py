@@ -815,14 +815,15 @@ def _run_doctor(cfg: "InitConfig") -> int:
     normalization is offered only by `/planwise upgrade` Step 4.4. Then runs
     Stage 15b, the thrifty-sonic env var sweep (_sweep_thrifty_sonic()) — also
     always-on and read-only; the remedy is `/planwise upgrade` Step 4.7. Then
-    runs Stage 16, the verified-CLI-version drift advisory: probes the live
+    runs the verified-CLI-version drift advisory: probes the live
     `claude --version` and compares it against config.yaml's
     context.verified_cli_version (populated by init, refreshed by upgrade) —
     read-only, recommends `/planwise upgrade` on drift or on an uncalibrated
     ("") value, never writes. Then runs Stages 11, 12, 13 and 19, the index
-    drift audits (run_index_audits()). The handler's stage numbers are labels,
-    so printing them after Stage 16 and before Stage 23 is the documented
-    order. Then runs Stage 23, the style-rule check
+    drift audits (run_index_audits()), then Stages 16 and 17 and Steps 7 and 8,
+    the probes (run_probes()). The handler's stage numbers are labels, so
+    printing them after the verified-CLI-version drift advisory and before
+    Stage 23 is the documented order. Then runs Stage 23, the style-rule check
     (run_style_stage()): per rule, its config switch, installed copy, copies
     that also load, and token cost — also always-on and read-only. Always exits
     0 (diagnostic, not a gate).
@@ -1037,7 +1038,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
             print("      recommend: run /planwise upgrade (Step 4.7 offers to set it) — "
                   "doctor is read-only and never rewrites settings")
 
-    # Stage 16: verified-CLI-version drift advisory — read-only, always-on.
+    # The verified-CLI-version drift advisory — read-only, always-on.
     # Compares the live `claude --version` probe against context.verified_cli_version
     # (populated by /planwise init, refreshed by /planwise upgrade). Never writes —
     # /planwise upgrade is the only writer for this field, matching the settings-grant
@@ -1068,6 +1069,13 @@ def _run_doctor(cfg: "InitConfig") -> int:
         run_index_audits(cfg)
     except Exception as exc:  # noqa: BLE001 -- an audit never aborts the doctor run
         print(f"Index audits: the check failed: {exc}")
+
+    try:
+        from doctor_probes import run_probes
+
+        run_probes(cfg)
+    except Exception as exc:  # noqa: BLE001 -- a probe never aborts the doctor run
+        print(f"Doctor probes: the check failed: {exc}")
 
     # Stage 23: style rules — read-only, always-on. Reports each always-on style
     # rule's switch, installed copy, other loading copies and token cost.
