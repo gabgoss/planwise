@@ -727,7 +727,7 @@ Use this logic to determine the recommended route in Phase 3.
 | Specific file paths mentioned | Regex for code file extensions | Moderate → Direct Fix |
 | "multi-sprint" / "phased" keywords | Case-insensitive content search | Strong → Session Planning |
 | "refactor" / "redesign" / "architecture" / "migration" | Content keywords | Strong → Session Planning |
-| 6+ sub-items or ## headings | Count numbered list items and H2 headers | Moderate → Session Planning |
+| 6+ sub-items or ## headings | Count numbered list items and H2 headers, excluding the backlog item template's own section headings (Summary, Problem, Proposed Solution, Acceptance Criteria, Related, Files Touched, Notes) | Moderate → Session Planning |
 | Multiple reference files (YY > 01) | Files column has 2+ links | Moderate → Session Planning |
 | 3-5 numbered steps | Count discrete steps | Moderate → Task List |
 

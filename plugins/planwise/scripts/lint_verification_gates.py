@@ -57,6 +57,7 @@ import re
 import shlex
 import subprocess
 import sys
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -694,7 +695,11 @@ def coverage_line(context: LintContext) -> str:
 # rule one of the gate references states in prose.
 # ---------------------------------------------------------------------------
 
-_PRE_EDIT_TOKEN = "pre-edit:"
+# The canonical spelling is ``pre-edit: {value}``. A parenthesised note between
+# the word and the colon (``pre-edit (2026-10-07): 0``) records the same
+# measurement, so it is accepted too. The note may hold anything except a
+# closing parenthesis. Matching stays case-sensitive.
+_PRE_EDIT_RE = re.compile(r"pre-edit(?:\s*\([^)]*\))?:")
 _INVARIANT_TOKEN = "invariant:"
 _BASELINE_RE = re.compile(r"baseline:\s*(\d+)", re.IGNORECASE)
 
@@ -819,6 +824,32 @@ def _has_extended_flag(argv) -> bool:
     return False
 
 
+# grep short options that consume the rest of their token (or the next token)
+# as an argument. Letters after one of these are data, never more flags.
+_SHORT_OPTIONS_WITH_ARGUMENT = frozenset("efmABCdD")
+
+
+def _has_fixed_flag(argv) -> bool:
+    """True when the grep command searches for fixed strings (``-F`` or
+    ``--fixed-strings``), so its pattern is a literal and carries no regex
+    syntax. Reads option letters only: it stops at ``--``, and stops reading a
+    short-option token at a letter that takes an argument, so an ``F`` inside
+    a pattern attached to ``-e`` is not mistaken for the flag.
+    """
+    for token in argv[1:]:
+        if token == "--":
+            return False
+        if token == "--fixed-strings":
+            return True
+        if token.startswith("-") and not token.startswith("--"):
+            for ch in token[1:]:
+                if ch == "F":
+                    return True
+                if ch in _SHORT_OPTIONS_WITH_ARGUMENT:
+                    break
+    return False
+
+
 def _has_count_flag(argv) -> bool:
     for token in argv[1:]:
         if token == "--count":
@@ -938,23 +969,30 @@ def _translate_bre_to_python(pattern: str) -> str:
     return "".join(out)
 
 
-def _compile_grep_pattern(pattern: str, extended: bool):
+def _compile_grep_pattern(pattern: str, extended: bool, fixed: bool = False):
     """Compile a grep search pattern into the Python regex grep would
     actually match against, honouring the same BRE/ERE distinction Check 3's
     other branch already tracks via ``_has_extended_flag``. An extended
     (``-E``) pattern already shares Python's own escaping convention for
     ``( ) { } | + ?`` and passes through unchanged; a basic pattern is
-    translated first. Returns None when the result does not compile, so a
-    caller has nothing to count against rather than an exception to catch.
+    translated first. A fixed-string (``-F``) pattern has no regex syntax at
+    all, so it is escaped and matched as a literal. Returns None when the
+    result does not compile, so a caller has nothing to count against rather
+    than an exception to catch.
     """
-    translated = pattern if extended else _translate_bre_to_python(pattern)
+    if fixed:
+        translated = re.escape(pattern)
+    else:
+        translated = pattern if extended else _translate_bre_to_python(pattern)
     try:
         return re.compile(translated)
     except re.error:
         return None
 
 
-def _count_line_and_occurrence_totals(pattern: str, text: str, extended: bool = False):
+def _count_line_and_occurrence_totals(
+    pattern: str, text: str, extended: bool = False, fixed: bool = False
+):
     """Count how many lines a grep pattern touches, and how many times it
     occurs in total -- the two quantities ``grep -c`` conflates when a
     pattern can match more than once on the same line.
@@ -966,10 +1004,12 @@ def _count_line_and_occurrence_totals(pattern: str, text: str, extended: bool = 
     absorption sub-check exists to reason about would miscount. ``extended``
     selects BRE-to-Python translation (the default, matching grep's own
     default with no ``-E``) or passes an ERE pattern through unchanged.
+    ``fixed`` (grep's ``-F``) overrides both and matches the pattern as a
+    literal string.
     Returns ``(0, 0)`` when the pattern does not compile at all -- nothing to
     count is the safe reading, never a fabricated zero-vs-nonzero disparity.
     """
-    compiled = _compile_grep_pattern(pattern, extended)
+    compiled = _compile_grep_pattern(pattern, extended, fixed)
     if compiled is None:
         return 0, 0
     occurrence_total = 0
@@ -1031,7 +1071,7 @@ def _check2_missing_pre_edit_baseline(context: LintContext) -> list:
     for command in context.commands:
         if command.block != BLOCK_AFTER or command.is_placeholder or not command.is_gate:
             continue
-        if _PRE_EDIT_TOKEN in command.annotation:
+        if _PRE_EDIT_RE.search(command.annotation):
             continue
         findings.append(
             make_finding(
@@ -1042,8 +1082,9 @@ def _check2_missing_pre_edit_baseline(context: LintContext) -> list:
                 command=command.command,
                 message=(
                     "This After-block gate carries no inline pre-edit "
-                    "annotation beside its expectation, so whether it could "
-                    "ever have failed is unknowable from the artifact"
+                    "annotation beside its expectation (write it as "
+                    "'pre-edit: {value}'), so whether it could ever have "
+                    "failed is unknowable from the artifact"
                 ),
             )
         )
@@ -1068,7 +1109,13 @@ def _check3_bre_ere_and_line_count_absorption(context: LintContext) -> list:
         if pattern is None:
             continue
 
-        if not _has_extended_flag(argv) and ("(" in pattern or ")" in pattern or "\\|" in pattern):
+        # A fixed-string search (-F) reads the pattern as a literal, so a
+        # parenthesis or escaped bar in it is not a grouping hazard.
+        if (
+            not _has_extended_flag(argv)
+            and not _has_fixed_flag(argv)
+            and ("(" in pattern or ")" in pattern or "\\|" in pattern)
+        ):
             findings.append(
                 make_finding(
                     check=3,
@@ -1094,7 +1141,10 @@ def _check3_bre_ere_and_line_count_absorption(context: LintContext) -> list:
                     text = None
                 if text is not None:
                     line_total, occurrence_total = _count_line_and_occurrence_totals(
-                        pattern, text, extended=_has_extended_flag(argv)
+                        pattern,
+                        text,
+                        extended=_has_extended_flag(argv),
+                        fixed=_has_fixed_flag(argv),
                     )
                     if line_total != occurrence_total and occurrence_total == expectation.value:
                         findings.append(
@@ -1866,6 +1916,8 @@ CHECK_REGISTRY.extend(
 #   0  no findings at all.
 #   1  findings present, none at ERROR -- WARNING and UNCERTAIN advise only.
 #   2  at least one finding at ERROR -- the caller should halt.
+#   3  the linter itself crashed. The report is incomplete, so a caller must
+#      not read it as a clean or advisory-only scan. The traceback is on stderr.
 #
 # The first line of stdout is always a ``Coverage:`` line. It starts with
 # ``Coverage: NOT CHECKED`` when gates exist and the executor ran none of them.
@@ -1876,6 +1928,21 @@ CHECK_REGISTRY.extend(
 EXIT_NO_FINDINGS = 0
 EXIT_ADVISORY_ONLY = 1
 EXIT_ERROR_PRESENT = 2
+EXIT_INTERNAL_ERROR = 3
+
+
+def _use_utf8_stdio() -> None:
+    """Make stdout and stderr encode any character a plan file can hold.
+
+    Findings echo command text lifted verbatim from plan files. A Windows
+    console encodes with cp1252, and one character outside it raised
+    UnicodeEncodeError part-way through the report. Streams without a
+    ``reconfigure`` method (a test double, for instance) are left alone.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
 
 
 def _print_findings(findings) -> None:
@@ -1887,6 +1954,17 @@ def _print_findings(findings) -> None:
 
 
 def main() -> None:
+    _use_utf8_stdio()
+    try:
+        _run_cli()
+    except Exception:  # noqa: BLE001 -- any crash must exit with its own code
+        # An uncaught exception would exit 1, the advisory-only code, and a
+        # caller reading the partial report would see a scan that found little.
+        traceback.print_exc()
+        sys.exit(EXIT_INTERNAL_ERROR)
+
+
+def _run_cli() -> None:
     parser = argparse.ArgumentParser(
         description="Lint a plan tree for verification gates that cannot "
         "answer the question they were written to answer."
