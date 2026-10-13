@@ -1,10 +1,10 @@
 ---
-description: Agent runtime contexts, tool access, context loading, nesting rules, team coordination, and execution modes
+description: Agent runtime contexts, tool access, context loading, nesting rules, named-agent coordination, and execution modes
 ---
 
 # Agent Orchestration
 
-**Purpose:** Runtime contexts, tool access, context loading, nesting rules, team coordination, and execution modes for Claude Code agents.
+**Purpose:** Runtime contexts, tool access, context loading, nesting rules, named-agent coordination, and execution modes for Claude Code agents.
 
 See [agent-authoring.md](agent-authoring.md) for agent definition format and design principles.
 See [skill-authoring.md](skill-authoring.md) for skill/forked context authoring.
@@ -16,8 +16,8 @@ See [skill-authoring.md](skill-authoring.md) for skill/forked context authoring.
 - [3. Context Loading Matrix](#3-context-loading-matrix)
 - [4. Nesting Rules](#4-nesting-rules)
 - [5. Choosing a Context](#5-choosing-a-context)
-- [6. Team Lifecycle](#6-team-lifecycle)
-- [7. Team Communication](#7-team-communication)
+- [6. Named-Agent Lifecycle](#6-named-agent-lifecycle)
+- [7. Agent Communication](#7-agent-communication)
 - [8. Scaling Rules](#8-scaling-rules)
 - [9. Execution Modes](#9-execution-modes)
 - [10. Constraints](#10-constraints)
@@ -27,18 +27,16 @@ See [skill-authoring.md](skill-authoring.md) for skill/forked context authoring.
 
 ## 1. Runtime Contexts
 
-Claude Code has exactly four runtime contexts. Background mode, worktree isolation, plan mode, and `claude --agent` are **configurations** of these four, not additional types.
+This reference distinguishes four runtime contexts. Background mode, worktree isolation, plan mode, and `claude --agent` are **configurations** of these four, not additional types.
 
-| Context | Created Via | System Prompt Identity | Tool Set |
-|---------|-------------|----------------------|----------|
-| **Main Session** | `claude` CLI / VS Code extension | "You are Claude Code, Anthropic's official CLI" | All tools (~24+) |
-| **Subagent** | `Agent` tool (`subagent_type` parameter) | **"You are Claude Code, Anthropic's official CLI"** | 18 tools (no Agent, AskUserQuestion, PlanMode) |
-| **Teammate** | `Agent` tool with `team_name` + `name` | **"You are a Claude agent, built on Anthropic's Claude Agent SDK"** | 16 tools (no Agent, TeamCreate/Delete, AskUserQuestion, PlanMode) |
-| **Skill-Forked** | `Skill` tool with `context: fork` | **"You are Claude Code, Anthropic's official CLI"** | 18 tools (identical to Subagent) |
+| Context | Created Via | Tool Set |
+|---------|-------------|----------|
+| **Main Session** | `claude` CLI / VS Code extension | 56 tools, loaded plus deferred (§2) |
+| **Subagent** | `Agent` tool, no `name` | `general-purpose`: 38 tools. A custom agent: its `tools:` list (§2) |
+| **Named agent** | `Agent` tool with `name` | Not measured |
+| **Skill-Forked** | `Skill` tool with `context: fork` | Not re-measured on this build |
 
-> **Surprise 1:** Subagents receive the **full** Claude Code system prompt. Official docs claim "not the full CC system prompt — custom prompt only." This is wrong. The `prompt` parameter in the Agent tool is ADDITIONAL to the system prompt, not a replacement. Skill-Forked contexts receive the same full CC system prompt.
-
-> **Surprise 2:** Teammates have a **different** identity ("Claude Agent SDK"), not the Claude Code system prompt. Documentation calling them "full, independent Claude Code sessions" is misleading — they use the Agent SDK identity and are pure workers.
+Measured 2026-10-12 on Claude Code 2.1.296: a named spawn returned "Spawned successfully" and said it receives instructions through a mailbox. `ListAgents` lists named agents apart from unnamed subagents. An unnamed spawn returned "Async agent launched successfully".
 
 ### Built-in Subagent Types
 
@@ -46,7 +44,7 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 |------|-------|-------|---------|
 | `Explore` | Haiku | Read, Glob, Grep only | Fast codebase search, exploration, no writes |
 | `Plan` | Inherit | Read, Glob, Grep only | Architecture research in plan mode |
-| `general-purpose` | Inherit | All tools | Code changes, file writes, bash commands |
+| `general-purpose` | Inherit | 38 tools (§2) | Code changes, file writes, bash commands |
 | `Bash` | Inherit | Bash only | Terminal commands in a clean context |
 | `statusline-setup` | Sonnet | Read, Edit | Status line configuration via `/statusline` |
 | `claude-code-guide` | Haiku | Limited | Questions about Claude Code features |
@@ -66,58 +64,46 @@ Claude Code has exactly four runtime contexts. Background mode, worktree isolati
 
 ## 2. Cross-Context Tool Comparison
 
-*Empirically verified across 15 tests.*
+*Measured 2026-10-12 on Claude Code 2.1.296, one sample per column. Main session: loaded plus deferred tools. Subagent columns: self-reported by an unnamed spawn. A custom agent's set follows its `tools:` frontmatter, so the task-runner column shows one definition, not a context property.*
 
-| Tool | Main Session | Subagent | Teammate | Skill-Forked |
-|------|-------------|----------|----------|-------------|
-| Agent (spawner) | YES | **NO** | **NO** | **NO** |
-| TeamCreate | YES | YES | **NO** | YES |
-| TeamDelete | YES | YES | **NO** | YES |
-| SendMessage | YES | YES | YES | YES |
-| AskUserQuestion | YES | **NO** | **NO** | **NO** |
-| EnterPlanMode | YES | **NO** | **NO** | **NO** |
-| ExitPlanMode | YES | **NO** | **NO** | **NO** |
-| Skill | YES | YES | YES | YES |
-| TaskCreate/Get/List/Update | YES | YES | YES | YES |
-| Read/Write/Edit | YES | YES | YES | YES |
-| Glob/Grep | YES | YES | YES | YES |
-| Bash | YES | YES | YES | YES |
-| NotebookEdit | YES | YES | YES | YES |
-| WebFetch/WebSearch | YES | YES | YES | YES |
-| EnterWorktree | YES | YES | YES | YES |
+| Tool | Main session | `general-purpose` subagent | `planwise:task-runner` subagent |
+|------|-------------|----------------------------|---------------------------------|
+| Agent (spawner) | YES | YES | NO |
+| TeamCreate, TeamDelete | NO | NO | NO |
+| SendMessage | YES | YES | YES |
+| SubagentHandback | NO | YES | YES |
+| ListAgents | YES | NO | NO |
+| AskUserQuestion | YES | NO | NO |
+| EnterPlanMode, ExitPlanMode | YES | NO | NO |
+| Skill | YES | YES | NO |
+| TaskCreate, TaskGet, TaskList, TaskUpdate | YES | NO | NO |
+| TaskStop | YES | YES | NO |
+| Workflow | YES | NO | NO |
+| Read, Write, Edit, Glob, Grep, Bash | YES | YES | YES |
+| NotebookEdit, WebFetch, WebSearch, ToolSearch | YES | YES | YES |
+| EnterWorktree, ExitWorktree, Monitor | YES | YES | NO |
+| Total tools | 56 | 38 | 12 |
 
 Two tool families share a word. The **Agent tool** spawns a subagent; Claude Code renamed it from `Task` in version 2.1.63, and the old name still works as an alias. The **Task tools** (`TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`) are the session checklist and replaced the legacy `TodoWrite`. This plugin uses the Task tools for progress tracking and never `TodoWrite`.
-
-| Context | Total Tools | Key Restrictions |
-|---------|------------|-----------------|
-| Main Session | ~24+ | None |
-| Subagent | 18 | No Agent, AskUserQuestion, PlanMode |
-| Skill-Forked | 18 | Identical to Subagent |
-| Teammate | 16 | No Agent, TeamCreate, TeamDelete, AskUserQuestion, PlanMode |
-
-> **Surprise 3:** Teammates have FEWER tools than standalone subagents. TeamCreate/Delete are restricted FROM teammates (to prevent workers from managing teams) but are available to subagents and skill-forked contexts. The restriction is inverted from the expected — team management tools are NOT reserved for team members, they are removed from team members.
+In the measured lists, only the main session holds the checklist tools.
 
 ---
 
 ## 3. Context Loading Matrix
 
-*Empirically verified — 21-cell context-loading matrix (18 cells directly tested; the skill-forked MCP cell later confirmed by a live test).*
+*Measured on an earlier build. Not re-measured on Claude Code 2.1.296 (2026-10-12).*
 
-| # | What Loads | Subagent | Teammate | Skill-Forked |
-|---|-----------|---------|----------|-------------|
-| 1 | System prompt identity | YES (CC CLI) | NO — different identity (Agent SDK) | YES (CC CLI) |
-| 2 | CLAUDE.md | YES | YES | YES |
-| 3 | All project skill descriptions | YES (via FS discovery) | YES | YES (via FS discovery) |
-| 4 | MCP servers | YES (FG); NO (BG) | SKIP (no data) | YES (FG) |
-| 5 | Conversation history | NO | NO | NO |
-| 6 | Team tools | YES (all incl. TeamCreate/Delete) | PARTIAL (no TeamCreate/Delete) | YES (all) |
-| 7 | Path-specific rules | NO (global only) | NO (global only) | NO (global only) |
+| # | What Loads | Subagent | Skill-Forked |
+|---|-----------|---------|-------------|
+| 1 | CLAUDE.md | YES | YES |
+| 2 | All project skill descriptions | YES (via FS discovery) | YES (via FS discovery) |
+| 3 | MCP servers | YES (FG); NO (BG) | YES (FG) |
+| 4 | Conversation history | NO | NO |
+| 5 | Path-specific rules | NO (global only) | NO (global only) |
 
 > **Path rules are main-session-only:** All spawned contexts see only the global rule files. Path-specific rules load based on the context's OWN file activity — spawned contexts start with zero file activity so no path rules trigger at startup. Spawned contexts CAN trigger path rules after they begin working on matching files, but they do NOT inherit the parent session's active path triggers.
 
 > **Surprise 5 — Skill discoverability:** All contexts discover all project skills via file system access (Glob on `.claude/skills/`). This is file system discoverability, not system-reminder injection. Mid-session created agents are NOT dynamically registered as available `subagent_type` values.
-
-> **Surprise 6 — Path rules:** Even teammates ("full, independent sessions") do NOT load path-specific rules. This is the clearest empirical distinction between teammate and main session contexts. All non-main contexts see the same global rules.
 
 > **Skill-Forked MCP:** MCP is reachable from foreground skill-forked contexts. Confirmed by a live test — a `context: fork` skill loaded a configured MCP server's tool via `ToolSearch` and the subsequent call round-tripped to the MCP layer and returned a real result. Background skill-forked MCP behavior was not exercised.
 
@@ -125,36 +111,28 @@ Two tool families share a word. The **Agent tool** spawns a subagent; Claude Cod
 
 ## 4. Nesting Rules
 
-*Empirically verified across 8 tests.*
+| # | From → To | Result | Basis |
+|---|-----------|--------|-------|
+| 1 | Main → Subagent | **YES** | Measured 2026-10-12 |
+| 2 | Main → Named agent | **YES** | Measured 2026-10-12 |
+| 3 | Subagent → anything | **Not used by planwise** | `general-purpose` lists `Agent` (measured 2026-10-12). A nested spawn was not tested. `planwise:task-runner` has no `Agent` |
+| 4 | Skill-Forked → anything | **NO** (earlier build) | Carried: `Agent` was absent. Not re-measured |
 
-| # | From → To | Result | Enforcement Mechanism |
-|---|-----------|--------|----------------------|
-| 1 | Main → Subagent | **YES** | N/A (allowed) |
-| 2 | Main → Teammate | **YES** | N/A (allowed; requires experimental env var) |
-| 3 | Sub → Sub | **NO** | Agent tool stripped from subagent at spawn time |
-| 4 | Sub → Teammate | **Blocked** (net) | Agent tool stripped; TeamCreate works but teammates cannot be added |
-| 5 | Teammate → Subagent | **NO** | Agent tool stripped from teammate (same restriction as subagent) |
-| 6 | Teammate → Teammate | **NO** | Agent tool stripped; explicit "No such tool: Task" runtime error |
-| 7 | Teammate → Team | **NO** | TeamCreate stripped from teammate at spawn time |
-| 8 | Skill-Forked → anything | **NO** | Agent tool stripped (identical mechanism to subagent) |
-
-> [!constraint] Universal Spawning Gate
-> The Agent tool is the SINGLE universal spawning gate. It is stripped from ALL non-main contexts (subagent, teammate, skill-forked) at spawn time. This single mechanism enforces all nesting restrictions — there are no runtime depth checks, no per-context logic. Cannot be bypassed by prompting.
+> [!constraint] Spawn Only From the Main Conversation
+> Planwise spawns every agent from the main conversation. The planwise reviewer and task-runner agents omit `Agent` from `tools:`, and no planwise prompt asks a spawned agent to spawn another.
 >
 > WRONG: Subagent A tries to spawn Subagent B
 > CORRECT: Orchestrate all subagents from the main conversation; chain them sequentially if needed
 
-> **Surprise 4:** Subagents CAN create team shells (TeamCreate works), but cannot add teammates (Agent tool absent). The enforcement is at the Agent tool level, not at TeamCreate. Main session could theoretically add teammates to a subagent-created team. Design around this — do not rely on it.
-
 All spawning MUST go through the Main Session:
 
 ```
-        Main Session (team lead)
+        Main conversation (orchestrator, addressed as `main`)
        /    |    |    \
-    Sub1  Sub2  TM1  TM2
+    Sub1  Sub2  NA1  NA2
 ```
 
-Neither subagents nor teammates can delegate further. The team lead is the ONLY orchestrator.
+Planwise never asks a spawned agent to delegate further. The main conversation is the only orchestrator.
 
 ---
 
@@ -170,7 +148,7 @@ Neither subagents nor teammates can delegate further. The team lead is the ONLY 
 > | Multiple phases share intermediate context | Main conversation | No context loss between phases |
 > | Quick, targeted single-file change | Main conversation | No subagent startup overhead |
 > | Parallel research: independent paths | Multiple subagents | Fresh context each, simultaneous |
-> | Parallel coordination with communication | Agent team (teammates) | SendMessage protocol |
+> | Parallel work the orchestrator addresses by name | Named agents | Each reports with a message to `main` |
 > | Reusable user-facing workflow | Skill with `context: fork` | User types /name |
 
 ### Delegation Patterns
@@ -199,7 +177,7 @@ The older `"Task(agent-name)"` form still works as an alias, so settings written
 
 > [!constraint] Context Cost Warning
 > WRONG: Spawn 10 subagents with verbose output → main conversation hits context ceiling
-> CORRECT: Instruct subagents to return summaries only, OR use agent teams for sustained parallelism exceeding the context window
+> CORRECT: Instruct subagents to return summaries only
 
 ### Agent Scope (Where to Define)
 
@@ -253,79 +231,56 @@ A **persistent agent** (defined in `.claude/agents/`) is reusable and named. Use
 
 ---
 
-## 6. Team Lifecycle
+## 6. Named-Agent Lifecycle
+
+No team object exists. A named agent is an `Agent` spawn that carries a `name`. The orchestrator addresses it by that name.
 
 ### Tool Quick Reference
 
 | Tool | Purpose | Key Parameters |
 |------|---------|----------------|
-| `TeamCreate` | Create team + shared task list | `team_name` (required), `description`, `agent_type` |
-| `TeamDelete` | Remove team infrastructure | (none — auto-detects from session context) |
-| `SendMessage` | Inter-agent communication | `type`, `recipient`, `content`, `summary` |
-| `Agent` (team mode) | Spawn teammate into team | `team_name`, `name`, `subagent_type`, `prompt` |
-
-**What TeamCreate produces:**
-```
-~/.claude/teams/{team-name}/config.json   ← member registry
-~/.claude/tasks/{team-name}/              ← shared task list
-```
+| `Agent` (named) | Spawn a named agent | `name`, `subagent_type`, `prompt` |
+| `SendMessage` | Message the orchestrator or a named agent | `to`, `message` |
 
 ### Lifecycle Sequence
 
 ```
-[1] TeamCreate(team_name: "{project}-{context}")
-[2] Spawn first reviewer → Agent(team_name, name, subagent_type, prompt)
-[3] Gate on first reviewer results (if phased)
-[4] Spawn remaining teammates in parallel
-[5] Assign work via TaskCreate + TaskUpdate + SendMessage
-[6] Collect findings as messages arrive (incremental synthesis)
-[7] SendMessage(shutdown_request) to each teammate
-[8] Wait for shutdown_response approvals
-[9] TeamDelete
+[1] Spawn first reviewer → Agent(name, subagent_type, prompt)
+[2] Gate on its completion message (if phased)
+[3] Spawn remaining named agents in parallel
+[4] Collect findings as each SendMessage to main arrives
+[5] On idle without a completion message: read the idle notification's result, then SendMessage(to: "{name}") one status check
+[6] No teardown: there is no team to shut down or delete
 ```
 
-> [!constraint] Shutdown Before Delete
-> ```
-> # WRONG — TeamDelete fails with active members:
-> TeamDelete()   # Error: team still has active members
->
-> # CORRECT — shut down all teammates first:
-> SendMessage(shutdown_request → teammate-1)
-> SendMessage(shutdown_request → teammate-2)
-> # Wait for shutdown_response approve: true from each
-> TeamDelete()
-> ```
-
-### Teammate Spawning
+### Named-Agent Spawning
 
 ```
-Task {
-  team_name: "plan-review-arc"
-  name: "structural-reviewer"     # Unique, descriptive — primary key for messaging
+Agent {
+  name: "structural-reviewer"     # Unique, descriptive — the address for messages
   subagent_type: "Explore"        # Determines tool access
   prompt: "..."                   # MUST be fully self-contained (see below)
 }
 ```
 
 > [!pitfall] Context Not Inherited
-> **Problem:** Teammates start with fresh ~100K context — they do NOT inherit the lead's file reads, research, or analysis.
-> **Solution:** Include all critical context in the teammate's prompt: file paths, checklists, reporting format, and any findings they need. Share via explicit messages or file references; never assume shared state.
+> **Problem:** Named agents start with fresh context — they do NOT inherit the orchestrator's file reads, research, or analysis.
+> **Solution:** Include all critical context in the prompt: file paths, checklists, reporting format, and any findings they need. Share via explicit messages or file references; never assume shared state.
 
-**Subagent type selection for teammates:**
+**Subagent type selection for named agents:**
 | If task requires... | Use |
 |--------------------|-----|
 | Read-only (review, research, exploration) | `Explore` |
 | Architecture planning | `Plan` |
-| Writes, Bash, or team tools | `general-purpose` |
+| Writes or Bash | `general-purpose` |
 | Project-specific behavior | Custom agent from `.claude/agents/` |
 
-**Naming:** Use unique, descriptive names. Names are the primary key for messaging and task ownership.
+**Naming:** Use unique, descriptive names. Names are the address for messages.
 ```
 structural-reviewer     # Role-based
 ei-reviewer-1           # Role + index for multiples
 impl-reviewer           # Role-based
 ```
-Team names: `plan-review-arc`, `migration-vfa` (`{activity}-{abbrev}`).
 
 ### Phase Gating
 
@@ -337,24 +292,32 @@ For multi-phase reviews, gate on the first phase before spawning the rest:
 
 ---
 
-## 7. Team Communication
+## 7. Agent Communication
 
-### SendMessage Types
+### Addresses
 
-| Type | Required Fields | Use For |
-|------|----------------|---------|
-| `message` | `recipient`, `content`, `summary` | DM to single teammate |
-| `broadcast` | `content`, `summary` | Message ALL teammates (expensive — N messages for N teammates) |
-| `shutdown_request` | `recipient` | Ask teammate to exit |
-| `shutdown_response` | `request_id`, `approve` | Teammate approves/rejects shutdown |
-| `plan_approval_response` | `request_id`, `recipient`, `approve` | Approve/reject teammate's plan |
+A spawned agent reaches the orchestrator with `SendMessage`. The address decides when the message arrives.
 
-> [!practice] Default to DM
-> USE `message` (DM) for all routine communication. Reserve `broadcast` for critical abort scenarios only. Broadcasting sends N separate messages for N teammates — costs scale linearly.
+| Address | Reaches | Delivery, measured 2026-10-12 on Claude Code 2.1.296 | Use |
+|---------|---------|------------------------------------------------------|-----|
+| `main` | The orchestrator (the main conversation) | 3 of 3 arrived while the orchestrator was still working | Every report to the orchestrator |
+| `{name}` | A named agent | The spawn result says it receives instructions through a mailbox. Not timed | Status checks from the orchestrator |
+| `team-lead` | Legacy address | 3 of 3 returned success but arrived only after the orchestrator's turn ended | Never |
+
+An unnamed subagent needs no address. Its final message returns to the orchestrator automatically, 3 of 3 in the same measurement.
+
+### What Goes to `main`
+
+| Scenario | Channel |
+|----------|---------|
+| Report individual finding | Message to `main` |
+| Flag uncertain finding | Message to `main` with `[UNCERTAIN]` |
+| Completion signal | Message to `main` |
+| Status check on an idle agent | Message from the orchestrator to the agent's `name` |
 
 ### Finding Report Format
 
-Teammates report findings using this structured format:
+Reviewers report findings using this structured format:
 
 ```
 [SEVERITY] Finding summary (one line)
@@ -367,43 +330,35 @@ Confidence: HIGH | MEDIUM | LOW
 
 ### Uncertain Finding Protocol
 
-When a reviewer has MEDIUM or LOW confidence, prefix the finding with `[UNCERTAIN]`. The team lead cross-checks uncertain findings against other reviewers' context before including in the final report. This is the primary false-positive reduction mechanism.
+When a reviewer has MEDIUM or LOW confidence, prefix the finding with `[UNCERTAIN]`. The orchestrator cross-checks uncertain findings against other reviewers' context before including in the final report. This is the primary false-positive reduction mechanism.
 
-### When to Broadcast
+### Idle Named Agents
 
-| Scenario | Type |
-|----------|------|
-| Report individual finding | DM to lead |
-| Flag uncertain finding | DM to lead with `[UNCERTAIN]` |
-| Critical abort (structural blockers) | Broadcast |
-| Correction affecting all teammates | Broadcast |
-| Everything else | DM |
-
-### Idle Teammate Behavior
-
-> [!pitfall] Idle Teammates
-> **Problem:** Teammates go idle after every turn. This looks like they stopped working.
-> **Solution:** Idle is NORMAL and EXPECTED. Send a message to wake them up — they respond immediately. The standard flow: teammate completes work → goes idle → lead sends next assignment → teammate wakes. Do NOT wait for them to "come back" or treat idle as an error.
+> [!pitfall] Idle Named Agents
+> **Problem:** A named agent goes idle after every turn. This looks like it stopped working.
+> **Solution:** Idle is NORMAL and EXPECTED. A named agent's plain-text reply is not lost, but it is late: it arrives only after the orchestrator's turn ends, in the `result` field of an idle notification (measured once, 2026-10-12, Claude Code 2.1.296). Have every named agent report with `SendMessage` to `main`, and send one status check by name when it goes idle without its completion message.
 > **See also:** [`agent-orchestration-delegated.md`](agent-orchestration-delegated.md) §1.7 (Idle-Mid-Step Wake-Up via SendMessage) for the operational wake-up protocol used by DELEGATED orchestrators.
 
-Messages from teammates are delivered automatically — do NOT poll for their output manually.
+Messages sent to `main` are delivered automatically — do NOT poll for them.
 
 ---
 
 ## 8. Scaling Rules
 
+A team here means a group of named reviewers that the main conversation spawns. No team object exists.
+
 > [!decide] Team vs Simple Subagents
 > | Plan Size | Approach | Team Size |
 > |-----------|----------|-----------|
-> | Trivial (no EIs, <3 files) | No team — single Task subagent | 0 |
-> | Small (1 EI, 1 sprint) | No team — 2-3 Task subagents sequentially | 0 |
-> | Medium (2-3 EIs, 2+ sprints) | Team with standard composition | 3-4 reviewers + lead |
-> | Large (4-5 EIs, 3+ sprints) | Full team | 5 reviewers + lead |
-> | Very Large (6+ EIs) | Batch into max 5 reviewers | 5 reviewers + lead (batch EIs) |
+> | Trivial (no EIs, <3 files) | No team — single subagent | 0 |
+> | Small (1 EI, 1 sprint) | No team — 2-3 subagents sequentially | 0 |
+> | Medium (2-3 EIs, 2+ sprints) | Team with standard composition | 3-4 reviewers + orchestrator |
+> | Large (4-5 EIs, 3+ sprints) | Full team | 5 reviewers + orchestrator |
+> | Very Large (6+ EIs) | Batch into max 5 reviewers | 5 reviewers + orchestrator (batch EIs) |
 >
 > **Crossover point:** Teams become worthwhile at **2+ EIs or 2+ sprints**. Below that, coordination overhead exceeds the benefit.
 
-### Token Budget Per Teammate Role
+### Token Budget Per Reviewer Role
 
 | Role | Estimated Context | Notes |
 |------|-------------------|-------|
@@ -438,19 +393,19 @@ Before launching a background agent, Claude prompts for all permissions the agen
 
 ## 10. Constraints
 
-These constraints are empirically verified. The enforcement mechanism column explains why each cannot be bypassed by prompting.
+Rows 1, 2, 4 and 5 were re-measured on Claude Code 2.1.296 on 2026-10-12, for the `general-purpose` and `planwise:task-runner` subagents. The other rows are carried from earlier builds and were not re-measured. The enforcement mechanism column explains why each cannot be bypassed by prompting.
 
 | # | Constraint | Enforcement Mechanism | Impact | Workaround |
 |---|-----------|----------------------|--------|------------|
-| 1 | No sub-subagent spawning | Agent tool stripped from ALL non-main contexts at spawn time | Single-level delegation only | Orchestrate all agents from main conversation; chain sequentially |
-| 2 | Teammates lack Agent, TeamCreate, TeamDelete | Tool restriction at spawn time | Cannot spawn, cannot create/delete teams | All delegation through team lead (hub-and-spoke mandatory) |
-| 3 | Context NOT inherited by subagents/teammates | Fresh context per spawn | Teammates start with empty context (see row 11 for shell state) | Self-contained prompts; share via explicit messages or file references |
+| 1 | No sub-subagent spawning | Planwise spawns only from the main conversation. Measured 2026-10-12 on Claude Code 2.1.296: the planwise task-runner's tool list has no Agent tool. A general-purpose subagent's list includes Agent, and a nested spawn from it was not tested | Single-level delegation only | Orchestrate all agents from main conversation; chain sequentially |
+| 2 | Only the `main` address reaches the orchestrator inside its turn | Message routing. Measured 2026-10-12 on Claude Code 2.1.296: 3 of 3 sends to `main` arrived while the orchestrator was working, and 3 of 3 sends to `team-lead` arrived only after its turn ended | A report addressed to `team-lead` misses an orchestrator that waits inside one turn | Address the orchestrator as `main` in every spawn prompt |
+| 3 | Context NOT inherited by spawned agents | Fresh context per spawn | Spawned agents start with empty context (see row 11 for shell state) | Self-contained prompts; share via explicit messages or file references |
 | 4 | No AskUserQuestion in spawned contexts | Tool restriction | Cannot interactively prompt user | Pre-gather requirements before spawning |
 | 5 | No EnterPlanMode/ExitPlanMode in spawned contexts | Tool restriction | Cannot enter plan mode | Plan in main session before delegating |
 | 6 | Path-specific rules are main-session-only | Path rule loading requires OWN file activity | Spawned contexts see only global rules | Include rule content explicitly in task prompt |
 | 7 | MCP unavailable in background subagents | Background execution mode restriction | Cannot use external systems | Run in foreground if MCP tools are required |
 | 8 | Skill discovery ≠ system-prompt injection | File system access (Glob on `.claude/skills/`) | Mid-session agents not discoverable as subagent_type | Use `skills:` frontmatter to inject domain knowledge; all contexts discover existing skills via FS |
-| 9 | Teammate identity is Agent SDK, not CC CLI | System prompt differentiation at spawn time | Teammates self-identify differently; less "Claude Code aware" | Design teammates as workers; orchestrate from main session |
+| 9 | Do not branch on a spawned agent's self-reported identity | The harness sets the identity line at spawn time. Not re-measured across contexts on this build | A check written against one identity string fails silently when a build changes it | Branch on the tools in the agent's own tool list, never on its identity line |
 | 10 | Background pre-approval gate overrides `bypassPermissions` | Background agents auto-deny any permission not explicitly pre-approved at launch; `bypassPermissions` does NOT bypass this gate | Write/Edit/Bash calls silently fail if not pre-approved; agent continues without output | Launch write-producing agents in foreground; reserve background for read-only tasks |
 | 11 | Spawned contexts inherit no shell state — the interpreter on `PATH` is the platform default, never the project's | Spawned shells start fresh: no inherited working directory, `PATH`, or activated environment. Extends row 3 (context non-inheritance) from conversational to shell state | Project-package imports fail and project-only dependencies appear absent. The agent typically reports the check as **environmentally impossible rather than failed** — a false PASS on everything it did reach | Name the project's interpreter path explicitly in every spawn prompt that runs project code. Have the first dispatch echo its resolved interpreter and HALT if it is not the project's. Emit the path form matching the project's OS |
 | 12 | Writes under agent startup-config paths are gated as Self-Modification, and the decision is non-deterministic | A permission classifier protects agent/rule/skill/settings config paths independently of any workflow authorization; decisions vary **within a single batch**, and some denials are hard blocks that user authorization cannot clear | A multi-edit batch half-applies, leaving a config file internally inconsistent with no record of which edits landed. Naming the file as the deliverable across every plan tier does not pre-clear the gate | Keep config-file edit batches to the smallest coherent set — denials are per-call, so a large batch half-applies. Record applied-vs-denied state immediately. STOP and ask on denial; never retry verbatim in the same mode |
@@ -465,8 +420,6 @@ These constraints are empirically verified. The enforcement mechanism column exp
 > **Constraint 10 — background pre-approval detail:** Background subagents use an upfront pre-approval gate: before launch, Claude Code prompts for all permissions the agent will need. At runtime, anything not pre-approved is auto-denied — the tool call fails silently but the agent continues executing. `bypassPermissions` mode does NOT override this gate. Practical consequence: task-runner agents that write output files MUST run in foreground. Background mode is only safe for read-only operations (Explore, research).
 
 > **Constraint 10 — background pre-approval hazard:** Design background agents for read-only operations only. Before launching a background agent that you believe needs Write/Edit/Bash, convert it to foreground mode. The pre-approval gate cannot be bypassed by prompting or by `bypassPermissions` mode — both are enforced at the runtime layer, not the policy layer.
-
-> **Team tool compatibility:** TeamCreate and SendMessage are not listed in the `allowed-tools` frontmatter system. Skills that need team functionality should use `context: fork` with `agent: general-purpose`. Do NOT attempt to list TeamCreate or SendMessage in `allowed-tools`.
 
 ---
 
