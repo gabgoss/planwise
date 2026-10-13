@@ -1,13 +1,13 @@
 ---
-description: Family index for verification-gate evidence — which short gate-* reference governs a positive or mutation control, a fixture's provenance, a live gate that disagrees with correct work, an old-home citation sweep, a generated input that silently empties a gate, a script's emitted reason or exit code, or a proof run's scratch root and import order; carries the map from this file's former section numbers to the topic files that now hold them.
+description: Family index for verification-gate evidence — which short gate-* reference governs a positive or mutation control, a fixture's provenance, a live gate that disagrees with correct work, an old-home citation sweep, a generated input that silently empties a gate, a script's emitted reason or exit code, a proof run's scratch root and import order, or an input set that could not have contained the case that fails the gate; carries the map from this file's former section numbers to the topic files that now hold them.
 paths: {planwise_root}/{plans_dir}/**
 ---
 
 # Verification-Gate Evidence (Family Index)
 
-**Purpose:** The index for the verification-gate evidence family: the gap between *"the gate returned this"* and *"this is true"*. The rules live in the short topic files below. They were split out of this file on 2026-10-08, when it passed the Read-tool token gate. Each topic file keeps the section numbers this file used, so a citation of the form `verification-gate-evidence.md §N` resolves through the section map at the end of this file. `verification-task-authoring.md` indexes the match-pattern rules, and `verification-gates.md` indexes the instrument's proof obligations.
+**Purpose:** The index for the verification-gate evidence family: the gap between *"the gate returned this"* and *"this is true"*. The rules live in the short topic files below. They were split out of this file on 2026-10-08, when it passed the Read-tool token gate. Each topic file except `gate-discriminating-case.md` keeps the section numbers this file used. That file holds new rules and numbers its own §1-§5. A citation of the form `verification-gate-evidence.md §N` resolves through the section map at the end of this file. `verification-task-authoring.md` indexes the match-pattern rules, and `verification-gates.md` indexes the instrument's proof obligations.
 
-**Read this when** you author a guard, hook, linter, validation pass or "MUST be empty" check, you are about to cite one as proof, your correct edit and a gate disagree, a gate fails everything, you sweep for citations after moving a section, or a gate reads a generated list, a script's output or a checked-in file's bytes. Open the topic file the table names. Read this index only to find it.
+**Read this when** you author a guard, hook, linter, validation pass or "MUST be empty" check, you are about to cite one as proof, your correct edit and a gate disagree, a gate fails everything, you sweep for citations after moving a section, a gate reads a generated list, a script's output or a checked-in file's bytes, or you are about to cite a green gate whose input set you did not check for the failing case. Open the topic file the table names. Read this index only to find it.
 
 ## Table of Contents
 
@@ -27,6 +27,7 @@ paths: {planwise_root}/{plans_dir}/**
 | [gate-generated-input-integrity.md](gate-generated-input-integrity.md) | §16, §17, §18, §21 | a gate reads a generated path list or row count, claims bytes or line endings preserved, or a test compares against a checked-in file |
 | [gate-script-output-assertions.md](gate-script-output-assertions.md) | §19, §23 | you grade a decision log's rows, or a gate interprets a script's exit code |
 | [gate-environment-inputs.md](gate-environment-inputs.md) | §20, §22 | a proof run builds a fixture tree in a shipping tree, or a Python package re-exports or guards imports |
+| [gate-discriminating-case.md](gate-discriminating-case.md) | §1-§5 (own numbering) | you cite a gate result as proof and need to know whether its input set could have contained the failing case: an extraction boundary, a runner's slice, a fixture below its threshold, or a forecast fed to a per-item gate |
 
 ---
 
@@ -59,6 +60,7 @@ A citation written as `verification-gate-evidence.md §N` resolves here. The sec
 | §21 A Test Never Hard-Codes a Checked-In File's Line Endings | `gate-generated-input-integrity.md` |
 | §22 A Green Suite Says Nothing About Import Order | `gate-environment-inputs.md` |
 | §23 Derive an Exit-Code Gate From the Script's Return Paths | `gate-script-output-assertions.md` |
+| (not a former section) `gate-discriminating-case.md` §1-§5 are new rules with their own numbering, so a `verification-gate-evidence.md §N` citation never resolves there | `gate-discriminating-case.md` |
 
 ---
 

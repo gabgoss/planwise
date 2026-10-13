@@ -393,6 +393,29 @@ Both directions are one rule with the arrow reversed. The table below names what
 
 Applied: any handler that both enumerates conditional references for the lead and delegates the checking to spawned agents MUST resolve the condition in the lead and push the resulting instruction into the prompt. Symmetrically, any orchestration expecting structured telemetry back MUST specify the delivery channel, not only the payload shape.
 
+### 1.29.4 A session-scope gate names its corpus, and why a narrower one fails
+
+A runner holds a slice of the inputs. A property such as "no deliverable shares 12 words with the source" quantifies over the whole source and every deliverable. A runner that sweeps only its own slice cannot see a collision with material it was never given.
+
+> [!constraint] State the required gate corpus and the one-line reason a narrower one is insufficient
+> When a session asserts a property over a corpus larger than any single runner's inputs, the spawn prompt MUST state two things. It names the corpus the session gate runs over. It also gives a one-line reason a narrower corpus is insufficient.
+>
+> WRONG — the prompt asks for a clean sweep and leaves the corpus implicit:
+> ```
+> "Before returning, sweep your section files for verbatim overlap with the source. Report any hits."
+> # A capable runner reads this as "sweep my own inputs". It cannot have copied text it never read,
+> # so it reasons that its own slice is the whole corpus, and it reports clean.
+> ```
+> CORRECT — the prompt names the gate corpus, labels the runner sweep as a drafting aid, and carries the mechanism:
+> ```
+> "Sweep your own section files against the source as fast feedback while you draft. This sweep is NOT
+>  the gate. The session gate sweeps the FULL source against ALL deliverables from every runner.
+>  Reason a narrower corpus fails: a collision with material outside your slice is undetectable from
+>  inside your slice, even when your own sweep reports zero hits."
+> ```
+>
+> The reason travels in the prompt, not only the instruction. A runner told only to run the wider sweep may optimise it back down to its own inputs. Its reasoning is sound about copying and unsound about collision. The one-line mechanism blocks that step.
+
 ## 1.30 Liveness — Establish Death Before Dispatching a Replacement
 
 A task-runner produces **no observable output between dispatch and its final status block**. For a short task that gap is seconds. For a fixture build or a probe loop it can be hours. Across that whole window the orchestrator cannot tell apart three states that demand opposite responses:
