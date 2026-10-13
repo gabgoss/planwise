@@ -107,7 +107,7 @@ class TestUpgradeGuardResume(unittest.TestCase):
         # refresh (step 3) and the pin commit (step 6) do real work.
         migrate_rules_patch = mock.patch.object(
             artifact_upgrade, "migrate_installed_rules",
-            return_value={"removed": [], "preserved": []},
+            return_value={"removed": [], "preserved": [], "skipped": [], "acted_on": []},
         )
         migrate_rules_patch.start()
         self.addCleanup(migrate_rules_patch.stop)

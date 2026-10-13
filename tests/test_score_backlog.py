@@ -695,6 +695,82 @@ class TestRouteSignals(unittest.TestCase):
         self.assertEqual(signals["step_count"], 3)
         self.assertEqual(signals["sub_items"], 3)
 
+    # -- template section headings are layout, not scope --------------------
+
+    _CLEAR_FIX_SENTENCE = (
+        "\nChange line 3 of `src/app.py` from old to new. Edit only `src/app.py`; "
+        "touch no other file.\n"
+    )
+
+    def test_template_section_headings_do_not_count_as_sub_items(self):
+        body = "".join(
+            f"\n## {name}\n\nOne sentence.\n" for name in score_backlog.TEMPLATE_SECTION_HEADINGS
+        ) + self._CLEAR_FIX_SENTENCE
+        signals = score_backlog.compute_route_signals(
+            _route_item(abbrev="BUG"), _route_fm(body, line_count=60)
+        )
+        self.assertEqual(len(score_backlog.TEMPLATE_SECTION_HEADINGS), 7)
+        self.assertEqual(signals["h2_count"], 0)
+        self.assertEqual(signals["sub_items"], 0)
+        self.assertTrue(signals["clear_fix"]["evidence_present"])
+        self.assertEqual(signals["route"], "A")
+        self.assertFalse(signals["large_scope"])
+
+    def test_six_non_template_headings_still_route_to_c_with_large_scope(self):
+        body = "".join(f"\n## Step {c}\n\nOne sentence.\n" for c in "ABCDEF") + self._CLEAR_FIX_SENTENCE
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body, line_count=60))
+        self.assertEqual(signals["h2_count"], 6)
+        self.assertEqual(signals["sub_items"], 6)
+        self.assertEqual(signals["route"], "C")
+        self.assertTrue(signals["large_scope"])
+
+    def test_six_numbered_steps_without_headings_still_give_six_sub_items(self):
+        body = "\n" + "".join(f"{n}. step {n}\n" for n in range(1, 7)) + self._CLEAR_FIX_SENTENCE
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body, line_count=60))
+        self.assertEqual(signals["h2_count"], 0)
+        self.assertEqual(signals["numbered_items"], 6)
+        self.assertEqual(signals["sub_items"], 6)
+        self.assertEqual(signals["route"], "C")
+        self.assertTrue(signals["large_scope"])
+
+    def test_mixed_template_and_non_template_headings_count_only_the_latter(self):
+        body = (
+            "\n## Summary\n\n## Problem\n\n## Related\n\n"
+            "## Step A\n\n## Step B\n\n## Step C\n"
+        )
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body))
+        self.assertEqual(signals["h2_count"], 3)
+
+    def test_template_heading_match_is_exact_and_case_sensitive(self):
+        body = "\n## summary\n\n## Summary of changes\n\n## Notes\n"
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body))
+        self.assertEqual(signals["h2_count"], 2)
+
+    def test_template_section_headings_equal_the_template_files_headings(self):
+        # State-detecting: compares the constant with the shipped template
+        # file itself. Every `## ` line is read, fenced or not, because the
+        # template shows some of its section headings inside example fences
+        # and the rest outside. The two instruction headings that open the
+        # template are not body sections.
+        template = (
+            Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "templates" / "backlog-item.md"
+        )
+        instruction_headings = {"YAML Frontmatter (REQUIRED)", "Body Structure"}
+        found = [
+            line[3:].rstrip()
+            for line in template.read_text(encoding="utf-8").splitlines()
+            if line.startswith("## ")
+        ]
+        body_sections = {name for name in found if name not in instruction_headings}
+        constant = set(score_backlog.TEMPLATE_SECTION_HEADINGS)
+        self.assertTrue(instruction_headings <= set(found), f"template parse saw only {sorted(found)}")
+        self.assertEqual(
+            body_sections,
+            constant,
+            f"compared-set size: template {len(body_sections)} vs constant {len(constant)}",
+        )
+        self.assertGreater(len(body_sections), 0)
+
     def test_step_count_is_the_longest_consecutive_run_not_the_total(self):
         body = "\n## A\n\n1. a\n2. b\n\n## B\n\n1. c\n2. d\n3. e\n4. f\n\nprose\n\n5. g\n"
         signals = score_backlog.compute_route_signals(_route_item(), _route_fm(body))

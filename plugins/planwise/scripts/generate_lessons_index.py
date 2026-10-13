@@ -486,8 +486,11 @@ def _run_companion_cli(args, lessons_dir: Path, archive_dir: Path, index_path, n
                     for heading in dropped:
                         print(f"  {heading}", file=sys.stderr)
                 return _companion_error(
-                    args, f"{companion_path} is {shape}. Refusing to overwrite it; "
-                    "re-run with --replace-legacy to replace it.",
+                    args, f"{companion_path} is {shape}. Refusing to overwrite it. "
+                    "Run /planwise upgrade first. It moves the companion's hand-written "
+                    "text into the notes file and backs up every file it rewrites. "
+                    "Passing --replace-legacy instead discards the listed sections "
+                    "and keeps no backup.",
                 )
             for heading in dropped:
                 print(f"dropping: {heading}", file=sys.stderr)
@@ -571,7 +574,8 @@ def main() -> int:
     parser.add_argument(
         "--replace-legacy", action="store_true",
         help="Allow --write to overwrite a legacy-shaped on-disk index after its sections have "
-        "been relocated. Prefer migrate_lessons_index.py, which relocates them first.",
+        "been relocated. Prefer migrate_lessons_index.py, which relocates them first. "
+        "This flag discards any section not relocated and keeps no backup.",
     )
     parser.add_argument(
         "--companion", action="store_true",
@@ -600,30 +604,19 @@ def main() -> int:
             replace_legacy=args.replace_legacy, json_out=args.json,
         )
 
+    from lessons_index_run import check_lessons_index, legacy_hub_message
+
     try:
-        result, next_id_info, report, location_anomalies = _run_lessons_report_pipeline(
-            lessons_dir, archive_dir, index_path, naming, config
-        )
+        checked = check_lessons_index(config)
     except LessonsGeneratorError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return LessonsDisposition.REFUSED
+    report, findings, shape, code = (checked[k] for k in ("report", "findings", "shape", "code"))
 
     _print_truncation_summary(report["truncated_ids"])
 
-    findings, shape = _check_lessons_drift(
-        result.items, report, lessons_dir, archive_dir, index_path, naming,
-        next_id_info["next"], config, location_anomalies, result.duplicate_ids,
-        result.id_mismatches,
-    )
-    code = lessons_exit_code_for(write_mode=False, findings=findings)
-
     if code == LessonsDisposition.REFUSED:
-        print(
-            f"Error: {index_path} is a hand-authored lessons index — run /planwise upgrade to "
-            "migrate it (the migrator relocates the changelog, the promotion log and the "
-            "hand-written sections with backups) before reading it as generated",
-            file=sys.stderr,
-        )
+        print(legacy_hub_message(index_path), file=sys.stderr)
         if not args.json:
             return code
 

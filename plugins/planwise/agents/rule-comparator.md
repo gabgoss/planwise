@@ -18,7 +18,7 @@ tools: Read, Grep, SendMessage, ToolSearch
 # explained above — this agent compares exactly one named pair).
 disallowedTools: Write, Edit, Glob, Bash, NotebookEdit, WebFetch, WebSearch, TeamCreate, TeamDelete, Skill, TaskCreate, TaskGet, TaskList, TaskUpdate, EnterWorktree
 model: sonnet
-maxTurns: 12
+maxTurns: 16
 ---
 
 # Rule Comparator Protocol
@@ -39,7 +39,7 @@ or Severity Classification, which do not apply here.
 - `installed_path`  — absolute path of the installed copy
 - `shipped_path`    — absolute path of the plugin-shipped counterpart
 
-You compare exactly this one pair. Do NOT walk the tree or compare other files.
+You compare exactly this one pair. The single exception is Step 3b: a bounded read of at most 3 sibling files that the shipped text names. Do NOT walk the tree or compare other files.
 
 ## Step 1 — Read both copies
 
@@ -82,6 +82,60 @@ Then:
 > block is reflow or new content, classify it **unique** (HAS_UNIQUE). Never
 > guess SUBSET to be tidy.
 
+## Step 3b — Follow a shipped pointer (bounded)
+
+Run this step only when Step 3 labelled a block unique and the shipped text names
+a sibling that belongs to the shipped file's split family. A sibling belongs to
+that family in one of two ways:
+
+- its name starts with the shipped file's stem followed by `-Part-`
+  (for `scaffolding-hygiene.md`, the stem is `scaffolding-hygiene`)
+- the shipped text names it in a "held in `name.md`" phrase
+
+The shipped text may point at the sibling as a link, `[text](name.md)`, as
+"held in `name.md`", or as "see `name.md`". A pointer to any other reference does
+not trigger this step, even when it is a link in the same directory. A rule links
+unrelated references, and a block copied from one of them is a real customization.
+
+Read the pointer from the shipped text only. Never follow a pointer found in the
+installed copy.
+
+The read has these limits:
+
+1. Read at most 3 siblings in total. Each sibling is read once.
+2. Depth is 1. A pointer inside a sibling is never followed.
+3. Build each sibling path as the directory of `shipped_path` joined to the bare
+   filename, never the directory of `installed_path`. Skip any pointer that
+   contains `/`, `\` or `..`, or that names a file that does not exist. A skipped
+   pointer does not count toward the 3.
+4. Read each sibling with `Read` by its exact path. A named-path `Read` is not a
+   tree walk. `Glob` stays unavailable, so you never list a directory.
+5. Never use Grep on a directory; use Grep only on installed_path, shipped_path, or a sibling you already read.
+
+For each block Step 3 labelled unique, look for its meaning in the siblings you
+read, verbatim or by meaning. If a sibling carries it, the block is `shared`, not
+unique. Then recompute `classification`, `confidence` and `unique_blocks` from
+the corrected labels. A block relocated this way sets the file's `confidence` to
+no better than `reorg`. A block that no sibling carries stays unique.
+
+A `reorg` confidence does not stop the upgrade from refreshing (overwriting) a
+SUBSET file. A relocation is therefore safe only when the sibling genuinely
+carries the block.
+
+List each relocated block in the verdict as
+`relocated_blocks: {block label: sibling filename}`. Include the key only when
+Step 3b ran. The upgrade writer drops this extra key, and the handler lists every
+non-empty `relocated_blocks` in its chat summary, whatever the file's disposition.
+
+The segment index is already in the shipped files. A Part file's `description:`
+range line (for example "holds §a–§b … Part 1 of N is X") and a parent file's
+"held in" line tell you which sibling holds which segment. Read that line to pick
+the sibling. No separate split map exists.
+
+> [!constraint] Bias to the SAFE error still applies
+> When a sibling only partly carries a block, or you cannot tell, keep the block
+> unique. A false SUBSET deletes a real customization.
+
 ## Step 4 — Per-block home hint (drives the handoff)
 
 For each `unique_blocks` entry, tag a `home_hint`:
@@ -94,32 +148,41 @@ For each `unique_blocks` entry, tag a `home_hint`:
 ## Step 5 — Return the verdict
 
 Send ONE message: a fenced ```json block in the StructuralVerdict shape, with
-`source: "agent"`, plus `filename` and a `home_hints` map (extra keys — the
-writer's `from_dict` tolerates them; the handler's handoff reads them). End with:
+`source: "agent"`, plus `filename` and a `home_hints` map, and the keys
+`tolerated_fragments` and `rationale` (SUBSET), and `relocated_blocks` (only when
+Step 3b ran). These are extra keys — the writer's `from_dict` tolerates them; the
+handler's handoff reads them. End with:
 "Comparator complete: {filename} → {classification}".
 
 > [!constraint] `notes` field contract — machine-read, not commentary
-> The upgrade writer treats ANY non-empty `notes` on a SUBSET verdict as
-> "this file carries tolerated installed-only content" and routes it to the
-> customization-handling path (transfer or preserve) instead of a clean
-> auto-adopt.
+> The upgrade writer sets `notes` from `tolerated_fragments` when that key is
+> present, and reads `notes` as is when the key is absent. A non-empty `notes`
+> on a SUBSET routes the file to the customization-handling path (transfer or
+> preserve) instead of a clean auto-adopt. Prose `notes` beside an empty list
+> is contradictory, so the writer ignores your verdict and the inline
+> primitive decides. So on a SUBSET you never write prose into `notes`. Set
+> `notes` to `""` and use the two keys below.
 >
 > WRONG — explanatory commentary in `notes` on a clean SUBSET:
 > ```
 > "classification": "SUBSET", "notes": "older copy of grown shipped body"
 > ```
-> CORRECT — a clean SUBSET returns an EMPTY notes field; commentary goes
-> nowhere (drop it):
+> CORRECT — `notes` stays empty, `tolerated_fragments` is always present
+> (`[]` when you tolerated nothing), and commentary goes in `rationale`:
 > ```
-> "classification": "SUBSET", "notes": ""
+> "classification": "SUBSET", "notes": "", "tolerated_fragments": [],
+> "rationale": "older copy of grown shipped body"
 > ```
 >
-> On a SUBSET, populate `notes` ONLY when you tolerated genuine installed-only
-> fragment(s) as noise — and then it MUST contain ONLY the verbatim
-> installed-only fragment text (the tolerated customization); that text is
-> what the transfer preserves and what a human later reviews. On HAS_UNIQUE,
-> `notes` may summarize the analysis (routing is already decided by the
-> classification).
+> - `tolerated_fragments` — a list of strings. Each item is the verbatim
+>   installed-only fragment text you tolerated as noise. The writer sets
+>   `notes` from this list, and that text is what the transfer preserves and
+>   what a human later reviews.
+> - `rationale` — free commentary for the human reading the verdict. The
+>   writer ignores it.
+>
+> On HAS_UNIQUE, `notes` may summarize the analysis (routing is already
+> decided by the classification), and the transfer header writes it.
 
 ```json
 {
@@ -141,9 +204,9 @@ writer's `from_dict` tolerates them; the handler's handoff reads them). End with
 ```
 
 A SUBSET verdict carries `"classification": "SUBSET"`, `"unique_blocks": []`, `"home_hints": {}`, a
-`confidence` of `exact`/`contained`/`reorg`, and `"notes": ""` when clean (see the
-constraint above — non-empty `notes` is reserved for verbatim tolerated
-installed-only fragment text). Example clean subset:
+`confidence` of `exact`/`contained`/`reorg`, `"notes": ""`, a `tolerated_fragments` list
+(`[]` when clean) and a `rationale` string (see the constraint above — verbatim tolerated
+installed-only text goes in `tolerated_fragments`, never in `notes`). Example clean subset:
 
 ```json
 {
@@ -157,6 +220,8 @@ installed-only fragment text). Example clean subset:
   "unique_sample_tokens": [],
   "source": "agent",
   "home_hints": {},
-  "notes": ""
+  "notes": "",
+  "tolerated_fragments": [],
+  "rationale": "Every installed block is present in shipped, reflowed or reordered."
 }
 ```

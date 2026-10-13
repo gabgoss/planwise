@@ -50,6 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 import init_project as ip
 import rule_descope_migration
+from upgrade_io import _installed_hash
 
 from conftest import (
     EXPECTED_DESCOPED_ALL,
@@ -414,6 +415,62 @@ class TestMigrationBranches(_MigrationFixtureBase):
             f"{filename} must carry a headless-inconclusive notice",
         )
 
+    def test_reorg_subset_from_agent_does_not_send_user_back_to_interactive(self):
+        filename = "session-execution-protocol.md"
+        self.write_shipped(
+            filename, "# Session Execution Protocol\n\nReflowed section A.\nReflowed section B.\n"
+        )
+        installed = self.write_installed(
+            filename,
+            "# Session Execution Protocol\n\nSection B.\nSection A.\n",
+            self.old_default_for(filename),
+        )
+        before = installed.read_bytes()
+        agent_verdict = _verdict("SUBSET", "reorg")
+        agent_verdict.source = "agent"
+
+        with mock.patch.object(
+            rule_descope_migration, "_classify_diverged", return_value=agent_verdict
+        ):
+            report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        self.assertEqual(installed.read_bytes(), before, "still kept, never removed")
+        lines = [e for e in _report_section(report, "preserved", "kept") if filename in e]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("verdict at reorg", lines[0])
+        self.assertNotIn("run /planwise upgrade interactively", lines[0])
+
+    def test_cached_reorg_verdict_through_the_loader_gets_the_review_wording(self):
+        # Drives the real _load_verdict_override: an agent cache entry at reorg,
+        # with and without a `source` key, must never get the "run interactively" text.
+        filename = "session-execution-protocol.md"
+        self.write_shipped(
+            filename, "# Session Execution Protocol\n\nReflowed section A.\nReflowed section B.\n"
+        )
+        installed = self.write_installed(
+            filename,
+            "# Session Execution Protocol\n\nSection B.\nSection A.\n",
+            self.old_default_for(filename),
+        )
+        digest = _installed_hash(installed.read_text(encoding="utf-8-sig"))
+        for with_source in (True, False):
+            with self.subTest(with_source=with_source):
+                entry = {
+                    "classification": "SUBSET", "confidence": "reorg", "unique_blocks": [],
+                    "notes": "", "installed_sha256": digest,
+                }
+                if with_source:
+                    entry["source"] = "agent"
+                with mock.patch.object(
+                    rule_descope_migration, "_load_verdicts_cache",
+                    return_value={filename: entry},
+                ):
+                    report = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+                lines = [e for e in _report_section(report, "preserved", "kept") if filename in e]
+                self.assertEqual(len(lines), 1)
+                self.assertIn("verdict at reorg", lines[0])
+                self.assertNotIn("run /planwise upgrade interactively", lines[0])
+
     def test_paths_only_edit_subset_is_removed_with_info(self):
         filename = "scaffolding-hygiene.md"
         body = "# Scaffolding Hygiene\n\nMatching body.\n"
@@ -467,6 +524,217 @@ class TestMigrationBranches(_MigrationFixtureBase):
             any(filename in entry for entry in preserved),
             f"{filename} must be reported preserved (opt-out enabled)",
         )
+
+    # -- forced files: processed on a pair outside the version window -------
+
+    OUTSIDE_FROM = "1.0.4"
+    OUTSIDE_TO = "1.0.5"
+
+    def test_forced_has_unique_outside_window_is_preserved_with_notice(self):
+        filename = "session-context-budget.md"
+        self.write_shipped(filename, "# Session Context Budget\n\nShipped body.\n")
+        installed = self.write_installed(
+            filename,
+            "# Session Context Budget\n\nShipped body.\n# Extra\nUser-added block.\n",
+            self.old_default_for(filename),
+        )
+        before = installed.read_bytes()
+
+        with mock.patch.object(
+            rule_descope_migration, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            report = ip.migrate_installed_rules(
+                self.cfg, self.OUTSIDE_FROM, self.OUTSIDE_TO,
+                force_filenames=frozenset({filename}),
+            )
+
+        self.assertEqual(installed.read_bytes(), before, "No handoff configured: file stays")
+        preserved = _report_section(report, "preserved")
+        self.assertTrue(
+            any(filename in entry and "re-home" in entry for entry in preserved),
+            f"{filename} must carry the re-home notice outside the window",
+        )
+        self.assertEqual(report["acted_on"], [filename])
+
+    def test_forced_exact_subset_outside_window_is_removed_with_backup(self):
+        filename = "session-plan-requirements.md"
+        self.write_shipped(
+            filename, "# Session Plan Requirements\n\nOriginal line.\nGrown extra line.\n")
+        installed = self.write_installed(
+            filename, "# Session Plan Requirements\n\nOriginal line.\n",
+            self.old_default_for(filename),
+        )
+        original_bytes = installed.read_bytes()
+
+        with mock.patch.object(
+            rule_descope_migration, "_classify_diverged",
+            return_value=_verdict("SUBSET", "exact"),
+        ):
+            report = ip.migrate_installed_rules(
+                self.cfg, self.OUTSIDE_FROM, self.OUTSIDE_TO,
+                force_filenames=frozenset({filename}),
+            )
+
+        self.assertFalse(installed.exists(), "A forced exact SUBSET must be removed")
+        backup = (
+            self.project_root / self.cfg.planwise_root / "upgrade-backups"
+            / f"{self.OUTSIDE_FROM}-to-{self.OUTSIDE_TO}"
+            / installed.relative_to(self.project_root)
+        )
+        self.assertTrue(backup.exists(), "The removal must back up the pre-image first")
+        self.assertEqual(backup.read_bytes(), original_bytes)
+        removed = _report_section(report, "removed")
+        self.assertTrue(any(filename in entry for entry in removed))
+        self.assertEqual(report["acted_on"], [filename])
+
+    def test_unforced_file_outside_window_is_untouched(self):
+        forced_name = "schema-pin-requirement.md"
+        other_name = "task-content-fidelity.md"
+        body = "# Rule\n\nBody.\n"
+        for name in (forced_name, other_name):
+            self.write_shipped(name, body)
+        forced = self.write_installed(forced_name, body, self.old_default_for(forced_name))
+        other = self.write_installed(other_name, body, self.old_default_for(other_name))
+        other_before = other.read_bytes()
+
+        report = ip.migrate_installed_rules(
+            self.cfg, self.OUTSIDE_FROM, self.OUTSIDE_TO,
+            force_filenames=frozenset({forced_name}),
+        )
+
+        self.assertFalse(forced.exists(), "The named file is acted on")
+        self.assertEqual(other.read_bytes(), other_before, "The unnamed file stays byte-identical")
+        self.assertEqual(report["acted_on"], [forced_name])
+        self.assertFalse(
+            any(other_name in entry for entry in _flatten_report(report)),
+            "The unnamed file must not appear anywhere in the report",
+        )
+
+    def _force_set_outcome(self, filename, entry):
+        """Install a diverged copy, build the force set from `entry`, migrate."""
+        self.write_shipped(filename, "# Rule\n\nShipped body.\n")
+        installed = self.write_installed(
+            filename, "# Rule\n\nShipped body.\n# Extra\nUser block.\n",
+            self.old_default_for(filename),
+        )
+        before = installed.read_bytes()
+        force = rule_descope_migration.descoped_force_set(self.cfg, {filename: entry})
+        report = ip.migrate_installed_rules(
+            self.cfg, self.OUTSIDE_FROM, self.OUTSIDE_TO, force_filenames=force)
+        return installed, before, force, report
+
+    def test_malformed_verdict_entry_does_not_force_the_file(self):
+        filename = "session-context-budget.md"
+        installed, before, force, report = self._force_set_outcome(filename, "garbage")
+
+        self.assertEqual(force, frozenset())
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertEqual(report["acted_on"], [])
+
+    def test_stale_hash_verdict_entry_does_not_force_the_file(self):
+        filename = "session-context-budget.md"
+        stale = {
+            "classification": "SUBSET", "confidence": "exact",
+            "installed_sha256": "0" * 64,
+        }
+        installed, before, force, report = self._force_set_outcome(filename, stale)
+
+        self.assertEqual(force, frozenset())
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertEqual(report["acted_on"], [])
+
+    def test_fresh_verdict_entry_forces_the_file(self):
+        import upgrade_io
+
+        filename = "session-context-budget.md"
+        self.write_shipped(filename, "# Rule\n\nShipped body.\n")
+        installed = self.write_installed(
+            filename, "# Rule\n\nShipped body.\n# Extra\nUser block.\n",
+            self.old_default_for(filename))
+        entry = {
+            "classification": "HAS_UNIQUE", "confidence": "unique",
+            "unique_blocks": ["# Extra"],
+            "installed_sha256": upgrade_io._installed_hash(installed),
+        }
+
+        force = rule_descope_migration.descoped_force_set(self.cfg, {filename: entry})
+
+        self.assertEqual(force, frozenset({filename}))
+
+    def test_forced_file_whose_backup_fails_is_skipped_not_acted_on(self):
+        filename = "schema-pin-requirement.md"
+        body = "# Rule\n\nBody.\n"
+        self.write_shipped(filename, body)
+        installed = self.write_installed(filename, body, self.old_default_for(filename))
+        backup = (
+            self.project_root / self.cfg.planwise_root / "upgrade-backups"
+            / f"{self.OUTSIDE_FROM}-to-{self.OUTSIDE_TO}"
+            / installed.relative_to(self.project_root)
+        )
+        backup.mkdir(parents=True)  # a directory at the backup target fails the copy
+
+        with mock.patch("sys.stderr"):
+            report = ip.migrate_installed_rules(
+                self.cfg, self.OUTSIDE_FROM, self.OUTSIDE_TO,
+                force_filenames=frozenset({filename}),
+            )
+
+        self.assertTrue(installed.exists(), "No removal without a pre-image")
+        self.assertTrue(any(filename in e for e in report["skipped"]))
+        self.assertEqual(report["acted_on"], [])
+
+    def test_forced_has_unique_under_relocate_is_transferred_backed_up_and_removed(self):
+        filename = "session-context-budget.md"
+        self.write_shipped(filename, "# Session Context Budget\n\nShipped body.\n")
+        installed = self.write_installed(
+            filename,
+            "# Session Context Budget\n\nShipped body.\n# Extra\nUser-added block.\n",
+            self.old_default_for(filename),
+        )
+        original_bytes = installed.read_bytes()
+        self.write_upgrade_config(customization_handoff="report+relocate")
+
+        with mock.patch.object(
+            rule_descope_migration, "_classify_diverged",
+            return_value=_verdict("HAS_UNIQUE", "unique", unique_blocks=["# Extra"]),
+        ):
+            report = ip.migrate_installed_rules(
+                self.cfg, self.OUTSIDE_FROM, self.OUTSIDE_TO,
+                force_filenames=frozenset({filename}),
+            )
+
+        self.assertFalse(installed.exists(), "Transferred customization: stale copy removed")
+        backup = (
+            self.project_root / self.cfg.planwise_root / "upgrade-backups"
+            / f"{self.OUTSIDE_FROM}-to-{self.OUTSIDE_TO}"
+            / installed.relative_to(self.project_root)
+        )
+        self.assertEqual(backup.read_bytes(), original_bytes)
+        removed = _report_section(report, "removed")
+        self.assertTrue(
+            any(filename in e and "re-home" in e and "upgrade-transfers" in e
+                for e in removed),
+            "The removal notice must name the transfer home and carry the re-home text",
+        )
+        self.assertEqual(report["acted_on"], [filename])
+
+    def test_non_utf8_copy_is_skipped_not_raised_in_or_out_of_window(self):
+        filename = "schema-pin-requirement.md"
+        self.write_shipped(filename, "# Rule\n\nBody.\n")
+        installed = self.rules_dir / filename
+        installed.write_bytes(b"---\ndescription: x\n---\n\xff\xfe broken\n")
+        before = installed.read_bytes()
+
+        outside = ip.migrate_installed_rules(
+            self.cfg, self.OUTSIDE_FROM, self.OUTSIDE_TO,
+            force_filenames=frozenset({filename}))
+        inside = ip.migrate_installed_rules(self.cfg, "0.0.0", self._to_version())
+
+        for report in (outside, inside):
+            self.assertTrue(any(filename in e for e in report["skipped"]))
+            self.assertEqual(report["acted_on"], [])
+        self.assertEqual(installed.read_bytes(), before)
 
 
 class TestLinter(_MigrationFixtureBase):

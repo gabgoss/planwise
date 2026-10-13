@@ -209,7 +209,7 @@ Research $ARGUMENTS:
 > **Forked contexts receive the full Claude Code CLI system prompt** — NOT "a custom prompt only" as some documentation suggests. The `SKILL.md` content is ADDITIONAL to the system prompt.
 
 > [!practice] Empirically Verified
-> **Forked context tool set is identical to a `general-purpose` subagent** (18 tools). Includes TeamCreate/Delete, SendMessage, all file and web tools. Excludes Task, AskUserQuestion, PlanMode. No nesting — a forked skill cannot spawn further subagents.
+> **Forked context tool set:** not re-measured on the current build. See `agent-orchestration.md` §2 for the measured subagent tool lists. No nesting — a forked skill cannot spawn further subagents.
 
 > [!practice] Empirically Verified
 > **All forked contexts discover project skills via file system access** regardless of `skills:` preload. The `skills:` field in agent frontmatter is **context injection** (injects SKILL.md content at startup), not an access restriction. File system discovery always works for all contexts.

@@ -36,6 +36,11 @@ except ImportError:
         "the scripts/ directory appears to be partially installed"
     )
 
+try:
+    from verdict_sanitize import sanitize_agent_entry
+except ImportError:
+    raise ImportError("verdict_sanitize is missing; scripts/ is partly installed")
+
 
 def verdicts_cache_path(cfg: "InitConfig", from_version: str, to_version: str) -> Path:
     """The ONE derivation of the interactive fan-out's cache path:
@@ -162,9 +167,11 @@ def _load_verdict_override(
     (`StructuralVerdict` is not importable in degraded mode), the entry is not
     a dict (a string/list/number/null cache value — malformed cache, never
     crash), or `from_dict` raises (`ValueError` when `classification`/
-    `confidence` is missing, or `AttributeError` when the entry is dict-shaped
-    but a nested field is the wrong type for `.items()`-style access — a
-    partial/malformed agent verdict must NEVER crash the `--upgrade` run).
+    `confidence` is missing or outside its enum, or `AttributeError` when the
+    entry is dict-shaped but a nested field is the wrong type for
+    `.items()`-style access — a partial/malformed agent verdict must NEVER
+    crash the `--upgrade` run). That last case prints one stderr line naming
+    the filename and the error before it returns None.
 
     Freshness-bound: each entry must also carry `installed_sha256` — the
     digest of the installed file's normalized-text pre-image (see the
@@ -221,9 +228,29 @@ def _load_verdict_override(
             file=sys.stderr,
         )
         return None
+    sanitized = sanitize_agent_entry(entry)
+    notes = str(entry.get("notes") or "")
+    if sanitized is None:
+        print(
+            f"  Warning: verdicts.json entry for {filename}: tolerated_fragments is not "
+            f"a list of strings, or is empty beside prose notes ({notes[:80]!r}) "
+            "— ignoring cached verdict",
+            file=sys.stderr,
+        )
+        return None
+    if notes and sanitized.get("notes") not in ("", notes):
+        print(
+            f"  Note: verdict for {filename}: notes differ, fragments used ({notes[:80]!r})",
+            file=sys.stderr,
+        )
     try:
-        return StructuralVerdict.from_dict(entry)
-    except (ValueError, TypeError, AttributeError):
+        return StructuralVerdict.from_dict(sanitized)
+    except (ValueError, TypeError, AttributeError) as exc:
+        print(
+            f"  Warning: verdict for {filename}: {exc}; "
+            "falling back to the inline primitive",
+            file=sys.stderr,
+        )
         return None
 
 

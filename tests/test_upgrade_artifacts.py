@@ -77,6 +77,56 @@ class TestUpgradeArtifactsDisposition(_UpgradeArtifactsFixtureBase):
         )
         self.assertFalse(sidecar.exists(), "A SUBSET refresh must NOT write a .new sidecar")
 
+    def _stage_agent_subset(self, installed_body, notes):
+        """Stage a shipped/installed rule pair and an agent SUBSET cache entry."""
+        import upgrade_io
+
+        self.enable_relocate()
+        self.write_shipped_rule("# Rule\n\nShipped superset body.\nExtra shipped-only line.\n")
+        installed = self.write_installed_rule(installed_body, ".claude/agents/**, custom/**")
+        cache = upgrade_io.verdicts_cache_path(self.cfg, "1.0.0", "1.1.0")
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({self.RULE_FILENAME: {
+            "classification": "SUBSET", "confidence": "contained",
+            "unique_blocks": [], "home_hints": {}, "source": "agent",
+            "notes": notes,
+            "rationale": "every installed block is present in the shipped file",
+            "tolerated_fragments": [],
+            "installed_sha256": upgrade_io._installed_hash(installed.read_text(encoding="utf-8")),
+        }}), encoding="utf-8")
+        return installed
+
+    def test_agent_subset_with_empty_notes_rationale_and_empty_fragments_is_refreshed(self):
+        installed = self._stage_agent_subset("# Rule\n\nShipped superset body.\n", "")
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            _refreshed, _unchanged, conflicts, _untracked, refreshed_subsets, transferred = (
+                self.run_upgrade()
+            )
+
+        self.assertIn(str(installed), refreshed_subsets)
+        self.assertEqual(transferred, [], "a clean agent SUBSET must auto-adopt")
+        self.assertEqual(conflicts, [])
+
+    def test_agent_subset_with_prose_notes_and_empty_fragments_falls_back_to_the_primitive(self):
+        # The agent claims a clean SUBSET, but the installed file really carries a
+        # block shipped lacks. The contradictory entry is ignored, so the inline
+        # primitive sees the block and transfers it instead of overwriting it.
+        installed = self._stage_agent_subset(
+            "# Rule\n\nShipped superset body.\n# Extra\nUser-added block.\n",
+            "older copy of grown shipped body")
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            _refreshed, _unchanged, _conflicts, _untracked, refreshed_subsets, transferred = (
+                self.run_upgrade()
+            )
+
+        self.assertNotIn(str(installed), refreshed_subsets)
+        self.assertEqual(len(transferred), 1, "the primitive must transfer the user block")
+        self.assertIn("User-added block.", Path(transferred[0][1]).read_text(encoding="utf-8"))
+        self.assertIn("older copy of grown shipped body", err.getvalue())
+
     def test_conflict_has_unique_transfers_customization_then_adopts_shipped(self):
         self.enable_relocate()
         shipped_body = "# Rule\n\nShipped body.\n"
@@ -1210,6 +1260,48 @@ class TestUpgradeBannerOrphanedAgentMirrors(unittest.TestCase):
 
         self.assertIn("Already up to date", out)
         self.assertNotIn("Orphaned agent mirrors", out)
+
+    def test_descoped_leftover_with_cached_verdict_is_not_untracked_outside_window(self):
+        import upgrade_io
+
+        old, new = "1.0.4", "1.0.5"
+        filename = "session-context-budget.md"
+        cfg = ip.InitConfig(
+            project_name="MirrorFixtureProject",
+            project_root=self.project_root,
+            plugin_root=self.plugin_root,
+            plugin_version=new,
+        )
+        refs = self.plugin_root / "references"
+        refs.mkdir(parents=True, exist_ok=True)
+        (refs / filename).write_text(
+            "---\ndescription: fixture rule\npaths: {plans_path}\n---\n"
+            "# Session Context Budget\n\nShipped body.\n", encoding="utf-8")
+        rules_dir = self.project_root / ".claude" / "rules" / "planwise"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        installed = rules_dir / filename
+        installed.write_text(
+            f"---\ndescription: fixture rule\npaths: {ip.resolve_rule_paths_value(cfg, '{plans_path}')}\n---\n"
+            "# Session Context Budget\n\nShipped body.\n# Extra\nUser-added block.\n",
+            encoding="utf-8")
+        self._pin(old)
+        cache = upgrade_io.verdicts_cache_path(cfg, old, new)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({filename: {
+            "classification": "HAS_UNIQUE", "confidence": "unique",
+            "unique_blocks": ["# Extra"],
+            "installed_sha256": upgrade_io._installed_hash(installed),
+        }}), encoding="utf-8")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = ip._run_upgrade(cfg)
+        out = buf.getvalue()
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("Untracked preserved", out)
+        self.assertIn(filename, out)
+        self.assertIn("re-home", out)
 
     def _run_with_raising_sweep(self):
         out, err = io.StringIO(), io.StringIO()

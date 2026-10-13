@@ -56,6 +56,7 @@ if __name__ == "__main__":
 
 from constants import InstallScope
 from migration_answers import AnswersError, load_answers
+from pyyaml_remedy import pyyaml_install_command
 
 try:
     from upgrade_io import (
@@ -1002,7 +1003,7 @@ def main():
             artifact=cat_rel,
             reason="PyYAML not installed (cannot read config.yaml from the script path)",
             consumer="/planwise lessons curate, /planwise lessons promote-batch",
-            remediation="Install PyYAML (`pip install pyyaml`), or run /planwise init and let the handler's Step 5.1 fallback render the file via Read+Write.",
+            remediation=f"Install PyYAML into {sys.executable} (`{pyyaml_install_command(cfg.project_root)}`), or run /planwise init and let the handler's Step 5.1 fallback render the file via Read+Write.",
         ))
     else:  # SKIPPED_NO_TEMPLATE or SKIPPED_BAD_CONFIG
         print("Categorization: skipped (config.yaml unparseable or its categorization: block is invalid)")
@@ -1133,7 +1134,11 @@ def main():
     config_path = cfg.project_root / cfg.planwise_root / "config.yaml"
     user_cfg: dict = {}
     config_parse_error: str | None = None
-    if HAS_YAML and config_path.exists():
+    if not HAS_YAML:
+        # A config that cannot be read is not an empty config: set the same
+        # sentinel the YAMLError branch sets so no check below reads `{}`.
+        config_parse_error = f"PyYAML not installed — config not read by {sys.executable}"
+    elif config_path.exists():
         try:
             loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
@@ -1157,11 +1162,16 @@ def main():
         skipped.append(SkippedArtifact(
             artifact=f"{cfg.planwise_root}/config.yaml",
             reason=(
+                f"gap detection degraded: PyYAML is not importable by {sys.executable}; "
+                f"reason: {manifest.get('degraded_reason', config_parse_error)}"
+                if not HAS_YAML else
                 f"the file does not parse as YAML ({config_parse_error}) — key-presence "
                 f"and version checks are suppressed because they cannot be trusted"
             ),
             consumer="every planwise handler — all of them load this file",
             remediation=(
+                f"install PyYAML into {sys.executable}: {pyyaml_install_command(cfg.project_root)}; "
+                f"then re-run /planwise init" if not HAS_YAML else
                 f"Run `python {cfg.plugin_root.as_posix()}/scripts/init_project.py "
                 f"--name \"{cfg.project_name}\" --doctor` to locate the fault (it names "
                 f"the offending key when the cause is a recognised one), fix the reported "

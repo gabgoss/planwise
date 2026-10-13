@@ -10,7 +10,7 @@ description: Shared Startup/ToolSearch mandate, Finding Report Format, and Sever
 
 ## Startup (BINDING — Required First Action)
 
-When spawned as a teammate, you MUST report via `SendMessage`. `SendMessage` is a deferred tool — its schema is not in your context at startup, and any attempt to call it without loading the schema first raises `InputValidationError` and drops your output on the floor.
+When spawned with a `name`, you MUST report via `SendMessage` to `main`. `SendMessage` is a deferred tool — its schema is not in your context at startup, and any attempt to call it without loading the schema first raises `InputValidationError` and drops your output on the floor.
 
 Before reading any file, issue this exact call as your first action:
 
@@ -18,7 +18,7 @@ Before reading any file, issue this exact call as your first action:
 ToolSearch(query: "select:SendMessage", max_results: 1)
 ```
 
-Only after the `<functions>` block for `SendMessage` appears in the tool result may you begin reading files and reporting. If you are spawned in subagent mode (no team), this call is harmless — proceed identically.
+Only after the `<functions>` block for `SendMessage` appears in the tool result may you begin reading files and reporting. If you are spawned without a name, this call is harmless — proceed identically.
 
 **Reporting-cadence adaptation.** No wording is byte-identical across all three citing agents on this point, so the delta is preserved explicitly rather than dropped:
 

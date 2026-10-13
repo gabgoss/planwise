@@ -315,7 +315,7 @@ The failure is silent in both directions. An instruction the prompt omits never 
 
 ### 1.29.1 Name the delivery channel, not just the payload format
 
-A spawn prompt that specifies a status block's *format* has not specified how the block reaches the orchestrator. §1.28 bounds what the block carries; this section binds how it arrives. When runners are spawned as named or teammate-style agents, a plain-text final message does not route to the orchestrator — only an idle notification arrives. A protocol that says "RETURN a status block" then means "write a status block nobody receives."
+A spawn prompt that specifies a status block's *format* has not specified how the block reaches the orchestrator. §1.28 bounds what the block carries; this section binds how it arrives. When runners are spawned with a name, a plain-text final message does not reach the orchestrator inside its turn. It arrives only after the turn ends, in the result field of an idle notification (measured 2026-10-12 on Claude Code 2.1.296, one sample). A protocol that says "RETURN a status block" then means "write a status block nobody receives."
 
 > [!constraint] Specify the mechanism, not only the shape
 > WRONG — the prompt gives the format and no channel:
@@ -328,7 +328,7 @@ A spawn prompt that specifies a status block's *format* has not specified how th
 > CORRECT — the prompt names the tool and the recipient:
 > ```markdown
 > ## Status Block delivery (REQUIRED)
-> Deliver your status block by calling the SendMessage tool with to="team-lead".
+> Deliver your status block by calling the SendMessage tool with to="main".
 > Plain-text output does NOT reach the orchestrator.
 > TASK_STATUS:   COMPLETE | BLOCKED | PARTIAL
 > TASK_ID:       {task-id}
@@ -376,7 +376,7 @@ A handler that enumerates conditional references for the orchestrator, then dele
 
 Two practices follow.
 
-**The lead already knows the trigger.** One Grep for `Execution Strategy:\s*DELEGATED` over the Master Plan and every Orchestration file decides whether to append the block. A handler that already runs that Grep for another check reuses the same result here, at no extra cost.
+**The lead already knows the trigger.** One Grep for `^(\*\*Mode:\*\*|Execution Strategy:)\s*DELEGATED\b` over the Master Plan and every Orchestration file decides whether to append the block. The pattern matches the `**Mode:**` line the Orchestration template writes, and it anchors at the line start so the template's reminder text in a DIRECT plan does not match. The lead prints the outcome with the matched and total file counts, so a miss reads as a defect and not as a DIRECT plan. A handler that already runs that Grep for another check reuses the same result here, at no extra cost.
 
 **A checklist row with no loader is a false assurance.** When auditing a checklist-driven handler, verify for each row that *some* spawn prompt causes it to be evaluated. Counting how often the handler names the reference does not answer that question. A mention in a synthesis step, or in a lead-side conditional-reference list, loads nothing into the agent that runs the check. Read each prompt.
 

@@ -199,7 +199,7 @@ This task operates within:
 - **Out of scope:** {adjacent files/modules this task must NOT touch}
 
 ## Status Block delivery (REQUIRED)
-Deliver your status block by calling the SendMessage tool with to="team-lead".
+Deliver your status block by calling the SendMessage tool with to="main".
 Plain-text output does NOT reach the orchestrator.
 {status-block schema — see the Status Block Return Contract section below}
 

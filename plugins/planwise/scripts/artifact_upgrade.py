@@ -137,7 +137,8 @@ def load_artifact_manifest(plugin_root: Path) -> dict:
     same defaults the manifest documents.
     """
     if not HAS_YAML:
-        return {"artifacts": []}
+        return {"artifacts": [], "degraded_reason": (
+            f"PyYAML is not importable by {sys.executable}; the artifact manifest could not be read")}
     manifest_path = plugin_root / "manifests" / "artifacts.yaml"
     try:
         text = manifest_path.read_text(encoding="utf-8")
@@ -802,8 +803,16 @@ def _run_upgrade(
     downgrade is not an exception to it.
     """
     if not HAS_YAML:
+        try:
+            from pyyaml_remedy import pyyaml_install_command
+
+            install_cmd = pyyaml_install_command(cfg.project_root)
+        except Exception:  # noqa: BLE001 -- the refusal must print and exit 2 whatever happens here
+            install_cmd = f'"{sys.executable}" -m pip install pyyaml'
         print(
-            "Upgrade failed: PyYAML is required for --upgrade. Install with `pip install pyyaml`.",
+            "Upgrade failed: PyYAML is required for --upgrade. "
+            f"PyYAML is not importable by {sys.executable}. "
+            f"Install it into that interpreter with `{install_cmd}`, then re-run.",
             file=sys.stderr,
         )
         return 2
@@ -1069,6 +1078,15 @@ def _run_upgrade(
             cfg, manifest, pinned_version, target_version
         )
 
+        # De-scope migration: a de-scoped leftover with a cached verdict is
+        # processed on every pair, then dropped from the untracked list.
+        verdicts = _load_verdicts_cache(cfg, pinned_version, target_version)
+        migration = migrate_installed_rules(
+            cfg, pinned_version, target_version,
+            force_filenames=descoped_force_set(cfg, verdicts))
+        acted = {name.casefold() for name in migration["acted_on"]}
+        untracked = [u for u in untracked if Path(u).name.casefold() not in acted]
+
         if refreshed:
             print(f"Refreshed: {len(refreshed)}")
             if refreshed_subsets:
@@ -1119,11 +1137,8 @@ def _run_upgrade(
             print(f"  See {index_path} for the full conflict list.")
             print()
 
-        # 4. De-scope migration — remove install-set rules that are now
-        # handler-loaded, but only the untouched copies. Runs AFTER artifact
-        # refresh and BEFORE the version bump so it executes exactly once, on
-        # the upgrade that crosses RESCOPE_MIGRATION_VERSION.
-        migration = migrate_installed_rules(cfg, pinned_version, target_version)
+        # 4. De-scope migration report — the migration ran right after the
+        # artifact refresh above and BEFORE the version bump.
         if migration["removed"]:
             print("De-scoped rules removed (now handler-loaded from references/):")
             for entry in migration["removed"]:
@@ -1211,7 +1226,7 @@ except ImportError as exc:
     ) from exc
 
 try:
-    from rule_descope_migration import migrate_installed_rules
+    from rule_descope_migration import descoped_force_set, migrate_installed_rules
 except ImportError as exc:
     raise ImportError(
         "rule_descope_migration is required for artifact_upgrade's post-refresh "

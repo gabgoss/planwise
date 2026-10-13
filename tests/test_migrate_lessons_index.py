@@ -18,6 +18,7 @@ sys.path.insert(0, str(SCRIPTS))
 import config_loader
 import generate_lessons_index as gen
 import lessons_bootstrap
+import lessons_index_run
 import migrate_lessons_index as mig
 import migrate_lessons_support as sup
 
@@ -617,12 +618,12 @@ def test_counter_ahead_is_an_accepted_check_result(tmp_path):
 
 def test_healable_check_finding_still_fails_the_write(tmp_path, monkeypatch):
     config, _index_path, lessons_dir = _build(tmp_path)
-    real = gen._check_lessons_drift
+    real = lessons_index_run._check_lessons_drift
 
     def with_stale_title(*args, **kwargs):
         findings, shape = real(*args, **kwargs)
         return findings + [{"class": "stale-title", "id": "LL-001", "detail": "x"}], shape
-    monkeypatch.setattr(gen, "_check_lessons_drift", with_stale_title)
+    monkeypatch.setattr(lessons_index_run, "_check_lessons_drift", with_stale_title)
     assert _run(config, *_WRITE_ARGS) == 1
     assert _ledger(lessons_dir)["generator_verdict"] == "failed"
 

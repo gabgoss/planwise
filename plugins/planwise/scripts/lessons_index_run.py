@@ -17,13 +17,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_backlog_index import (
     TITLE_MAX_LEN,
     _atomic_write_files,
+    _index_naming,
     _list_disk_generated_files,
     detect_line_ending,
 )
 from lessons_index_budget import detect_location_anomalies
 from lessons_index_build import build_lessons_index_files
 from lessons_index_companion_drift import _scan_integrity_findings
-from lessons_index_drift import _counter_floor
+from lessons_index_drift import _check_lessons_drift, _counter_floor
 from lessons_index_legacy import _legacy_headings_to_drop, is_legacy_index
 from lessons_index_scan import scan_lessons
 from lessons_index_schema import LessonsGeneratorError, _resolve_valid_statuses
@@ -134,6 +135,33 @@ def _run_lessons_report_pipeline(
     report = build_lessons_index_files(result.items, lessons_dir, archive_dir, naming, floored_next)
     location_anomalies = detect_location_anomalies(result.items)
     return result, next_id_info, report, location_anomalies
+
+
+def check_lessons_index(config: dict) -> dict:
+    """The report-mode check, in process: no printing, no exit. Returns
+    `findings`, `shape`, `code` (a `LessonsDisposition`) and `report`.
+    Lets `LessonsGeneratorError` propagate to the caller."""
+    lessons_dir, index_path = config["_lessons_dir"], config["_lessons_index"]
+    archive_dir = lessons_dir / "Archive"
+    naming = _index_naming(index_path)
+    result, next_id_info, report, anomalies = _run_lessons_report_pipeline(
+        lessons_dir, archive_dir, index_path, naming, config
+    )
+    findings, shape = _check_lessons_drift(
+        result.items, report, lessons_dir, archive_dir, index_path, naming,
+        next_id_info["next"], config, anomalies, result.duplicate_ids, result.id_mismatches,
+    )
+    code = lessons_exit_code_for(write_mode=False, findings=findings)
+    return {"findings": findings, "shape": shape, "code": code, "report": report}
+
+
+def legacy_hub_message(index_path: Path) -> str:
+    """The one line printed when the on-disk index is a legacy hub."""
+    return (
+        f"Error: {index_path} is a hand-authored lessons index — run /planwise upgrade to "
+        "migrate it (the migrator relocates the changelog, the promotion log and the "
+        "hand-written sections with backups) before reading it as generated"
+    )
 
 
 def _cmd_write_lessons(

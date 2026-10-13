@@ -47,7 +47,9 @@ Run with:  python -m pytest tests/test_lint_verification_gates.py -q
 """
 
 import hashlib
+import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -60,6 +62,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 # This import is expected to fail until the module lands (Sprint-02 Tasks
 # 03-04). A ModuleNotFoundError here is the tests-first proof this task
 # exists to produce -- do not add a stub to silence it.
+import lint_verification_gates as lint_module
 from lint_verification_gates import (
     ALLOWED_EXECUTABLES,
     _count_line_and_occurrence_totals,
@@ -638,6 +641,113 @@ def _write_task(plan_root, fence_lines):
     )
 
 
+class TestCheck3FixedStringGrep(unittest.TestCase):
+    """Under ``grep -F`` / ``--fixed-strings`` the pattern is a literal, so a
+    parenthesis in it is not a BRE grouping hazard and Check 3 must stay
+    silent. Without -E or -F the same pattern is still an ERROR."""
+
+    def _lint_gate(self, gate_line, target_text="foo(bar)\n", annotation=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "target.txt").write_text(target_text, encoding="utf-8")
+            fence = [gate_line]
+            if annotation is not None:
+                fence.append(annotation)
+            _write_task(plan_root, fence)
+            return lint_plan(plan_root, execute=False)
+
+    def test_short_fixed_flag_is_not_flagged(self):
+        for gate in (
+            "grep -cF 'foo(bar)' target.txt   # expect 1",
+            "grep -Fc 'foo(bar)' target.txt   # expect 1",
+            "grep -F -c 'foo(bar)' target.txt   # expect 1",
+        ):
+            with self.subTest(gate=gate):
+                findings = self._lint_gate(gate, annotation="# pre-edit (2026-10-07): 0")
+                self.assertEqual(findings, [])
+
+    def test_long_fixed_strings_flag_is_not_flagged(self):
+        findings = self._lint_gate(
+            "grep -c --fixed-strings 'foo(bar)' target.txt   # expect 1",
+            annotation="# pre-edit: 0",
+        )
+        self.assertEqual(findings, [])
+
+    def test_parenthesis_without_extended_or_fixed_flag_is_still_an_error(self):
+        findings = self._lint_gate(
+            "grep -c 'foo(bar)' target.txt   # expect 1",
+            annotation="# pre-edit: 0",
+        )
+        self.assertEqual(_checks_present(findings), [3])
+        self.assertEqual(_severities_for_check(findings, 3), ["ERROR"])
+
+    def test_fixed_flag_helper_reads_only_option_letters(self):
+        has_fixed = lint_module._has_fixed_flag
+        self.assertTrue(has_fixed(["grep", "-cF", "x", "target.txt"]))
+        self.assertTrue(has_fixed(["grep", "-Fn", "x", "target.txt"]))
+        self.assertTrue(has_fixed(["grep", "--fixed-strings", "x", "target.txt"]))
+        # -e takes the rest of its token as the pattern, so that F is data.
+        self.assertFalse(has_fixed(["grep", "-ceFoo", "target.txt"]))
+        # Nothing after -- is an option.
+        self.assertFalse(has_fixed(["grep", "-c", "--", "-F", "target.txt"]))
+        # Lowercase -f reads patterns from a file; it is not -F.
+        self.assertFalse(has_fixed(["grep", "-cf", "patterns.txt", "target.txt"]))
+        self.assertFalse(has_fixed(["grep", "-c", "x", "target.txt"]))
+
+    def test_absorption_branch_counts_a_fixed_pattern_as_a_literal(self):
+        # Literal 'a.b': two occurrences on the first line, one on the
+        # second, none in "xayb". Lines = 2, occurrences = 3, so a stated
+        # count of 3 was measured as occurrences. Read as a BRE, '.' would
+        # also match "ayb" and the totals would be (3, 4).
+        text = "a.b and a.b\nonly a.b here\nxayb\n"
+        findings = self._lint_gate(
+            "grep -cF 'a.b' target.txt   # expect 3",
+            target_text=text,
+            annotation="# pre-edit: 0",
+        )
+        self.assertEqual(_checks_present(findings), [3])
+        self.assertEqual(_severities_for_check(findings, 3), ["ERROR"])
+
+    def test_totals_helper_treats_fixed_pattern_as_a_literal(self):
+        text = "a.b and a.b\nonly a.b here\nxayb\n"
+        self.assertEqual(_count_line_and_occurrence_totals("a.b", text, fixed=True), (2, 3))
+        self.assertEqual(_count_line_and_occurrence_totals("a.b", text), (3, 4))
+        self.assertEqual(_count_line_and_occurrence_totals("foo(bar)", "foo(bar)\n", fixed=True), (1, 1))
+
+
+class TestCheck2PreEditSpellings(unittest.TestCase):
+    """Check 2 accepts ``pre-edit:`` and ``pre-edit (<note>):``, and its
+    warning names the canonical ``pre-edit: {value}`` spelling."""
+
+    def _check2(self, annotation):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = Path(tmp)
+            (plan_root / "target.txt").write_text("foo\n", encoding="utf-8")
+            fence = ["grep -c 'foo' target.txt   # expect 2"]
+            if annotation is not None:
+                fence.append(annotation)
+            _write_task(plan_root, fence)
+            findings = lint_plan(plan_root, execute=False)
+        return [f for f in findings if f["check"] == 2]
+
+    def test_dated_pre_edit_annotation_is_accepted(self):
+        self.assertEqual(self._check2("# pre-edit (2026-10-07): 0"), [])
+
+    def test_plain_pre_edit_annotation_is_still_accepted(self):
+        self.assertEqual(self._check2("# pre-edit: 0"), [])
+
+    def test_missing_annotation_still_warns_and_names_the_canonical_spelling(self):
+        findings = self._check2(None)
+        self.assertEqual([f["severity"] for f in findings], ["WARNING"])
+        self.assertIn("pre-edit: {value}", findings[0]["message"])
+
+    def test_pre_edit_without_a_colon_is_not_accepted(self):
+        self.assertEqual(len(self._check2("# pre-edit (2026-10-07) 0")), 1)
+
+    def test_parenthesised_note_must_close_before_the_colon(self):
+        self.assertEqual(len(self._check2("# pre-edit (2026-10-07: 0")), 1)
+
+
 class TestMultiLineQuotedCommand(unittest.TestCase):
     """A quoted argument that spans lines is one command, not one per line."""
 
@@ -723,6 +833,71 @@ class TestCoverageLine(unittest.TestCase):
     def test_execution_disabled_says_so(self):
         line = self._coverage(["grep -c 'X' target.md   # expect >=1"], execute=False)
         self.assertEqual(line, "Coverage: execution disabled; 1 gates not run.")
+
+
+class TestConsoleEncodingSurvival(unittest.TestCase):
+    """A finding whose command text holds a character outside cp1252 must
+    still print, and a crash must not borrow the advisory exit code.
+
+    The first case runs the CLI in a child process whose stdio encoding is
+    pinned to cp1252, which is the Windows console default, so the result
+    does not depend on the machine the suite runs on."""
+
+    # U+2265 sits outside cp1252. The gate has no pre-edit annotation, so
+    # Check 2 reports it and the report prints the command text verbatim.
+    GATE = "grep -c 'N ≥ 2' target.md   # expect >=1"
+
+    def _plan(self, tmp):
+        plan_root = Path(tmp)
+        (plan_root / "target.md").write_text("N ≥ 2\n", encoding="utf-8")
+        _write_task(plan_root, [self.GATE])
+        return plan_root
+
+    def _run_cli(self, plan_root):
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONUTF8"}
+        env["PYTHONIOENCODING"] = "cp1252"
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        script = Path(lint_module.__file__)
+        return subprocess.run(
+            [sys.executable, "-B", str(script), str(plan_root), "--no-execute"],
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+
+    def test_non_cp1252_command_text_prints_on_a_cp1252_console(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_cli(self._plan(tmp))
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        self.assertNotIn("UnicodeEncodeError", stderr, stderr)
+        self.assertEqual(stderr, "")
+        stdout = result.stdout.decode("utf-8")
+        self.assertIn("N ≥ 2", stdout)
+        self.assertIn("Check 2", stdout)
+        self.assertEqual(result.returncode, lint_module.EXIT_ADVISORY_ONLY)
+
+    def test_uncaught_crash_exits_with_its_own_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_root = self._plan(tmp)
+            out, err = io.StringIO(), io.StringIO()
+            with (
+                patch.object(lint_module, "_lint", side_effect=RuntimeError("boom")),
+                patch.object(sys, "argv", ["lint_verification_gates.py", str(plan_root)]),
+                patch.object(sys, "stdout", out),
+                patch.object(sys, "stderr", err),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                lint_module.main()
+        self.assertEqual(raised.exception.code, lint_module.EXIT_INTERNAL_ERROR)
+        self.assertNotIn(
+            raised.exception.code,
+            (
+                lint_module.EXIT_NO_FINDINGS,
+                lint_module.EXIT_ADVISORY_ONLY,
+                lint_module.EXIT_ERROR_PRESENT,
+            ),
+        )
+        self.assertIn("RuntimeError: boom", err.getvalue())
 
 
 if __name__ == "__main__":

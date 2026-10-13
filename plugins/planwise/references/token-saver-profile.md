@@ -71,6 +71,33 @@ warn               = min(40000, round(0.5 × available_per_task))   # 40K = guar
 > [!constraint] Subagent Window = Dispatched MODEL, Not Parent Tier
 > A Token Saver runner's window is set by the **model it runs on**, NOT the orchestrator's tier (see [§ Subagent Context Window](session-context-budget.md#subagent-context-window)): Haiku/Sonnet = **200K**, Opus = **1M**. The `~150K` Token Saver target is a carrying-cost ceiling that sits *below* even a Sonnet runner's 200K window — it is about per-turn cost and iteration quality, not about fitting the window. Do NOT raise the Token Saver target to a runner's window size; the target is deliberately tighter than the window.
 
+## Which keys feed the session budget
+
+Only `token_saver_session_target` and `token_saver_runner_overhead` enter budget math. `derive_thresholds` reads nothing else.
+
+| Key | Role | Consumer |
+|-----|------|----------|
+| `token_saver_session_target` | Per-dispatched-window ceiling, default 150,000 | `derive_thresholds` |
+| `token_saver_runner_overhead` | Plugin-attributed footprint: the Agents and Skills rows whose Source starts with "Plugin" | `derive_thresholds` |
+| `token_saver_orchestrator_overhead` | Plugin-attributed footprint minus the Messages row | Orchestrator-window projection only, never `derive_thresholds` |
+| `token_saver_session_start_range` | `{min, median, max}` of the whole-session `total_active` reading, a single sample today | Reporting only |
+| `token_saver_injected_rules_estimate` | The "Memory files" category row | Reporting only |
+
+The engine computes the per-task thresholds as follows.
+
+```
+available_per_task = session_target − runner_overhead − 6000
+critical           = available_per_task − 10000
+warn               = min(40000, round(0.5 × available_per_task))
+```
+
+`runner_overhead` and `orchestrator_overhead` are plugin-attributed footprints. They are never the session base cost. The whole-session start cost sits in `session_start_range`, and the engine does not subtract it. A plan that reads `runner_overhead` as the fixed cost of starting a runner overstates its headroom by the gap between the two.
+
+Two engine terms are still on the pre-attribution basis. Both are open engine defects, not part of the formula.
+
+- The engine currently computes `orchestrator_overhead` as `runner_overhead − Messages`, although the attribution sum holds no Messages. Until that changes, treat it as an unreliable low figure.
+- The engine currently writes fallback overheads of 54,000 (runner) and 60,000 (orchestrator) when capture fails. Both come from the whole-installation basis. Until that changes, treat an `uncalibrated` fallback as a pessimistic placeholder.
+
 ## Injection Visibility
 
 The thresholds above budget for a task's own Required Context; they do not by themselves surface a separate carrying cost — auto-injected path-scoped rule content. A `.claude/rules/**` file scoped to a plan/backlog/lessons glob is injected into every context that reads a matching path, including a DELEGATED task-runner subagent, and every rule sharing a glob co-injects together on a single path match. `handlers/doctor.md`'s over-scope linter makes this measurable: it reports each flagged rule's size, groups flagged rules into glob families, and flags any family whose worst-case injection exceeds the configurable `context.token_saver_injection_ceiling` (default 40000 tokens). Run `/planwise doctor` to check a project's rule surface before relying on the thresholds above.

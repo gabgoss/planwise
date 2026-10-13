@@ -1,8 +1,9 @@
 """`/planwise doctor` CLI dispatchers: version-state gate, config parse
 check, and the --doctor / --prune-stale / --list-diverged report printers.
 
-Orchestrates doctor_sweeps's four read-only sweeps into printed reports, and
-owns the plugin version-state gate every dispatcher runs first.
+Orchestrates doctor_sweeps's four read-only sweeps and doctor_audits's four
+index audits (Stages 11, 12, 13, 19) into printed reports, and owns the
+plugin version-state gate every dispatcher runs first.
 """
 
 import datetime
@@ -350,35 +351,72 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
 def _list_diverged_rows(cfg: "InitConfig") -> list[dict]:
     """Read-only: return the diverged rule minority as a list of dict rows.
 
-    Walks DESCOPED_RULES and INSTALLED_RULES present on disk; compares
-    installed vs shipped using the SAME normalization the writer uses
-    (`normalize_rule_for_diff()`). A row is emitted only when the bodies
-    differ — the byte/normalized-identical majority is skipped and never
-    reaches the primitive. Stable-sorted by (kind, filename) so a downstream
-    fan-out batch is reproducible. Returns `[]` when nothing diverges. Never
-    writes or deletes anything; a per-file OSError is skipped rather than
-    raised so one unreadable file cannot hide the rest of the diverged set.
+    Walks INSTALLED_RULES, DESCOPED_RULES and the enabled style rules present
+    on disk; compares installed vs shipped using the SAME normalization the
+    writer uses (`normalize_rule_for_diff()`). A row is emitted only when the
+    bodies differ — the byte/normalized-identical majority is skipped and never
+    reaches the primitive. Each row's `set` (`installed`, `descoped` or `style`)
+    names the disposition the writer applies to it. A style rule is skipped
+    when the writer skips it: its installed copy is absent or a symlink, or the
+    other scope holds a managed copy. Stable-sorted by (kind, filename) so a
+    downstream fan-out batch is reproducible. Returns `[]` when nothing
+    diverges. Never writes or deletes anything; a per-file OSError is skipped
+    rather than raised so one unreadable file cannot hide the rest of the
+    diverged set.
     """
+    import style_rules  # lazy: style_rules is a leaf that must not load at import time
+
     refs_dir = cfg.plugin_root / "references"
     rules_dst_dir = cfg.project_root / ".claude" / "rules" / "planwise"
 
     rows: list[dict] = []
 
-    for filename, _template in list(INSTALLED_RULES) + list(DESCOPED_RULES):
-        dst = rules_dst_dir / filename
-        src = refs_dir / filename
-        if not dst.is_file() or not src.is_file():
-            continue
+    for set_name, table in (("installed", INSTALLED_RULES), ("descoped", DESCOPED_RULES)):
+        for filename, _template in table:
+            dst = rules_dst_dir / filename
+            src = refs_dir / filename
+            if not dst.is_file() or not src.is_file():
+                continue
+            try:
+                installed_raw = dst.read_text(encoding="utf-8")
+                shipped_raw = src.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if normalize_rule_for_diff(installed_raw) != normalize_rule_for_diff(shipped_raw):
+                rows.append({
+                    "filename": filename,
+                    "kind": "rule",
+                    "set": set_name,
+                    "installed": dst.relative_to(cfg.project_root).as_posix(),
+                    "shipped": src.relative_to(cfg.plugin_root).as_posix(),
+                })
+
+    for filename, _key in style_rules.enabled_style_rules(cfg):
+        dst = style_rules.installed_path(cfg, filename)
+        src = style_rules.shipped_path(cfg, filename)
         try:
-            installed_raw = dst.read_text(encoding="utf-8")
-            shipped_raw = src.read_text(encoding="utf-8")
-        except OSError:
+            if (
+                style_rules.other_managed_path(cfg, filename).is_file()
+                or not dst.is_file()
+                or dst.is_symlink()
+                or not src.is_file()
+            ):
+                continue
+            installed_raw = dst.read_text(encoding="utf-8-sig")
+            shipped_raw = src.read_text(encoding="utf-8-sig")
+        except (OSError, ValueError):
             continue
         if normalize_rule_for_diff(installed_raw) != normalize_rule_for_diff(shipped_raw):
+            # User scope installs under the home directory, outside the project root.
+            try:
+                installed_ref = dst.relative_to(cfg.project_root).as_posix()
+            except ValueError:
+                installed_ref = dst.as_posix()
             rows.append({
                 "filename": filename,
                 "kind": "rule",
-                "installed": dst.relative_to(cfg.project_root).as_posix(),
+                "set": "style",
+                "installed": installed_ref,
                 "shipped": src.relative_to(cfg.plugin_root).as_posix(),
             })
 
@@ -777,11 +815,15 @@ def _run_doctor(cfg: "InitConfig") -> int:
     normalization is offered only by `/planwise upgrade` Step 4.4. Then runs
     Stage 15b, the thrifty-sonic env var sweep (_sweep_thrifty_sonic()) — also
     always-on and read-only; the remedy is `/planwise upgrade` Step 4.7. Then
-    runs Stage 16, the verified-CLI-version drift advisory: probes the live
+    runs the verified-CLI-version drift advisory: probes the live
     `claude --version` and compares it against config.yaml's
     context.verified_cli_version (populated by init, refreshed by upgrade) —
     read-only, recommends `/planwise upgrade` on drift or on an uncalibrated
-    ("") value, never writes. Then runs Stage 23, the style-rule check
+    ("") value, never writes. Then runs Stages 11, 12, 13 and 19, the index
+    drift audits (run_index_audits()), then Stages 16 and 17 and Steps 7 and 8,
+    the probes (run_probes()). The handler's stage numbers are labels, so
+    printing them after the verified-CLI-version drift advisory and before
+    Stage 23 is the documented order. Then runs Stage 23, the style-rule check
     (run_style_stage()): per rule, its config switch, installed copy, copies
     that also load, and token cost — also always-on and read-only. Always exits
     0 (diagnostic, not a gate).
@@ -996,7 +1038,7 @@ def _run_doctor(cfg: "InitConfig") -> int:
             print("      recommend: run /planwise upgrade (Step 4.7 offers to set it) — "
                   "doctor is read-only and never rewrites settings")
 
-    # Stage 16: verified-CLI-version drift advisory — read-only, always-on.
+    # The verified-CLI-version drift advisory — read-only, always-on.
     # Compares the live `claude --version` probe against context.verified_cli_version
     # (populated by /planwise init, refreshed by /planwise upgrade). Never writes —
     # /planwise upgrade is the only writer for this field, matching the settings-grant
@@ -1020,6 +1062,20 @@ def _run_doctor(cfg: "InitConfig") -> int:
               "read-only and never writes config.yaml")
     else:
         print(f"Up to date — recorded {recorded} matches the live CLI.")
+
+    try:
+        from doctor_audits import run_index_audits
+
+        run_index_audits(cfg)
+    except Exception as exc:  # noqa: BLE001 -- an audit never aborts the doctor run
+        print(f"Index audits: the check failed: {exc}")
+
+    try:
+        from doctor_probes import run_probes
+
+        run_probes(cfg)
+    except Exception as exc:  # noqa: BLE001 -- a probe never aborts the doctor run
+        print(f"Doctor probes: the check failed: {exc}")
 
     # Stage 23: style rules — read-only, always-on. Reports each always-on style
     # rule's switch, installed copy, other loading copies and token cost.

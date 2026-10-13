@@ -74,7 +74,7 @@ These patterns look like errors but are intentional. Discard findings that match
 | Discovery-phase Meta-Plan carrying `Meta-{Abbrev}/` alone, with no `Scaffold-{Abbrev}/` and no `Exec-{Abbrev}/` | The plan is at the first of three phases. Both other folders are created by the later scaffolding pass, so a Discovery-phase plan cannot carry them without inventing artifacts its own phase does not produce — which `references/scaffolding-hygiene.md` §7 forbids. Confirm by the absence of `Exec-{Abbrev}/`, then discard the finding. A plan that HAS `Exec-{Abbrev}/` but no `Scaffold-{Abbrev}/` is NOT whitelisted and still grades BLOCKER under `references/scaffolding-hygiene.md` §8 Class C. |
 
 > [!practice] Check Whitelist Before Reporting
-> Reviewers should verify each finding against the Known Patterns Whitelist before sending it to the team lead. If the pattern matches, discard it. If uncertain, send with `[UNCERTAIN]` prefix rather than discarding outright.
+> Reviewers should verify each finding against the Known Patterns Whitelist before sending it to the orchestrator. If the pattern matches, discard it. If uncertain, send with `[UNCERTAIN]` prefix rather than discarding outright.
 
 ---
 

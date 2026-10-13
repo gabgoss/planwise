@@ -36,7 +36,7 @@ This guide walks you through everything from zero. No prior experience with plug
 ### What you'll need
 
 - **Claude Code** installed and working ([get it here](https://docs.anthropic.com/en/docs/claude-code) if you haven't already)
-- **Python 3.8+** installed on your computer (planwise uses small Python scripts for backlog scoring)
+- **Python 3.10+** installed on your computer (planwise uses small Python scripts for backlog scoring)
 - A project you want to manage
 - **Optional: [GitHub CLI](https://cli.github.com/) (`gh`)** — only needed if you want `/planwise feedback` to file its issue for you. Without it, feedback still works: your report is saved as a draft file and you paste it into the issues page yourself. You don't have to install it up front — `/planwise init` and `/planwise upgrade` offer to install it for you if it's missing.
 
@@ -86,13 +86,13 @@ Now that the marketplace is added, install planwise:
 
 ### Step 3 — Activate the plugin
 
-After installing, you need to activate planwise. Either run:
+After installing, you need to activate planwise. Run:
 
 ```
 /reload-plugins
 ```
 
-I personally prefer to close the current Claude Code session with `Ctrl+C` twice, then type `claude` and press Enter to start a fresh session. The `/planwise` command is now available.
+Or close Claude Code with `Ctrl+C` twice, then type `claude` and press Enter. The `/planwise` command is now available.
 
 ---
 
@@ -170,7 +170,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
 | `/planwise harvest` | Run the lesson-to-artifact chain end to end, unattended |
-| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (needs `gh` to post directly) |
+| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (needs `gh` to post directly; `--status`, `--sweep`) |
 | `/planwise help` | Show available commands and link to user guide |
 
 ---
@@ -203,8 +203,8 @@ To remove the marketplace:
 - Run `/planwise init` first — most commands need the project to be initialized
 
 **Python scripts show errors**
-- Check that Python 3.8+ is installed: `python --version`
-- If you see YAML-related warnings, install PyYAML: `pip install pyyaml` (optional but silences warnings)
+- Check that Python 3.10+ is installed: `python --version`
+- Install PyYAML: `pip install pyyaml`. `/planwise upgrade` stops without it.
 
 **Plans or backlog seem out of date after a plugin update**
 - Run the two-step upgrade recipe: `/plugin marketplace update` + `/plugin install planwise@planwise-marketplace`, then `/planwise upgrade` to propagate refreshed rules into your project

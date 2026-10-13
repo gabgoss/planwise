@@ -44,6 +44,8 @@ Author the session plan from the item's own scope. Recognize a too-underspecifie
 
 Write the dispatched item's id into the Master Plan `**Resolves:**` header field, and keep the template's Project Complete When criterion that names it. This field is the plan's only link back to the item. The orchestrator sets the item `PLANNING` after this agent returns, and `/planwise run` closeout closes it from this field when the Master Plan reaches COMPLETE. An item left out of the field stays `PLANNING` after its plan ships.
 
+Landing a lesson is not a plan task. When the item came from a lesson promotion, `/planwise harvest` stage 4 and `/planwise lessons curate` own the landing. Do not write a success criterion that defers to a "harvest closeout", because no such step exists.
+
 ## 3. REPORT — Request Review, Then Stop
 
 This agent does not invoke review itself: multi-agent review cannot run inside a spawned subagent, because the Agent tool is stripped. Instead:

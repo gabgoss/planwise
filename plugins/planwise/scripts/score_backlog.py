@@ -616,6 +616,19 @@ SHORT_ITEM_LINES = 50
 SUB_ITEMS_THRESHOLD = 6
 
 _H2_RE = re.compile(r"^## ")
+# The `##` section names of the backlog item template. Every filled-in item
+# carries them, so they describe the item's layout and say nothing about its
+# scope: they are excluded from the sub-item count. The match is exact and
+# case-sensitive. A test pins this tuple to the template file.
+TEMPLATE_SECTION_HEADINGS: tuple[str, ...] = (
+    "Summary",
+    "Problem",
+    "Proposed Solution",
+    "Acceptance Criteria",
+    "Related",
+    "Files Touched",
+    "Notes",
+)
 _NUMBERED_RE = re.compile(r"^(\d+)\.\s")
 _FILE_PATH_RE = re.compile(
     r"[\w./\\-]+\.(?:py|js|ts|tsx|jsx|cs|java|go|rs|rb|sh|ps1|sql|ya?ml|json|toml|ini|html|css|c|cpp|h|md)\b"
@@ -850,7 +863,11 @@ def compute_route_signals(item: dict, frontmatter: dict) -> dict:
     has_multi_sprint = bool(multi_sprint_hits)
     is_architectural = bool(architectural_hits)
 
-    h2_count = sum(1 for line in structural.split("\n") if _H2_RE.match(line))
+    h2_count = sum(
+        1
+        for line in structural.split("\n")
+        if _H2_RE.match(line) and line[3:].rstrip() not in TEMPLATE_SECTION_HEADINGS
+    )
     numbered_items, step_count = _longest_numbered_run(structural)
     sub_items = max(h2_count, numbered_items)
 
@@ -919,7 +936,7 @@ ROUTE_LEGEND = (
     "  ms/arch = keyword hit counts for HAS_MULTI_SPRINT / IS_ARCHITECTURAL -- "
     "candidates, not verdicts; an item quoting the signal table matches them all. "
     "Use --id N for the hit lines.\n"
-    "  h2/steps = ## headings outside code fences / longest consecutive numbered list.\n"
+    "  h2/steps = non-template ## headings outside code fences / longest consecutive numbered list.\n"
     "  hint = the item's route_hint frontmatter, compared but never adopted.\n"
     "The pivot check and every pre-routing gate are judgment; this report does not run them."
 )

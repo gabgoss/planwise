@@ -47,7 +47,7 @@ Three dependencies, and only the first is needed to use planwise at all. Each ro
 
 | Dependency | Needed for | If absent |
 |---|---|---|
-| **Python 3.8+** | Every script-backed step — backlog scoring, config read/write, `init`, `upgrade`, `doctor` | Most of the plugin does not function |
+| **Python 3.10+** | Every script-backed step — backlog scoring, config read/write, `init`, `upgrade`, `doctor` | Most of the plugin does not function |
 | **PyYAML** | Config validation, the artifact manifest, and `/planwise upgrade` | `/planwise upgrade` stops with `PyYAML is required for --upgrade` and changes nothing. Elsewhere planwise degrades quietly: config writes go through unverified, and the artifact manifest reads as empty so categorization falls back to built-in defaults |
 | **[GitHub CLI](https://cli.github.com/) (`gh`), authenticated** | `/planwise feedback` posting upstream, and the optional `upgrade.github_issue` report | **Optional — nothing breaks.** Both flows degrade to a written draft plus the issues URL, so you file it by hand |
 | **A Claude Code build with the function-hooks runtime** (early access; no environment variable needed) | Automatic re-entry in `/planwise backlog` loop mode | **Optional — nothing else breaks.** The loop ends after the first item and you continue by hand with `--loop-resume` |
@@ -55,7 +55,7 @@ Three dependencies, and only the first is needed to use planwise at all. Each ro
 **Installing them**
 
 ```bash
-python --version        # confirm 3.8 or newer; try python3 --version if that fails
+python --version        # confirm 3.10 or newer; try python3 --version if that fails
 pip install pyyaml      # or pip3
 ```
 
@@ -165,13 +165,14 @@ flowchart LR
 /planwise review
 ```
 
-This sends your plan through a three-stage AI review:
+This sends your plan through a staged AI review:
 
 1. **Measurement pass** — one agent walks the plan tree before any reviewer starts and writes a *review discovery fact sheet* to `Reviews/{Abbrev}-Discovery-{date}.md`: a measured line and byte count for every plan file, a map of its headings, and the declared values the reviewer checks compare against (token estimates, dependencies, Required Context rows). It runs once, so the whole reviewer fan-out cites one measured number instead of each reviewer re-deriving its own.
-2. **Structural review** — checks that files are named correctly, links aren't broken, and the plan hierarchy makes sense
-3. **Content review** — checks task quality, token estimates, dependencies, and success criteria
+2. **Gate scan** — lints the plan's verification commands
+3. **Structural review** — checks that files are named correctly, links aren't broken, and the plan hierarchy makes sense
+4. **Content review** — checks task quality, token estimates, dependencies, and success criteria
 
-You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict, written alongside the fact sheet in `Reviews/{Abbrev}-Review-{date}.md`.
+You'll get a report with an **APPROVED** or **NEEDS_FIXES** verdict, written alongside the fact sheet in `Reviews/{Abbrev}-Review-{date}.md`.
 
 > **Why the measurement pass?** Every count a reviewer reports has to come from a real measurement, and a fan-out of four to six reviewers would otherwise measure the same files over and over. Measuring once up front makes the numbers in your report consistent — and a reviewer whose own reading contradicts the sheet has to re-measure and say so, rather than quietly substituting a different number.
 
@@ -181,7 +182,7 @@ You'll get a report with an **APPROVED** or **CHANGES REQUIRED** verdict, writte
 
 ```mermaid
 flowchart LR
-    A([Run command]) --> B[Measure the<br/>plan tree] --> C[AI checks<br/>structure] --> D[AI checks<br/>content] --> E([Get verdict])
+    A([Run command]) --> B[Measure the<br/>plan tree] --> G[Scan the<br/>gates] --> C[AI checks<br/>structure] --> D[AI checks<br/>content] --> E([Get verdict])
 ```
 
 ---
@@ -195,12 +196,14 @@ flowchart LR
 /planwise run @path/to/Orchestration.md --resume
 ```
 
-This starts working through your planned tasks in order. You get two modes:
+This starts working through your planned tasks in order. The plan's orchestration file sets one of two modes:
 
-- **GUIDED mode** — Claude proposes each task and waits for your OK before doing it (recommended for your first time)
-- **DELEGATED mode** — Claude works through tasks automatically using a task-runner agent
+- **DIRECT mode** — Claude does each task itself, in your session.
+- **DELEGATED mode** — Claude hands each task to a task-runner agent and checks the result.
 
-If you need to stop mid-session, don't worry — planwise saves a recovery file so you can pick up exactly where you left off. If the session was cleared mid-run, `--resume` re-enters it from the recovery file without asking you to confirm the start again.
+You approve once, before the first task starts.
+
+If you need to stop mid-session, don't worry — planwise saves a recovery file so you can pick up exactly where you left off. `--resume` re-enters from that file when it shows a complete mid-session stop.
 
 #### How `run` works
 
@@ -354,7 +357,7 @@ flowchart LR
 - **Rule scope** — lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. These inject into every plan-brief read and can overflow a 200K-window task-runner, so `doctor` flags them with their size.
 - **Token Saver overhead staleness** — reports the stored `/context`-measured overheads and flags them stale after a plugin upgrade or a change in your agent/skill count.
 - **Read-gate scan** — checks your active plan's files against the Read-tool limits (the ~25K-token page cap — the binding gate on text — plus the 256 KiB byte cap and the 2,000-line window) and flags any that can't be read in one pass.
-- **CLI-version drift** — reports when your CLI build has moved past the version `verified_cli_version` in `config.yaml` was last measured against. `/planwise init` probes `claude --version` to set it. `/planwise upgrade` refreshes it on every run. The stage only reports. It never writes.
+- **CLI-version drift** — reports when your CLI build has moved past the version `verified_cli_version` in `config.yaml` was last measured against. `/planwise init` probes `claude --version` to set it. `/planwise upgrade` refreshes it whenever the plugin version changes. The stage only reports. It never writes.
 - **Stale de-scoped rule sweep** — finds rule copies left behind in `.claude/rules/planwise/` by older versions; those rules are now loaded on demand from the plugin instead.
 - **Installed rule divergence lint** — classifies every still-installed rule against its shipped counterpart: a stale copy of an older shipped version (run [`/planwise upgrade`](#10-planwise-upgrade) — it refreshes it safely), a genuine customization (re-home it — never delete), or not analyzable (diff it manually).
 - **Orphaned agent mirror sweep** — flags agent copies under `.claude/agents/` left behind by older versions that mirrored agents into the project; agents now run directly from the plugin, so copies you never edited are safe to remove.
@@ -370,7 +373,7 @@ flowchart LR
 - **Lessons index shape audit** — classifies your lessons index as generated, hand-authored, or unrecognized, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
 - **Plans index shape audit** — classifies your plans index as generated, hand-authored, or unrecognized, counts what a migration would move, and names the fix: [`/planwise upgrade`](#10-planwise-upgrade) for a hand-authored index.
 
-**Opt-in writers:** `doctor` has exactly three invocations that write, and none of them runs unless you ask for it by name. Two clean up; the third creates one missing directory.
+**Opt-in writers:** three `doctor` flags write, and none runs unless you ask for it by name. Two clean up; the third creates one missing directory. The index and body-status audits also offer a fix, which runs only after you say yes.
 
 | Invocation | What it changes | What it never touches | Backup + audit log |
 |---|---|---|---|
@@ -457,6 +460,7 @@ When a new plugin version is published, upgrading happens in two stages:
    `/plugin install` does not refresh the rules in `.claude/rules/planwise/` — those were installed during `/planwise init` and are skip-if-exists thereafter, except the two [style rules](#style-rules), which `/planwise upgrade` installs, refreshes, and removes by config key. (Agents need no propagation step at all: they run directly from the plugin, invoked as `planwise:<name>`, so Stage 1 alone updates them.) `/planwise upgrade`:
 
    - Bumps the pinned `plugin_version:` in your `config.yaml`
+   - Migrates a hand-authored backlog, lessons or plans index, backing up every file first. A refusal names the fix.
    - Adds any new top-level config keys (the additive merge previously available via `--migrate`), including the `upgrade:` block described below
    - Backfills missing lessons scaffolding — seeds the generated lessons index (hub, overflow leaves, Archive shards) and the categorization file that gates `lessons curate` / `promote-batch` when either is absent (idempotent; an existing file, customised or not, is preserved verbatim)
    - Refreshes installed rules whose local body still matches the previously-shipped body
@@ -572,7 +576,7 @@ flowchart LR
 | `/planwise lessons promote <id>` | Promote one lesson to a rule/skill/hook/agent |
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
-| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned mirrors, index drift, backlog/lessons/plans index shape audits, backlog item body status lines, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
+| `/planwise doctor` | Audit install health — version gate, stale/diverged rules, orphaned agent mirrors, index drift, backlog/lessons/plans index shape audits, backlog item body status lines, feedback capability, Token Saver staleness, upgrade leftovers (`--prune-stale` and `--prune-upgrade-leftovers` clean up, `--create-feedback-dir` creates the missing drafts directory, each opt-in) |
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
@@ -594,7 +598,7 @@ planwise uses eight specialized AI agents behind the scenes:
 | **review-discovery** | Measures the plan tree once at the start of a review — line and byte counts, heading map, and the check anchors every reviewer then cites |
 | **structural-reviewer** | Validates plan file structure, naming, and cross-references |
 | **plan-reviewer** | Deep content review — task specs, estimates, dependencies |
-| **task-runner** | Executes individual tasks during plan runs |
+| **task-runner** | Executes individual tasks during DELEGATED plan runs |
 | **fix-agent** | Applies targeted code fixes for small backlog items |
 | **rule-comparator** | Classifies a diverged installed rule against the shipped version during `/planwise upgrade` — stale copy vs. genuine customization |
 | **backlog-planner** | Authors a session plan for large-scope or architectural backlog items routed to a new plan |
@@ -649,12 +653,12 @@ Evidence for `plain-presentation`: it follows four published style guides. Struc
 planwise/                           # Plugin root
   .claude-plugin/
     plugin.json                     # Plugin identity
-    marketplace.json                # Marketplace catalog
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 12 subcommand handlers across 19 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
+  handlers/                         # 12 subcommand handlers across 20 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
   agents/                           # 8 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + 2 installed as global style rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
+  manifests/                        # Artifact manifest and agent history
   seed/                             # Index file seeds for init
   scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py and skill_preflight.py (the zero-call list))
   hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
@@ -692,7 +696,7 @@ To remove the marketplace:
 - Run `/planwise init` first — most commands need the project to be initialized
 
 **Python scripts show errors**
-- Check that Python 3.8+ is installed: `python --version`
+- Check that Python 3.10+ is installed: `python --version`
 - If you see YAML-related warnings, install PyYAML: `pip install pyyaml`. It is optional for day-to-day use, but `/planwise upgrade` requires it — see [Requirements](#requirements)
 
 **Plans or backlog seem out of date after a plugin update**
@@ -717,4 +721,4 @@ To remove the marketplace:
 
 ## License
 
-MIT — Gabriel Gosselin
+GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later) — Copyright (c) 2026 Gabriel Gosselin. See the repository's `LICENSE` file for the full text.

@@ -204,7 +204,9 @@ The first line of the findings file is always a `Coverage:` line. `Coverage: che
 
 Runs on **both** paths, after Scale Detection and **before any reviewer is spawned**. The Required References list above makes the three-part DELEGATED dispatch discipline (`references/agent-orchestration-delegated.md` and its Part-2 and Part-3 siblings) a **conditional** read for the lead. The lead does not run the delegated checks — spawned reviewers do, in fresh context windows that inherit nothing the lead resolved. This phase resolves the condition once and pushes the result into the prompts, so the rows that cite those references are actually evaluated rather than merely indexed (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.2).
 
-1. Grep the Master Plan and every Orchestration file for `Execution Strategy:\s*DELEGATED`. This is the same Grep Error Pattern Catalog row 66 already requires for the named-trigger check; run it once and reuse the result here.
+1. Grep the Master Plan and every Orchestration file for `^(\*\*Mode:\*\*|Execution Strategy:)\s*DELEGATED\b`. The first alternative is the line `templates/orchestration.md` writes under its `## Execution Strategy` heading. The second is the one-line form a hand-written plan may use. The pattern anchors at the start of the line because the template's reminder text also contains `Mode: DELEGATED` mid-line, and that text sits in every DIRECT plan too. This is the same Grep Error Pattern Catalog row 66 already requires for the named-trigger check; run it once and reuse the result here.
+
+   Print the outcome in the review output, so a miss is visible: `DELEGATED block: bound ({M} of {N} Orchestration files matched)` or `DELEGATED block: not bound (0 of {N} Orchestration files matched)`. `{N}` is the number of Orchestration files in the plan. A `not bound` line with `{N}` above 0 means the plan is DIRECT throughout. Confirm that by reading one Orchestration's `**Mode:**` line before moving on, because a pattern that no longer fits the template prints the same line.
 
 2. Bind `{DelegatedReviewBlock}`:
 
@@ -246,7 +248,7 @@ observation.
 > ```
 > CORRECT — the lead resolves the condition and pushes the resolved instruction into the prompt:
 > ```
-> Lead: Grep for `Execution Strategy:\s*DELEGATED` → matched
+> Lead: Grep for `^(\*\*Mode:\*\*|Execution Strategy:)\s*DELEGATED\b` → matched
 >       → bind {DelegatedReviewBlock} → append it to the four owning prompts
 > ```
 >
@@ -354,13 +356,12 @@ For plans with 2+ EIs, use full team with phase gating.
 
 ### Phase 1: Setup and Structural Gate
 
-1. `TeamCreate(team_name: "plan-review-{abbrev}", description: "Plan review for {abbrev}")`
+1. No team object exists. Each reviewer is a named agent that the main conversation spawns and addresses by `name`. Reviewers report to the orchestrator with `SendMessage` to `main`.
 
-2. Spawn `structural-reviewer` as teammate:
+2. Spawn `structural-reviewer` as a named reviewer:
 
 ```
 Agent(
-  team_name: "plan-review-{abbrev}",
   name: "structural-reviewer",
   subagent_type: "planwise:structural-reviewer",
   prompt: |
@@ -381,20 +382,18 @@ Agent(
     Global numbering note: Spec numbers are assigned globally across all sprints.
     Non-sequential numbers within a single EI are expected, not errors.
 
-    Report each finding as a separate DM to the team lead.
+    Report each finding as a separate SendMessage to "main" (the orchestrator).
     Use the finding format in your protocol.
-    End with DM: "Phase 1 complete, {N} findings reported"
+    End with a SendMessage to "main": "Phase 1 complete, {N} findings reported"
+    Plain-text output does NOT reach the orchestrator before its turn ends.
 )
 ```
 
-3. WAIT for "Phase 1 complete" DM from structural-reviewer. If no DM after reviewer goes idle, send a status check message. If still no response, proceed with any findings received so far.
+3. WAIT for the "Phase 1 complete" message from structural-reviewer. It arrives as a `SendMessage` to `main`. If structural-reviewer goes idle without it, read the `result` field of its idle notification: a named reviewer's plain-text reply arrives there, and only after your turn ends. Then send one status check: `SendMessage(to: "structural-reviewer", message: "Send your Phase 1 completion message to main now.")`. If still no response, proceed with any findings received so far.
 
 4. If BLOCKERs received:
    - Write report with blockers only
-   - Send `shutdown_request` to structural-reviewer
-   - Wait for `shutdown_response`
-   - `TeamDelete`
-   - STOP -- do not spawn Phase 2 reviewers
+   - STOP -- do not spawn Phase 2 reviewers. No team exists, so there is nothing to shut down or delete.
 
 ### Phase 2: Parallel Content Review
 
@@ -414,7 +413,6 @@ Agent(
 **EI Reviewer(s):**
 ```
 Agent(
-  team_name: "plan-review-{abbrev}",
   name: "ei-reviewer-{N}",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
@@ -441,9 +439,10 @@ Agent(
 
     Execute the EI Reviewer checklist from your protocol.
 
-    Report each finding as a separate DM to the team lead.
+    Report each finding as a separate SendMessage to "main" (the orchestrator).
     Prefix uncertain findings (MEDIUM/LOW confidence) with [UNCERTAIN].
-    End with DM: "Phase 2 complete, {N} findings reported"
+    End with a SendMessage to "main": "Phase 2 complete, {N} findings reported"
+    Plain-text output does NOT reach the orchestrator before its turn ends.
 )
 ```
 
@@ -452,7 +451,6 @@ For VERY LARGE plans, batch 2 EIs per ei-reviewer (max 3 ei-reviewers). If a rev
 **Task Reviewer:**
 ```
 Agent(
-  team_name: "plan-review-{abbrev}",
   name: "task-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
@@ -474,16 +472,16 @@ Agent(
 
     Execute the Task Reviewer checklist from your protocol.
 
-    Report each finding as a separate DM to the team lead.
+    Report each finding as a separate SendMessage to "main" (the orchestrator).
     Prefix uncertain findings (MEDIUM/LOW confidence) with [UNCERTAIN].
-    End with DM: "Phase 2 complete, {N} findings reported"
+    End with a SendMessage to "main": "Phase 2 complete, {N} findings reported"
+    Plain-text output does NOT reach the orchestrator before its turn ends.
 )
 ```
 
 **Dependency Reviewer** (LARGE / VERY LARGE only):
 ```
 Agent(
-  team_name: "plan-review-{abbrev}",
   name: "dependency-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
@@ -503,16 +501,16 @@ Agent(
 
     Execute the Dependency Reviewer checklist from your protocol.
 
-    Report each finding as a separate DM to the team lead.
+    Report each finding as a separate SendMessage to "main" (the orchestrator).
     Prefix uncertain findings (MEDIUM/LOW confidence) with [UNCERTAIN].
-    End with DM: "Phase 2 complete, {N} findings reported"
+    End with a SendMessage to "main": "Phase 2 complete, {N} findings reported"
+    Plain-text output does NOT reach the orchestrator before its turn ends.
 )
 ```
 
 **Coverage Reviewer** (VERY LARGE only):
 ```
 Agent(
-  team_name: "plan-review-{abbrev}",
   name: "coverage-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
@@ -532,16 +530,16 @@ Agent(
 
     Execute the Coverage Reviewer checklist from your protocol.
 
-    Report each finding as a separate DM to the team lead.
+    Report each finding as a separate SendMessage to "main" (the orchestrator).
     Prefix uncertain findings (MEDIUM/LOW confidence) with [UNCERTAIN].
-    End with DM: "Phase 2 complete, {N} findings reported"
+    End with a SendMessage to "main": "Phase 2 complete, {N} findings reported"
+    Plain-text output does NOT reach the orchestrator before its turn ends.
 )
 ```
 
 **Scaffolding Hygiene Reviewer** (MEDIUM/LARGE/VERY LARGE — Meta-Plan only):
 ```
 Agent(
-  team_name: "plan-review-{abbrev}",
   name: "scaffolding-hygiene-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
@@ -556,7 +554,6 @@ Agent(
 **Design-Extension Reviewer** (LARGE/VERY LARGE — when audit/design-extension findings expected):
 ```
 Agent(
-  team_name: "plan-review-{abbrev}",
   name: "design-extension-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
@@ -572,7 +569,6 @@ Agent(
 **Destructive-Path Reviewer** (LARGE/VERY LARGE — when destructive-path or config-gated-change findings expected):
 ```
 Agent(
-  team_name: "plan-review-{abbrev}",
   name: "destructive-path-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
@@ -587,7 +583,6 @@ Agent(
 **Verification-Gate Reviewer** (LARGE/VERY LARGE — when verification-gate findings expected):
 ```
 Agent(
-  team_name: "plan-review-{abbrev}",
   name: "verification-gate-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
@@ -609,7 +604,6 @@ Agent(
 **Change-Surface Reviewer** (LARGE/VERY LARGE — when change-surface findings expected):
 ```
 Agent(
-  team_name: "plan-review-{abbrev}",
   name: "change-surface-reviewer",
   subagent_type: "planwise:plan-reviewer",
   prompt: |
@@ -621,8 +615,8 @@ Agent(
 )
 ```
 
-7. Collect findings incrementally as DMs arrive from reviewers.
-8. Track completion: each reviewer sends "Phase 2 complete, {M} findings" DM before going idle.
+7. Collect findings incrementally as each reviewer's SendMessage to main arrives.
+8. Track completion: each reviewer sends "Phase 2 complete, {M} findings" to main before going idle. For a reviewer that goes idle without it, apply step 3's fallback and status check.
 
 ### Phase 3: Synthesis
 
@@ -640,28 +634,27 @@ Agent(
 
 15. Create `{PlanPath}/Reviews/` directory if it does not exist.
 16. Write report to `{PlanPath}/Reviews/{Abbrev}-Review-{YYYY-MM-DD}.md` using [templates/review-report.md](../templates/review-report.md).
-17. Send `shutdown_request` to each teammate; wait for `shutdown_response` approvals.
-18. `TeamDelete`.
+17. Leave finished reviewers idle. No team exists, so there is no shutdown handshake and nothing to delete.
+18. If a reviewer never sent its completion message and is still running, stop it with `TaskStop`.
 19. Output summary to user: verdict, finding counts by severity, systemic finding count, report path.
 
 ### Communication Protocol
 
-> [!practice] Default to DM
-> USE `message` (DM) for all routine communication between reviewers and the lead. Reserve `broadcast` for critical abort scenarios only. Broadcasting sends N separate messages for N teammates -- costs scale linearly.
+> [!practice] Address the orchestrator as `main`
+> Every reviewer sends each message with `SendMessage` to `main`. The orchestrator sends a status check to a reviewer by its `name`. A message to `main` arrives while the orchestrator is still working. See `references/agent-orchestration.md` §7 for the measured delivery behavior.
 
-| Scenario | Message Type |
-|----------|-------------|
-| Report individual finding | DM to lead |
-| Flag uncertain finding | DM to lead with `[UNCERTAIN]` prefix |
-| Phase completion signal | DM to lead |
-| Critical abort (structural blockers) | Broadcast |
-| Everything else | DM |
+| Scenario | Channel |
+|----------|---------|
+| Report individual finding | `SendMessage` to `main` |
+| Flag uncertain finding | `SendMessage` to `main` with `[UNCERTAIN]` prefix |
+| Phase completion signal | `SendMessage` to `main` |
+| Status check on an idle reviewer | `SendMessage` from the orchestrator to the reviewer's `name` |
 
-### Idle Teammate Behavior
+### Idle Reviewer Behavior
 
-> [!pitfall] Idle Teammates
-> **Problem:** Teammates go idle after completing their one-shot review mission. This looks like they stopped working.
-> **Solution:** Idle is NORMAL and EXPECTED. Reviewers complete their checklist, send "Phase complete" DM, then go idle. Send `shutdown_request` to wake and terminate idle reviewers when all phases complete. Do NOT wait for them to "come back" or treat idle as an error.
+> [!pitfall] Idle Reviewers
+> **Problem:** A named reviewer goes idle after it sends its completion message. This looks like it stopped working.
+> **Solution:** Idle is NORMAL and EXPECTED. Do NOT treat idle as an error, and do NOT wait for the reviewer to "come back". A named reviewer's plain-text output is not a report: it reaches the orchestrator only after the orchestrator's turn ends, in the `result` field of an idle notification. When a reviewer goes idle without its completion message, read that field, then send one status check.
 
 ---
 
@@ -683,16 +676,16 @@ Every reviewer spawn prompt MUST include these eight elements:
    ```
 5. **Uncertainty protocol:** flag `[UNCERTAIN]` for MEDIUM or LOW confidence; check Known Patterns Whitelist first before flagging
 6. **Completion signal:** "Phase {N} complete, {M} findings reported"
-7. **Tool pre-load (BINDING for team-mode spawns):** the first instruction line in the spawn prompt MUST be `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` `SendMessage` is a deferred tool; without the schema loaded, the reviewer's findings cannot be delivered. The reviewer's agent definition already carries this rule in its own `## Startup` section — the spawn-prompt instruction is the belt-and-braces gate.
+7. **Tool pre-load (BINDING for named-reviewer spawns):** the first instruction line in the spawn prompt MUST be `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` `SendMessage` is a deferred tool; without the schema loaded, the reviewer's findings cannot be delivered. The reviewer's agent definition already carries this rule in its own `## Startup` section — the spawn-prompt instruction is the belt-and-braces gate.
 8. **Fact-sheet path (BINDING for every spawn, both paths):** the prompt MUST carry `Review discovery fact sheet: {FactSheetPath absolute path}` alongside the scope paths, with the consumption instruction — cite the row for any count reported; re-measure explicitly, and say so, when the reviewer's own reading contradicts it. Reviewers do not inherit the lead's context, so a reviewer that is not handed the path measures nothing and cites nothing, and the phase becomes a cost with no consumer. If the discovery pass failed and no sheet exists, pass `Review discovery fact sheet: unavailable` explicitly rather than omitting the line.
 
 > [!constraint] Spawn prompts MUST front-load the SendMessage schema load
-> WRONG — spawn prompt opens with `You are reviewing plan {Abbrev} ...` and the reviewer attempts `SendMessage(finding)` after its first read. The deferred-tool schema was never fetched; the call raises `InputValidationError` and the entire review (40-70K tokens of work for an EI reviewer) is silently lost — the lead never receives a "Phase complete" DM.
+> WRONG — spawn prompt opens with `You are reviewing plan {Abbrev} ...` and the reviewer attempts `SendMessage(finding)` after its first read. The deferred-tool schema was never fetched; the call raises `InputValidationError` and the entire review (40-70K tokens of work for an EI reviewer) is silently lost — the orchestrator never receives the "Phase complete" message.
 >
-> CORRECT — spawn prompt opens with `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` followed by the role/scope/checklist content. Schema lands before any reporting attempt; the reviewer's DMs are delivered.
+> CORRECT — spawn prompt opens with `First action: call ToolSearch(query: "select:SendMessage", max_results: 1) before reading any plan file.` followed by the role/scope/checklist content. Schema lands before any reporting attempt; the reviewer's messages to `main` are delivered.
 
 > [!pitfall] Context Not Inherited
-> **Problem:** Subagents and teammates start with fresh context -- they do NOT inherit the lead's file reads, research, or analysis.
+> **Problem:** Subagents and named reviewers start with fresh context -- they do NOT inherit the orchestrator's file reads, research, or analysis.
 > **Solution:** Include all critical context in the reviewer's spawn prompt: plan abbreviation, structure type (Meta/Standard), numbering scheme, explicit file paths, and any relevant findings from earlier phases. Never assume shared state.
 
 ---

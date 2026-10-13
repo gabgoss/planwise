@@ -280,6 +280,66 @@ More real prose after the tilde fence closes for good measure.
         with self.assertRaises(ValueError):
             sc.StructuralVerdict.from_dict({"confidence": "exact"})
 
+    def test_from_dict_rejects_unknown_confidence(self):
+        # "high" is outside _CONFIDENCE_ORDER, so is_safe_to_remove would read
+        # it as unsafe with no signal; from_dict must raise and name the field.
+        with self.assertRaises(ValueError) as ctx:
+            sc.StructuralVerdict.from_dict(
+                {"classification": "SUBSET", "confidence": "high", "notes": ""}
+            )
+        self.assertIn("confidence", str(ctx.exception))
+        self.assertIn("high", str(ctx.exception))
+
+    def test_from_dict_rejects_self_contradicting_subset(self):
+        # SUBSET means nothing is installed-only: unique blocks or `unique`
+        # confidence contradict it and would let the overwrite path lose data.
+        cases = {
+            "unique_blocks": {
+                "classification": "SUBSET", "confidence": "contained",
+                "unique_blocks": ["## 7. Local exemptions"],
+            },
+            "confidence_unique": {
+                "classification": "SUBSET", "confidence": "unique",
+            },
+        }
+        for name, d in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(ValueError) as ctx:
+                    sc.StructuralVerdict.from_dict(d)
+                self.assertIn("unique_blocks", str(ctx.exception))
+                self.assertIn("confidence", str(ctx.exception))
+
+    def test_from_dict_accepts_contradiction_with_whitespace_only_notes(self):
+        # The writer gate is `is_subset(v) and not (v.notes or "")`: whitespace
+        # notes are non-empty there and transfer, so from_dict must not reject.
+        v = sc.StructuralVerdict.from_dict(
+            {"classification": "SUBSET", "confidence": "contained",
+             "unique_blocks": ["## 7. Local exemptions"], "notes": "   "}
+        )
+        self.assertEqual(v.notes, "   ")
+        self.assertFalse(sc.is_subset(v) and not (v.notes or ""))
+
+    def test_from_dict_accepts_legacy_subset_with_prose_notes_and_it_transfers(self):
+        # A legacy entry (no tolerated_fragments key) that is SUBSET with unique
+        # blocks AND prose notes was routed to transfer by the notes gate before
+        # the enum check existed. It must still deserialize, with notes intact.
+        v = sc.StructuralVerdict.from_dict(
+            {"classification": "SUBSET", "confidence": "contained",
+             "unique_blocks": ["## 7. Local exemptions"],
+             "notes": "installed-only exemptions section kept"}
+        )
+        self.assertTrue(sc.is_subset(v))
+        self.assertTrue(v.notes, "non-empty notes route the writer gate to transfer")
+        self.assertFalse(sc.is_subset(v) and not v.notes)
+
+    def test_from_dict_rejects_unknown_classification(self):
+        with self.assertRaises(ValueError) as ctx:
+            sc.StructuralVerdict.from_dict(
+                {"classification": "MOSTLY_SUBSET", "confidence": "exact"}
+            )
+        self.assertIn("classification", str(ctx.exception))
+        self.assertIn("MOSTLY_SUBSET", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

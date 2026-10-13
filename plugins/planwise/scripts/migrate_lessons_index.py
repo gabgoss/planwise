@@ -49,6 +49,7 @@ import parse_lessons
 from backlog_index_schema import _changelog_filename, _index_naming
 from config_loader import load_config
 from lessons_bootstrap import NOTES_SEED_CONTENT
+from lessons_index_run import check_lessons_index
 from migrate_backlog_support import JOURNAL_MODE, ReplaceError
 from parse_lessons import format_id
 from reconcile_common import read_text_preserving_newlines as read_text
@@ -526,15 +527,13 @@ def _check_index_findings(lessons_dir: Path, archive_dir: Path, index_path: Path
                           config: dict) -> tuple:
     """`(exit, findings)` of the read-only `--check` pipeline, in process:
     the same findings `--check --json` prints as `drift` and `anomalies`."""
+    # The shared check derives the archive directory and the naming from these two paths.
+    pinned = {**config, "_lessons_dir": lessons_dir, "_lessons_index": index_path}
     try:
-        result, next_id_info, report, location_anomalies = gen._run_lessons_report_pipeline(
-            lessons_dir, archive_dir, index_path, naming, config)
+        checked = check_lessons_index(pinned)
     except gen.LessonsGeneratorError:
         return gen.LessonsDisposition.REFUSED, []
-    findings, _shape = gen._check_lessons_drift(
-        result.items, report, lessons_dir, archive_dir, index_path, naming,
-        next_id_info["next"], config, location_anomalies, result.duplicate_ids, result.id_mismatches)
-    return gen.lessons_exit_code_for(write_mode=False, findings=findings), findings
+    return checked["code"], checked["findings"]
 
 
 def _check_index(lessons_dir: Path, archive_dir: Path, index_path: Path, naming, config: dict) -> int:

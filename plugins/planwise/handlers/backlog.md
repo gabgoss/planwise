@@ -222,12 +222,18 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 
    > **Scoped-rule conflict detected:** destination `{path}` is covered by a scoped rule in `{rule-file}`. Verify the fix targets the correct file before delegating.
 
-   This gate applies regardless of route (Route A or Route B) — do not skip it.
+   **Promotion exemption.** Do not flag a destination when both conditions hold:
+   - An archived lesson names this item in its `promoted-to:` line, and that lesson's `promotion-target:` includes `rule`.
+   - The destination lies under `.claude/rules/`.
+
+   Find the owning lesson with `Grep` for the item id over `{lessons_dir}` and `{lessons_dir}/Archive`. `promote-batch` already decided the placement of such an item. Its existing-rule check chose between extending a rule and writing a new one. Inject the matching rules' content into the fix-agent spawn prompt, per `references/agent-orchestration-delegated.md` §1.6. Route A VERIFY still runs the self-containment grep on the rules diff. A destination outside `.claude/rules/` keeps the flag. So does an item that no lesson owns.
+
+   This gate applies regardless of route (Route A or Route B) — do not skip it. The exemption above is the only exception.
 
    **Auto Mode.** This is a human-judgment gate, so it is classified `critical`. It issues
    no `AskUserQuestion`, so it is discharged differently from the critical sites in
-   `references/auto-mode-policy.md` § Critical Question Behavior: under automation the item
-   **auto-escalates to Route C** rather than prompting or failing loud. The placement
+   `references/auto-mode-policy.md` § Critical Question Behavior: under automation an item
+   that is not exempt **auto-escalates to Route C** rather than prompting or failing loud. The placement
    decision cannot be inferred, and the Phase-5 mechanical gate cannot backstop it — a
    misplaced-but-valid file builds clean and leaks nothing, so nothing downstream would
    report the error.
@@ -629,9 +635,9 @@ Task {
 
 2. **File the item through the guarded writer, then fill its body:**
    ```bash
-   python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{recommendation, 120 characters or fewer}" --priority "{inferred from severity}" --abbrev "{Domain}" --files "BLI-{NNN}-{Domain}-{Topic}.md"
+   python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{recommendation, 120 characters or fewer}" --priority "{inferred from severity}" --abbrev "{Domain}" --files "BB-{NNN}-01-{Domain}-{Topic}.md"
    ```
-   `--create` writes the item file at `{backlog_dir}/BLI-{NNN}-{Domain}-{Topic}.md` from the [backlog-item.md](../templates/backlog-item.md) template. It writes nothing else — no index row, no regeneration. **Cap the title at 120 characters** — `--create` rejects a longer `--feature`, writes nothing, and names the actual length and the cap; it never truncates. Shorten the title and move the overflow into the item body's `## Summary`. Then use `Edit` to add the candidate description, target file, and severity.
+   `--create` writes the item file at `{backlog_dir}/BB-{NNN}-01-{Domain}-{Topic}.md` from the [backlog-item.md](../templates/backlog-item.md) template. `01` is the sub-item segment that [backlog-schema.md](../references/backlog-schema.md) defines, and a new item always starts at `01`. It writes nothing else — no index row, no regeneration. **Cap the title at 120 characters** — `--create` rejects a longer `--feature`, writes nothing, and names the actual length and the cap; it never truncates. Shorten the title and move the overflow into the item body's `## Summary`. Then use `Edit` to add the candidate description, target file, and severity.
    - **Route hint (optional, when the evidence supports it):** in the same `Edit`, add `route_hint:` (`A`, `B`, or `C`), `route_evidence:` (one line — why, from what was verified live), and `route_dated:` (today) to the frontmatter. Filing time is when the routing evidence is richest; Phase 3 step 6 reads the three fields back as a dated recommendation, never a decision. Omit all three rather than guess.
    - **Self-containment check:** the body inlines every block, spec, or piece of evidence the item depends on — a reference may add context, but the substantive content required to act is pasted in, not only linked. (Apply the durability test above.)
 
@@ -721,7 +727,7 @@ Use this logic to determine the recommended route in Phase 3.
 | Specific file paths mentioned | Regex for code file extensions | Moderate → Direct Fix |
 | "multi-sprint" / "phased" keywords | Case-insensitive content search | Strong → Session Planning |
 | "refactor" / "redesign" / "architecture" / "migration" | Content keywords | Strong → Session Planning |
-| 6+ sub-items or ## headings | Count numbered list items and H2 headers | Moderate → Session Planning |
+| 6+ sub-items or ## headings | Count numbered list items and H2 headers, excluding the backlog item template's own section headings (Summary, Problem, Proposed Solution, Acceptance Criteria, Related, Files Touched, Notes) | Moderate → Session Planning |
 | Multiple reference files (YY > 01) | Files column has 2+ links | Moderate → Session Planning |
 | 3-5 numbered steps | Count discrete steps | Moderate → Task List |
 

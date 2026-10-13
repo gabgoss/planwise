@@ -13,9 +13,9 @@ This handler spans **three files**, split by topic because the combined text exc
 
 | Part | File | Stages / Steps | Topic |
 |---|---|---|---|
-| 1 (this file) | `doctor.md` | Preflight, Steps 1-3, Stages 8-13 | Version-state gate, over-scope linter, stale-rule/agent-mirror sweeps, plans/backlog/lessons index drift audits |
-| 2 | [`doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md`](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md) | Stages 14-23 | Upgrade recovery-leftover sweep, settings-grant sweep, thrifty-sonic env var sweep, feedback capability/directory probes, task-tools advisory, backlog body-status and index-shape audits, lessons index-shape audit, plans index-shape audit, style-rule audit (Stage 23) |
-| 3 | [`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md) | Steps 4-8 | Token Saver overhead/read-gate/read-constant audits, capture self-containment scan, bookkeeping index read-gate scan |
+| 1 (this file) | `doctor.md` | Preflight, Steps 1-3, Stages 8-13 | Version-state gate, over-scope linter, stale-rule/agent-mirror sweeps, and the plans/backlog/lessons index drift audits (Stages 11-13: the script prints each, this file keeps the consented writer offers) |
+| 2 | [`doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md`](doctor-Part-2-RecoveryFeedbackAndOperationalAudits.md) | Stages 14-23 | Upgrade recovery-leftover sweep, settings-grant sweep, thrifty-sonic env var sweep, task-tools advisory, style-rule audit (Stage 23), and the writers for Stages 14b and 17b. The script prints Stages 16, 17 and 19-22 (feedback probes, backlog body-status audit, the three index-shape audits), and Part 2 keeps their consented writer offers |
+| 3 | [`doctor-Part-3-TokenSaverAndBookkeepingReadGates.md`](doctor-Part-3-TokenSaverAndBookkeepingReadGates.md) | Steps 4-8 | Token Saver overhead/read-gate/read-constant audits (Steps 4-6, performed in this handler), then the capture self-containment scan (Step 7) and bookkeeping index read-gate scan (Step 8), which the script prints |
 
 `/planwise doctor` reads all three files in sequence — this file first, then Part 2, then Part 3 — to produce one continuous report.
 
@@ -52,6 +52,8 @@ Before any diagnostics, `--doctor` emits an **always-on** version-state gate (in
 The pinned version is read from `config.yaml` (`plugin_version:`; absent → `0.0.0`); the installed version via `read_plugin_version(plugin_root)` from `.claude-plugin/plugin.json` — always the LIVE currently-executing plugin, never the configured `plugin_root:` value, so this comparison alone is immune to a stale `plugin_root:`. The two `plugin_root` checks below it catch a DIFFERENT residual defect: a version pin that already looks current (a legacy upgrade bumped it without repointing the root, or the cache directory the config still names was later reaped) while the separate `plugin_root:` key every other handler resolves scripts through is still wrong. The gate stops on any non-`up to date` state, so **everything below (over-scope lint, Token-Saver audit) runs only when the full gate — version pin AND `plugin_root` — is healthy.**
 
 ### Step 1: Run the over-scope linter
+
+The script prints the numbered stages except Stage 18, which you perform. Steps 2–3 here and Steps 4–6 in Part 3 are the handler's to perform. Pass each printed stage through, and add only the consented writer offers the stage names.
 
 ```bash
 python "{plugin_root}/scripts/init_project.py" --doctor --project-root "{project_root}"
@@ -318,42 +320,19 @@ none of the formerly mirrored agents left, or they already match shipped.`
 
 ### Stage 11: Plans Index Drift Audit
 
-> [!constraint] Read-Only — audit only recommends
-> Stage 11 runs `reconcile_plans.py --json` standalone, reading the plans
-> index (`{plans_dir}/{plans_index}`). It writes nothing unless the user
-> explicitly consents to reconcile — the audit itself never mutates. On
-> consent, `--write` regenerates the whole index through the generator and
-> drops any orphan row.
-
-Always-on (independent of Token Saver) — auditing plans-index consistency is
-doctor's purpose, so this check has **no `--no-check` escape hatch** (contrast
-`/planwise list`, where the same detect pass IS skippable for a fast glance).
-
-Run the index-drift audit procedure in
+The script prints this stage (banner: planwise doctor — plans index drift
+audit). Pass it through verbatim. The audit procedure is in
 [`references/index-drift-audit.md`](../references/index-drift-audit.md)
-against the **plans** index (`reconcile_plans.py`, banner `planwise doctor —
-plans index drift audit`). This is the same detect pass `/planwise list`
-runs, reused here alongside doctor's other health checks — neither handler
-re-implements the comparison.
+(plans binding).
 
-Read the exit code and the JSON `status`, then report exactly one of these
-outcomes. The exit table is in the canonical's Plans binding.
+Offer the writer only in these cases:
 
-- **Exit 0 (`ran`) — a real verdict.** Print the canonical banner, then the
-  drift and anomaly lines or `No drift detected`. Only this outcome may print
-  `No drift detected`.
-- **Exit 3 — audit could not run.** Print the script's own lines (`Drift audit
-  could not run: 0 of {total} rows compared` or `Drift audit incomplete:
-  {compared} of {total} rows compared`) under the doctor banner. Never print
-  `No drift detected`. When the JSON `status` is `could-not-run` and `drifts`
-  holds `missing-row` records, offer `reconcile_plans.py --write`, and say
-  that it regenerates the whole file and drops every line the render does not
-  produce. On `incomplete`, offer no write: regenerating would drop the
-  unparsed lines the script listed.
-- **Exit 2 — legacy-shaped plans index.** Print the script's line and name
-  `/planwise upgrade`. Never print `No drift detected`. Offer no write.
-- **Exit 1 — index not found.** In detect mode, print the script's
-  `Error: Plans index not found at {index}` line.
+- **Audit could not run, with `missing-row` records.** Offer
+  `reconcile_plans.py --write`, and say that it regenerates the whole file and
+  drops every line the render does not produce.
+- **Audit incomplete.** Offer no write: regenerating would drop the unparsed
+  lines the script listed.
+- **Legacy-shaped plans index.** Name `/planwise upgrade` and offer no write.
 
 After a consented `reconcile_plans.py --write`, exit 1 has a different
 meaning: the index was written and the tree has an anomaly. Report
@@ -366,52 +345,26 @@ meaning: the index was written and the tree has an anomaly. Report
 
 ### Stage 12: Backlog Index Archival Drift Audit
 
-> [!constraint] Read-Only — audit only recommends
-> Stage 12 runs `reconcile_backlog.py --json` standalone. It reads each item
-> file's frontmatter status and location under `{backlog_dir}/` and its
-> `Archive/`, never the backlog index. The audit itself never mutates. It moves
-> files only if the user explicitly consents to reconcile. The consented
-> `--write` moves each closed item file into `Archive/` and never writes the
-> index. After a move, run `generate_backlog_index.py --write` so the index
-> links follow the moved files.
+The script prints this stage (banner: planwise doctor — backlog index archival
+drift audit). Pass it through verbatim. The archival state-coupling rationale
+lives in [`references/index-drift-audit.md`](../references/index-drift-audit.md)
+(backlog binding).
 
-Always-on (independent of Token Saver) — auditing backlog-index consistency is
-doctor's purpose, so this check has **no `--no-check` escape hatch** (contrast
-`/planwise backlog`, where the same detect pass IS skippable for a fast triage).
-
-Run the index-drift audit procedure in
-[`references/index-drift-audit.md`](../references/index-drift-audit.md)
-against the **backlog** index (`reconcile_backlog.py`, banner `planwise
-doctor — backlog index archival drift audit`) — the archival state-coupling
-rationale lives there. This is the backlog-index analogue of the Stage 11
-plans-index drift audit; neither re-implements the other's comparison.
+The audit never mutates. It moves files only if the user explicitly consents to
+reconcile. The consented `--write` moves each closed item file into `Archive/`
+and never writes the index.
+After a move, run `generate_backlog_index.py --write` so the index links follow
+the moved files.
 
 ---
 
 ### Stage 13: Lessons Index Counter Drift Audit
 
-> [!constraint] Read-Only — audit only recommends
-> Stage 13 runs `generate_lessons_index.py --check --json`, standalone,
-> reading the lessons index (`{lessons_dir}/{lessons_index}`), the lesson
-> files in that directory and its `Archive/`. It writes nothing unless the
-> user explicitly consents to reconcile — the audit itself never mutates.
-
-Always-on (independent of Token Saver) — auditing index consistency is doctor's
-purpose, so this check has **no `--no-check` escape hatch**. Skip the stage
-entirely only when `config.yaml` declares no `project.lessons_dir` (a project
-with no lessons scaffolding has no counter to audit); report
-`Lessons index: not configured — audit skipped`.
-
-Run the index-drift audit procedure in
+The script prints this stage (banner: planwise doctor — lessons index drift
+audit). Pass it through verbatim. The drift-class specifics live in
 [`references/index-drift-audit.md`](../references/index-drift-audit.md) §
-Lessons against the **lessons** index (`generate_lessons_index.py --check
---json`, banner `planwise doctor — lessons index drift audit`) — the
-lessons-index binding there carries the drift-class specifics: the
-generator's own classes as it names them, including `stale-counter` (off
-the forward-only counter floor) and the file-level anomalies `extra-row`,
-`missing-row`, and `duplicate-id` that this same `--check --json` run
-reports. This is the lessons-index analogue of Stages 11 and 12; none
-re-implements another's comparison.
+Lessons. The script skips the stage when `config.yaml` declares no
+`project.lessons_dir`.
 
 A `legacy-shape` finding means the index is still hand-authored. The
 generator exits 2 on it. Print the generator's line verbatim, report the

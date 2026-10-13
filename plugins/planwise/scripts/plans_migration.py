@@ -169,9 +169,9 @@ def _migrate(cfg, from_version: str, to_version: str, report, defer_legacy: bool
 
 
 def _refuse(report, exc) -> None:
-    """State `refused`: the refusal's reason as the detail, and its fix as the fix."""
-    report.state, report.detail = "refused", exc.reason
-    report.fix = f"{exc.fix}\n{RERUN}"
+    """State `refused`: the refusal's reason as the detail, and its fix as the fix. The fix is the whole
+    instruction: a refusal that closes by a re-run says so itself, and the one for a migrator defect says to keep the index."""
+    report.state, report.detail, report.fix = "refused", exc.reason, exc.fix
 
 
 def _write_failed(report, pre: dict, created: list) -> None:
@@ -275,7 +275,7 @@ def _migrated_lines(report: PlansMigrationReport) -> list:
     lines.append(_row("git tree was dirty", f"{dirty} (informational -- the backup above is the restore point)"))
     verdict = c.get("generator_verdict")
     lines.append(_row("generator --check", "clean" if verdict == "clean" else
-                      ("clean apart from tree anomalies" if verdict == "accepted" else "not clean; re-run /planwise upgrade")))
+                      ("clean apart from tree anomalies" if verdict == "accepted" else "not clean")))
     return lines
 
 

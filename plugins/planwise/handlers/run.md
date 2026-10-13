@@ -360,11 +360,11 @@ Agent(
 
 **Parallel dispatch (3+ tasks):** launch all task-runners in the layer in a single message (multiple Agent tool calls in one assistant turn — they run concurrently). Include the PARALLEL DISPATCH addendum and Status Block format from `references/agent-orchestration-delegated.md` §1.13 in each spawn prompt, and omit the `Recovery file:` parameter — parallel runners must not touch Recovery. Before dispatch, repeat the called-symbol grep on each brief, routed flags included (`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §17.4): a layer-mate's symbol makes the layer sequential. After all runners return, classify each per `references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, then reconcile Recovery centrally per §1.13's orchestrator contract and Step 3.3's "After a parallel batch" instructions below.
 
-Every parallel spawn prompt names the **delivery channel** as well as the block's format. A named or teammate-style runner's plain-text final message does not route to you — only an idle notification arrives — so a prompt giving the shape alone produces a block nobody receives (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1). Add these two lines above the Status Block format in each parallel spawn prompt:
+Every parallel spawn prompt names the **delivery channel** as well as the block's format. A named runner's plain-text final message reaches you only after your turn ends, inside an idle notification, so a prompt giving the shape alone produces a block you cannot use in time (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1). Add these two lines above the Status Block format in each parallel spawn prompt:
 
 ```markdown
 ## Status Block delivery (REQUIRED)
-Deliver your status block by calling the SendMessage tool with to="team-lead".
+Deliver your status block by calling the SendMessage tool with to="main".
 Plain-text output does NOT reach the orchestrator.
 ```
 
@@ -412,7 +412,7 @@ After each task completes (DIRECT or DELEGATED, sequential):
 After a **parallel batch** of 3+ task-runners returns:
 
 1. Parse the status block each runner delivered by `SendMessage` (schema: `TASK_STATUS / TASK_ID / OUTPUT_FILES / LINES_PRODUCED / KEY_FINDINGS / ISSUES`)
-2. **On a missing block, name the tool AND the recipient in the re-request.** A generic re-request — "reply with your status block" — reproduces the original failure, because it leaves the channel unnamed a second time. Send the runner: `Deliver your status block now by calling the SendMessage tool with to="team-lead". Plain-text output does not reach me.` Acceptance does not wait on this: run the on-disk deliverable gate (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.4) meanwhile, which confirms COMPLETE independently of the block. The recovered block then supplies KEY_FINDINGS for the reconciliation below (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1).
+2. **On a missing block, name the tool AND the recipient in the re-request.** A generic re-request — "reply with your status block" — reproduces the original failure, because it leaves the channel unnamed a second time. Send the runner: `Deliver your status block now by calling the SendMessage tool with to="main". Plain-text output does not reach me.` Acceptance does not wait on this: run the on-disk deliverable gate (`references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17.4) meanwhile, which confirms COMPLETE independently of the block. The recovered block then supplies KEY_FINDINGS for the reconciliation below (`references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.29.1).
 3. Verify referenced OUTPUT_FILES exist on disk for every COMPLETE row
 4. **Recovery file** -- write ONCE for the entire batch:
    - One Step Completion row per task in the batch, all with the reconciliation timestamp
