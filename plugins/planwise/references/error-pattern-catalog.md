@@ -42,7 +42,7 @@ Fix: Name the trigger that fired, or change to DIRECT per references/agent-orche
 | 7 | Token estimate too low for declared context | WARNING | Task token estimate vs file count |
 | 8 | Orphaned spec section (appears in no EI) | WARNING | EI completeness check |
 | 9 | Reviewer prompt missing plan context | ERROR | Reviewer spawn prompt |
-| 10 | Idle teammate treated as error | INFO | Normal behavior -- not a failure |
+| 10 | Idle named agent treated as error | INFO | Normal behavior -- not a failure |
 | 11 | DELEGATED dispatch mandatory trigger violated (`agent-orchestration-delegated.md` §1.1) | BLOCKER | Orchestration Execution Strategy |
 | 12 | Task-file error recovery semantics missing (`agent-orchestration-delegated.md` §1.2) | BLOCKER | Task file Notes for Agent |
 | 13 | Schema Pin pre-execution form missing (`schema-pin-requirement.md` §4) | BLOCKER | Task file Required Context |

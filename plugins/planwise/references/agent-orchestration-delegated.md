@@ -258,20 +258,20 @@ Path-specific rules (rules with `paths:` frontmatter patterns) do NOT automatica
 
 ## 1.7 Idle-Mid-Step Wake-Up via SendMessage
 
-Teammates (in agent team mode) go idle after every turn. This is NORMAL — idle does not mean stopped. When a teammate is idle mid-step (has more work to do but has not been prompted for the next step), the orchestrator sends a wake-up message:
+Named runners go idle after every turn. This is NORMAL — idle does not mean stopped. When a named runner is idle mid-step (has more work to do but has not been prompted for the next step), the orchestrator sends a wake-up message:
 
 ```
 SendMessage(
   type: "message",
-  recipient: "{teammate-name}",
-  content: "Continue from where you stopped. Your remaining work: {bullet list of remaining items from task file}.",
+  to: "{runner-name}",
+  message: "Continue from where you stopped. Your remaining work: {bullet list of remaining items from task file}.",
   summary: "Wake-up: continue task execution"
 )
 ```
 
-> [!pitfall] Idle Teammate Mid-Task
-> **Problem:** Teammate completes step N and goes idle, waiting for acknowledgment before proceeding to step N+1. Lead session treats idle as "done" and marks task complete.
-> **Solution:** After receiving partial results from a teammate, check whether the task file has more steps. If yes, send a continuation message. Only treat idle as "done" when the task file's final step is confirmed complete.
+> [!pitfall] Idle Named Runner Mid-Task
+> **Problem:** A named runner completes step N and goes idle, waiting for acknowledgment before proceeding to step N+1. Lead session treats idle as "done" and marks task complete.
+> **Solution:** After receiving partial results from a named runner, check whether the task file has more steps. If yes, send a continuation message. Only treat idle as "done" when the task file's final step is confirmed complete.
 
 ### 1.7.1 An Idle Notification Does Not Close the Ownership Window
 
@@ -453,7 +453,7 @@ For Recovery specifically, **Option C is the binding default whenever 3 or more 
 > The orchestrator reconciles Recovery centrally after all parallel runners return.
 >
 > ## Status Block delivery (REQUIRED)
-> Deliver your status block by calling the SendMessage tool with to="team-lead".
+> Deliver your status block by calling the SendMessage tool with to="main".
 > Plain-text output does NOT reach the orchestrator.
 > ```
 > TASK_STATUS:   COMPLETE | BLOCKED | PARTIAL

@@ -315,7 +315,7 @@ The failure is silent in both directions. An instruction the prompt omits never 
 
 ### 1.29.1 Name the delivery channel, not just the payload format
 
-A spawn prompt that specifies a status block's *format* has not specified how the block reaches the orchestrator. §1.28 bounds what the block carries; this section binds how it arrives. When runners are spawned as named or teammate-style agents, a plain-text final message does not route to the orchestrator — only an idle notification arrives. A protocol that says "RETURN a status block" then means "write a status block nobody receives."
+A spawn prompt that specifies a status block's *format* has not specified how the block reaches the orchestrator. §1.28 bounds what the block carries; this section binds how it arrives. When runners are spawned with a name, a plain-text final message does not reach the orchestrator inside its turn. It arrives only after the turn ends, in the result field of an idle notification (measured 2026-10-12 on Claude Code 2.1.296, one sample). A protocol that says "RETURN a status block" then means "write a status block nobody receives."
 
 > [!constraint] Specify the mechanism, not only the shape
 > WRONG — the prompt gives the format and no channel:
@@ -328,7 +328,7 @@ A spawn prompt that specifies a status block's *format* has not specified how th
 > CORRECT — the prompt names the tool and the recipient:
 > ```markdown
 > ## Status Block delivery (REQUIRED)
-> Deliver your status block by calling the SendMessage tool with to="team-lead".
+> Deliver your status block by calling the SendMessage tool with to="main".
 > Plain-text output does NOT reach the orchestrator.
 > TASK_STATUS:   COMPLETE | BLOCKED | PARTIAL
 > TASK_ID:       {task-id}

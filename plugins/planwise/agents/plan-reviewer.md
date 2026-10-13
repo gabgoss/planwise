@@ -226,4 +226,4 @@ See `references/review-finding-format.md` for the Finding Report Format template
 
 ## Uncertain Finding Protocol
 
-When confidence is MEDIUM or LOW, prefix the finding with `[UNCERTAIN]`. The team lead will cross-check uncertain findings against other reviewers' context before including in the final report.
+When confidence is MEDIUM or LOW, prefix the finding with `[UNCERTAIN]`. The orchestrator will cross-check uncertain findings against other reviewers' context before including in the final report.
