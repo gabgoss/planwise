@@ -1091,6 +1091,353 @@ class TestRouteHintReconciliation(unittest.TestCase):
         self.assertEqual(signals["route"], "B")
 
 
+def _signals(body: str, line_count: int = 80, abbrev: str = "DOC", **extra) -> dict:
+    """`compute_route_signals` over `body`, padded to a long item unless `line_count` says otherwise."""
+    return score_backlog.compute_route_signals(
+        _route_item(abbrev=abbrev), _route_fm(body, line_count=line_count, **extra)
+    )
+
+
+class TestArchitecturalNarrowing(unittest.TestCase):
+    """`IS_ARCHITECTURAL` reads prose that describes the work. A stem inside a
+    name, an `**Evidence:**` line or a table row is reported under `ignored`
+    and does not count. Each drop is paired with a control that keeps the
+    same stem as prose, so the test shows the drop discriminates."""
+
+    def _arch(self, body: str) -> tuple[list[dict], list[dict]]:
+        signals = _signals(body)
+        return signals["architectural_hits"], signals["architectural_ignored"]
+
+    def test_evidence_line_is_ignored_and_the_same_words_as_prose_count(self):
+        hits, ignored = self._arch("**Evidence:** the migration module was read\n")
+        self.assertEqual(hits, [])
+        self.assertEqual([(i["term"], i["why"]) for i in ignored], [("migration", "evidence line")])
+        hits, ignored = self._arch("The migration module was read\n")
+        self.assertEqual([h["term"] for h in hits], ["migration"])
+        self.assertEqual(ignored, [])
+
+    def test_evidence_label_shapes_the_rule_names(self):
+        for line in (
+            "**Evidence:** a migration",
+            "- **Evidence:** a migration",
+            "> **Evidence:** a migration",
+            "Evidence: a migration",
+            "**Evidence**: a migration",
+        ):
+            hits, ignored = self._arch(line + "\n")
+            self.assertEqual(hits, [], line)
+            self.assertEqual(len(ignored), 1, line)
+
+    def test_table_row_is_ignored_and_a_bullet_with_the_same_words_counts(self):
+        hits, ignored = self._arch("| column | a refactor cell |\n")
+        self.assertEqual(hits, [])
+        self.assertEqual(ignored[0]["why"], "table row")
+        hits, _ignored = self._arch("- a refactor cell\n")
+        self.assertEqual(len(hits), 1)
+
+    def test_snake_case_identifier_is_ignored_and_the_bare_word_counts(self):
+        hits, ignored = self._arch("The module `rule_descope_migration` is imported late.\n")
+        self.assertEqual(hits, [])
+        self.assertEqual(ignored[0]["why"], "file, path or identifier name")
+        hits, _ignored = self._arch("The descope migration is imported late.\n")
+        self.assertEqual(len(hits), 1)
+
+    def test_file_name_is_ignored(self):
+        hits, ignored = self._arch("Edit `backlog_migration.py` and `Migration-Notes.md` only.\n")
+        self.assertEqual(hits, [])
+        self.assertEqual(len(ignored), 1)
+
+    def test_path_with_two_or_more_separators_is_ignored_but_one_separator_is_prose(self):
+        hits, ignored = self._arch("Source: `planwise/Plans/BacklogIndexRedesign/Sprint-05/notes` only.\n")
+        self.assertEqual(hits, [])
+        self.assertEqual(ignored[0]["term"], "redesign")
+        # One separator joins two words in prose ("migration/refactor"); it names no path.
+        hits, _ignored = self._arch("A migration/refactor of the parser.\n")
+        self.assertEqual({h["term"] for h in hits}, {"migration", "refactor"})
+
+    def test_a_line_with_a_name_and_prose_keeps_the_prose_hit(self):
+        hits, ignored = self._arch("`rule_descope_migration` needs a redesign of its seam.\n")
+        self.assertEqual([h["term"] for h in hits], ["redesign"])
+        self.assertEqual([i["term"] for i in ignored], ["migration"])
+
+    def test_each_hit_keeps_its_line_number_and_each_ignored_entry_carries_its_own(self):
+        body = "plain\n**Evidence:** a migration\nthen a redesign\n"
+        hits, ignored = self._arch(body)
+        self.assertEqual([(h["term"], h["line"]) for h in hits], [("redesign", 3)])
+        self.assertEqual([(i["term"], i["line"]) for i in ignored], [("migration", 2)])
+
+    def test_detail_report_lists_ignored_hits_under_a_count(self):
+        signals = _signals("**Evidence:** a migration\nthen a redesign\n")
+        detail = score_backlog.format_route_detail(signals, 0)
+        self.assertIn("IS_ARCHITECTURAL:  yes  (1 hit(s); ignored (1))", detail)
+        self.assertIn("    ignored L1 [migration] (evidence line) **Evidence:** a migration", detail)
+        self.assertIn(" ign=1 ", score_backlog.format_route_line(signals, 0))
+
+    def test_fenced_blocks_stay_blanked_before_the_ignored_count(self):
+        signals = _signals("```\nIS_ARCHITECTURAL and a migration\n```\n")
+        self.assertEqual(signals["architectural_hits"], [])
+        self.assertEqual(signals["architectural_ignored"], [])
+
+
+class TestSubItemsPerList(unittest.TestCase):
+    """`SUB_ITEMS` takes the longest consecutive numbered run, not the sum of
+    every numbered line: two lists of 2 and 4 are not 6 parts of the work."""
+
+    TWO_LISTS = "\n1. cite a\n2. cite b\n\nprose\n\n1. step one\n2. step two\n3. step three\n4. step four\n"
+
+    def test_two_lists_of_two_and_four_count_four_sub_items(self):
+        signals = _signals(self.TWO_LISTS)
+        self.assertEqual(signals["numbered_items"], 6)
+        self.assertEqual(signals["step_count"], 4)
+        self.assertEqual(signals["sub_items"], 4)
+        self.assertEqual(signals["route"], "B")
+        self.assertFalse(signals["large_scope"])
+
+    def test_one_list_of_six_still_counts_six_and_routes_to_c(self):
+        signals = _signals("\n" + "".join(f"{n}. step {n}\n" for n in range(1, 7)))
+        self.assertEqual(signals["sub_items"], 6)
+        self.assertEqual(signals["route"], "C")
+        self.assertTrue(signals["large_scope"])
+
+    def test_headings_still_feed_sub_items(self):
+        body = "".join(f"\n## Part {c}\n\nOne sentence.\n" for c in "ABCDEF") + self.TWO_LISTS
+        self.assertEqual(_signals(body)["sub_items"], 6)
+
+
+class TestHasClearFixShapes(unittest.TestCase):
+    """The two shapes added to the mechanical half of `HAS_CLEAR_FIX`, each
+    paired with the nearby text that must not match."""
+
+    def _ba(self, body: str) -> bool:
+        return _signals(body)["clear_fix"]["before_after"]
+
+    def _sb(self, body: str) -> bool:
+        return _signals(body)["clear_fix"]["scope_bound"]
+
+    # -- an amend verb with the new text in quotes or a line anchor ----------
+
+    def test_amend_verb_with_quoted_new_text_is_a_before_after(self):
+        body = (
+            "\n## Fix\n\nAmend the two sentences so they cover both permitted sources.\n\n"
+            "- line 160: \"the card lists the plans call chosen in step one\"\n"
+        )
+        self.assertTrue(self._ba(body))
+
+    def test_reword_verb_with_a_quoted_replacement_is_a_before_after(self):
+        self.assertTrue(self._ba("\nReword constraint 1 to \"the files named on this task's Output line\".\n"))
+
+    def test_amend_verb_with_only_a_line_anchor_is_not_a_before_after(self):
+        # A line number says where the edit goes, not what it becomes.
+        self.assertFalse(self._ba("\nCorrect the figure on line 40 of the table.\n"))
+
+    def test_a_past_tense_or_mid_sentence_verb_is_not_a_before_after(self):
+        self.assertFalse(self._ba("\nThe wording changed since filing and now reads \"the three calls here\".\n"))
+        self.assertFalse(self._ba("\nThe fix would change the output of the helper on \"a quoted heading line\".\n"))
+        self.assertFalse(self._ba("\nA corrected figure is in \"the table of results below\".\n"))
+
+    def test_the_verb_must_have_its_new_text_before_the_next_heading(self):
+        self.assertFalse(self._ba("\nAmend it.\n\n## Next\n\nThen see line 5 of the file.\n"))
+
+    def test_the_amend_shape_ignores_fenced_blocks(self):
+        fenced = "\n```\nRewrite the config to \"a long quoted replacement here\".\n```\n"
+        self.assertFalse(self._ba(fenced))
+        self.assertTrue(self._ba("\nRewrite the config to \"a long quoted replacement here\".\n"))
+
+    # -- a positive scope bound beside a Grep or count check -----------------
+
+    def test_a_grep_criterion_naming_what_keeps_its_wording_is_a_scope_bound(self):
+        body = (
+            "\n- [ ] `Grep pattern=\"three\" path=docs` returns 0 hits outside Recovery, Summary and "
+            "Review records, which keep the historical wording\n"
+        )
+        self.assertTrue(self._sb(body))
+
+    def test_the_clause_without_a_grep_or_count_check_is_not_a_scope_bound(self):
+        self.assertFalse(self._sb("\n- [ ] The existing tests pass unchanged\n"))
+        self.assertFalse(self._sb("\n- [ ] `pytest -q` passes with a pass count unchanged\n"))
+
+    def test_a_grep_check_without_a_keep_clause_is_not_a_scope_bound(self):
+        self.assertFalse(self._sb("\n- [ ] `Grep pattern=\"x\" path=docs` returns 0 hits\n"))
+
+    def test_the_older_scope_bound_phrases_still_match(self):
+        self.assertTrue(self._sb("\nEdit only `src/a.py`; touch no other file.\n"))
+
+
+class TestUndecidedVerdict(unittest.TestCase):
+    """A fresh, valid hint that differs from the computed route is `undecided`
+    when the divergence rests on a candidate signal a reader classifies, and
+    stays `script wins` for a stale hint, an invalid hint, and a divergence
+    no reader judgment reaches."""
+
+    THREE_STEPS_WITH_REFACTOR = "\n## Steps\n\n1. a\n2. b\n3. c\n\nThis needs a refactoring pass.\n"
+
+    def test_judgment_routes_lists_every_route_a_reader_could_reach(self):
+        routes, names = score_backlog.judgment_routes(True, True, False, 4, 4, False, True)
+        self.assertEqual(names, ["IS_ARCHITECTURAL", "HAS_CLEAR_FIX"])
+        self.assertEqual(routes, {"A", "B", "C"})
+
+    def test_a_short_files_clear_fix_is_mechanical_and_cannot_be_judged_away(self):
+        routes, names = score_backlog.judgment_routes(True, False, False, 0, 3, True, False)
+        self.assertEqual((routes, names), ({"A"}, []))
+
+    def test_a_signal_the_script_did_not_find_is_not_adjustable(self):
+        routes, names = score_backlog.judgment_routes(False, False, False, 0, 3, False, False)
+        self.assertEqual((routes, names), ({"B"}, []))
+
+    def test_an_architectural_keyword_hit_over_a_b_hint_is_undecided(self):
+        signals = _signals(self.THREE_STEPS_WITH_REFACTOR, route_hint="B", route_dated="2026-10-14")
+        self.assertEqual(signals["route"], "C")
+        hint = signals["hint"]
+        self.assertTrue(hint["undecided"])
+        self.assertFalse(hint["agrees"])
+        self.assertTrue(hint["verdict"].startswith("undecided"))
+        self.assertEqual(hint["judgment_signals"], ["IS_ARCHITECTURAL"])
+
+    def test_the_same_divergence_with_a_stale_hint_is_script_wins(self):
+        body = self.THREE_STEPS_WITH_REFACTOR + "\n**Evidence:** still so — verified 2026-03-01 by `Grep`\n"
+        signals = _signals(body, route_hint="B", route_dated="2026-02-01")
+        self.assertTrue(signals["hint"]["stale"])
+        self.assertFalse(signals["hint"]["undecided"])
+        self.assertTrue(signals["hint"]["verdict"].startswith("script wins"))
+
+    def test_a_hint_no_judgment_reaches_is_script_wins(self):
+        # Reaching A needs a clear fix the item does not carry.
+        signals = _signals(self.THREE_STEPS_WITH_REFACTOR, route_hint="A", route_dated="2026-10-14")
+        self.assertFalse(signals["hint"]["undecided"])
+        self.assertTrue(signals["hint"]["verdict"].startswith("script wins"))
+
+    def test_a_divergence_on_a_mechanical_signal_is_script_wins(self):
+        six_steps = "\n" + "".join(f"{n}. step {n}\n" for n in range(1, 7))
+        signals = _signals(six_steps, route_hint="B", route_dated="2026-10-14")
+        self.assertEqual(signals["sub_items"], 6)
+        self.assertFalse(signals["hint"]["undecided"])
+        self.assertTrue(signals["hint"]["verdict"].startswith("script wins"))
+
+    def test_an_invalid_hint_is_script_wins_even_when_every_route_is_reachable(self):
+        signals = _signals(self.THREE_STEPS_WITH_REFACTOR, route_hint="direct-fix")
+        self.assertFalse(signals["hint"]["undecided"])
+        self.assertIn("not one of A/B/C", signals["hint"]["verdict"])
+
+    def test_the_sufficiency_half_of_a_clear_fix_can_be_the_judged_signal(self):
+        body = CLEAR_FIX_BODY + "\n1. a\n2. b\n3. c\n"
+        signals = _signals(body, route_hint="B", route_dated="2026-10-14")
+        self.assertEqual(signals["route"], "A")
+        self.assertTrue(signals["hint"]["undecided"])
+        self.assertEqual(signals["hint"]["judgment_signals"], ["HAS_CLEAR_FIX"])
+
+    def test_a_short_file_is_mechanical_so_a_b_hint_over_route_a_is_script_wins(self):
+        signals = _signals("\n# x\n1. a\n2. b\n", line_count=10, route_hint="B", route_dated="2026-10-14")
+        self.assertEqual(signals["route"], "A")
+        self.assertFalse(signals["hint"]["undecided"])
+
+    def test_an_agreeing_hint_is_still_agree(self):
+        signals = _signals("\n## Steps\n\n1. a\n2. b\n3. c\n", route_hint="B", route_dated="2026-10-14")
+        self.assertEqual(signals["hint"]["verdict"], "agree")
+        self.assertFalse(signals["hint"]["undecided"])
+        self.assertEqual(signals["hint"]["judgment_signals"], [])
+
+    def test_report_row_and_detail_name_the_undecided_verdict(self):
+        signals = _signals(self.THREE_STEPS_WITH_REFACTOR, route_hint="B", route_dated="2026-10-14")
+        self.assertIn("| hint B undecided", score_backlog.format_route_line(signals, 0))
+        detail = score_backlog.format_route_detail(signals, 0)
+        self.assertIn("-> undecided — the divergence rests on reader-judgment signals; see the hit lines", detail)
+        self.assertIn("judgment turns on: IS_ARCHITECTURAL", detail)
+
+
+ROUTE_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "route_items"
+
+# One row per fixture: (route, architectural hits, ignored hits, sub-items,
+# before_after, scope_bound, verdict prefix). Pinned to the 12 files in
+# tests/fixtures/route_items, each copied verbatim from the project backlog on
+# 2026-10-14; re-pin when a fixture is replaced.
+ROUTE_FIXTURE_EXPECTED = {
+    "amend_two_sentences_with_quoted_text.md": ("A", 0, 0, 0, True, True, "agree"),
+    "evidence_line_and_scoped_migration_prose.md": ("C", 1, 1, 0, True, True, "script wins"),
+    "evidence_line_quotes_redesign_folder.md": ("B", 0, 2, 4, False, False, "agree"),
+    "gate_name_contains_migration.md": ("C", 1, 1, 2, False, True, "undecided"),
+    "measurement_item_with_replace_clause.md": ("B", 0, 0, 5, True, False, "script wins"),
+    "migration_tests_pass_criterion.md": ("C", 2, 0, 2, True, False, "undecided"),
+    "module_name_contains_migration.md": ("B", 0, 7, 4, False, False, "agree"),
+    "six_consecutive_numbered_items.md": ("C", 0, 0, 6, True, True, "script wins"),
+    "table_cell_and_bullet_say_refactor.md": ("C", 1, 1, 4, True, True, "undecided"),
+    "title_and_summary_name_a_migration.md": ("C", 3, 3, 0, False, False, "script wins"),
+    "two_evidence_citations_then_four_steps.md": ("B", 0, 0, 4, True, False, "agree"),
+    "untrack_files_with_drifted_premise.md": ("B", 0, 0, 4, False, False, "script wins"),
+}
+
+
+class TestRouteFixtures(unittest.TestCase):
+    """Real item bodies, copied verbatim into `tests/fixtures/route_items`
+    (outside the shipped subtree), run through `compute_route_signals`. Each
+    row was measured before it was pinned; the control at the end shows the
+    pinned values are carried by the new detector and not by the fixtures."""
+
+    @staticmethod
+    def _signals_for(name: str) -> dict:
+        fm = score_backlog.read_item_frontmatter(ROUTE_FIXTURES / name)
+        item = _route_item(abbrev=str(fm.get("abbrev", "DOC")))
+        return score_backlog.compute_route_signals(item, fm)
+
+    def test_the_fixture_directory_holds_exactly_the_pinned_files(self):
+        found = {p.name for p in ROUTE_FIXTURES.glob("*.md")}
+        self.assertEqual(found, set(ROUTE_FIXTURE_EXPECTED), f"compared-set size: {len(found)} found")
+        self.assertEqual(len(found), 12)
+
+    def test_every_fixture_matches_its_pinned_signals(self):
+        for name, expected in ROUTE_FIXTURE_EXPECTED.items():
+            signals = self._signals_for(name)
+            actual = (
+                signals["route"],
+                len(signals["architectural_hits"]),
+                len(signals["architectural_ignored"]),
+                signals["sub_items"],
+                signals["clear_fix"]["before_after"],
+                signals["clear_fix"]["scope_bound"],
+                signals["hint"]["verdict"].split(" —")[0],
+            )
+            self.assertEqual(actual, expected, name)
+
+    def test_two_evidence_citations_then_four_steps_reports_four_sub_items_and_route_b(self):
+        signals = self._signals_for("two_evidence_citations_then_four_steps.md")
+        self.assertEqual((signals["numbered_items"], signals["step_count"], signals["sub_items"]), (8, 4, 4))
+        self.assertEqual((signals["route"], signals["large_scope"]), ("B", False))
+
+    def test_a_module_name_and_a_migration_title_both_stop_firing_on_a_name(self):
+        module = self._signals_for("module_name_contains_migration.md")
+        self.assertFalse(module["is_architectural"])
+        self.assertEqual(len(module["architectural_ignored"]), 7)
+        # The other item keeps three prose hits (title, summary, related line)
+        # and its three file and evidence hits are listed as ignored.
+        title = self._signals_for("title_and_summary_name_a_migration.md")
+        self.assertTrue(title["is_architectural"])
+        self.assertEqual({i["why"] for i in title["architectural_ignored"]},
+                         {"evidence line", "file, path or identifier name"})
+
+    def test_the_amend_item_has_both_new_shapes_and_routes_to_a(self):
+        signals = self._signals_for("amend_two_sentences_with_quoted_text.md")
+        self.assertTrue(signals["clear_fix"]["before_after"])
+        self.assertTrue(signals["clear_fix"]["scope_bound"])
+        self.assertEqual(signals["route"], "A")
+        self.assertEqual(signals["hint"]["verdict"], "agree")
+
+    def test_verdict_tally_over_the_fixtures(self):
+        tally: dict[str, int] = {}
+        for name in ROUTE_FIXTURE_EXPECTED:
+            key = self._signals_for(name)["hint"]["verdict"].split(" —")[0]
+            tally[key] = tally.get(key, 0) + 1
+        self.assertEqual(tally, {"agree": 4, "undecided": 3, "script wins": 5})
+
+    def test_control_the_old_detector_fires_on_the_module_name_fixture(self):
+        def naive(text):
+            return score_backlog._keyword_hits(text, score_backlog.ARCHITECTURAL_TERMS), []
+
+        with unittest.mock.patch.object(score_backlog, "_architectural_hits", naive):
+            signals = self._signals_for("module_name_contains_migration.md")
+        self.assertTrue(signals["is_architectural"])
+        self.assertEqual(signals["route"], "C")
+        self.assertEqual(len(signals["architectural_hits"]), 7)
+
+
 class TestRouteReportMode(unittest.TestCase):
     """`--route` end to end over a two-item fixture corpus: it lists every
     open item, `--id` prints one in full, `--json` writes a temp file, and
