@@ -84,6 +84,74 @@ the raw text, so the backslash reaches `Grep` intact.
 
 ---
 
+## Glob Pattern Anchoring
+
+Inside the project, the `Glob` tool anchors a pattern that contains a slash at
+the project root, not at `path`. The `path` argument only filters the results
+to its subtree. A pattern that starts with a folder segment therefore matches
+nothing when `path` is set to a folder inside the project, whatever that folder
+holds. An absence gate of that shape passes on any tree. A presence gate of that
+shape fails on correct work. The same call against a folder outside the project
+anchors at `path` and works, so a gate copied from an out-of-project example
+breaks silently.
+
+Measured 2026-10-14 with the files on disk. Every call used the same in-project
+`path` unless noted:
+
+| `path` | `pattern` | Result |
+|---|---|---|
+| `<repo>/<folder>/plugin` | `scripts/*.py` | No files found (88 exist) |
+| `<repo>/<folder>/plugin/scripts` | `*.py` | 88 files |
+| `<repo>/<folder>/plugin` | `**/scripts/upgrade_run.py` | 1 file |
+| `<repo>/<folder>/plugin` | `<folder>/plugin/scripts/upgrade_*.py` | 5 files (the project-relative pattern matches, so the anchor is the project root) |
+| `<plugin cache>/planwise` (outside the project) | `<version>/scripts/list_plans.py` | 1 file |
+
+The tracked or untracked state of the folder does not matter. One probe per
+shape, re-run the same day on Claude Code 2.1.300, returned the same results.
+
+> [!constraint] Lead an in-project `Glob` pattern with `**/`, and give the control the same shape
+> WRONG — a folder-led absence gate, and a control in a different shape that proves nothing about it:
+> ```
+> Glob  pattern='rows/**'    path='<repo>/<folder>/results'   # "No files found" with six files in rows/
+> Glob  pattern='smoke.md'   path='<repo>/<folder>/results'   # 1 file: file-only shape, so this control cannot vouch for the row above
+> ```
+> CORRECT — lead the pattern with `**/`, and give the control the same shape:
+> ```
+> Glob  pattern='**/rows/**'   path='<repo>/<folder>/results'   # 6 files with rows/ populated, "No files found" without
+> Glob  pattern='**/smoke.md'  path='<repo>/<folder>/results'   # 1 file: same shape, so an empty gate above now means absence
+> ```
+
+Four rules follow.
+
+1. **With an in-project `path`, lead the pattern with `**/`, or name files only
+   (`*.py`) with `path` at the folder itself, or drop `path` and write the whole
+   pattern project-relative.** Never start the pattern with a literal folder
+   name.
+2. **The control uses the gate's pattern shape.** A `**/`-led gate takes a
+   `**/`-led control on a file known to exist under the same `path`.
+3. **Run the rewritten row once with a matching file in place and once
+   without, before pinning it.** The two results must differ.
+4. **Prefer a walk that prints the number of files it saw for any "nothing
+   like X exists" gate.** The count is the proof that the check could see its
+   subject. An empty `Glob` listing carries no such count.
+
+```
+python -B -c "import os,sys; n=0; h=[]
+for r,ds,fs in os.walk(sys.argv[1]):
+    n+=len(fs); h+=[d for d in ds if d=='__pycache__']
+print('walked',n,'files; hits',h)" <repo>/<folder>
+# "walked 244 files; hits []" -> the empty result now has a denominator
+```
+
+A `Glob` row in a task file is a pinned command, and "No files found" is an
+answer only after the instrument has shown it can see the tree. The gate
+linter enforces the shape: `scripts/lint_verification_gates.py` Check 17
+reports a `Glob` call that sets `path` and starts its pattern with a folder
+segment, as a WARNING, and `references/error-pattern-catalog.md` row 135
+carries the catalog entry.
+
+---
+
 ## Where the Shell Is Correct
 
 The dedicated tools do not replace the shell generally — only for file-tree
