@@ -62,6 +62,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lint_gate_tool_calls import (
+    GLOB_FOLDER_LED_MESSAGE,
+    GREP_ALTERNATION_MESSAGE,
+    glob_folder_led_call,
+    grep_alternation_call,
+    iter_tool_calls,
+)
 from markdown_parser import is_section_boundary
 
 # The whole allowlist. Four bare names, each of which only ever reads.
@@ -1360,16 +1367,24 @@ def _check7_contradicted_before_baseline(context: LintContext) -> list:
     return findings
 
 
-# A native ``Grep`` tool call written as ``Grep  pattern='...'``. The value runs
-# to the matching quote, so a quote of the other kind may sit inside it.
-_GREP_TOOL_CALL_RE = re.compile(r"\bGrep\b[^\n]*?\bpattern\s*=\s*(['\"])(.*?)\1")
+def _tool_call_findings(context: LintContext, *, check: int, matcher, message: str) -> list:
+    """One WARNING per markdown line whose native tool call ``matcher`` flags.
 
-# A backslash-pipe with a word character directly on each side, such as
-# ``a\|b``. That is the shape of an alternation. A backslash-pipe beside
-# whitespace, at the pattern start, or after ``^`` anchors a literal pipe in a
-# markdown table row and is not matched. The ``(?<!\\\w)`` guard keeps a class
-# escape such as ``\w\|`` from counting as a word character.
-_ESCAPED_PIPE_ALTERNATION_RE = re.compile(r"(?<=\w)(?<!\\\w)\\\|(?=\w)")
+    The matchers live in ``lint_gate_tool_calls``. A ``Grep`` or ``Glob`` call in
+    a table row never becomes an extracted command, so these checks read the
+    markdown lines directly.
+    """
+    return [
+        make_finding(
+            check=check,
+            severity=SEVERITY_WARNING,
+            file=_relative_name(path, context.plan_root),
+            line=number,
+            command=call,
+            message=message,
+        )
+        for path, number, call in iter_tool_calls(context.markdown_files(), matcher)
+    ]
 
 
 def _check8_grep_tool_escaped_pipe_alternation(context: LintContext) -> list:
@@ -1385,40 +1400,23 @@ def _check8_grep_tool_escaped_pipe_alternation(context: LintContext) -> list:
     WRONG is a counter-example, not a gate, and is skipped. A template
     placeholder on the line does not exempt it.
     """
-    findings = []
-    for path in context.markdown_files():
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        rel = _relative_name(path, context.plan_root)
-        for number, line in enumerate(text.split("\n"), start=1):
-            # No placeholder skip: a template slot elsewhere on the line, such
-            # as in an output cell, says nothing about the pattern's dialect.
-            if "WRONG" in line:
-                continue
-            for call in _GREP_TOOL_CALL_RE.finditer(line):
-                if not _ESCAPED_PIPE_ALTERNATION_RE.search(call.group(2)):
-                    continue
-                findings.append(
-                    make_finding(
-                        check=8,
-                        severity=SEVERITY_WARNING,
-                        file=rel,
-                        line=number,
-                        command=call.group(0),
-                        message=(
-                            "This Grep tool pattern writes alternation as a "
-                            "backslash-pipe. The tool uses ripgrep syntax, "
-                            "where that matches a literal pipe, so the pattern "
-                            "matches nothing. Use a bare pipe outside a table "
-                            "cell, or split it into one Grep call per "
-                            "alternative"
-                        ),
-                    )
-                )
-                break
-    return findings
+    return _tool_call_findings(
+        context, check=8, matcher=grep_alternation_call, message=GREP_ALTERNATION_MESSAGE
+    )
+
+
+def _check17_glob_folder_led_pattern_with_path(context: LintContext) -> list:
+    """Check 17 -- a native ``Glob`` call that sets ``path`` and writes a
+    pattern starting with a literal folder segment. Inside a project the tool
+    anchors a pattern that contains a slash at the project root and uses
+    ``path`` only to filter the results, so the pattern matches nothing. An
+    absence gate of that shape passes on any tree and a presence gate fails on
+    correct work. WARNING, not ERROR: the linter cannot tell whether ``path``
+    lies inside the project. A line containing the word WRONG is skipped.
+    """
+    return _tool_call_findings(
+        context, check=17, matcher=glob_folder_led_call, message=GLOB_FOLDER_LED_MESSAGE
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1902,6 +1900,7 @@ CHECK_REGISTRY.extend(
         _check14_context_window_counted,
         _check15_anchored_aggregate_threshold,
         _check16_unscoped_suite_gate,
+        _check17_glob_folder_led_pattern_with_path,
     ]
 )
 

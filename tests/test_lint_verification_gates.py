@@ -900,5 +900,92 @@ class TestConsoleEncodingSurvival(unittest.TestCase):
         self.assertIn("RuntimeError: boom", err.getvalue())
 
 
+class TestCheck17GlobFolderLedPattern(unittest.TestCase):
+    """Check 17 flags a native ``Glob`` call that sets ``path`` and writes a
+    pattern starting with a literal folder segment. One scenario per shape:
+    each line is written to a scratch plan at test time, so the assertion
+    names the line that fired rather than a count."""
+
+    def _fired_lines(self, *lines, execute=False):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "notes.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            findings = lint_plan(Path(tmp), execute=execute)
+        fired = [f for f in findings if f["check"] == 17]
+        self.assertTrue(all(f["severity"] == "WARNING" for f in fired))
+        return sorted(f["line"] for f in fired)
+
+    def test_folder_led_pattern_with_path_fires_single_quotes(self):
+        self.assertEqual(self._fired_lines("Glob  pattern='rows/**'  path='C:/x/results'"), [1])
+
+    def test_folder_led_pattern_with_path_fires_double_quotes(self):
+        self.assertEqual(self._fired_lines('Glob pattern="scripts/*.py" path="/x/plugin"'), [1])
+
+    def test_path_before_pattern_fires(self):
+        self.assertEqual(self._fired_lines("Glob path='/x/plugin' pattern='scripts/*.py'"), [1])
+
+    def test_table_row_fires(self):
+        self.assertEqual(self._fired_lines("| 1 | Glob pattern='rows/**' path='/x/results' | No files found |"), [1])
+
+    def test_two_calls_on_one_line_report_the_folder_led_one(self):
+        line = "Glob pattern='**/a.md' path='/x'  then  Glob pattern='rows/**' path='/x'"
+        self.assertEqual(self._fired_lines(line), [1])
+
+    def test_recursive_lead_is_silent(self):
+        self.assertEqual(self._fired_lines("Glob pattern='**/rows/**' path='/x/results'"), [])
+
+    def test_file_only_patterns_are_silent(self):
+        self.assertEqual(
+            self._fired_lines(
+                "Glob pattern='*.py' path='/x/scripts'",
+                "Glob pattern='row-{3,4,5}.json' path='/x/results'",
+            ),
+            [],
+        )
+
+    def test_folder_led_pattern_without_path_is_silent(self):
+        self.assertEqual(self._fired_lines("Glob pattern='rows/**'"), [])
+
+    def test_path_belonging_to_a_later_call_does_not_arm_an_earlier_one(self):
+        self.assertEqual(self._fired_lines("Glob pattern='rows/**'  Glob pattern='*.py' path='/x'"), [])
+
+    def test_wrong_line_is_silent(self):
+        self.assertEqual(self._fired_lines("WRONG: Glob pattern='rows/**' path='/x/results'"), [])
+
+    def test_non_folder_leads_are_silent(self):
+        self.assertEqual(
+            self._fired_lines(
+                "Glob pattern='{a,b}/x.md' path='/x'",
+                "Glob pattern='src*/x.md' path='/x'",
+                "Glob pattern='/abs/x.md' path='/x'",
+                "Glob pattern='C:/abs/x.md' path='/x'",
+                "Glob pattern='./x/y.md' path='/x'",
+            ),
+            [],
+        )
+
+    def test_check_fires_with_executor_enabled_and_names_both_working_forms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "notes.md").write_text("Glob pattern='rows/**' path='/x'\n", encoding="utf-8")
+            findings = [f for f in lint_plan(Path(tmp), execute=True) if f["check"] == 17]
+        self.assertEqual(len(findings), 1)
+        self.assertIn("**/", findings[0]["message"])
+        self.assertIn("path set to the folder itself", findings[0]["message"])
+
+    def test_cli_run_reports_the_finding_once(self):
+        # The linter run as a script is __main__. A sibling that imported it back
+        # would load a second copy and register every check twice.
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "notes.md").write_text("Glob pattern='rows/**' path='/x'\n", encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "-B", str(Path(lint_module.__file__)), tmp, "--no-execute"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+        self.assertEqual(result.stdout.count("Check 17"), 1, result.stdout)
+        self.assertEqual(result.returncode, lint_module.EXIT_ADVISORY_ONLY)
+
+
 if __name__ == "__main__":
     unittest.main()
