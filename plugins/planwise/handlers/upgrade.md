@@ -2,7 +2,7 @@
 
 **Purpose:** Refresh installed plugin artifacts (rules in `.claude/rules/planwise/`) and bump the pinned `plugin_version:` in `config.yaml` after a plugin update.
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
 
 This handler spans **three files**, split by topic because the combined text exceeds the Read-tool page cap. Each Step keeps its own identifier wherever it lands, so an existing `Step N` reference still names exactly one section — only the filename that holds it changes.
 

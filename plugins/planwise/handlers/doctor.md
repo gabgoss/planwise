@@ -2,7 +2,7 @@
 
 **Purpose:** Report `.claude/rules/**` that are over-scoped to plan/backlog/lessons paths (an injection-budget risk for DELEGATED task-runners), flag backlog/lesson captures whose substance is only an external or transient pointer (a capture-durability risk), audit the plans index for drift against a fresh render of each plan's Master Plan, audit the backlog index for archival drift (closed items whose file is not under `Archive/`), audit the lessons index for "Next available ID" counter drift (a lesson authored outside capture mode leaves the counter stale and the next capture reuses an ID), probe whether upstream feedback can actually post (`feedback.enabled`, `gh` on PATH, `gh` authenticated) rather than silently drafting, report whether this session has the Task checklist tools (`TaskCreate` and siblings) and name the opt-in when it does not, audit the two always-on style rules (each rule's `style:` switch, installed copy, duplicate copies and token cost), always scan the plans/backlog/lessons bookkeeping indexes against the same Read-tool caps regardless of Token Saver, and — when Token Saver is on — audit the measured overheads for staleness, scan the active plan's files against the Read-tool gates, and flag the fixed read-limit constants for harness drift. Read-only — mutates nothing (drift reconciliation is offered only on explicit consent).
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
 
 **Invocation examples:**
 ```

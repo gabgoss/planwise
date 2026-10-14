@@ -114,6 +114,7 @@ Available subcommands:
 | `$1` | handler's first argument | `MyPlan` |
 | `$2` | handler's second argument | `--meta` |
 | `$ARGUMENTS` | full original string | `plan MyPlan --meta` |
+| `${CLAUDE_SESSION_ID}` | the current session id — the feedback-drafting recipe copies it into `source_session_id` | `<the substituted id>` |
 
 ARGUMENTS: $ARGUMENTS
 
@@ -128,6 +129,7 @@ ARGUMENTS: $ARGUMENTS
 - [Agent orchestration](../../references/agent-orchestration.md)
 - [Do the hard things](../../references/do-the-hard-things.md) — the project motto: favor the coherent, complete treatment over the easy partial one; effort is never the tiebreaker
 - [Native tool use](../../references/native-tool-use.md) — dedicated file tools (Read/Grep/Glob/Edit/Write) over shell equivalents for file-tree reads, searches, and edits; scoped, not a blanket shell prohibition
+- [Feedback drafting](../../references/feedback-drafting.md) — draft a local, never-sent planwise feedback file at a high-signal moment; honour feedback.drafts; never announce
 
 **Loaded on demand, NOT pre-injected** — each is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. Key references (not exhaustive — handlers own the full set):
 

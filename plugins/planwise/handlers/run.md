@@ -46,7 +46,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
 
 **Run-specific references (always load):**
 1. Read `references/session-execution-protocol.md`

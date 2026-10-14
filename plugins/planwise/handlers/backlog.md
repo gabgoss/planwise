@@ -61,7 +61,7 @@ The optional top-level `id_format` key (`prefixed` or `bare`) controls how a new
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
 
 **Conditional references:**
 - Loaded at Phase 3, step 3a (pivot check), for High-priority / top-scored / aged items or multi-item cohorts: Read `references/backlog-triage-pivot-detection.md`

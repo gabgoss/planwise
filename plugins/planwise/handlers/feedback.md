@@ -52,7 +52,7 @@ Before proceeding, read:
   of the above.
 
 **Base references** (`markdown-conventions.md`, `callout-conventions.md`,
-`agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+`agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
 
 ---
 
