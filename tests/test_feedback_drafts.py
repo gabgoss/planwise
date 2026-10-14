@@ -188,6 +188,42 @@ def test_expiry_at_31_days_flips_expired_and_deletes_nothing(fdir, capsys):
     assert fm_value(path, "status") == "expired"
 
 
+def test_is_expired_boundary_is_exclusive(fdir):
+    now = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+    limit = timedelta(days=fd.EXPIRY_DAYS)
+    stamp = "%Y-%m-%dT%H:%M:%SZ"
+    at = make_draft(fdir, "2026-01-01-draft-bug-at.md", draft_id="at", created_at=(now - limit).strftime(stamp))
+    past = make_draft(fdir, "2026-01-01-draft-bug-past.md", draft_id="past", created_at=(now - limit - timedelta(seconds=1)).strftime(stamp))
+    blank = make_draft(fdir, "2026-01-01-draft-bug-blank.md", draft_id="blank", created_at="not-a-time")
+    drafts = {d.path: d for d in fd._iter_drafts(fdir)}
+    assert not fd.is_expired(drafts[at], now)
+    assert fd.is_expired(drafts[past], now)
+    assert not fd.is_expired(drafts[blank], now)
+
+
+def test_count_queued_matches_list_and_writes_nothing(fdir, capsys, monkeypatch):
+    now = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(fd, "_now", lambda: now)
+    stamp = "%Y-%m-%dT%H:%M:%SZ"
+    limit = timedelta(days=fd.EXPIRY_DAYS)
+    make_draft(fdir, "2026-01-01-draft-bug-fresh.md", draft_id="fresh", created_at=(now - timedelta(days=1)).strftime(stamp))
+    make_draft(fdir, "2026-01-01-draft-bug-at.md", draft_id="at", created_at=(now - limit).strftime(stamp))
+    make_draft(fdir, "2026-01-01-draft-bug-past.md", draft_id="past", created_at=(now - limit - timedelta(seconds=1)).strftime(stamp))
+    make_draft(fdir, "2026-01-01-draft-bug-gone.md", draft_id="gone", status="discarded")
+    before = {p.name: p.read_bytes() for p in fdir.iterdir()}
+
+    assert fd.count_queued(fdir) == 2
+    assert {p.name: p.read_bytes() for p in fdir.iterdir()} == before
+
+    code, out, _ = run(["list", "--json", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert sum(1 for item in json.loads(out) if item["status"] == "queued") == 2
+
+
+def test_count_queued_on_an_absent_directory_is_zero(tmp_path):
+    assert fd.count_queued(tmp_path / "missing") == 0
+
+
 def test_duplicate_title_exits_3_removes_file_and_prints_one_line(fdir, capsys):
     make_draft(fdir, "2026-01-01-draft-bug-first.md", draft_id="f1", created_at=iso(2), title="Same Title!")
     dup = make_draft(fdir, "2026-01-01-draft-bug-second.md", draft_id="pending", created_at="pending", status="pending", title="same   title")

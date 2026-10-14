@@ -256,7 +256,7 @@ user opts in with the separate writer `/planwise doctor --create-feedback-dir`
 (Stage 17b below). Resolve `{feedback_dir_path}` as
 `{planwise_root}/{project.feedback_dir}` for that offer. The script also prints a
 read-only `model drafts queued: {n}` line, or `model drafts queued: not checked`
-when the directory is absent or the config cannot be read. When `n` is above 0 it
+when the directory is absent, the config cannot be read, or the count fails (it then names the reason). When `n` is above 0 it
 adds the hint `review them with /planwise feedback --drafts, or post one with
 /planwise feedback --post <draftId>`.
 

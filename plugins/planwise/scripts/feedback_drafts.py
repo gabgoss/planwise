@@ -34,6 +34,16 @@ Every write resolves a symlink first, so the link stays and its target changes.
 
 Frontmatter is written back by splicing the one changed line, so every other
 byte of the file, line endings included, stays as written.
+
+## Read-only functions
+
+A caller that only reports, such as doctor, imports these instead of running
+`list`, because `list` applies expiry and so writes.
+
+| Function | Returns |
+|---|---|
+| `is_expired(draft, now)` | True when the draft was created more than `EXPIRY_DAYS` before `now`. The commands above use this same predicate |
+| `count_queued(directory)` | The number of drafts `list` would show as `queued`. Writes nothing |
 """
 
 import argparse
@@ -247,6 +257,27 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def is_expired(draft: Draft, now: datetime) -> bool:
+    """True when `draft` was created more than `EXPIRY_DAYS` before `now`.
+
+    This is the one expiry predicate. `expire`, `list` and `admit` apply it,
+    and a read-only caller uses it to get the same answer without writing. A
+    missing or unparseable `created_at` never expires.
+    """
+    created = _parse_created(draft.fm.get("created_at", ""))
+    return created is not None and now - created > timedelta(days=EXPIRY_DAYS)
+
+
+def count_queued(directory: Path) -> int:
+    """How many model drafts `list` would show as `queued` in `directory`.
+
+    Read-only: a queued draft past expiry counts as not queued and is left
+    as it is on disk. Only `expire`, `list` and `admit` write its new status.
+    """
+    now = _now()
+    return sum(1 for draft in _iter_drafts(directory) if draft.status == "queued" and not is_expired(draft, now))
+
+
 def _normalise_title(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
 
@@ -261,10 +292,7 @@ def _apply_expiry(drafts: "list[Draft]") -> int:
     now = _now()
     flipped = 0
     for draft in drafts:
-        if draft.status != "queued":
-            continue
-        created = _parse_created(draft.fm.get("created_at", ""))
-        if created is None or now - created <= timedelta(days=EXPIRY_DAYS):
+        if draft.status != "queued" or not is_expired(draft, now):
             continue
         draft.raw = _set_fm(draft.raw, "status", "expired")
         _write(draft.path, draft.raw)

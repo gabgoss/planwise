@@ -14,6 +14,7 @@ Run with:  python -m pytest tests/test_doctor_probes.py -q
 
 import contextlib
 import io
+import json
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -229,9 +230,10 @@ _REMEDY_HINT = (
 )
 
 
-def _write_draft(directory, name, *, status="queued", drafted_by="model", age_days=1):
-    """One draft file. `age_days` sets `created_at` that many days in the past."""
-    created = (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat()
+def _write_draft(directory, name, *, status="queued", drafted_by="model", age_days=1, created_at=None):
+    """One draft file. `age_days` sets `created_at` that many days in the past,
+    unless `created_at` gives the moment itself."""
+    created = (created_at or datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat()
     text = (
         "---\n"
         f"draft_id: {name[:-3]}\n"
@@ -254,7 +256,7 @@ def _queue_fixture(tmp_path, queued):
     directory = Path(config["_feedback_dir"])
     directory.mkdir()
     for index in range(queued):
-        _write_draft(directory, f"2026-01-0{index + 1}-draft-bug-queued-{index}.md")
+        _write_draft(directory, f"2026-01-{index + 1:02d}-draft-bug-queued-{index}.md")
     _write_draft(directory, "2026-02-01-draft-bug-hand.md", drafted_by="user")
     _write_draft(directory, "2026-02-02-draft-bug-gone.md", status="discarded")
     _write_draft(directory, "notes.md")
@@ -293,6 +295,7 @@ def test_stage_17_unreadable_config_is_not_checked(tmp_path):
         dp.run_probes(object())
     out = buf.getvalue()
     assert "model drafts queued: not checked" in out
+    assert out.count("model drafts queued:") == 1  # only the Stage 17 row carries the line
     assert "feedback --post" not in out
 
 
@@ -305,6 +308,50 @@ def test_stage_17_is_read_only_and_does_not_expire_an_old_draft(tmp_path):
     out = _run(dp._stage_17, config)
     assert _tree_bytes(directory) == before
     assert "model drafts queued: 2" in out
+
+
+def test_stage_17_counts_ten_or_more_queued_drafts(tmp_path):
+    # Two-digit day names must still match the helper's draft-name pattern.
+    out = _run(dp._stage_17, _queue_fixture(tmp_path, 10))
+    assert "model drafts queued: 10" in out
+
+
+def test_stage_17_a_failed_count_keeps_the_presence_lines(tmp_path):
+    config = _queue_fixture(tmp_path, 1)
+    with mock.patch.object(fd, "count_queued", side_effect=OSError("draft unreadable")):
+        out = _run(dp._stage_17, config)
+    assert "exists:               yes" in out
+    assert "— present." in out
+    assert "model drafts queued: not checked (the count failed: draft unreadable)" in out
+    assert "feedback --post" not in out
+
+
+def test_stage_17_a_helper_import_failure_stays_inside_stage_17(tmp_path):
+    # doctor_probes must not import the helper at module load.
+    assert "feedback_drafts" not in vars(dp)
+    config = _queue_fixture(tmp_path, 1)
+    with mock.patch.dict(sys.modules, {"feedback_drafts": None}):
+        out = _run(dp._stage_17, config)
+    assert "exists:               yes" in out
+    assert "model drafts queued: not checked (the count failed:" in out
+
+
+def test_stage_17_count_matches_the_helper_list_at_the_expiry_boundary(tmp_path):
+    now = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+    config = _project(tmp_path)
+    directory = Path(config["_feedback_dir"])
+    directory.mkdir()
+    limit = timedelta(days=fd.EXPIRY_DAYS)
+    _write_draft(directory, "2026-01-01-draft-bug-at-limit.md", created_at=now - limit)
+    _write_draft(directory, "2026-01-02-draft-bug-past-limit.md", created_at=now - limit - timedelta(seconds=1))
+    buf = io.StringIO()
+    with mock.patch.object(fd, "_now", return_value=now):
+        out = _run(dp._stage_17, config)
+        with contextlib.redirect_stdout(buf):
+            assert fd.main(["list", "--json", "--feedback-dir", str(directory)]) == 0
+    listed = [item for item in json.loads(buf.getvalue()) if item["status"] == "queued"]
+    assert [item["path"] for item in listed] == ["2026-01-01-draft-bug-at-limit.md"]
+    assert f"model drafts queued: {len(listed)}" in out
 
 
 # --- Step 7 -----------------------------------------------------------------
