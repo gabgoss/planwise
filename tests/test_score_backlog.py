@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import score_backlog
+from scoped_rules import LOOP_WRITTEN_HEADINGS
 from score_backlog import parse_index_table
 
 
@@ -703,13 +704,17 @@ class TestRouteSignals(unittest.TestCase):
     )
 
     def test_template_section_headings_do_not_count_as_sub_items(self):
+        # A loop-written section is stripped before any signal is read, so the
+        # clear-fix sentence appended after the last section must not sit in one.
         body = "".join(
-            f"\n## {name}\n\nOne sentence.\n" for name in score_backlog.TEMPLATE_SECTION_HEADINGS
+            f"\n## {name}\n\nOne sentence.\n"
+            for name in [h for h in score_backlog.TEMPLATE_SECTION_HEADINGS if h not in LOOP_WRITTEN_HEADINGS]
         ) + self._CLEAR_FIX_SENTENCE
         signals = score_backlog.compute_route_signals(
             _route_item(abbrev="BUG"), _route_fm(body, line_count=60)
         )
-        self.assertEqual(len(score_backlog.TEMPLATE_SECTION_HEADINGS), 7)
+        # pinned to templates/backlog-item.md; re-pin when the template's section set changes
+        self.assertEqual(len(score_backlog.TEMPLATE_SECTION_HEADINGS), 8)
         self.assertEqual(signals["h2_count"], 0)
         self.assertEqual(signals["sub_items"], 0)
         self.assertTrue(signals["clear_fix"]["evidence_present"])
@@ -907,6 +912,84 @@ class TestRouteSignals(unittest.TestCase):
         self.assertIsNone(signals["line_count"])
         self.assertEqual(signals["route"], "C")
         self.assertIn("body unavailable", score_backlog.format_route_detail(signals, 0))
+
+    # -- loop-written sections leave every signal ----------------------------
+
+    _ROUTE_B_BODY = "\n## Steps\n\n1. one\n2. two\n3. three\n"
+
+    @staticmethod
+    def _loop_section(words: int = 500) -> str:
+        """A `## Loop Decision Needed` section of about `words` words that,
+        read as body text, would continue the numbered run to 6 and supply
+        every clear-fix evidence shape."""
+        filler_sentence = "The loop skipped this item and records why it could not choose. "
+        filler = filler_sentence * (words // len(filler_sentence.split()))
+        return (
+            "\n## Loop Decision Needed\n\n"
+            "<!-- loop-decision run=20260101-000000 -->\n"
+            "> [!gate] User input needed\n\n"
+            "Question: which option should the fix take?\n"
+            "Options: (A) replace X with (B) a new helper.\n\n"
+            "4. Option one: change line 12 of `src/app.py`.\n"
+            "5. Option two: edit only `src/app.py`; touch no other file.\n"
+            "6. Option three: record a before/after pair first.\n\n"
+            f"Evidence: {filler}\n"
+        )
+
+    def test_loop_written_section_leaves_route_steps_and_headings_unchanged(self):
+        base = score_backlog.compute_route_signals(
+            _route_item(), _route_fm(self._ROUTE_B_BODY, line_count=70)
+        )
+        section = self._loop_section()
+        self.assertGreaterEqual(len(section.split()), 500)
+        with_section_body = self._ROUTE_B_BODY + section
+        with_section = score_backlog.compute_route_signals(
+            _route_item(), _route_fm(with_section_body, line_count=70 + section.count("\n"))
+        )
+        self.assertEqual(base["route"], "B")
+        self.assertEqual(base["step_count"], 3)
+        for key in ("route", "step_count", "h2_count", "has_clear_fix", "large_scope"):
+            self.assertEqual(with_section[key], base[key], key)
+        self.assertGreater(with_section["loop_lines"], 0)
+        # The section's leading newline closes the line before its heading,
+        # which stays: every other line of the section is removed.
+        self.assertEqual(with_section["loop_lines"], section.count("\n") - 1)
+        self.assertEqual(with_section["line_count_effective"], 71)
+        self.assertEqual(base["loop_lines"], 0)
+        # Control: read whole, the same section moves the signals, so the
+        # assertions above are carried by the strip and not by the fixture.
+        with unittest.mock.patch.object(score_backlog, "strip_loop_sections", lambda body: (body, 0)):
+            unstripped = score_backlog.compute_route_signals(
+                _route_item(), _route_fm(with_section_body, line_count=70 + section.count("\n"))
+            )
+        self.assertEqual(unstripped["step_count"], 6)
+        self.assertTrue(unstripped["has_clear_fix"])
+        self.assertNotEqual(unstripped["route"], base["route"])
+
+    def test_short_item_stays_short_after_a_skip_section(self):
+        base_body = "\n# x\n" + "prose\n" * 47
+        self.assertEqual(base_body.count("\n"), 49)
+        section = "## Loop Decision Needed\n" + "".join(f"loop line {i}\n" for i in range(9))
+        self.assertEqual(section.count("\n"), 10)
+        full_body = base_body + section
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(full_body))
+        # The section ends the body and the body ends in a newline: the empty
+        # segment after that newline is not a line, so the effective count is
+        # exactly the body's count without the section.
+        self.assertTrue(full_body.endswith("\n") and full_body.endswith(section))
+        self.assertEqual(signals["line_count_effective"], base_body.count("\n"))
+        self.assertEqual(signals["line_count"], 59)
+        self.assertEqual(signals["loop_lines"], 10)
+        self.assertEqual(signals["line_count_effective"], 49)
+        self.assertTrue(signals["is_short"])
+        self.assertIn("10 loop-written lines excluded", score_backlog.format_route_detail(signals, 0))
+
+    def test_scoped_rules_is_none_without_config(self):
+        signals = score_backlog.compute_route_signals(_route_item(), _route_fm(CLEAR_FIX_BODY))
+        self.assertIn("scoped_rules", signals)
+        self.assertIsNone(signals["scoped_rules"])
+        self.assertIn("scoped_rules:      (not computed)", score_backlog.format_route_detail(signals, 0))
+        self.assertIn(" rules=- ", score_backlog.format_route_line(signals, 0))
 
 
 class TestDecideRoute(unittest.TestCase):
@@ -1108,6 +1191,60 @@ class TestRouteReportMode(unittest.TestCase):
 
         after = {p.name: p.read_bytes() for p in self.backlog_dir.iterdir()}
         self.assertEqual(after, before)
+
+    # -- the scoped_rules block ----------------------------------------------
+
+    def _add_behaviour_rule(self) -> None:
+        """One behaviour rule scoped to the scratch project's `scripts/` tree,
+        and the file item 001's body cites under it. Built per test, never in
+        `setUp`, so the other tests keep a project with no rules."""
+        rules_dir = self.tmp / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        (rules_dir / "behaviour.md").write_text(
+            "---\ndescription: \"How scripts behave\"\npaths: scripts/**\n---\n\n# Behaviour\n\nOne rule.\n",
+            encoding="utf-8",
+        )
+        (self.tmp / "scripts").mkdir(exist_ok=True)
+        (self.tmp / "scripts" / "thing.py").write_text("x = 1\n", encoding="utf-8")
+
+    def test_route_detail_prints_scoped_rules_block(self):
+        self._add_behaviour_rule()
+        out, _err, code = self.run_score(["--route", "--id", "001"])
+        self.assertIsNone(code)
+        self.assertIn(
+            "  scoped_rules:      inject  (source: body; 1 path-scoped rules scanned; "
+            "owning lessons: none; inject form: content (",
+            out,
+        )
+        self.assertIn("    scripts/thing.py  EDIT  rules: .claude/rules/behaviour.md  -> inject", out)
+        self.assertIn("  rules_to_inject:   .claude/rules/behaviour.md", out)
+
+    def test_route_line_shows_rules_column(self):
+        self._add_behaviour_rule()
+        out, _err, code = self.run_score(["--route"])
+        self.assertIsNone(code)
+        self.assertRegex(out, r"ID 001 \| A \|.* files=\d+ rules=i \| hint A agree")
+        self.assertRegex(out, r"ID 002 \| C \|.* rules=- \| hint -")
+        self.assertIn("rules = scoped_rules verdict", out)
+
+    def test_route_json_carries_scoped_rules(self):
+        self._add_behaviour_rule()
+        out, _err, _code = self.run_score(["--route", "--json"])
+        json_line = [line for line in out.splitlines() if line.startswith("JSON: ")]
+        self.assertEqual(len(json_line), 1)
+        path = Path(json_line[0][len("JSON: "):])
+        self.addCleanup(shutil.rmtree, path.parent, ignore_errors=True)
+        import json
+        rows = json.loads(path.read_text(encoding="utf-8"))
+        block = rows[0]["scoped_rules"]
+        self.assertEqual(
+            set(block),
+            {"verdict", "source", "rules_scanned", "owning_lessons", "destinations",
+             "rules_to_inject", "rules_bytes", "inject_form", "truncated"},
+        )
+        self.assertEqual(block["verdict"], "inject")
+        self.assertEqual(block["destinations"][0]["path"], "scripts/thing.py")
+        self.assertEqual(rows[1]["scoped_rules"]["verdict"], "none")
 
 
 if __name__ == "__main__":

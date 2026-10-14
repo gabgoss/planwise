@@ -47,6 +47,7 @@ from markdown_parser import (
     parse_markdown_table,
     warn_on_unparsed_rows,
 )
+from scoped_rules import scoped_rules_block, strip_loop_sections
 
 # Try yaml import; fall back to regex extraction if unavailable
 try:
@@ -596,9 +597,11 @@ def review_items(
 #
 # The triage handler's Routing Decision Tree names nine scope signals. Eight
 # are computable from the index row and the item body this script already
-# holds; the ninth (the pivot check) and every pre-routing gate (existence
-# premise, citation freshness, staleness, scoped-rule) are judgment and stay
-# with the handler. What follows computes the eight and applies the handler's
+# holds. The pivot check, the existence premise, citation freshness and
+# staleness are judgment and stay with the handler; the scoped-rule gate is
+# computed here from the item's destinations and the project's rule
+# frontmatter (see `scoped_rules_block`, called when `compute_route_signals`
+# is given the config). What follows computes the eight and applies the handler's
 # Decision Logic pseudocode without modification. The result is a report,
 # recomputed from the live files on every call, so it cannot go stale
 # silently -- unlike the optional `route_hint:` frontmatter, which is a dated
@@ -628,6 +631,7 @@ TEMPLATE_SECTION_HEADINGS: tuple[str, ...] = (
     "Related",
     "Files Touched",
     "Notes",
+    "Loop Decision Needed",  # loop-written; the loop's skip section (see LOOP_WRITTEN_HEADINGS in scoped_rules)
 )
 _NUMBERED_RE = re.compile(r"^(\d+)\.\s")
 _FILE_PATH_RE = re.compile(
@@ -833,29 +837,42 @@ def reconcile_route_hint(frontmatter: dict, route: str, latest_evidence: date | 
     }
 
 
-def compute_route_signals(item: dict, frontmatter: dict) -> dict:
+def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = None) -> dict:
     """The mechanical signal vector for one open item, plus the provisional
     route `decide_route` derives from it.
 
     Reads only the index row (`item`) and what `read_item_frontmatter`
     already returned (`frontmatter`, including `_body` and `_line_count`);
-    it opens no file. HAS_CLEAR_FIX is reported as its mechanical half only
-    -- whether the evidence shapes are *present* (an edit location: a line
-    anchor, an exact edit string, or a whole-file copy; a before/after; a
-    scope-confinement bound). Whether they are *sufficient* is a judgment
-    this function does not make and the report says so.
+    without `config` it opens no file. HAS_CLEAR_FIX is reported as its
+    mechanical half only -- whether the evidence shapes are *present* (an
+    edit location: a line anchor, an exact edit string, or a whole-file
+    copy; a before/after; a scope-confinement bound). Whether they are
+    *sufficient* is a judgment this function does not make and the report
+    says so.
+
+    Loop-written sections (`## Loop Decision Needed`) are removed from the
+    body before any signal is read, so a skip the backlog loop records never
+    moves the item's route, headings, steps or effective line count.
+    `line_count` stays the whole file's count; `is_short` reads
+    `line_count_effective`, which excludes the `loop_lines` removed.
 
     Keyword and structure signals read the body with fenced blocks blanked
     (see `_blank_fenced_blocks`); the clear-fix patterns read it whole.
+
+    With `config`, the result carries the `scoped_rules` block
+    (`scoped_rules_block` over the raw body, which strips the loop sections
+    itself); without it, `scoped_rules` is None and no file is read.
     """
-    body = frontmatter.get("_body") or ""
+    raw_body = frontmatter.get("_body") or ""
+    body, loop_lines = strip_loop_sections(raw_body)
     body_available = "_body" in frontmatter
     structural = _blank_fenced_blocks(body)
     line_count = frontmatter.get("_line_count")
+    line_count_effective = None if line_count is None else line_count - loop_lines
 
     abbrev = _resolve_abbrev(item, frontmatter)
     is_bug = abbrev == "BUG"
-    is_short = line_count is not None and line_count < SHORT_ITEM_LINES
+    is_short = line_count_effective is not None and line_count_effective < SHORT_ITEM_LINES
     file_paths = sorted(set(_FILE_PATH_RE.findall(body)))
 
     multi_sprint_hits = _keyword_hits(structural, MULTI_SPRINT_TERMS)
@@ -901,6 +918,8 @@ def compute_route_signals(item: dict, frontmatter: dict) -> dict:
         "abbrev": abbrev,
         "is_bug": is_bug,
         "line_count": line_count,
+        "loop_lines": loop_lines,
+        "line_count_effective": line_count_effective,
         "is_short": is_short,
         "file_paths": file_paths,
         "multi_sprint_hits": multi_sprint_hits,
@@ -925,6 +944,7 @@ def compute_route_signals(item: dict, frontmatter: dict) -> dict:
         "large_scope": large_scope,
         "branch": branch,
         "hint": hint,
+        "scoped_rules": None if config is None else scoped_rules_block(item["id"], raw_body, config),
     }
 
 
@@ -938,7 +958,9 @@ ROUTE_LEGEND = (
     "Use --id N for the hit lines.\n"
     "  h2/steps = non-template ## headings outside code fences / longest consecutive numbered list.\n"
     "  hint = the item's route_hint frontmatter, compared but never adopted.\n"
-    "The pivot check and every pre-routing gate are judgment; this report does not run them."
+    "  rules = scoped_rules verdict: i = inject the matched rules, p = placement decision needed, - = none.\n"
+    "The scoped-rule gate is computed here (rules column); the pivot check and the other pre-routing gates "
+    "are judgment, and this report does not run them."
 )
 
 
@@ -954,13 +976,34 @@ def format_route_line(signals: dict, score: int) -> str:
     else:
         hint_text = f"{hint['route']} DISAGREE"
     large = "large" if signals["route"] == "C" and signals["large_scope"] else "-"
+    block = signals.get("scoped_rules")
+    verdict = block["verdict"] if block else None
+    rules = {"inject": "i", "placement": "p"}.get(verdict, "-")
     return (
         f"  ID {signals['id']:>3} | {signals['route']} | {large:<5} | {score:>3} pts | "
         f"clear={'y' if signals['has_clear_fix'] else 'n'} "
         f"ms={len(signals['multi_sprint_hits'])} arch={len(signals['architectural_hits'])} "
         f"h2={signals['h2_count']} steps={signals['step_count']} files={signals['file_count']} "
+        f"rules={rules} "
         f"| hint {hint_text}"
     )
+
+
+def _format_scoped_rules(block: dict | None) -> list[str]:
+    """The `scoped_rules:` lines of the `--route --id N` detail."""
+    if block is None:
+        return ["  scoped_rules:      (not computed)"]
+    lessons = ", ".join(block["owning_lessons"]) or "none"
+    lines = [
+        (f"  scoped_rules:      {block['verdict']}  (source: {block['source']}; "
+         f"{block['rules_scanned']} path-scoped rules scanned; owning lessons: {lessons}; "
+         f"inject form: {block['inject_form']} ({block['rules_bytes']} bytes))"),
+    ]
+    for dest in block["destinations"]:
+        matched = ", ".join(dest["rules"]) or "none"
+        lines.append(f"    {dest['path']}  {dest['role']}  rules: {matched}  -> {dest['verdict']}")
+    lines.append(f"  rules_to_inject:   {', '.join(block['rules_to_inject']) or 'none'}")
+    return lines
 
 
 def format_route_detail(signals: dict, score: int) -> str:
@@ -972,7 +1015,7 @@ def format_route_detail(signals: dict, score: int) -> str:
         f"  branch:            {signals['branch']}",
         f"  abbrev/is_bug:     {signals['abbrev']} / {yes_no(signals['is_bug'])}",
         (f"  line_count/short:  {signals['line_count']} / {yes_no(signals['is_short'])}"
-         f"  (< {SHORT_ITEM_LINES})"),
+         f"  (< {SHORT_ITEM_LINES}; {signals['loop_lines']} loop-written lines excluded)"),
         f"  file_paths:        {len(signals['file_paths'])}",
         (f"  h2 / numbered:     {signals['h2_count']} / {signals['numbered_items']}"
          f"  -> SUB_ITEMS {signals['sub_items']} (>= {SUB_ITEMS_THRESHOLD}: "
@@ -1002,6 +1045,7 @@ def format_route_detail(signals: dict, score: int) -> str:
             f"    newest dated evidence in body: {hint['latest_evidence_date'] or 'none'}; "
             f"stale: {'unknown' if hint['stale'] is None else yes_no(hint['stale'])}"
         )
+    lines.extend(_format_scoped_rules(signals.get("scoped_rules")))
     if not signals["body_available"]:
         lines.append("  (item body unavailable -- frontmatter did not parse; body signals are empty)")
     return "\n".join(lines)
@@ -1110,7 +1154,7 @@ def main():
             sys.exit(1)
         if args.route:
             fm = frontmatters.get(matched_item["id"], {})
-            signals = compute_route_signals(matched_item, fm)
+            signals = compute_route_signals(matched_item, fm, config=config)
             print(format_route_detail(signals, breakdown.total))
             if args.json:
                 print(f"JSON: {write_route_json({**signals, 'score': breakdown.total})}")
@@ -1135,7 +1179,7 @@ def main():
         print(f"Backlog Route Signals ({len(open_items)} open items)")
         print("=" * 60)
         for item in open_items:
-            signals = compute_route_signals(item, frontmatters.get(item["id"], {}))
+            signals = compute_route_signals(item, frontmatters.get(item["id"], {}), config=config)
             score = _score_total(scores.get(item["id"]))
             rows.append({**signals, "score": score})
             print(format_route_line(signals, score))
