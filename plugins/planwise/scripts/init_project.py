@@ -59,6 +59,14 @@ from migration_answers import AnswersError, load_answers
 from pyyaml_remedy import pyyaml_install_command
 
 try:
+    from gitignore_entry import ensure_line, model_draft_line
+except ImportError:
+    raise ImportError(
+        "gitignore_entry is required for init_project's .gitignore draft entry; "
+        "the scripts/ directory appears to be partially installed"
+    )
+
+try:
     from upgrade_io import (
         _append_disposition_log,  # noqa: F401 -- re-exported for callers of init_project
         _installed_hash,
@@ -679,6 +687,54 @@ def _backfill_feedback_dir(cfg: InitConfig, config_path: Path) -> str | None:
     return notice
 
 
+# What `config_loader.load_config` can raise or exit with on a config it cannot read.
+_CONFIG_READ_ERRORS: tuple = (OSError, ValueError, TypeError, KeyError, SystemExit) + (
+    (yaml.YAMLError,) if HAS_YAML else ()
+)
+
+
+def _configured_feedback_rel(cfg: InitConfig, config_path: Path) -> str:
+    """Return the feedback directory the drafts helper will use for this config.
+
+    When `config_path` exists, the answer comes from `config_loader.load_config`
+    itself, with the loader's own parser and the loader's own rule: a non-empty
+    string `project.feedback_dir`, else "Feedback". That rule covers a missing
+    key, a non-string value, and a `project:` block that is not a mapping. Only
+    when the file does not exist yet, or the loader cannot read it, does the
+    CLI value `cfg.feedback_dir` apply.
+    """
+    if config_path.is_file():
+        try:
+            config = config_loader.load_config(config_path=config_path)
+        except _CONFIG_READ_ERRORS:  # an unreadable config falls back to the CLI value
+            return str(cfg.feedback_dir)
+        project = config_loader._project_block(config)
+        return config_loader._nonempty_str(project.get("feedback_dir")) or "Feedback"
+    return str(cfg.feedback_dir)
+
+
+def _ensure_draft_gitignore(cfg: InitConfig, feedback_rel: str) -> None:
+    """Add the model-draft ignore line to the project's `.gitignore` and report it.
+
+    The `.gitignore` lives at the project root, the parent of `planwise_root`.
+    A `.gitignore` that cannot be read or written (read-only, or a directory)
+    prints one warning and lets the caller continue.
+    """
+    gitignore_path = cfg.project_root / ".gitignore"
+    try:
+        line = model_draft_line(cfg.planwise_root, feedback_rel)
+    except ValueError as exc:
+        print(f".gitignore: warning - draft entry not added; add an ignore line for model drafts by hand ({exc})")
+        return
+    try:
+        added = ensure_line(gitignore_path, line)
+    except OSError as exc:
+        print(f".gitignore: warning - draft entry not added ({gitignore_path}): {exc}")
+        return
+    state = "added draft entry" if added else "draft entry already present"
+    print(f".gitignore: {state} ({gitignore_path})")
+
+
 def _run_migrate(cfg: InitConfig) -> int:
     """Execute the --migrate flow and print a focused report. Returns exit code."""
     try:
@@ -691,6 +747,8 @@ def _run_migrate(cfg: InitConfig) -> int:
         return 2
 
     feedback_notice = _backfill_feedback_dir(cfg, Path(path))
+
+    _ensure_draft_gitignore(cfg, _configured_feedback_rel(cfg, Path(path)))
 
     print(f"Migration target: {path}")
     if added:
@@ -742,7 +800,8 @@ def main():
                              "config.yaml.template into an existing planwise/config.yaml "
                              "without overwriting user customisations. Does not create "
                              "directories, seeds, rules, or settings — use plain /planwise "
-                             "init for those.")
+                             "init for those. It may append the model-draft ignore "
+                             "line to the project's .gitignore.")
     parser.add_argument("--upgrade", action="store_true",
                         help="Refresh installed rules and bump plugin_version: in "
                              "config.yaml after a plugin update.")
@@ -941,6 +1000,12 @@ def main():
     print("Directories created:")
     for d in dirs:
         print(f"  + {d}")
+    print()
+
+    _ensure_draft_gitignore(
+        cfg,
+        _configured_feedback_rel(cfg, cfg.project_root / cfg.planwise_root / "config.yaml"),
+    )
     print()
 
     seeds = copy_seed_files(cfg)

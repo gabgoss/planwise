@@ -727,23 +727,24 @@ def _apply_feedback_dir(cfg: "InitConfig", config_path: Path) -> None:
     ImportError against a partially-initialized module. By the time this
     function is actually called, init_project has finished loading.
     """
-    from init_project import _backfill_feedback_dir
+    from init_project import (
+        _backfill_feedback_dir,
+        _configured_feedback_rel,
+        _ensure_draft_gitignore,
+    )
 
     notice = _backfill_feedback_dir(cfg, config_path)
     if notice:
         print(notice)
 
-    try:
-        parsed = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    except (yaml.YAMLError, OSError):
-        parsed = {}
-    project = parsed.get("project") if isinstance(parsed, dict) else None
-    feedback_rel = (project or {}).get("feedback_dir") or cfg.feedback_dir
+    feedback_rel = _configured_feedback_rel(cfg, config_path)
     feedback_dir_path = cfg.project_root / cfg.planwise_root / feedback_rel
     already_present = feedback_dir_path.is_dir()
     feedback_dir_path.mkdir(parents=True, exist_ok=True)
     state = "already present" if already_present else "created"
     print(f"Feedback directory: {state} ({feedback_dir_path})")
+
+    _ensure_draft_gitignore(cfg, feedback_rel)
 
 
 def _run_upgrade(

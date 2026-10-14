@@ -35,6 +35,7 @@ class TestFeedbackConfigFoundation(unittest.TestCase):
         "enabled": False,
         "repo": "gabgoss/planwise",
         "include_environment": True,
+        "drafts": "notify",
     }
 
     def test_get_feedback_config_defaults_on_absent_block(self):
@@ -118,14 +119,56 @@ class TestFeedbackConfigFoundation(unittest.TestCase):
                     "enabled": True,
                     "repo": "myorg/fork",
                     "include_environment": False,
+                    "drafts": "quiet",
                 }
             }
         )
         self.assertEqual(
             result,
-            {"enabled": True, "repo": "myorg/fork", "include_environment": False},
+            {
+                "enabled": True,
+                "repo": "myorg/fork",
+                "include_environment": False,
+                "drafts": "quiet",
+            },
             "a fully-populated feedback: block must be honored, not defaulted",
         )
+
+    def test_get_feedback_config_drafts_coercion(self):
+        import config_loader as cl
+
+        cases = (("OFF", "off"), ("  Quiet ", "quiet"), ("maybe", "notify"), (7, "notify"), (None, "notify"))
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                result = cl.get_feedback_config({"feedback": {"drafts": raw}})
+                self.assertEqual(result["drafts"], expected)
+
+    def test_get_feedback_config_drafts_yaml_boolean_values(self):
+        import config_loader as cl
+
+        for raw, expected in ((False, "off"), (True, "notify")):
+            with self.subTest(raw=raw):
+                result = cl.get_feedback_config({"feedback": {"drafts": raw}})
+                self.assertEqual(result["drafts"], expected)
+
+    @unittest.skipUnless(ip.HAS_YAML, "requires PyYAML to parse the config text")
+    def test_get_feedback_config_drafts_unquoted_yaml_off_is_off(self):
+        import config_loader as cl
+        import yaml
+
+        parsed = yaml.safe_load("feedback:\n  drafts: off\n")
+        result = cl.get_feedback_config(parsed)
+        self.assertEqual(
+            result["drafts"],
+            "off",
+            "an unquoted `drafts: off` parses as boolean False and must still mean off",
+        )
+
+    def test_get_feedback_config_drafts_absent_key_is_notify(self):
+        import config_loader as cl
+
+        result = cl.get_feedback_config({"feedback": {"enabled": True}})
+        self.assertEqual(result["drafts"], "notify")
 
     def test_feedback_in_migratable_top_level_keys(self):
         self.assertIn(
@@ -148,6 +191,13 @@ class TestFeedbackConfigFoundation(unittest.TestCase):
         self.assertIs(data["feedback"]["enabled"], False)
         self.assertEqual(data["feedback"]["repo"], "gabgoss/planwise")
         self.assertIs(data["feedback"]["include_environment"], True)
+        import config_loader as cl
+
+        self.assertEqual(
+            data["feedback"]["drafts"],
+            cl.get_feedback_config({})["drafts"],
+            "the template's drafts value must equal the loader default",
+        )
 
 
 class TestFeedbackDirDerivation(unittest.TestCase):

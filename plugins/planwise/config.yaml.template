@@ -165,6 +165,10 @@ feedback:
   # Include the auto-filled Environment block (plugin version, subcommand).
   # No project file contents, paths, or config values are ever attached.
   include_environment: true
+  # Claude-drafted feedback. notify prints one line per draft, quiet writes
+  # silently, off never drafts and registers no tool. Drafts land in feedback_dir
+  # and are never sent without /planwise feedback --drafts and your approval.
+  drafts: notify
 
 style:
   # Two global, always-on rules that planwise installs into rules/planwise/ under

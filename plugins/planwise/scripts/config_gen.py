@@ -46,6 +46,7 @@ except ImportError:
             "enabled": False,
             "repo": "gabgoss/planwise",
             "include_environment": True,
+            "drafts": "notify",
         }
 
     def write_config_checked(config_path, text: str) -> None:

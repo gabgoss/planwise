@@ -666,11 +666,13 @@ artifacts:
     on_disk: "{planwise_root}/config.yaml (block: feedback)"
     config_keys:
       - "feedback.enabled"
+      - "feedback.drafts"
     producer: "generate_config() / --migrate"
     consumers:
       - "/planwise feedback"
     missing_key_behavior: migrate_only
     upgrade_behavior: preserve
+    notes: "--migrate merges nested sub-keys only under context:, so an existing feedback: block is not backfilled with drafts; the loader default (notify) covers it."
 
   - id: planwise_skill
     on_disk: "plugin in-place (skills/planwise/SKILL.md)"

@@ -821,7 +821,7 @@ _REPO_SHAPE_RE = re.compile(r"[\w.-]+/[\w.-]+")
 def get_feedback_config(config: dict) -> dict:
     """Extract the `feedback:` block from config, with conservative defaults.
 
-    Mirrors get_upgrade_config: reads the three `feedback.*` keys and falls
+    Mirrors get_upgrade_config: reads the four `feedback.*` keys and falls
     back to documented backward-compatible defaults when the block (or a key)
     is absent, explicitly null, or malformed — a config that predates the
     feedback surface. Defaults are the safe status quo:
@@ -829,6 +829,14 @@ def get_feedback_config(config: dict) -> dict:
       * enabled             -> False                  (opt-in, interactive only)
       * repo                -> "gabgoss/planwise"      (upstream target)
       * include_environment -> True                    (auto-filled Environment block)
+
+      * drafts              -> "notify"                (notify | quiet | off)
+
+    `drafts` is lowercased and stripped when it is a string. A YAML boolean is
+    honored: an unquoted `off` (parsed as False) means "off", and an unquoted
+    `on` (parsed as True) means "notify". Any other value outside
+    the three allowed members, including a non-string or an absent key, becomes
+    "notify".
 
     `repo` additionally must match an `owner/name` shape (see `_REPO_SHAPE_RE`):
     the value is interpolated directly into a `gh` invocation by the feedback
@@ -845,10 +853,19 @@ def get_feedback_config(config: dict) -> dict:
     repo = _as_str_flag(feedback.get("repo", "gabgoss/planwise"), "gabgoss/planwise")
     if not _REPO_SHAPE_RE.fullmatch(repo):
         repo = "gabgoss/planwise"
+    raw_drafts = feedback.get("drafts")
+    if isinstance(raw_drafts, bool):
+        # An unquoted YAML `off` / `on` parses as a boolean, not a string.
+        drafts = "notify" if raw_drafts else "off"
+    else:
+        drafts = _as_str_flag(raw_drafts, "notify").lower()
+    if drafts not in ("notify", "quiet", "off"):
+        drafts = "notify"
     return {
         "enabled": _as_bool_flag(feedback.get("enabled"), False),
         "repo": repo,
         "include_environment": _as_bool_flag(feedback.get("include_environment"), True),
+        "drafts": drafts,
     }
 
 
