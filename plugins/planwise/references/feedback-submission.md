@@ -7,7 +7,8 @@ description: Feedback submission engine — the shared outward-post pipeline for
 **Purpose:** This file is the ONE place the outward submission pipeline is specified: the
 gate chain, the duplicate scan, the draft-first invocation, the posted-draft marking, the
 fallback posture, the Auto-Mode deviation, the issue body spec, and the privacy contract. It
-also specifies the two local, non-outward commands that operate on the same draft directory:
+also specifies, on the same draft directory, the model-draft review routes (`--drafts` lists and
+discards locally, `--post <draftId>` posts one draft through the gate chain) and two local commands:
 sweeping posted drafts to an archive, and reporting each draft's status. It is a shared
 engine, not a handler — it has no entry point of its own.
 
@@ -35,6 +36,7 @@ reporting or offer text, which this file does not own.
 - [Marking a Posted Draft](#marking-a-posted-draft)
 - [Sweeping Posted Drafts](#sweeping-posted-drafts)
 - [Reporting Draft Status](#reporting-draft-status)
+- [Reviewing Model Drafts](#reviewing-model-drafts)
 - [On Any Gate Failure or Post Failure](#on-any-gate-failure-or-post-failure)
 - [Auto Mode — A Deliberate, Documented Deviation](#auto-mode--a-deliberate-documented-deviation)
 - [Issue Body Spec](#issue-body-spec)
@@ -49,6 +51,8 @@ ALL gates below MUST pass, in this order, before a post is attempted:
 
 1. **`feedback.enabled: true`** — config key, default `false` (mirrors the upgrade flow's
    opt-in precedent).
+   A model draft's **Review and post** option sets it to `true` when chosen, and says so in
+   its option text first (see Reviewing Model Drafts).
 2. **Interactive session.** In Auto Mode the pipeline is **draft-only, unconditionally** —
    gates 3-5 are skipped and execution proceeds straight to the draft-write step below.
 3. **`gh` resolvable** — on PATH, or at a known install location (see
@@ -386,6 +390,9 @@ explicit answer naming them, moves each one and its marker into an archive subdi
 deletes nothing, it never touches an unmarked draft, and on a non-interactive session it lists
 and stops. Removing a draft remains the consumer's own action, taken when they choose to take
 it.
+This no-automatic-removal rule protects hand-written drafts, with one exception:
+`scripts/feedback_drafts.py` deletes a model draft that is over the queue cap or refused at
+admission, and only when its frontmatter re-reads `drafted_by: model`.
 
 **Why moving does not contradict the rejection of a filename change above.** That rejection
 was about a rename **at post time** — silently, as a side effect of posting, moving a file out
@@ -411,6 +418,8 @@ ever a candidate. **Age is never a candidacy criterion** and there is no age fla
 *unposted* draft is exactly what an age rule would catch first, and it is exactly the file
 this command must never touch. Non-recursive walking is load-bearing, not incidental — it is
 what stops a later `--sweep` run from re-sweeping the archive it just created.
+A model draft never has a sidecar, because only the standard draft that `promote` writes is
+ever posted and marked, so a model draft is never a candidate.
 
 ### Action
 
@@ -565,6 +574,11 @@ One trailing line names the remedy without inventing a capability: `A draft with
 was either never posted, or was filed by hand outside this tool. Post it with
 /planwise feedback, or remove it yourself.`
 
+**Model drafts are not unmarked drafts.** Queued and expired model drafts get their own group,
+headed `Model drafts, not yet reviewed ({n})`, with `—` in every cell after Draft. `--status`
+reads each one's `status:` frontmatter directly, never through the helper, whose expiry pass
+writes. The group ends with `Review them with /planwise feedback --drafts.`
+
 ### Degradation
 
 Governed by the same posture as the post pipeline: never block, never error out. **Every
@@ -589,6 +603,117 @@ lookup that failed.
 
 `{status_caveat}` is one line, printed once at the head of the `--status` output — one
 string, one source of truth, the same shape as `{scan_caveat}` above.
+
+---
+
+## Reviewing Model Drafts
+
+`/planwise feedback --drafts` and `/planwise feedback --post {draft_id}` are the review routes
+for model drafts: feedback files a model wrote during `/planwise` work, which nothing sends
+until the user reviews them here. Listing and discarding are local. Posting runs the post
+pipeline above, from gate 1, on the promoted file.
+
+### Candidacy
+
+A `{model draft}` is a `*.md` file directly in `{planwise_root}/{feedback_dir}`
+(non-recursive) whose name matches `{model_draft_name}` and whose frontmatter carries
+`drafted_by: model`. Resolve the set with the helper, which applies expiry first:
+
+```
+python "{plugin_root}/scripts/feedback_drafts.py" list --json --config "{planwise_root}/config.yaml"
+```
+
+Route the result on the exit code:
+
+- **Exit 0 with a JSON array.** Each object carries the frontmatter keys (`draft_id`,
+  `created_at`, `kind`, `title`, `producer`, `source_session_id` and `status` among them) and
+  `path`, the filename relative to `{feedback_dir}`.
+- **Exit 0 with output that is not JSON.** Treat it as the empty list. A project that has
+  never drafted has no feedback directory, and that is its normal state.
+- **Any other exit.** Print the helper's stderr line and stop. Nothing else runs.
+
+Every later helper call in this section takes the same `--config` option.
+
+### Listing
+
+`--drafts` always prints the listing first, before any question. Rows are grouped
+`Queued ({n})`, then `Expired ({n})`, most recent `created_at` first. `--drafts --all` reads
+`list --json --all` and adds `Discarded ({n})` and `Promoted ({n})`.
+
+| Draft | Created | Kind | Title | Producer | Session |
+|---|---|---|---|---|---|
+| `2026-10-12-draft-bug-helper-exit-code.md` | 2026-10-12 | bug | Helper exits 1 on valid input | prompt | this session |
+
+Draft is the row's `path`. Session reads `this session` when the row's `source_session_id`
+equals the running session's id, and `other session` otherwise. A group with no rows is
+omitted. With no model drafts at all, print `No model drafts found in {feedback_dir}.` and
+exit 0. No question is asked.
+
+### Posting One Draft by Id
+
+`/planwise feedback --post {draft_id}` acts on one named draft. `{draft_id}` is the
+`draft_id` frontmatter value, the same id `discard` and `promote` take. Resolve it from
+`list --json`: the row whose `draft_id` equals it and whose `status` is `queued`. On a match,
+show that draft's full body, then ask the per-draft question for that draft only, with the
+same marker and the same three options. Otherwise print one line:
+
+`Model draft {draft_id} was not found among queued drafts ({reason}).`
+
+`{reason}` is the row's `status` in `list --json --all`, or `unknown` when no row carries the
+id. The route then falls through to `--drafts`, starting at the Listing. It never skips the
+per-draft question and never skips gate 5.
+
+### Per-Draft Action
+
+After the listing, `--drafts` asks the per-draft question once for each Queued draft, in
+listing order. An expired draft is listed only, and is never offered for posting.
+
+<!-- AUTO-MODE: critical -->
+One `AskUserQuestion` per draft. It shows the draft's body below its frontmatter, verbatim,
+and offers three options:
+
+| Option | What it does |
+|---|---|
+| **Review and post** | The steps below. When `feedback.enabled` is `false`, the option text adds `(this sets feedback.enabled to true in config.yaml)`. |
+| **Discard** | Runs `discard {draft_id}`. The status becomes `discarded`. It never deletes the file. Exit 1 prints `Model draft {draft_id} was not found.` |
+| **Keep** (pre-selected) | Nothing. The draft stays queued. Any other or unparseable answer is Keep. |
+
+The per-draft question is a selection, not consent. **Review and post** runs these steps:
+
+1. When `feedback.enabled` is `false`, run `enable-posting --config "{planwise_root}/config.yaml"`
+   and print its one line. On exit 1, print its stderr line and stop. `config.yaml` is
+   unchanged and nothing is promoted.
+2. Run `promote {draft_id}`. Exit 0 prints the promoted file's path, a standard draft at
+   `{draft_path}` whose last line is the provenance line. On exit 1, print
+   `Model draft {draft_id} is not promotable.` On exit 3, print
+   `Model draft {draft_id} was already promoted.` Either line ends the branch, and no
+   pipeline runs.
+3. Run the post pipeline from gate 1 on the promoted file, duplicate scan included. The
+   promoted file is the draft the pipeline posts from, so its draft-first write is done.
+   `{title}` and `{kind}` come from the model draft's frontmatter.
+4. Gate 5 stays the only consent for the post. A cancel at gate 5 or a failed post leaves the
+   promoted draft on disk, as On Any Gate Failure or Post Failure specifies.
+
+### Auto Mode
+
+A non-answer takes this branch: Auto Mode, auto-deny, or an unanswered or interrupted
+prompt. `--drafts` prints the listing, then this line, and exits 0:
+
+`Non-interactive session — {n} model draft(s) listed above. Re-run /planwise feedback --drafts interactively to review them.`
+
+`--post {draft_id}` prints this line, posts nothing, and exits 0:
+
+`Non-interactive session — model draft {draft_id} was not posted. Re-run /planwise feedback --post {draft_id} interactively to review it.`
+
+This is the deviation shape of the sweep's branch 4. The declined branch has a complete
+outcome, so failing loud would break an unattended run for no gain. Nothing is enabled,
+promoted or discarded.
+
+### Gating
+
+The listing, Discard and Keep are local and not gated on `feedback.enabled`, as `--sweep` is
+not. The post branch, from either route, inherits every gate of the post pipeline. Neither
+route adds a consent site.
 
 ---
 
@@ -767,7 +892,12 @@ Every placeholder used above, for the four call sites that render this engine's 
 | `{scan_caveat}` | The single-line duplicate-scan result string — the first line of the scan block at gate 5 and of the possible-duplicates block in a draft. |
 | `{archive_dir}` | `{planwise_root}/{feedback_dir}/Archive` — the `--sweep` destination directory; created on first use, only after consent is given. |
 | `{status_caveat}` | The single-line `--status` degradation-result string, printed once at the head of the `--status` output — mirrors `{scan_caveat}` in shape. |
-| `{n}`, `{k}`, `{N}`, `{m}` | Inline integer counts: `{n}` searches attempted (and the quantity in a rendered age, or of `--sweep` candidates / `--status` drafts), `{k}` of them that returned, `{N}` further or suppressed matches (or un-queried issues) not shown, `{m}` the total issues queried by `--status`. |
+| `{draft_id}` | The `draft_id` frontmatter value of one model draft. |
+| `{model draft}` | One model-draft file, as Reviewing Model Drafts → Candidacy defines it. |
+| `{model_draft_name}` | The model-draft name pattern, `{YYYY-MM-DD}-draft-{kind}-{slug}.md`. |
+| `{reason}` | Why a `--post` id matched no queued draft: `expired`, `discarded`, `promoted` or `unknown`. |
+| `{plugin_root}` | The installed planwise plugin's root directory. |
+| `{n}`, `{k}`, `{N}`, `{m}` | Inline integer counts: `{n}` searches attempted (and the quantity in a rendered age, or of `--sweep` candidates / `--status` drafts / model drafts), `{k}` of them that returned, `{N}` further or suppressed matches (or un-queried issues) not shown, `{m}` the total issues queried by `--status`. |
 
 Two brace forms above are deliberately not placeholders and need no row: `{3,60}` in the search-key
 pattern is a regular-expression quantifier, and a self-describing slot inside a template fence

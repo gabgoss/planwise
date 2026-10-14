@@ -97,6 +97,8 @@ Available subcommands:
   feedback [bug|lesson|idea]   Report a planwise bug, lesson, or idea upstream
   feedback --status            Show each local draft and whether it was posted
   feedback --sweep             Archive drafts already posted (asks first; never deletes)
+  feedback --drafts            Review, post, or discard feedback drafts Claude wrote
+  feedback --post <draftId>    Review and post one queued feedback draft
   harvest [<scope>] [--dry-run] [--resume] [--max-items=N] [--include-existing] [--no-auto-approve]
           Run the lesson-to-artifact chain end to end, unattended.
   help                         Show this help message

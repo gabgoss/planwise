@@ -243,7 +243,8 @@ probe). Pass it through verbatim. The script evaluates gates 1, 3 and 4 as
 § Gate Chain defines them, and it prints the remedy row for each unmet gate.
 The stage is advisory: draft-only is a supported configuration, not a fault.
 To install the GitHub CLI, the user runs `/planwise init` or `/planwise
-upgrade`. Doctor never installs it.
+upgrade`. Doctor never installs it. The script also prints a `feedback.drafts:`
+line beside `feedback.enabled:`, with the value `notify`, `quiet` or `off`.
 
 ---
 
@@ -253,7 +254,11 @@ The script prints this stage (banner: planwise doctor — feedback directory
 presence check). Pass it through verbatim. To create a missing directory, the
 user opts in with the separate writer `/planwise doctor --create-feedback-dir`
 (Stage 17b below). Resolve `{feedback_dir_path}` as
-`{planwise_root}/{project.feedback_dir}` for that offer.
+`{planwise_root}/{project.feedback_dir}` for that offer. The script also prints a
+read-only `model drafts queued: {n}` line, or `model drafts queued: not checked`
+when the directory is absent or the config cannot be read. When `n` is above 0 it
+adds the hint `review them with /planwise feedback --drafts, or post one with
+/planwise feedback --post <draftId>`.
 
 ### Stage 17b: `--create-feedback-dir` (opt-in writer)
 

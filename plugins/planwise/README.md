@@ -531,6 +531,10 @@ flowchart LR
 
 `--sweep` finds drafts already marked posted and offers to archive them — move each one, together with its marker, into `Feedback/Archive`. It never deletes anything, and it never touches a draft with no posted marker. It always lists the candidates first; nothing moves until you confirm, and Cancel is the pre-selected default. On a non-interactive session, including Auto Mode, it lists the candidates and stops without moving anything.
 
+### Drafts Claude writes for you
+
+While you work, Claude may notice a planwise bug, lesson, or idea and save it as a feedback draft in your feedback directory, without interrupting you. A draft is never sent: nothing posts until you review it. Run `/planwise feedback --drafts` to review the queued drafts and post, edit, or discard each one (`--all` also lists discarded and posted drafts). Run `/planwise feedback --post <draftId>` to review and post one named draft. `<draftId>` is the `draft_id` frontmatter value, the same id that `scripts/feedback_drafts.py discard|promote <id>` take. The `feedback.drafts` key in `config.yaml` sets the behavior: `notify` (the default) tells you a draft was saved, `quiet` saves it without a message, and `off` writes no drafts. Drafts sit in your project tree, and `/planwise init` adds a `.gitignore` line for them.
+
 ---
 
 ## 13. `/planwise harvest`
@@ -580,7 +584,7 @@ flowchart LR
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
-| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (`--status` to check posting state, `--sweep` to archive posted drafts) |
+| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (`--status` to check posting state, `--sweep` to archive posted drafts, `--drafts` to review, post, or discard drafts Claude wrote; `--post <draftId>` to review and post one) |
 | `/planwise harvest` | Run the lesson-to-artifact chain end to end, unattended |
 
 ---

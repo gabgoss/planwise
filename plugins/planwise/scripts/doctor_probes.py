@@ -23,11 +23,13 @@ import re
 import shutil
 import subprocess
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config_loader
+import feedback_drafts
 from backlog_index_schema import (
     _changelog_filename,
     _index_naming,
@@ -49,6 +51,10 @@ _REMEDY_NO_GH = (
     "https://cli.github.com/, or run /planwise upgrade to be offered the install"
 )
 _REMEDY_NO_AUTH = "gh is installed but not authenticated — run: gh auth login"
+_QUEUED_LABEL = "model drafts queued:"
+_REMEDY_QUEUED = (
+    "review them with /planwise feedback --drafts, or post one with /planwise feedback --post <draftId>"
+)
 _REMEDY_TIMEOUT = (
     f"gh did not answer within {_GH_TIMEOUT_SECONDS} s, so the posting gate is unproven — re-run /planwise doctor"
 )
@@ -157,7 +163,8 @@ def _gh_environment() -> dict:
 
 
 def _stage_16(config: dict) -> None:
-    enabled = config_loader.get_feedback_config(config)["enabled"]
+    feedback = config_loader.get_feedback_config(config)
+    enabled, drafts = feedback["enabled"], feedback["drafts"]
     env = _gh_environment()
     path, authenticated = env["path"], env["authenticated"]
     timed_out = env.get("timed_out", False)
@@ -170,6 +177,7 @@ def _stage_16(config: dict) -> None:
         resolvable = f"yes — {where}  {env['version']}".rstrip()
         auth = "unknown — gh did not answer" if timed_out else ("yes" if authenticated else "no")
     print(f"  feedback.enabled:  {'true' if enabled else 'false'}")
+    print(f"  feedback.drafts:   {drafts}")
     print(f"  gh resolvable:     {resolvable}")
     print(f"  gh authenticated:  {auth}")
     remedies = []
@@ -199,14 +207,35 @@ def _stage_16(config: dict) -> None:
 # Stage 17: the feedback directory
 # --------------------------------------------------------------------------
 
+def _queued_model_drafts(feedback_dir: Path) -> int:
+    """How many model drafts the helper's `list` would show as queued, counted
+    with the helper's read primitives only. Its expiry step rewrites the
+    `status:` line, so it is not called: a queued draft older than
+    `feedback_drafts.EXPIRY_DAYS` counts as not queued and stays untouched."""
+    cutoff = feedback_drafts._now() - timedelta(days=feedback_drafts.EXPIRY_DAYS)
+    queued = 0
+    for draft in feedback_drafts._iter_drafts(feedback_dir):
+        if draft.status != "queued":
+            continue
+        created = feedback_drafts._parse_created(draft.fm.get("created_at", ""))
+        if created is not None and created < cutoff:
+            continue
+        queued += 1
+    return queued
+
+
 def _stage_17(config: dict) -> None:
     feedback_dir = Path(config["_feedback_dir"])
     exists = feedback_dir.is_dir()
+    queued = _queued_model_drafts(feedback_dir) if exists else None
     print(f"  feedback directory:  {feedback_dir.as_posix()}")
     print(f"  exists:               {'yes' if exists else 'no'}")
+    print(f"  {_QUEUED_LABEL} {'not checked' if queued is None else queued}")
     print()
     if exists:
         print(f"Feedback directory: {feedback_dir.as_posix()} — present.")
+        if queued:
+            print(f"  {_REMEDY_QUEUED}")
         return
     print("  ! feedback directory is absent — the first draft written there will fail.")
     print("      action: create it with /planwise doctor --create-feedback-dir,")
@@ -413,3 +442,5 @@ def run_probes(cfg) -> None:
             probe(config)
         except Exception as exc:  # noqa: BLE001 -- a probe must never change doctor's exit status
             print(f"{name}: the check failed: {exc}")
+            if probe is _stage_17:
+                print(f"  {_QUEUED_LABEL} not checked")
