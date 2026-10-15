@@ -628,6 +628,13 @@ _IDENTIFIER_NAME_RE = re.compile(r"\b[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+\b")
 #    and a table row quotes a cell. Neither describes the work the item asks for.
 _EVIDENCE_LINE_RE = re.compile(r"^[\s>*+-]*(?:\*\*|__)?evidence(?:\*\*|__)?\s*:", re.IGNORECASE)
 _TABLE_ROW_RE = re.compile(r"^\s*\|")
+# -- the one `##` section whose prose describes the work the item asks for.
+#    When an item carries this heading, only its lines feed IS_ARCHITECTURAL;
+#    the title, Summary, Problem, Acceptance Criteria and Related name the
+#    subject and its neighbours, so a stem there is vocabulary. An item
+#    without the heading is read whole. The match is exact, like
+#    TEMPLATE_SECTION_HEADINGS, and a test pins it to the template file.
+COUNTED_SECTION_HEADING = "Proposed Solution"
 # "Item file < 50 lines" -> IS_SHORT (a proxy for a small fix)
 SHORT_ITEM_LINES = 50
 # "6+ sub-items or ## headings" -> SUB_ITEMS >= 6
@@ -781,21 +788,41 @@ def _architectural_hits(text: str) -> tuple[list[dict], list[dict]]:
     """(hits, ignored) for the IS_ARCHITECTURAL stems.
 
     `hits` are the occurrences that count. `ignored` are occurrences the
-    reader can still see but the signal does not read: the whole line is an
+    reader can still see but the signal does not read: the line sits
+    outside the `## Proposed Solution` section, the whole line is an
     `**Evidence:**` line or a table row, or the stem sits inside a file name,
     a multi-segment path or a snake_case identifier. Each ignored entry
     carries a `why`. A hit is a candidate, not a verdict (see
     `_keyword_hits`); this narrows the candidates to prose that describes
     the work, and leaves the reading of what remains to the reader.
+
+    The section rule applies only when the item has a `## Proposed Solution`
+    heading. That section is where an item describes the work it asks for;
+    the title names the subject, the Summary restates the problem, and
+    Related names siblings, so a stem in any of them is vocabulary. An item
+    without the heading is read whole, as before. A hit outside the section
+    is ignored with the section's heading as its `why` (`Summary section`),
+    or `title block` for the lines before the first `##` heading.
     """
     hits: list[dict] = []
     ignored: list[dict] = []
-    for line_no, line in enumerate(text.split("\n"), start=1):
+    lines = text.split("\n")
+    sectioned = any(
+        _H2_RE.match(line) and line[3:].rstrip() == COUNTED_SECTION_HEADING for line in lines
+    )
+    section: str | None = None  # the current `##` heading; None before the first one
+    for line_no, line in enumerate(lines, start=1):
+        if _H2_RE.match(line):
+            section = line[3:].rstrip()
         lowered = line.lower()
         present = [term for term in ARCHITECTURAL_TERMS if term in lowered]
         if not present:
             continue
         shown = line.strip()[:120]
+        if sectioned and section != COUNTED_SECTION_HEADING:
+            where = "title block" if section is None else f"{section} section"
+            ignored.extend({"term": t, "line": line_no, "text": shown, "why": where} for t in present)
+            continue
         if _EVIDENCE_LINE_RE.match(line):
             ignored.extend({"term": t, "line": line_no, "text": shown, "why": "evidence line"} for t in present)
             continue
@@ -1115,7 +1142,8 @@ ROUTE_LEGEND = (
     "  ms/arch = keyword hit counts for HAS_MULTI_SPRINT / IS_ARCHITECTURAL -- "
     "candidates, not verdicts; an item quoting the signal table matches them all. "
     "Use --id N for the hit lines.\n"
-    "  ign = IS_ARCHITECTURAL hits dropped as evidence lines, table rows, or names (files, paths, identifiers).\n"
+    "  ign = IS_ARCHITECTURAL hits dropped as lines outside ## Proposed Solution (when the item has one), "
+    "evidence lines, table rows, or names (files, paths, identifiers).\n"
     "  h2/steps = non-template ## headings outside code fences / longest consecutive numbered list.\n"
     "  hint = the item's route_hint frontmatter, compared but never adopted; undecided = the hint names a route "
     "a reader's judgment of the candidate signals could reach.\n"
