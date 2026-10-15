@@ -2,15 +2,18 @@
 // registers the draft_feedback tool, and a tool.call hook serves it: validate, render, write a
 // draft file, then admit it through scripts/feedback_drafts.py. An admit exit other than
 // 0, 2 or 3 is debug-logged and the file is kept. The model never sees a permission dialog.
+import { update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, SessionVersion, ToolSpec } from 'claude-code'
 
 import { CAP_TEXT, DESCRIPTION, FULL_TOOL_NAME, INPUT_SCHEMA, MAX_CALLS_PER_SESSION, MAX_NOTICES, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, TOOL_NAME } from './feedback/names.ts'
 import { draftsMode, isPlanwiseConfig, readRawScalar, readScalar, resolveDraftsDir } from './feedback/config-read.ts'
 import type { DraftsMode } from './feedback/config-read.ts'
+import { previewSourceOf } from './feedback/card-preview.ts'
 import { renderDraft, scrub } from './feedback/render.ts'
 import { draftFileName, slugOf } from './feedback/slug.ts'
 import { validateInput } from './feedback/validate.ts'
 import { failureText } from './loop/boundary.ts'
+import type { PlanwiseLastDraft } from '../types'
 
 export type Host = {
   root: () => Promise<string>
@@ -26,12 +29,17 @@ export type Host = {
   registerTool: (tool: ToolSpec) => Promise<unknown>
   uiLog: (text: string, to: 'debug' | 'transcript') => void
   runProcess: (argv: readonly string[]) => Promise<{ exitCode: number; stderr: string }>
+  lastDraft: () => Promise<PlanwiseLastDraft | null>
+  setLastDraft: (draft: PlanwiseLastDraft) => Promise<unknown>
+  bumpCardsShown: () => Promise<unknown>
 }
 
 /** One record of module memory. Every field resets with the process. */
 type Session = {
   mode: DraftsMode
   draftsDir: string
+  /** The path of the config file, which the review card edits to turn drafting off. */
+  configPath: string
   projectRoot: string
   calls: number
   notices: number
@@ -60,6 +68,10 @@ export function hostOf($: EngineInterface): Host {
     registerTool: (tool: ToolSpec) => $.tool.register(tool),
     uiLog: (text: string, to: 'debug' | 'transcript') => $.ui.log(text, { to }),
     runProcess: (argv: readonly string[]) => $.process.run(argv),
+    // The review card reads these two values. Literal refs, as `$.state` requires.
+    lastDraft: async () => (await $.state.get({ plugin: 'planwise', key: 'lastDraft' } as const)).value ?? null,
+    setLastDraft: (draft: PlanwiseLastDraft) => $.state.set({ plugin: 'planwise', key: 'lastDraft' } as const, draft),
+    bumpCardsShown: () => update($, { plugin: 'planwise', key: 'cardsShown' } as const, (n) => (n ?? 0) + 1),
   }
 }
 
@@ -109,7 +121,7 @@ const findConfig = async (host: Host, root: string): Promise<{ text: string; dir
 }
 
 /** One record of module memory. Every field resets with the process. */
-const session: Session = { mode: 'off', draftsDir: '', projectRoot: '', calls: 0, notices: 0, resolved: false, found: false }
+const session: Session = { mode: 'off', draftsDir: '', configPath: '', projectRoot: '', calls: 0, notices: 0, resolved: false, found: false }
 
 /** Draft paths reserved by calls still in flight, so two calls in one turn never pick one file. */
 const reserved = new Set<string>()
@@ -117,6 +129,21 @@ const reserved = new Set<string>()
 /** Logs a failure of one hook. Never throws. */
 const failed = (host: Host, where: string, why: string): void => {
   host.uiLog(`draft feedback: ${where} failed: ${why}`, 'debug')
+}
+
+/**
+ * Tells the review card a draft was admitted. A draft takes one of the card's slots only when no
+ * draft was waiting, so a draft that replaces an unseen one costs nothing. The count goes up
+ * before the draft is set, so the card never draws a draft past its limit. A failure is
+ * debug-logged and never reaches the model.
+ */
+const noteCard = async (host: Host, draft: PlanwiseLastDraft): Promise<void> => {
+  try {
+    if ((await host.lastDraft()) === null) await host.bumpCardsShown()
+    await host.setLastDraft(draft)
+  } catch (err) {
+    failed(host, 'card state write', errText(err))
+  }
 }
 
 /**
@@ -154,6 +181,7 @@ async function resolveSession(host: Host): Promise<void> {
     session.mode = draftsMode(readRawScalar(config.text, ['feedback', 'drafts']))
     session.projectRoot = root
     session.draftsDir = resolveDraftsDir(config.dir, readScalar(config.text, ['project', 'feedback_dir']))
+    session.configPath = config.dir + '/config.yaml'
   }
   session.resolved = true
 }
@@ -212,9 +240,10 @@ export function register(on: On, options: PluginOptions) {
     }
     if (path === '') return { deny: 'draft_feedback: too many drafts share this title today' }
 
+    const draftId = globalThis.crypto.randomUUID()
     try {
       const text = renderDraft(
-        { draftId: globalThis.crypto.randomUUID(), createdAt, producer: 'hooks-tool', sourceSessionId: sessionId, pluginVersion, cliVersion: cli.version, model, os: osName === 'Windows_NT' ? 'windows' : 'posix', status: 'queued' },
+        { draftId, createdAt, producer: 'hooks-tool', sourceSessionId: sessionId, pluginVersion, cliVersion: cli.version, model, os: osName === 'Windows_NT' ? 'windows' : 'posix', status: 'queued' },
         { kind: checked.kind, title: checked.title, fields: checked.fields, subcommand: checked.subcommand },
       )
       // fs.write creates missing parent directories. It is not atomic and takes no mode;
@@ -232,6 +261,7 @@ export function register(on: On, options: PluginOptions) {
           return { deny: firstLine(run.stderr) || 'draft_feedback: the draft was refused' }
         }
         if (run.exitCode !== 0) host.uiLog(`draft feedback: admit exit ${run.exitCode}: ${run.stderr}`, 'debug')
+        if (run.exitCode === 0) await noteCard(host, { draftId, kind: checked.kind, title: checked.title, preview: previewSourceOf(checked.kind, checked.fields, [session.projectRoot]), feedbackDir: session.draftsDir, sessionId, configPath: session.configPath })
       } catch (err) {
         host.uiLog('draft feedback: no python could start; the draft was kept: ' + errText(err), 'debug')
       }

@@ -1,6 +1,23 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { register as registerLoader } from 'node:module'
 import { failureText, isCurrent, keyOf, releaseLatch, stepOf } from '../../plugins/planwise/hooks/loop/boundary.ts'
+
+// Node cannot load the .tsx review card, and the engine's `claude-code` module has no node runtime.
+// This loader hook resolves both to stubs, so register.ts can load here. The card has its own tests.
+const stubUrl = (source: string): string => 'data:text/javascript,' + encodeURIComponent(source)
+const loaderSource = `
+const stubs = {
+  'claude-code': ${JSON.stringify(stubUrl('export const atom = (ref, initial) => ({ ref, initial }); export const read = async () => undefined; export const update = async () => undefined'))},
+  feedbackCard: ${JSON.stringify(stubUrl('export const register = () => {}'))},
+}
+export async function resolve(specifier, context, next) {
+  if (specifier === 'claude-code') return { url: stubs['claude-code'], shortCircuit: true }
+  if (specifier.endsWith('feedback-card.tsx')) return { url: stubs.feedbackCard, shortCircuit: true }
+  return next(specifier, context)
+}
+`
+registerLoader(stubUrl(loaderSource), import.meta.url)
 
 // The module under test. REGISTER_URL points the same tests at another copy of register.ts.
 const target = process.env.REGISTER_URL ?? new URL('../../plugins/planwise/hooks/register.ts', import.meta.url).href

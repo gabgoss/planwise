@@ -675,6 +675,112 @@ def test_enable_posting_keeps_a_quoted_true_as_written(tmp_path, capsys):
     assert config.read_bytes() == original
 
 
+# ---------------------------------------------------------------- disable-drafts
+
+
+def _disable(config: Path, capsys):
+    return run(["disable-drafts", "--config", str(config)], capsys)
+
+
+def test_disable_drafts_flips_notify_to_off_and_keeps_the_rest(tmp_path, capsys):
+    config = tmp_path / "config.yaml"
+    original = b"# top\nproject:\n  name: x\nfeedback:\n  enabled: false  # c\n  drafts: notify  # keep me\n  repo: a/b\n"
+    config.write_bytes(original)
+    code, out, _ = _disable(config, capsys)
+    assert code == 0
+    assert "notify -> off" in out
+    assert config.read_bytes() == original.replace(b"drafts: notify", b"drafts: off")
+
+
+def test_disable_drafts_keeps_crlf(tmp_path, capsys):
+    config = tmp_path / "config.yaml"
+    original = b"feedback:\r\n  drafts: quiet\r\n"
+    config.write_bytes(original)
+    assert _disable(config, capsys)[0] == 0
+    assert config.read_bytes() == b"feedback:\r\n  drafts: off\r\n"
+
+
+def test_disable_drafts_inserts_when_the_key_or_block_is_absent(tmp_path, capsys):
+    no_key = tmp_path / "a.yaml"
+    no_key.write_bytes(b"feedback:\n  repo: a/b\n")
+    code, out, _ = _disable(no_key, capsys)
+    assert code == 0
+    assert "unset -> off" in out
+    assert no_key.read_bytes() == b"feedback:\n  drafts: off\n  repo: a/b\n"
+    no_block = tmp_path / "b.yaml"
+    no_block.write_bytes(b"project:\n  name: demo\n")
+    assert _disable(no_block, capsys)[0] == 0
+    assert no_block.read_bytes() == b"project:\n  name: demo\nfeedback:\n  drafts: off\n"
+
+
+def test_disable_drafts_missing_config_exits_1(tmp_path, capsys):
+    assert _disable(tmp_path / "none.yaml", capsys)[0] == 1
+
+
+@pytest.mark.skipif(fd.yaml is None, reason="needs PyYAML to check the result")
+def test_disable_drafts_indented_comment_line_does_not_set_the_indent(tmp_path, capsys):
+    config = tmp_path / "config.yaml"
+    config.write_bytes(b"feedback:\n  # a note indented less than the children\n    repo: a/b\n")
+    assert _disable(config, capsys)[0] == 0
+    assert config.read_bytes() == b"feedback:\n    drafts: off\n  # a note indented less than the children\n    repo: a/b\n"
+    assert fd.yaml.safe_load(config.read_bytes())["feedback"]["drafts"] is False
+
+
+@pytest.mark.skipif(fd.yaml is None, reason="needs PyYAML to check the result")
+def test_disable_drafts_column_zero_comment_inside_the_block_adds_no_duplicate_key(tmp_path, capsys):
+    config = tmp_path / "config.yaml"
+    config.write_bytes(b"feedback:\n  repo: a/b\n# a note at column 0\n  drafts: notify\n")
+    assert _disable(config, capsys)[0] == 0
+    assert config.read_bytes() == b"feedback:\n  repo: a/b\n# a note at column 0\n  drafts: off\n"
+    assert config.read_bytes().count(b"drafts:") == 1
+
+
+@pytest.mark.parametrize("quoted", [b'"notify"', b"'quiet'"])
+def test_disable_drafts_replaces_a_quoted_value(tmp_path, capsys, quoted):
+    config = tmp_path / "config.yaml"
+    config.write_bytes(b"feedback:\n  drafts: " + quoted + b"\n")
+    assert _disable(config, capsys)[0] == 0
+    assert config.read_bytes() == b"feedback:\n  drafts: off\n"
+
+
+def test_disable_drafts_is_idempotent(tmp_path, capsys):
+    config = tmp_path / "config.yaml"
+    config.write_bytes(b'feedback:\n  drafts: notify\n  enabled: "true"\n')
+    assert _disable(config, capsys)[0] == 0
+    first = config.read_bytes()
+    code, out, _ = _disable(config, capsys)
+    assert code == 0
+    assert "off -> off" in out
+    assert config.read_bytes() == first
+    quoted = tmp_path / "q.yaml"
+    quoted.write_bytes(b'feedback:\n  drafts: "off"\n')
+    assert _disable(quoted, capsys)[0] == 0
+    assert quoted.read_bytes() == b'feedback:\n  drafts: "off"\n'
+
+
+@pytest.mark.skipif(fd.yaml is None, reason="needs PyYAML to read the config back")
+def test_disable_drafts_round_trips_through_the_config_loader(tmp_path, capsys):
+    import config_loader
+
+    config = tmp_path / "config.yaml"
+    config.write_bytes(b"project:\n  name: demo\nfeedback:\n  drafts: notify\n")
+    assert config_loader.get_feedback_config(fd.yaml.safe_load(config.read_bytes()))["drafts"] == "notify"
+    assert _disable(config, capsys)[0] == 0
+    assert config_loader.get_feedback_config(fd.yaml.safe_load(config.read_bytes()))["drafts"] == "off"
+
+
+@pytest.mark.skipif(fd.yaml is None, reason="needs PyYAML to check the result")
+def test_disable_drafts_never_writes_a_config_that_would_not_parse(tmp_path, capsys):
+    config = tmp_path / "config.yaml"
+    original = b"feedback:\n  - one\n  - two\n"
+    config.write_bytes(original)
+    code, out, err = _disable(config, capsys)
+    assert code == 1
+    assert "-> off" not in out
+    assert len(err.strip().splitlines()) == 1
+    assert config.read_bytes() == original
+
+
 def _can_symlink(tmp_path: Path) -> bool:
     probe = tmp_path / "probe-link"
     try:

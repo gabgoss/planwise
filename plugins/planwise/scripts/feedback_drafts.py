@@ -2,7 +2,7 @@
 """Shared helper for model-drafted feedback files (stdlib only).
 
 Producers and the review surface call this one script to list, admit,
-discard, promote and expire model-drafted feedback, and to switch on posting.
+discard, promote and expire model-drafted feedback, to switch on posting, and to switch drafting off.
 
 ## The draft file
 
@@ -23,12 +23,13 @@ hand-written feedback draft, a posted-marker sidecar, and anything under
 | `promote <id>` | Writes the standard draft, sets `status: promoted`, adds `promoted_to:` | 0, 1 not found or discarded, 3 already promoted |
 | `expire` | Sets `status: expired` on queued drafts older than `EXPIRY_DAYS` | 0 |
 | `enable-posting --config <path>` | Sets `feedback.enabled: true` by text splice, idempotent, in the block's own indent. The result is parsed before it is written, and a result that would not parse is never written | 0, 1 config problem |
+| `disable-drafts --config <path>` | Sets `feedback.drafts: off` by the same text splice, idempotent, comments kept, in the block's own indent. A comment line never ends the block or sets its indent. The result is parsed before it is written, and a result that would not parse is never written. Prints the old and new value | 0, 1 config problem |
 
 The directory comes from `--feedback-dir <abs>` when given, otherwise from
 `--config <path>` through `config_loader.load_config()`. `--feedback-dir` must be an
 absolute path to an existing directory. A directory resolved from `--config` may
 not exist yet, and `list` and `expire` then say so. A feedback directory's own
-`Archive/` child is refused by every command except `enable-posting`. An exit of
+`Archive/` child is refused by every command except `enable-posting` and `disable-drafts`. An exit of
 1 also reports a missing directory option, a missing file or an unreadable config.
 Every write resolves a symlink first, so the link stays and its target changes.
 
@@ -54,6 +55,7 @@ import shutil
 import sys
 import tempfile
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -551,8 +553,13 @@ def cmd_expire(args: argparse.Namespace) -> int:
     return 0
 
 
-def _enable_posting_text(text: str) -> "tuple[str, str]":
-    """Return (new_text, old_value). Only the one `enabled:` line changes."""
+def _set_feedback_scalar(text: str, key: str, value: str, is_set: "Callable[[str], bool]") -> "tuple[str, str]":
+    """Return (new_text, old_value). Only the one `feedback.<key>:` line changes.
+
+    `is_set` takes the old raw value and says whether it already means `value`,
+    which makes the splice idempotent. A comment line, at any indent, neither
+    ends the block nor sets its indent.
+    """
     lines = re.findall(r"[^\n]*\n|[^\n]+", text)
     header = None
     for index, line in enumerate(lines):
@@ -564,7 +571,7 @@ def _enable_posting_text(text: str) -> "tuple[str, str]":
     if header is None:
         eol = "\r\n" if "\r\n" in text else "\n"
         gap = "" if (not text or text.endswith("\n")) else eol
-        return text + gap + f"feedback:{eol}  enabled: true{eol}", "unset"
+        return text + gap + f"feedback:{eol}  {key}: {value}{eol}", "unset"
 
     end = len(lines)
     for index in range(header + 1, len(lines)):
@@ -577,14 +584,14 @@ def _enable_posting_text(text: str) -> "tuple[str, str]":
         break
 
     for index in range(header + 1, end):
-        match = re.match(r"^([ \t]+)enabled:([ \t]*)([^\s#]*)([^\r\n]*)(\r?\n?)$", lines[index])
+        match = re.match(r"^([ \t]+)" + re.escape(key) + r":([ \t]*)([^\s#]*)([^\r\n]*)(\r?\n?)$", lines[index])
         if match is None:
             continue
         old = match.group(3)
-        if _unquote(old).lower() == "true":
+        if is_set(old):
             return text, old
         gap = match.group(2) or " "
-        lines[index] = f"{match.group(1)}enabled:{gap}true{match.group(4)}{match.group(5)}"
+        lines[index] = f"{match.group(1)}{key}:{gap}{value}{match.group(4)}{match.group(5)}"
         return "".join(lines), old or "unset"
 
     eol = "\r\n" if lines[header].endswith("\r\n") else "\n"
@@ -597,8 +604,18 @@ def _enable_posting_text(text: str) -> "tuple[str, str]":
         if child is not None:
             indent = child.group(1)
             break
-    lines.insert(header + 1, f"{indent}enabled: true{eol}")
+    lines.insert(header + 1, f"{indent}{key}: {value}{eol}")
     return "".join(lines), "unset"
+
+
+def _enable_posting_text(text: str) -> "tuple[str, str]":
+    """Return (new_text, old_value) for `feedback.enabled: true`."""
+    return _set_feedback_scalar(text, "enabled", "true", lambda old: _unquote(old).lower() == "true")
+
+
+def _disable_drafts_text(text: str) -> "tuple[str, str]":
+    """Return (new_text, old_value) for `feedback.drafts: off`."""
+    return _set_feedback_scalar(text, "drafts", "off", lambda old: _unquote(old).lower() == "off")
 
 
 def _posting_enabled(text: str) -> "bool | None":
@@ -613,6 +630,42 @@ def _posting_enabled(text: str) -> "bool | None":
     enabled = feedback.get("enabled") if isinstance(feedback, dict) else None
     # The loader also reads a quoted "true" as on, and the splice leaves that value as written.
     return enabled is True or (isinstance(enabled, str) and enabled.strip().lower() == "true")
+
+
+def _drafts_off(text: str) -> "bool | None":
+    """True when `text` parses and sets `feedback.drafts` to off, False when it does not, None without PyYAML."""
+    if yaml is None:
+        return None
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return False
+    feedback = data.get("feedback") if isinstance(data, dict) else None
+    drafts = feedback.get("drafts") if isinstance(feedback, dict) else None
+    # An unquoted `off` loads as the boolean False, and the loader also reads a quoted "off" as off.
+    return drafts is False or (isinstance(drafts, str) and drafts.strip().lower() == "off")
+
+
+def cmd_disable_drafts(args: argparse.Namespace) -> int:
+    config = Path(args.config)
+    if not config.is_file():
+        print(f"feedback_drafts: config.yaml not found at {config}", file=sys.stderr)
+        return 1
+    text = _read(config)
+    try:
+        new_text, old = _disable_drafts_text(text)
+    except ValueError as exc:
+        print(f"feedback_drafts: {exc}", file=sys.stderr)
+        return 1
+    # Check the result before writing: a splice that would leave the config
+    # unparsable, or not off, is never written.
+    if _drafts_off(new_text) is False:
+        print("feedback_drafts: the edit would not leave a valid config with feedback.drafts: off; config.yaml left unchanged", file=sys.stderr)
+        return 1
+    if new_text != text:
+        _write(config, new_text)
+    print(f"feedback.drafts: {old} -> off")
+    return 0
 
 
 def cmd_enable_posting(args: argparse.Namespace) -> int:
@@ -673,6 +726,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_enable = sub.add_parser("enable-posting", help="set feedback.enabled: true in config.yaml")
     p_enable.add_argument("--config", required=True, help="path to config.yaml")
     p_enable.set_defaults(func=cmd_enable_posting)
+
+    p_disable = sub.add_parser("disable-drafts", help="set feedback.drafts: off in config.yaml")
+    p_disable.add_argument("--config", required=True, help="path to config.yaml")
+    p_disable.set_defaults(func=cmd_disable_drafts)
     return parser
 
 

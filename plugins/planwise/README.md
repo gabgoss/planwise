@@ -537,6 +537,8 @@ While you work, Claude may notice a planwise bug, lesson, or idea and save it as
 
 With function hooks enabled (`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`), the plugin also registers the tool `mcp__planwise__draft_feedback`, which Claude calls silently. It writes the same draft file, so `/planwise feedback --drafts` reviews tool-written and hand-saved drafts together. Setting `feedback.drafts: off` registers no tool.
 
+When the tool queues a draft, meaning the helper admitted it, the hooks module `hooks/feedback-card.tsx` shows a review card above the prompt. A draft the helper refuses shows no card. It names the draft's kind and title and previews its first lines. Press `1` to review the queued drafts, `2` to post this draft, or `0` to dismiss the card. Press the key when the prompt is empty, or focus the band with ctrl+x tab. A digit typed into a prompt that already holds text stays text. The card shows for at most the first three drafts of a session, and it yields to a survey and to a running turn. A draft that replaces one you have not seen yet does not use up one of the three. After you dismiss two cards, it offers to turn drafts off. Answer `Turn off` to run `scripts/feedback_drafts.py disable-drafts`, which sets `feedback.drafts: off` in `config.yaml` and takes effect next session. If the helper cannot write a valid config, nothing changes and drafts stay on. Any other answer keeps drafts on. The card appears on the terminal and desktop surfaces only.
+
 ---
 
 ## 13. `/planwise harvest`
