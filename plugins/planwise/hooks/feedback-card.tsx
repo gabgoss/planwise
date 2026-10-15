@@ -36,7 +36,8 @@ const ACCENT = 'permission'
 
 /** The badge on the card's first row, drawn in inverse accent. It is cut at the edge, never wrapped. */
 const BADGE = ' Planwise Plugin for Claude Code '
-const BADGE_ROWS = 1
+/** The badge row plus the blank row under it. */
+const BADGE_ROWS = 2
 
 /**
  * The closure table over `$`. It sits at module scope because the validator refuses a `$` handed
@@ -163,7 +164,9 @@ export function register(on: On, options: PluginOptions) {
     const rows = previewLines(draft.preview, columns, previewRows(contentRows))
     return (
       <Box flexDirection="column" borderStyle="round" borderColor={ACCENT} paddingX={1}>
-        <Text bold inverse color={ACCENT} wrap="truncate-end">{BADGE}</Text>
+        <Box marginBottom={1}>
+          <Text bold inverse color={ACCENT} wrap="truncate-end">{BADGE}</Text>
+        </Box>
         <Text bold color={ACCENT}>{fitTitle(kindLabel(draft.kind), draft.title, columns)}</Text>
         {rows.map((line, i) => (
           <Text key={String(i)}>{line}</Text>
