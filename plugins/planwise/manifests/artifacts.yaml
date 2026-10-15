@@ -670,6 +670,7 @@ artifacts:
     producer: "generate_config() / --migrate"
     consumers:
       - "/planwise feedback"
+      - "mcp__planwise__draft_feedback"
     missing_key_behavior: migrate_only
     upgrade_behavior: preserve
     notes: "--migrate merges nested sub-keys only under context:, so an existing feedback: block is not backfilled with drafts; the loader default (notify) covers it."
@@ -689,17 +690,21 @@ artifacts:
       duplicate install path.
 
   - id: hooks_module
-    on_disk: "plugin in-place (hooks/hooks.json, hooks/register.ts)"
-    config_keys: []
+    on_disk: "plugin in-place (hooks/hooks.json, hooks/register.ts, hooks/draft-feedback.ts, hooks/feedback/)"
+    config_keys:
+      - "feedback.drafts"
     producer: "(not produced — read in-place from the plugin)"
     consumers:
       - "/planwise backlog"
+      - "mcp__planwise__draft_feedback"
     missing_key_behavior: warn_loud
     upgrade_behavior: not_installed
     notes: >
-      The backlog loop's compaction-and-re-entry module is read in-place
-      from the plugin directory and is never copied to the project. The
-      upgrade loop ignores it.
+      The hooks module composes the backlog loop's compaction-and-re-entry
+      hooks and the draft_feedback tool into the single entry register.ts.
+      It is active only when CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is set. It
+      is read in-place from the plugin directory and is never copied to
+      the project. The upgrade loop ignores it.
 
   - id: artifact_self_containment_rule
     on_disk: ".claude/rules/planwise/artifact-self-containment.md"

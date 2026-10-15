@@ -535,6 +535,8 @@ flowchart LR
 
 While you work, Claude may notice a planwise bug, lesson, or idea and save it as a feedback draft in your feedback directory, without interrupting you. A draft is never sent: nothing posts until you review it. Run `/planwise feedback --drafts` to review the queued drafts and post, edit, or discard each one (`--all` also lists discarded and posted drafts). Run `/planwise feedback --post <draftId>` to review and post one named draft. `<draftId>` is the `draft_id` frontmatter value, the same id that `scripts/feedback_drafts.py discard|promote <id>` take. The `feedback.drafts` key in `config.yaml` sets the behavior: `notify` (the default) tells you a draft was saved, `quiet` saves it without a message, and `off` writes no drafts. Drafts sit in your project tree, and `/planwise init` adds a `.gitignore` line for them.
 
+With function hooks enabled (`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`), the plugin also registers the tool `mcp__planwise__draft_feedback`, which Claude calls silently. It writes the same draft file, so `/planwise feedback --drafts` reviews tool-written and hand-saved drafts together. Setting `feedback.drafts: off` registers no tool.
+
 ---
 
 ## 13. `/planwise harvest`
