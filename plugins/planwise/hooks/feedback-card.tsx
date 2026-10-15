@@ -34,6 +34,10 @@ const FRAME_COLUMNS = 4
 /** The frame and title color. A theme key, so it follows the person's theme: lilac on the dark theme. */
 const ACCENT = 'permission'
 
+/** The badge on the card's first row, drawn in inverse accent. It is cut at the edge, never wrapped. */
+const BADGE = ' Planwise Plugin for Claude Code '
+const BADGE_ROWS = 1
+
 /**
  * The closure table over `$`. It sits at module scope because the validator refuses a `$` handed
  * to a nested function. Every engine call the card makes is spelled here, one per member.
@@ -150,15 +154,16 @@ export function register(on: On, options: PluginOptions) {
     const shown = await host.readShown()
     if (e.props.hasSurvey || e.props.isWorking) return next(e)
     if (draft === null || isHidden || shown > MAX_CARDS) return next(e)
-    // The frame takes its rows and columns first; the content gets what is left.
-    const innerRows = e.props.maxRows - FRAME_ROWS
+    // The frame and the badge take their rows and columns first; the content gets what is left.
+    const contentRows = e.props.maxRows - FRAME_ROWS - BADGE_ROWS
     const columns = e.props.bodyColumns - FRAME_COLUMNS
-    if (innerRows < 4 || columns < MIN_COLUMNS) return next(e)
+    if (contentRows < 4 || columns < MIN_COLUMNS) return next(e)
 
     const { Box, Button, Text } = host.resolve(e)
-    const rows = previewLines(draft.preview, columns, previewRows(innerRows))
+    const rows = previewLines(draft.preview, columns, previewRows(contentRows))
     return (
       <Box flexDirection="column" borderStyle="round" borderColor={ACCENT} paddingX={1}>
+        <Text bold underline inverse color={ACCENT} wrap="truncate-end">{BADGE}</Text>
         <Text bold color={ACCENT}>{fitTitle(kindLabel(draft.kind), draft.title, columns)}</Text>
         {rows.map((line, i) => (
           <Text key={String(i)}>{line}</Text>
