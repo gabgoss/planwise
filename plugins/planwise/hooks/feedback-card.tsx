@@ -163,7 +163,7 @@ export function register(on: On, options: PluginOptions) {
     const rows = previewLines(draft.preview, columns, previewRows(contentRows))
     return (
       <Box flexDirection="column" borderStyle="round" borderColor={ACCENT} paddingX={1}>
-        <Text bold underline inverse color={ACCENT} wrap="truncate-end">{BADGE}</Text>
+        <Text bold inverse color={ACCENT} wrap="truncate-end">{BADGE}</Text>
         <Text bold color={ACCENT}>{fitTitle(kindLabel(draft.kind), draft.title, columns)}</Text>
         {rows.map((line, i) => (
           <Text key={String(i)}>{line}</Text>
