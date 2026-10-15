@@ -702,8 +702,7 @@ artifacts:
     notes: >
       The hooks module composes the backlog loop's compaction-and-re-entry
       hooks and the draft_feedback tool into the single entry register.ts.
-      It is active only when CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is set. It
-      is read in-place from the plugin directory and is never copied to
+      It is read in-place from the plugin directory and is never copied to
       the project. The upgrade loop ignores it.
 
   - id: artifact_self_containment_rule
