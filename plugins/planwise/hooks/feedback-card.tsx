@@ -27,6 +27,13 @@ const MAX_CARDS = 3
 /** The button row draws as `1: Review  2: Post  0: Dismiss`. Below this width it could wrap. */
 const MIN_COLUMNS = 30
 
+/** The card's frame: a rounded border on all four sides, plus one column of padding inside each side. */
+const FRAME_ROWS = 2
+const FRAME_COLUMNS = 4
+
+/** The frame and title color. A theme key, so it follows the person's theme: lilac on the dark theme. */
+const ACCENT = 'permission'
+
 /**
  * The closure table over `$`. It sits at module scope because the validator refuses a `$` handed
  * to a nested function. Every engine call the card makes is spelled here, one per member.
@@ -143,18 +150,20 @@ export function register(on: On, options: PluginOptions) {
     const shown = await host.readShown()
     if (e.props.hasSurvey || e.props.isWorking) return next(e)
     if (draft === null || isHidden || shown > MAX_CARDS) return next(e)
-    if (e.props.maxRows < 4 || e.props.bodyColumns < MIN_COLUMNS) return next(e)
+    // The frame takes its rows and columns first; the content gets what is left.
+    const innerRows = e.props.maxRows - FRAME_ROWS
+    const columns = e.props.bodyColumns - FRAME_COLUMNS
+    if (innerRows < 4 || columns < MIN_COLUMNS) return next(e)
 
     const { Box, Button, Text } = host.resolve(e)
-    const columns = e.props.bodyColumns
-    const rows = previewLines(draft.preview, columns, previewRows(e.props.maxRows))
+    const rows = previewLines(draft.preview, columns, previewRows(innerRows))
     return (
-      <Box flexDirection="column">
-        <Text dimColor>{fitTitle(kindLabel(draft.kind), draft.title, columns)}</Text>
+      <Box flexDirection="column" borderStyle="round" borderColor={ACCENT} paddingX={1}>
+        <Text bold color={ACCENT}>{fitTitle(kindLabel(draft.kind), draft.title, columns)}</Text>
         {rows.map((line, i) => (
           <Text key={String(i)}>{line}</Text>
         ))}
-        <Box>
+        <Box gap={2} marginTop={1}>
           <Button key="review" label="Review" hotkey="1" plain onPress={() => void onReview(host).catch((err: unknown) => host.uiLog('draft feedback: review press failed: ' + errText(err), 'debug'))} />
           <Button key="post" label="Post" hotkey="2" plain onPress={() => void onPost(host).catch((err: unknown) => host.uiLog('draft feedback: post press failed: ' + errText(err), 'debug'))} />
           <Button key="dismiss" label="Dismiss" hotkey="0" plain role="dismiss" onPress={() => void onDismiss(host).catch((err: unknown) => host.uiLog('draft feedback: dismiss press failed: ' + errText(err), 'debug'))} />
