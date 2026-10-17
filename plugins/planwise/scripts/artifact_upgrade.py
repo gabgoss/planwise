@@ -1199,6 +1199,48 @@ def _run_upgrade(
         print(f"Plugin version pinned: {target_version}")
         print(f"Plugin root repointed: {cfg.plugin_root}")
         print()
+        # 7. Token Saver recalibration, after the pin is committed. Runs only when
+        # the config reads Token Saver on and the caller did not pass --no-calibrate.
+        # A calibration failure prints one line and never fails the upgrade.
+        # A failed capture writes the fallback overheads; when the config held
+        # measured overheads before the call, its pre-call bytes are put back,
+        # so a failed capture never replaces a measurement with a default.
+        if not cfg.no_calibrate:
+            try:
+                _config_bytes = config_path.read_bytes()
+                _config_text = config_path.read_text(encoding="utf-8")
+                if re.search(r"(?mi)^\s*token_saver:\s*true\b", _config_text):
+                    import context_calibration
+                    import token_saver
+
+                    def _overhead(key: str) -> str:
+                        _m = re.search(rf"(?m)^\s*{key}:\s*(\S+)", _config_text)
+                        return _m.group(1) if _m else "(absent)"
+
+                    _pre = (_overhead("token_saver_runner_overhead"),
+                            _overhead("token_saver_orchestrator_overhead"))
+                    _fallback = (str(context_calibration.FALLBACK_RUNNER_OVERHEAD),
+                                 str(context_calibration.FALLBACK_ORCHESTRATOR_OVERHEAD))
+                    _measured = all(v.isdigit() and int(v) > 0 for v in _pre) and _pre != _fallback
+                    _result = token_saver.calibrate(
+                        config_path=config_path, plugin_root=cfg.plugin_root,
+                        cwd=cfg.project_root)
+                    if _result.get("uncalibrated") and _measured:
+                        config_path.write_bytes(_config_bytes)
+                        print("Token Saver calibration failed; kept the measured overheads.")
+                    else:
+                        print(
+                            "Token Saver recalibrated: runner overhead "
+                            f"{_overhead('token_saver_runner_overhead')} -> "
+                            f"{_result['token_saver_runner_overhead']}, orchestrator overhead "
+                            f"{_overhead('token_saver_orchestrator_overhead')} -> "
+                            f"{_result['token_saver_orchestrator_overhead']}"
+                        )
+                    if _result.get("uncalibrated") and not _measured:
+                        print("Token Saver calibration fell back to defaults; "
+                              "run /planwise token-saver on to retry.")
+            except Exception as exc:  # noqa: BLE001 -- never fail the upgrade
+                print(f"Token Saver calibration skipped: {exc}")
         print("Upgrade complete.")
         return 0
     except Exception as exc:

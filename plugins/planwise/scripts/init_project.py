@@ -789,6 +789,9 @@ def main():
                              "(sets context.token_saver: true). Applies to both init and "
                              "upgrade. Default off — the engine ships dormant and is "
                              "calibrated via /planwise calibrate.")
+    parser.add_argument("--no-calibrate", action="store_true",
+                        help="With --upgrade: skip the Token Saver recalibration the "
+                             "upgrade runs when Token Saver is on.")
     parser.add_argument("--project-root", default=None, help="Project root (default: cwd)")
     parser.add_argument("--auto-from", default=None,
                         help="Subroutine mode: caller handler name (e.g., 'plan', 'review'). "
@@ -847,7 +850,8 @@ def main():
     parser.add_argument("--list-diverged", action="store_true",
                         help="Read-only diagnostic: print a JSON array of installed rule "
                              "files whose body diverges from the plugin-shipped version "
-                             "(filename, kind, installed path, shipped path). Prints [] when "
+                             "(filename, kind, set, installed path, shipped path, "
+                             "installed_sha256). Prints [] when "
                              "none diverge. Does not modify anything and does not require --name.")
     parser.add_argument("--review-transfers", action="store_true",
                         help="Read-only diagnostic: print a JSON array with one row per "
@@ -952,6 +956,7 @@ def main():
         plan_tier=args.plan_tier,
         plugin_version=read_plugin_version(_plugin_root),
         token_saver=args.token_saver,
+        no_calibrate=args.no_calibrate,
     )
 
     if args.prune_stale:

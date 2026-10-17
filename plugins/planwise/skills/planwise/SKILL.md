@@ -31,7 +31,7 @@ The injected line above also prints a `planwise: …` version notice when the co
 | `plan` | Read [handlers/plan.md](../../handlers/plan.md) |
 | `review` | Read [handlers/review.md](../../handlers/review.md) |
 | `run` | Read [handlers/run.md](../../handlers/run.md) |
-| `upgrade` | Read [handlers/upgrade.md](../../handlers/upgrade.md) |
+| `upgrade` | Follow [Upgrade](#upgrade) below (the preflight card, the handler is its fallback) |
 | `doctor` | Read [handlers/doctor.md](../../handlers/doctor.md) |
 | `token-saver` | Read [handlers/token-saver.md](../../handlers/token-saver.md) |
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
@@ -62,6 +62,12 @@ The shell line under Routing renders the `list` answer before you run. Check rul
 
 4. **Reconcile on consent.** The writer is `reconcile_plans.py --write`, and it regenerates the whole plans index. Run it only after the user agrees. A permission prompt on this path is acceptable. [handlers/list.md](../../handlers/list.md) gives the exit-code meanings.
 5. **Typed flags.** If the `ARGUMENTS:` line holds `--active` or `--no-check`, ignore any injected block. The shell line passes only the subcommand, so that block is unfiltered and always checked. Take the one-call route of rule 3 with those flags.
+
+## Upgrade
+
+If a `<!-- planwise:upgrade:begin -->` block appears above, follow its NEXT block exactly and read nothing else.
+
+Read [handlers/upgrade.md](../../handlers/upgrade.md) instead when the block is absent, when the line reads `[shell command execution disabled by policy]`, or when a `PLANWISE_UPGRADE_FALLBACK:` line appears.
 
 ## Help
 

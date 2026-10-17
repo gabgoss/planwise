@@ -9,7 +9,10 @@ Run from the project root:
     python -B -m pytest -q -c cloned-repos/planwise/pytest.ini cloned-repos/planwise/tests/test_skill_preflight.py
 """
 
+import contextlib
+import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -18,6 +21,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import ClassVar
+from unittest import mock
 
 sys.dont_write_bytecode = True
 
@@ -29,6 +33,7 @@ SKILL_MD = REPO_DIR / "plugins" / "planwise" / "skills" / "planwise" / "SKILL.md
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import config_loader
+import skill_preflight
 from generate_plans_index import TABLE_SEPARATOR, render_plans_index
 
 CONFIG_YAML = """project:
@@ -41,6 +46,9 @@ CONFIG_YAML = """project:
 BEGIN = "<!-- planwise:list:begin -->"
 END = "<!-- planwise:list:end -->"
 FALLBACK = "PLANWISE_LIST_FALLBACK:"
+UPGRADE_BEGIN = "<!-- planwise:upgrade:begin -->"
+UPGRADE_END = "<!-- planwise:upgrade:end -->"
+UPGRADE_FALLBACK = "PLANWISE_UPGRADE_FALLBACK:"
 NO_DRIFT = "No drift detected. All index rows match their Master Plan status."
 ROUTING_ROW = re.compile(r"^\| `([a-z-]+)` \| ", re.MULTILINE)
 
@@ -73,6 +81,33 @@ def run_router_in_process_probe(args, cwd):
         "with contextlib.redirect_stdout(buf):\n"
         f"    skill_preflight.main({list(args)!r})\n"
         "print(json.dumps([buf.getvalue(), 'list_plans' in sys.modules]))\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-B", "-c", code],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=str(cwd),
+        timeout=60,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(f"probe failed: {proc.stderr}")
+    stdout, imported = json.loads(proc.stdout.strip().split("\n")[-1])
+    return stdout, imported
+
+
+def run_router_module_probe(args, cwd, modules):
+    """Call `skill_preflight.main(args)` in a fresh interpreter. Returns (stdout, {module: imported})."""
+    code = (
+        "import contextlib, io, json, sys\n"
+        "sys.dont_write_bytecode = True\n"
+        f"sys.path.insert(0, {str(SCRIPTS_DIR)!r})\n"
+        "import skill_preflight\n"
+        "buf = io.StringIO()\n"
+        "with contextlib.redirect_stdout(buf):\n"
+        f"    skill_preflight.main({list(args)!r})\n"
+        f"print(json.dumps([buf.getvalue(), {{m: m in sys.modules for m in {list(modules)!r}}}]))\n"
     )
     proc = subprocess.run(
         [sys.executable, "-B", "-c", code],
@@ -232,7 +267,7 @@ class TestSilentForEveryRoutedSubcommand(_Fixture):
 
     def test_every_other_subcommand_is_silent_and_imports_nothing(self):
         self.build_plans([("AAA", "Alpha", "COMPLETE")])
-        others = sorted(self.routed_subcommands() - {"list"})
+        others = sorted(self.routed_subcommands() - {"list", "upgrade"})
         self.assertTrue(others)
         for sub in others:
             for args in ([sub, "", ""], [sub, "--active", "--no-check"]):
@@ -254,6 +289,70 @@ class TestSilentForEveryRoutedSubcommand(_Fixture):
                 stdout, imported = run_router_in_process_probe(args, self.tmp)
                 self.assertEqual(stdout, "")
                 self.assertFalse(imported)
+
+
+class TestUpgradeCard(_Fixture):
+    """`upgrade` prints the preflight card, or one fallback line, and loads nothing for other input."""
+
+    def run_in_process(self, args, cwd):
+        """Call `skill_preflight.run(args)` here, with `cwd` as the working directory. Returns (stdout, result)."""
+        previous = Path.cwd()
+        os.chdir(cwd)
+        self.addCleanup(os.chdir, previous)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            result = skill_preflight.run(args)
+        return buf.getvalue(), result
+
+    def test_no_config_prints_the_fallback_line_and_no_card(self):
+        bare = Path(tempfile.mkdtemp(prefix="skill_preflight_bare_")).resolve()
+        self.addCleanup(shutil.rmtree, bare, ignore_errors=True)
+        stdout, result = self.run_in_process(["upgrade", "", ""], bare)
+        self.assertEqual(result, 0)
+        lines = [ln for ln in stdout.splitlines() if ln]
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith(UPGRADE_FALLBACK))
+        self.assertIn("config.yaml not found", lines[0])
+        self.assertNotIn(UPGRADE_BEGIN, stdout)
+
+    def test_preflight_failure_prints_one_fallback_and_the_end_marker(self):
+        import upgrade_preflight
+
+        with mock.patch.object(upgrade_preflight, "run", side_effect=RuntimeError("boom")):
+            stdout, result = self.run_in_process(["upgrade", "", ""], self.tmp)
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            [ln for ln in stdout.splitlines() if ln],
+            [f"{UPGRADE_FALLBACK} RuntimeError: boom", UPGRADE_END],
+        )
+
+    def test_upgrade_does_not_import_list_plans(self):
+        stdout, imported = run_router_module_probe(["upgrade", "", ""], self.tmp, ["list_plans"])
+        self.assertIn(UPGRADE_BEGIN, stdout)
+        self.assertFalse(imported["list_plans"])
+
+    def test_other_routed_subcommands_do_not_import_upgrade_preflight(self):
+        subs = TestSilentForEveryRoutedSubcommand.routed_subcommands() - {"upgrade"}
+        self.assertIn("list", subs)
+        self.build_plans([("AAA", "Alpha", "COMPLETE")])
+        for sub in sorted(subs):
+            with self.subTest(sub=sub):
+                _, imported = run_router_module_probe([sub, "", ""], self.tmp, ["upgrade_preflight"])
+                self.assertFalse(imported["upgrade_preflight"])
+
+    def test_card_bytes_decode_as_utf8_under_a_cp1252_stdout(self):
+        (self.planwise_dir / "config.yaml").write_text(
+            CONFIG_YAML + 'plugin_version: "0.0.1"\n', encoding="utf-8")
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+        proc = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), "upgrade", "", ""],
+            capture_output=True, cwd=str(self.tmp), env=env, timeout=120, check=False)
+        self.assertEqual(proc.returncode, 0)
+        text = proc.stdout.decode("utf-8")
+        self.assertIn(UPGRADE_BEGIN, text)
+        self.assertIn(UPGRADE_END, text)
+        card = text[text.index(UPGRADE_BEGIN):]
+        self.assertTrue("—" in card or "…" in card)
 
 
 class TestVersionNoticeRoute(_Fixture):

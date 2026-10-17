@@ -12,6 +12,11 @@ string. This script strips each value, drops empty strings and any unexpanded
 input prints nothing (apart from the notice below) and never imports `list_plans`. Any failure prints one
 `PLANWISE_LIST_FALLBACK: <type>: <message>` line. The exit code is always 0.
 
+`upgrade` prints the card from `upgrade_preflight`, which is imported only for
+that subcommand. The card runs from `<!-- planwise:upgrade:begin -->` to
+`<!-- planwise:upgrade:end -->`. If the preflight raises, the router prints one
+`PLANWISE_UPGRADE_FALLBACK: <type>: <message>` line and the end marker.
+
 For every input, a `planwise: ...` version notice line prints first when the
 config pin differs from this plugin. It prints before the BEGIN marker, never
 raises and never changes the exit code.
@@ -26,6 +31,8 @@ PLACEHOLDERS = {"$0", "$1", "$2", "$sub", "$flag1", "$flag2"}
 KNOWN_FLAGS = ("--active", "--no-check")
 BEGIN = "<!-- planwise:list:begin -->"
 END = "<!-- planwise:list:end -->"
+UPGRADE_BEGIN = "<!-- planwise:upgrade:begin -->"
+UPGRADE_END = "<!-- planwise:upgrade:end -->"
 
 
 def normalise(argv: list[str]) -> list[str]:
@@ -50,9 +57,19 @@ def print_version_notice() -> None:
         return
 
 
-def run(argv: list[str]) -> None:
+def run(argv: list[str]) -> int | None:
     print_version_notice()
     tokens = normalise(argv)
+    if tokens and tokens[0] == "upgrade":
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import upgrade_preflight  # lazy: nothing loads for other subcommands
+
+            return upgrade_preflight.run(tokens)
+        except Exception as exc:  # noqa: BLE001 - contract: one fallback line, exit 0
+            print(f"PLANWISE_UPGRADE_FALLBACK: {type(exc).__name__}: {exc}")
+            print(UPGRADE_END)
+            return 0
     if not tokens or tokens[0] != "list":
         return
     flags = [t for t in tokens[1:] if t in KNOWN_FLAGS]

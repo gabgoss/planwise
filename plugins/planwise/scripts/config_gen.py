@@ -286,6 +286,7 @@ class InitConfig:
     plan_tier: str = "pro"
     plugin_version: str = "0.0.0"
     token_saver: bool = False
+    no_calibrate: bool = False
 
     @property
     def context_window(self) -> int:
