@@ -164,8 +164,10 @@ artifacts:
       — rewrites the single `token_saver` sub-key from false to true.
       (3) calibrate() in scripts/context_calibration.py — a measured-value
       REWRITE of its six calibrate-written `token_saver_*` sub-keys in
-      place, run by handlers/upgrade.md Step 2.5 ONLY when
-      `context.token_saver` resolves true after Step 1.5; skipped
+      place, run by the upgrade writer itself
+      (`artifact_upgrade._run_upgrade`, unless `--no-calibrate`) when
+      `context.token_saver` resolves true after Step 1.5, and reported
+      by handlers/upgrade.md Step 2.5; skipped
       silently when off, and the template default is false. Writers (2)
       and (3) touch measured or opt-in VALUES under the block, never its
       structure, and both are conditional on the user's opt-in, so

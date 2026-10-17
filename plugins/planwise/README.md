@@ -470,7 +470,7 @@ When a new plugin version is published, upgrading happens in two stages:
    - **Re-calibrates Token Saver** overheads (the same `/context` capture `token-saver on` runs) so the budget tracks your current install.
    - **Over-scope advisory:** after upgrading, the script lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. Run [`/planwise doctor`](#8-planwise-doctor) any time for the full read-only report.
 
-   See `handlers/upgrade.md` for the full workflow.
+   See `handlers/upgrade.md` for the full workflow. The skill's preflight prints an upgrade card first; the handler is its fallback.
 
 > Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
 
@@ -668,7 +668,7 @@ planwise/                           # Plugin root
   templates/                        # Markdown templates
   manifests/                        # Artifact manifest and agent history
   seed/                             # Index file seeds for init
-  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py and skill_preflight.py (the zero-call list))
+  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py and skill_preflight.py (the zero-call list and the upgrade card))
   hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
   examples/                         # Sample outputs
   config.yaml.template              # Config template

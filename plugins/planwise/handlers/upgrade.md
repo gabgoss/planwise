@@ -8,7 +8,7 @@ This handler spans **three files**, split by topic because the combined text exc
 
 | Part | File | Steps / Sections | Topic |
 |---|---|---|---|
-| 1 (this file) | `upgrade.md` | Config Gate, Steps 1-2.7 | Drift detection, Token Saver mode offer, comparator fan-out, verdict write, the upgrade script invocation, calibration refresh, lessons/feedback backfill |
+| 1 (this file) | `upgrade.md` | Config Gate, Card path, Steps 1-2.7 | The card path and its hand-backs, drift detection, Token Saver mode offer, comparator fan-out, verdict write, the upgrade script invocation, calibration refresh, lessons/feedback backfill |
 | 2 | [`upgrade-Part-2-RecoveryAndReference.md`](upgrade-Part-2-RecoveryAndReference.md) | Conflict Resolution Reference, Auto-Init Fallback, Mid-Upgrade Failure, Config Recovery | The scenario table Part 3's Step 4 dispositions point back to, and recovery procedures for a run — or the Config Gate — that cannot complete |
 | 3 | [`upgrade-Part-3-BannerAndConflictResolution.md`](upgrade-Part-3-BannerAndConflictResolution.md) | Steps 3-4.7 | Banner rendering, conflict resolution (relocation, upstream issue, per-class cleanup), settings-grant/GitHub-CLI/task-tools/thrifty-sonic post-upgrade offers |
 
@@ -17,6 +17,7 @@ This handler spans **three files**, split by topic because the combined text exc
 ## Table of Contents
 
 - [Config Gate](#config-gate)
+- [Card path](#card-path)
 - [Workflow](#workflow)
   - [Step 1 — Detect drift](#step-1--detect-drift)
   - [Step 1.5 — Offer Token Saver mode](#step-15--offer-token-saver-mode)
@@ -48,6 +49,44 @@ Extract from `config.yaml`:
 - `plugin_version` — currently-pinned plugin version (treat absent as `"0.0.0"`)
 - `project.planwise_root`, `project.plans_dir`, `project.backlog_dir`, `project.lessons_dir`, `project.index_files.*`
 - `project.install_scope` — the value passed as `--scope "{install_scope}"` in the script invocations below (treat absent as `project`)
+
+---
+
+## Card path
+
+The skill's `!` line runs the upgrade preflight before you see the skill. It prints an upgrade card between `<!-- planwise:upgrade:begin -->` and `<!-- planwise:upgrade:end -->`, and the skill tells you to follow the card's NEXT block and read nothing else. You read this handler only when the card is absent, when a `PLANWISE_UPGRADE_FALLBACK:` line appears, or when the card hands a branch back to a numbered Step. The numbered Steps below are the full fallback. They stay authoritative for every branch the card hands back.
+
+1. **What the card holds.** The header names the project root, the config path, the live plugin root, the pinned and shipped versions, the version pair and the branch, plus the Token Saver state. The `Diverged rules` table has one row per diverged file, with its `installed_sha256`, the inline verdict and an `agent` column (`yes` when the row needs a comparator). A `shas:` line carries each full digest, and one `paths:` line per row carries the absolute installed and shipped paths. Then come the migration questions, the earlier-pair transfers, the offers, the recovery artifacts and the NEXT block.
+2. **Follow NEXT exactly.** Run its steps in order, with its commands as printed. Never rebuild a command from the numbered Steps.
+3. **Token Saver.** When Token Saver is off, the card's single `AskUserQuestion` offers it before the run. This is the Step 1.5 offer, asked once. On Yes, add `--token-saver` to the run command where NEXT says.
+4. **Comparators.** When a row needs an agent in an interactive session, spawn the comparators as in Step 2.2, with the two paths from the row's `paths:` line. That Step's spawn prompt and its late-return rule apply unchanged.
+5. **Verdicts.** Paste each comparator's JSON entry whole, and add `installed_sha256` copied from the card's `shas:` line. Never compute the digest yourself. Pass the merged verdicts by heredoc in the run command, as NEXT shows. When the harness refuses the heredoc, `Write` the same JSON to a file and run the same command with `--verdicts-file {path}` in place of `--verdicts-stdin`.
+6. **Migration questions.** When the card holds migration questions, ask them in the merged `AskUserQuestion` the card names. Merge the chosen options' answer objects as the NEXT block states, and pass them with `--answers-json`. The stdin document then holds `{"verdicts": [...], "answers": {...}}`. This wraps Step 2.3b, the way item 4 wraps the Step 2.2 fan-out. A project with a hand-authored index reaches this path. An unanswered question adds nothing, and the writer refuses only that family.
+7. **Comparator line.** When the comparator step ran, print the `Comparator verdicts: {returned}/{diverged} (...)` line yourself, as the Step 3 banner in Part 3 defines it. The script cannot see the fan-out. The card's NEXT block states the count rule.
+8. **Offers.** Report the chat summary the run prints. Ask the user one question with the offer list the run prints, as NEXT states, then run the one apply command with the answers. The offer ids are `transfer-delete:{path}` (Part 3 Step 4.1 case C), `prune:{class}` for `safe-to-discard` or `inert` and `prune-stale` (Part 3 Step 4.3), and `flip-status:{directory}={guess}` (the plans status flip in Part 3 Step 3). The apply command carries `--pair {pair}` whenever an accepted offer is `transfer-delete:` or `prune:safe-to-discard`, and the safe-to-discard sweep excludes this run's own pair.
+9. **Hand back to the numbered Steps** in these cases:
+   - **A fallback line, in either shape.** With no `config.yaml`, the preflight prints one `PLANWISE_UPGRADE_FALLBACK: config.yaml not found at …` line and no markers. When the preflight raised, the router prints the `PLANWISE_UPGRADE_FALLBACK:` line plus `<!-- planwise:upgrade:end -->`. Either way, start at the Config Gate and run the numbered Steps.
+   - **A downgrade.** NEXT asks the Step 1 downgrade question. Read Step 1 for it.
+   - **A preserved conflict.** Resolve it through Part 3 Step 4.
+   - **Case A or B relocation.** Run it through Part 3 Step 4.1.
+
+The card maps onto the numbered Steps as follows:
+
+| Card field or NEXT step | Numbered Step it replaces or wraps |
+|---|---|
+| `pinned`, `shipped`, `pair`, `branch` | Replaces Step 1, which pins the pair once |
+| `token_saver` and the Token Saver question | Replaces Step 1.5 |
+| `Diverged rules` table, `shas:` and `paths:` lines | Replaces the Step 2.1 pre-scan |
+| The comparator spawn step | Wraps Step 2.2 |
+| Verdicts on stdin, or `--verdicts-file` | Replaces the Step 2.3 `verdicts.json` write |
+| Migration questions and `--answers-json` | Wraps Step 2.3b |
+| The run command | Replaces the Step 2.4 invocation |
+| The writer's Token Saver calibration line | Replaces the Step 2.5 capture |
+| The chat summary and the `Comparator verdicts:` line | Wraps Step 3 in Part 3 |
+| `flip-status:` offers | Wraps the plans status flip in Part 3 Step 3 |
+| Earlier-pair transfers and `transfer-delete:` offers | Wraps Part 3 Step 4.1 case C |
+| Recovery artifacts, `prune:` and `prune-stale` offers | Wraps Part 3 Step 4.3 |
+| `Offers:` line (grants, gh, task-tools, thrifty-sonic) | Reports the state Part 3 Steps 4.4-4.7 read |
 
 ---
 
@@ -101,6 +140,8 @@ Token Saver is a budget mode that keeps task sessions under ~150K and warns when
 >
 > Store the choice as `{token_saver}` (`yes` / `no`). When `yes`, pass `--token-saver` to the upgrade script in Step 2.4.
 
+On the card path, the card asks the same question in its single `AskUserQuestion`, so never ask it a second time.
+
 ---
 
 > [!decide] Interactive upgrade sequence (integration note)
@@ -130,7 +171,7 @@ Both modes, read-only. Same arg shape as `--upgrade`, minus `--name` (the diagno
 python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --list-diverged
 ```
 
-Parse the JSON array printed to stdout. Each row is `{"filename", "kind": "rule", "set": "installed" | "descoped" | "style", "installed": <project-root-relative POSIX path, or an absolute POSIX path for a user-scope style rule>, "shipped": <plugin-root-relative POSIX path>}`, stable-sorted by `filename`. `set` names the disposition the writer applies to the row (`installed`: refresh; `descoped`: the de-scope disposition; `style`: the style-rule disposition), and the writer consumes a verdict in all three, so Step 2.2 spawns a comparator for every listed row. The scan walks the active install set, any de-scoped rules still on disk and the enabled style rules; the byte/normalized-identical majority never appears here. `[]` → nothing diverges; skip Steps 2.2–2.3 entirely and go straight to Step 2.4 — the writer runs a pure refresh with no fan-out to do. A non-empty list carries into Step 2.2.
+Parse the JSON array printed to stdout. Each row is `{"filename", "kind": "rule", "set": "installed" | "descoped" | "style", "installed": <project-root-relative POSIX path, or an absolute POSIX path for a user-scope style rule>, "shipped": <plugin-root-relative POSIX path>, "installed_sha256": <hex digest of the installed file>}`, stable-sorted by `filename`. `set` names the disposition the writer applies to the row (`installed`: refresh; `descoped`: the de-scope disposition; `style`: the style-rule disposition), and the writer consumes a verdict in all three, so Step 2.2 spawns a comparator for every listed row. The scan walks the active install set, any de-scoped rules still on disk and the enabled style rules; the byte/normalized-identical majority never appears here. `[]` → nothing diverges; skip Steps 2.2–2.3 entirely and go straight to Step 2.4 — the writer runs a pure refresh with no fan-out to do. A non-empty list carries into Step 2.2.
 
 ---
 
@@ -202,15 +243,14 @@ Use the Write tool to write the collected verdicts to `{planwise_root}/upgrade-c
 > match the sha256 of the installed file's current bytes (one-line stderr note,
 > falls back to the inline primitive) — a cached verdict must never drive a
 > destructive disposition against content it didn't analyze. YOU (the
-> orchestrator) compute and write this hash per entry, over the SAME installed
-> file you handed that entry's comparator:
+> orchestrator) copy this value into each entry from that file's Step 2.1
+> row, which carries `installed_sha256` for the SAME installed file you
+> handed that entry's comparator:
 >
-> WRONG: omit the hash, or hash the shipped file.
-> CORRECT — one command per entry, hashing the installed path:
-> ```bash
-> python "{plugin_root}/scripts/init_project.py" --hash-installed "{absolute installed path}"
-> ```
-> The digest is computed over a normalized pre-image, matching the writer's recompute by construction.
+> WRONG: compute the hash yourself, omit it, or hash the shipped file.
+> CORRECT: copy `installed_sha256` from the file's Step 2.1 row, unchanged.
+>
+> The row's digest is computed over a normalized pre-image, matching the writer's recompute by construction. The `--hash-installed` flag of `init_project.py` still exists for recovering a stale entry, because the writer's ignore message names it.
 >
 > After a successful `--upgrade` run consumes the cache, the script renames
 > `verdicts.json` to `verdicts.json.consumed` so a stale verdict can never fire
@@ -315,34 +355,36 @@ Capture stdout — the banner is rendered from it.
 
 ### Step 2.5 — Refresh Token Saver calibration
 
-Run only when `{token_saver}` (from Step 1.5) resolves to `yes` — i.e., Token Saver is enabled after the upgrade (either pre-existing or just turned on). Skip silently when Token Saver is off.
+Applies only when `{token_saver}` (from Step 1.5) resolves to `yes` — i.e., Token Saver is enabled after the upgrade (either pre-existing or just turned on). Skip silently when Token Saver is off.
 
-The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update changes the always-on rule/agent surface a fresh `/context` loads, so `token_saver_runner_overhead` captured against the old version no longer reflects this install. Re-capture so plans size against the new footprint.
+The Step 2.4 writer runs the calibration itself in that case. Read its calibration line from the Step 2.4 output and report it in the banner. Run no `python -c` calibration call.
+
+The measured overheads in `config.yaml` go **stale on upgrade**: a plugin update changes the always-on rule/agent surface a fresh `/context` loads, so `token_saver_runner_overhead` captured against the old version no longer reflects this install. The writer re-captures so plans size against the new footprint.
 
 **Derivation change.** Stored values shift on this recalibration, so review any budget tuned around pre-upgrade numbers after this step runs. The formula and the role of each key are in [token-saver-profile.md](../references/token-saver-profile.md) under "Which keys feed the session budget".
 
-> **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. When `token_saver.calibrate()` is invoked from upgrade (headless), the CLI may return conversational text instead of the structured report, and calibration degrades to the conservative fallback (runner ~54K / orchestrator ~60K). This is expected on some platforms — notably Windows. The conservative fallback is safe; recapture from an interactive session with `/planwise token-saver on`.
+> **Best-effort capture.** The `/context` report renders reliably only inside an **interactive** Claude Code session. The Step 2.4 writer now calls `token_saver.calibrate()` itself, headless, so the CLI may return conversational text instead of the structured report. A never-measured project then degrades to the conservative fallback (runner ~54K / orchestrator ~60K), and a measured project keeps its measured overheads. This is expected on some platforms — notably Windows. The conservative fallback is safe; recapture from an interactive session with `/planwise token-saver on`.
 
-1. Re-run the calibration capture against the upgraded install:
+1. Read the writer's calibration line from the Step 2.4 output. It prints exactly one of these four lines:
 
-   ```bash
-   python -c "import sys; sys.path.insert(0, r'{plugin_root}/scripts'); import token_saver; from pathlib import Path; r = token_saver.calibrate(config_path=Path(r'{planwise_root}/config.yaml'), plugin_root=r'{plugin_root}'); print(r)"
+   ```
+   Token Saver recalibrated: runner overhead {old} -> {new}, orchestrator overhead {old} -> {new}
+   Token Saver calibration fell back to defaults; run /planwise token-saver on to retry.
+   Token Saver calibration failed; kept the measured overheads.
+   Token Saver calibration skipped: {error}
    ```
 
-   `token_saver.calibrate()` overwrites its six written `token_saver_*` keys in place — `runner_overhead`, `orchestrator_overhead`, `context_breakdown`, `overhead_measured_on`, `session_start_range`, `injected_rules_estimate` (targeted edit — comments and key order preserved) — and degrades to the conservative fallback if the `/context` capture fails or returns non-report text.
+   The writer's call to `token_saver.calibrate()` overwrites its six written `token_saver_*` keys in place on a successful capture — `runner_overhead`, `orchestrator_overhead`, `context_breakdown`, `overhead_measured_on`, `session_start_range`, `injected_rules_estimate` (targeted edit — comments and key order preserved). It degrades as the callout above describes when the `/context` capture fails or returns non-report text.
 
-2. Report the refreshed numbers in the chat summary (append to the Step 3 banner in [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md)):
+2. Report the refreshed numbers in the chat summary (append to the Step 3 banner in [upgrade-Part-3-BannerAndConflictResolution.md](upgrade-Part-3-BannerAndConflictResolution.md)). On the `Token Saver recalibrated:` line, render the two values it prints:
 
    ```
    Token Saver recalibrated:
      Runner overhead:       {old} → {token_saver_runner_overhead}
      Orchestrator overhead: {old} → {token_saver_orchestrator_overhead}
-     Session-start range:   {token_saver_session_start_range}
-     Injected rules est.:   {token_saver_injected_rules_estimate}
-     Calibrated on:         {token_saver_overhead_measured_on}
    ```
 
-   If the result's `uncalibrated` flag is `true`, note that the conservative fallback was written (capture failed or returned non-report text — expected on some platforms) and suggest running `/planwise token-saver on` from an interactive session to capture real numbers.
+   On any of the other three lines, report the line verbatim. On the fell-back-to-defaults line, note that the conservative fallback was written (capture failed or returned non-report text — expected on some platforms) and suggest running `/planwise token-saver on` from an interactive session to capture real numbers.
 
 ---
 
