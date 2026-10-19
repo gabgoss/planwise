@@ -675,6 +675,49 @@ def test_enable_posting_keeps_a_quoted_true_as_written(tmp_path, capsys):
     assert config.read_bytes() == original
 
 
+# ---------------------------------------------------------------- posting-state
+
+
+@pytest.mark.parametrize(
+    ("text", "state"),
+    [
+        (b"feedback:\n  enabled: true\n", "enabled"),
+        (b'feedback:\n  enabled: "True"   # quoted\n', "enabled"),
+        (b"feedback:\n  enabled: false\n", "disabled"),
+        (b"feedback:\n  # note\n  enabled: no\n", "disabled"),
+        (b"feedback:\n  repo: gabgoss/planwise\n", "absent"),
+        (b"feedback:\n  enabled:\n  repo: gabgoss/planwise\n", "absent"),
+        (b"project:\n  name: demo\n", "absent"),
+        (b"", "absent"),
+        (b"feedback:\r\n  enabled: false\r\n", "disabled"),
+    ],
+)
+def test_posting_state_tells_absent_from_an_explicit_decision(tmp_path, capsys, text, state):
+    config = tmp_path / "config.yaml"
+    config.write_bytes(text)
+    code, out, err = run(["posting-state", "--config", str(config)], capsys)
+    assert (code, out.strip(), err) == (0, state, "")
+    assert config.read_bytes() == text
+
+
+def test_posting_state_missing_config_exits_1(tmp_path, capsys):
+    code, out, err = run(["posting-state", "--config", str(tmp_path / "none.yaml")], capsys)
+    assert code == 1
+    assert out == ""
+    assert "not found" in err
+
+
+def test_posting_state_refuses_a_feedback_key_that_is_not_a_block(tmp_path, capsys):
+    config = tmp_path / "config.yaml"
+    original = b"feedback: {enabled: true}\n"
+    config.write_bytes(original)
+    code, out, err = run(["posting-state", "--config", str(config)], capsys)
+    assert code == 1
+    assert out == ""
+    assert "block mapping" in err
+    assert config.read_bytes() == original
+
+
 # ---------------------------------------------------------------- disable-drafts
 
 

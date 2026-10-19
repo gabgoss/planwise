@@ -64,8 +64,10 @@ Before proceeding, read:
 ### Step 1: Resolve Config
 
 Attempt to resolve `config.yaml` the normal way (`planwise/config.yaml`, or `*/config.yaml`
-one level down from project root). If found and readable, extract `feedback.enabled`,
-`feedback.repo`, `feedback.include_environment`, and `plugin_version`. If missing or
+one level down from project root). If found and readable, extract `feedback.repo`,
+`feedback.include_environment`, and `plugin_version`. Read `feedback.enabled` only through the
+engine's gate 1 (`posting-state`), which tells an `absent` key from one set to a value other
+than `true`. This handler does not parse the key itself. If missing or
 unreadable, follow the Config-Gate exception above instead — do not auto-init.
 
 ### Step 2: Parse Mode
@@ -118,7 +120,8 @@ shortcut, or duplicate any part of any of them — it supplies inputs and report
 - **post** — if the engine posted the issue: report the URL it returned. If the engine
   posted a comment on an existing issue instead: report the comment URL it returned. If the
   engine stopped at any gate (including the Config-Gate exception above), or the post
-  failed: report the draft's absolute path and `https://github.com/gabgoss/planwise/issues`.
+  failed: report the engine's stop message, the draft's absolute path, and
+  `https://github.com/gabgoss/planwise/issues`.
 - **sweep** and **status** — print exactly what the engine's pipeline returned: the
   listing, the consent outcome, or the status table. This handler computes none of it.
 - **drafts** — print exactly what the engine's pipeline returned: the listing, each per-draft outcome, or the non-interactive line.
@@ -137,7 +140,9 @@ enabled. Drafting is not filing. Planwise posts a model draft only through `--dr
 `--post <draftId>`, and both ride the engine's gate chain. Detecting a possible bug, lesson,
 or idea elsewhere in planwise is **offer-only** — surfacing this handler as an option a user
 can take, never invoking it on their behalf. Every post, without exception, rides the
-engine's own gate 5 explicit consent — this handler introduces no second consent site.
+engine's own gate 5 explicit consent — this handler introduces no second consent site. The
+engine's gate 1 enable offer for an `absent` key is a setting selection, owned by the engine,
+and it never replaces gate 5.
 
 ---
 

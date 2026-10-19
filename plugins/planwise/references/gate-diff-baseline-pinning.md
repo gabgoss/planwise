@@ -50,10 +50,10 @@ Throughout this section `$BASE` stands for the sprint's own recorded `{ABBREV}_S
 > ```
 > Record the name, the value, and the recording task in the session Recovery file's Key Findings. That record is the **first write of the session** — before any edit. A base pinned after an edit already contains it, so every gate scoped to that base is blind to the one change it was written to check, and reports empty for the reason that makes an empty result worthless.
 
-The precondition is scoped with `--` to **this sprint's write paths**, not to the whole repo: unrelated dirt outside the sprint's area is not this sprint's problem to stash, and a whole-repo cleanliness demand is the kind of gate sessions learn to override. Carry the recorded value where later sprints can find it — a Sprint Overview status cell is enough:
+The precondition is scoped with `--` to **this sprint's write paths**, not to the whole repo: unrelated dirt outside the sprint's area is not this sprint's problem to stash, and a whole-repo cleanliness demand is the kind of gate sessions learn to override. Carry the recorded value where later sprints can find it — a Sprint Overview status cell is enough. Edit that one cell of the sprint's existing row and leave every other column as authored, because the column set is authored per plan. A cell value looks like this:
 
 ```markdown
-| {Sprint-N} | {Session-Name} | ✅ COMPLETE | Verdict PASS — 7/7 tasks. `{ABBREV}_S{NN}_BASE=5b53607` |
+✅ COMPLETE — Verdict PASS, 7/7 tasks. `{ABBREV}_S{NN}_BASE=5b53607`
 ```
 
 ### 8.2 Scope every gate to the recorded base

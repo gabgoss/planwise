@@ -2,7 +2,7 @@
 """Shared helper for model-drafted feedback files (stdlib only).
 
 Producers and the review surface call this one script to list, admit,
-discard, promote and expire model-drafted feedback, to switch on posting, and to switch drafting off.
+discard, promote and expire model-drafted feedback, to switch on posting, to report whether posting is on, and to switch drafting off.
 
 ## The draft file
 
@@ -23,6 +23,7 @@ hand-written feedback draft, a posted-marker sidecar, and anything under
 | `promote <id>` | Writes the standard draft, sets `status: promoted`, adds `promoted_to:` | 0, 1 not found or discarded, 3 already promoted |
 | `expire` | Sets `status: expired` on queued drafts older than `EXPIRY_DAYS` | 0 |
 | `enable-posting --config <path>` | Sets `feedback.enabled: true` by text splice, idempotent, in the block's own indent. The result is parsed before it is written, and a result that would not parse is never written | 0, 1 config problem |
+| `posting-state --config <path>` | Reads `feedback.enabled` and prints one word, writing nothing: `enabled` when it is `true`, `disabled` when the key is set to anything else (an explicit decision), `absent` when the `feedback` block or its `enabled` key is missing or empty. A caller uses the word to tell a user who never saw the key from one who turned posting off | 0, 1 config missing or the feedback key is not a block mapping |
 | `disable-drafts --config <path>` | Sets `feedback.drafts: off` by the same text splice, idempotent, comments kept, in the block's own indent. A comment line never ends the block or sets its indent. The result is parsed before it is written, and a result that would not parse is never written. Prints the old and new value | 0, 1 config problem |
 
 The directory comes from `--feedback-dir <abs>` when given, otherwise from
@@ -646,6 +647,33 @@ def _drafts_off(text: str) -> "bool | None":
     return drafts is False or (isinstance(drafts, str) and drafts.strip().lower() == "off")
 
 
+def _posting_state_text(text: str) -> str:
+    """Return `enabled`, `disabled` or `absent` for `feedback.enabled`, reading through the enable splice.
+
+    The splice changes nothing when the key already means true, which is the `enabled` state. Its old value is
+    `unset` for a missing block, a missing key or an empty value, which is the `absent` state. Any other old value
+    was set on purpose, so it is `disabled`. A key written as the literal word `unset` reads as `absent`.
+    """
+    new_text, old = _enable_posting_text(text)
+    if new_text == text:
+        return "enabled"
+    return "absent" if old == "unset" else "disabled"
+
+
+def cmd_posting_state(args: argparse.Namespace) -> int:
+    config = Path(args.config)
+    if not config.is_file():
+        print(f"feedback_drafts: config.yaml not found at {config}", file=sys.stderr)
+        return 1
+    try:
+        state = _posting_state_text(_read(config))
+    except ValueError as exc:
+        print(f"feedback_drafts: {exc}", file=sys.stderr)
+        return 1
+    print(state)
+    return 0
+
+
 def cmd_disable_drafts(args: argparse.Namespace) -> int:
     config = Path(args.config)
     if not config.is_file():
@@ -726,6 +754,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_enable = sub.add_parser("enable-posting", help="set feedback.enabled: true in config.yaml")
     p_enable.add_argument("--config", required=True, help="path to config.yaml")
     p_enable.set_defaults(func=cmd_enable_posting)
+
+    p_state = sub.add_parser("posting-state", help="print whether feedback.enabled is enabled, disabled or absent")
+    p_state.add_argument("--config", required=True, help="path to config.yaml")
+    p_state.set_defaults(func=cmd_posting_state)
 
     p_disable = sub.add_parser("disable-drafts", help="set feedback.drafts: off in config.yaml")
     p_disable.add_argument("--config", required=True, help="path to config.yaml")
