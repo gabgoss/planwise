@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Initialize planwise project structure — CLI entry point + composition root.
 
-Owns fresh-init scaffolding (directories, seed files, rule install, settings),
-the INSTALLED_RULES/DESCOPED_RULES tables, and the argparse-driven main()
-dispatch. The heavier subsystems live in sibling same-directory modules and
-are imported/re-exported here so `import init_project` keeps working
-unchanged: upgrade_io (backup/disposition/transfer primitives), config_gen
+Owns fresh-init scaffolding (directories, seed files, rule install, settings)
+and the argparse-driven main() dispatch. The heavier subsystems live in
+sibling same-directory modules and are imported/re-exported here so
+`import init_project` keeps working unchanged: rule_registry (the
+INSTALLED_RULES/DESCOPED_RULES tables and the paths:/frontmatter helpers --
+a leaf module, so the siblings below import it instead of this file),
+upgrade_io (backup/disposition/transfer primitives), config_gen
 (InitConfig + config.yaml generation/migration), rule_divergence (installed-
 vs-shipped structural classification), rule_descope_migration (rule de-scope
 migration), artifact_upgrade (the --upgrade writer), doctor_sweeps + doctor_cli
@@ -41,16 +43,13 @@ from pathlib import Path
 
 # When this file is run directly (`python init_project.py ...`), Python
 # registers it as sys.modules["__main__"], NOT sys.modules["init_project"].
-# The sibling modules imported below (rule_descope_migration, artifact_upgrade,
-# doctor_sweeps and doctor_cli) do `from init_project import X` (R1:
-# INSTALLED_RULES/DESCOPED_RULES stay on the residual) -- without this alias,
-# that statement would trigger a SECOND, independent import of this same file
-# under the "init_project" key, which re-executes from the top and collides
-# with the sibling import already in progress (a circular ImportError distinct
-# from -- and not fixed by -- the definition-ordering fix below). Aliasing
-# first gives every `from init_project import ...` a single, already-partially
-# -initialized module object to resolve against, exactly as the normal
-# `import init_project` case already has.
+# No sibling imports from init_project at module level any more (the shared
+# names live in rule_registry), but artifact_upgrade's feedback-dir backfill
+# still does a call-time `from init_project import _backfill_feedback_dir, ...`.
+# Without this alias, that statement would trigger a SECOND, independent
+# import of this same file under the "init_project" key, re-executing it from
+# the top. Aliasing first gives that import the already-loaded module object
+# to resolve against, exactly as the normal `import init_project` case has.
 if __name__ == "__main__":
     sys.modules.setdefault("init_project", sys.modules[__name__])
 
@@ -64,6 +63,20 @@ except ImportError:
     raise ImportError(
         "gitignore_entry is required for init_project's .gitignore draft entry; "
         "the scripts/ directory appears to be partially installed"
+    )
+
+try:
+    from rule_registry import (
+        DESCOPED_RULES,  # noqa: F401 -- re-exported for callers of init_project
+        INSTALLED_RULES,
+        resolve_rule_paths_value,
+        update_frontmatter,
+    )
+except ImportError:
+    raise ImportError(
+        "rule_registry is required for init_project's INSTALLED_RULES/"
+        "DESCOPED_RULES tables and rule-write helpers; the scripts/ directory "
+        "appears to be partially installed"
     )
 
 try:
@@ -193,6 +206,69 @@ except ImportError:
     )
 
 try:
+    from rule_descope_migration import (
+        RESCOPE_MIGRATION_VERSION,  # noqa: F401 -- re-exported for callers of init_project
+        _version_tuple,  # noqa: F401 -- re-exported for callers of init_project
+        migrate_installed_rules,  # noqa: F401 -- re-exported for callers of init_project
+    )
+except ImportError:
+    raise ImportError(
+        "rule_descope_migration is required for init_project's de-scope "
+        "migration re-exports; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
+try:
+    from artifact_upgrade import (
+        _commit_upgrade_pin,  # noqa: F401 -- re-exported for callers of init_project
+        _repoint_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
+        _run_upgrade,
+        _same_path,  # noqa: F401 -- re-exported for callers of init_project
+        load_artifact_manifest,
+        upgrade_artifacts,  # noqa: F401 -- re-exported for callers of init_project
+    )
+except ImportError:
+    raise ImportError(
+        "artifact_upgrade is required for init_project's artifact-refresh/"
+        "upgrade re-exports; the scripts/ directory appears to be partially "
+        "installed"
+    )
+
+try:
+    from doctor_sweeps import (
+        FORMERLY_MIRRORED_AGENTS,  # noqa: F401 -- re-exported for callers of init_project
+        lint_installed_divergence,  # noqa: F401 -- re-exported for callers of init_project
+        lint_rule_overscope,  # noqa: F401 -- re-exported for callers of init_project
+        sweep_orphaned_agent_mirrors,  # noqa: F401 -- re-exported for callers of init_project
+        sweep_stale_descoped_rules,  # noqa: F401 -- re-exported for callers of init_project
+    )
+except ImportError:
+    raise ImportError(
+        "doctor_sweeps is required for init_project's doctor-sweep re-exports; "
+        "the scripts/ directory appears to be partially installed"
+    )
+
+try:
+    from doctor_cli import (
+        _detect_orphaned_block_signature,  # noqa: F401 -- re-exported for callers of init_project
+        _doctor_config_parse_check,  # noqa: F401 -- re-exported for callers of init_project
+        _doctor_version_gate,  # noqa: F401 -- re-exported for callers of init_project
+        _list_diverged_rows,  # noqa: F401 -- re-exported for callers of init_project
+        _read_configured_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
+        _read_pinned_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
+        _resolve_doctor_config_path,  # noqa: F401 -- re-exported for callers of init_project
+        _run_doctor,
+        _run_list_diverged,
+        _run_prune_stale,
+        _run_prune_upgrade_leftovers,
+    )
+except ImportError:
+    raise ImportError(
+        "doctor_cli is required for init_project's doctor-dispatcher "
+        "re-exports; the scripts/ directory appears to be partially installed"
+    )
+
+try:
     import yaml
     HAS_YAML = True
 except ImportError:
@@ -200,54 +276,6 @@ except ImportError:
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
-
-
-# Files copied from references/ into .claude/rules/planwise/ on init.
-# Each tuple is (source_filename, paths_template). paths_template uses
-# {plans_path} / {all_paths} placeholders resolved at install/upgrade time
-# from cfg.planwise_root + cfg.plans_dir / cfg.backlog_dir / cfg.lessons_dir.
-# The upgrade flow consults this list as the authoritative refresh allowlist.
-#
-# Only the four `.claude/**`-scoped authoring rules are installed as
-# path-scoped rules. They guide agents/skills/rules authoring, trigger on
-# `.claude/**` file activity, and stay small. The sixteen plan/backlog/lessons
-# rules that used to be installed here are now handler-loaded on demand from
-# references/ — see DESCOPED_RULES below and migrate_installed_rules().
-# The two global style rules are installed separately by
-# `style_rules.install_style_rules` and are not in this table.
-INSTALLED_RULES: list[tuple[str, str]] = [
-    ("agent-authoring.md", ".claude/agents/**"),
-    ("skill-authoring.md", ".claude/skills/**"),
-    ("rule-authoring.md", ".claude/rules/**"),
-    ("artifact-self-containment.md", ".claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md"),
-]
-
-
-# Rules removed from the install set during the rule de-scope. Each tuple is
-# (source_filename, old_paths_template) where old_paths_template is the
-# {plans_path} / {all_paths} placeholder the rule carried BEFORE de-scoping.
-# migrate_installed_rules() resolves each template back to the pre-migration
-# default paths: value to recognise an untouched installed copy and remove it;
-# the orchestrator now loads these rules on demand from references/ instead of
-# injecting them as always-on path-scoped rules.
-DESCOPED_RULES: list[tuple[str, str]] = [
-    ("session-planning-protocol.md", "{plans_path}"),
-    ("session-plan-requirements.md", "{plans_path}"),
-    ("session-context-budget.md", "{plans_path}"),
-    ("session-execution-protocol.md", "{plans_path}"),
-    ("scaffolding-hygiene.md", "{plans_path}"),
-    ("discovery-and-exit-criteria.md", "{plans_path}"),
-    ("ei-fidelity.md", "{plans_path}"),
-    ("schema-pin-requirement.md", "{plans_path}"),
-    ("task-content-fidelity.md", "{plans_path}"),
-    ("verification-gates.md", "{plans_path}"),
-    ("verify-against-shipped-artifact.md", "{plans_path}"),
-    ("verification-task-authoring.md", "{plans_path}"),
-    ("agent-orchestration.md", "{all_paths}"),
-    ("agent-orchestration-delegated.md", "{all_paths}"),
-    ("callout-conventions.md", "{all_paths}"),
-    ("markdown-conventions.md", "{all_paths}"),
-]
 
 
 @dataclasses.dataclass
@@ -262,17 +290,6 @@ class SkippedArtifact:
     reason: str             # short reason (e.g., "config.yaml: categorization block missing")
     consumer: str           # downstream skill or handler that needs this artifact
     remediation: str        # concrete next-step the user should take
-
-
-def resolve_rule_paths_value(cfg: "InitConfig", paths_template: str) -> str:
-    """Substitute {plans_path} / {all_paths} placeholders into a paths: value."""
-    plans_path = f"{cfg.planwise_root}/{cfg.plans_dir}/**"
-    all_paths = ", ".join([
-        plans_path,
-        f"{cfg.planwise_root}/{cfg.backlog_dir}/**",
-        f"{cfg.planwise_root}/{cfg.lessons_dir}/**",
-    ])
-    return paths_template.replace("{plans_path}", plans_path).replace("{all_paths}", all_paths)
 
 
 def create_directories(cfg: InitConfig) -> list[str]:
@@ -372,92 +389,6 @@ def render_new_plans_index(cfg: InitConfig, seeds: list[str]) -> str | None:
         print(f"  Warning: plans index render skipped: {exc}", file=sys.stderr)
         return None
 
-
-def update_frontmatter(content: str, paths_value: str) -> str:
-    """Update or add paths: field in YAML frontmatter."""
-    if content.startswith("---\n"):
-        end = content.find("\n---\n", 4)
-        if end == -1:
-            return f"---\npaths: {paths_value}\n---\n\n{content}"
-
-        frontmatter = content[4:end]
-        body = content[end + 5:]
-
-        if re.search(r"^paths:", frontmatter, re.MULTILINE):
-            frontmatter = re.sub(
-                r"^paths:.*$", f"paths: {paths_value}",
-                frontmatter, count=1, flags=re.MULTILINE
-            )
-        else:
-            frontmatter = frontmatter.rstrip() + f"\npaths: {paths_value}"
-
-        return f"---\n{frontmatter}\n---\n{body}"
-    else:
-        return f"---\npaths: {paths_value}\n---\n\n{content}"
-
-
-try:
-    from rule_descope_migration import (
-        RESCOPE_MIGRATION_VERSION,  # noqa: F401 -- re-exported for callers of init_project
-        _version_tuple,  # noqa: F401 -- re-exported for callers of init_project
-        migrate_installed_rules,  # noqa: F401 -- re-exported for callers of init_project
-    )
-except ImportError:
-    raise ImportError(
-        "rule_descope_migration is required for init_project's de-scope "
-        "migration re-exports; the scripts/ directory appears to be "
-        "partially installed"
-    )
-
-try:
-    from artifact_upgrade import (
-        _commit_upgrade_pin,  # noqa: F401 -- re-exported for callers of init_project
-        _repoint_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
-        _run_upgrade,
-        _same_path,  # noqa: F401 -- re-exported for callers of init_project
-        load_artifact_manifest,
-        upgrade_artifacts,  # noqa: F401 -- re-exported for callers of init_project
-    )
-except ImportError:
-    raise ImportError(
-        "artifact_upgrade is required for init_project's artifact-refresh/"
-        "upgrade re-exports; the scripts/ directory appears to be partially "
-        "installed"
-    )
-
-try:
-    from doctor_sweeps import (
-        FORMERLY_MIRRORED_AGENTS,  # noqa: F401 -- re-exported for callers of init_project
-        lint_installed_divergence,  # noqa: F401 -- re-exported for callers of init_project
-        lint_rule_overscope,  # noqa: F401 -- re-exported for callers of init_project
-        sweep_orphaned_agent_mirrors,  # noqa: F401 -- re-exported for callers of init_project
-        sweep_stale_descoped_rules,  # noqa: F401 -- re-exported for callers of init_project
-    )
-except ImportError:
-    raise ImportError(
-        "doctor_sweeps is required for init_project's doctor-sweep re-exports; "
-        "the scripts/ directory appears to be partially installed"
-    )
-
-try:
-    from doctor_cli import (
-        _detect_orphaned_block_signature,  # noqa: F401 -- re-exported for callers of init_project
-        _doctor_config_parse_check,  # noqa: F401 -- re-exported for callers of init_project
-        _doctor_version_gate,  # noqa: F401 -- re-exported for callers of init_project
-        _list_diverged_rows,  # noqa: F401 -- re-exported for callers of init_project
-        _read_configured_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
-        _read_pinned_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
-        _resolve_doctor_config_path,  # noqa: F401 -- re-exported for callers of init_project
-        _run_doctor,
-        _run_list_diverged,
-        _run_prune_stale,
-        _run_prune_upgrade_leftovers,
-    )
-except ImportError:
-    raise ImportError(
-        "doctor_cli is required for init_project's doctor-dispatcher "
-        "re-exports; the scripts/ directory appears to be partially installed"
-    )
 
 try:
     from transfer_review import run_review_transfers

@@ -125,6 +125,37 @@ except ImportError:
         "retrofit; the scripts/ directory appears to be partially installed"
     )
 
+try:
+    from rule_registry import (
+        INSTALLED_RULES,
+        resolve_rule_paths_value,
+        update_frontmatter,
+    )
+except ImportError as exc:
+    raise ImportError(
+        "rule_registry is required for artifact_upgrade's INSTALLED_RULES table "
+        "and its rule-write helpers; the scripts/ directory appears to be "
+        "partially installed"
+    ) from exc
+
+try:
+    from rule_descope_migration import descoped_force_set, migrate_installed_rules
+except ImportError as exc:
+    raise ImportError(
+        "rule_descope_migration is required for artifact_upgrade's post-refresh "
+        "de-scope migration step; the scripts/ directory appears to be "
+        "partially installed"
+    ) from exc
+
+try:
+    from doctor_sweeps import lint_rule_overscope, sweep_orphaned_agent_mirrors
+    from upgrade_mirror_report import emit_mirror_sweep, emit_overscope_advisory
+except ImportError as exc:
+    raise ImportError(
+        "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "
+        "advisory; the scripts/ directory appears to be partially installed"
+    ) from exc
+
 
 def load_artifact_manifest(plugin_root: Path) -> dict:
     """Load manifests/artifacts.yaml from the plugin root.
@@ -1251,39 +1282,5 @@ def _run_upgrade(
             file=sys.stderr,
         )
         raise
-
-
-# These three sit below the definitions: each one reaches init_project, which
-# re-exports names from this module, so the names must exist first.
-try:
-    from init_project import (
-        INSTALLED_RULES,
-        resolve_rule_paths_value,
-        update_frontmatter,
-    )
-except ImportError as exc:
-    raise ImportError(
-        "init_project is required for artifact_upgrade's INSTALLED_RULES table "
-        "(R1: the tuple stays on the residual) and its rule-write helper; "
-        "the scripts/ directory appears to be partially installed"
-    ) from exc
-
-try:
-    from rule_descope_migration import descoped_force_set, migrate_installed_rules
-except ImportError as exc:
-    raise ImportError(
-        "rule_descope_migration is required for artifact_upgrade's post-refresh "
-        "de-scope migration step; the scripts/ directory appears to be "
-        "partially installed"
-    ) from exc
-
-try:
-    from doctor_sweeps import lint_rule_overscope, sweep_orphaned_agent_mirrors
-    from upgrade_mirror_report import emit_mirror_sweep, emit_overscope_advisory
-except ImportError as exc:
-    raise ImportError(
-        "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "
-        "advisory; the scripts/ directory appears to be partially installed"
-    ) from exc
 
 

@@ -571,7 +571,8 @@ artifacts:
     notes: >
       The four `.claude/**`-scoped author-time rules (agent-authoring,
       skill-authoring, rule-authoring, artifact-self-containment) come from the
-      INSTALLED_RULES table in init_project.py. install_rules() also calls
+      INSTALLED_RULES table in rule_registry.py (re-exported by
+      init_project.py). install_rules() also calls
       install_style_rules() for the two global style rules, which the
       style_rules row below describes. The plan/backlog/lessons reference
       files that previously installed here are
@@ -787,7 +788,7 @@ artifacts:
       contract, orchestrator adjudication of BLOCKER-from-heuristic). De-scoped
       from the install set — no longer installed as a path-scoped rule under
       {planwise_root}/{plans_dir}/**; the plan-reviewer agent loads it in-place
-      from references/ at review time (see DESCOPED_RULES in init_project.py).
+      from references/ at review time (see DESCOPED_RULES in rule_registry.py).
       On upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
       removes the untouched or high-confidence stale-subset previously-
       installed copy (backed up under upgrade-backups/ first) and preserves

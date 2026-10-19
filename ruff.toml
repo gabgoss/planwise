@@ -39,9 +39,13 @@ required-version = "==0.16.8"
 # kept in place as a no-op rather than removed, so the ignore reactivates on
 # its own if a future ruff default set re-enables E402.
 "evals/conftest.py" = ["E402"]
-# tests/conftest.py imports init_project before artifact_upgrade/doctor_sweeps
-# on purpose: artifact_upgrade -> rule_descope_migration -> init_project is a
-# circular import that only resolves when init_project is the FIRST of the
-# three cold-imported here. `ruff --fix` alphabetizing this block (I001) once
-# silently broke that ordering and failed the whole test collection.
+# tests/conftest.py once had to import init_project before artifact_upgrade
+# and doctor_sweeps: artifact_upgrade -> rule_descope_migration -> init_project
+# was a circular import that only resolved when init_project was the FIRST of
+# the three cold-imported there, and `ruff --fix` alphabetizing that block
+# (I001) once silently broke the ordering and failed the whole test
+# collection. The shared names now live in the leaf module rule_registry, so
+# no import order is load-bearing any more, and tests/test_import_order.py
+# proves every script imports first. I001 is not in ruff 0.16.8's default rule
+# set either, so this ignore is a no-op kept in place like the E402 one above.
 "tests/conftest.py" = ["I001"]

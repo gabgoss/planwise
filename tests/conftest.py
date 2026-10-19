@@ -114,8 +114,11 @@ def _engine():
 # ---------------------------------------------------------------------------
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
-# Import order below is load-bearing, NOT alphabetical -- see ruff.toml's
-# per-file-ignore for why `ruff --fix` must never re-sort this block.
+# This import order used to be load-bearing: artifact_upgrade reached
+# init_project through rule_descope_migration, so init_project had to load
+# first. The shared names now live in the leaf module rule_registry and
+# tests/test_import_order.py proves every script imports first, so the order
+# is free. ruff.toml's per-file-ignore for this block is kept as a no-op.
 import init_project as ip
 import artifact_upgrade
 import doctor_sweeps

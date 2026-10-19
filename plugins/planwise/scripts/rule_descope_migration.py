@@ -54,6 +54,15 @@ except ImportError:
         "partially installed"
     )
 
+try:
+    from rule_registry import DESCOPED_RULES, resolve_rule_paths_value
+except ImportError as exc:
+    raise ImportError(
+        "rule_registry is required for rule_descope_migration's DESCOPED_RULES "
+        "table and its resolve_rule_paths_value() helper; the scripts/ "
+        "directory appears to be partially installed"
+    ) from exc
+
 
 # Version this de-scope migration ships in. migrate_installed_rules() only
 # acts when from_version < RESCOPE_MIGRATION_VERSION <= to_version, so the
@@ -454,17 +463,5 @@ def descoped_force_set(cfg: "InitConfig", verdicts: dict) -> "frozenset[str]":
         if _load_verdict_override(verdicts, name, raw, path) is not None:
             forced.add(name)
     return frozenset(forced)
-
-
-# Below the definitions: init_project re-exports names from this module, so
-# they must exist before init_project loads.
-try:
-    from init_project import DESCOPED_RULES, resolve_rule_paths_value
-except ImportError as exc:
-    raise ImportError(
-        "init_project is required for rule_descope_migration's DESCOPED_RULES "
-        "table (R1: the tuple stays on the residual) and its resolve_rule_paths_value() "
-        "helper; the scripts/ directory appears to be partially installed"
-    ) from exc
 
 
