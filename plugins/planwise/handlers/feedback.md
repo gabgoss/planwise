@@ -17,7 +17,7 @@ pipeline to the shared submission engine.
 ```
 
 `kind` defaults to `bug` when omitted, **and no mode flag is given**. `kind` selects which
-body-spec variant `references/feedback-submission.md` renders (`bug` vs. `lesson`/`idea`).
+body-spec variant the engine renders (`bug` vs. `lesson`/`idea`), per the Issue Body Spec in `references/feedback-submission-Part-3-FailureBodySpecAndPrivacy.md`.
 `--status`, `--sweep`, `--drafts` and `--post <draftId>` are separate modes — see `## Routing`
 below — and take no `kind`.
 
@@ -50,7 +50,12 @@ Before proceeding, read:
 - `references/feedback-submission.md` — the shared submission engine. It is the ONE
   place the gate chain, the duplicate scan, draft-first invocation, posted-draft
   marking, fallback posture, Auto-Mode deviation, issue body spec, and privacy
-  contract are specified. This handler
+  contract are specified. It spans three files. Part 1, which keeps that filename, holds the gate chain,
+  the duplicate scan, draft-first and posted-draft marking.
+  `references/feedback-submission-Part-2-LocalDraftPipelines.md` holds the sweep, status and
+  model-draft pipelines. `references/feedback-submission-Part-3-FailureBodySpecAndPrivacy.md`
+  holds the fallback posture, Auto-Mode deviation, issue body spec, privacy contract and
+  placeholders. Read the part each mode needs, per `## Routing`. This handler
   cites and delegates to it end to end; it does not re-specify, shortcut, or duplicate any
   of the above.
 
@@ -93,7 +98,7 @@ not ask for.
 
 ### Step 3: Collect the Report (post mode only)
 
-Per `references/feedback-submission.md`'s Issue Body Spec for the resolved `kind`, collect
+Per the engine's Issue Body Spec (`references/feedback-submission-Part-3-FailureBodySpecAndPrivacy.md`) for the resolved `kind`, collect
 each `{user-supplied}` field directly from the user as free text — never auto-filled,
 never inferred from project state. The only fields this handler ever auto-fills are
 `plugin_version` (from config, or `unknown` per the exception above) and the OS/shell,
@@ -104,16 +109,16 @@ the subcommand involved, if any (or "not command-specific").
 
 ### Step 4: Delegate to the Engine
 
-Dispatch by mode, per `## Routing` below. Each pipeline is owned entirely by
-`references/feedback-submission.md`, start to finish; this handler does not re-implement,
+Dispatch by mode, per `## Routing` below. Each pipeline is owned entirely by the engine
+(`references/feedback-submission.md` and its Part-2 and Part-3 files), start to finish; this handler does not re-implement,
 shortcut, or duplicate any part of any of them — it supplies inputs and reports the result.
 
 - **post** — hand the collected `kind`, title, and body fields to the engine's gate chain,
   draft-first write, post-or-fallback, posted-draft marking, and Auto-Mode deviation.
-- **sweep** — hand off with no arguments to the engine's `## Sweeping Posted Drafts` pipeline. The engine prints the helper's `sweep-list` listing verbatim before any question.
-- **status** — hand off with no arguments to the engine's `## Reporting Draft Status` pipeline.
-- **drafts** — hand off to the engine's `## Reviewing Model Drafts` pipeline, with `--all` when given and with no arguments otherwise. The engine prints the helper's `list --table` listing verbatim before any question.
-- **post-draft** — hand off with the draft id to the engine's `## Reviewing Model Drafts` route `Post one draft`.
+- **sweep** — hand off with no arguments to the engine's `## Sweeping Posted Drafts` pipeline, in `references/feedback-submission-Part-2-LocalDraftPipelines.md`. The engine prints the helper's `sweep-list` listing verbatim before any question.
+- **status** — hand off with no arguments to the engine's `## Reporting Draft Status` pipeline, in the same Part-2 file.
+- **drafts** — hand off to the engine's `## Reviewing Model Drafts` pipeline, in the same Part-2 file, with `--all` when given and with no arguments otherwise. The engine prints the helper's `list --table` listing verbatim before any question.
+- **post-draft** — hand off with the draft id to the engine's `## Reviewing Model Drafts` route `Post one draft`, in the same Part-2 file.
 
 ### Step 5: Report the Outcome
 
@@ -148,13 +153,13 @@ and it never replaces gate 5.
 
 ## Routing
 
-| Mode | Flow |
-|---|---|
-| **post** (default) | Step 3 (Collect) → Step 4 (delegate to the post pipeline) → Step 5 |
-| **status** | Step 4 (delegate to `## Reporting Draft Status`) → Step 5 — Step 3 is skipped |
-| **sweep** | Step 4 (delegate to `## Sweeping Posted Drafts`) → Step 5 — Step 3 is skipped |
-| **drafts** | Step 4 (delegate to `## Reviewing Model Drafts`) → Step 5 — Step 3 is skipped |
-| **post-draft** | Step 4 (delegate to the `Post one draft` route of `## Reviewing Model Drafts`) → Step 5 — Step 3 is skipped |
+| Mode | Flow | Engine part |
+|---|---|---|
+| **post** (default) | Step 3 (Collect) → Step 4 (delegate to the post pipeline) → Step 5 | Part 1, plus Part 3 for the body spec, fallback and Auto Mode |
+| **status** | Step 4 (delegate to `## Reporting Draft Status`) → Step 5 — Step 3 is skipped | Part 2 |
+| **sweep** | Step 4 (delegate to `## Sweeping Posted Drafts`) → Step 5 — Step 3 is skipped | Part 2 |
+| **drafts** | Step 4 (delegate to `## Reviewing Model Drafts`) → Step 5 — Step 3 is skipped | Part 2 |
+| **post-draft** | Step 4 (delegate to the `Post one draft` route of `## Reviewing Model Drafts`) → Step 5 — Step 3 is skipped | Part 2, then Part 1 for the post |
 
 ## Notes
 
