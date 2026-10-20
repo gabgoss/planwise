@@ -10,6 +10,7 @@ import dataclasses
 import datetime
 import json
 import re
+import shutil
 import subprocess
 from enum import Enum
 from pathlib import Path
@@ -324,19 +325,35 @@ def probe_cli_version(timeout: float = 5.0) -> str:
     fields already use. Never raises: any probe failure (missing binary,
     timeout, non-zero exit, unparseable output) degrades to the sentinel
     rather than aborting the caller's init/upgrade run.
+
+    Candidates are tried in order: the path `shutil.which` resolves for
+    `claude`, then for `claude.cmd`, then for `claude.exe`, then the bare name
+    `claude`. On Windows the CLI is often an npm `.cmd` shim that `subprocess`
+    cannot start by its bare name, so each name is resolved to a full path
+    first. A candidate that cannot be run, or whose output does not parse,
+    moves on to the next one.
     """
-    try:
-        result = subprocess.run(
-            ["claude", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    match = re.search(r"\b(\d+\.\d+\.\d+)\b", result.stdout or "")
-    return match.group(1) if match else ""
+    candidates: list[str] = []
+    for name in ("claude", "claude.cmd", "claude.exe"):
+        path = shutil.which(name)
+        if path and path not in candidates:
+            candidates.append(path)
+    candidates.append("claude")
+    for candidate in candidates:
+        try:
+            result = subprocess.run(
+                [candidate, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        match = re.search(r"\b(\d+\.\d+\.\d+)\b", result.stdout or "")
+        if match:
+            return match.group(1)
+    return ""
 
 
 def refresh_verified_cli_version(config_path: Path) -> str:
