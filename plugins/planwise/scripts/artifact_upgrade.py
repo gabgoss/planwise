@@ -20,7 +20,9 @@ except ImportError:
 try:
     from config_gen import (
         InitConfig,
+        _apply_feedback_keys,
         _flip_token_saver_on,
+        drafts_key_state,
         get_upgrade_config,
         migrate_config,
         refresh_verified_cli_version,
@@ -778,6 +780,24 @@ def _apply_feedback_dir(cfg: "InitConfig", config_path: Path) -> None:
     _ensure_draft_gitignore(cfg, feedback_rel)
 
 
+def _apply_feedback_keys_banner(cfg: "InitConfig", config_path: Path, state_before: str,
+                                real_upgrade: bool) -> None:
+    """Honour --feedback-drafts / --feedback-enabled, backfill a missing feedback.drafts, print the result.
+
+    Both exits of `_run_upgrade` call this, after `_apply_feedback_dir`. `real_upgrade` is the
+    only difference: False on the already-up-to-date branch keeps a config with no feedback block
+    byte-identical and silent; True on a real upgrade, after migrate_config, prints the banner for
+    the block the template wrote. Deferred import for the same reason as `_apply_feedback_dir`.
+    """
+    from init_project import _configured_feedback_rel
+
+    for line in _apply_feedback_keys(
+            config_path, state_before, cfg.feedback_drafts, cfg.feedback_enabled,
+            planwise_root=cfg.planwise_root, feedback_dir=_configured_feedback_rel(cfg, config_path),
+            plugin_root=cfg.plugin_root, real_upgrade=real_upgrade):
+        print(line)
+
+
 def _run_upgrade(
     cfg: "InitConfig",
     expected_pair: "tuple[str, str] | None" = None,
@@ -865,6 +885,8 @@ def _run_upgrade(
         return 2
     pinned_version = str(user_cfg.get("plugin_version", "0.0.0"))
     target_version = cfg.plugin_version
+    # Read before any write on either exit: the feedback-key writer needs the state the file was in.
+    drafts_state_before = drafts_key_state(user_cfg)
 
     # Refusal gate — BEFORE the already-up-to-date branch, which writes too
     # (root repoint, Token Saver flip, feedback dir): a moved pair means no
@@ -942,6 +964,10 @@ def _run_upgrade(
         # The refresh happens on an ACTUAL upgrade below (2d) and once at
         # /planwise init — both real recalibration points.
         _apply_feedback_dir(cfg, config_path)
+        # Honor --feedback-drafts / --feedback-enabled here too, and backfill a missing
+        # feedback.drafts key. real_upgrade=False keeps a config with no feedback block
+        # byte-identical and silent on this branch.
+        _apply_feedback_keys_banner(cfg, config_path, drafts_state_before, real_upgrade=False)
         report = migrate_backlog_if_legacy(
             cfg, pinned_version, target_version, reconcile=backlog_reconcile, answers=answers)
         _emit_backlog_migration_banner(report)
@@ -1044,6 +1070,9 @@ def _run_upgrade(
         # never touches it and never creates the directory either — this is
         # the only place in the --upgrade path that closes both gaps.
         _apply_feedback_dir(cfg, config_path)
+        # Runs after migrate_config, so a config with no feedback block already carries the
+        # template's block and the banner reports the value the template wrote.
+        _apply_feedback_keys_banner(cfg, config_path, drafts_state_before, real_upgrade=True)
 
         # 2d. Refresh context.verified_cli_version against the CLI build this
         # run is actually executing under — an upgrade is a natural

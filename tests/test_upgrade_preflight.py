@@ -275,6 +275,59 @@ def test_migration_questions_block(tmp_path, capsys):
     assert list(answers) == ["edge_drops"] and answers["edge_drops"]  # keyed by answer kind, not question id
 
 
+DROP_DRAFTS = (r"^  drafts: notify\n", "")
+
+
+def test_feedback_questions_only_when_drafts_key_absent(tmp_path, capsys):
+    kept = run_card(capsys, ucp.make_project(tmp_path))
+    assert "feedback_drafts: set" in kept
+    assert "Feedback drafts question:" not in kept and "Feedback posting question:" not in kept
+    assert "--feedback-drafts" not in kept and "--feedback-enabled" not in kept
+    root = ucp.make_project(tmp_path, name="nodrafts")
+    ucp.edit_config(root, *DROP_DRAFTS)
+    card = run_card(capsys, root)
+    assert "feedback_drafts: absent" in card
+    block = next_block(card)
+    assert f"Feedback drafts question: {upgrade_preflight.FEEDBACK_DRAFTS_QUESTION}" in block
+    assert f"Feedback posting question: {upgrade_preflight.FEEDBACK_ENABLED_QUESTION}" in block
+    assert "--feedback-drafts {value}" in block and "--feedback-enabled" in block
+    assert "Unattended: add neither" in block
+    assert "--feedback-drafts" not in run_line(card)  # the model adds the flags from the answers
+
+
+def test_feedback_questions_merge_under_the_question_limit(tmp_path, capsys):
+    root = ucp.make_project(tmp_path, name="merged", diverged=(), question=True)
+    ucp.edit_config(root, *DROP_DRAFTS)
+    block = next_block(run_card(capsys, root))
+    assert "Ask one AskUserQuestion with the Token Saver question and the feedback drafts question" in block
+    assert "and every migration question listed above" in block  # 1 + 2 + 1 = 4, the limit
+    assert upgrade_preflight.question_steps(False, [("backlog", {})] * 2, "absent")[0].startswith(
+        "Ask the Token Saver question and the feedback drafts question and the feedback posting question in one ")
+    on = upgrade_preflight.question_steps(True, [], "no-block")
+    assert on[0] == "Ask one AskUserQuestion with the feedback drafts question and the feedback posting question."
+    assert upgrade_preflight.question_steps(True, [], "set") == []
+
+
+def test_feedback_drafts_header_states(tmp_path, capsys):
+    root = ucp.make_project(tmp_path, name="noblock")
+    ucp.edit_config(root, r"^feedback:$", "unrelated_block:")  # the block is renamed away: no `feedback` key
+    card = run_card(capsys, root)
+    assert "feedback_drafts: no block" in card
+    assert "Feedback drafts question:" in next_block(card)
+
+
+def test_absent_drafts_key_breaks_noop_proof(tmp_path, capsys, monkeypatch):
+    root = ucp.make_up_to_date(tmp_path)
+    monkeypatch.setattr(doctor_probes, "_gh_environment", lambda: dict(GH_OK))
+    assert "Nothing to do" in run_card(capsys, root)  # control: the untouched project passes
+    ucp.edit_config(root, *DROP_DRAFTS)
+    card = run_card(capsys, root)
+    assert "Nothing to do" not in card and "feedback_drafts: absent" in card
+    config_path, config = upgrade_preflight.resolve_config(root.resolve())
+    ok, reason, argvs = upgrade_preflight.noop_proof("up-to-date", [], config, config_path, {}, "project")
+    assert (ok, reason, argvs) == (False, "config has no feedback.drafts key", [])
+
+
 def test_gh_state_uses_shared_probe(monkeypatch):
     """gh_state reads doctor_probes._gh_environment and runs nothing itself, with or without gh on PATH."""
     which_calls = []

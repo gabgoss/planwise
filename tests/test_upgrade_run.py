@@ -260,6 +260,37 @@ def test_no_calibrate_reaches_writer_argv(tmp_path, capsys, monkeypatch):
     assert code == 0 and "--no-calibrate" not in upgrade_run.LAST_ARGV, out
 
 
+def test_feedback_flags_reach_writer_argv(tmp_path, capsys, monkeypatch):
+    root = ucp.make_project(tmp_path)
+    code, out = run(monkeypatch, capsys, root, "--pair", PAIR, "--feedback-drafts", "quiet", "--feedback-enabled",
+                    "--dry-argv")
+    assert code == 0, out
+    argv = upgrade_run.LAST_ARGV
+    assert argv[argv.index("--feedback-drafts") + 1] == "quiet" and "--feedback-enabled" in argv
+    assert json.loads(out.split("writer argv: ", 1)[1]) == argv
+    code, out = run(monkeypatch, capsys, root, "--pair", PAIR, "--dry-argv")
+    assert code == 0 and "--feedback-drafts" not in upgrade_run.LAST_ARGV, out
+    assert "--feedback-enabled" not in upgrade_run.LAST_ARGV
+    with pytest.raises(SystemExit) as exc:
+        upgrade_run.main(["--project-root", str(root), "--pair", PAIR, "--feedback-drafts", "loud"])
+    assert exc.value.code == 2 and "invalid choice" in capsys.readouterr().err
+
+
+def test_summary_passes_feedback_banner_through(capsys):
+    writer_out = ("Refreshed: 1\n"
+                  "Feedback drafting: ON — Claude may now save local feedback drafts under planwise/Feedback/\n"
+                  "  nothing is posted without /planwise feedback --drafts and your approval\n"
+                  "  feedback.drafts: notify (default, no answer given); feedback.enabled: unchanged\n"
+                  "Unrelated banner line\n")
+    capsys.readouterr()
+    upgrade_run.print_summary(writer_out, PAIR, [])
+    summary = capsys.readouterr().out
+    assert "Feedback drafting: ON — Claude may now save local feedback drafts under planwise/Feedback/\n" \
+           "  nothing is posted without /planwise feedback --drafts and your approval\n" \
+           "  feedback.drafts: notify (default, no answer given); feedback.enabled: unchanged" in summary
+    assert "Unrelated banner line" not in summary
+
+
 def test_flip_offers_screened_by_the_writer_checks(tmp_path):
     """An offer the flip writer would refuse is never built: the offer and the writer share its checks."""
     import flip_plan_status

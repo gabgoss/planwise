@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/ itself, for t
 import init_project  # noqa: F401, I001 -- composition root first, so the import-order trap never fires
 import artifact_upgrade
 import migration_answers
-from config_gen import InitConfig, read_plugin_version
+from config_gen import InitConfig, drafts_key_state, read_plugin_version
 from test_migrate_lessons_index import LESSON_001, LESSON_003, _index_text as lessons_index_text
 from test_migrate_plans_index import A_COMMENT, ALP, BET, GAM, A_PLANS, legacy_index as plans_legacy_index
 
@@ -254,6 +254,22 @@ def test_upgrade_with_answers_has_zero_refused_lines(tmp_path, monkeypatch, caps
     # Plans: the ledger lists the opener line that never closed.
     plans_ledger = _read(cfg, "Plans/00-Plans-Migration-Ledger.md")
     assert "unclosed-opener" in plans_ledger and "<!-- never closed" in plans_ledger
+
+
+def test_real_upgrade_prints_the_drafts_banner_once(tmp_path, monkeypatch, capsys):
+    cfg = build_project(tmp_path)
+    answers = answers_from_question(cfg, tmp_path)
+    assert drafts_key_state(yaml.safe_load(_read(cfg, "config.yaml"))) == "no-block"
+    code, banner = upgrade(cfg, monkeypatch, capsys, answers=answers)
+    assert code == 0
+    first = [ln for ln in banner.splitlines() if ln.startswith("Feedback drafting:")]
+    assert len(first) == 1 and "ON" in first[0], banner
+    written = yaml.safe_load(_read(cfg, "config.yaml"))
+    assert drafts_key_state(written) == "set"
+    assert "drafts: notify" in _read(cfg, "config.yaml")
+    code, banner = upgrade(cfg, monkeypatch, capsys)
+    assert code == 0
+    assert [ln for ln in banner.splitlines() if ln.startswith("Feedback drafting:")] == [], banner
 
 
 def test_second_run_is_silent(tmp_path, monkeypatch, capsys):

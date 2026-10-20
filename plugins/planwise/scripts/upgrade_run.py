@@ -31,7 +31,7 @@ PRUNE_CLASSES = ("safe-to-discard", "inert")
 PASS_THROUGH = ("Orphaned", "Backlog index migration", "Backlog changelog",
                 "Lessons index migration", "Lessons changelog", "Plans index migration", "Plans changelog",
                 "Style rule", "Plans anomal", "Lessons finding", "Lessons anomal",
-                "Token Saver recalibrated", "Token Saver calibration")
+                "Token Saver recalibrated", "Token Saver calibration", "Feedback drafting")
 LAST_ARGV: list = []  # the writer argv of the latest call; tests read it
 
 
@@ -217,6 +217,10 @@ def writer_argv(args, config: dict, project_root: Path, pair: str, answers_path)
             "--upgrade", "--upgrade-pair", pair]
     if args.token_saver:
         argv.append("--token-saver")
+    if args.feedback_drafts:
+        argv += ["--feedback-drafts", args.feedback_drafts]
+    if args.feedback_enabled:
+        argv.append("--feedback-enabled")
     if args.no_calibrate:
         argv.append("--no-calibrate")
     if args.allow_downgrade:
@@ -416,6 +420,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-root", required=True)
     parser.add_argument("--pair", required=True)
     parser.add_argument("--token-saver", action="store_true")
+    parser.add_argument("--feedback-drafts", choices=("notify", "quiet", "off"), default=None,
+                        help="pass the chosen feedback.drafts value to the writer")
+    parser.add_argument("--feedback-enabled", action="store_true",
+                        help="pass --feedback-enabled to the writer: set feedback.enabled to true")
     parser.add_argument("--allow-downgrade", action="store_true")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--verdicts-stdin", action="store_true", help="read the verdicts document from stdin")

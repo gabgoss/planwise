@@ -720,6 +720,11 @@ def main():
                              "(sets context.token_saver: true). Applies to both init and "
                              "upgrade. Default off — the engine ships dormant and is "
                              "calibrated via /planwise calibrate.")
+    parser.add_argument("--feedback-drafts", choices=("notify", "quiet", "off"), default=None,
+                        help="with --upgrade: set feedback.drafts to this value (a fresh init ignores it)")
+    parser.add_argument("--feedback-enabled", action="store_true",
+                        help="with --upgrade: set feedback.enabled: true; never flips it off "
+                             "(a fresh init ignores it)")
     parser.add_argument("--no-calibrate", action="store_true",
                         help="With --upgrade: skip the Token Saver recalibration the "
                              "upgrade runs when Token Saver is on.")
@@ -887,6 +892,8 @@ def main():
         plan_tier=args.plan_tier,
         plugin_version=read_plugin_version(_plugin_root),
         token_saver=args.token_saver,
+        feedback_drafts=args.feedback_drafts,
+        feedback_enabled=args.feedback_enabled,
         no_calibrate=args.no_calibrate,
     )
 

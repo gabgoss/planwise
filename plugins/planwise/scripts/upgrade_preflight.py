@@ -32,6 +32,15 @@ TOKEN_SAVER_QUESTION = (
     '(avoids the linear carrying-cost of big sessions) and warns when a file is too large to fit a '
     'lean task." Options: "Yes (Recommended)" | "No"'
 )
+FEEDBACK_DRAFTS_QUESTION = (
+    "Claude may now save local feedback drafts while planwise runs. Nothing is posted without "
+    "`/planwise feedback --drafts` and your approval. How loud should drafting be? "
+    "(notify — one line per draft, recommended / quiet — write silently / off — never draft)"
+)
+FEEDBACK_ENABLED_QUESTION = (
+    "Enable upstream posting (`feedback.enabled: true`)? Posting still needs `gh` installed and "
+    "authenticated, and every post asks you first. (Yes / No — keep drafts local, recommended)"
+)
 COMPARATOR_LINE = ("Comparator verdicts: {returned}/{diverged} (late: {n} resumed, {m} recorded after the writer "
                    "ran; failed: {k} — inline primitive used)")
 
@@ -299,7 +308,11 @@ def noop_proof(branch: str, rows: list, config: dict, config_path: Path, found: 
     if "feedback_dir" not in _mapping(config.get("project")):
         return False, "config has no project.feedback_dir key", argvs
 
+    import config_gen
     import migrate_lessons_index
+
+    if config_gen.drafts_key_state(config) == "absent":
+        return False, "config has no feedback.drafts key", argvs
 
     cfg_arg = ("--config", str(config_path))
     backlog = _json_call(argvs, "migrate_backlog_index.py", *cfg_arg, "--report")
@@ -377,25 +390,40 @@ def next_command(root: Path, project_root: Path, pair: str, token_saver: bool, a
     return [" ".join(parts), example, HEREDOC]
 
 
-def question_steps(token_saver: bool, questions: list) -> list[str]:
-    """The AskUserQuestion step text: the Token Saver question and the migration questions, merged when they fit."""
-    if token_saver and not questions:
+def question_steps(token_saver: bool, questions: list, feedback_state: str = "set") -> list[str]:
+    """The AskUserQuestion step text: the pre-writer questions and the migration questions, merged when they fit.
+
+    The pre-writer questions are the Token Saver question (when off) and the two feedback questions (when the
+    config has no `feedback.drafts` key). The run command takes the answers as flags the model adds.
+    """
+    ask_feedback = feedback_state != "set"
+    pre = (0 if token_saver else 1) + (2 if ask_feedback else 0)
+    if not pre and not questions:
         return []
-    ts_line = f"Token Saver question: {TOKEN_SAVER_QUESTION}"
+    names = (["the Token Saver question"] if not token_saver else []) + (
+        ["the feedback drafts question and the feedback posting question"] if ask_feedback else [])
+    pre_what = " and ".join(names)
     lines = []
-    if not token_saver and len(questions) + 1 <= QUESTION_LIMIT:
-        what = "the Token Saver question" + (" and every migration question listed above" if questions else "")
+    if pre and pre + len(questions) <= QUESTION_LIMIT:
+        what = pre_what + (" and every migration question listed above" if questions else "")
         lines.append(f"Ask one AskUserQuestion with {what}.")
-    elif not token_saver:
-        lines.append(f"Ask the Token Saver question in one AskUserQuestion, then the migration questions listed "
+    elif pre:
+        lines.append(f"Ask {pre_what} in one AskUserQuestion, then the migration questions listed "
                      f"above in a second call (at most {QUESTION_LIMIT} per call).")
     else:
         lines.append(f"Ask the migration questions listed above in one AskUserQuestion (at most "
                      f"{QUESTION_LIMIT} per call).")
     if not token_saver:
-        lines.append(f"  {ts_line}")
+        lines.append(f"  Token Saver question: {TOKEN_SAVER_QUESTION}")
         lines.append("  On Yes, add --token-saver to the run command below, right after its --user-settings value. "
                      "On No, run it as written.")
+    if ask_feedback:
+        lines.append(f"  Feedback drafts question: {FEEDBACK_DRAFTS_QUESTION}")
+        lines.append(f"  Feedback posting question: {FEEDBACK_ENABLED_QUESTION}")
+        lines.append("  On notify / quiet / off, add `--feedback-drafts {value}` to the run command below, right "
+                     "after `--user-settings` (or after `--token-saver` when present). On Yes to posting, add "
+                     "`--feedback-enabled`. Unattended: add neither; the writer backfills `feedback.drafts: notify` "
+                     "into an existing feedback block and leaves `feedback.enabled` as it is.")
     if questions:
         lines.append("  Each migration option above ends in `=> {answer}`. Build the stdin object's \"answers\" by "
                      "merging the answer object of every chosen option: same key, lists concatenate. Example, with "
@@ -410,7 +438,7 @@ def render_next(branch: str, noop: bool, ctx: dict) -> list[str]:
     lines = ["NEXT"]
     step = 1
     questions = ctx.get("questions") or []
-    asks = question_steps(ctx["token_saver"], questions)
+    asks = question_steps(ctx["token_saver"], questions, ctx.get("feedback_drafts", "set"))
     if asks:
         lines.append(f"{step}. {asks[0]}")
         lines += asks[1:]
@@ -458,7 +486,8 @@ def render_card(ctx: dict, rows: list, questions: list, transfers: list, found: 
         (f"project_root: {ctx['project_root'].as_posix()}    config: {ctx['config_rel']}    "
          f"plugin_root (live): {ctx['root'].as_posix()}"),
         f"pinned: {ctx['pinned']}  shipped: {ctx['shipped']}  pair: {ctx['pair']}  branch: {ctx['branch']}",
-        f"token_saver: {'on' if ctx['token_saver'] else 'off'}    yaml: {ctx['yaml']}",
+        (f"token_saver: {'on' if ctx['token_saver'] else 'off'}    "
+         f"feedback_drafts: {ctx['feedback_drafts'].replace('-', ' ')}    yaml: {ctx['yaml']}"),
         f"user settings: {ctx['user_settings'].as_posix()} ({ctx['user_step']})",
         "",
         f"Diverged rules ({len(rows)}):",
@@ -507,6 +536,7 @@ def yaml_state() -> str:
 
 def build_card(rest: list[str]) -> str:
     import artifact_upgrade
+    import config_gen
     import transfer_review
 
     flags = parse_flags(rest)
@@ -529,6 +559,7 @@ def build_card(rest: list[str]) -> str:
         "project_root": project_root, "root": cfg.plugin_root, "pinned": pinned, "shipped": shipped,
         "pair": pair, "branch": branch, "token_saver": cfg.token_saver, "yaml": yaml_state(),
         "user_settings": user_settings, "user_step": user_step,
+        "feedback_drafts": config_gen.drafts_key_state(config),
         "config_rel": config_path.relative_to(project_root).as_posix()
         if project_root in config_path.parents else config_path.as_posix(),
     }
