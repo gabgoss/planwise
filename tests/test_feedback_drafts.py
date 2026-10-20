@@ -891,3 +891,80 @@ def test_cross_pinned_constants_are_single_line_literals():
     assert sum(1 for line in source if line.startswith("DRAFT_NAME_RE = re.compile(")) == 1
     assert sum(1 for line in source if line.startswith("FRONTMATTER_KEYS = (") and line.endswith(")")) == 1
     assert len(fd.FRONTMATTER_KEYS) == 14
+
+
+# ---------------------------------------------------------------- list --table and sweep-list
+
+TABLE_HEADER = "| Draft | Created | Kind | Title | Producer | Session |"
+TABLE_SEPARATOR = "|---|---|---|---|---|---|"
+
+
+def test_list_table_renders_one_queued_row(fdir, capsys):
+    make_draft(fdir, "2026-10-12-draft-bug-helper-exit-code.md", created_at=iso(2)[:10] + "T08:00:00Z", title="Helper exits 1 on a | valid input")
+    created = iso(2)[:10]
+    code, out, _ = run(["list", "--table", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    lines = out.splitlines()
+    assert lines[0] == "Queued (1)"
+    assert lines[1] == ""
+    assert lines[2] == TABLE_HEADER
+    assert lines[3] == TABLE_SEPARATOR
+    assert lines[4] == f"| `2026-10-12-draft-bug-helper-exit-code.md` | {created} | bug | Helper exits 1 on a \\| valid input | prompt | unknown |"
+    run_this = run(["list", "--table", "--session-id", "unknown", "--feedback-dir", str(fdir)], capsys)[1]
+    run_other = run(["list", "--table", "--session-id", "abc", "--feedback-dir", str(fdir)], capsys)[1]
+    assert run_this.splitlines()[4].endswith("| this session |")
+    assert run_other.splitlines()[4].endswith("| other session |")
+
+
+def test_list_table_orders_expired_after_queued_and_newest_first(fdir, capsys):
+    make_draft(fdir, "2026-01-01-draft-bug-older.md", draft_id="a", created_at=iso(5), title="Older queued")
+    make_draft(fdir, "2026-01-01-draft-bug-newer.md", draft_id="b", created_at=iso(1), title="Newer queued")
+    make_draft(fdir, "2026-01-01-draft-bug-stale.md", draft_id="c", created_at=iso(40), title="Stale one")
+    code, out, _ = run(["list", "--table", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert out.index("Queued (2)") < out.index("Expired (1)")
+    assert out.index("newer.md") < out.index("older.md") < out.index("stale.md")
+    assert "Discarded" not in out
+
+
+def test_list_table_with_no_drafts_says_so(fdir, capsys):
+    code, out, _ = run(["list", "--table", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert out.strip() == f"No model drafts found in {fdir}."
+
+
+def test_sweep_list_prints_candidate_fields_and_summary(fdir, capsys):
+    draft = fdir / "2026-10-01-bug-posted-one.md"
+    draft.write_text("hand written\n", encoding="utf-8")
+    (fdir / "2026-10-01-bug-posted-one.md.posted").write_text("posted: 2026-10-02\nurl: https://example.test/issues/7\nroute: issue\n", encoding="utf-8")
+    code, out, _ = run(["sweep-list", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    lines = out.splitlines()
+    assert lines[0] == str(draft)
+    assert lines[1] == "  posted: 2026-10-02"
+    assert lines[2] == "  url: https://example.test/issues/7"
+    assert lines[3] == "  route: issue"
+    assert lines[-1] == "1 draft(s) already posted are eligible to archive."
+
+
+def test_sweep_list_reports_orphan_and_moves_nothing(fdir, capsys):
+    orphan = fdir / "2026-10-01-bug-gone.md.posted"
+    orphan.write_text("posted: 2026-10-02\n", encoding="utf-8")
+    (fdir / "2026-10-03-bug-unposted.md").write_text("no sidecar\n", encoding="utf-8")
+    before = {p.name: p.read_bytes() for p in fdir.rglob("*")}
+    code, out, _ = run(["sweep-list", "--feedback-dir", str(fdir)], capsys)
+    after = {p.name: p.read_bytes() for p in fdir.rglob("*")}
+    assert code == 0
+    assert before == after
+    assert f"orphan sidecar (left in place): {orphan}" in out
+    assert out.splitlines()[-1] == "No posted drafts to archive."
+
+
+def test_sweep_list_never_lists_a_model_draft(fdir, capsys):
+    draft = make_draft(fdir, "2026-10-01-draft-bug-model.md", title="A model draft")
+    (fdir / (draft.name + ".posted")).write_text("posted: 2026-10-02\nurl: u\nroute: issue\n", encoding="utf-8")
+    code, out, _ = run(["sweep-list", "--feedback-dir", str(fdir)], capsys)
+    assert code == 0
+    assert str(draft) not in out
+    assert "orphan" not in out
+    assert out.splitlines()[-1] == "No posted drafts to archive."

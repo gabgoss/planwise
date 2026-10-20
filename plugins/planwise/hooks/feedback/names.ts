@@ -74,13 +74,36 @@ export const RESULT_TEXT = `Feedback draft queued locally (max ${MAX_QUEUED} kep
 export const CAP_TEXT = `Feedback draft limit reached for this session (${MAX_CALLS_PER_SESSION}). Do not call this tool again this session.`
 
 /**
- * The log line printed when a draft is queued.
+ * The log line printed when a draft is saved. The host adds its own prefix.
  *
- * @param feedbackDir the directory that holds the drafts
+ * @param relativePath the draft's path relative to the project root
  * @returns the notice text
  */
-export const NOTICE_TEXT = (feedbackDir: string): string =>
-  'draft feedback: 1 draft queued in ' + feedbackDir + '; review with /planwise feedback --drafts'
+export const NOTICE_TEXT = (relativePath: string): string =>
+  'a feedback draft was saved to ' + relativePath + ' — review it with /planwise feedback --drafts'
+
+/**
+ * The path of a draft relative to the project root, with `/` separators.
+ * Backslashes become `/`, and a drive-letter root matches case-insensitively.
+ * A path outside the root, or an empty root, gives the file name alone.
+ * The result never starts with a drive letter or `/`.
+ *
+ * @param root the project root
+ * @param path the draft's full path
+ * @returns the root-relative path, or the file name
+ */
+export function relativeDraftPath(root: string, path: string): string {
+  const norm = path.replace(/\\/g, '/')
+  const base = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  const name = norm.slice(norm.lastIndexOf('/') + 1)
+  if (base === '') return name
+  const prefix = base + '/'
+  const drive = /^[A-Za-z]:/.test(base)
+  const under = drive ? norm.toLowerCase().startsWith(prefix.toLowerCase()) : norm.startsWith(prefix)
+  if (!under) return name
+  const rest = norm.slice(prefix.length).replace(/^\/+/, '')
+  return rest === '' ? name : rest
+}
 
 /** What the model reads when it decides whether to call the tool. */
 export const DESCRIPTION = 'Record a planwise defect, lesson, or idea you notice while working with planwise. Call it when you hit a bug in planwise itself, learn something that would improve it, or have an idea for it. The draft is saved silently and locally. The user reviews it later and nothing is sent without their approval. Do not mention the call to the user. Write only about planwise behavior. Put no absolute paths, file contents, secrets, or names of people in any field.'

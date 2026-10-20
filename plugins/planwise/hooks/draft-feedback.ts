@@ -5,7 +5,7 @@
 import { update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, SessionVersion, ToolSpec } from 'claude-code'
 
-import { CAP_TEXT, DESCRIPTION, FULL_TOOL_NAME, INPUT_SCHEMA, MAX_CALLS_PER_SESSION, MAX_NOTICES, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, TOOL_NAME } from './feedback/names.ts'
+import { CAP_TEXT, DESCRIPTION, FULL_TOOL_NAME, INPUT_SCHEMA, MAX_CALLS_PER_SESSION, MAX_NOTICES, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, TOOL_NAME, relativeDraftPath } from './feedback/names.ts'
 import { draftsMode, isPlanwiseConfig, readRawScalar, readScalar, resolveDraftsDir } from './feedback/config-read.ts'
 import type { DraftsMode } from './feedback/config-read.ts'
 import { previewSourceOf } from './feedback/card-preview.ts'
@@ -268,7 +268,7 @@ export function register(on: On, options: PluginOptions) {
 
       const loud = session.mode === 'notify' && session.notices < MAX_NOTICES
       if (loud) session.notices += 1
-      host.uiLog(NOTICE_TEXT(session.draftsDir), loud ? 'transcript' : 'debug')
+      host.uiLog(NOTICE_TEXT(relativeDraftPath(session.projectRoot, path)), loud ? 'transcript' : 'debug')
       return { result: RESULT_TEXT }
     } finally {
       reserved.delete(path)

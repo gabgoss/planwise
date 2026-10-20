@@ -110,9 +110,9 @@ shortcut, or duplicate any part of any of them — it supplies inputs and report
 
 - **post** — hand the collected `kind`, title, and body fields to the engine's gate chain,
   draft-first write, post-or-fallback, posted-draft marking, and Auto-Mode deviation.
-- **sweep** — hand off with no arguments to the engine's `## Sweeping Posted Drafts` pipeline.
+- **sweep** — hand off with no arguments to the engine's `## Sweeping Posted Drafts` pipeline. The engine prints the helper's `sweep-list` listing verbatim before any question.
 - **status** — hand off with no arguments to the engine's `## Reporting Draft Status` pipeline.
-- **drafts** — hand off to the engine's `## Reviewing Model Drafts` pipeline, with `--all` when given and with no arguments otherwise.
+- **drafts** — hand off to the engine's `## Reviewing Model Drafts` pipeline, with `--all` when given and with no arguments otherwise. The engine prints the helper's `list --table` listing verbatim before any question.
 - **post-draft** — hand off with the draft id to the engine's `## Reviewing Model Drafts` route `Post one draft`.
 
 ### Step 5: Report the Outcome

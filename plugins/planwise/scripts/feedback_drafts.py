@@ -18,6 +18,8 @@ hand-written feedback draft, a posted-marker sidecar, and anything under
 | Command | Behaviour | Exit |
 |---|---|---|
 | `list [--json] [--all]` | Applies expiry, then lists queued and expired drafts. `--all` adds discarded and promoted | 0 |
+| `list --table [--all] [--session-id <id>]` | Same expiry and groups as `list`, printed as one `Queued (n)` / `Expired (n)` table per group, newest `created_at` first. Not with `--json` (exit 2) | 0 |
+| `sweep-list` | Read-only. Prints each `*.md` file that has a `.md.posted` sidecar and is not a model draft, with its `posted:`, `url:` and `route:` values, then each orphan sidecar and a summary line | 0 |
 | `admit <path>` | Needs `--feedback-dir` or `--config`, and the file directly in that directory. A draft already `expired`, `discarded` or `promoted` is left untouched. Otherwise needs `status` to be `pending` or `queued`, no duplicated frontmatter key, and a parseable `created_at`. Fills `pending` ids, replaces a colliding id, replaces a future `created_at` with now, refuses and deletes an oversize or duplicate-title model draft or one whose parsed frontmatter is invalid, refuses and keeps a file whose frontmatter does not parse, then runs expiry and eviction and names each draft it evicts on stderr | 0 admitted, 1 file missing or config unreadable, 2 name does not match, no usable directory option, `Archive/` directory, file not directly in the directory, or a draft already expired, discarded or promoted, 3 refused, expired on admission, or evicted on admission |
 | `discard <id>` | Sets `status: discarded` | 0, 1 not found |
 | `promote <id>` | Writes the standard draft, sets `status: promoted`, adds `promoted_to:` | 0, 1 not found or discarded, 3 already promoted |
@@ -371,6 +373,53 @@ def _public(draft: Draft, directory: Path) -> dict:
     return record
 
 
+TABLE_GROUPS = (("queued", "Queued"), ("expired", "Expired"), ("discarded", "Discarded"), ("promoted", "Promoted"))
+TABLE_HEADER = "| Draft | Created | Kind | Title | Producer | Session |"
+TABLE_SEPARATOR = "|---|---|---|---|---|---|"
+
+
+def _cell(value: str) -> str:
+    """One table cell: a pipe is escaped and the cell never spans two lines."""
+    return " ".join(value.split()).replace("|", "\\|")
+
+
+def _session_cell(draft: Draft, session_id: "str | None") -> str:
+    if not session_id:
+        return "unknown"
+    return "this session" if draft.fm.get("source_session_id", "") == session_id else "other session"
+
+
+def _table_row(draft: Draft, directory: Path, session_id: "str | None") -> str:
+    fm = draft.fm
+    cells = (
+        f"`{draft.path.relative_to(directory).as_posix()}`",
+        _cell(fm.get("created_at", "")[:10]),
+        _cell(fm.get("kind", "")),
+        _cell(fm.get("title", "")),
+        _cell(fm.get("producer", "")),
+        _session_cell(draft, session_id),
+    )
+    return "| " + " | ".join(cells) + " |"
+
+
+def _print_tables(shown: "list[Draft]", directory: Path, session_id: "str | None") -> None:
+    """One block per non-empty group: a count line, a blank line, the table, a blank line."""
+    if not shown:
+        print(f"No model drafts found in {directory}." + _missing_note(directory))
+        return
+    for status, label in TABLE_GROUPS:
+        group = sorted((d for d in shown if d.status == status), key=_sort_key, reverse=True)
+        if not group:
+            continue
+        print(f"{label} ({len(group)})")
+        print()
+        print(TABLE_HEADER)
+        print(TABLE_SEPARATOR)
+        for draft in group:
+            print(_table_row(draft, directory, session_id))
+        print()
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     directory, code = _need_dir(args)
     if directory is None:
@@ -381,13 +430,57 @@ def cmd_list(args: argparse.Namespace) -> int:
     if args.all:
         wanted |= {"discarded", "promoted"}
     shown = [d for d in drafts if d.status in wanted]
-    if args.json:
+    if args.table:
+        _print_tables(shown, directory, args.session_id)
+    elif args.json:
         print(json.dumps([_public(d, directory) for d in shown], indent=2))
     elif not shown:
         print("no drafts" + _missing_note(directory))
     else:
         for d in shown:
             print(f"{d.draft_id}\t{d.status}\t{d.fm.get('kind', '')}\t{d.fm.get('title', '')}\t{d.path.name}")
+    return 0
+
+
+def _sidecar_fields(path: Path) -> "dict[str, str]":
+    """The `posted:`, `url:` and `route:` values of a posted-marker sidecar; a missing key reads `unknown`."""
+    found = {}
+    try:
+        text = _read(path)
+    except OSError:
+        text = ""
+    for line in text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip() in ("posted", "url", "route") and value.strip():
+            found.setdefault(key.strip(), value.strip())
+    return {key: found.get(key, "unknown") for key in ("posted", "url", "route")}
+
+
+def cmd_sweep_list(args: argparse.Namespace) -> int:
+    """Print the sweep candidates and orphan sidecars. Read-only: nothing is moved, written or deleted."""
+    directory, code = _need_dir(args)
+    if directory is None:
+        return code
+    names = sorted(entry.name for entry in directory.iterdir()) if directory.is_dir() else []
+    candidates = []
+    for name in names:
+        path = directory / name
+        if name.endswith(".md") and path.is_file() and (directory / (name + ".posted")).is_file() and _load_draft(path) is None:
+            candidates.append(path)
+    for path in candidates:
+        fields = _sidecar_fields(directory / (path.name + ".posted"))
+        print(os.path.abspath(path))
+        print(f"  posted: {fields['posted']}")
+        print(f"  url: {fields['url']}")
+        print(f"  route: {fields['route']}")
+    for name in names:
+        sidecar = directory / name
+        if name.endswith(".md.posted") and sidecar.is_file() and not (directory / name[: -len(".posted")]).exists():
+            print(f"orphan sidecar (left in place): {os.path.abspath(sidecar)}")
+    if candidates:
+        print(f"{len(candidates)} draft(s) already posted are eligible to archive.")
+    else:
+        print("No posted drafts to archive.")
     return 0
 
 
@@ -730,7 +823,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_dir_options(p_list)
     p_list.add_argument("--json", action="store_true", help="print a JSON array")
     p_list.add_argument("--all", action="store_true", help="include discarded and promoted drafts")
+    p_list.add_argument("--table", action="store_true", help="print the Queued and Expired tables; not with --json")
+    p_list.add_argument("--session-id", help="the running session id; marks the Session column of --table")
     p_list.set_defaults(func=cmd_list)
+
+    p_sweep = sub.add_parser("sweep-list", help="list posted drafts a sweep would archive; read-only")
+    add_dir_options(p_sweep)
+    p_sweep.set_defaults(func=cmd_sweep_list)
 
     p_admit = sub.add_parser("admit", help="admit a freshly written draft")
     p_admit.add_argument("path")
@@ -766,7 +865,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "list" and args.table and args.json:
+        parser.error("argument --table: not allowed with argument --json")
     return args.func(args)
 
 

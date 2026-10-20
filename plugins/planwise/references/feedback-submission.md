@@ -491,6 +491,15 @@ tool support.
 any file moves. There is no `--dry-run` flag, because the listing is not an opt-in mode: it
 is the only thing that happens unless consent is explicitly given.
 
+The pipeline runs this command to build the listing:
+
+```
+python "{plugin_root}/scripts/feedback_drafts.py" sweep-list --config "{planwise_root}/config.yaml"
+```
+
+Print its stdout verbatim, before any consent call and before any question. The command is
+read-only. It moves, writes and deletes nothing.
+
 Per candidate, the listing prints the draft's absolute path, its `posted:` date, `url:`, and
 `route:`; then one summary line: `{n} draft(s) already posted are eligible to archive.` With
 no candidates: `No posted drafts to archive.`, exit 0 — no prompt is raised.
@@ -684,12 +693,24 @@ Every later helper call in this section takes the same `--config` option.
 `Queued ({n})`, then `Expired ({n})`, most recent `created_at` first. `--drafts --all` reads
 `list --json --all` and adds `Discarded ({n})` and `Promoted ({n})`.
 
+The pipeline runs this command to build the listing:
+
+```
+python "{plugin_root}/scripts/feedback_drafts.py" list --table --config "{planwise_root}/config.yaml"
+```
+
+Print the command's stdout verbatim, before any question. Do not rewrite, reorder or summarize
+it. Add `--all` when `--drafts --all` was given. Pass `--session-id {id}` only when the
+invoking context supplies the running session's id. The command prints the table below, so
+the table is the contract the command implements.
+
 | Draft | Created | Kind | Title | Producer | Session |
 |---|---|---|---|---|---|
 | `2026-10-12-draft-bug-helper-exit-code.md` | 2026-10-12 | bug | Helper exits 1 on valid input | prompt | this session |
 
 Draft is the row's `path`. Session reads `this session` when the row's `source_session_id`
-equals the running session's id, and `other session` otherwise. A group with no rows is
+equals the id passed with `--session-id`, `other session` when it differs, and `unknown` when
+no id was passed. A group with no rows is
 omitted. With no model drafts at all, print `No model drafts found in {feedback_dir}.` and
 exit 0. No question is asked.
 

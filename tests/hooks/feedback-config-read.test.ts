@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { draftsMode, isPlanwiseConfig, readRawScalar, readScalar, resolveDraftsDir } from '../../plugins/planwise/hooks/feedback/config-read.ts'
-import { CAP_TEXT, MAX_CALLS_PER_SESSION, MAX_QUEUED, PYTHON_CANDIDATES, RESULT_TEXT } from '../../plugins/planwise/hooks/feedback/names.ts'
+import { CAP_TEXT, MAX_CALLS_PER_SESSION, MAX_QUEUED, NOTICE_TEXT, PYTHON_CANDIDATES, RESULT_TEXT, relativeDraftPath } from '../../plugins/planwise/hooks/feedback/names.ts'
 
 /** An excerpt shaped like the shipped config template. */
 const template = [
@@ -109,6 +109,28 @@ test('names: the model-facing texts keep their wording and carry the limits', ()
   assert.equal(MAX_CALLS_PER_SESSION, 10)
   assert.equal(RESULT_TEXT, 'Feedback draft queued locally (max 10 kept per project). The user can review and send it with /planwise feedback --drafts; nothing is sent without their approval. Do not announce this or ask the user about it.')
   assert.equal(CAP_TEXT, 'Feedback draft limit reached for this session (10). Do not call this tool again this session.')
+})
+
+test('names: the notice carries the specified wording and a relative path', () => {
+  const text = NOTICE_TEXT('feedback-drafts/2026-10-19-draft-bug-x.md')
+  assert.equal(text, 'a feedback draft was saved to feedback-drafts/2026-10-19-draft-bug-x.md \u2014 review it with /planwise feedback --drafts')
+  assert.equal(text.includes('planwise: '), false)
+})
+
+test('names: relativeDraftPath returns a root-relative path for a Windows root and a POSIX root', () => {
+  const noAbsolute = /^(?![A-Za-z]:|\/)/
+  const cases: [string, string, string][] = [
+    ['C:/proj', 'C:/proj/planwise/Fb/a.md', 'planwise/Fb/a.md'],
+    ['C:\\proj\\', 'c:/proj\\planwise\\Fb/a.md', 'planwise/Fb/a.md'],
+    ['/home/u/proj', '/home/u/proj/planwise/Fb/a.md', 'planwise/Fb/a.md'],
+    ['C:/proj', 'D:/other/Fb/a.md', 'a.md'],
+    ['/home/u/proj', '/var/fb/a.md', 'a.md'],
+  ]
+  for (const [root, path, expected] of cases) {
+    const result = relativeDraftPath(root, path)
+    assert.equal(result, expected)
+    assert.match(result, noAbsolute)
+  }
 })
 
 test('names: python is tried before python3', () => {
