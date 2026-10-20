@@ -304,6 +304,115 @@ class TestBlockedByMapFailOpenGuard(unittest.TestCase):
         self.assertEqual(blocked, [])
 
 
+class TestDependenciesBlocksCellGrammar(_ParseBacklogFixtureBase):
+    """A legacy `## Dependencies` Blocks cell is read with the migrator's own
+    grammar: ids, then at most one trailing parenthetical note. An annotated
+    cell must still block (a fail-OPEN class: a silent miss routes a blocked
+    item), and a cell outside the grammar must warn on stderr instead of going
+    inert. Every test asserts the dependency table parsed before it asserts
+    exclusion, so an empty parse cannot pass vacuously."""
+
+    INDEX_ROWS = _row("097") + _row("098") + _row("100")
+
+    def _content(self, blocker_cell: str, blocked_cell: str) -> str:
+        return (
+            HEADER
+            + self.INDEX_ROWS
+            + DEPENDENCIES_HEADER
+            + f"| {blocker_cell} | {blocked_cell} |\n"
+        )
+
+    def _parse(self, blocker_cell: str, blocked_cell: str):
+        """Return (dependencies, blocked_by_map, blocked_ids, stderr)."""
+        content = self._content(blocker_cell, blocked_cell)
+        items = parse_backlog_table(content)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            dependencies = parse_dependencies_table(content)
+        blocked_by_map = build_blocked_by_map(dependencies, items)
+        _, blocked = filter_items(items, FilterCriteria(), blocked_by_map)
+        return dependencies, blocked_by_map, [i["id"] for i in blocked], err.getvalue()
+
+    def test_annotated_cell_still_blocks_the_named_item(self):
+        dependencies, blocked_by_map, blocked_ids, err = self._parse(
+            "100", "BB-097 (some explanation here)"
+        )
+        self.assertTrue(dependencies, "fixture's Dependencies table failed to parse")
+        self.assertTrue(blocked_by_map, "blocked_by_map is empty")
+        self.assertIn("097", blocked_ids)
+        self.assertEqual(blocked_by_map["97"], ["100"])
+        self.assertEqual(err, "")
+
+    def test_commas_inside_the_note_mint_no_ids(self):
+        dependencies, blocked_by_map, blocked_ids, err = self._parse(
+            "100", "BB-097 (10,000 of 133,252 rows)"
+        )
+        self.assertTrue(dependencies, "fixture's Dependencies table failed to parse")
+        self.assertIn("097", blocked_ids)
+        self.assertEqual(set(blocked_by_map), {"97"})
+        self.assertEqual(err, "")
+
+    def test_multi_id_annotated_cell_blocks_every_id(self):
+        dependencies, blocked_by_map, blocked_ids, err = self._parse(
+            "100", "097, 098 (note, with a comma)"
+        )
+        self.assertTrue(dependencies, "fixture's Dependencies table failed to parse")
+        self.assertEqual(set(blocked_by_map), {"97", "98"})
+        self.assertEqual(sorted(blocked_ids), ["097", "098"])
+        self.assertEqual(err, "")
+
+    def test_unparseable_cell_warns_with_line_and_cell_and_blocks_nothing(self):
+        dependencies, blocked_by_map, blocked_ids, err = self._parse("100", "see the plan")
+        self.assertTrue(dependencies, "fixture's Dependencies table failed to parse")
+        self.assertEqual(blocked_by_map, {})
+        self.assertEqual(blocked_ids, [])
+        # The warning must name the dependency row's 1-based line number.
+        row_line = self._content("100", "see the plan").splitlines().index("| 100 | see the plan |") + 1
+        warnings = [line for line in err.splitlines() if line]
+        self.assertEqual(len(warnings), 1, err)
+        self.assertTrue(warnings[0].startswith("Warning:"), warnings[0])
+        self.assertIn(f"line {row_line}", warnings[0])
+        self.assertIn("'see the plan'", warnings[0])
+
+    def test_dash_and_none_cells_are_deliberately_empty_and_silent(self):
+        for blocked_cell in ("-", "none"):
+            with self.subTest(blocked_cell=blocked_cell):
+                dependencies, blocked_by_map, blocked_ids, err = self._parse("100", blocked_cell)
+                self.assertTrue(dependencies, "fixture's Dependencies table failed to parse")
+                self.assertEqual(dependencies[0]["blocked_ids"], [])
+                self.assertEqual(blocked_by_map, {})
+                self.assertEqual(blocked_ids, [])
+                self.assertEqual(err, "")
+
+    def test_blocker_cell_naming_no_single_id_warns_and_keeps_the_row(self):
+        dependencies, _, _, err = self._parse("see 100 and 101", "097")
+        self.assertEqual(len(dependencies), 1, "the row must not be dropped")
+        self.assertEqual(dependencies[0]["blocker_id"], "see 100 and 101")
+        self.assertEqual(dependencies[0]["blocked_ids"], ["097"])
+        warnings = [line for line in err.splitlines() if line]
+        self.assertEqual(len(warnings), 1, err)
+        self.assertIn("'see 100 and 101'", warnings[0])
+
+    def test_cli_reports_blocked_by_for_an_annotated_cell(self):
+        self.backlog_dir.joinpath("00-Index-Backlog.md").write_text(
+            self._content("100", "BB-097 (some explanation here)"), encoding="utf-8"
+        )
+        out, err = self.run_parse()
+        self.assertIn("Blocked Items", out)
+        self.assertIn("097", out)
+        self.assertIn("blocked by: 100", out)
+        self.assertEqual(err, "")
+
+    def test_cli_unparseable_cell_warns_on_stderr_only(self):
+        self.backlog_dir.joinpath("00-Index-Backlog.md").write_text(
+            self._content("100", "see the plan"), encoding="utf-8"
+        )
+        out, err = self.run_parse()
+        self.assertIn("Warning:", err)
+        self.assertIn("'see the plan'", err)
+        self.assertNotIn("Warning:", out)
+
+
 class TestArchiveStatusesNotAliasedToClosedStatuses(unittest.TestCase):
     """BB-077 AC1: setting a hold status must not risk archiving the item file.
     ARCHIVE_STATUSES used to be a bare alias (`ARCHIVE_STATUSES = CLOSED_STATUSES`),
