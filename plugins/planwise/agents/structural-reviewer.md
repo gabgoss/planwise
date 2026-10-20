@@ -33,10 +33,9 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - [ ] Sprint plan files exist for each sprint declared in master plan
 - [ ] Session folders exist for each session declared in sprint plans
 - [ ] Task files exist for each task declared in orchestration files
-- [ ] Outputs/ directories exist at session level
+- [ ] Outputs/ directories exist at session level, proven by each one's `Outputs/.gitkeep` (Check S02, per references/scaffolding-hygiene.md §5). `Glob` lists files only, so a bare `Outputs/**` glob returns nothing for an empty directory and an absent one alike — never use it as the existence probe
 - [ ] Recovery files exist for each session
 - [ ] Folder-count check: planned folder count matches actual scaffold folder count
-- [ ] Per-session Outputs/.gitkeep presence (per references/scaffolding-hygiene.md §5)
 
 ## Cross-References
 
@@ -85,7 +84,7 @@ See `references/review-finding-format.md` for the Finding Report Format template
 - **Source:** `references/scaffolding-hygiene.md` §5
 - **Type:** NEW
 - **What:** Two counts, both of which must hold. (a) Sprint Plan **files** on disk MUST equal Master Plan Sprint Overview rows. (b) Physical `Sprint-XX-*/Session-YY-*/` folders MUST equal the sum of Sessions-table row counts across all Sprint Plans. A plan that declares 6 sprints and authored 1 fails (a) even when every folder it did author is internally consistent.
-- **Detection:** Glob `Sprint-*/*-Sprint-Plan.md` and count Master Plan Sprint Overview rows; Glob `Sprint-*/Session-*/` and sum the rows of every Sprint Plan's Sessions table. **Subtract any sprint or session declared under the Master Plan's `## Deferred Authoring` section before comparing** — a declared deferral is legitimate and passes; an undeclared shortfall fails. Read that set from the section's **first column only**: the "Unblocked when" cell routinely names another sprint, and scanning the whole section over-counts the deferred set and can subtract away a sprint nobody declared, masking the very shortfall this check exists to catch. Either mismatch → BLOCKER, and name the specific missing sprints or sessions.
+- **Detection:** Glob `**/Sprint-*/*-Sprint-Plan.md` and count Master Plan Sprint Overview rows. Count session folders by the Orchestration file each one holds, with Glob `**/Sprint-*/Session-*/*-Orchestration.md`, and sum the rows of every Sprint Plan's Sessions table. `Glob` lists files only, so a bare folder pattern such as `Sprint-*/Session-*/` returns nothing even when every folder exists. Lead each pattern with `**/` (references/native-tool-use.md § Glob Pattern Anchoring). **Subtract any sprint or session declared under the Master Plan's `## Deferred Authoring` section before comparing** — a declared deferral is legitimate and passes; an undeclared shortfall fails. Read that set from the section's **first column only**: the "Unblocked when" cell routinely names another sprint, and scanning the whole section over-counts the deferred set and can subtract away a sprint nobody declared, masking the very shortfall this check exists to catch. Either mismatch → BLOCKER, and name the specific missing sprints or sessions.
 - **Finding template:**
 ```
 [BLOCKER] Plan-completeness shortfall
@@ -103,7 +102,7 @@ Fix: Author the missing sprints/sessions, or declare them under `## Deferred Aut
 - **Source:** `references/scaffolding-hygiene.md` §5
 - **Type:** NEW
 - **What:** Every session folder MUST contain `Outputs/.gitkeep`.
-- **Detection:** Glob `Sprint-*/Session-*/Outputs/.gitkeep`; compare count to session count. Mismatch → BLOCKER.
+- **Detection:** Glob `**/Sprint-*/Session-*/Outputs/.gitkeep` with `path` at the plan root; compare count to session count. Mismatch → BLOCKER. Lead the pattern with `**/`: with an in-project `path`, a folder-led pattern such as `Sprint-*/Session-*/Outputs/.gitkeep` matches nothing, and every session reads as missing (references/native-tool-use.md § Glob Pattern Anchoring).
 - **Finding template:**
 ```
 [BLOCKER] Session Outputs/.gitkeep missing

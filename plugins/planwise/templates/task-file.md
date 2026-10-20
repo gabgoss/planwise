@@ -32,6 +32,10 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 | 3 | {file path} §{X}–§{Y} ({§Y} runs to EOF) | {K} | ~{X}K | {why needed} — span row, see the resolution comment below |
 | 4 | Grep {family} over {scope} — {N} lines / {B} bytes returned | {K} | ~{X}K | {why needed} — command-corpus row, priced from the dry-run below |
 
+<!-- Every row needs numbers, not only the Context subtotal (references/task-content-fidelity.md §9.A.2). An em-dash,
+     `~?` or blank in a row's KiB or ~Tokens cell fails review, even when the subtotal below is correct.
+     The only exception is §9.A.6: input that a generator produces by walking ≥100 files, or a tree of ≥10K lines,
+     takes one generator row in place of per-file rows. Below that threshold, measure every file row. -->
 <!-- Row-grain measurement (per references/task-content-fidelity.md §9.A.14) — every row's figure is measured
      against the span THAT ROW cites, in a sweep at scaffold close, after all task files exist:
      - Span row (`§X`–`§Y`): resolve BOTH headings in the live file and measure the range they bound. Where the

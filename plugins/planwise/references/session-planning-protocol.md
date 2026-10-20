@@ -339,7 +339,7 @@ Before starting ANY session, verify:
 > - [ ] If META Discovery session → Mode is DELEGATED
 > - [ ] If DELEGATED: Orchestration Required Context lists ONLY plan files
 > - [ ] If DELEGATED: Heavy context files appear ONLY in task file Required Context
-> - [ ] If DELEGATED: Context Boundary subsection present in Execution Strategy
+> - [ ] If DELEGATED: `> [!constraint] Mandatory Context Boundary` callout present in Execution Strategy (Reviewer Check 012)
 > - [ ] If plan uses Meta-Plan AND this session is past Discovery: `Exec-{Abbrev}/` folder exists (not writing into Meta parent)
 > - [ ] If plan uses Meta-Plan AND this session is past Discovery: `Scaffold-{Abbrev}/` folder exists (scaffolding phase was run)
 > - [ ] Both rows above are phase-gated. A Discovery-phase session runs inside `Meta-{Abbrev}/`, and the scaffolding pass has not yet created either folder — test for `Exec-{Abbrev}/`, and skip both rows while it is absent

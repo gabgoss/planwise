@@ -98,7 +98,7 @@ Use standard templates with the following overrides:
 
 **Orchestration overrides:**
 - Execution Strategy: **DELEGATED** (mandatory for META sessions — each agent needs fresh context to read sources)
-- Context Boundary: Orchestrator reads plan files only; source material is read by task agents
+- Context Boundary: keep the template's `> [!constraint] Mandatory Context Boundary` callout (Reviewer Check 012). It states that the orchestrator reads plan files only, and task agents read the source material
 
 **Task design rules:**
 - Tasks are **reading and consolidation** tasks, not implementation tasks

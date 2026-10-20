@@ -239,7 +239,7 @@ The planner (`/planwise plan`) MUST evaluate Execution Strategy triggers and dec
 **Planning responsibility:** When the planner declares DELEGATED:
 1. Orchestration Required Context lists ONLY plan files
 2. Heavy context files appear ONLY in task file Required Context sections
-3. Execution Strategy section includes Context Boundary subsection
+3. Execution Strategy section includes the `> [!constraint] Mandatory Context Boundary` callout (Reviewer Check 012)
 4. The executor follows the declared strategy — no runtime inference
 
 ---

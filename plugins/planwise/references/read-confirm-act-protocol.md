@@ -562,6 +562,30 @@ The dispatching side carries two obligations.
 
 One authoring rule follows. Prefer stating the *generic condition* over a specific number wherever the runner will re-derive anyway. An unnecessary figure in a brief is a liability with no upside.
 
+#### 1.4.K A flag that contradicts a task-file step is a structural finding, not a delivery
+
+Routing a flag answers whether it reached its destination. It does not answer which instruction wins when the flag and the task file disagree. A routed flag can contradict an Execution Step, a Success Criterion or a Schema Pin in the receiving task file. The preflight then treats it as a structural finding. It surfaces the conflict through the Option A / Option B gate (§1.2) and dispatches only after the user decides.
+
+> [!constraint] Diff the flag against the step it touches, not only against the task file's flag list
+> WRONG — a presence-only read, then dispatch:
+> ```
+> preflight: flag {flag-id} present in task files 01 and 02 → routed
+> dispatch:  both runners execute Step 3 unchanged
+> result:    the headline metric lands far below what the data supported
+>            (the flag never took effect)
+> ```
+> CORRECT — diff the flag against Step 3, gate the conflict, record the supersession, then dispatch:
+> ```
+> preflight: flag {flag-id} present in task files 01 and 02
+>            diff against Step 3 → the flag changes the method Step 3 pins
+> CONFIRM:   Option A — restate Step 3 to carry the flag
+>            Option B — keep Step 3 as written, and record the residual the flag predicted
+> record:    the chosen option, in Recovery beside the flag, as a supersession of Step 3
+> dispatch:  runners execute the restated or explicitly retained Step 3
+> ```
+>
+> The WRONG run raises no error. Every runner followed its task file exactly, so the cause is hard to trace afterward. Routing solves delivery, not authority.
+
 ### 1.5 Attribute a Dirty Path Before Choosing a Remedy
 
 > [!constraint] A whole-tree gate and a revert authority both assume one writer
