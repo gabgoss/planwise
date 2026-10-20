@@ -119,6 +119,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 069 — File Line-Count Finding Requires `wc -l` → references/measurement-discipline.md §8.1
 - Check 070 — Plan Headline Metric vs Fixed Extraction Scope Reconciliation → references/measurement-discipline.md §8.3
 - Check 097 — Brief Restates a Design Pin and Drops Its Fallback → references/ei-source-promise-integrity.md §12
+- Check 100 — Plan Executes a Backlog Item Its Master Plan `**Resolves:**` Field Omits → references/session-planning-protocol.md §11
 
 ### Dependency Reviewer
 
