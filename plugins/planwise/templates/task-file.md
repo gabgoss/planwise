@@ -61,7 +61,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 > [!constraint] The Context subtotal is a strict identity, not a prose estimate
 > `sum(Required Context ~Tokens) + output + working` **equals** the header's `**Estimated Tokens:**`, with the addends shown as above. No qualifier may close a gap between the two. When the sum moves, the **header follows** — and the session Orchestration total and the Sprint Plan figure re-roll with it.
 >
-> A genuine discount — a targeted read, a re-read allowance — is **its own addend carrying a value**, never prose attached to the total. "Rounding" covers the ±0.5K a rounded header actually implies. It does not cover a 5% shortfall.
+> A genuine discount — a targeted read, a re-read allowance — is **its own addend carrying a value**, never prose attached to the total. A cohort uplift for a high-divergence cohort (`references/scaffolding-hygiene.md` §10) is an addend in the same way: `+ ~{U}K (cohort uplift: {cohort})`. Reviewer Check 050 searches the subtotal for that label. "Rounding" covers the ±0.5K a rounded header actually implies. It does not cover a 5% shortfall.
 >
 > WRONG — the gap is closed by a qualifier that performs no arithmetic:
 > ```markdown

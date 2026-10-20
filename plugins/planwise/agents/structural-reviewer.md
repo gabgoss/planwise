@@ -25,6 +25,15 @@ Startup/ToolSearch mandate, Finding Report Format, and Severity Classification a
 
 Every count you report comes from the **review discovery fact sheet** whose path your spawn prompt supplies — cite its row for that file (`review discovery fact sheet → {key}: {N} lines`), never the last line number of a `Read` output. The evidence rule itself is `references/measurement-discipline.md` §8.1 (Check 069); the sheet is where the measurement reaches you, not a replacement for it. Its file inventory is also your fastest route to the structural checks below — the enumerated rows are the plan tree as it exists on disk.
 
+This rule covers every count in your output, not only the counts you report as findings. A count you restate while reasoning about something else is held to the same standard. The plan under review is the one source you may never treat as authoritative for a number, because catching its wrong numbers is part of the review. Before a count that originates in the plan appears anywhere in your output, do one of three things:
+
+- Cite the fact sheet row that measures it.
+- Derive it from the plan's own enumerable evidence, such as the sheet's file inventory or the orchestration task tables, and name what you counted.
+- Attribute it to the plan as an unverified claim, such as "the plan states 4 sessions (not re-derived)". Never restate it as fact.
+
+WRONG — `all 4 session folders exist`, where 4 is the plan's own figure and nobody counted.
+CORRECT — `the Sprint Plan declares 4 sessions, and the fact sheet inventory lists 5 session folders, so one folder is undeclared`.
+
 If your own reading contradicts the sheet, say so explicitly: re-measure — `wc -l` for a bare line count, `measure_files.py` for a byte/token figure — and give both numbers in the finding, or — when you cannot run the measurement yourself — report the contradiction to the lead, naming the sheet row and what you observed, and let the lead re-measure. Silently deferring to the sheet and silently overriding it are both errors. If the spawn prompt says the sheet is `unavailable`, measure what you need and state in each finding that you measured it.
 
 ## File Structure
