@@ -52,7 +52,7 @@ When a call site is classified as **critical**:
      Re-issue `/planwise {handler}` with argument `{arg}={value}` inline."
    - STOP — do not proceed past the gate.
 
-**Exception:** outward-facing posts with a complete fallback degrade to the fallback rather than fail loud — see [feedback-submission.md](feedback-submission.md).
+**Exception:** outward-facing posts with a complete fallback degrade to the fallback rather than fail loud — see [Auto Mode — A Deliberate, Documented Deviation](feedback-submission-Part-3-FailureBodySpecAndPrivacy.md#auto-mode--a-deliberate-documented-deviation) in the feedback submission engine.
 
 <!-- AUTO-MODE: critical -->
 
@@ -194,5 +194,7 @@ Two rules follow, and a handler must satisfy both:
 | Plan status anomaly question (upgrade handler, Plans anomalies) | Keep the status as is. The inference is logged and the anomaly stays reported. |
 | Feedback drafts level (upgrade.md Step 1.6) | `notify`, written by the writer only into an existing `feedback:` block that lacks the key. The inference is logged. |
 | Feedback drafts posting opt-in (upgrade.md Step 1.6) | Unchanged. `feedback.enabled` is never set by inference. Posting stays opt-in. |
+| Feedback drafts level (init.md Step 1, and every `--auto-from` init) | `notify`, the template value. No `--feedback-drafts` flag is passed. The inference is logged, and `init_project.py` prints the value it read back on its `Feedback keys:` line. |
+| Feedback drafts posting opt-in (init.md Step 1, and every `--auto-from` init) | `false`, the template value. `feedback.enabled` is never set by inference, so no `--feedback-enabled` flag is passed. Posting stays opt-in. |
 
 The only questions a loop run asks after setup are Q1, Q2, Q3 (in `specific` mode) and the HALT question for an item that died mid-work.

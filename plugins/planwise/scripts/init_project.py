@@ -103,6 +103,7 @@ try:
         PLAN_TIER_WINDOWS,
         ConfigResult,
         InitConfig,
+        _apply_feedback_keys,
         _bump_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
         _context_subkeys_delta,  # noqa: F401 -- re-exported for callers of init_project
         _existing_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
@@ -618,6 +619,36 @@ def _backfill_feedback_dir(cfg: InitConfig, config_path: Path) -> str | None:
     return notice
 
 
+def _apply_init_feedback_answers(cfg: InitConfig, config_path: Path) -> str:
+    """Write the init answers for `feedback.drafts` and `feedback.enabled` into a fresh config.
+
+    The template already carries the block with `drafts: notify`, so the key state is `set`
+    and the shared writer splices only the flagged values. The writer prints its own warning
+    and leaves the file unchanged when it refuses an edit. Returns the one line to print, built
+    from the values read back from the file. The `Feedback drafting:` banner is not printed:
+    init asked the question, so the banner would only repeat the answer.
+    """
+    answered = cfg.feedback_drafts is not None or cfg.feedback_enabled
+    if answered:
+        _apply_feedback_keys(config_path, "set", cfg.feedback_drafts, cfg.feedback_enabled,
+                             planwise_root=cfg.planwise_root, feedback_dir=cfg.feedback_dir,
+                             plugin_root=cfg.plugin_root)
+    if not HAS_YAML:
+        return "Feedback keys: not read back (PyYAML not installed)"
+    try:
+        values = config_loader.get_feedback_config(
+            yaml.safe_load(config_path.read_text(encoding="utf-8")) or {})
+    except (OSError, yaml.YAMLError) as exc:
+        return f"Feedback keys: could not read back {config_path.name}: {' '.join(str(exc).split())}"
+    shown = (f"feedback.drafts: {values['drafts']}, "
+             f"feedback.enabled: {'true' if values['enabled'] else 'false'}")
+    if not answered:
+        return f"Feedback keys: {shown} (template defaults, no answer passed)"
+    written = ((cfg.feedback_drafts is None or values["drafts"] == cfg.feedback_drafts)
+               and (not cfg.feedback_enabled or values["enabled"]))
+    return f"Feedback keys: {shown} ({'answered' if written else 'answer NOT written, see the warning above'})"
+
+
 # What `config_loader.load_config` can raise or exit with on a config it cannot read.
 _CONFIG_READ_ERRORS: tuple = (OSError, ValueError, TypeError, KeyError, SystemExit) + (
     (yaml.YAMLError,) if HAS_YAML else ()
@@ -721,10 +752,9 @@ def main():
                              "upgrade. Default off — the engine ships dormant and is "
                              "calibrated via /planwise calibrate.")
     parser.add_argument("--feedback-drafts", choices=("notify", "quiet", "off"), default=None,
-                        help="with --upgrade: set feedback.drafts to this value (a fresh init ignores it)")
+                        help="fresh init or --upgrade: set feedback.drafts to this value")
     parser.add_argument("--feedback-enabled", action="store_true",
-                        help="with --upgrade: set feedback.enabled: true; never flips it off "
-                             "(a fresh init ignores it)")
+                        help="fresh init or --upgrade: set feedback.enabled: true; never flips it off")
     parser.add_argument("--no-calibrate", action="store_true",
                         help="With --upgrade: skip the Token Saver recalibration the "
                              "upgrade runs when Token Saver is on.")
@@ -857,6 +887,19 @@ def main():
     if args.migration_answers and not args.upgrade:
         parser.error("--migration-answers requires --upgrade")
 
+    # The feedback flags carry an init or upgrade answer. Every other mode would
+    # drop them silently, so it refuses them instead.
+    if args.feedback_drafts is not None or args.feedback_enabled:
+        _other = [flag for flag, on in (
+            ("--migrate", args.migrate and not args.upgrade), ("--doctor", args.doctor),
+            ("--list-diverged", args.list_diverged), ("--review-transfers", args.review_transfers),
+            ("--prune-stale", args.prune_stale),
+            ("--prune-upgrade-leftovers", args.prune_upgrade_leftovers),
+            ("--hash-installed", args.hash_installed)) if on]
+        if _other:
+            parser.error(f"--feedback-drafts and --feedback-enabled apply only to a fresh init "
+                         f"or --upgrade, not with {_other[0]}")
+
     if args.hash_installed:
         # The upgrade handler interpolates an absolute path here once per verdict
         # entry, so a typo'd or moved path must surface as a one-line error, not a
@@ -963,8 +1006,12 @@ def main():
     result, config_rel = generate_config(cfg)
     if result == ConfigResult.CREATED:
         print(f"Configuration: + {config_rel}")
+        print(_apply_init_feedback_answers(cfg, cfg.project_root / cfg.planwise_root / "config.yaml"))
     elif result == ConfigResult.SKIPPED_EXISTS:
         print("Configuration: already exists, skipped")
+        if cfg.feedback_drafts is not None or cfg.feedback_enabled:
+            print("Feedback keys: answers not applied, because config.yaml already exists. "
+                  "Run /planwise upgrade, or set feedback.drafts and feedback.enabled by hand.")
     else:
         print("Configuration: warning - template not found")
         skipped.append(SkippedArtifact(

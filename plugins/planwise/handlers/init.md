@@ -47,10 +47,12 @@ Do NOT use `cat`, `cp`, `sed`, `awk`, or other bash commands for file operations
 ### Step 1 — Gather project information
 
 <!-- AUTO-MODE: convenience -->
-<!-- All 8 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
+<!-- All 10 sub-questions are convenience. Defaults: project_name = cwd basename (strip suffix);
      install_scope = project; planwise_root = planwise; plans_dir = Plans;
      backlog_dir = Backlog; lessons_dir = LessonsLearned; plan_tier = pro;
-     token_saver = yes (recommended). -->
+     token_saver = yes (recommended); questions 9 and 10 per references/auto-mode-policy.md
+     § Inference Defaults ("Feedback drafts level" and "Feedback drafts posting opt-in",
+     init.md Step 1 rows): ask nothing, pass neither flag, log the inference. -->
 Use `AskUserQuestion` to collect:
 
 1. **Project name** — The name of this project (e.g., "MyApp", "DataPipeline")
@@ -61,6 +63,15 @@ Use `AskUserQuestion` to collect:
 6. **Lessons directory** — Subdirectory name for lessons learned within the root (default: `LessonsLearned`)
 7. **Claude plan tier** — Which Claude plan you're on: `pro` (200K context window) or `max` (1M context window). This scales all token budgets, Meta-Plan thresholds, and DELEGATED checks. Default: `pro`. See `references/session-context-budget.md` §4 for tier-specific budget tables.
 8. **Enable Token Saver mode?** — Keeps task sessions under ~150K (avoids the linear carrying-cost of big sessions) and warns when a file is too large to fit a lean task. Recommended: `yes`. See `references/token-saver-profile.md` for the two-tier policy and derivation formulas.
+9. **Feedback drafts level** (`feedback.drafts`) — ask exactly this text, the same text `/planwise upgrade` Step 1.6 asks:
+
+   > "Claude may now save local feedback drafts while planwise runs. Nothing is posted without `/planwise feedback --drafts` and your approval. How loud should drafting be? (notify — one line per draft, recommended / quiet — write silently / off — never draft)"
+
+10. **Upstream posting** (`feedback.enabled`) — ask exactly this text, the same text `/planwise upgrade` Step 1.6 asks:
+
+    > "Enable upstream posting (`feedback.enabled: true`)? Posting still needs `gh` installed and authenticated, and every post asks you first. (Yes / No — keep drafts local, recommended)"
+
+`AskUserQuestion` takes at most four questions per call, so split the ten questions across calls.
 
 Store responses as:
 - `{project_name}` — from question 1
@@ -71,6 +82,8 @@ Store responses as:
 - `{lessons_dir}` — from question 6 (use `LessonsLearned` if blank)
 - `{plan_tier}` — from question 7 (use `pro` if blank; must be one of: `pro`, `max`). The companion `{context_window}` is derived: `pro` → 200000, `max` → 1000000.
 - `{token_saver}` — from question 8 (use `yes` if blank; must be one of: `yes`, `no`). When `yes`, pass `--token-saver` to `init_project.py` (Step 2 / Step 5) so the generated `config.yaml` sets `context.token_saver: true`.
+- `{feedback_drafts}` — from question 9 (`notify`, `quiet` or `off`; leave it unset if blank). When set, pass `--feedback-drafts {feedback_drafts}` to `init_project.py`.
+- `{feedback_enabled}` — from question 10 (`yes` or `no`; use `no` if blank). When `yes`, pass `--feedback-enabled`. `no` adds no flag, so `feedback.enabled` stays `false`.
 
 ---
 
@@ -80,13 +93,13 @@ Try running the Python init script first. It handles directory creation, seed fi
 
 **Resolve `{plugin_root}`:** For first-time init, resolve the plugin root from this handler's known location (the plugin base directory provided by SKILL.md). For re-init, read `plugin_root` from the existing `config.yaml`.
 
-Run the script (append `--token-saver` only when `{token_saver}` is `yes`):
+Run the script (append `--token-saver`, `--feedback-drafts` and `--feedback-enabled` only as Step 1 recorded them):
 
 ```bash
-python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}" --token-saver
+python "{plugin_root}/scripts/init_project.py" --name "{project_name}" --root "{planwise_root}" --plans-dir "{plans_dir}" --backlog-dir "{backlog_dir}" --lessons-dir "{lessons_dir}" --scope "{install_scope}" --plan-tier "{plan_tier}" --token-saver --feedback-drafts "{feedback_drafts}" --feedback-enabled
 ```
 
-Omit the trailing `--token-saver` flag when `{token_saver}` is `no` — the generated config then sets `context.token_saver: false`.
+Omit the `--token-saver` flag when `{token_saver}` is `no` — the generated config then sets `context.token_saver: false`. Omit `--feedback-drafts` when `{feedback_drafts}` is unset, and omit `--feedback-enabled` when `{feedback_enabled}` is `no`. With neither feedback flag the generated config keeps the template values, `feedback.drafts: notify` and `feedback.enabled: false`. The script writes the answers through the same splice writer `/planwise upgrade` uses and prints one `Feedback keys:` line with the values it read back.
 
 If `python` is not found, try `python3`.
 
@@ -225,9 +238,15 @@ continue (no question, no install, never blocking):
 ```
 gh installed ({version}) but not authenticated — /planwise feedback will save a
 local draft instead of posting.
-  remediation: run `gh auth login` (an interactive browser/device flow), and set
-               feedback.enabled: true in {planwise_root}/config.yaml
+  remediation: run `gh auth login` (an interactive browser/device flow){posting_clause}
 ```
+
+`{posting_clause}` follows the Step 1 question 10 answer. Init already asked about `feedback.enabled`, so never tell the user to edit the key by hand:
+
+| Step 1 question 10 | `{posting_clause}` |
+|---|---|
+| `yes` | `. Posting is already on: feedback.enabled: true.` |
+| `no` | `. Posting stays off, as you chose. To turn it on later, run` `python "{plugin_root}/scripts/feedback_drafts.py" enable-posting --config "{planwise_root}/config.yaml"` |
 
 **If it does not resolve,** use `AskUserQuestion`:
 
@@ -254,22 +273,26 @@ and do NOT escalate privileges beyond the single command above. Print the failin
 its exit status, and https://cli.github.com/ so the user can install by hand, then
 continue. A failed install NEVER blocks init.
 
-**After a successful install,** print both remaining steps — the binary alone does not
+**After a successful install,** print the remaining steps — the binary alone does not
 make posting work, and stopping at "installed" strands the user at the engine's next two
-gates:
+gates. The opt-in line reports the Step 1 question 10 answer, and never asks for a hand edit:
 
 ```
 gh installed ({version}).
 
-Two things still gate upstream posting:
+Two things gate upstream posting:
   1. Authenticate:  gh auth login
      (an interactive browser/device flow — run it yourself; init will not
       authorize an account on your behalf)
-  2. Opt in:        set feedback.enabled: true in {planwise_root}/config.yaml
-     (posting is opt-in and off by default)
+  2. Opt in:        {opt_in_status}
 
 Until both are done, /planwise feedback saves a local draft instead of posting.
 ```
+
+| Step 1 question 10 | `{opt_in_status}` |
+|---|---|
+| `yes` | `done (feedback.enabled: true, answered in Step 1)` |
+| `no` | `off, as you chose in Step 1. To turn it on later, run` `python "{plugin_root}/scripts/feedback_drafts.py" enable-posting --config "{planwise_root}/config.yaml"` |
 
 **If No:** skip silently. `/planwise feedback` degrades to local drafts, which is a
 supported configuration and not a degraded install.
