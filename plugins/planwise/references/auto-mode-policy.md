@@ -192,5 +192,7 @@ Two rules follow, and a handler must satisfy both:
 | Reciprocal-edge migration questions (upgrade.md Step 2.3b) | Answer nothing. Write no answers file and run Step 2.4 without `--migration-answers`. An edge direction cannot be inferred safely. The migrator refuses only the unanswered family and writes nothing for it, and the chat summary names that family as action required. |
 | Stale mirror prune question (upgrade handler, orphaned agent mirrors banner) | Do not prune. Deleting files is never inferred. The `REMOVABLE` rows stay in place and the banner keeps listing them. |
 | Plan status anomaly question (upgrade handler, Plans anomalies) | Keep the status as is. The inference is logged and the anomaly stays reported. |
+| Feedback drafts level (upgrade.md Step 1.6) | `notify`, written by the writer only into an existing `feedback:` block that lacks the key. The inference is logged. |
+| Feedback drafts posting opt-in (upgrade.md Step 1.6) | Unchanged. `feedback.enabled` is never set by inference. Posting stays opt-in. |
 
 The only questions a loop run asks after setup are Q1, Q2, Q3 (in `specific` mode) and the HALT question for an item that died mid-work.

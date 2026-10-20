@@ -27,6 +27,18 @@ Comparator verdicts: {returned}/{diverged} (late: {n} resumed, {m} recorded afte
 
 Config keys added:    {N}  ({list, or "(none)"})
 
+Feedback drafting: ON — Claude may now save local feedback drafts under {planwise_root}/{feedback_dir}/
+  nothing is posted without /planwise feedback --drafts and your approval
+  feedback.drafts: {value} ({answered|default, no answer given}); feedback.enabled: {true (set this run)|unchanged}
+  turn it off: set feedback.drafts: off in {planwise_root}/config.yaml, or run
+    python "{plugin_root}/scripts/feedback_drafts.py" disable-drafts --config "{planwise_root}/config.yaml"
+  — or, when the value is off:
+Feedback drafting: OFF — Claude will not save local feedback drafts under {planwise_root}/{feedback_dir}/
+  nothing is posted without /planwise feedback --drafts and your approval
+  feedback.drafts: off ({answered|default, no answer given}); feedback.enabled: {true (set this run)|unchanged}
+  turn it on: set feedback.drafts: notify (or quiet) in {planwise_root}/config.yaml
+(one of the two entries, and neither when the pre-upgrade config already carried feedback.drafts)
+
 Lessons scaffolding backfilled:           ({omitted entirely when every artifact already exists})
   + {planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md
   + {planwise_root}/{lessons_dir}/00-Changelog-LessonsLearned.md

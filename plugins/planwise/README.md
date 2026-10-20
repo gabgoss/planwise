@@ -462,6 +462,7 @@ When a new plugin version is published, upgrading happens in two stages:
    - Bumps the pinned `plugin_version:` in your `config.yaml`
    - Migrates a hand-authored backlog, lessons or plans index, backing up every file first. A refusal names the fix.
    - Adds any new top-level config keys (the additive merge previously available via `--migrate`), including the `upgrade:` block described below
+   - **States the drafting behaviour once:** when the config has no `feedback.drafts` key, the upgrade asks about `feedback.drafts` and `feedback.enabled`, writes the answers (or the `notify` default when unattended), and prints a `Feedback drafting:` entry once.
    - Backfills missing lessons scaffolding — seeds the generated lessons index (hub, overflow leaves, Archive shards) and the categorization file that gates `lessons curate` / `promote-batch` when either is absent (idempotent; an existing file, customised or not, is preserved verbatim)
    - Refreshes installed rules whose local body still matches the previously-shipped body
    - **Auto-adopts stale copies:** a diverged file whose content is a clean structural subset of the newer shipped version (an old copy you never edited, that the plugin has since grown) is refreshed in place — rules keep your `paths:` line. Before any overwrite or removal, the pre-change file is copied under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (with a `DISPOSITIONS.md` log), so every automatic disposition is recoverable even without git
