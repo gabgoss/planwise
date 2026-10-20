@@ -78,9 +78,9 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 **Orchestrator reads:** Orchestration, Recovery, task files (plan files only)
 **Orchestrator NEVER reads:** {list the heavy files — Consolidated Context parts, reference docs, source code}
-**Subagents read:** Per-task Required Context (each subagent gets a fresh window sized by the **dispatched model** — 200K for Sonnet/Haiku, 1M for Opus — regardless of the parent tier; see [`references/session-context-budget.md` § Subagent Context Window](../references/session-context-budget.md#subagent-context-window))
+**Subagents read:** Per-task Required Context (each subagent gets a fresh window sized by the **dispatched model** — 200K for Sonnet/Haiku, 1M for Opus — regardless of the parent tier; see `references/session-context-budget.md` § Subagent Context Window)
 
-> **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + injected path-rule tokens + ~54K < the **dispatched model's** window (Sonnet/Haiku 200K, Opus 1M — NOT the parent `context_window`; see [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window)). See [Task-Level Estimation](../references/session-context-budget.md#task-level-estimation-binding) for the bottom-up estimation formula and conversion factor.
+> **Subagent overhead:** Each subagent consumes ~54K (system ~26K + global rules/CLAUDE.md ~27K + skills ~1K) before any task work begins. Verify that each task's estimate + injected path-rule tokens + ~54K < the **dispatched model's** window (Sonnet/Haiku 200K, Opus 1M — NOT the parent `context_window`; see `references/session-context-budget.md` § Subagent Context Window). See `references/session-context-budget.md` § Task-Level Estimation for the bottom-up estimation formula and conversion factor.
 
 <!-- Uncomment when any task's declared Output is under `.claude/**` — declares the
      expected permission round-trip (see references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md §14):
@@ -296,7 +296,7 @@ See `agents/task-runner.md` §5.B for the runnable schema.
 
 - [ ] **Verify outputs** — confirm all expected output files were written to `Outputs/`
 - [ ] **Finalize recovery** — mark Session Status: COMPLETE, update all task statuses, add final Key Findings
-- [ ] **Generate session summary** — write `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` using [summary-template.md](summary-template.md)
+- [ ] **Generate session summary** — write `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` using `templates/summary-template.md`
 - [ ] **Capture lessons** — ask "Were any lessons learned?" If yes, create lesson file and run the generator
 - [ ] **Update plan status** — mark this orchestration COMPLETE; update sprint plan and master plan status fields
 - [ ] **Git commit and push** — stage specific files (`git add` by name, never `git add .`), commit, push

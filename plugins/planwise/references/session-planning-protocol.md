@@ -404,11 +404,11 @@ After completing a session:
 
 ## Templates
 
-For full templates, see the [planwise plugin templates](templates/):
-- [master-plan.md](templates/master-plan.md) — Master Plan Template
-- [sprint-plan.md](templates/sprint-plan.md) — Sprint Plan Template
-- [orchestration.md](templates/orchestration.md) — Orchestration Template
-- [recovery.md](templates/recovery.md) — Recovery Template
+For full templates, see the [planwise plugin templates](../templates/):
+- [master-plan.md](../templates/master-plan.md) — Master Plan Template
+- [sprint-plan.md](../templates/sprint-plan.md) — Sprint Plan Template
+- [orchestration.md](../templates/orchestration.md) — Orchestration Template
+- [recovery.md](../templates/recovery.md) — Recovery Template
 - Pre/Post-Session Checklists: Sections 10-11 above
 
 ---
