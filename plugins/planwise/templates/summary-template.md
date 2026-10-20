@@ -1,6 +1,6 @@
 # Session Summary Template
 
-Use this template when generating the session summary at session closeout, written to `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` (per [orchestration.md](orchestration.md)'s Post-Session Checklist).
+Use this template when generating the session summary at session closeout, written to `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` (per the Post-Session Checklist in `templates/orchestration.md`).
 
 ---
 
@@ -66,7 +66,7 @@ Use this template when generating the session summary at session closeout, writt
 
 ### Scope-Expansion Decisions
 
-*Mirror every row from the Recovery file's `Scope-Expansion Decisions` section here, with a link back to the Phase-1 approval reference. Omit this subsection entirely if no expansions occurred. See [references/read-confirm-act-protocol.md §1.2](../references/read-confirm-act-protocol.md#12-structural-findings-beyond-literal-scope).*
+*Mirror every row from the Recovery file's `Scope-Expansion Decisions` section here, with a link back to the Phase-1 approval reference. Omit this subsection entirely if no expansions occurred. See `references/read-confirm-act-protocol.md` §1.2.*
 
 | Step | Literal Scope | Expanded Scope | Why It Was Expanded | Phase-1 Approval Ref |
 |------|---------------|----------------|---------------------|----------------------|
@@ -76,7 +76,7 @@ Each row MUST link to the corresponding Recovery row (same Step number) so later
 
 ### Cross-Task Coordination Flags
 
-*Mirror every row from the Recovery file's `Cross-Task Coordination Flags` section here, alongside the file path where the flag was propagated at closeout. Omit this subsection entirely if no flags were surfaced. See [references/read-confirm-act-protocol.md §1.3](../references/read-confirm-act-protocol.md#13-cross-task-coordination-flags).*
+*Mirror every row from the Recovery file's `Cross-Task Coordination Flags` section here, alongside the file path where the flag was propagated at closeout. Omit this subsection entirely if no flags were surfaced. See `references/read-confirm-act-protocol.md` §1.3.*
 
 | Flag # | Source Task | Downstream Consumer | Observation | Propagated To |
 |--------|-------------|---------------------|-------------|---------------|

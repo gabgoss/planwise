@@ -61,7 +61,7 @@ The optional top-level `id_format` key (`prefixed` or `bare`) controls how a new
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
 
 **Conditional references:**
 - Loaded at Phase 3, step 3a (pivot check), for High-priority / top-scored / aged items or multi-item cohorts: Read `references/backlog-triage-pivot-detection.md`
@@ -200,11 +200,12 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
       ```bash
       python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml --route --id {item_id}
       ```
-      It prints the signal vector (`abbrev`/`is_bug`, whole-file line count, keyword hits with the line each sits on, `##` and numbered-step counts, file count, the `HAS_CLEAR_FIX` evidence shapes), the provisional route, `LARGE_SCOPE`, and the Decision Logic branch that fired. Read the keyword hit lines before accepting `HAS_MULTI_SPRINT` or `IS_ARCHITECTURAL`: an item that quotes the signal table, or names a plan whose title contains "redesign", matches every keyword without being either. `HAS_CLEAR_FIX` is reported as its mechanical half only — the evidence shapes are *present*; whether they are *sufficient* is your judgment. The script never runs the pivot check or gates 3b, 4, 5 and 7.
-   b. Read the item's `route_hint` / `route_evidence` / `route_dated` frontmatter when present. The report prints them beside the computed route with a verdict: `agree`, `agree — but the hint predates the item's newest evidence`, or `script wins — …`.
+      It prints the signal vector (`abbrev`/`is_bug`, whole-file line count, keyword hits with the line each sits on, `##` and numbered-step counts, file count, the `HAS_CLEAR_FIX` evidence shapes), the provisional route, `LARGE_SCOPE`, and the Decision Logic branch that fired. Read the keyword hit lines before accepting `HAS_MULTI_SPRINT` or `IS_ARCHITECTURAL`: an item that quotes the signal table, or names a plan whose title contains "redesign", matches every keyword without being either. `IS_ARCHITECTURAL` reads only the `## Proposed Solution` section when the item has one (an item without that heading is read whole), and inside it drops a stem that sits inside a file name, a multi-segment path, a snake_case identifier, an `**Evidence:**` line or a table row. Every dropped hit is listed under `ignored (N)` with its reason, so a stem in the title, the Summary or a Related line still shows there. A plain-prose hit that remains is still a candidate, so read its line. `HAS_CLEAR_FIX` is reported as its mechanical half only — the evidence shapes are *present*; whether they are *sufficient* is your judgment. The script never runs the pivot check or gates 3b, 4, 5 and 7.
+   b. Read the item's `route_hint` / `route_evidence` / `route_dated` frontmatter when present. The report prints them beside the computed route with a verdict: `agree`, `agree — but the hint predates the item's newest evidence`, `undecided — …`, or `script wins — …`.
    c. Reconcile the two into one recommendation, and state the reconciliation in the Scope Assessment Block's `Reason:` line rather than in a new template:
       - Script and hint agree → recommend that route and note that both agreed.
-      - They disagree, or `route_dated` is older than the item's newest `**Evidence:**` / `recorded` date → **the script wins**, and `Reason:` names the divergence. A stale hint is data about drift, not an override.
+      - `undecided` → the hint is fresh and names a route that your own reading of the candidate signals could reach. The script flags `IS_ARCHITECTURAL`, `HAS_MULTI_SPRINT` or the sufficiency half of `HAS_CLEAR_FIX`, and the verdict line lists which one the divergence turns on. **You decide.** Read the printed hit lines and the clear-fix evidence, choose the hint's route or the script's, and state the choice and the lines you read in `Reason:`.
+      - They disagree and the verdict is `script wins`, or `route_dated` is older than the item's newest `**Evidence:**` / `recorded` date → **the script wins**, and `Reason:` names the divergence. This covers a stale hint, a hint that is not `A`, `B` or `C`, and a disagreement that no reading of a candidate signal reaches: abbrev, line count, file count, sub-item count or step count. A stale hint is data about drift, not an override.
       - No hint → the script vector alone.
 
       Never adopt a stored hint bare, and never skip a gate because a route is already stored: a stored route is a dated claim about the repository and rots like every other claim.
@@ -267,7 +268,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 > ## Scope Assessment
 >
 > Route: {DIRECT_FIX | TASK_LIST | SESSION_PLANNING}
-> Reason: {the Decision Logic branch --route fired; the route_hint verdict (agree / script wins / none); any signal overridden per step 6d}
+> Reason: {the Decision Logic branch --route fired; the route_hint verdict (agree / undecided / script wins / none); any signal overridden per step 6d}
 > LARGE_SCOPE: {true | false}
 > ─────────────────────────────────────────────
 > ```
@@ -726,8 +727,8 @@ Use this logic to determine the recommended route in Phase 3.
 | Exact fix evidence: named files + line anchors + before/after content + scope-confinement bound | BB body supplies concrete, bounded edit targets | Strong → Direct Fix — sets `HAS_CLEAR_FIX` regardless of file length |
 | Specific file paths mentioned | Regex for code file extensions | Moderate → Direct Fix |
 | "multi-sprint" / "phased" keywords | Case-insensitive content search | Strong → Session Planning |
-| "refactor" / "redesign" / "architecture" / "migration" | Content keywords | Strong → Session Planning |
-| 6+ sub-items or ## headings | Count numbered list items and H2 headers, excluding the backlog item template's own section headings (Summary, Problem, Proposed Solution, Acceptance Criteria, Related, Files Touched, Notes) | Moderate → Session Planning |
+| "refactor" / "redesign" / "architecture" / "migration" | Content keywords in the `## Proposed Solution` section (the whole body when the item has no such section); a stem in a title, Summary, evidence line, table row or name is listed as ignored | Strong → Session Planning |
+| 6+ sub-items or ## headings | Take the larger of two counts: the longest consecutive numbered list (two lists of 2 and 4 are 4 parts, not 6) and the H2 headers, excluding the backlog item template's own section headings (Summary, Problem, Proposed Solution, Acceptance Criteria, Related, Files Touched, Notes) | Moderate → Session Planning |
 | Multiple reference files (YY > 01) | Files column has 2+ links | Moderate → Session Planning |
 | 3-5 numbered steps | Count discrete steps | Moderate → Task List |
 

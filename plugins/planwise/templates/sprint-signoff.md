@@ -125,10 +125,8 @@ If none of A/B/C applies (no IPC/protocol/codec sessions), state "N/A — no IPC
 > [!practice] Sprint Overview Row vs Master Plan Status
 > The Sprint Overview row state reflects the **exit-gate verdict**, NOT the session-count fraction (per `references/gate-exit-verdict-and-smoke-reports.md` §4). When this signoff records PASS, update the Master Plan's Sprint Overview row Status to COMPLETE. PARTIAL or FAIL retains IN_PROGRESS until remediated.
 
-Master Plan Sprint Overview row to update:
-```
-| {Abbrev}-S{XX} | {Sprint Name} | {Status: COMPLETE | IN_PROGRESS} | {Signoff Date} |
-```
+> [!constraint] Edit One Cell, Never the Whole Row
+> Update the `Status` column only, in the existing Master Plan Sprint Overview row for this sprint. Do not restate or alter any other column. The column set is authored per plan, and this signoff does not know it. If the table has no `Status` column, update the column that carries the sprint's verdict.
 
 ---
 

@@ -46,7 +46,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
 
 **Run-specific references (always load):**
 1. Read `references/session-execution-protocol.md`
@@ -155,7 +155,7 @@ While reading, watch for structural findings beyond the literal task scope -- la
 > - [ ] **Re-derive every value the flag supplies before acting on it** — its counts, its scope forecast, its classification, and its prescribed remedy. The location is usually still good; the values are expired. A flag's own supplied verify gate is the most dangerous artifact it carries, because a stale gate fails correct work and reads as "your fix is broken". See [read-confirm-act-protocol.md §1.4.C–§1.4.D](../references/read-confirm-act-protocol.md#14-reconciling-an-inherited-flag-receiver-side)
 > - [ ] Record the routing as a **table** in Recovery — one row per flag: `Flag | Source file | Destination task | Disposition` — so the count is auditable rather than asserted. Add the Change Log row alongside it ("flag preflight — N flags routed to tasks X, Y")
 > - [ ] Keep the sender's original wording; record any correction beside it with the measurement that settled it. A conditional flag whose condition was measured and NOT met is routed as *resolved, with its measurement* — never dropped, never left open
-> - [ ] If a routed flag CONTRADICTS an **Execution Step**, **Success Criterion**, **Schema Pin**, `Output:` line, or orchestration write-target row → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first
+> - [ ] If a routed flag CONTRADICTS an **Execution Step**, **Success Criterion**, **Schema Pin**, `Output:` line, or orchestration write-target row → structural finding: surface it in the CONFIRM block via the Step 1.2a Option A / Option B gate; do not dispatch first. Worked example: [read-confirm-act-protocol.md §1.4.K](../references/read-confirm-act-protocol.md#14k-a-flag-that-contradicts-a-task-file-step-is-a-structural-finding-not-a-delivery)
 > - [ ] A file / write / create flag is a write-set delta: count its produce-verbs against the `Output:` artifact count, and a mismatch is the finding. Read an ordering flag ("X before Y") against X's pinned command. See [flag authoring surfaces](../references/read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md)
 > - [ ] A flag whose text is an unresolved fork must be pinned before dispatch — leaving a "pick one and say so" open means each runner resolves it ad hoc, with no recorded decision for downstream sessions to inherit
 

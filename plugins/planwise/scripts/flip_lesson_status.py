@@ -71,6 +71,7 @@ from pathlib import Path
 # docstring); it is defined once there and reused by every script that
 # rewrites a user's file in place, rather than re-derived per script.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
 from generate_lessons_index import _strip_quotes
 from parse_lessons import format_id, lesson_files

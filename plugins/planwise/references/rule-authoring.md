@@ -19,6 +19,7 @@ paths: Controllers/**, Views/**
 |-------|----------|---------|
 | `description` | Yes | One-line summary of the rule's purpose |
 | `paths` | Yes (unless global) | Directory paths where the rule applies (see supported formats below) |
+| `placement` | No | `true` marks a rule that governs what belongs in its `paths:` tree, not only how to work there. A tool that classifies a file creation under the tree treats the rule as a placement rule and asks for a human decision; a rule without the key is a behaviour rule, injected into the working agent's prompt instead |
 
 ### Supported `paths:` Formats
 
@@ -52,6 +53,10 @@ paths: Controllers/**, Views/**
 > ```yaml
 > paths: Controllers/**, Views/**
 > ```
+
+### The `placement:` key
+
+Most path-scoped rules are behaviour rules: they say how to work in a tree (how to run commands there, what a count means there, how to isolate identifiers there). A few say what belongs in the tree. Only the second kind should stop an automated edit, and only when the edit creates a file. Declare that kind with `placement: true` in the frontmatter. The backlog triage's scoped-rule check reads the key: a file creation under a `placement: true` rule needs a human decision; a match on any other rule injects the rule's text into the fixing agent's prompt and proceeds. An edit to a file that already exists never trips the placement check, whatever the rule declares.
 
 ## 2. Path Scoping (BINDING)
 

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Initialize planwise project structure — CLI entry point + composition root.
 
-Owns fresh-init scaffolding (directories, seed files, rule install, settings),
-the INSTALLED_RULES/DESCOPED_RULES tables, and the argparse-driven main()
-dispatch. The heavier subsystems live in sibling same-directory modules and
-are imported/re-exported here so `import init_project` keeps working
-unchanged: upgrade_io (backup/disposition/transfer primitives), config_gen
+Owns fresh-init scaffolding (directories, seed files, rule install, settings)
+and the argparse-driven main() dispatch. The heavier subsystems live in
+sibling same-directory modules and are imported/re-exported here so
+`import init_project` keeps working unchanged: rule_registry (the
+INSTALLED_RULES/DESCOPED_RULES tables and the paths:/frontmatter helpers --
+a leaf module, so the siblings below import it instead of this file),
+upgrade_io (backup/disposition/transfer primitives), config_gen
 (InitConfig + config.yaml generation/migration), rule_divergence (installed-
 vs-shipped structural classification), rule_descope_migration (rule de-scope
 migration), artifact_upgrade (the --upgrade writer), doctor_sweeps + doctor_cli
@@ -41,22 +43,43 @@ from pathlib import Path
 
 # When this file is run directly (`python init_project.py ...`), Python
 # registers it as sys.modules["__main__"], NOT sys.modules["init_project"].
-# The sibling modules imported below (rule_descope_migration, artifact_upgrade,
-# doctor_sweeps and doctor_cli) do `from init_project import X` (R1:
-# INSTALLED_RULES/DESCOPED_RULES stay on the residual) -- without this alias,
-# that statement would trigger a SECOND, independent import of this same file
-# under the "init_project" key, which re-executes from the top and collides
-# with the sibling import already in progress (a circular ImportError distinct
-# from -- and not fixed by -- the definition-ordering fix below). Aliasing
-# first gives every `from init_project import ...` a single, already-partially
-# -initialized module object to resolve against, exactly as the normal
-# `import init_project` case already has.
+# No sibling imports from init_project at module level any more (the shared
+# names live in rule_registry), but artifact_upgrade's feedback-dir backfill
+# still does a call-time `from init_project import _backfill_feedback_dir, ...`.
+# Without this alias, that statement would trigger a SECOND, independent
+# import of this same file under the "init_project" key, re-executing it from
+# the top. Aliasing first gives that import the already-loaded module object
+# to resolve against, exactly as the normal `import init_project` case has.
 if __name__ == "__main__":
     sys.modules.setdefault("init_project", sys.modules[__name__])
+
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
 from constants import InstallScope
 from migration_answers import AnswersError, load_answers
 from pyyaml_remedy import pyyaml_install_command
+
+try:
+    from gitignore_entry import ensure_line, model_draft_line
+except ImportError:
+    raise ImportError(
+        "gitignore_entry is required for init_project's .gitignore draft entry; "
+        "the scripts/ directory appears to be partially installed"
+    )
+
+try:
+    from rule_registry import (
+        DESCOPED_RULES,  # noqa: F401 -- re-exported for callers of init_project
+        INSTALLED_RULES,
+        resolve_rule_paths_value,
+        update_frontmatter,
+    )
+except ImportError:
+    raise ImportError(
+        "rule_registry is required for init_project's INSTALLED_RULES/"
+        "DESCOPED_RULES tables and rule-write helpers; the scripts/ directory "
+        "appears to be partially installed"
+    )
 
 try:
     from upgrade_io import (
@@ -82,6 +105,7 @@ try:
         PLAN_TIER_WINDOWS,
         ConfigResult,
         InitConfig,
+        _apply_feedback_keys,
         _bump_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
         _context_subkeys_delta,  # noqa: F401 -- re-exported for callers of init_project
         _existing_context_subkeys,  # noqa: F401 -- re-exported for callers of init_project
@@ -185,6 +209,69 @@ except ImportError:
     )
 
 try:
+    from rule_descope_migration import (
+        RESCOPE_MIGRATION_VERSION,  # noqa: F401 -- re-exported for callers of init_project
+        _version_tuple,  # noqa: F401 -- re-exported for callers of init_project
+        migrate_installed_rules,  # noqa: F401 -- re-exported for callers of init_project
+    )
+except ImportError:
+    raise ImportError(
+        "rule_descope_migration is required for init_project's de-scope "
+        "migration re-exports; the scripts/ directory appears to be "
+        "partially installed"
+    )
+
+try:
+    from artifact_upgrade import (
+        _commit_upgrade_pin,  # noqa: F401 -- re-exported for callers of init_project
+        _repoint_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
+        _run_upgrade,
+        _same_path,  # noqa: F401 -- re-exported for callers of init_project
+        load_artifact_manifest,
+        upgrade_artifacts,  # noqa: F401 -- re-exported for callers of init_project
+    )
+except ImportError:
+    raise ImportError(
+        "artifact_upgrade is required for init_project's artifact-refresh/"
+        "upgrade re-exports; the scripts/ directory appears to be partially "
+        "installed"
+    )
+
+try:
+    from doctor_sweeps import (
+        FORMERLY_MIRRORED_AGENTS,  # noqa: F401 -- re-exported for callers of init_project
+        lint_installed_divergence,  # noqa: F401 -- re-exported for callers of init_project
+        lint_rule_overscope,  # noqa: F401 -- re-exported for callers of init_project
+        sweep_orphaned_agent_mirrors,  # noqa: F401 -- re-exported for callers of init_project
+        sweep_stale_descoped_rules,  # noqa: F401 -- re-exported for callers of init_project
+    )
+except ImportError:
+    raise ImportError(
+        "doctor_sweeps is required for init_project's doctor-sweep re-exports; "
+        "the scripts/ directory appears to be partially installed"
+    )
+
+try:
+    from doctor_cli import (
+        _detect_orphaned_block_signature,  # noqa: F401 -- re-exported for callers of init_project
+        _doctor_config_parse_check,  # noqa: F401 -- re-exported for callers of init_project
+        _doctor_version_gate,  # noqa: F401 -- re-exported for callers of init_project
+        _list_diverged_rows,  # noqa: F401 -- re-exported for callers of init_project
+        _read_configured_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
+        _read_pinned_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
+        _resolve_doctor_config_path,  # noqa: F401 -- re-exported for callers of init_project
+        _run_doctor,
+        _run_list_diverged,
+        _run_prune_stale,
+        _run_prune_upgrade_leftovers,
+    )
+except ImportError:
+    raise ImportError(
+        "doctor_cli is required for init_project's doctor-dispatcher "
+        "re-exports; the scripts/ directory appears to be partially installed"
+    )
+
+try:
     import yaml
     HAS_YAML = True
 except ImportError:
@@ -192,54 +279,6 @@ except ImportError:
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
-
-
-# Files copied from references/ into .claude/rules/planwise/ on init.
-# Each tuple is (source_filename, paths_template). paths_template uses
-# {plans_path} / {all_paths} placeholders resolved at install/upgrade time
-# from cfg.planwise_root + cfg.plans_dir / cfg.backlog_dir / cfg.lessons_dir.
-# The upgrade flow consults this list as the authoritative refresh allowlist.
-#
-# Only the four `.claude/**`-scoped authoring rules are installed as
-# path-scoped rules. They guide agents/skills/rules authoring, trigger on
-# `.claude/**` file activity, and stay small. The sixteen plan/backlog/lessons
-# rules that used to be installed here are now handler-loaded on demand from
-# references/ — see DESCOPED_RULES below and migrate_installed_rules().
-# The two global style rules are installed separately by
-# `style_rules.install_style_rules` and are not in this table.
-INSTALLED_RULES: list[tuple[str, str]] = [
-    ("agent-authoring.md", ".claude/agents/**"),
-    ("skill-authoring.md", ".claude/skills/**"),
-    ("rule-authoring.md", ".claude/rules/**"),
-    ("artifact-self-containment.md", ".claude/rules/**, .claude/agents/**, .claude/skills/**, .claude/commands/**, CLAUDE.md"),
-]
-
-
-# Rules removed from the install set during the rule de-scope. Each tuple is
-# (source_filename, old_paths_template) where old_paths_template is the
-# {plans_path} / {all_paths} placeholder the rule carried BEFORE de-scoping.
-# migrate_installed_rules() resolves each template back to the pre-migration
-# default paths: value to recognise an untouched installed copy and remove it;
-# the orchestrator now loads these rules on demand from references/ instead of
-# injecting them as always-on path-scoped rules.
-DESCOPED_RULES: list[tuple[str, str]] = [
-    ("session-planning-protocol.md", "{plans_path}"),
-    ("session-plan-requirements.md", "{plans_path}"),
-    ("session-context-budget.md", "{plans_path}"),
-    ("session-execution-protocol.md", "{plans_path}"),
-    ("scaffolding-hygiene.md", "{plans_path}"),
-    ("discovery-and-exit-criteria.md", "{plans_path}"),
-    ("ei-fidelity.md", "{plans_path}"),
-    ("schema-pin-requirement.md", "{plans_path}"),
-    ("task-content-fidelity.md", "{plans_path}"),
-    ("verification-gates.md", "{plans_path}"),
-    ("verify-against-shipped-artifact.md", "{plans_path}"),
-    ("verification-task-authoring.md", "{plans_path}"),
-    ("agent-orchestration.md", "{all_paths}"),
-    ("agent-orchestration-delegated.md", "{all_paths}"),
-    ("callout-conventions.md", "{all_paths}"),
-    ("markdown-conventions.md", "{all_paths}"),
-]
 
 
 @dataclasses.dataclass
@@ -254,17 +293,6 @@ class SkippedArtifact:
     reason: str             # short reason (e.g., "config.yaml: categorization block missing")
     consumer: str           # downstream skill or handler that needs this artifact
     remediation: str        # concrete next-step the user should take
-
-
-def resolve_rule_paths_value(cfg: "InitConfig", paths_template: str) -> str:
-    """Substitute {plans_path} / {all_paths} placeholders into a paths: value."""
-    plans_path = f"{cfg.planwise_root}/{cfg.plans_dir}/**"
-    all_paths = ", ".join([
-        plans_path,
-        f"{cfg.planwise_root}/{cfg.backlog_dir}/**",
-        f"{cfg.planwise_root}/{cfg.lessons_dir}/**",
-    ])
-    return paths_template.replace("{plans_path}", plans_path).replace("{all_paths}", all_paths)
 
 
 def create_directories(cfg: InitConfig) -> list[str]:
@@ -364,92 +392,6 @@ def render_new_plans_index(cfg: InitConfig, seeds: list[str]) -> str | None:
         print(f"  Warning: plans index render skipped: {exc}", file=sys.stderr)
         return None
 
-
-def update_frontmatter(content: str, paths_value: str) -> str:
-    """Update or add paths: field in YAML frontmatter."""
-    if content.startswith("---\n"):
-        end = content.find("\n---\n", 4)
-        if end == -1:
-            return f"---\npaths: {paths_value}\n---\n\n{content}"
-
-        frontmatter = content[4:end]
-        body = content[end + 5:]
-
-        if re.search(r"^paths:", frontmatter, re.MULTILINE):
-            frontmatter = re.sub(
-                r"^paths:.*$", f"paths: {paths_value}",
-                frontmatter, count=1, flags=re.MULTILINE
-            )
-        else:
-            frontmatter = frontmatter.rstrip() + f"\npaths: {paths_value}"
-
-        return f"---\n{frontmatter}\n---\n{body}"
-    else:
-        return f"---\npaths: {paths_value}\n---\n\n{content}"
-
-
-try:
-    from rule_descope_migration import (
-        RESCOPE_MIGRATION_VERSION,  # noqa: F401 -- re-exported for callers of init_project
-        _version_tuple,  # noqa: F401 -- re-exported for callers of init_project
-        migrate_installed_rules,  # noqa: F401 -- re-exported for callers of init_project
-    )
-except ImportError:
-    raise ImportError(
-        "rule_descope_migration is required for init_project's de-scope "
-        "migration re-exports; the scripts/ directory appears to be "
-        "partially installed"
-    )
-
-try:
-    from artifact_upgrade import (
-        _commit_upgrade_pin,  # noqa: F401 -- re-exported for callers of init_project
-        _repoint_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
-        _run_upgrade,
-        _same_path,  # noqa: F401 -- re-exported for callers of init_project
-        load_artifact_manifest,
-        upgrade_artifacts,  # noqa: F401 -- re-exported for callers of init_project
-    )
-except ImportError:
-    raise ImportError(
-        "artifact_upgrade is required for init_project's artifact-refresh/"
-        "upgrade re-exports; the scripts/ directory appears to be partially "
-        "installed"
-    )
-
-try:
-    from doctor_sweeps import (
-        FORMERLY_MIRRORED_AGENTS,  # noqa: F401 -- re-exported for callers of init_project
-        lint_installed_divergence,  # noqa: F401 -- re-exported for callers of init_project
-        lint_rule_overscope,  # noqa: F401 -- re-exported for callers of init_project
-        sweep_orphaned_agent_mirrors,  # noqa: F401 -- re-exported for callers of init_project
-        sweep_stale_descoped_rules,  # noqa: F401 -- re-exported for callers of init_project
-    )
-except ImportError:
-    raise ImportError(
-        "doctor_sweeps is required for init_project's doctor-sweep re-exports; "
-        "the scripts/ directory appears to be partially installed"
-    )
-
-try:
-    from doctor_cli import (
-        _detect_orphaned_block_signature,  # noqa: F401 -- re-exported for callers of init_project
-        _doctor_config_parse_check,  # noqa: F401 -- re-exported for callers of init_project
-        _doctor_version_gate,  # noqa: F401 -- re-exported for callers of init_project
-        _list_diverged_rows,  # noqa: F401 -- re-exported for callers of init_project
-        _read_configured_plugin_root,  # noqa: F401 -- re-exported for callers of init_project
-        _read_pinned_plugin_version,  # noqa: F401 -- re-exported for callers of init_project
-        _resolve_doctor_config_path,  # noqa: F401 -- re-exported for callers of init_project
-        _run_doctor,
-        _run_list_diverged,
-        _run_prune_stale,
-        _run_prune_upgrade_leftovers,
-    )
-except ImportError:
-    raise ImportError(
-        "doctor_cli is required for init_project's doctor-dispatcher "
-        "re-exports; the scripts/ directory appears to be partially installed"
-    )
 
 try:
     from transfer_review import run_review_transfers
@@ -679,6 +621,84 @@ def _backfill_feedback_dir(cfg: InitConfig, config_path: Path) -> str | None:
     return notice
 
 
+def _apply_init_feedback_answers(cfg: InitConfig, config_path: Path) -> str:
+    """Write the init answers for `feedback.drafts` and `feedback.enabled` into a fresh config.
+
+    The template already carries the block with `drafts: notify`, so the key state is `set`
+    and the shared writer splices only the flagged values. The writer prints its own warning
+    and leaves the file unchanged when it refuses an edit. Returns the one line to print, built
+    from the values read back from the file. The `Feedback drafting:` banner is not printed:
+    init asked the question, so the banner would only repeat the answer.
+    """
+    answered = cfg.feedback_drafts is not None or cfg.feedback_enabled
+    if answered:
+        _apply_feedback_keys(config_path, "set", cfg.feedback_drafts, cfg.feedback_enabled,
+                             planwise_root=cfg.planwise_root, feedback_dir=cfg.feedback_dir,
+                             plugin_root=cfg.plugin_root)
+    if not HAS_YAML:
+        return "Feedback keys: not read back (PyYAML not installed)"
+    try:
+        values = config_loader.get_feedback_config(
+            yaml.safe_load(config_path.read_text(encoding="utf-8")) or {})
+    except (OSError, yaml.YAMLError) as exc:
+        return f"Feedback keys: could not read back {config_path.name}: {' '.join(str(exc).split())}"
+    shown = (f"feedback.drafts: {values['drafts']}, "
+             f"feedback.enabled: {'true' if values['enabled'] else 'false'}")
+    if not answered:
+        return f"Feedback keys: {shown} (template defaults, no answer passed)"
+    written = ((cfg.feedback_drafts is None or values["drafts"] == cfg.feedback_drafts)
+               and (not cfg.feedback_enabled or values["enabled"]))
+    return f"Feedback keys: {shown} ({'answered' if written else 'answer NOT written, see the warning above'})"
+
+
+# What `config_loader.load_config` can raise or exit with on a config it cannot read.
+_CONFIG_READ_ERRORS: tuple = (OSError, ValueError, TypeError, KeyError, SystemExit) + (
+    (yaml.YAMLError,) if HAS_YAML else ()
+)
+
+
+def _configured_feedback_rel(cfg: InitConfig, config_path: Path) -> str:
+    """Return the feedback directory the drafts helper will use for this config.
+
+    When `config_path` exists, the answer comes from `config_loader.load_config`
+    itself, with the loader's own parser and the loader's own rule: a non-empty
+    string `project.feedback_dir`, else "Feedback". That rule covers a missing
+    key, a non-string value, and a `project:` block that is not a mapping. Only
+    when the file does not exist yet, or the loader cannot read it, does the
+    CLI value `cfg.feedback_dir` apply.
+    """
+    if config_path.is_file():
+        try:
+            config = config_loader.load_config(config_path=config_path)
+        except _CONFIG_READ_ERRORS:  # an unreadable config falls back to the CLI value
+            return str(cfg.feedback_dir)
+        project = config_loader._project_block(config)
+        return config_loader._nonempty_str(project.get("feedback_dir")) or "Feedback"
+    return str(cfg.feedback_dir)
+
+
+def _ensure_draft_gitignore(cfg: InitConfig, feedback_rel: str) -> None:
+    """Add the model-draft ignore line to the project's `.gitignore` and report it.
+
+    The `.gitignore` lives at the project root, the parent of `planwise_root`.
+    A `.gitignore` that cannot be read or written (read-only, or a directory)
+    prints one warning and lets the caller continue.
+    """
+    gitignore_path = cfg.project_root / ".gitignore"
+    try:
+        line = model_draft_line(cfg.planwise_root, feedback_rel)
+    except ValueError as exc:
+        print(f".gitignore: warning - draft entry not added; add an ignore line for model drafts by hand ({exc})")
+        return
+    try:
+        added = ensure_line(gitignore_path, line)
+    except OSError as exc:
+        print(f".gitignore: warning - draft entry not added ({gitignore_path}): {exc}")
+        return
+    state = "added draft entry" if added else "draft entry already present"
+    print(f".gitignore: {state} ({gitignore_path})")
+
+
 def _run_migrate(cfg: InitConfig) -> int:
     """Execute the --migrate flow and print a focused report. Returns exit code."""
     try:
@@ -691,6 +711,8 @@ def _run_migrate(cfg: InitConfig) -> int:
         return 2
 
     feedback_notice = _backfill_feedback_dir(cfg, Path(path))
+
+    _ensure_draft_gitignore(cfg, _configured_feedback_rel(cfg, Path(path)))
 
     print(f"Migration target: {path}")
     if added:
@@ -731,6 +753,13 @@ def main():
                              "(sets context.token_saver: true). Applies to both init and "
                              "upgrade. Default off — the engine ships dormant and is "
                              "calibrated via /planwise calibrate.")
+    parser.add_argument("--feedback-drafts", choices=("notify", "quiet", "off"), default=None,
+                        help="fresh init or --upgrade: set feedback.drafts to this value")
+    parser.add_argument("--feedback-enabled", action="store_true",
+                        help="fresh init or --upgrade: set feedback.enabled: true; never flips it off")
+    parser.add_argument("--no-calibrate", action="store_true",
+                        help="With --upgrade: skip the Token Saver recalibration the "
+                             "upgrade runs when Token Saver is on.")
     parser.add_argument("--project-root", default=None, help="Project root (default: cwd)")
     parser.add_argument("--auto-from", default=None,
                         help="Subroutine mode: caller handler name (e.g., 'plan', 'review'). "
@@ -742,7 +771,8 @@ def main():
                              "config.yaml.template into an existing planwise/config.yaml "
                              "without overwriting user customisations. Does not create "
                              "directories, seeds, rules, or settings — use plain /planwise "
-                             "init for those.")
+                             "init for those. It may append the model-draft ignore "
+                             "line to the project's .gitignore.")
     parser.add_argument("--upgrade", action="store_true",
                         help="Refresh installed rules and bump plugin_version: in "
                              "config.yaml after a plugin update.")
@@ -788,7 +818,8 @@ def main():
     parser.add_argument("--list-diverged", action="store_true",
                         help="Read-only diagnostic: print a JSON array of installed rule "
                              "files whose body diverges from the plugin-shipped version "
-                             "(filename, kind, installed path, shipped path). Prints [] when "
+                             "(filename, kind, set, installed path, shipped path, "
+                             "installed_sha256). Prints [] when "
                              "none diverge. Does not modify anything and does not require --name.")
     parser.add_argument("--review-transfers", action="store_true",
                         help="Read-only diagnostic: print a JSON array with one row per "
@@ -858,6 +889,19 @@ def main():
     if args.migration_answers and not args.upgrade:
         parser.error("--migration-answers requires --upgrade")
 
+    # The feedback flags carry an init or upgrade answer. Every other mode would
+    # drop them silently, so it refuses them instead.
+    if args.feedback_drafts is not None or args.feedback_enabled:
+        _other = [flag for flag, on in (
+            ("--migrate", args.migrate and not args.upgrade), ("--doctor", args.doctor),
+            ("--list-diverged", args.list_diverged), ("--review-transfers", args.review_transfers),
+            ("--prune-stale", args.prune_stale),
+            ("--prune-upgrade-leftovers", args.prune_upgrade_leftovers),
+            ("--hash-installed", args.hash_installed)) if on]
+        if _other:
+            parser.error(f"--feedback-drafts and --feedback-enabled apply only to a fresh init "
+                         f"or --upgrade, not with {_other[0]}")
+
     if args.hash_installed:
         # The upgrade handler interpolates an absolute path here once per verdict
         # entry, so a typo'd or moved path must surface as a one-line error, not a
@@ -893,6 +937,9 @@ def main():
         plan_tier=args.plan_tier,
         plugin_version=read_plugin_version(_plugin_root),
         token_saver=args.token_saver,
+        feedback_drafts=args.feedback_drafts,
+        feedback_enabled=args.feedback_enabled,
+        no_calibrate=args.no_calibrate,
     )
 
     if args.prune_stale:
@@ -943,6 +990,12 @@ def main():
         print(f"  + {d}")
     print()
 
+    _ensure_draft_gitignore(
+        cfg,
+        _configured_feedback_rel(cfg, cfg.project_root / cfg.planwise_root / "config.yaml"),
+    )
+    print()
+
     seeds = copy_seed_files(cfg)
     if seeds:
         print("Seed files installed:")
@@ -955,8 +1008,12 @@ def main():
     result, config_rel = generate_config(cfg)
     if result == ConfigResult.CREATED:
         print(f"Configuration: + {config_rel}")
+        print(_apply_init_feedback_answers(cfg, cfg.project_root / cfg.planwise_root / "config.yaml"))
     elif result == ConfigResult.SKIPPED_EXISTS:
         print("Configuration: already exists, skipped")
+        if cfg.feedback_drafts is not None or cfg.feedback_enabled:
+            print("Feedback keys: answers not applied, because config.yaml already exists. "
+                  "Run /planwise upgrade, or set feedback.drafts and feedback.enabled by hand.")
     else:
         print("Configuration: warning - template not found")
         skipped.append(SkippedArtifact(

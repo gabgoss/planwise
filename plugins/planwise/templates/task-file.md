@@ -32,6 +32,10 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 | 3 | {file path} §{X}–§{Y} ({§Y} runs to EOF) | {K} | ~{X}K | {why needed} — span row, see the resolution comment below |
 | 4 | Grep {family} over {scope} — {N} lines / {B} bytes returned | {K} | ~{X}K | {why needed} — command-corpus row, priced from the dry-run below |
 
+<!-- Every row needs numbers, not only the Context subtotal (references/task-content-fidelity.md §9.A.2). An em-dash,
+     `~?` or blank in a row's KiB or ~Tokens cell fails review, even when the subtotal below is correct.
+     The only exception is §9.A.6: input that a generator produces by walking ≥100 files, or a tree of ≥10K lines,
+     takes one generator row in place of per-file rows. Below that threshold, measure every file row. -->
 <!-- Row-grain measurement (per references/task-content-fidelity.md §9.A.14) — every row's figure is measured
      against the span THAT ROW cites, in a sweep at scaffold close, after all task files exist:
      - Span row (`§X`–`§Y`): resolve BOTH headings in the live file and measure the range they bound. Where the
@@ -57,7 +61,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 > [!constraint] The Context subtotal is a strict identity, not a prose estimate
 > `sum(Required Context ~Tokens) + output + working` **equals** the header's `**Estimated Tokens:**`, with the addends shown as above. No qualifier may close a gap between the two. When the sum moves, the **header follows** — and the session Orchestration total and the Sprint Plan figure re-roll with it.
 >
-> A genuine discount — a targeted read, a re-read allowance — is **its own addend carrying a value**, never prose attached to the total. "Rounding" covers the ±0.5K a rounded header actually implies. It does not cover a 5% shortfall.
+> A genuine discount — a targeted read, a re-read allowance — is **its own addend carrying a value**, never prose attached to the total. A cohort uplift for a high-divergence cohort (`references/scaffolding-hygiene.md` §10) is an addend in the same way: `+ ~{U}K (cohort uplift: {cohort})`. Reviewer Check 050 searches the subtotal for that label. "Rounding" covers the ±0.5K a rounded header actually implies. It does not cover a 5% shortfall.
 >
 > WRONG — the gap is closed by a qualifier that performs no arithmetic:
 > ```markdown

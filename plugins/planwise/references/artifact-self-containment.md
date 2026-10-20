@@ -168,6 +168,11 @@ Every BB that produces content-bearing artifacts MUST include a self-containment
 
 If grep returns matches, the BB executor MUST inline the cited content into the rule body or remove the reference. The check is binary — any `LL-`, `BB-`, `BLI-`, `PLG-`, or `D-` reference in any content-bearing artifact is a fail.
 
+> [!important] A project's own isolation rule may be wider than this grep
+> This grep is the plugin's floor, not its ceiling. A consuming project's root instructions file, or a rule it loads, may widen the scope. For example, it may cover every file under the project's own plugin development tree, of any extension. It may also add patterns for a class of leak this grep does not check.
+>
+> For that project's own plugin-development sessions, the project rule takes precedence. Before you conclude that this narrower gate is enough, read the project's root instructions and rules for an isolation rule. If one exists, run its scope and its patterns as well as the grep above.
+
 **Why the alternation carries a second, hyphen-less clause.** A prefix pattern written only as `{PREFIX}-[0-9]` matches the *citation* spelling of an identifier and nothing else. The same identifier reaches a shipped file just as often glued into a file name — `…-{PREFIX}SomeTopicName.md`, no hyphen and no digit — so a narrow pattern returns empty on a file that is visibly leaking. The `\b(LL|BB|BLI|PLG)([A-Z][a-z]|[0-9])` clause covers the PascalCase-continuation and run-together-digit spellings for every prefix in the family. It deliberately does NOT fire on the plugin's own vocabulary: a bare `BLI`, the `BLI-{NNN}` template placeholder, and prose plurals like "BBs shipped" all lack the required following character class. Widening the pattern without widening the **classification** step below converts a silent miss into a noisy blanket-fail — so treat every hit from the second clause as a candidate to classify per §4.2, not an automatic failure.
 
 ### 4.1 What the grep deliberately does NOT cover

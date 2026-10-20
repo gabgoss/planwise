@@ -25,6 +25,15 @@ Startup/ToolSearch mandate, Finding Report Format, and Severity Classification a
 
 Every count you report comes from the **review discovery fact sheet** whose path your spawn prompt supplies — cite its row for that file (`review discovery fact sheet → {key}: {N} lines`), never the last line number of a `Read` output. The evidence rule itself is `references/measurement-discipline.md` §8.1 (Check 069); the sheet is where the measurement reaches you, not a replacement for it. Its file inventory is also your fastest route to the structural checks below — the enumerated rows are the plan tree as it exists on disk.
 
+This rule covers every count in your output, not only the counts you report as findings. A count you restate while reasoning about something else is held to the same standard. The plan under review is the one source you may never treat as authoritative for a number, because catching its wrong numbers is part of the review. Before a count that originates in the plan appears anywhere in your output, do one of three things:
+
+- Cite the fact sheet row that measures it.
+- Derive it from the plan's own enumerable evidence, such as the sheet's file inventory or the orchestration task tables, and name what you counted.
+- Attribute it to the plan as an unverified claim, such as "the plan states 4 sessions (not re-derived)". Never restate it as fact.
+
+WRONG — `all 4 session folders exist`, where 4 is the plan's own figure and nobody counted.
+CORRECT — `the Sprint Plan declares 4 sessions, and the fact sheet inventory lists 5 session folders, so one folder is undeclared`.
+
 If your own reading contradicts the sheet, say so explicitly: re-measure — `wc -l` for a bare line count, `measure_files.py` for a byte/token figure — and give both numbers in the finding, or — when you cannot run the measurement yourself — report the contradiction to the lead, naming the sheet row and what you observed, and let the lead re-measure. Silently deferring to the sheet and silently overriding it are both errors. If the spawn prompt says the sheet is `unavailable`, measure what you need and state in each finding that you measured it.
 
 ## File Structure
@@ -33,10 +42,9 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - [ ] Sprint plan files exist for each sprint declared in master plan
 - [ ] Session folders exist for each session declared in sprint plans
 - [ ] Task files exist for each task declared in orchestration files
-- [ ] Outputs/ directories exist at session level
+- [ ] Outputs/ directories exist at session level, proven by each one's `Outputs/.gitkeep` (Check S02, per references/scaffolding-hygiene.md §5). `Glob` lists files only, so a bare `Outputs/**` glob returns nothing for an empty directory and an absent one alike — never use it as the existence probe
 - [ ] Recovery files exist for each session
 - [ ] Folder-count check: planned folder count matches actual scaffold folder count
-- [ ] Per-session Outputs/.gitkeep presence (per references/scaffolding-hygiene.md §5)
 
 ## Cross-References
 
@@ -85,7 +93,7 @@ See `references/review-finding-format.md` for the Finding Report Format template
 - **Source:** `references/scaffolding-hygiene.md` §5
 - **Type:** NEW
 - **What:** Two counts, both of which must hold. (a) Sprint Plan **files** on disk MUST equal Master Plan Sprint Overview rows. (b) Physical `Sprint-XX-*/Session-YY-*/` folders MUST equal the sum of Sessions-table row counts across all Sprint Plans. A plan that declares 6 sprints and authored 1 fails (a) even when every folder it did author is internally consistent.
-- **Detection:** Glob `Sprint-*/*-Sprint-Plan.md` and count Master Plan Sprint Overview rows; Glob `Sprint-*/Session-*/` and sum the rows of every Sprint Plan's Sessions table. **Subtract any sprint or session declared under the Master Plan's `## Deferred Authoring` section before comparing** — a declared deferral is legitimate and passes; an undeclared shortfall fails. Read that set from the section's **first column only**: the "Unblocked when" cell routinely names another sprint, and scanning the whole section over-counts the deferred set and can subtract away a sprint nobody declared, masking the very shortfall this check exists to catch. Either mismatch → BLOCKER, and name the specific missing sprints or sessions.
+- **Detection:** Glob `**/Sprint-*/*-Sprint-Plan.md` and count Master Plan Sprint Overview rows. Count session folders by the Orchestration file each one holds, with Glob `**/Sprint-*/Session-*/*-Orchestration.md`, and sum the rows of every Sprint Plan's Sessions table. `Glob` lists files only, so a bare folder pattern such as `Sprint-*/Session-*/` returns nothing even when every folder exists. Lead each pattern with `**/` (references/native-tool-use.md § Glob Pattern Anchoring). **Subtract any sprint or session declared under the Master Plan's `## Deferred Authoring` section before comparing** — a declared deferral is legitimate and passes; an undeclared shortfall fails. Read that set from the section's **first column only**: the "Unblocked when" cell routinely names another sprint, and scanning the whole section over-counts the deferred set and can subtract away a sprint nobody declared, masking the very shortfall this check exists to catch. Either mismatch → BLOCKER, and name the specific missing sprints or sessions.
 - **Finding template:**
 ```
 [BLOCKER] Plan-completeness shortfall
@@ -103,7 +111,7 @@ Fix: Author the missing sprints/sessions, or declare them under `## Deferred Aut
 - **Source:** `references/scaffolding-hygiene.md` §5
 - **Type:** NEW
 - **What:** Every session folder MUST contain `Outputs/.gitkeep`.
-- **Detection:** Glob `Sprint-*/Session-*/Outputs/.gitkeep`; compare count to session count. Mismatch → BLOCKER.
+- **Detection:** Glob `**/Sprint-*/Session-*/Outputs/.gitkeep` with `path` at the plan root; compare count to session count. Mismatch → BLOCKER. Lead the pattern with `**/`: with an in-project `path`, a folder-led pattern such as `Sprint-*/Session-*/Outputs/.gitkeep` matches nothing, and every session reads as missing (references/native-tool-use.md § Glob Pattern Anchoring).
 - **Finding template:**
 ```
 [BLOCKER] Session Outputs/.gitkeep missing

@@ -16,6 +16,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
 from constants import CLOSED_STATUSES, HOLD_STATUSES
 from generate_backlog_index import _index_naming, is_generated_index_file, shard_for
@@ -24,6 +25,7 @@ from markdown_parser import (
     normalize_id,
     parse_markdown_table,
 )
+from migrate_backlog_support import dependency_cell_parts
 
 # The heading a hand-authored legacy index carries above its table.
 # generate_backlog_index.py's hub/overflow-leaf/Archive-shard output never
@@ -58,8 +60,8 @@ def _parse_row_blocks_cell(raw: str) -> list[str]:
     the only shape this cell is ever written in: ``""`` for no blocks, or
     ``"[007, 009]"`` for one or more. Ids are returned exactly as rendered
     (zero-padded, un-normalized); ``build_blocked_by_map`` normalizes at
-    consumption, matching ``_dependency_row_processor``'s own zfill'd-on-
-    write / normalized-on-read convention.
+    consumption, matching ``_dependency_row_processor``'s own zero-padded-on-
+    parse / normalized-on-read convention.
     """
     text = raw.strip()
     if not text or text == "[]":
@@ -162,13 +164,53 @@ def parse_backlog_table(content: str) -> list[dict]:
     return items
 
 
+def _dependency_id(prefix: str | None, digits: str) -> str:
+    """Render one ``dependency_cell_parts`` id pair as ``PREFIX-NNN`` or ``NNN``."""
+    return f"{prefix}-{digits}" if prefix else digits
+
+
 def _dependency_row_processor(cells: list[str], line_number: int, header_info: dict) -> dict | None:
-    """Process a dependency table row into a dep dict."""
+    """Process a dependency table row into a dep dict.
+
+    The Blocks cell is read with ``migrate_backlog_support.dependency_cell_parts``,
+    the same grammar the migrator applies: ids (each with an optional ``PREFIX-``)
+    separated by whitespace, ``,`` or ``;``, then at most one trailing
+    parenthetical note. Every id is enforced and zero-padded to three digits
+    (``build_blocked_by_map`` normalizes at consumption). The note is dropped, so
+    a comma inside it cannot mint an id. A dash, ``none`` or an empty cell is a
+    deliberate empty cell: no edge and no warning. A cell that does not fit the
+    grammar enforces nothing, and a ``Warning:`` line on stderr names the table
+    line and the cell, because a silently inert row lets a blocked item through.
+
+    The ID cell must name exactly one item. When it does not, the row keeps the
+    blocker text as written (zero-padded) and a warning prints, so a row that
+    blocks today is never dropped by this check.
+    """
     if len(cells) < 2:
         return None
-    blocker_id = cells[0].zfill(3)
-    blocked_raw = cells[1]
-    blocked_ids = [b.strip().zfill(3) for b in blocked_raw.split(",")]
+
+    blocker_parts = dependency_cell_parts(cells[0])
+    if blocker_parts is not None and len(blocker_parts[0]) == 1:
+        blocker_id = _dependency_id(*blocker_parts[0][0])
+    else:
+        blocker_id = cells[0].zfill(3)
+        print(
+            f"Warning: Dependencies table line {line_number + 1}: ID cell "
+            f"'{cells[0]}' does not name exactly one item id -- using it as written.",
+            file=sys.stderr,
+        )
+
+    blocked_parts = dependency_cell_parts(cells[1])
+    if blocked_parts is None:
+        blocked_ids: list[str] = []
+        print(
+            f"Warning: Dependencies table line {line_number + 1}: Blocks cell "
+            f"'{cells[1]}' is not a list of item ids with an optional trailing "
+            f"(note) -- enforcing no dependency from it.",
+            file=sys.stderr,
+        )
+    else:
+        blocked_ids = [_dependency_id(prefix, digits) for prefix, digits in blocked_parts[0]]
     return {
         "blocker_id": blocker_id,
         "blocked_ids": blocked_ids,
@@ -179,6 +221,9 @@ def parse_dependencies_table(content: str) -> list[dict]:
     """Parse the Dependencies table from the index.
 
     Returns list of dicts with keys: blocker_id, blocked_ids (list of str).
+    ``blocked_ids`` holds the ids the row's Blocks cell names, parsed by
+    ``_dependency_row_processor``; a cell that does not parse yields an empty
+    list and a stderr warning, never a guessed id.
     Only parses hard blockers -- stops at "Soft dependencies" or next section.
     Read-if-present: a generated hub never carries a ``## Dependencies``
     section, so ``require_section=False`` returns an empty list rather than

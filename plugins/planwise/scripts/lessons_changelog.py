@@ -53,6 +53,7 @@ from itertools import pairwise
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
 from backlog_index_budget import _measure
 from backlog_index_schema import _changelog_filename, _index_naming

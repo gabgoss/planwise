@@ -69,6 +69,41 @@ except ImportError:
         "the scripts/ directory appears to be partially installed"
     )
 
+try:
+    from doctor_sweeps import (
+        compute_injection_families,
+        format_bytes,
+        lint_installed_divergence,
+        lint_rule_overscope,
+        sweep_orphaned_agent_mirrors,
+        sweep_stale_descoped_rules,
+        sweep_upgrade_leftovers,
+    )
+except ImportError as exc:
+    raise ImportError(
+        "doctor_sweeps is required for doctor_cli's report dispatchers; the "
+        "scripts/ directory appears to be partially installed"
+    ) from exc
+
+try:
+    from artifact_upgrade import RECOVERY_ARTIFACT_CLASSES
+except ImportError as exc:
+    raise ImportError(
+        "artifact_upgrade is required for doctor_cli's leftover-sweep report "
+        "and prune writer (RECOVERY_ARTIFACT_CLASSES); the scripts/ "
+        "directory appears to be partially installed"
+    ) from exc
+
+try:
+    from rule_registry import DESCOPED_RULES, INSTALLED_RULES
+except ImportError as exc:
+    raise ImportError(
+        "rule_registry is required for doctor_cli's INSTALLED_RULES/"
+        "DESCOPED_RULES tables; the scripts/ directory appears to be "
+        "partially installed"
+    ) from exc
+
+
 def _run_prune_stale(cfg: "InitConfig") -> int:
     """WRITER (opt-in): delete ONLY the REMOVABLE stale de-scoped rules and
     orphaned agent mirrors, log to PRUNED.md.
@@ -149,7 +184,8 @@ def _run_prune_stale(cfg: "InitConfig") -> int:
 PRUNABLE_CLASSES = {"inert", "safe-to-discard"}
 
 
-def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" = None) -> int:
+def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" = None,
+                                 exclude_pairs: "set[str] | None" = None) -> int:
     """WRITER (opt-in): delete ONLY the *inert* and *safe-to-discard* upgrade
     recovery-leftovers Stage 14's read-only sweep reports, log to a
     dedicated PRUNED-LEFTOVERS.md.
@@ -226,6 +262,11 @@ def _run_prune_upgrade_leftovers(cfg: "InitConfig", classes: "set[str] | None" =
         return 0
 
     findings = sweep_upgrade_leftovers(cfg)
+    # `exclude_pairs` leaves those version pairs out entirely (the upgrade
+    # card passes the pair its own run just wrote). None excludes nothing.
+    if exclude_pairs:
+        excluded = {p.lower() for p in exclude_pairs}
+        findings = [f for f in findings if str(f["pair"]).lower() not in excluded]
     # Never widen beyond the two prunable classes, whatever the caller asks for:
     # `classes` may NARROW the scope (the handler's per-class confirm passes only
     # the classes the user approved), never extend it to action-required or
@@ -355,7 +396,9 @@ def _list_diverged_rows(cfg: "InitConfig") -> list[dict]:
     on disk; compares installed vs shipped using the SAME normalization the
     writer uses (`normalize_rule_for_diff()`). A row is emitted only when the
     bodies differ — the byte/normalized-identical majority is skipped and never
-    reaches the primitive. Each row's `set` (`installed`, `descoped` or `style`)
+    reaches the primitive. Each row's `installed_sha256` is the writer's own
+    pre-image digest of the installed Path (`upgrade_io._installed_hash`), so a
+    verdict that copies it passes the writer's freshness check. Each row's `set` (`installed`, `descoped` or `style`)
     names the disposition the writer applies to it. A style rule is skipped
     when the writer skips it: its installed copy is absent or a symlink, or the
     other scope holds a managed copy. Stable-sorted by (kind, filename) so a
@@ -365,6 +408,7 @@ def _list_diverged_rows(cfg: "InitConfig") -> list[dict]:
     diverged set.
     """
     import style_rules  # lazy: style_rules is a leaf that must not load at import time
+    from upgrade_io import _installed_hash  # lazy: the writer's own pre-image hash
 
     refs_dir = cfg.plugin_root / "references"
     rules_dst_dir = cfg.project_root / ".claude" / "rules" / "planwise"
@@ -383,12 +427,17 @@ def _list_diverged_rows(cfg: "InitConfig") -> list[dict]:
             except OSError:
                 continue
             if normalize_rule_for_diff(installed_raw) != normalize_rule_for_diff(shipped_raw):
+                try:
+                    installed_sha256 = _installed_hash(dst)
+                except (OSError, UnicodeDecodeError):
+                    continue
                 rows.append({
                     "filename": filename,
                     "kind": "rule",
                     "set": set_name,
                     "installed": dst.relative_to(cfg.project_root).as_posix(),
                     "shipped": src.relative_to(cfg.plugin_root).as_posix(),
+                    "installed_sha256": installed_sha256,
                 })
 
     for filename, _key in style_rules.enabled_style_rules(cfg):
@@ -412,12 +461,17 @@ def _list_diverged_rows(cfg: "InitConfig") -> list[dict]:
                 installed_ref = dst.relative_to(cfg.project_root).as_posix()
             except ValueError:
                 installed_ref = dst.as_posix()
+            try:
+                installed_sha256 = _installed_hash(dst)
+            except (OSError, UnicodeDecodeError):
+                continue
             rows.append({
                 "filename": filename,
                 "kind": "rule",
                 "set": "style",
                 "installed": installed_ref,
                 "shipped": src.relative_to(cfg.plugin_root).as_posix(),
+                "installed_sha256": installed_sha256,
             })
 
     rows.sort(key=lambda r: (r["kind"], r["filename"]))
@@ -1089,42 +1143,5 @@ def _run_doctor(cfg: "InitConfig") -> int:
     except Exception as exc:  # noqa: BLE001 -- the style stage must never change doctor's exit status
         print(f"Style rules: the check failed: {exc}")
     return 0
-
-
-# These three sit below the definitions: each one reaches init_project, which
-# re-exports names from this module, so the names must exist first.
-try:
-    from doctor_sweeps import (
-        compute_injection_families,
-        format_bytes,
-        lint_installed_divergence,
-        lint_rule_overscope,
-        sweep_orphaned_agent_mirrors,
-        sweep_stale_descoped_rules,
-        sweep_upgrade_leftovers,
-    )
-except ImportError as exc:
-    raise ImportError(
-        "doctor_sweeps is required for doctor_cli's report dispatchers; the "
-        "scripts/ directory appears to be partially installed"
-    ) from exc
-
-try:
-    from artifact_upgrade import RECOVERY_ARTIFACT_CLASSES
-except ImportError as exc:
-    raise ImportError(
-        "artifact_upgrade is required for doctor_cli's leftover-sweep report "
-        "and prune writer (RECOVERY_ARTIFACT_CLASSES); the scripts/ "
-        "directory appears to be partially installed"
-    ) from exc
-
-try:
-    from init_project import DESCOPED_RULES, INSTALLED_RULES
-except ImportError as exc:
-    raise ImportError(
-        "init_project is required for doctor_cli's INSTALLED_RULES/"
-        "DESCOPED_RULES tables (R1: the tuples stay on the residual); the "
-        "scripts/ directory appears to be partially installed"
-    ) from exc
 
 

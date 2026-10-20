@@ -3,6 +3,8 @@
 // compacts the session and re-enters the handler with --loop-resume.
 import type { CommandInfo, EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
+import { hostOf as draftFeedbackHostOf, onSessionStart as draftFeedbackStart, register as registerDraftFeedback } from './draft-feedback.ts'
+import { register as registerFeedbackCard } from './feedback-card.tsx'
 import { failureText, isCurrent, keyOf, releaseLatch, stepOf } from './loop/boundary.ts'
 import type { BoundaryStep } from './loop/boundary.ts'
 import { decide } from './loop/decide.ts'
@@ -17,7 +19,7 @@ type Host = {
   compact: (instructions: string) => Promise<{ skip?: string }>
   runCommand: (command: string, args: string) => Promise<unknown>
   listCommands: () => Promise<CommandInfo[]>
-  uiLog: (text: string) => void
+  uiLog: (text: string, to?: 'debug' | 'transcript') => void
 }
 
 /** One record of module memory. Every field resets with the process. */
@@ -41,12 +43,14 @@ function hostOf($: EngineInterface): Host {
     compact: (instructions: string) => $.session.compact({ instructions }),
     runCommand: (command: string, args: string) => $.command.run({ command, args }),
     listCommands: () => $.command.list(),
-    uiLog: (text: string) => $.ui.log(text),
+    uiLog: (text: string, to?: 'debug' | 'transcript') => (to === undefined ? $.ui.log(text) : $.ui.log(text, { to })),
   }
 }
 
 export function register(on: On, options: PluginOptions) {
   void options
+  registerDraftFeedback(on, options)
+  registerFeedbackCard(on, options)
   // `interactive` starts true: a module reload re-runs register() without a new session.start.
   const session: Session = {
     skillName: null,
@@ -72,7 +76,7 @@ export function register(on: On, options: PluginOptions) {
   const resolveSkill = async (host: Host): Promise<void> => {
     session.skillName = skillNameOf(await host.listCommands())
     if (session.skillName === null) host.uiLog('backlog loop: no planwise skill found; re-entry disabled')
-    else host.uiLog(`backlog loop: re-entry skill ${session.skillName}`)
+    else host.uiLog(`backlog loop: re-entry skill ${session.skillName}`, 'debug')
   }
 
   /** Arms the one pending timer. A newer boundary replaces it. */
@@ -124,6 +128,7 @@ export function register(on: On, options: PluginOptions) {
   }
 
   on('session.start', async ($, e, next) => {
+    await draftFeedbackStart(draftFeedbackHostOf($))
     session.interactive = e.isInteractive !== false
     await resolveSkill(hostOf($))
     return next(e)

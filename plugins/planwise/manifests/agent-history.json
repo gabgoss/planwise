@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_on": "2026-10-12",
+  "generated_on": "2026-10-20",
   "normalization": "read as utf-8-sig (BOM stripped), CRLF -> LF, sha256 hex (doctor_sweeps.history_digest)",
   "purpose": "Every body each formerly-mirrored agent has ever shipped with. doctor's orphaned-agent-mirror sweep marks an installed mirror matching any listed digest REMOVABLE (historical-exact). Regenerate with tools/gen_agent_history.py after editing a listed agent; tests/test_agent_history.py enforces it.",
   "agents": {
@@ -48,7 +48,9 @@
       "addfa4571e02e566313be5a0c19dc8056ad5c34ba44161ecb5101946c6e704db",
       "addfa54595422ca62b462c63e4eff7c43db311ee777b02f4c8f3e9747169fbe2",
       "b0064fde7f7d8ea6243779e3a33b36ada4683b00711e9456b698449755ebd937",
+      "b0a36756df5046078d139af8cc6d3087a41c2f5aeb87698e53c2794ec1405555",
       "bcdc5a81dac10b4baddc377386ae7a3bace3b68e2bb3f67a416f9102ab3c812a",
+      "c0cdcc8a8e444f9d39f37a1cedf35e2fdee41b7103af81ee93efd8365beed74e",
       "dfca9d24f142a9bf8db410abab43072bbd1bcadeded6bef76679b28558aee227",
       "e523131c1bf6856289adbdc12381d0eeaec27acd57598a5709875adc67d78eda",
       "e82be90ad75d850a2c15b1f6329e2e490dc3693fb9d87c5c5876556693f4ea0c",
@@ -64,12 +66,14 @@
       "439acf71a2fc2796d4169020e52c434838f34f7736dc51a742f4c82d59cfe6ac",
       "4d13e6e898fcc607af778acd347da7a6d9cfbd20871af54fb51c6982ac2b0557",
       "4fcade1628f503f43d244e1268021c7d48b465ffe88cdd1a0c594cb18efae39d",
+      "7b4c8a4018893dee517649b156235f564ed9bdbff65672f4f4d4e1b95c1abc62",
       "8097dd135abc240df2960a9725eeb85d991c5078b625ba89e4e895427d4029a3",
       "8706473ea8921784dbea1a631361c1d9ba4ccc1fec6ee74db027f9905dede6b3",
       "919dca1c3e6f8dc3742f623c52b6b14bda0033a73782795aec29ceb6d61bda8f",
       "ad08081329b4f492423dd8dc34ccf27567356b69ca52b3f032350f384a8074b2",
       "c11e34ca47de9bb198db03ba5673b4595acf0a8cb21e7384b30e9d411ea7d322",
       "c620c20a38b5a456d40be216af83583512c115ab8fe3fd651f5615f979471fa3",
+      "df4ca740b04f3620661838bc4d1640c4bcbadcb9b202471f10add779f948be11",
       "ed88c04c85a1f62308f4aadfe391042afd1d86a7e39ef75cf7649a5d52cf7211"
     ],
     "task-runner.md": [

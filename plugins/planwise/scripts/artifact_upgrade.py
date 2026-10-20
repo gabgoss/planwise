@@ -20,7 +20,9 @@ except ImportError:
 try:
     from config_gen import (
         InitConfig,
+        _apply_feedback_keys,
         _flip_token_saver_on,
+        drafts_key_state,
         get_upgrade_config,
         migrate_config,
         refresh_verified_cli_version,
@@ -124,6 +126,37 @@ except ImportError:
         "plans_migration is required for artifact_upgrade's plans-index "
         "retrofit; the scripts/ directory appears to be partially installed"
     )
+
+try:
+    from rule_registry import (
+        INSTALLED_RULES,
+        resolve_rule_paths_value,
+        update_frontmatter,
+    )
+except ImportError as exc:
+    raise ImportError(
+        "rule_registry is required for artifact_upgrade's INSTALLED_RULES table "
+        "and its rule-write helpers; the scripts/ directory appears to be "
+        "partially installed"
+    ) from exc
+
+try:
+    from rule_descope_migration import descoped_force_set, migrate_installed_rules
+except ImportError as exc:
+    raise ImportError(
+        "rule_descope_migration is required for artifact_upgrade's post-refresh "
+        "de-scope migration step; the scripts/ directory appears to be "
+        "partially installed"
+    ) from exc
+
+try:
+    from doctor_sweeps import lint_rule_overscope, sweep_orphaned_agent_mirrors
+    from upgrade_mirror_report import emit_mirror_sweep, emit_overscope_advisory
+except ImportError as exc:
+    raise ImportError(
+        "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "
+        "advisory; the scripts/ directory appears to be partially installed"
+    ) from exc
 
 
 def load_artifact_manifest(plugin_root: Path) -> dict:
@@ -727,23 +760,42 @@ def _apply_feedback_dir(cfg: "InitConfig", config_path: Path) -> None:
     ImportError against a partially-initialized module. By the time this
     function is actually called, init_project has finished loading.
     """
-    from init_project import _backfill_feedback_dir
+    from init_project import (
+        _backfill_feedback_dir,
+        _configured_feedback_rel,
+        _ensure_draft_gitignore,
+    )
 
     notice = _backfill_feedback_dir(cfg, config_path)
     if notice:
         print(notice)
 
-    try:
-        parsed = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    except (yaml.YAMLError, OSError):
-        parsed = {}
-    project = parsed.get("project") if isinstance(parsed, dict) else None
-    feedback_rel = (project or {}).get("feedback_dir") or cfg.feedback_dir
+    feedback_rel = _configured_feedback_rel(cfg, config_path)
     feedback_dir_path = cfg.project_root / cfg.planwise_root / feedback_rel
     already_present = feedback_dir_path.is_dir()
     feedback_dir_path.mkdir(parents=True, exist_ok=True)
     state = "already present" if already_present else "created"
     print(f"Feedback directory: {state} ({feedback_dir_path})")
+
+    _ensure_draft_gitignore(cfg, feedback_rel)
+
+
+def _apply_feedback_keys_banner(cfg: "InitConfig", config_path: Path, state_before: str,
+                                real_upgrade: bool) -> None:
+    """Honour --feedback-drafts / --feedback-enabled, backfill a missing feedback.drafts, print the result.
+
+    Both exits of `_run_upgrade` call this, after `_apply_feedback_dir`. `real_upgrade` is the
+    only difference: False on the already-up-to-date branch keeps a config with no feedback block
+    byte-identical and silent; True on a real upgrade, after migrate_config, prints the banner for
+    the block the template wrote. Deferred import for the same reason as `_apply_feedback_dir`.
+    """
+    from init_project import _configured_feedback_rel
+
+    for line in _apply_feedback_keys(
+            config_path, state_before, cfg.feedback_drafts, cfg.feedback_enabled,
+            planwise_root=cfg.planwise_root, feedback_dir=_configured_feedback_rel(cfg, config_path),
+            plugin_root=cfg.plugin_root, real_upgrade=real_upgrade):
+        print(line)
 
 
 def _run_upgrade(
@@ -833,6 +885,8 @@ def _run_upgrade(
         return 2
     pinned_version = str(user_cfg.get("plugin_version", "0.0.0"))
     target_version = cfg.plugin_version
+    # Read before any write on either exit: the feedback-key writer needs the state the file was in.
+    drafts_state_before = drafts_key_state(user_cfg)
 
     # Refusal gate — BEFORE the already-up-to-date branch, which writes too
     # (root repoint, Token Saver flip, feedback dir): a moved pair means no
@@ -910,6 +964,10 @@ def _run_upgrade(
         # The refresh happens on an ACTUAL upgrade below (2d) and once at
         # /planwise init — both real recalibration points.
         _apply_feedback_dir(cfg, config_path)
+        # Honor --feedback-drafts / --feedback-enabled here too, and backfill a missing
+        # feedback.drafts key. real_upgrade=False keeps a config with no feedback block
+        # byte-identical and silent on this branch.
+        _apply_feedback_keys_banner(cfg, config_path, drafts_state_before, real_upgrade=False)
         report = migrate_backlog_if_legacy(
             cfg, pinned_version, target_version, reconcile=backlog_reconcile, answers=answers)
         _emit_backlog_migration_banner(report)
@@ -1012,6 +1070,9 @@ def _run_upgrade(
         # never touches it and never creates the directory either — this is
         # the only place in the --upgrade path that closes both gaps.
         _apply_feedback_dir(cfg, config_path)
+        # Runs after migrate_config, so a config with no feedback block already carries the
+        # template's block and the banner reports the value the template wrote.
+        _apply_feedback_keys_banner(cfg, config_path, drafts_state_before, real_upgrade=True)
 
         # 2d. Refresh context.verified_cli_version against the CLI build this
         # run is actually executing under — an upgrade is a natural
@@ -1198,6 +1259,54 @@ def _run_upgrade(
         print(f"Plugin version pinned: {target_version}")
         print(f"Plugin root repointed: {cfg.plugin_root}")
         print()
+        # 7. Token Saver recalibration, after the pin is committed. Runs only when
+        # the config reads Token Saver on and the caller did not pass --no-calibrate.
+        # A calibration failure prints one line and never fails the upgrade.
+        # A failed capture writes the fallback overheads; when the config held
+        # measured overheads before the call, its pre-call bytes are put back,
+        # so a failed capture never replaces a measurement with a default.
+        if not cfg.no_calibrate:
+            try:
+                _config_bytes = config_path.read_bytes()
+                _config_text = config_path.read_text(encoding="utf-8")
+                if re.search(r"(?mi)^\s*token_saver:\s*true\b", _config_text):
+                    import context_calibration
+                    import token_saver
+
+                    def _overhead(key: str) -> str:
+                        _m = re.search(rf"(?m)^\s*{key}:\s*(\S+)", _config_text)
+                        return _m.group(1) if _m else "(absent)"
+
+                    _pre = (_overhead("token_saver_runner_overhead"),
+                            _overhead("token_saver_orchestrator_overhead"))
+                    # The legacy pair is a fallback from the pre-attribution
+                    # basis, so it must not be kept as a measurement.
+                    _fallbacks = {
+                        (str(context_calibration.FALLBACK_RUNNER_OVERHEAD),
+                         str(context_calibration.FALLBACK_ORCHESTRATOR_OVERHEAD)),
+                        tuple(str(v) for v in context_calibration.LEGACY_FALLBACK_OVERHEADS),
+                    }
+                    _measured = (all(v.isdigit() and int(v) > 0 for v in _pre)
+                                 and _pre not in _fallbacks)
+                    _result = token_saver.calibrate(
+                        config_path=config_path, plugin_root=cfg.plugin_root,
+                        cwd=cfg.project_root)
+                    if _result.get("uncalibrated") and _measured:
+                        config_path.write_bytes(_config_bytes)
+                        print("Token Saver calibration failed; kept the measured overheads.")
+                    else:
+                        print(
+                            "Token Saver recalibrated: runner overhead "
+                            f"{_overhead('token_saver_runner_overhead')} -> "
+                            f"{_result['token_saver_runner_overhead']}, orchestrator overhead "
+                            f"{_overhead('token_saver_orchestrator_overhead')} -> "
+                            f"{_result['token_saver_orchestrator_overhead']}"
+                        )
+                    if _result.get("uncalibrated") and not _measured:
+                        print("Token Saver calibration fell back to defaults; "
+                              "run /planwise token-saver on to retry.")
+            except Exception as exc:  # noqa: BLE001 -- never fail the upgrade
+                print(f"Token Saver calibration skipped: {exc}")
         print("Upgrade complete.")
         return 0
     except Exception as exc:
@@ -1208,39 +1317,5 @@ def _run_upgrade(
             file=sys.stderr,
         )
         raise
-
-
-# These three sit below the definitions: each one reaches init_project, which
-# re-exports names from this module, so the names must exist first.
-try:
-    from init_project import (
-        INSTALLED_RULES,
-        resolve_rule_paths_value,
-        update_frontmatter,
-    )
-except ImportError as exc:
-    raise ImportError(
-        "init_project is required for artifact_upgrade's INSTALLED_RULES table "
-        "(R1: the tuple stays on the residual) and its rule-write helper; "
-        "the scripts/ directory appears to be partially installed"
-    ) from exc
-
-try:
-    from rule_descope_migration import descoped_force_set, migrate_installed_rules
-except ImportError as exc:
-    raise ImportError(
-        "rule_descope_migration is required for artifact_upgrade's post-refresh "
-        "de-scope migration step; the scripts/ directory appears to be "
-        "partially installed"
-    ) from exc
-
-try:
-    from doctor_sweeps import lint_rule_overscope, sweep_orphaned_agent_mirrors
-    from upgrade_mirror_report import emit_mirror_sweep, emit_overscope_advisory
-except ImportError as exc:
-    raise ImportError(
-        "doctor_sweeps is required for artifact_upgrade's post-upgrade overscope "
-        "advisory; the scripts/ directory appears to be partially installed"
-    ) from exc
 
 

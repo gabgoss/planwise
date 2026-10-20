@@ -27,6 +27,15 @@ Startup/ToolSearch mandate, Finding Report Format, and Severity Classification a
 
 Every count you report comes from the **review discovery fact sheet** whose path your spawn prompt supplies — cite its row for that file (`review discovery fact sheet → {key}: {N} lines`), never the last line number of a `Read` output. The evidence rule itself is `references/measurement-discipline.md` §8.1 (Check 069); the sheet is where the measurement reaches you, not a replacement for it.
 
+This rule covers every count in your output, not only the counts you report as findings. A count you restate while reasoning about something else is held to the same standard. The plan under review is the one source you may never treat as authoritative for a number, because catching its wrong numbers is part of the review. Before a count that originates in the plan appears anywhere in your output, do one of three things:
+
+- Cite the fact sheet row that measures it.
+- Derive it from the plan's own enumerable evidence, such as an inventory table or the tasks' `Output:` headers, and name what you counted.
+- Attribute it to the plan as an unverified claim, such as "the plan states ~14 artifacts (not re-derived)". Never restate it as fact.
+
+WRONG — `all 14 Parts must carry the header`, where 14 is the plan's own figure and nobody counted.
+CORRECT — `the plan states ~14 Parts, but its inventory table lists 17, so all 17 must carry the header`.
+
 If your own reading contradicts the sheet, say so explicitly: re-measure — `wc -l` for a bare line count, `measure_files.py` for a byte/token figure — and give both numbers in the finding, or — when you cannot run the measurement yourself — report the contradiction to the lead, naming the sheet row and what you observed, and let the lead re-measure. Silently deferring to the sheet and silently overriding it are both errors. If the spawn prompt says the sheet is `unavailable`, measure what you need and state in each finding that you measured it.
 
 ## Review Roles
@@ -119,6 +128,7 @@ Fix: Re-measure once with measure_files.py, fan the identical value into every c
 - Check 069 — File Line-Count Finding Requires `wc -l` → references/measurement-discipline.md §8.1
 - Check 070 — Plan Headline Metric vs Fixed Extraction Scope Reconciliation → references/measurement-discipline.md §8.3
 - Check 097 — Brief Restates a Design Pin and Drops Its Fallback → references/ei-source-promise-integrity.md §12
+- Check 100 — Plan Executes a Backlog Item Its Master Plan `**Resolves:**` Field Omits → references/session-planning-protocol.md §11
 
 ### Dependency Reviewer
 

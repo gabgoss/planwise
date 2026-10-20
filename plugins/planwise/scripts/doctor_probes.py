@@ -11,7 +11,13 @@ a file.
 Every probe is fail-safe: an exception inside one prints a single
 `<name>: the check failed: <reason>` line and the next probe still runs, so the
 probes never change doctor's exit status. Output carries no timestamp, and
-findings are sorted, so two runs over one tree print the same bytes.
+findings are sorted, so two runs over one unchanged tree print the same bytes.
+The one exception is Stage 17's queued-draft count: a queued draft expires a
+fixed number of days after it was created, so a later run over the same tree
+can print a lower count.
+
+Stage 17 imports the feedback-draft helper when it runs, not when this module
+loads, so a helper that fails to import costs only that one count.
 
 Stage 16 learns every fact about `gh` from one function, `_gh_environment()`.
 That function is the only place in this module that spawns a process, so a
@@ -49,6 +55,10 @@ _REMEDY_NO_GH = (
     "https://cli.github.com/, or run /planwise upgrade to be offered the install"
 )
 _REMEDY_NO_AUTH = "gh is installed but not authenticated — run: gh auth login"
+_QUEUED_LABEL = "model drafts queued:"
+_REMEDY_QUEUED = (
+    "review them with /planwise feedback --drafts, or post one with /planwise feedback --post <draftId>"
+)
 _REMEDY_TIMEOUT = (
     f"gh did not answer within {_GH_TIMEOUT_SECONDS} s, so the posting gate is unproven — re-run /planwise doctor"
 )
@@ -157,7 +167,8 @@ def _gh_environment() -> dict:
 
 
 def _stage_16(config: dict) -> None:
-    enabled = config_loader.get_feedback_config(config)["enabled"]
+    feedback = config_loader.get_feedback_config(config)
+    enabled, drafts = feedback["enabled"], feedback["drafts"]
     env = _gh_environment()
     path, authenticated = env["path"], env["authenticated"]
     timed_out = env.get("timed_out", False)
@@ -170,6 +181,7 @@ def _stage_16(config: dict) -> None:
         resolvable = f"yes — {where}  {env['version']}".rstrip()
         auth = "unknown — gh did not answer" if timed_out else ("yes" if authenticated else "no")
     print(f"  feedback.enabled:  {'true' if enabled else 'false'}")
+    print(f"  feedback.drafts:   {drafts}")
     print(f"  gh resolvable:     {resolvable}")
     print(f"  gh authenticated:  {auth}")
     remedies = []
@@ -199,14 +211,32 @@ def _stage_16(config: dict) -> None:
 # Stage 17: the feedback directory
 # --------------------------------------------------------------------------
 
+def _queued_model_drafts(feedback_dir: Path) -> int:
+    """How many model drafts the helper's `list` would show as queued. The
+    helper's own read-only `count_queued` answers, so doctor and `list` share
+    one expiry predicate. `list` itself is never called, because it writes."""
+    import feedback_drafts
+
+    return feedback_drafts.count_queued(feedback_dir)
+
+
 def _stage_17(config: dict) -> None:
     feedback_dir = Path(config["_feedback_dir"])
     exists = feedback_dir.is_dir()
+    queued, count_failure = None, ""
+    if exists:
+        try:
+            queued = _queued_model_drafts(feedback_dir)
+        except Exception as exc:  # noqa: BLE001 -- a failed count must not hide the presence lines
+            count_failure = f" (the count failed: {exc})"
     print(f"  feedback directory:  {feedback_dir.as_posix()}")
     print(f"  exists:               {'yes' if exists else 'no'}")
+    print(f"  {_QUEUED_LABEL} {'not checked' + count_failure if queued is None else queued}")
     print()
     if exists:
         print(f"Feedback directory: {feedback_dir.as_posix()} — present.")
+        if queued:
+            print(f"  {_REMEDY_QUEUED}")
         return
     print("  ! feedback directory is absent — the first draft written there will fail.")
     print("      action: create it with /planwise doctor --create-feedback-dir,")
@@ -394,15 +424,18 @@ def _step_8(config: dict) -> None:
 # --------------------------------------------------------------------------
 
 def run_probes(cfg) -> None:
-    """Run the four probes in order. Read-only, and never raises."""
+    """Run the four probes in order. Read-only, and never raises.
+
+    Each probe row carries the lines it prints after its failure line, so a
+    reader of the output still finds a line that probe always prints."""
     config, reason = _load_project_config(cfg)
     probes = (
-        ("Feedback capability probe", _FEEDBACK_BANNER, _stage_16),
-        ("Feedback directory presence check", _FEEDBACK_DIR_BANNER, _stage_17),
-        ("Capture self-containment scan", None, _step_7),
-        ("Bookkeeping index read-gate scan", _READ_GATE_BANNER, _step_8),
+        ("Feedback capability probe", _FEEDBACK_BANNER, _stage_16, ()),
+        ("Feedback directory presence check", _FEEDBACK_DIR_BANNER, _stage_17, (f"  {_QUEUED_LABEL} not checked",)),
+        ("Capture self-containment scan", None, _step_7, ()),
+        ("Bookkeeping index read-gate scan", _READ_GATE_BANNER, _step_8, ()),
     )
-    for name, banner, probe in probes:
+    for name, banner, probe, failure_lines in probes:
         print()
         if banner:
             print(banner)
@@ -413,3 +446,5 @@ def run_probes(cfg) -> None:
             probe(config)
         except Exception as exc:  # noqa: BLE001 -- a probe must never change doctor's exit status
             print(f"{name}: the check failed: {exc}")
+            for line in failure_lines:
+                print(line)

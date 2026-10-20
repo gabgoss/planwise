@@ -27,6 +27,18 @@ Comparator verdicts: {returned}/{diverged} (late: {n} resumed, {m} recorded afte
 
 Config keys added:    {N}  ({list, or "(none)"})
 
+Feedback drafting: ON — Claude may now save local feedback drafts under {planwise_root}/{feedback_dir}/
+  nothing is posted without /planwise feedback --drafts and your approval
+  feedback.drafts: {value} ({answered|default, no answer given}); feedback.enabled: {true (set this run)|unchanged}
+  turn it off: set feedback.drafts: off in {planwise_root}/config.yaml, or run
+    python "{plugin_root}/scripts/feedback_drafts.py" disable-drafts --config "{planwise_root}/config.yaml"
+  — or, when the value is off:
+Feedback drafting: OFF — Claude will not save local feedback drafts under {planwise_root}/{feedback_dir}/
+  nothing is posted without /planwise feedback --drafts and your approval
+  feedback.drafts: off ({answered|default, no answer given}); feedback.enabled: {true (set this run)|unchanged}
+  turn it on: set feedback.drafts: notify (or quiet) in {planwise_root}/config.yaml
+(one of the two entries, and neither when the pre-upgrade config already carried feedback.drafts)
+
 Lessons scaffolding backfilled:           ({omitted entirely when every artifact already exists})
   + {planwise_root}/{lessons_dir}/00-Index-LessonsLearned.md
   + {planwise_root}/{lessons_dir}/00-Changelog-LessonsLearned.md
@@ -356,6 +368,8 @@ Under `upgrade.customization_handoff: report+relocate`, upgrade.md's Step 2.4 wr
 
    The delete confirm is `<!-- AUTO-MODE: convenience -->`, and its inferred default is **skip**, so an unattended run never deletes a transfer file. Delete only on an explicit yes, and print each removed path. The promotion offer follows case A, including its `<!-- AUTO-MODE: critical -->` gate.
 
+   On the card path, the card lists these files under `Earlier-pair transfers`, and the run's offer list carries the delete confirm as `transfer-delete:{path}` offers. When the user accepts one, the apply command carries `--pair {pair}`.
+
    > [!constraint] A title match is a hint, never a SUBSET verdict
    > The comparison calls a block unique when its content is not inside the shipped file. A block whose title still exists upstream was usually revised there, so it stays `still-unique`. Only the script's `now-upstream` status makes a file deletable. Do not upgrade a `still-unique` file to deletable because its titles match.
 
@@ -417,6 +431,8 @@ python "{plugin_root}/scripts/init_project.py" --project-root "{project_root}" -
 ```
 
 Never remove a file in these backup classes by hand. The writer holds links and unreadable entries without following them. It removes `DISPOSITIONS.md` and empty directories only when nothing recoverable remains. It logs every removal to `PRUNED-LEFTOVERS.md`.
+
+On the card path, the run's offer list carries these confirms as `prune:safe-to-discard` and `prune:inert`, and the Step 3 orphaned-mirror confirm as `prune-stale`. When the user accepts `prune:safe-to-discard`, the apply command carries `--pair {pair}`, and the sweep excludes this run's own pair. The same list carries the Step 3 plans status flip as `flip-status:{directory}={guess}` offers.
 
 The two backup classes print these banner lines. Show the `review-then-discard` line to the user verbatim, and never offer that surface for deletion here:
 

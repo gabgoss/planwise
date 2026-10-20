@@ -32,12 +32,17 @@ is here, mirroring the split doctor already uses (`doctor_cli` over
 `doctor_sweeps`).
 """
 
+import sys
+
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+
 from context_calibration import (
     DEFAULT_GROWTH_MARGIN,
     DEFAULT_OUTPUT_RESERVE,
     DEFAULT_WARN_CEILING,
     FALLBACK_ORCHESTRATOR_OVERHEAD,
     FALLBACK_RUNNER_OVERHEAD,
+    LEGACY_FALLBACK_OVERHEADS,
     STRUCTURAL_FLOOR_BYTES_PER_TOKEN,
     _format_breakdown,
     _format_floor,
@@ -87,6 +92,7 @@ __all__ = [
     "FALLBACK_ORCHESTRATOR_OVERHEAD",
     "FALLBACK_RUNNER_OVERHEAD",
     "JSON_SUFFIXES",
+    "LEGACY_FALLBACK_OVERHEADS",
     "NOTEBOOK_SUFFIXES",
     "READ_BYTE_WARN",
     "READ_FILE_BYTE_CAP",
@@ -133,6 +139,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    import sys
-
     sys.exit(main())

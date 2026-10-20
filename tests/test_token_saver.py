@@ -644,6 +644,14 @@ class TestRunUpgradeTokenSaverToggle(_ProjectFixtureBase):
         # Python 3.12+ when the path doesn't exist yet.
         rules_dir = self.project_root / ".claude" / "rules" / "planwise"
         rules_dir.mkdir(parents=True, exist_ok=True)
+        # _run_upgrade recalibrates Token Saver after the pin commit. Without this
+        # patch the real capture would spawn `claude -p "/context"`.
+        from unittest import mock
+
+        import context_calibration
+        capture_patch = mock.patch.object(context_calibration, "capture_context", return_value=None)
+        capture_patch.start()
+        self.addCleanup(capture_patch.stop)
 
     def _make_cfg(self, token_saver: bool) -> ip.InitConfig:
         return ip.InitConfig(

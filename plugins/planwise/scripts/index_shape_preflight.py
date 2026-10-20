@@ -14,6 +14,8 @@ import json
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+
 import config_loader
 import migrate_backlog_index as backlog
 import migrate_backlog_support as backlog_sup

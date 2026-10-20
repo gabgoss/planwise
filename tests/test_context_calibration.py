@@ -337,14 +337,59 @@ class TestDerivation(unittest.TestCase):
             "runner_overhead must be the attribution-filtered sum, well "
             "below the unfiltered total_active the superseded pin asserted",
         )
-        # orchestrator_overhead = filtered sum minus Messages (8), the same
-        # relationship as before -- only the base value changed.
-        self.assertLess(
+        # orchestrator_overhead = the filtered sum. The attribution sum holds no
+        # Messages row, so the pre-attribution "minus Messages" term is gone.
+        self.assertEqual(
             orchestrator,
             runner,
-            "orchestrator_overhead must be the filtered sum minus Messages",
+            "orchestrator_overhead must equal the attribution-filtered sum",
         )
-        self.assertEqual(runner - orchestrator, 8)
+
+    def test_messages_above_attribution_never_goes_negative(self):
+        """A Messages category larger than the attribution sum cannot drive
+        orchestrator_overhead negative. An interactive recapture makes
+        Messages large, and the old subtraction turned that into a negative
+        overhead, which budget math reads as free headroom."""
+        ts = _engine()
+        report = {
+            "total_active": 60000,
+            "categories": {"Messages": 40000, "Memory files": 900},
+            "agents": [{"name": "planner", "source": "Plugin", "tokens": 500}],
+            "skills": [{"name": "builtin", "source": "Built-in", "tokens": 300}],
+        }
+        self.assertGreater(
+            report["categories"]["Messages"],
+            ts.attribution(report),
+            "fixture must hold Messages above the attribution sum",
+        )
+        overheads = ts.derive_overheads(report)
+        self.assertGreaterEqual(overheads["orchestrator_overhead"], 0)
+        self.assertEqual(overheads["orchestrator_overhead"], 500)
+        self.assertEqual(overheads["runner_overhead"], 500)
+
+    def test_overheads_floored_at_zero(self):
+        """A row that sums below zero is floored, so no capture source can
+        put a negative overhead into budget math."""
+        ts = _engine()
+        report = {
+            "total_active": 100,
+            "categories": {},
+            "agents": [{"name": "odd", "source": "Plugin", "tokens": -50}],
+            "skills": [],
+        }
+        self.assertLess(ts.attribution(report), 0, "fixture must sum below zero")
+        overheads = ts.derive_overheads(report)
+        self.assertEqual(overheads["runner_overhead"], 0)
+        self.assertEqual(overheads["orchestrator_overhead"], 0)
+
+    def test_fallbacks_sit_on_attribution_basis(self):
+        """The fallbacks stay a modest over-estimate of the plugin-attributed
+        footprint, not a whole-installation figure."""
+        ts = _engine()
+        self.assertEqual(ts.FALLBACK_RUNNER_OVERHEAD, ts.FALLBACK_ORCHESTRATOR_OVERHEAD)
+        # Highest real capture on the attribution basis was 1191 tokens.
+        self.assertGreaterEqual(ts.FALLBACK_RUNNER_OVERHEAD, 1191)
+        self.assertLessEqual(ts.FALLBACK_RUNNER_OVERHEAD, 3 * 1191)
 
     def test_derive_thresholds_low_overhead(self):
         ts = _engine()
@@ -383,13 +428,13 @@ class TestCaptureFailureFallback(unittest.TestCase):
         result = ts.calibrate(capture=_stub_capture)
         self.assertEqual(
             result.get("token_saver_runner_overhead"),
-            54000,
-            "Failed capture must fall back to runner_overhead=54000",
+            2400,
+            "Failed capture must fall back to runner_overhead=2400",
         )
         self.assertEqual(
             result.get("token_saver_orchestrator_overhead"),
-            60000,
-            "Failed capture must fall back to orchestrator_overhead=60000",
+            2400,
+            "Failed capture must fall back to orchestrator_overhead=2400",
         )
         # A flag/marker that the thresholds are uncalibrated.
         self.assertFalse(
@@ -650,7 +695,7 @@ class TestCalibrateParseGuard(unittest.TestCase):
     headless `claude -p "/context"` may return plain prose instead of the
     structured `/context` report.  Such a reply has no `**Tokens:**` header and
     no category table.  calibrate() must fall back to the conservative overheads
-    (runner=54000 / orchestrator=60000, calibrated=False) — NOT write
+    (runner=2400 / orchestrator=2400, calibrated=False) — NOT write
     runner_overhead=0 flagged calibrated:True.
     """
 
@@ -669,14 +714,14 @@ class TestCalibrateParseGuard(unittest.TestCase):
         result = ts.calibrate(capture=_stub_conversational)
         self.assertEqual(
             result.get("token_saver_runner_overhead"),
-            54000,
+            2400,
             "A conversational reply (no Tokens: header, no categories) must fall "
-            "back to runner_overhead=54000",
+            "back to runner_overhead=2400",
         )
         self.assertEqual(
             result.get("token_saver_orchestrator_overhead"),
-            60000,
-            "A conversational reply must fall back to orchestrator_overhead=60000",
+            2400,
+            "A conversational reply must fall back to orchestrator_overhead=2400",
         )
         self.assertFalse(
             result.get("calibrated", True),
@@ -715,7 +760,7 @@ class TestCalibrateParseGuard(unittest.TestCase):
         result = ts.calibrate(capture=_stub_degenerate)
         self.assertEqual(
             result.get("token_saver_runner_overhead"),
-            54000,
+            2400,
             "A report yielding total_active=0 must fall back — never write "
             "runner_overhead=0 flagged calibrated:True",
         )

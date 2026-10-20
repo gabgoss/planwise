@@ -39,6 +39,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import get_scoring_weights, load_config
 from constants import OPEN_STATUSES
 from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
@@ -47,6 +48,7 @@ from markdown_parser import (
     parse_markdown_table,
     warn_on_unparsed_rows,
 )
+from scoped_rules import scoped_rules_block, strip_loop_sections
 
 # Try yaml import; fall back to regex extraction if unavailable
 try:
@@ -596,9 +598,11 @@ def review_items(
 #
 # The triage handler's Routing Decision Tree names nine scope signals. Eight
 # are computable from the index row and the item body this script already
-# holds; the ninth (the pivot check) and every pre-routing gate (existence
-# premise, citation freshness, staleness, scoped-rule) are judgment and stay
-# with the handler. What follows computes the eight and applies the handler's
+# holds. The pivot check, the existence premise, citation freshness and
+# staleness are judgment and stay with the handler; the scoped-rule gate is
+# computed here from the item's destinations and the project's rule
+# frontmatter (see `scoped_rules_block`, called when `compute_route_signals`
+# is given the config). What follows computes the eight and applies the handler's
 # Decision Logic pseudocode without modification. The result is a report,
 # recomputed from the live files on every call, so it cannot go stale
 # silently -- unlike the optional `route_hint:` frontmatter, which is a dated
@@ -610,6 +614,28 @@ MULTI_SPRINT_TERMS: tuple[str, ...] = ("multi-sprint", "phased")
 # Matched as word stems so "refactoring", "architectural" and "migrations"
 # count; a stem is the handler's keyword with its inflection removed.
 ARCHITECTURAL_TERMS: tuple[str, ...] = ("refactor", "redesign", "architectur", "migration")
+# A stem inside a name is vocabulary, not a statement about the work: a
+# module called `rule_descope_migration`, a filename, or a path through a
+# folder called `...Redesign/`. These three shapes are removed from a line
+# before the stems are matched, and the hits they carried are reported as
+# ignored so a reader still sees them.
+# -- a path with two or more separators (`a/b/c`): one separator is too often
+#    prose ("migration/refactor"), and a single-separator path ends in a
+#    filename that `_FILE_PATH_RE` already removes
+_PATH_NAME_RE = re.compile(r"[\w.~-]+(?:[/\\][\w.~-]+){2,}")
+# -- a snake_case identifier (`backlog_migration`, `rule_descope_migration`)
+_IDENTIFIER_NAME_RE = re.compile(r"\b[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+\b")
+# -- a line that is an `**Evidence:**` line quotes a log or a past reading,
+#    and a table row quotes a cell. Neither describes the work the item asks for.
+_EVIDENCE_LINE_RE = re.compile(r"^[\s>*+-]*(?:\*\*|__)?evidence(?:\*\*|__)?\s*:", re.IGNORECASE)
+_TABLE_ROW_RE = re.compile(r"^\s*\|")
+# -- the one `##` section whose prose describes the work the item asks for.
+#    When an item carries this heading, only its lines feed IS_ARCHITECTURAL;
+#    the title, Summary, Problem, Acceptance Criteria and Related name the
+#    subject and its neighbours, so a stem there is vocabulary. An item
+#    without the heading is read whole. The match is exact, like
+#    TEMPLATE_SECTION_HEADINGS, and a test pins it to the template file.
+COUNTED_SECTION_HEADING = "Proposed Solution"
 # "Item file < 50 lines" -> IS_SHORT (a proxy for a small fix)
 SHORT_ITEM_LINES = 50
 # "6+ sub-items or ## headings" -> SUB_ITEMS >= 6
@@ -628,6 +654,7 @@ TEMPLATE_SECTION_HEADINGS: tuple[str, ...] = (
     "Related",
     "Files Touched",
     "Notes",
+    "Loop Decision Needed",  # loop-written; the loop's skip section (see LOOP_WRITTEN_HEADINGS in scoped_rules)
 )
 _NUMBERED_RE = re.compile(r"^(\d+)\.\s")
 _FILE_PATH_RE = re.compile(
@@ -652,6 +679,20 @@ _BEFORE_AFTER_RE = re.compile(
     r"before/after|before-and-after|\bbefore\b[^\n]{0,80}\bafter\b|\bold\b\s*(?:→|->|to)\s*\bnew\b"
     r"|\breplace\b[^\n]{0,120}\bwith\b",
     re.IGNORECASE,
+)
+# -- an imperative amend verb opening a sentence or list item ("Amend the two
+#    sentences ..."), followed within 240 characters, and not past a heading,
+#    by the new text in double quotes (12+ characters). A line anchor does not
+#    count: "change the string on line 3" says where the edit goes and not what
+#    it becomes, and `_LINE_ANCHOR_RE` already reports the location. The verb
+#    must open the sentence: "changed", "corrected" and a mid-sentence "change"
+#    describe a past event or a noun, and matched 25 unrelated items when the
+#    verb was free. It reads the body with fenced blocks blanked, because a
+#    docstring or a log excerpt in a fence says "rewrite" too.
+_AMEND_NEW_TEXT_RE = re.compile(
+    r"(?:^|[.!?:][ \t]+)[ \t>*+\d.-]*(?:amend|reword|rewrite|rephrase|change|correct)\b"
+    r"(?:(?!\n[ \t>]*#)[\s\S]){0,240}?\"[^\"\n]{12,}\"",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -679,6 +720,27 @@ _SCOPE_BOUND_RE = re.compile(
     r"|not solved by|intentionally not",
     re.IGNORECASE,
 )
+# -- a positive scope bound: a criterion that names what must keep its wording
+#    ("returns 0 hits outside Recovery, Summary and Review records, which keep
+#    the historical wording"). It needs both halves on ONE line: a Grep or count
+#    check, and a keep / unchanged / leave-as-is / outside-records clause.
+_POSITIVE_BOUND_CHECK_RE = re.compile(
+    r"\bGrep\b|\bgrep -c\b|\b(?:returns?|finds?|prints?|shows?)\s+(?:\d+|zero|no)\s+(?:hits?|matches|lines)\b"
+)
+_POSITIVE_BOUND_CLAUSE_RE = re.compile(
+    r"\bwhich keeps?\b|\bkeeps? (?:the|their|its)\b|\bleave\b[^\n]{0,60}\bas[- ]is\b"
+    r"|\boutside\b[^\n]{0,80}\brecords?\b|\bunchanged\b",
+    re.IGNORECASE,
+)
+
+
+def _has_positive_scope_bound(text: str) -> bool:
+    """True when one line carries both a Grep/count check and a clause naming
+    what keeps its wording (`_POSITIVE_BOUND_CLAUSE_RE`)."""
+    return any(
+        _POSITIVE_BOUND_CHECK_RE.search(line) and _POSITIVE_BOUND_CLAUSE_RE.search(line)
+        for line in text.split("\n")
+    )
 # `**Evidence:** ... verified 2026-08-26 by ...` and the coordination-flag
 # form `recorded 2026-09-23`: the dates a stored route hint is judged against.
 _EVIDENCE_DATE_RE = re.compile(r"\b(?:verified|recorded|measured)\s+(\d{4}-\d{2}-\d{2})\b", re.IGNORECASE)
@@ -723,13 +785,70 @@ def _keyword_hits(text: str, terms: tuple[str, ...]) -> list[dict]:
     return hits
 
 
+def _architectural_hits(text: str) -> tuple[list[dict], list[dict]]:
+    """(hits, ignored) for the IS_ARCHITECTURAL stems.
+
+    `hits` are the occurrences that count. `ignored` are occurrences the
+    reader can still see but the signal does not read: the line sits
+    outside the `## Proposed Solution` section, the whole line is an
+    `**Evidence:**` line or a table row, or the stem sits inside a file name,
+    a multi-segment path or a snake_case identifier. Each ignored entry
+    carries a `why`. A hit is a candidate, not a verdict (see
+    `_keyword_hits`); this narrows the candidates to prose that describes
+    the work, and leaves the reading of what remains to the reader.
+
+    The section rule applies only when the item has a `## Proposed Solution`
+    heading. That section is where an item describes the work it asks for;
+    the title names the subject, the Summary restates the problem, and
+    Related names siblings, so a stem in any of them is vocabulary. An item
+    without the heading is read whole, as before. A hit outside the section
+    is ignored with the section's heading as its `why` (`Summary section`),
+    or `title block` for the lines before the first `##` heading.
+    """
+    hits: list[dict] = []
+    ignored: list[dict] = []
+    lines = text.split("\n")
+    sectioned = any(
+        _H2_RE.match(line) and line[3:].rstrip() == COUNTED_SECTION_HEADING for line in lines
+    )
+    section: str | None = None  # the current `##` heading; None before the first one
+    for line_no, line in enumerate(lines, start=1):
+        if _H2_RE.match(line):
+            section = line[3:].rstrip()
+        lowered = line.lower()
+        present = [term for term in ARCHITECTURAL_TERMS if term in lowered]
+        if not present:
+            continue
+        shown = line.strip()[:120]
+        if sectioned and section != COUNTED_SECTION_HEADING:
+            where = "title block" if section is None else f"{section} section"
+            ignored.extend({"term": t, "line": line_no, "text": shown, "why": where} for t in present)
+            continue
+        if _EVIDENCE_LINE_RE.match(line):
+            ignored.extend({"term": t, "line": line_no, "text": shown, "why": "evidence line"} for t in present)
+            continue
+        if _TABLE_ROW_RE.match(line):
+            ignored.extend({"term": t, "line": line_no, "text": shown, "why": "table row"} for t in present)
+            continue
+        bare = _PATH_NAME_RE.sub(" ", _FILE_PATH_RE.sub(" ", line))
+        bare = _IDENTIFIER_NAME_RE.sub(" ", bare).lower()
+        for term in present:
+            if term in bare:
+                hits.append({"term": term, "line": line_no, "text": shown})
+            else:
+                ignored.append({"term": term, "line": line_no, "text": shown, "why": "file, path or identifier name"})
+    return hits, ignored
+
+
 def _longest_numbered_run(text: str) -> tuple[int, int]:
     """(total top-level numbered items, longest consecutively-numbered run).
 
     A run continues while each numbered line's number is exactly one more
     than the previous numbered line's, whatever sits between them (nested
     bullets, prose, blank lines). The longest run is the closest mechanical
-    reading of "discrete steps"; the total feeds SUB_ITEMS.
+    reading of "discrete steps". It also feeds SUB_ITEMS, because a list is a
+    run: two lists of 2 and 4 are not 6 parts of the work. The total stays
+    in the report as `numbered_items`.
     """
     total = 0
     longest = 0
@@ -794,7 +913,57 @@ def decide_route(
     return "C", False, "ELSE (conservative default)"
 
 
-def reconcile_route_hint(frontmatter: dict, route: str, latest_evidence: date | None) -> dict | None:
+def judgment_routes(
+    has_clear_fix: bool,
+    is_architectural: bool,
+    has_multi_sprint: bool,
+    sub_items: int,
+    step_count: int,
+    is_short: bool,
+    clear_fix_evidence: bool,
+) -> tuple[set[str], list[str]]:
+    """(routes a reader's judgment could reach, the signals that judgment turns on).
+
+    Three signals are candidates the script reports and a reader classifies:
+    `IS_ARCHITECTURAL` and `HAS_MULTI_SPRINT` (each a keyword hit that may
+    quote a name or a table), and the sufficiency half of `HAS_CLEAR_FIX`
+    (the evidence shapes are present, but whether they are enough is the
+    reader's call). Each can be judged absent only when the script found it
+    present. A short file's `HAS_CLEAR_FIX` is a line count, so it is
+    mechanical. The returned set holds the route of every combination of
+    those judgments, the script's own route included. The signals that no
+    reader judgment can move (abbrev, line count, file count, sub-item
+    count, step count) are held fixed.
+    """
+    adjustable = [
+        name
+        for name, present in (
+            ("IS_ARCHITECTURAL", is_architectural),
+            ("HAS_MULTI_SPRINT", has_multi_sprint),
+            ("HAS_CLEAR_FIX", has_clear_fix and clear_fix_evidence and not is_short),
+        )
+        if present
+    ]
+    routes: set[str] = set()
+    for mask in range(1 << len(adjustable)):
+        rejected = {name for i, name in enumerate(adjustable) if mask & (1 << i)}
+        route, _large, _branch = decide_route(
+            has_clear_fix and "HAS_CLEAR_FIX" not in rejected,
+            is_architectural and "IS_ARCHITECTURAL" not in rejected,
+            has_multi_sprint and "HAS_MULTI_SPRINT" not in rejected,
+            sub_items,
+            step_count,
+        )
+        routes.add(route)
+    return routes, adjustable
+
+
+def reconcile_route_hint(
+    frontmatter: dict,
+    route: str,
+    latest_evidence: date | None,
+    judgment: tuple[set[str], list[str]] | None = None,
+) -> dict | None:
     """Compare the item's optional `route_hint:` frontmatter with the
     computed route. None when the item carries no hint.
 
@@ -802,6 +971,12 @@ def reconcile_route_hint(frontmatter: dict, route: str, latest_evidence: date | 
     staleness so the handler can state the divergence in its Reason line.
     `stale` is None when the item carries no dated evidence line to judge
     against, or the hint carries no `route_dated:`.
+
+    `judgment` is `judgment_routes`' result. When the hint is valid, not
+    stale and differs from `route`, and it names a route a reader's judgment
+    of the candidate signals could reach, the verdict is `undecided`: the
+    script cannot overrule a hint with a signal it calls a candidate. A stale
+    hint, an invalid hint, and a hint no judgment reaches keep `script wins`.
     """
     raw_hint = frontmatter.get("route_hint")
     if raw_hint is None or str(raw_hint).strip() == "":
@@ -813,8 +988,12 @@ def reconcile_route_hint(frontmatter: dict, route: str, latest_evidence: date | 
     if dated is not None and latest_evidence is not None:
         stale = dated < latest_evidence
     agrees = valid and hint == route
+    reachable, judged = judgment if judgment is not None else (set(), [])
+    undecided = valid and not agrees and not stale and hint in reachable
     if not valid:
         verdict = "script wins — hint is not one of A/B/C"
+    elif undecided:
+        verdict = "undecided — the divergence rests on reader-judgment signals; see the hit lines"
     elif not agrees:
         verdict = "script wins — hint disagrees with the live signals"
     elif stale:
@@ -828,38 +1007,53 @@ def reconcile_route_hint(frontmatter: dict, route: str, latest_evidence: date | 
         "dated": dated.isoformat() if dated else None,
         "latest_evidence_date": latest_evidence.isoformat() if latest_evidence else None,
         "agrees": agrees,
+        "undecided": undecided,
+        "judgment_signals": judged if undecided else [],
         "stale": stale,
         "verdict": verdict,
     }
 
 
-def compute_route_signals(item: dict, frontmatter: dict) -> dict:
+def compute_route_signals(item: dict, frontmatter: dict, config: dict | None = None) -> dict:
     """The mechanical signal vector for one open item, plus the provisional
     route `decide_route` derives from it.
 
     Reads only the index row (`item`) and what `read_item_frontmatter`
     already returned (`frontmatter`, including `_body` and `_line_count`);
-    it opens no file. HAS_CLEAR_FIX is reported as its mechanical half only
-    -- whether the evidence shapes are *present* (an edit location: a line
-    anchor, an exact edit string, or a whole-file copy; a before/after; a
-    scope-confinement bound). Whether they are *sufficient* is a judgment
-    this function does not make and the report says so.
+    without `config` it opens no file. HAS_CLEAR_FIX is reported as its
+    mechanical half only -- whether the evidence shapes are *present* (an
+    edit location: a line anchor, an exact edit string, or a whole-file
+    copy; a before/after; a scope-confinement bound). Whether they are
+    *sufficient* is a judgment this function does not make and the report
+    says so.
+
+    Loop-written sections (`## Loop Decision Needed`) are removed from the
+    body before any signal is read, so a skip the backlog loop records never
+    moves the item's route, headings, steps or effective line count.
+    `line_count` stays the whole file's count; `is_short` reads
+    `line_count_effective`, which excludes the `loop_lines` removed.
 
     Keyword and structure signals read the body with fenced blocks blanked
     (see `_blank_fenced_blocks`); the clear-fix patterns read it whole.
+
+    With `config`, the result carries the `scoped_rules` block
+    (`scoped_rules_block` over the raw body, which strips the loop sections
+    itself); without it, `scoped_rules` is None and no file is read.
     """
-    body = frontmatter.get("_body") or ""
+    raw_body = frontmatter.get("_body") or ""
+    body, loop_lines = strip_loop_sections(raw_body)
     body_available = "_body" in frontmatter
     structural = _blank_fenced_blocks(body)
     line_count = frontmatter.get("_line_count")
+    line_count_effective = None if line_count is None else line_count - loop_lines
 
     abbrev = _resolve_abbrev(item, frontmatter)
     is_bug = abbrev == "BUG"
-    is_short = line_count is not None and line_count < SHORT_ITEM_LINES
+    is_short = line_count_effective is not None and line_count_effective < SHORT_ITEM_LINES
     file_paths = sorted(set(_FILE_PATH_RE.findall(body)))
 
     multi_sprint_hits = _keyword_hits(structural, MULTI_SPRINT_TERMS)
-    architectural_hits = _keyword_hits(structural, ARCHITECTURAL_TERMS)
+    architectural_hits, architectural_ignored = _architectural_hits(structural)
     has_multi_sprint = bool(multi_sprint_hits)
     is_architectural = bool(architectural_hits)
 
@@ -869,7 +1063,7 @@ def compute_route_signals(item: dict, frontmatter: dict) -> dict:
         if _H2_RE.match(line) and line[3:].rstrip() not in TEMPLATE_SECTION_HEADINGS
     )
     numbered_items, step_count = _longest_numbered_run(structural)
-    sub_items = max(h2_count, numbered_items)
+    sub_items = max(h2_count, step_count)
 
     file_count = int(item.get("file_count", 0) or 0)
 
@@ -879,9 +1073,10 @@ def compute_route_signals(item: dict, frontmatter: dict) -> dict:
         "before_after": (
             bool(_BEFORE_AFTER_RE.search(body))
             or bool(_BEFORE_AFTER_BLOCKS_RE.search(body))
+            or bool(_AMEND_NEW_TEXT_RE.search(structural))
             or ("WRONG" in body and "CORRECT" in body)
         ),
-        "scope_bound": bool(_SCOPE_BOUND_RE.search(body)),
+        "scope_bound": bool(_SCOPE_BOUND_RE.search(body)) or _has_positive_scope_bound(body),
     }
     clear_fix["evidence_present"] = (
         (clear_fix["line_anchor"] or clear_fix["edit_target"])
@@ -893,7 +1088,15 @@ def compute_route_signals(item: dict, frontmatter: dict) -> dict:
     route, large_scope, branch = decide_route(
         has_clear_fix, is_architectural, has_multi_sprint, sub_items, step_count
     )
-    hint = reconcile_route_hint(frontmatter, route, _latest_evidence_date(body))
+    hint = reconcile_route_hint(
+        frontmatter,
+        route,
+        _latest_evidence_date(body),
+        judgment_routes(
+            has_clear_fix, is_architectural, has_multi_sprint, sub_items, step_count,
+            is_short, clear_fix["evidence_present"],
+        ),
+    )
 
     return {
         "id": item["id"],
@@ -901,11 +1104,14 @@ def compute_route_signals(item: dict, frontmatter: dict) -> dict:
         "abbrev": abbrev,
         "is_bug": is_bug,
         "line_count": line_count,
+        "loop_lines": loop_lines,
+        "line_count_effective": line_count_effective,
         "is_short": is_short,
         "file_paths": file_paths,
         "multi_sprint_hits": multi_sprint_hits,
         "has_multi_sprint": has_multi_sprint,
         "architectural_hits": architectural_hits,
+        "architectural_ignored": architectural_ignored,
         "is_architectural": is_architectural,
         "h2_count": h2_count,
         "numbered_items": numbered_items,
@@ -925,6 +1131,7 @@ def compute_route_signals(item: dict, frontmatter: dict) -> dict:
         "large_scope": large_scope,
         "branch": branch,
         "hint": hint,
+        "scoped_rules": None if config is None else scoped_rules_block(item["id"], raw_body, config),
     }
 
 
@@ -936,9 +1143,14 @@ ROUTE_LEGEND = (
     "  ms/arch = keyword hit counts for HAS_MULTI_SPRINT / IS_ARCHITECTURAL -- "
     "candidates, not verdicts; an item quoting the signal table matches them all. "
     "Use --id N for the hit lines.\n"
+    "  ign = IS_ARCHITECTURAL hits dropped as lines outside ## Proposed Solution (when the item has one), "
+    "evidence lines, table rows, or names (files, paths, identifiers).\n"
     "  h2/steps = non-template ## headings outside code fences / longest consecutive numbered list.\n"
-    "  hint = the item's route_hint frontmatter, compared but never adopted.\n"
-    "The pivot check and every pre-routing gate are judgment; this report does not run them."
+    "  hint = the item's route_hint frontmatter, compared but never adopted; undecided = the hint names a route "
+    "a reader's judgment of the candidate signals could reach.\n"
+    "  rules = scoped_rules verdict: i = inject the matched rules, p = placement decision needed, - = none.\n"
+    "The scoped-rule gate is computed here (rules column); the pivot check and the other pre-routing gates "
+    "are judgment, and this report does not run them."
 )
 
 
@@ -947,6 +1159,8 @@ def format_route_line(signals: dict, score: int) -> str:
     hint = signals["hint"]
     if hint is None:
         hint_text = "-"
+    elif hint["undecided"]:
+        hint_text = f"{hint['route']} undecided"
     elif hint["agrees"] and not hint["stale"]:
         hint_text = f"{hint['route']} agree"
     elif hint["agrees"]:
@@ -954,13 +1168,35 @@ def format_route_line(signals: dict, score: int) -> str:
     else:
         hint_text = f"{hint['route']} DISAGREE"
     large = "large" if signals["route"] == "C" and signals["large_scope"] else "-"
+    block = signals.get("scoped_rules")
+    verdict = block["verdict"] if block else None
+    rules = {"inject": "i", "placement": "p"}.get(verdict, "-")
     return (
         f"  ID {signals['id']:>3} | {signals['route']} | {large:<5} | {score:>3} pts | "
         f"clear={'y' if signals['has_clear_fix'] else 'n'} "
         f"ms={len(signals['multi_sprint_hits'])} arch={len(signals['architectural_hits'])} "
+        f"ign={len(signals['architectural_ignored'])} "
         f"h2={signals['h2_count']} steps={signals['step_count']} files={signals['file_count']} "
+        f"rules={rules} "
         f"| hint {hint_text}"
     )
+
+
+def _format_scoped_rules(block: dict | None) -> list[str]:
+    """The `scoped_rules:` lines of the `--route --id N` detail."""
+    if block is None:
+        return ["  scoped_rules:      (not computed)"]
+    lessons = ", ".join(block["owning_lessons"]) or "none"
+    lines = [
+        (f"  scoped_rules:      {block['verdict']}  (source: {block['source']}; "
+         f"{block['rules_scanned']} path-scoped rules scanned; owning lessons: {lessons}; "
+         f"inject form: {block['inject_form']} ({block['rules_bytes']} bytes))"),
+    ]
+    for dest in block["destinations"]:
+        matched = ", ".join(dest["rules"]) or "none"
+        lines.append(f"    {dest['path']}  {dest['role']}  rules: {matched}  -> {dest['verdict']}")
+    lines.append(f"  rules_to_inject:   {', '.join(block['rules_to_inject']) or 'none'}")
+    return lines
 
 
 def format_route_detail(signals: dict, score: int) -> str:
@@ -972,7 +1208,7 @@ def format_route_detail(signals: dict, score: int) -> str:
         f"  branch:            {signals['branch']}",
         f"  abbrev/is_bug:     {signals['abbrev']} / {yes_no(signals['is_bug'])}",
         (f"  line_count/short:  {signals['line_count']} / {yes_no(signals['is_short'])}"
-         f"  (< {SHORT_ITEM_LINES})"),
+         f"  (< {SHORT_ITEM_LINES}; {signals['loop_lines']} loop-written lines excluded)"),
         f"  file_paths:        {len(signals['file_paths'])}",
         (f"  h2 / numbered:     {signals['h2_count']} / {signals['numbered_items']}"
          f"  -> SUB_ITEMS {signals['sub_items']} (>= {SUB_ITEMS_THRESHOLD}: "
@@ -987,21 +1223,27 @@ def format_route_detail(signals: dict, score: int) -> str:
         f"  HAS_MULTI_SPRINT:  {yes_no(signals['has_multi_sprint'])}  ({len(signals['multi_sprint_hits'])} hit(s))",
     ]
     lines.extend(f"    L{h['line']} [{h['term']}] {h['text']}" for h in signals["multi_sprint_hits"])
+    ignored = signals["architectural_ignored"]
     lines.append(
-        f"  IS_ARCHITECTURAL:  {yes_no(signals['is_architectural'])}  ({len(signals['architectural_hits'])} hit(s))"
+        f"  IS_ARCHITECTURAL:  {yes_no(signals['is_architectural'])}  ({len(signals['architectural_hits'])} hit(s); "
+        f"ignored ({len(ignored)}))"
     )
     lines.extend(f"    L{h['line']} [{h['term']}] {h['text']}" for h in signals["architectural_hits"])
+    lines.extend(f"    ignored L{h['line']} [{h['term']}] ({h['why']}) {h['text']}" for h in ignored)
     hint = signals["hint"]
     if hint is None:
         lines.append("  route_hint:        (none) -- derive from the live signals alone")
     else:
         lines.append(f"  route_hint:        {hint['route']}  dated {hint['dated'] or '?'}  -> {hint['verdict']}")
+        if hint["undecided"]:
+            lines.append(f"    judgment turns on: {', '.join(hint['judgment_signals'])}")
         if hint["evidence"]:
             lines.append(f"    evidence: {hint['evidence']}")
         lines.append(
             f"    newest dated evidence in body: {hint['latest_evidence_date'] or 'none'}; "
             f"stale: {'unknown' if hint['stale'] is None else yes_no(hint['stale'])}"
         )
+    lines.extend(_format_scoped_rules(signals.get("scoped_rules")))
     if not signals["body_available"]:
         lines.append("  (item body unavailable -- frontmatter did not parse; body signals are empty)")
     return "\n".join(lines)
@@ -1110,7 +1352,7 @@ def main():
             sys.exit(1)
         if args.route:
             fm = frontmatters.get(matched_item["id"], {})
-            signals = compute_route_signals(matched_item, fm)
+            signals = compute_route_signals(matched_item, fm, config=config)
             print(format_route_detail(signals, breakdown.total))
             if args.json:
                 print(f"JSON: {write_route_json({**signals, 'score': breakdown.total})}")
@@ -1135,7 +1377,7 @@ def main():
         print(f"Backlog Route Signals ({len(open_items)} open items)")
         print("=" * 60)
         for item in open_items:
-            signals = compute_route_signals(item, frontmatters.get(item["id"], {}))
+            signals = compute_route_signals(item, frontmatters.get(item["id"], {}), config=config)
             score = _score_total(scores.get(item["id"]))
             rows.append({**signals, "score": score})
             print(format_route_line(signals, score))

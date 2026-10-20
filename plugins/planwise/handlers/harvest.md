@@ -43,7 +43,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}`.
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
 
 **Required for this handler:**
 - [`references/auto-mode-policy.md`](../references/auto-mode-policy.md) — the canonical gate-tagging convention: critical call-sites emit a `[!gate]` block and fail loud on auto-denial; convenience call-sites ask nothing, apply the inferred default, and log the inference. Every call-site in the Gate Call-Sites step below follows it.

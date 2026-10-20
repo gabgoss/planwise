@@ -16,6 +16,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 import doctor_cli
+import upgrade_io
 from constants import InstallScope
 
 from conftest import _snapshot_tree, _UpgradeArtifactsFixtureBase
@@ -128,6 +129,34 @@ class TestListDivergedSets(_ListDivergedBase):
         self.assertEqual(rows[0]["set"], "style")
         self.assertEqual(rows[0]["installed"], dst.as_posix())
         self.assertTrue(Path(rows[0]["installed"]).is_absolute())
+
+
+class TestListDivergedInstalledSha(_ListDivergedBase):
+    """Each row carries the writer's own pre-image digest of the installed Path."""
+
+    def test_every_row_carries_a_64_hex_installed_sha256(self):
+        self.write_pair(self.RULE_FILENAME, "shipped body\n", "edited body\n")
+        self.write_pair(self.DESCOPED_FILENAME, "shipped body\n", "edited body\n")
+        self.write_pair(self.STYLE_FILENAME, "shipped style\n", "edited style\n")
+        rows = self.rows()
+        self.assertEqual(len(rows), 3)
+        for row in rows:
+            self.assertRegex(row["installed_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_value_equals_installed_hash_of_the_installed_path(self):
+        dst = self.write_pair(self.RULE_FILENAME, "shipped body\n", "edited body\r\nsecond line\r\n")
+        rows = self.rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["installed_sha256"], upgrade_io._installed_hash(dst))
+
+    def test_bom_prefixed_copy_hashes_equal_to_its_bom_less_twin(self):
+        bom_dst = self.write_pair(self.RULE_FILENAME, "shipped body\n", "edited body\n")
+        bom_dst.write_bytes(b"\xef\xbb\xbf" + b"edited body\n")
+        twin = self.tmp / "twin.md"
+        twin.write_bytes(b"edited body\n")
+        rows = self.rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["installed_sha256"], upgrade_io._installed_hash(twin))
 
 
 if __name__ == "__main__":

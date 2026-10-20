@@ -55,6 +55,8 @@ from pathlib import Path
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+
 LEDGER_NAME = ".anchor-claims.json"
 
 # How long a claim stays honoured before it is treated as abandoned. A claim

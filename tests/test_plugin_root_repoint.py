@@ -260,6 +260,87 @@ class TestTokenSaverHonoredOnCurrentVersionBranch(_RepointFixtureBase):
 
 
 # ---------------------------------------------------------------------------
+# The current-version branch must honour the feedback-drafting keys too
+# ---------------------------------------------------------------------------
+class TestFeedbackKeysOnCurrentVersionBranch(_RepointFixtureBase):
+    """A `feedback:` block without `drafts` is the shape an older install carries. The
+    current-pin branch is the only chance that population gets, so it backfills the key,
+    prints the banner once, and honours an explicit flag."""
+
+    BANNER_PREFIX = "Feedback drafting:"
+
+    def feedback_config(self, drafts=None, enabled="false", feedback_dir=None) -> str:
+        text = self.config_text(self.plugin_root, self.LIVE_VERSION)
+        if feedback_dir is not None:
+            text += f'project:\n  feedback_dir: "{feedback_dir}"\n'
+        text += f'feedback:\n  enabled: {enabled}\n  repo: "gabgoss/planwise"\n  include_environment: true\n'
+        if drafts is not None:
+            text += f"  drafts: {drafts}\n"
+        return text
+
+    def banner_lines(self) -> list:
+        return [ln for ln in self._last_stdout.splitlines() if ln.startswith(self.BANNER_PREFIX)]
+
+    def test_absent_key_gets_notify_and_one_banner_across_two_runs(self):
+        self.write_config(self.feedback_config())
+
+        self.assertEqual(self.run_upgrade_quiet(), 0)
+
+        self.assertEqual(self.load_config()["feedback"]["drafts"], "notify")
+        self.assertEqual(len(self.banner_lines()), 1, self._last_stdout)
+        self.assertIn("ON", self.banner_lines()[0])
+        after_first = self.config_path().read_bytes()
+
+        self.assertEqual(self.run_upgrade_quiet(), 0)
+
+        self.assertEqual(self.config_path().read_bytes(), after_first, "the second run must write nothing")
+        self.assertEqual(self.banner_lines(), [], "the second run must print no banner")
+
+    def test_absent_key_with_flags_writes_both_keys_and_names_the_configured_directory(self):
+        self.write_config(self.feedback_config(feedback_dir="MyFeedback"))
+        self.cfg.feedback_drafts = "quiet"
+        self.cfg.feedback_enabled = True
+
+        self.assertEqual(self.run_upgrade_quiet(), 0)
+
+        block = self.load_config()["feedback"]
+        self.assertEqual(block["drafts"], "quiet")
+        self.assertIs(block["enabled"], True)
+        self.assertEqual(len(self.banner_lines()), 1, self._last_stdout)
+        self.assertIn("feedback.drafts: quiet", self._last_stdout)
+        self.assertIn("true (set this run)", self._last_stdout)
+        self.assertIn("planwise/MyFeedback/", self.banner_lines()[0])
+
+    def test_set_key_without_flags_is_byte_identical_and_silent(self):
+        before = self.feedback_config(drafts="notify")
+        self.write_config(before)
+
+        self.assertEqual(self.run_upgrade_quiet(), 0)
+
+        self.assertEqual(self.read_config(), before)
+        self.assertEqual(self.banner_lines(), [])
+
+    def test_no_block_without_flags_is_byte_identical_and_silent(self):
+        before = self.config_text(self.plugin_root, self.LIVE_VERSION)
+        self.write_config(before)
+
+        self.assertEqual(self.run_upgrade_quiet(), 0)
+
+        self.assertEqual(self.read_config(), before)
+        self.assertEqual(self.banner_lines(), [])
+
+    def test_set_key_with_enabled_flag_on_an_enabled_config_is_byte_identical(self):
+        before = self.feedback_config(drafts="notify", enabled="true")
+        self.write_config(before)
+        self.cfg.feedback_enabled = True
+
+        self.assertEqual(self.run_upgrade_quiet(), 0)
+
+        self.assertEqual(self.read_config(), before)
+        self.assertEqual(self.banner_lines(), [])
+
+
+# ---------------------------------------------------------------------------
 # Atomicity: every abort path leaves BOTH keys untouched
 # ---------------------------------------------------------------------------
 class TestAbortedUpgradeLeavesPairUntouched(_RepointFixtureBase):

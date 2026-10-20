@@ -45,6 +45,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
 import generate_plans_index as gen
 import parse_plans

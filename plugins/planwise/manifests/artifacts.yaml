@@ -164,8 +164,10 @@ artifacts:
       — rewrites the single `token_saver` sub-key from false to true.
       (3) calibrate() in scripts/context_calibration.py — a measured-value
       REWRITE of its six calibrate-written `token_saver_*` sub-keys in
-      place, run by handlers/upgrade.md Step 2.5 ONLY when
-      `context.token_saver` resolves true after Step 1.5; skipped
+      place, run by the upgrade writer itself
+      (`artifact_upgrade._run_upgrade`, unless `--no-calibrate`) when
+      `context.token_saver` resolves true after Step 1.5, and reported
+      by handlers/upgrade.md Step 2.5; skipped
       silently when off, and the template default is false. Writers (2)
       and (3) touch measured or opt-in VALUES under the block, never its
       structure, and both are conditional on the user's opt-in, so
@@ -569,7 +571,8 @@ artifacts:
     notes: >
       The four `.claude/**`-scoped author-time rules (agent-authoring,
       skill-authoring, rule-authoring, artifact-self-containment) come from the
-      INSTALLED_RULES table in init_project.py. install_rules() also calls
+      INSTALLED_RULES table in rule_registry.py (re-exported by
+      init_project.py). install_rules() also calls
       install_style_rules() for the two global style rules, which the
       style_rules row below describes. The plan/backlog/lessons reference
       files that previously installed here are
@@ -666,11 +669,14 @@ artifacts:
     on_disk: "{planwise_root}/config.yaml (block: feedback)"
     config_keys:
       - "feedback.enabled"
+      - "feedback.drafts"
     producer: "generate_config() / --migrate"
     consumers:
       - "/planwise feedback"
+      - "mcp__planwise__draft_feedback"
     missing_key_behavior: migrate_only
     upgrade_behavior: preserve
+    notes: "--migrate merges nested sub-keys only under context:, so an existing feedback: block is not backfilled with drafts; the loader default (notify) covers it."
 
   - id: planwise_skill
     on_disk: "plugin in-place (skills/planwise/SKILL.md)"
@@ -687,17 +693,20 @@ artifacts:
       duplicate install path.
 
   - id: hooks_module
-    on_disk: "plugin in-place (hooks/hooks.json, hooks/register.ts)"
-    config_keys: []
+    on_disk: "plugin in-place (hooks/hooks.json, hooks/register.ts, hooks/draft-feedback.ts, hooks/feedback/)"
+    config_keys:
+      - "feedback.drafts"
     producer: "(not produced — read in-place from the plugin)"
     consumers:
       - "/planwise backlog"
+      - "mcp__planwise__draft_feedback"
     missing_key_behavior: warn_loud
     upgrade_behavior: not_installed
     notes: >
-      The backlog loop's compaction-and-re-entry module is read in-place
-      from the plugin directory and is never copied to the project. The
-      upgrade loop ignores it.
+      The hooks module composes the backlog loop's compaction-and-re-entry
+      hooks and the draft_feedback tool into the single entry register.ts.
+      It is read in-place from the plugin directory and is never copied to
+      the project. The upgrade loop ignores it.
 
   - id: artifact_self_containment_rule
     on_disk: ".claude/rules/planwise/artifact-self-containment.md"
@@ -779,7 +788,7 @@ artifacts:
       contract, orchestrator adjudication of BLOCKER-from-heuristic). De-scoped
       from the install set — no longer installed as a path-scoped rule under
       {planwise_root}/{plans_dir}/**; the plan-reviewer agent loads it in-place
-      from references/ at review time (see DESCOPED_RULES in init_project.py).
+      from references/ at review time (see DESCOPED_RULES in rule_registry.py).
       On upgrade across RESCOPE_MIGRATION_VERSION, migrate_installed_rules()
       removes the untouched or high-confidence stale-subset previously-
       installed copy (backed up under upgrade-backups/ first) and preserves

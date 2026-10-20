@@ -40,7 +40,7 @@ The orchestrator's window is not held to `token_saver_session_target`. What repl
 
 **The driver is session length, not task count.** Peak window tracks turns plus the auto-injected rule surface (see [Injection Visibility](#injection-visibility) below); correlation with task count is weak. Splitting a session into more tasks does not lower its window — ending the session sooner does, and so does shrinking the injected surface.
 
-**Enforcement is the model floor.** Project the session's window forward — it starts at the measured `token_saver_orchestrator_overhead` and grows with turns — then escalate the dispatch or split the session when that projection approaches the real ceiling of the model the session runs on: Haiku/Sonnet 200K, Opus 1M (see [§ Subagent Context Window](session-context-budget.md#subagent-context-window)). That ceiling is a mechanical limit, so it holds whether or not anyone is watching; the band above is planning context, not a split trigger.
+**Enforcement is the model floor.** Project the session's window forward — it starts at the measured whole-session start cost in `token_saver_session_start_range` and grows with turns — then escalate the dispatch or split the session when that projection approaches the real ceiling of the model the session runs on: Haiku/Sonnet 200K, Opus 1M (see [§ Subagent Context Window](session-context-budget.md#subagent-context-window)). That ceiling is a mechanical limit, so it holds whether or not anyone is watching; the band above is planning context, not a split trigger.
 
 **Reporting is config-gated.** `context.token_saver_orchestrator_advisory` (`measured` | `off`) controls whether the band is surfaced in reports. With `off`, the model floor still applies — it is a hard limit, not an advisory. Nothing here changes the dispatched window's HARD ceiling.
 
@@ -79,7 +79,7 @@ Only `token_saver_session_target` and `token_saver_runner_overhead` enter budget
 |-----|------|----------|
 | `token_saver_session_target` | Per-dispatched-window ceiling, default 150,000 | `derive_thresholds` |
 | `token_saver_runner_overhead` | Plugin-attributed footprint: the Agents and Skills rows whose Source starts with "Plugin" | `derive_thresholds` |
-| `token_saver_orchestrator_overhead` | Plugin-attributed footprint minus the Messages row | Orchestrator-window projection only, never `derive_thresholds` |
+| `token_saver_orchestrator_overhead` | Plugin-attributed footprint, equal to `token_saver_runner_overhead` | Reporting only, never `derive_thresholds` |
 | `token_saver_session_start_range` | `{min, median, max}` of the whole-session `total_active` reading, a single sample today | Reporting only |
 | `token_saver_injected_rules_estimate` | The "Memory files" category row | Reporting only |
 
@@ -93,10 +93,9 @@ warn               = min(40000, round(0.5 × available_per_task))
 
 `runner_overhead` and `orchestrator_overhead` are plugin-attributed footprints. They are never the session base cost. The whole-session start cost sits in `session_start_range`, and the engine does not subtract it. A plan that reads `runner_overhead` as the fixed cost of starting a runner overstates its headroom by the gap between the two.
 
-Two engine terms are still on the pre-attribution basis. Both are open engine defects, not part of the formula.
+Both overheads are floored at 0, so no capture can put a negative overhead into budget math. The attribution sum holds no Messages row, so the engine subtracts nothing from it.
 
-- The engine currently computes `orchestrator_overhead` as `runner_overhead − Messages`, although the attribution sum holds no Messages. Until that changes, treat it as an unreliable low figure.
-- The engine currently writes fallback overheads of 54,000 (runner) and 60,000 (orchestrator) when capture fails. Both come from the whole-installation basis. Until that changes, treat an `uncalibrated` fallback as a pessimistic placeholder.
+When a capture fails, the engine writes a fallback of 2,400 for both keys and marks the result `uncalibrated`. The fallback is about twice the highest measured plugin-attributed footprint, so it over-estimates the overhead slightly. Fallbacks written before the attribution basis read 54,000 (runner) and 60,000 (orchestrator). Treat that pair as a fallback too, and recapture from an interactive session.
 
 ## Injection Visibility
 

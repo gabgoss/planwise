@@ -31,7 +31,7 @@ The injected line above also prints a `planwise: …` version notice when the co
 | `plan` | Read [handlers/plan.md](../../handlers/plan.md) |
 | `review` | Read [handlers/review.md](../../handlers/review.md) |
 | `run` | Read [handlers/run.md](../../handlers/run.md) |
-| `upgrade` | Read [handlers/upgrade.md](../../handlers/upgrade.md) |
+| `upgrade` | Follow [Upgrade](#upgrade) below (the preflight card, the handler is its fallback) |
 | `doctor` | Read [handlers/doctor.md](../../handlers/doctor.md) |
 | `token-saver` | Read [handlers/token-saver.md](../../handlers/token-saver.md) |
 | `backlog` | Read [handlers/backlog.md](../../handlers/backlog.md) |
@@ -62,6 +62,12 @@ The shell line under Routing renders the `list` answer before you run. Check rul
 
 4. **Reconcile on consent.** The writer is `reconcile_plans.py --write`, and it regenerates the whole plans index. Run it only after the user agrees. A permission prompt on this path is acceptable. [handlers/list.md](../../handlers/list.md) gives the exit-code meanings.
 5. **Typed flags.** If the `ARGUMENTS:` line holds `--active` or `--no-check`, ignore any injected block. The shell line passes only the subcommand, so that block is unfiltered and always checked. Take the one-call route of rule 3 with those flags.
+
+## Upgrade
+
+If a `<!-- planwise:upgrade:begin -->` block appears above, follow its NEXT block exactly and read nothing else.
+
+Read [handlers/upgrade.md](../../handlers/upgrade.md) instead when the block is absent, when the line reads `[shell command execution disabled by policy]`, or when a `PLANWISE_UPGRADE_FALLBACK:` line appears.
 
 ## Help
 
@@ -97,6 +103,8 @@ Available subcommands:
   feedback [bug|lesson|idea]   Report a planwise bug, lesson, or idea upstream
   feedback --status            Show each local draft and whether it was posted
   feedback --sweep             Archive drafts already posted (asks first; never deletes)
+  feedback --drafts            Review, post, or discard feedback drafts Claude wrote
+  feedback --post <draftId>    Review and post one queued feedback draft
   harvest [<scope>] [--dry-run] [--resume] [--max-items=N] [--include-existing] [--no-auto-approve]
           Run the lesson-to-artifact chain end to end, unattended.
   help                         Show this help message
@@ -114,6 +122,7 @@ Available subcommands:
 | `$1` | handler's first argument | `MyPlan` |
 | `$2` | handler's second argument | `--meta` |
 | `$ARGUMENTS` | full original string | `plan MyPlan --meta` |
+| `${CLAUDE_SESSION_ID}` | the current session id — the feedback-drafting recipe copies it into `source_session_id` | `<the substituted id>` |
 
 ARGUMENTS: $ARGUMENTS
 
@@ -128,6 +137,7 @@ ARGUMENTS: $ARGUMENTS
 - [Agent orchestration](../../references/agent-orchestration.md)
 - [Do the hard things](../../references/do-the-hard-things.md) — the project motto: favor the coherent, complete treatment over the easy partial one; effort is never the tiebreaker
 - [Native tool use](../../references/native-tool-use.md) — dedicated file tools (Read/Grep/Glob/Edit/Write) over shell equivalents for file-tree reads, searches, and edits; scoped, not a blanket shell prohibition
+- [Feedback drafting](../../references/feedback-drafting.md) — draft a local, never-sent planwise feedback file at a high-signal moment; honour feedback.drafts; never announce
 
 **Loaded on demand, NOT pre-injected** — each is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. Key references (not exhaustive — handlers own the full set):
 

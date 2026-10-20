@@ -339,7 +339,7 @@ Before starting ANY session, verify:
 > - [ ] If META Discovery session → Mode is DELEGATED
 > - [ ] If DELEGATED: Orchestration Required Context lists ONLY plan files
 > - [ ] If DELEGATED: Heavy context files appear ONLY in task file Required Context
-> - [ ] If DELEGATED: Context Boundary subsection present in Execution Strategy
+> - [ ] If DELEGATED: `> [!constraint] Mandatory Context Boundary` callout present in Execution Strategy (Reviewer Check 012)
 > - [ ] If plan uses Meta-Plan AND this session is past Discovery: `Exec-{Abbrev}/` folder exists (not writing into Meta parent)
 > - [ ] If plan uses Meta-Plan AND this session is past Discovery: `Scaffold-{Abbrev}/` folder exists (scaffolding phase was run)
 > - [ ] Both rows above are phase-gated. A Discovery-phase session runs inside `Meta-{Abbrev}/`, and the scaffolding pass has not yet created either folder — test for `Exec-{Abbrev}/`, and skip both rows while it is absent
@@ -361,10 +361,27 @@ After completing a session:
 > - [ ] Orchestration status updated to COMPLETE
 > - [ ] Sprint Plan tracking table updated
 > - [ ] Master Plan tracking table updated
+> - [ ] If this session set the Master Plan to `Status: COMPLETE`, close every backlog item in its `**Resolves:**` header field (`handlers/run.md` Step 4.3, step 6). Add a dated note to each item file. Then run `update_backlog.py --status COMPLETE` per item and `generate_backlog_index.py --write` once. Never hand-edit an item's `status:`. Under an `IN_PROGRESS — awaiting {user action}` hold, the items stay `PLANNING`
 > - [ ] Lessons learned documented in LessonsLearned/LL-{NNN}-{Domain}-{Name}.md (YAML frontmatter + 3 sections)
 > - [ ] 00-Index-LessonsLearned.md regenerated with new entries (`generate_lessons_index.py --write`)
 > - [ ] If any session lesson is HIGH-severity or recurs (2+ instances across sessions), evaluate promotion to `.claude/rules/` per `task-file-and-tracking-requirements.md §9` step 6. Record the promotion decision in the lesson frontmatter (`applied-as:` path) and the Rule Promotion Log.
 > - [ ] Git commit with changes (lessons included before final commit)
+
+> [!constraint] A backlog item the plan executes is listed in `**Resolves:**`
+> The closeout bullet above closes only the items that the Master Plan names in `**Resolves:**`. A plan can execute an item without naming it there. A task may check off the item's Acceptance Criteria. The Master Plan may cite the item as the requirement it executes. Either way, that item stays `NOT_STARTED` or `PLANNING` after the plan ships, with every box checked. Nothing at closeout reports the gap.
+>
+> Add every such item id to `**Resolves:**` before execution. `/planwise review` reports a missing id as a WARNING under Check 100.
+>
+> WRONG — a task checks off the item's criteria, and the field reads `none`:
+> ```
+> **Resolves:** none
+> Task 03 Success Criteria: tick each Acceptance Criteria box in BLI-{NNN} once verified
+> ```
+> CORRECT — the field names the item, so closeout closes it:
+> ```
+> **Resolves:** BLI-{NNN}
+> Task 03 Success Criteria: tick each Acceptance Criteria box in BLI-{NNN} once verified
+> ```
 
 ---
 
@@ -387,11 +404,11 @@ After completing a session:
 
 ## Templates
 
-For full templates, see the [planwise plugin templates](templates/):
-- [master-plan.md](templates/master-plan.md) — Master Plan Template
-- [sprint-plan.md](templates/sprint-plan.md) — Sprint Plan Template
-- [orchestration.md](templates/orchestration.md) — Orchestration Template
-- [recovery.md](templates/recovery.md) — Recovery Template
+For full templates, see the [planwise plugin templates](../templates/):
+- [master-plan.md](../templates/master-plan.md) — Master Plan Template
+- [sprint-plan.md](../templates/sprint-plan.md) — Sprint Plan Template
+- [orchestration.md](../templates/orchestration.md) — Orchestration Template
+- [recovery.md](../templates/recovery.md) — Recovery Template
 - Pre/Post-Session Checklists: Sections 10-11 above
 
 ---

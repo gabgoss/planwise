@@ -462,6 +462,7 @@ When a new plugin version is published, upgrading happens in two stages:
    - Bumps the pinned `plugin_version:` in your `config.yaml`
    - Migrates a hand-authored backlog, lessons or plans index, backing up every file first. A refusal names the fix.
    - Adds any new top-level config keys (the additive merge previously available via `--migrate`), including the `upgrade:` block described below
+   - **States the drafting behaviour once:** when the config has no `feedback.drafts` key, the upgrade asks about `feedback.drafts` and `feedback.enabled`, writes the answers (or the `notify` default when unattended), and prints a `Feedback drafting:` entry once.
    - Backfills missing lessons scaffolding — seeds the generated lessons index (hub, overflow leaves, Archive shards) and the categorization file that gates `lessons curate` / `promote-batch` when either is absent (idempotent; an existing file, customised or not, is preserved verbatim)
    - Refreshes installed rules whose local body still matches the previously-shipped body
    - **Auto-adopts stale copies:** a diverged file whose content is a clean structural subset of the newer shipped version (an old copy you never edited, that the plugin has since grown) is refreshed in place — rules keep your `paths:` line. Before any overwrite or removal, the pre-change file is copied under `{planwise_root}/upgrade-backups/<from>-to-<to>/` (with a `DISPOSITIONS.md` log), so every automatic disposition is recoverable even without git
@@ -470,7 +471,7 @@ When a new plugin version is published, upgrading happens in two stages:
    - **Re-calibrates Token Saver** overheads (the same `/context` capture `token-saver on` runs) so the budget tracks your current install.
    - **Over-scope advisory:** after upgrading, the script lists any `.claude/rules/**` still scoped to plan/backlog/lessons paths. Run [`/planwise doctor`](#8-planwise-doctor) any time for the full read-only report.
 
-   See `handlers/upgrade.md` for the full workflow.
+   See `handlers/upgrade.md` for the full workflow. The skill's preflight prints an upgrade card first; the handler is its fallback.
 
 > Running `/planwise init` after a plugin update detects the pinned-version drift and surfaces a SKIPPED row pointing at this command, so the prompt is reachable even if you forget the recipe.
 
@@ -507,7 +508,7 @@ flowchart LR
 
 Walks you through a short prompt — bug, lesson, or idea — and drafts a submission from what you type. Only your answers to the prompt go into the draft; file contents, repo paths, and config values are never included.
 
-**Opt-in, off by default.** Posting upstream requires `feedback.enabled: true` in your `config.yaml` AND an interactive confirmation that shows any possible duplicates found in the tracker, then the exact body, before anything is sent — nothing goes out without both. You can post as a new issue, comment on an existing one instead, or cancel. In Auto Mode, `feedback` never posts: it always saves the draft to disk and prints the file path instead.
+**Opt-in, off by default.** Posting upstream requires `feedback.enabled: true` in your `config.yaml` AND an interactive confirmation that shows any possible duplicates found in the tracker, then the exact body, before anything is sent — nothing goes out without both. You can post as a new issue, comment on an existing one instead, or cancel. If your `config.yaml` has no `feedback.enabled` key at all, `feedback` offers once to set it to `true` for you, or to keep only the draft. A key you set to `false` is a decision, and `feedback` never asks about it. In Auto Mode, `feedback` never posts: it always saves the draft to disk and prints the file path instead.
 
 **Privacy.** The submitted body never contains your file contents, repo paths, or config values — only what you wrote in the prompt. If `gh` isn't installed, isn't authenticated, or you decline the post, your draft is preserved locally and the issues URL is printed so you can file it by hand.
 
@@ -530,6 +531,14 @@ flowchart LR
 `--status` lists every local draft in `Feedback/` and whether it's been posted — a marked draft shows its issue number, state, and title (one read-only lookup per issue); a draft with no marker is listed as not known to have been posted, since it may have been filed by hand instead of through this command. It makes no changes and asks no questions.
 
 `--sweep` finds drafts already marked posted and offers to archive them — move each one, together with its marker, into `Feedback/Archive`. It never deletes anything, and it never touches a draft with no posted marker. It always lists the candidates first; nothing moves until you confirm, and Cancel is the pre-selected default. On a non-interactive session, including Auto Mode, it lists the candidates and stops without moving anything.
+
+### Drafts Claude writes for you
+
+While you work, Claude may notice a planwise bug, lesson, or idea and save it as a feedback draft in your feedback directory, without interrupting you. A draft is never sent: nothing posts until you review it. Run `/planwise feedback --drafts` to review the queued drafts and post, edit, or discard each one (`--all` also lists discarded and posted drafts). Run `/planwise feedback --post <draftId>` to review and post one named draft. `<draftId>` is the `draft_id` frontmatter value, the same id that `scripts/feedback_drafts.py discard|promote <id>` take. The `feedback.drafts` key in `config.yaml` sets the behavior: `notify` (the default) tells you a draft was saved, `quiet` saves it without a message, and `off` writes no drafts. Drafts sit in your project tree, and `/planwise init` adds a `.gitignore` line for them.
+
+Through its hooks module, which Claude Code loads by default, the plugin also registers the tool `mcp__planwise__draft_feedback`, which Claude calls silently. It writes the same draft file, so `/planwise feedback --drafts` reviews tool-written and hand-saved drafts together. Setting `feedback.drafts: off` registers no tool.
+
+When the tool queues a draft, meaning the helper admitted it, the card component `hooks/feedback-card.tsx`, which the hooks module (`hooks/register.ts`) loads, shows a review card above the prompt. A draft the helper refuses shows no card. The card opens with a `Planwise Plugin for Claude Code` badge, names the draft's kind and title, and previews its first lines. Press `1` to review the queued drafts, `2` to post this draft, or `0` to dismiss the card. Press the key when the prompt is empty, or focus the band with ctrl+x tab. A digit typed into a prompt that already holds text stays text. The card shows for at most the first three drafts of a session, and it yields to a survey and to a running turn. A draft that replaces one you have not seen yet does not use up one of the three. After you dismiss two cards, it offers to turn drafts off. Answer `Turn off` to run `scripts/feedback_drafts.py disable-drafts`, which sets `feedback.drafts: off` in `config.yaml` and takes effect next session. If the helper cannot write a valid config, nothing changes and drafts stay on. Any other answer keeps drafts on. The card appears on the terminal and desktop surfaces only.
 
 ---
 
@@ -580,7 +589,7 @@ flowchart LR
 | `/planwise token-saver on\|off\|status` | Toggle Token Saver mode anytime (`--plan` to override one plan) |
 | `/planwise upgrade` | Refresh installed rules + config after a plugin update |
 | `/planwise help` | Show available commands and link to user guide |
-| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (`--status` to check posting state, `--sweep` to archive posted drafts) |
+| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (`--status` to check posting state, `--sweep` to archive posted drafts, `--drafts` to review, post, or discard drafts Claude wrote; `--post <draftId>` to review and post one) |
 | `/planwise harvest` | Run the lesson-to-artifact chain end to end, unattended |
 
 ---
@@ -660,7 +669,7 @@ planwise/                           # Plugin root
   templates/                        # Markdown templates
   manifests/                        # Artifact manifest and agent history
   seed/                             # Index file seeds for init
-  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py and skill_preflight.py (the zero-call list))
+  scripts/                          # Python scripts (backlog + index-reconcile utilities, init_project.py, token_saver.py, structural_compare.py, list_plans.py and skill_preflight.py (the zero-call list and the upgrade card))
   hooks/                            # hooks.json and register.ts — the backlog loop's compaction-and-re-entry module
   examples/                         # Sample outputs
   config.yaml.template              # Config template

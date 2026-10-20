@@ -6,9 +6,9 @@
 
 | Item | Value |
 |---|---|
-| Source file | `claude-code.d.ts` from the cli-watch snapshot for Claude Code 2.1.293, written by `python -m cliwatch declarations` from the executable's embedded declarations asset |
-| Source sha256 (core asset) | `9a78f057e9a3abf3228a59e7f8ed50e2150fb0b1f02312dd4efc033466dfcc95` |
-| Snapshot file sha256 | `2f00c65b47def7f8f1c94a90bcb390927839411167f8b6a5fc2159f6f581befb` |
+| Source file | `claude-code.d.ts` from the cli-watch snapshot for Claude Code 2.1.300, written by `python -m cliwatch declarations` from the executable's embedded declarations asset |
+| Source sha256 (core asset) | `022bb1fe04ea4c2ca8d0d2fddf63838e8924bbad020ca3ca987c4cc512880156` |
+| Snapshot file sha256 | `4ef2b862e13812b3a658b8420eec6f586dfedeb11641ad497f37f28845423c45` |
 | Transform | first line deleted; each doc example of a CLI version string (regex `2\.1\.\d{3}`) replaced with `X.Y.Z` |
 | Replacements | 6 |
 | MCP file | `claude-code-mcp.d.ts` is a frozen byte copy of the file in the 2.1.286 capture, because it carries no version string |
@@ -21,7 +21,7 @@ The MCP file was not regenerated. No build from 2.1.293 on writes it, because th
 
 | File | sha256 |
 |---|---|
-| `claude-code.d.ts` | `1625586fa7c363ff7048fd4e6d71a95aadd7ec99cf986f204e98c612c528aa06` |
+| `claude-code.d.ts` | `b8ac00858e547a8e449c6f3d39060c99aa0e8e5e00f666a4e0f84e6e133236df` |
 | `claude-code-mcp.d.ts` | `47979a1cef42168e2f600c759eb3f650bc33f515baa7a9674a632db16b2533e1` |
 
 The instrument is the sha256 of the working-tree bytes. The bytes are LF. The repo-root `.gitattributes` line `tests/hooks/types/*.d.ts -text` keeps them LF on checkout under `core.autocrlf=true`.

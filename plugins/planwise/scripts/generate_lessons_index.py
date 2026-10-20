@@ -78,6 +78,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
 # Windows consoles default stdout to cp1252, which cannot encode the em
 # dashes and curly quotes several lesson titles carry.

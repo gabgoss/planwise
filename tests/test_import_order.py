@@ -4,8 +4,11 @@ fresh interpreter.
 Inside one pytest process, whichever test module imports first decides the
 order every script module is initialised in, so an import cycle can stay
 hidden. `init_project`, the composition root, re-exports names from
-`artifact_upgrade` and `rule_descope_migration`, and both (plus
-`doctor_sweeps` and `doctor_cli`) import back from `init_project`. The root
+`artifact_upgrade`, `rule_descope_migration`, `doctor_sweeps` and
+`doctor_cli`. Those four used to import `INSTALLED_RULES` and its siblings
+back from `init_project`, a cycle that only resolved when `init_project`
+loaded first; the shared names now live in the leaf module `rule_registry`,
+and this test is what keeps a future edit from reopening that cycle. The root
 conftest imports only `sys`, `pathlib` and `pytest`, so nothing there hides
 the defect; collection order does. Each case therefore runs in a subprocess
 with bytecode off (`-B`), where nothing has been imported yet.

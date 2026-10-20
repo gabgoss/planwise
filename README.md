@@ -170,7 +170,7 @@ For detailed documentation on every command, agents, configuration options, and 
 | `/planwise lessons curate [--phase=X]` | Categorise new lessons and log promotions |
 | `/planwise lessons promote-batch <scope>` | Plan promotion of many lessons as backlog items |
 | `/planwise harvest` | Run the lesson-to-artifact chain end to end, unattended |
-| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (needs `gh` to post directly; `--status`, `--sweep`) |
+| `/planwise feedback` | Report a planwise bug, lesson, or idea upstream (needs `gh` to post directly; `--status`, `--sweep`, `--drafts` to review, post, or discard drafts Claude wrote; `--post <draftId>` to review and post one) |
 | `/planwise help` | Show available commands and link to user guide |
 
 ---

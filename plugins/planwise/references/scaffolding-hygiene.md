@@ -367,8 +367,12 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 > 2. **If average divergence exceeds the project's field/rename threshold per
 >    deliverable** → declare the cohort "high-divergence" and apply the
 >    token-uplift heuristic.
-> 3. **Encode the uplift in the Master Plan token-budget summary AND in each
->    per-task estimate.**
+> 3. **Encode the uplift as its own named addend in each cohort task's
+>    `**Context subtotal:**` line** — `+ ~{U}K (cohort uplift: {cohort})`,
+>    per the Context subtotal identity in `templates/task-file.md`. The task
+>    header's `**Estimated Tokens:**`, the session Orchestration total and the
+>    Sprint Plan figure then re-roll with it. The Master Plan carries no
+>    token-budget table, so the uplift has no separate Master Plan entry.
 >
 > Cohort-divergence signal table:
 >
@@ -392,7 +396,7 @@ This file is the §14 expansion referenced from the Companion Files and Extracte
 #### Reviewer Check 050 — Cohort Token-Uplift Practice
 
 - **Severity / Role:** WARNING | Scaffolding Hygiene Reviewer | NEW
-- **Detection:** Open Master Plan Sprint Overview Notes column; for high-divergence cohorts, verify cohort token-uplift entry present. Absent → WARNING.
+- **Detection:** In each sprint, `Grep` the task files for `^### Field Mapping`. Two or more matching task files form a high-divergence cohort, per the "Mechanical signal" paragraph of §10. For each file in a cohort, `Grep` the whole file for `\(cohort uplift:`. That label belongs only to the Context subtotal addend of §10 step 3, and a long subtotal may wrap onto a second line. A cohort file with no match → WARNING. A sprint with fewer than two matching files → the check does not fire.
 - **Finding template:** `[WARNING] High-divergence cohort missing token-uplift entry | Fix per references/scaffolding-hygiene.md §10`
 
 ---

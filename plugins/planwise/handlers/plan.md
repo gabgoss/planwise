@@ -66,7 +66,7 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
 
 **Plan-specific references (always load):**
 1. Read `references/session-planning-protocol.md`
@@ -733,7 +733,7 @@ Before completing `/planwise plan`, verify:
 [ ] Execution Strategy declared in Orchestration (DIRECT or DELEGATED)
 [ ] If 2+ Opus tasks or META session -> Strategy is DELEGATED
 [ ] If DELEGATED: Orchestration Required Context = plan files only
-[ ] If DELEGATED: Context Boundary subsection lists what orchestrator never reads
+[ ] If DELEGATED: the template's `> [!constraint] Mandatory Context Boundary` callout (Reviewer Check 012) lists what orchestrator never reads
 [ ] If effective Token Saver on (plan Master-Plan `Token Saver:` field over the project `context.token_saver` default) — the Step 8c large-file scan was **run, not reproduced by hand**, and its exit code recorded: `python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --config {config}`. **Exit 0 ticks this box.** A non-zero exit names the Warn+ files: each needs a backlog item, a cost-reason Critical needs its task flagged `1M-exception`, and a read-reason Critical needs a paged-read/refactor note — never `1M-exception`. Re-run until it exits 0, or record per remaining file why it stands. Generated artifacts a runner reads must also be under the line/byte/token read gates. This item is the tool's exit code, not a judgement — a ticked box with no run behind it is the failure the scan exists to prevent
 [ ] If Discovery → Scaffolding: Multi-tier extraction tiers documented in EI header (Tier 1 + Tier 2 + Tier 3 where applicable)
 [ ] If Discovery → Scaffolding: Deferred/Out-of-Scope Log present per sprint

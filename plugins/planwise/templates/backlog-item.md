@@ -115,6 +115,24 @@ When an item's scope is understood well enough at filing time, list the files it
 
 `Role` is one of `READ` (context only), `EDIT` (modified), or `CREATE` (does not exist yet). Measure an existing file's size with `scripts/measure_files.py`; a `CREATE` row carries a flagged estimate, never a blank cell. This is a filing-time estimate, not a generated roll-up, and may be revised as scope firms up.
 
+### Loop-written sections
+
+The backlog loop writes one section into an item it skips, and never more than one:
+
+```markdown
+## Loop Decision Needed
+
+<!-- loop-decision run=YYYYMMDD-HHMMSS -->
+> [!gate] User input needed
+> Loop run YYYYMMDD-HHMMSS, YYYY-MM-DD. The loop skipped this item without working it. Answer the question below, then triage it again.
+
+Question: {one question}
+Options: (A) {first} (B) {second}
+Evidence: {at most 3 lines}
+```
+
+`backlog_loop.py --mark --decision` is the only writer; the text is capped at 1,200 characters, and a later run replaces the section rather than adding a second. The router ignores this section when it counts headings, steps and lines, so a skip never changes the item's route.
+
 ---
 
 ## Notes

@@ -14,8 +14,10 @@ Run with:  python -m pytest tests/test_doctor_probes.py -q
 
 import contextlib
 import io
+import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -26,13 +28,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "pla
 
 import config_loader
 import doctor_probes as dp
+import feedback_drafts as fd
 import init_project as ip
 
 WARN_BYTES = 60_000  # past the 22,000-token warn line, under the 25,000-token page cap
 
 
-def _project(tmp_path, *, lessons=True, feedback=None, index_files=None):
-    """Write a minimal project and return its parsed config dict."""
+def _project(tmp_path, *, lessons=True, feedback=None, index_files=None, drafts=None):
+    """Write a minimal project and return its parsed config dict. `drafts` is
+    written verbatim, so a bare `off` reaches PyYAML as a boolean."""
     planwise = tmp_path / "project" / "planwise"
     planwise.mkdir(parents=True)
     lines = ['plugin_version: "1.0.4"', "project:", "  name: Fixture", "  backlog_dir: Backlog", "  plans_dir: Plans"]
@@ -41,8 +45,12 @@ def _project(tmp_path, *, lessons=True, feedback=None, index_files=None):
     if index_files:
         lines.append("  index_files:")
         lines += [f"    {family}: {name}" for family, name in index_files.items()]
+    if feedback is not None or drafts is not None:
+        lines.append("feedback:")
     if feedback is not None:
-        lines += ["feedback:", f"  enabled: {'true' if feedback else 'false'}"]
+        lines.append(f"  enabled: {'true' if feedback else 'false'}")
+    if drafts is not None:
+        lines.append(f"  drafts: {drafts}")
     (planwise / "config.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
     for name in ("Backlog", "Plans") + (("LessonsLearned",) if lessons else ()):
         (planwise / name).mkdir()
@@ -99,6 +107,16 @@ def test_stage_16_gh_absent(tmp_path):
     assert "gh authenticated:  n/a — gh absent" in out
     assert "gh not found on PATH or at a known install location" in out
     assert "Upstream posting: DRAFT-ONLY" in out
+
+
+@pytest.mark.parametrize(
+    ("drafts", "expected"),
+    [(None, "notify"), ("quiet", "quiet"), ("off", "off")],
+)
+def test_stage_16_prints_the_feedback_drafts_value(tmp_path, drafts, expected):
+    # A bare `off` is a YAML boolean; the line must read it through the loader.
+    out = _probe_stage_16(_project(tmp_path, feedback=True, drafts=drafts), on_path=True)
+    assert f"feedback.drafts:   {expected}" in out
 
 
 def test_stage_16_gh_unauthenticated(tmp_path):
@@ -205,6 +223,135 @@ def test_stage_17_directory_absent(tmp_path):
     assert "exists:               no" in out
     assert "! feedback directory is absent" in out
     assert "/planwise doctor --create-feedback-dir" in out
+
+
+_REMEDY_HINT = (
+    "review them with /planwise feedback --drafts, or post one with /planwise feedback --post <draftId>"
+)
+
+
+def _write_draft(directory, name, *, status="queued", drafted_by="model", age_days=1, created_at=None):
+    """One draft file. `age_days` sets `created_at` that many days in the past,
+    unless `created_at` gives the moment itself."""
+    created = (created_at or datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat()
+    text = (
+        "---\n"
+        f"draft_id: {name[:-3]}\n"
+        f"created_at: {created}\n"
+        f"drafted_by: {drafted_by}\n"
+        "kind: bug\n"
+        f"title: {name}\n"
+        f"status: {status}\n"
+        "---\n"
+        "Body.\n"
+    )
+    (directory / name).write_text(text, encoding="utf-8")
+
+
+def _queue_fixture(tmp_path, queued):
+    """A feedback directory holding `queued` queued model drafts plus four
+    files that must not count: a hand-written draft, a discarded model draft,
+    a non-matching name and an expired-by-age model draft."""
+    config = _project(tmp_path)
+    directory = Path(config["_feedback_dir"])
+    directory.mkdir()
+    for index in range(queued):
+        _write_draft(directory, f"2026-01-{index + 1:02d}-draft-bug-queued-{index}.md")
+    _write_draft(directory, "2026-02-01-draft-bug-hand.md", drafted_by="user")
+    _write_draft(directory, "2026-02-02-draft-bug-gone.md", status="discarded")
+    _write_draft(directory, "notes.md")
+    _write_draft(directory, "2026-02-03-draft-bug-old.md", age_days=fd.EXPIRY_DAYS + 10)
+    return config
+
+
+def _tree_bytes(root):
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def test_stage_17_counts_only_queued_model_drafts(tmp_path):
+    out = _run(dp._stage_17, _queue_fixture(tmp_path, 3))
+    assert "model drafts queued: 3" in out
+    assert _REMEDY_HINT in out
+
+
+def test_stage_17_zero_queued_prints_no_hint(tmp_path):
+    out = _run(dp._stage_17, _queue_fixture(tmp_path, 0))
+    assert "model drafts queued: 0" in out
+    assert "feedback --post" not in out
+
+
+def test_stage_17_absent_directory_is_not_checked(tmp_path):
+    out = _run(dp._stage_17, _project(tmp_path))
+    assert "model drafts queued: not checked" in out
+    assert "feedback --post" not in out
+
+
+def test_stage_17_unreadable_config_is_not_checked(tmp_path):
+    buf = io.StringIO()
+    with (
+        mock.patch.object(dp, "_load_project_config", return_value=(None, "no config.yaml")),
+        contextlib.redirect_stdout(buf),
+    ):
+        dp.run_probes(object())
+    out = buf.getvalue()
+    assert "model drafts queued: not checked" in out
+    assert out.count("model drafts queued:") == 1  # only the Stage 17 row carries the line
+    assert "feedback --post" not in out
+
+
+def test_stage_17_is_read_only_and_does_not_expire_an_old_draft(tmp_path):
+    config = _queue_fixture(tmp_path, 2)
+    directory = Path(config["_feedback_dir"])
+    before = _tree_bytes(directory)
+    # The aged draft is still `queued` on disk: a writer would flip it to `expired`.
+    assert b"status: queued" in before["2026-02-03-draft-bug-old.md"]
+    out = _run(dp._stage_17, config)
+    assert _tree_bytes(directory) == before
+    assert "model drafts queued: 2" in out
+
+
+def test_stage_17_counts_ten_or_more_queued_drafts(tmp_path):
+    # Two-digit day names must still match the helper's draft-name pattern.
+    out = _run(dp._stage_17, _queue_fixture(tmp_path, 10))
+    assert "model drafts queued: 10" in out
+
+
+def test_stage_17_a_failed_count_keeps_the_presence_lines(tmp_path):
+    config = _queue_fixture(tmp_path, 1)
+    with mock.patch.object(fd, "count_queued", side_effect=OSError("draft unreadable")):
+        out = _run(dp._stage_17, config)
+    assert "exists:               yes" in out
+    assert "— present." in out
+    assert "model drafts queued: not checked (the count failed: draft unreadable)" in out
+    assert "feedback --post" not in out
+
+
+def test_stage_17_a_helper_import_failure_stays_inside_stage_17(tmp_path):
+    # doctor_probes must not import the helper at module load.
+    assert "feedback_drafts" not in vars(dp)
+    config = _queue_fixture(tmp_path, 1)
+    with mock.patch.dict(sys.modules, {"feedback_drafts": None}):
+        out = _run(dp._stage_17, config)
+    assert "exists:               yes" in out
+    assert "model drafts queued: not checked (the count failed:" in out
+
+
+def test_stage_17_count_matches_the_helper_list_at_the_expiry_boundary(tmp_path):
+    now = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+    config = _project(tmp_path)
+    directory = Path(config["_feedback_dir"])
+    directory.mkdir()
+    limit = timedelta(days=fd.EXPIRY_DAYS)
+    _write_draft(directory, "2026-01-01-draft-bug-at-limit.md", created_at=now - limit)
+    _write_draft(directory, "2026-01-02-draft-bug-past-limit.md", created_at=now - limit - timedelta(seconds=1))
+    buf = io.StringIO()
+    with mock.patch.object(fd, "_now", return_value=now):
+        out = _run(dp._stage_17, config)
+        with contextlib.redirect_stdout(buf):
+            assert fd.main(["list", "--json", "--feedback-dir", str(directory)]) == 0
+    listed = [item for item in json.loads(buf.getvalue()) if item["status"] == "queued"]
+    assert [item["path"] for item in listed] == ["2026-01-01-draft-bug-at-limit.md"]
+    assert f"model drafts queued: {len(listed)}" in out
 
 
 # --- Step 7 -----------------------------------------------------------------

@@ -10,6 +10,7 @@ import dataclasses
 import datetime
 import json
 import re
+import shutil
 import subprocess
 from enum import Enum
 from pathlib import Path
@@ -46,6 +47,7 @@ except ImportError:
             "enabled": False,
             "repo": "gabgoss/planwise",
             "include_environment": True,
+            "drafts": "notify",
         }
 
     def write_config_checked(config_path, text: str) -> None:
@@ -285,6 +287,9 @@ class InitConfig:
     plan_tier: str = "pro"
     plugin_version: str = "0.0.0"
     token_saver: bool = False
+    feedback_drafts: str | None = None
+    feedback_enabled: bool = False
+    no_calibrate: bool = False
 
     @property
     def context_window(self) -> int:
@@ -320,19 +325,35 @@ def probe_cli_version(timeout: float = 5.0) -> str:
     fields already use. Never raises: any probe failure (missing binary,
     timeout, non-zero exit, unparseable output) degrades to the sentinel
     rather than aborting the caller's init/upgrade run.
+
+    Candidates are tried in order: the path `shutil.which` resolves for
+    `claude`, then for `claude.cmd`, then for `claude.exe`, then the bare name
+    `claude`. On Windows the CLI is often an npm `.cmd` shim that `subprocess`
+    cannot start by its bare name, so each name is resolved to a full path
+    first. A candidate that cannot be run, or whose output does not parse,
+    moves on to the next one.
     """
-    try:
-        result = subprocess.run(
-            ["claude", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    match = re.search(r"\b(\d+\.\d+\.\d+)\b", result.stdout or "")
-    return match.group(1) if match else ""
+    candidates: list[str] = []
+    for name in ("claude", "claude.cmd", "claude.exe"):
+        path = shutil.which(name)
+        if path and path not in candidates:
+            candidates.append(path)
+    candidates.append("claude")
+    for candidate in candidates:
+        try:
+            result = subprocess.run(
+                [candidate, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        match = re.search(r"\b(\d+\.\d+\.\d+)\b", result.stdout or "")
+        if match:
+            return match.group(1)
+    return ""
 
 
 def refresh_verified_cli_version(config_path: Path) -> str:
@@ -591,4 +612,107 @@ def _flip_token_saver_on(config_path: Path) -> bool:
     new_text = pattern.sub(r'\g<1>true\g<2>', text)
     write_config_checked(config_path, new_text)
     return True
+
+
+def drafts_key_state(config: dict) -> str:
+    """`no-block`, `absent` or `set` for the raw `feedback.drafts` key. Pure: reads the parsed mapping only.
+
+    The loader's get_feedback_config defaults an absent key to notify, so it cannot answer this
+    question. A YAML boolean (an unquoted `off` or `on`) counts as set. The upgrade card and the
+    upgrade writer both call this one function on the mapping they already hold.
+    """
+    block = config.get("feedback") if isinstance(config, dict) else None
+    if not isinstance(block, dict):
+        return "no-block"
+    return "set" if "drafts" in block else "absent"
+
+
+def _drafts_banner(value: str, answered: bool, enabled_set: bool, *,
+                   planwise_root: str, feedback_dir: str, plugin_root: Path) -> str:
+    source = "answered" if answered else "default, no answer given"
+    flipped = "true (set this run)" if enabled_set else "unchanged"
+    config = f"{planwise_root}/config.yaml"
+    keys = f"  feedback.drafts: {value} ({source}); feedback.enabled: {flipped}\n"
+    if value == "off":
+        return (
+            f"Feedback drafting: OFF — Claude will not save local feedback drafts under "
+            f"{planwise_root}/{feedback_dir}/\n"
+            "  nothing is posted without /planwise feedback --drafts and your approval\n"
+            + keys
+            + f"  turn it on: set feedback.drafts: notify (or quiet) in {config}"
+        )
+    return (
+        f"Feedback drafting: ON — Claude may now save local feedback drafts under "
+        f"{planwise_root}/{feedback_dir}/\n"
+        "  nothing is posted without /planwise feedback --drafts and your approval\n"
+        + keys
+        + f"  turn it off: set feedback.drafts: off in {config}, or run\n"
+        f'    python "{plugin_root.as_posix()}/scripts/feedback_drafts.py" disable-drafts '
+        f'--config "{config}"'
+    )
+
+
+def _apply_feedback_keys(config_path: Path, state_before: str, drafts: str | None, enabled: bool, *,
+                         planwise_root: str, feedback_dir: str, plugin_root: Path,
+                         real_upgrade: bool = False) -> list[str]:
+    """Splice the flagged `feedback.drafts` / `feedback.enabled` values and backfill a missing drafts key.
+
+    Reuses the feedback_drafts splice, so only the named lines change and comments survive.
+    `state_before` is drafts_key_state of the config as it stood before this run. Returns the
+    lines to print: one `feedback.{key}: {old} -> {new}` per changed key when the key was already
+    set, or the one-entry banner when it was not and a key was written or `real_upgrade` is true.
+    A refused edit, or a write the filesystem rejects, leaves the file as it was, prints one warning
+    to stderr and returns no lines, so the caller's upgrade carries on.
+    """
+    import sys
+
+    import feedback_drafts  # deferred: keeps this module free of an import-time edge into the feedback script
+
+    text = config_path.read_text(encoding="utf-8")
+    new_text = text
+    changes: list[tuple[str, str, str]] = []
+
+    def splice(key: str, value: str) -> None:
+        nonlocal new_text
+        updated, old = feedback_drafts._set_feedback_scalar(
+            new_text, key, value, lambda raw: feedback_drafts._unquote(raw).lower() == value)
+        if updated != new_text:
+            changes.append((key, old, value))
+            new_text = updated
+
+    def refuse(exc: Exception) -> list[str]:
+        print(f"Warning: feedback keys left unchanged: {' '.join(str(exc).split())}", file=sys.stderr)
+        return []
+
+    refusals = (ValueError, yaml.YAMLError) if HAS_YAML else (ValueError,)
+    parsed = None
+    try:
+        if drafts is not None:
+            splice("drafts", drafts)
+        if enabled:
+            splice("enabled", "true")
+        # Backfill notify into a block that has no drafts key: one that was already there, or one a
+        # flagged splice just created. Leaving the key out would make the next run ask and announce again.
+        if drafts is None and (state_before == "absent" or (state_before == "no-block" and changes)):
+            splice("drafts", "notify")
+        if HAS_YAML:
+            parsed = yaml.safe_load(new_text)
+    except refusals as exc:
+        return refuse(exc)
+
+    if changes:
+        try:
+            write_config_checked(config_path, new_text)
+        except (OSError, RuntimeError) as exc:  # RuntimeError covers the checked writer's rollback error
+            return refuse(exc)
+    if state_before == "set":
+        return [f"feedback.{key}: {old} -> {new}" for key, old, new in changes]
+    if not changes and not real_upgrade:
+        return []
+
+    # Read the value back through the loader's normalization, so the banner agrees with what runs.
+    value = get_feedback_config(parsed)["drafts"] if isinstance(parsed, dict) else (drafts or "notify")
+    enabled_set = any(key == "enabled" for key, _, _ in changes)
+    return [_drafts_banner(value, drafts is not None, enabled_set,
+                           planwise_root=planwise_root, feedback_dir=feedback_dir, plugin_root=plugin_root)]
 

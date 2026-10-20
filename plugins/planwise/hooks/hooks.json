@@ -1,4 +1,4 @@
 {
-  "description": "Backlog loop: after a one-item /planwise backlog session prints its BACKLOG LOOP marker, compact the session and re-enter the handler with --loop-resume.",
+  "description": "Backlog loop: after a one-item /planwise backlog session prints its BACKLOG LOOP marker, compact the session and re-enter the handler with --loop-resume. Feedback drafting: registers the draft_feedback tool and saves model-drafted feedback locally.",
   "modules": ["./register.ts"]
 }
