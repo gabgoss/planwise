@@ -80,8 +80,19 @@ DEFAULT_OUTPUT_RESERVE = 10000
 DEFAULT_WARN_CEILING = 40000
 
 # Conservative fallback overheads, written when a /context capture fails.
-FALLBACK_RUNNER_OVERHEAD = 54000
-FALLBACK_ORCHESTRATOR_OVERHEAD = 60000
+# Basis: the plugin-attributed Agents + Skills sum that `derive_overheads`
+# measures. Three real captures on one install read 931 (2026-08-18), 1060
+# (2026-09-13) and 1191 (2026-10-12); the fallback is about twice the highest,
+# rounded up. Both keys share one value because `orchestrator_overhead`
+# equals `runner_overhead` on this basis. Re-derive these from fresh captures
+# whenever the plugin's agent or skill surface grows.
+FALLBACK_RUNNER_OVERHEAD = 2400
+FALLBACK_ORCHESTRATOR_OVERHEAD = 2400
+
+# Fallbacks written before the attribution basis, on the whole-installation
+# basis. A config still holding this pair carries a fallback, not a
+# measurement, so readers that tell the two apart must recognise it.
+LEGACY_FALLBACK_OVERHEADS = (54000, 60000)
 
 
 # ---------------------------------------------------------------------------
@@ -246,11 +257,13 @@ def derive_overheads(report: dict) -> dict:
                             Skills sum (this tool's own footprint; a subagent
                             loads <= the orchestrator surface, so this remains
                             a conservative proxy for the runner's overhead).
-    orchestrator_overhead = runner_overhead - Messages (unchanged
-                            relationship: the orchestrator's own conversation
-                            grows, so the already-counted Messages footprint is
-                            subtracted, and the two overheads differ by
-                            exactly the Messages footprint).
+    orchestrator_overhead = runner_overhead. The pre-attribution formula
+                            subtracted the Messages category, which was part
+                            of total_active. The attribution sum holds no
+                            Messages row, so nothing is subtracted and the two
+                            overheads are equal.
+    Both overheads are floored at 0, so no capture source can put a negative
+    overhead into budget math.
     total_active_unfiltered = the unfiltered whole-installation active
                             footprint (total_active) — reported alongside the
                             filtered figures for visibility, but never itself
@@ -269,10 +282,9 @@ def derive_overheads(report: dict) -> dict:
     """
     total_active = int(report.get("total_active", 0))
     categories = report.get("categories", {})
-    messages = int(categories.get("Messages", 0))
     injected_rules = int(categories.get("Memory files", 0))
-    runner_overhead = attribution(report)
-    orchestrator_overhead = runner_overhead - messages
+    runner_overhead = max(0, attribution(report))
+    orchestrator_overhead = runner_overhead
     return {
         "runner_overhead": runner_overhead,
         "orchestrator_overhead": orchestrator_overhead,

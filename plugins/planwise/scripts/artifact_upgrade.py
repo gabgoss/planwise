@@ -1279,9 +1279,15 @@ def _run_upgrade(
 
                     _pre = (_overhead("token_saver_runner_overhead"),
                             _overhead("token_saver_orchestrator_overhead"))
-                    _fallback = (str(context_calibration.FALLBACK_RUNNER_OVERHEAD),
-                                 str(context_calibration.FALLBACK_ORCHESTRATOR_OVERHEAD))
-                    _measured = all(v.isdigit() and int(v) > 0 for v in _pre) and _pre != _fallback
+                    # The legacy pair is a fallback from the pre-attribution
+                    # basis, so it must not be kept as a measurement.
+                    _fallbacks = {
+                        (str(context_calibration.FALLBACK_RUNNER_OVERHEAD),
+                         str(context_calibration.FALLBACK_ORCHESTRATOR_OVERHEAD)),
+                        tuple(str(v) for v in context_calibration.LEGACY_FALLBACK_OVERHEADS),
+                    }
+                    _measured = (all(v.isdigit() and int(v) > 0 for v in _pre)
+                                 and _pre not in _fallbacks)
                     _result = token_saver.calibrate(
                         config_path=config_path, plugin_root=cfg.plugin_root,
                         cwd=cfg.project_root)

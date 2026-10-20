@@ -142,6 +142,19 @@ class TestRunUpgradeCalibration(_ProjectFixtureBase):
         self.assertIn("fell back to defaults", out)
         self.assertNotIn("kept the measured overheads", out)
 
+    def test_failed_capture_replaces_the_legacy_fallback_pair(self):
+        """The pre-attribution fallback pair is not a measurement, so a failed
+        capture replaces it with the current fallback instead of keeping it."""
+        legacy_runner, legacy_orchestrator = context_calibration.LEGACY_FALLBACK_OVERHEADS
+        self._config(token_saver_on=True, runner=legacy_runner, orchestrator=legacy_orchestrator)
+        code, out, _calibrate = self._upgrade(side_effect=self._failed_capture)
+        self.assertEqual(code, 0)
+        self.assertEqual(self._overheads(), {
+            "token_saver_runner_overhead": str(context_calibration.FALLBACK_RUNNER_OVERHEAD),
+            "token_saver_orchestrator_overhead": str(context_calibration.FALLBACK_ORCHESTRATOR_OVERHEAD)})
+        self.assertIn("fell back to defaults", out)
+        self.assertNotIn("kept the measured overheads", out)
+
 
 if __name__ == "__main__":
     unittest.main()

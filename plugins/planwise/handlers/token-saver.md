@@ -208,7 +208,7 @@ Reused from [doctor-Part-3-TokenSaverAndBookkeepingReadGates.md](doctor-Part-3-T
 |------------------|---------------|
 | Plugin upgraded since calibration | The pinned `plugin_version` in `config.yaml` differs from the plugin's current shipped version (read `{plugin_root}/.claude-plugin/plugin.json` → `version`). The overheads were measured against the old rule/agent surface. |
 | Agent/Skill count changed | The Custom Agents / Skills count in a fresh `/context` differs from the captured `token_saver_context_breakdown` (added/removed agents or skills shift the always-on surface). |
-| Overheads uncalibrated | `token_saver_runner_overhead` is `0`/empty, or equals the conservative fallback (`~54000` runner / `~60000` orchestrator) with no live capture recorded. |
+| Overheads uncalibrated | `token_saver_runner_overhead` is `0`/empty, or equals a conservative fallback with no live capture recorded. The current fallback is `2400` for both keys. The pre-attribution pair (`54000` runner / `60000` orchestrator) also counts as a fallback. |
 
 `status` only **reports** staleness and recommends the one-command re-measure (`/planwise token-saver on`). It never mutates `config.yaml` itself.
 
