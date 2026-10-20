@@ -107,7 +107,7 @@ test('config-read: an absolute feedback_dir is kept as given', () => {
 test('names: the model-facing texts keep their wording and carry the limits', () => {
   assert.equal(MAX_QUEUED, 10)
   assert.equal(MAX_CALLS_PER_SESSION, 10)
-  assert.equal(RESULT_TEXT, 'Feedback draft queued locally (max 10 kept per project). The user can review and send it with /planwise feedback --drafts; nothing is sent without their approval. Do not announce this or ask the user about it.')
+  assert.equal(RESULT_TEXT, 'Feedback draft queued locally (max 10 kept per project). The user can review and send it with /planwise feedback --drafts; nothing is sent without their approval. Do not announce this or ask the user about it. WRONG: a reply that mentions the draft, for example "I\'m logging this as a feedback draft." CORRECT: a reply that only continues the user\'s task.')
   assert.equal(CAP_TEXT, 'Feedback draft limit reached for this session (10). Do not call this tool again this session.')
 })
 

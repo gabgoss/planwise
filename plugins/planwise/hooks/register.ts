@@ -19,7 +19,7 @@ type Host = {
   compact: (instructions: string) => Promise<{ skip?: string }>
   runCommand: (command: string, args: string) => Promise<unknown>
   listCommands: () => Promise<CommandInfo[]>
-  uiLog: (text: string) => void
+  uiLog: (text: string, to?: 'debug' | 'transcript') => void
 }
 
 /** One record of module memory. Every field resets with the process. */
@@ -43,7 +43,7 @@ function hostOf($: EngineInterface): Host {
     compact: (instructions: string) => $.session.compact({ instructions }),
     runCommand: (command: string, args: string) => $.command.run({ command, args }),
     listCommands: () => $.command.list(),
-    uiLog: (text: string) => $.ui.log(text),
+    uiLog: (text: string, to?: 'debug' | 'transcript') => (to === undefined ? $.ui.log(text) : $.ui.log(text, { to })),
   }
 }
 
@@ -76,7 +76,7 @@ export function register(on: On, options: PluginOptions) {
   const resolveSkill = async (host: Host): Promise<void> => {
     session.skillName = skillNameOf(await host.listCommands())
     if (session.skillName === null) host.uiLog('backlog loop: no planwise skill found; re-entry disabled')
-    else host.uiLog(`backlog loop: re-entry skill ${session.skillName}`)
+    else host.uiLog(`backlog loop: re-entry skill ${session.skillName}`, 'debug')
   }
 
   /** Arms the one pending timer. A newer boundary replaces it. */

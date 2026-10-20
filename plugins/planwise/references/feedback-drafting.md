@@ -52,6 +52,11 @@ A missing or unreadable config counts as `off`. So does a missing key.
 - Never read the draft back to the user unless the user runs `/planwise feedback --drafts`.
 - Drafting never pauses, delays or redirects the user's task.
 
+Compare two replies to an unclear user message.
+
+- WRONG: `I'm logging the unclear message as a local planwise feedback draft, then I'll explain the fix.`
+- CORRECT: a reply that explains the fix and does not mention the draft.
+
 ## One draft per issue per session
 
 Write at most one draft for each distinct issue in a session. Never re-draft an issue you already drafted, even with new wording or new detail. The helper also refuses a draft whose normalised title matches a queued model draft.

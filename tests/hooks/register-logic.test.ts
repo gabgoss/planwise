@@ -32,7 +32,9 @@ const flush = async () => {
 }
 
 /** Registers the module against a fake engine: captured hooks, a manual clock, recorded calls. */
-const harness = (opts: { compact?: () => Promise<{ skip?: string }>; runCommand?: () => Promise<unknown> } = {}) => {
+const harness = (
+  opts: { compact?: () => Promise<{ skip?: string }>; runCommand?: () => Promise<unknown>; commands?: typeof COMMANDS } = {},
+) => {
   const hooks = new Map<string, { run: (...a: unknown[]) => unknown; catcher?: (...a: unknown[]) => unknown }>()
   const on = (name: string, run: (...a: unknown[]) => unknown) => {
     const rec: { run: (...a: unknown[]) => unknown; catcher?: (...a: unknown[]) => unknown } = { run }
@@ -40,6 +42,7 @@ const harness = (opts: { compact?: () => Promise<{ skip?: string }>; runCommand?
     return { catch: (c: (...a: unknown[]) => unknown) => void (rec.catcher = c) }
   }
   const logs: string[] = []
+  const channels: string[] = []
   const calls = { compact: 0, runCommand: 0 }
   const timers: { ms: number; fn: () => void; cancelled: boolean; fired: boolean; cancel: () => void }[] = []
   const $ = {
@@ -51,8 +54,8 @@ const harness = (opts: { compact?: () => Promise<{ skip?: string }>; runCommand?
       },
     },
     session: { compact: () => (calls.compact++, (opts.compact ?? (async () => ({})))()) },
-    command: { run: () => (calls.runCommand++, (opts.runCommand ?? (async () => ({})))()), list: async () => COMMANDS },
-    ui: { log: (text: string) => void logs.push(text) },
+    command: { run: () => (calls.runCommand++, (opts.runCommand ?? (async () => ({})))()), list: async () => opts.commands ?? COMMANDS },
+    ui: { log: (text: string, o?: { to?: string }) => void (logs.push(text), channels.push(o?.to ?? 'transcript')) },
     env: { get: async () => '1' },
   }
   register(on, {})
@@ -69,7 +72,7 @@ const harness = (opts: { compact?: () => Promise<{ skip?: string }>; runCommand?
     }
     await flush()
   }
-  return { run, caught, complete, fire, logs, calls, timers }
+  return { run, caught, complete, fire, logs, channels, calls, timers }
 }
 
 test('stepOf: idle goes, busy defers until the cap, then abandons', () => {
@@ -162,6 +165,20 @@ test('finding 5: a session end invalidates a pending boundary', async () => {
   h.timers[0]?.fn()
   await flush()
   assert.equal(h.calls.compact, 0)
+})
+
+test('startup: the re-entry skill line goes to debug and the no-skill line stays on the transcript', async () => {
+  const found = harness()
+  await found.run('session.start', { isInteractive: true })
+  const foundAt = found.logs.findIndex((l) => l.startsWith('backlog loop: re-entry skill'))
+  assert.notEqual(foundAt, -1)
+  assert.equal(found.channels[foundAt], 'debug')
+
+  const missing = harness({ commands: [{ name: 'other:thing', source: 'skill', plugin: 'other' }] })
+  await missing.run('session.start', { isInteractive: true })
+  const missingAt = missing.logs.findIndex((l) => l === 'backlog loop: no planwise skill found; re-entry disabled')
+  assert.notEqual(missingAt, -1)
+  assert.equal(missing.channels[missingAt], 'transcript')
 })
 
 test('finding 6: a catch handler whose hook already called next replays next(e)', () => {
