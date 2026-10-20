@@ -56,6 +56,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
 from read_limits import (
     READ_BYTE_WARN,

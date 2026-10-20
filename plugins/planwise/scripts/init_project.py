@@ -53,6 +53,8 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.modules.setdefault("init_project", sys.modules[__name__])
 
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+
 from constants import InstallScope
 from migration_answers import AnswersError, load_answers
 from pyyaml_remedy import pyyaml_install_command

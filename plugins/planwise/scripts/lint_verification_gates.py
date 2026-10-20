@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from lint_gate_tool_calls import (
     GLOB_FOLDER_LED_MESSAGE,
     GREP_ALTERNATION_MESSAGE,

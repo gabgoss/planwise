@@ -63,6 +63,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+
 import frontmatter_parser
 
 # Errors a config read can raise. PyYAML is optional, so its error type joins only when present.

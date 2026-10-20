@@ -91,6 +91,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 # Import shared config loader + sibling primitives
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 import reconcile_common
 from config_loader import load_config
 from constants import CLOSED_STATUSES

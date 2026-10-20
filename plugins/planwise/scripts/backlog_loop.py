@@ -36,6 +36,7 @@ from pathlib import Path
 
 # Import shared helpers from the sibling scripts
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
 from constants import HOLD_STATUSES, OPEN_STATUSES
 from markdown_parser import normalize_id

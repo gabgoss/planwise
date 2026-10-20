@@ -61,6 +61,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
 from parse_lessons import (
     LESSON_FILE_RE,

@@ -27,6 +27,8 @@ CLI: python -B skill_preflight.py <sub> <flag1> <flag2>
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+
 PLACEHOLDERS = {"$0", "$1", "$2", "$sub", "$flag1", "$flag2"}
 KNOWN_FLAGS = ("--active", "--no-check")
 BEGIN = "<!-- planwise:list:begin -->"

@@ -21,6 +21,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
 import upgrade_preflight as pre
 from upgrade_preflight import _mapping

@@ -32,6 +32,10 @@ is here, mirroring the split doctor already uses (`doctor_cli` over
 `doctor_sweeps`).
 """
 
+import sys
+
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
+
 from context_calibration import (
     DEFAULT_GROWTH_MARGIN,
     DEFAULT_OUTPUT_RESERVE,
@@ -133,6 +137,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    import sys
-
     sys.exit(main())

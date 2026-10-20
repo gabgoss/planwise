@@ -91,6 +91,7 @@ from functools import partial
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 import generate_backlog_index as gen
 import migrate_backlog_checks as chk
 import migrate_backlog_relocate as reloc

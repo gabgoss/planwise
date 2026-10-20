@@ -39,6 +39,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 # Import shared config loader
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import get_scoring_weights, load_config
 from constants import OPEN_STATUSES
 from frontmatter_parser import parse_frontmatter_map, split_frontmatter_block
