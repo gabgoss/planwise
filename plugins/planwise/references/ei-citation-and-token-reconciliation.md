@@ -1,5 +1,6 @@
 ---
 description: EI cross-tier citation propagation and token reconciliation — duplicate preservation, implementation-surface citation propagation, §-citation discipline, arithmetic-over-summary token reconciliation gate (ei-fidelity.md §5-§8)
+consult-when: Reconciling EI citations across tiers and token counts — arithmetic over summary
 ---
 
 # EI Citation and Token Reconciliation

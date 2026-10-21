@@ -1,5 +1,6 @@
 ---
 description: The gate that runs after every per-task acceptance check has passed and before consolidation. Covers why a per-task gate is structurally blind to whole-set properties, running a session criterion at the first task that makes it runnable, cross-checking claims that appear in more than one output, and pinning the output vocabulary as literal strings before fan-out. Consult when a parallel batch has returned and every runner reports green.
+consult-when: A parallel batch returned and every per-task gate is green — the three checks only the orchestrator can run before consolidation
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Batch Gate — the Checks Only the Orchestrator Can Run

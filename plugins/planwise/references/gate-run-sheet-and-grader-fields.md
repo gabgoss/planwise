@@ -1,5 +1,6 @@
 ---
 description: A run sheet pins the field the observed mechanism reads, not the flag whose name matches the sheet's intent — a flag nothing reads is documentation, not control (§13); and a grader that reads a numeric field from a module's log fails on null, because a null where a number belongs is a failed measurement and a "row present" predicate passes a row whose every numeric field is null (§14).
+consult-when: Writing a run sheet or probe driver that pins flags, or a grader over a numeric log field — pin the field the hook reads, not the flag whose name matches the intent (§13); a null numeric field is a failed measurement (§14)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

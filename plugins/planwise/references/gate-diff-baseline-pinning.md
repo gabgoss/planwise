@@ -1,5 +1,6 @@
 ---
 description: A `git diff` gate names a recorded tree state or it measures the whole working tree — record `$..._BASE` before the first edit behind an empty status over the write paths (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` and never with an output filter (§8.3), record a series base once at the first sprint (§8.4), give a scope rule a positive test rather than a list of forbidden directories (§8.5), and treat a base as a statement about one moment that a commit inside the gate's paths invalidates (§8.6); Reviewer Check 077. This file is the definition site for `$..._BASE`.
+consult-when: Writing, reviewing or running any gate built on `git diff` — the definition site for `$..._BASE`, record it before the first edit (§8.1), scope every gate to it (§8.2), path-scope with `-- <paths>` (§8.3), a series base once (§8.4), a positive scope test (§8.5), a base is one moment (§8.6), Check 077
 paths: {planwise_root}/{plans_dir}/**
 ---
 

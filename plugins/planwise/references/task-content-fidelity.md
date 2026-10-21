@@ -1,5 +1,6 @@
 ---
 description: Required Context fidelity — measured estimates, freshness across file splits, bytes-per-token ratios, the Token Saver large-file ladder, and giving a copy or quote task every source it quotes from — for planwise task files
+consult-when: Checking Required Context fidelity in a task file — measured estimates, freshness, large-file ladder, and a copy or quote task's brief lists every quote source in Required Context (§9.A.16)
 ---
 
 # Task Content Fidelity

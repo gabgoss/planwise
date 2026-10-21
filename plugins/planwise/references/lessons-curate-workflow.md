@@ -1,5 +1,6 @@
 ---
 description: Two-phase lessons-learned curation workflow — categorise uncategorised lessons and track promotion artifacts. Loaded by /planwise lessons curate.
+consult-when: Running `/planwise lessons curate` — categorising lessons, tracking promotion artifacts
 ---
 
 # Lessons-Curate Workflow

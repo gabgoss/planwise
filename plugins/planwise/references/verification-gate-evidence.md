@@ -1,5 +1,6 @@
 ---
 description: Family index for verification-gate evidence — which short gate-* reference governs a positive or mutation control, a fixture's provenance, a live gate that disagrees with correct work, an old-home citation sweep, a generated input that silently empties a gate, a script's emitted reason or exit code, a proof run's scratch root and import order, or an input set that could not have contained the case that fails the gate; carries the map from this file's former section numbers to the topic files that now hold them.
+consult-when: Finding which gate reference governs what a gate's output is evidence of — the family index: a read-when table over the eight `gate-*` topic files it indexes and the map from this file's former section numbers to the topic file that now holds each one
 paths: {planwise_root}/{plans_dir}/**
 ---
 

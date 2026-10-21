@@ -1,5 +1,6 @@
 ---
 description: Nine binding hygiene rules plus three advisory practices for what a multi-sprint scaffold emits — Meta-Plan source detection, Exec folder naming, abbreviation validation, Sprint Plan status defaults, Outputs/ folder creation, sequential-sprint prerequisite declarations, no-improvisation of artifact types, parallel-scaffold deviation classes, multi-shape plan-sizing, high-divergence cohort token uplift, mega-scaffold review-gate, and run-time-sound verification commands and context pointers. Part 1 of 2 — the five derivation-and-parallelism rules (§13–§17), the §18 sheet-authoring rule and the §19 replay-command rule live in scaffolding-hygiene-Part-2-DerivationAndParallelism.md
+consult-when: Scaffolding a multi-sprint plan — eleven binding hygiene rules plus advisory practices, and (in the `scaffolding-hygiene-Part-2-DerivationAndParallelism.md` sibling, §13–§19) a sheet a human pastes — break the long paste line, echo the resolved parameters in "Watch for", and add one general stop clause for a halt the harness starts (§18), and a parallel layer greps called symbols against layer-mate outputs because disjoint outputs do not prove no import edge (§17.4), and an orchestrator re-verify item names a replay command the producing task ships in its Output (§19)
 ---
 # Scaffolding Hygiene — Part 1: What the Scaffold Emits
 

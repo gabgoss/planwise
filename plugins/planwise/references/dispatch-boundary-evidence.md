@@ -1,5 +1,6 @@
 ---
 description: Every statement crossing the orchestrator/runner boundary is a hypothesis authored inside one window about a world visible only from the other. Covers withholding the figures a dispatched task exists to re-derive, resolving an inbound flag's named consumer against the partition key, why diff attribution belongs to the orchestrator and not the runner, what a silent resume actually means, and why a findings relay carries the findings and not only the path of an output file. Consult while composing a spawn prompt, while routing an inherited artifact into task files, and while reading what comes back.
+consult-when: Writing a spawn prompt, routing an inherited flag into task files (did it arrive, and does it name the right consumer), or reading a runner's return — what crosses the orchestrator/runner boundary is a hypothesis, and a findings relay to a resumed runner carries the findings in the message, with an output-file path only as a supplement
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Boundary — What Crosses It Is a Hypothesis, Not Evidence

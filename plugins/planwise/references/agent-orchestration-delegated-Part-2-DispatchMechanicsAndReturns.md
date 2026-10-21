@@ -1,5 +1,6 @@
 ---
 description: DELEGATED dispatch discipline, Part 2 of 3. This file holds §1.14–§1.22, dispatch mechanics and post-return handling, including gating a runner's sweep table on its control rows (§1.16.5) and the idle-while-waiting-on-a-background-command stall (§1.17.1, §1.17.3). Part 1 of 3 is agent-orchestration-delegated.md.
+consult-when: Dispatching a task-runner or handling its return in a DELEGATED session — orchestrator-only review commands, build ordering, recomputing a delegated verdict from primary evidence, dispatch failure modes, model-tier gating, gating a runner's sweep table on its control rows, and the idle wait on a background command
 ---
 
 # DELEGATED Dispatch Discipline — Part 2: Dispatch Mechanics and Returns

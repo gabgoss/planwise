@@ -1,5 +1,6 @@
 ---
 description: A battery of only diff-shaped gates proves the change was clean and says nothing about the artifact's condition, so every plan names at least one state-detecting gate (§11); a pre-existing omission can arm a gate against correct work (§11.1); the cross-surface equality invariant (§11.2); compare sets, not counts (§11.3); emit the surface set at landing time (§11.4); and an extractor's own outputs cannot validate its anchor, so assert membership of an element taken from an independent surface (§11.5).
+consult-when: Composing a verification battery, adding a member to an enumerated set, or accepting an extractor that anchors on a string — name at least one state-detecting gate (§11), a pre-existing omission arms a gate against correct work (§11.1), the cross-surface equality (§11.2), sets not counts (§11.3), emit the surface set at landing (§11.4), membership from an independent surface (§11.5)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

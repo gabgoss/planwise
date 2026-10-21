@@ -1,5 +1,6 @@
 ---
 description: Cross-layer enforcement of exit-criteria fidelity — binding-refinement callout echo across plan layers, "surfaces" as an enforceable claim not a mention, sprint-signoff verbatim quoting with a mechanical anchor per row, BLI-cited audit-anchor re-verification, metric-definition verification before reproduction, filling the signoff at sprint close so a mechanical consumer never reads placeholders, appending rather than inserting into an identifier sequence other files cite, an anchor that runs a writer naming a scratch copy and comparing two writes with each other (§16.10.7), and a decision that leaves a known verifier failure rewriting every criterion pinned to that verifier's exit code (§16.13, held in the Part-2 file), and a size constant derived from the headline criterion (§16.14, Part-2 file)
+consult-when: Checking exit-criteria fidelity across plan layers — binding-refinement echo, signoff verbatim quoting, filling the signoff at sprint close, appending (never inserting) into a cited identifier sequence, and an anchor that runs a writer naming a scratch copy and comparing two writes with each other, with decision-driven criterion rewrites and headline-derived size constants in the Part-2 sibling
 ---
 
 # Exit-Criteria Fidelity (Cross-Layer Enforcement)

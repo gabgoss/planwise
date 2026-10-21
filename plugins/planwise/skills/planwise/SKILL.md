@@ -139,26 +139,6 @@ ARGUMENTS: $ARGUMENTS
 - [Native tool use](../../references/native-tool-use.md) — dedicated file tools (Read/Grep/Glob/Edit/Write) over shell equivalents for file-tree reads, searches, and edits; scoped, not a blanket shell prohibition
 - [Feedback drafting](../../references/feedback-drafting.md) — draft a local, never-sent planwise feedback file at a high-signal moment; honour feedback.drafts; never announce
 
-**Loaded on demand, NOT pre-injected** — each is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. Key references (not exhaustive — handlers own the full set):
+**Loaded on demand, NOT pre-injected** — every other reference is pulled in by the handler that needs it (see that handler's *Required References* list for the trigger), or auto-injected as a path-scoped rule on matching `.claude/**` edits. To find the one that governs the work in front of you, Read the index of every on-demand reference, one row per family:
 
-- [Scaffolding hygiene](../../references/scaffolding-hygiene.md) — §1–§12, what the scaffold emits
-- [Scaffolding hygiene — Part 2: derivation and parallelism](../../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) — §13–§19, what the scaffold must compute before it closes
-- [Discovery and exit criteria](../../references/discovery-and-exit-criteria.md)
-- [Exit-criteria fidelity](../../references/exit-criteria-fidelity.md)
-- [Exit-criteria fidelity, Part 2 — a decision rewrites the criteria that depend on it](../../references/exit-criteria-fidelity-Part-2-DecisionLeavesCriteriaStale.md)
-- [Execution-time binding rules](../../references/execution-time-binding-rules.md)
-- [EI fidelity](../../references/ei-fidelity.md)
-- [EI citation and token reconciliation](../../references/ei-citation-and-token-reconciliation.md)
-- [EI completeness](../../references/ei-completeness.md)
-- [EI source-promise integrity](../../references/ei-source-promise-integrity.md)
-- [Schema pin requirement](../../references/schema-pin-requirement.md)
-- [Task content fidelity](../../references/task-content-fidelity.md)
-- [Verify-before-cite](../../references/verify-before-cite.md)
-- [Verification gates](../../references/verification-gates.md)
-- [Measurement discipline](../../references/measurement-discipline.md)
-- [Measurement discipline, Part 3 — recorded delta and pinned count](../../references/measurement-discipline-Part-3-RecordedDeltaAndPinnedCount.md)
-- [Verify against shipped artifact](../../references/verify-against-shipped-artifact.md)
-- [Verify discovery-phase consolidation](../../references/verify-discovery-consolidation.md)
-- [Cross-repo fix-task discipline](../../references/verify-cross-repo-fix-discipline.md)
-- [Backlog-item citation freshness](../../references/verify-backlog-citation-freshness.md)
-- [Artifact self-containment](../../references/artifact-self-containment.md)
+[Reference library](../../references/00-Reference-Library.md)

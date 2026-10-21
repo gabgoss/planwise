@@ -1,5 +1,6 @@
 ---
 description: A proof run that builds a fixture tree writes to a scratch root named in the brief and outside the repo whose working tree ships, the runner proves the root's removal with `test -e` exiting 1, and the distribution sweep names scratch-shaped directories beside test files and caches (§20); and a green suite is no evidence about import order, so the proof imports each globbed module first in its own fresh subprocess and a guarded-import wrapper chains the cause with `from exc` (§22).
+consult-when: A proof run builds a fixture tree in a shipping tree, or a Python package re-exports or guards imports — a named scratch root with proven removal and a sweep that names scratch-shaped directories (§20), each module imported first in its own fresh interpreter with guarded-import errors chained `from exc` (§22)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

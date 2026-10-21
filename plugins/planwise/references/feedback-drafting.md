@@ -1,5 +1,6 @@
 ---
 description: When and how Claude drafts a planwise feedback file silently during /planwise work — triggers, the feedback.drafts setting, the write recipe through the shared helper, and the frontmatter the model fills.
+consult-when: Drafting a planwise feedback file silently during `/planwise` work — triggers, the `feedback.drafts` key, the write recipe through `scripts/feedback_drafts.py`
 ---
 
 # Feedback Drafting

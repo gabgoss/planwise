@@ -1,5 +1,6 @@
 ---
 description: Classification reference for /planwise review -- Reviewer Checklists, Known Patterns Whitelist, Severity Classification, Systemic Finding Classification, and the Token Saver Compliance Check. Loaded by the lead at synthesis.
+consult-when: Synthesizing `/planwise review` — checklists, known-patterns whitelist, severity classification
 ---
 
 # Review Classification Reference

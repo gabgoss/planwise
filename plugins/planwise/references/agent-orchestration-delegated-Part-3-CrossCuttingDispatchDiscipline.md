@@ -1,5 +1,6 @@
 ---
 description: DELEGATED dispatch discipline, Part 3 of 3. This file holds §1.23–§1.32, the cross-cutting dispatch-prompt and orchestrator discipline, including pinning foreground execution and a long timeout for a long suite (§1.27.1) and deriving a remediation brief's write set from where each fix lands (§1.32). Part 1 of 3 is agent-orchestration-delegated.md.
+consult-when: Writing any DELEGATED spawn prompt or checking the orchestrator's own conduct — triple-scoping a single-task dispatch, pinning foreground execution and a long timeout for a long suite, the status-block return contract, establishing that a silent runner is dead, and deriving a remediation brief's write set from where each fix lands
 ---
 
 # DELEGATED Dispatch Discipline — Part 3: Cross-Cutting Dispatch Discipline

@@ -1,5 +1,6 @@
 ---
 description: Feedback submission engine — the shared outward-post pipeline for /planwise feedback and every other outward-facing GitHub issue call site
+consult-when: Submitting `/planwise feedback` or a GitHub issue — the shared outward-post pipeline (gate chain, duplicate scan, draft-first, posted-draft marking), with the local draft pipelines in the Part-2 sibling and the fallback posture, body spec and privacy contract in the Part-3 sibling
 ---
 
 # Feedback Submission Engine

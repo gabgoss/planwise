@@ -1,5 +1,6 @@
 ---
 description: A file list that feeds a gate is part of the gate's input, so count the list before trusting a "MUST print nothing" result that reads it (§16); a row-count gate and its consumer split lines the same way (§17); a byte-preservation claim is verified with a byte tally, never through git under `core.autocrlf` (§18); and a test never hard-codes a checked-in file's line endings, because the on-disk bytes depend on the checkout (§21).
+consult-when: A gate reads a generated path list or row count, claims bytes or line endings preserved, or a test compares against a checked-in file — count the list first (§16), split lines the same way (§17), verify bytes with a byte tally under `core.autocrlf` (§18), never hard-code a checked-in file's line endings (§21)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

@@ -1,5 +1,6 @@
 ---
 description: Anchoring a check to the artifact rather than to the text that describes it — why an anchor derived from a criterion inherits the criterion's false premises, re-deriving the section citations that lifted text carries, naming the artifact and field a cross-plan status gate reads, counting a set whose members are already on disk, and keeping a marked fallback for every version in the committed snapshot set when an extractor's anchor is replaced. Consult before writing a gate anchor, a landing-zone reference, a lifted citation, a projected set size, or a re-anchor commit.
+consult-when: Writing a gate anchor, landing zone, lifted `§N` citation, cross-plan status assertion, or projected set size — measure it against the artifact, never restate the description, and keep a marked fallback for every committed snapshot version when an extractor's anchor is replaced
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Verify the Anchor Against the Artifact (Not Against Its Description)

@@ -1,5 +1,6 @@
 ---
 description: Error Pattern Catalog for /planwise review -- the quick-reference table of common plan-authoring defects and their severity classification, plus the mechanical DELEGATED-trigger-named check. Row numbers are cited externally and MUST NOT be renumbered.
+consult-when: Synthesizing `/planwise review` findings — quick-reference table of common defects by severity, including a routed flag that contradicts a task's `Output:` line or write-target row (row 104), and an orchestrator re-verify item with no shipped replay command (row 126)
 ---
 
 # Error Pattern Catalog

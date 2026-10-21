@@ -1,5 +1,6 @@
 ---
 description: Skill authoring conventions — directory structure, YAML frontmatter, invocation control, forked execution (empirically verified), tool restrictions, hooks. Loads when authoring .claude/skills/ files.
+consult-when: Authoring `.claude/skills/*` — directory structure, frontmatter, invocation, forked execution
 paths: .claude/skills/**
 ---
 

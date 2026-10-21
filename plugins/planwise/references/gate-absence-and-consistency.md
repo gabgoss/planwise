@@ -1,5 +1,6 @@
 ---
 description: An absence-grep criterion scrubs its token from every surface including the gate's own prose and legend (§8.1), a consistency check asserts against the right population rather than a conditional set against an observed union (§8.2), and a file that encodes one fact in two representations is updated in both on every mutation and verified against the file (§8.3).
+consult-when: Writing a `grep -c TOKEN == 0` criterion, a subset consistency check, or a status flip over a file that states one fact twice — scrub the token everywhere (§8.1), assert against the right population (§8.2), update both representations (§8.3)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

@@ -1,5 +1,6 @@
 ---
 description: Agent definition format, YAML frontmatter field reference, scope levels, naming conventions, and relationship to runtime contexts. Loads when authoring .claude/agents/ files.
+consult-when: Authoring agent definitions — format, frontmatter, scope levels, naming
 paths: .claude/agents/**
 ---
 

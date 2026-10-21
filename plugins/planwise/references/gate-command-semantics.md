@@ -1,5 +1,6 @@
 ---
 description: Four command semantics that make a well-formed gate mean something else — `grep -c` counts lines not matches, `-B1`/`-A1` emit the match line too, set membership is not count equality, and a path resolves from the cwd the anchor's own table declares (§10.8); and four more mismatches between mechanism and claim — a context window cannot see outside itself, a cardinal pattern against an ordinal threshold, a numeric literal without digit boundaries, the regex dialect, and a fixed-size window that must fit its subject (§10.9).
+consult-when: Pinning any `grep`, `diff`, `wc` or `awk` gate — `grep -c` counts lines, context flags emit the match, set membership is not count equality, a path resolves from the declared cwd (§10.8); pattern unit versus threshold unit, digit boundaries, regex dialect, a window that must fit its subject (§10.9)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

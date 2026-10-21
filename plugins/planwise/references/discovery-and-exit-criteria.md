@@ -1,5 +1,6 @@
 ---
 description: Discovery scope rigor (deterministic-bug counts, ID persistence, upstream-normalization scoping) and the shared 13-row plan-review BLOCKING-findings table for the discovery/exit-criteria rule family; cross-layer exit-criteria fidelity lives in exit-criteria-fidelity.md and execution-time binding rules (design-extension traceability, audit-finding triage, bounded-temp-fix, spike-instrument verdict discipline) live in execution-time-binding-rules.md
+consult-when: Checking Discovery scope rigor, or looking up the shared plan-review BLOCKING-findings table (anchor file for this rule family)
 ---
 
 # Discovery Scope Rigor & Exit-Criteria Fidelity

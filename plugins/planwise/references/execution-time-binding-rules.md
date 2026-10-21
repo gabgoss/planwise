@@ -1,5 +1,6 @@
 ---
 description: Execution-time binding rules — design-extension traceability with inline What/Why/Source documentation, cross-tier audit-finding triage into Remediation vs pre-emptive-flag buckets, the bounded-temp-fix that seeds a deferred Discovery, spike-instrument synthetic-fixture verdict partitioning, and re-homing a standing mechanism's post-gate qualification out of the plan artifacts that expire and into the artifact that governs the mechanism, and reading both sides of a run-time pair from the tool's own output instead of pinning the derived side from the plan
+consult-when: A plan-fidelity concern surfaces mid-execution — design-extension traceability, audit triage, bounded temp-fixes, both sides of a run-time pair come from the tool
 ---
 
 # Execution-Time Binding Rules

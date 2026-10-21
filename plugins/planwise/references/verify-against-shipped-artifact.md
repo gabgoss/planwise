@@ -1,5 +1,6 @@
 ---
 description: Plan/EI/BLI/task-spec citations of third-party SDK identifiers, type names, enum members, delegate shapes, framework presence, destination file paths under scoped-rule triggers, AND BLI motivating drivers (runtime symptoms cited as multi-phase plan rationale) MUST be verified against the shipped artifact (DLL reflection, vendor XML index, package on disk, current src/ code, recent session summaries) or the relevant project-scoped rule before being authored as prescriptive snippets, routed to a multi-session plan, or delegated to a fix-agent; and a declared host-API signature (a declaration stand-in) expires with the build, so it is regenerated and type-checked on every build change before any run is graded
+consult-when: Citing an SDK identifier, path, or BLI driver in a spec — verify against the shipped artifact first, and regenerate a declared host-API stand-in and type-check on every build change (§3k), and probe a parser a task says to reuse on three values from the real corpus, reading a zero-padded identifier as text because a typed YAML load turns `061` into an octal integer (§3l)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

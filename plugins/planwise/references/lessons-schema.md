@@ -1,5 +1,6 @@
 ---
 description: The Lessons Learned index's generated contract — column layout, hub/overflow/Archive-shard membership and budgets, the changelog and promotion-log file contracts, status meanings, naming, the Pointer Fields definition, the title cap, and the one-writer rule. Every consumer of the generated index defers here.
+consult-when: Reading or changing the generated lessons index — column layout, hub/overflow/Archive shards, counter, status meanings, Pointer Fields, one-writer rule
 ---
 
 # Lessons Schema

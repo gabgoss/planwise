@@ -1,5 +1,6 @@
 ---
 description: Two tasks in one dispatch layer acting on an object neither of them writes — a next-free identifier namespace, or an entity's decomposition. Carries the eligibility question that replaces the output-path test, the spawn-prompt clause that defers the allocation and not merely the write, and the decomposition diff that makes a missing half visible. Consult while composing a parallel dispatch layer, before its spawn prompts are written.
+consult-when: Composing a parallel dispatch layer — the allocation namespace or entity decomposition two tasks share but neither writes
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Parallel Layer — Shared Objects No Task Owns

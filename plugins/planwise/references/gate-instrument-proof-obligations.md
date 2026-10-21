@@ -1,5 +1,6 @@
 ---
 description: A gate's output is evidence only after four independent obligations are discharged — it can fail, shown by a fixture that reproduces the defect and a run of the same probe on the unfixed artifact (A); it does not fail correct work (B); it can see the shape it counts (C); and it is pointed at the live subject as well as at fixtures (D); Reviewer Checks 087 and 088.
+consult-when: A deliverable is a gate, guard, hook, linter or validation pass, or a criterion cites a gate run as proof — the gate can fail (A), does not fail correct work (B), sees the shape it counts (C), is pointed at the live subject (D); Checks 087 and 088
 paths: {planwise_root}/{plans_dir}/**
 ---
 

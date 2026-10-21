@@ -1,5 +1,6 @@
 ---
 description: EI completeness — three-axis scope coverage (multi-sprint file-touch reconciliation, cluster enumeration, audit-grep-table coverage) so an EI's stated scope IS the executable work (ei-fidelity.md §9)
+consult-when: Checking an Execution Input's stated scope actually covers the executable work (three axes)
 ---
 
 # EI Completeness (Three-Axis Scope Coverage)

@@ -1,5 +1,6 @@
 ---
 description: Token budget management, and the read-gate canonical — Read-Tool Hard Limits, reading discipline, and Large-File Read Tactics — for session planning
+consult-when: Managing token budget during a planning session — Read-Tool hard limits, large-file tactics
 ---
 
 # Session Context Budget

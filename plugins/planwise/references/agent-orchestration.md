@@ -1,5 +1,6 @@
 ---
 description: Agent runtime contexts, tool access, context loading, nesting rules, named-agent coordination, and execution modes
+consult-when: Choosing agent runtime context, tool access, nesting, named-agent coordination, execution mode
 ---
 
 # Agent Orchestration

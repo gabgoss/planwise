@@ -1,5 +1,6 @@
 ---
 description: Context loading strategy (standard-plan vs. Meta-Plan decision) and context conservation tactics for planning sessions
+consult-when: Choosing standard- vs. Meta-Plan context loading and conservation tactics while planning
 ---
 
 # Context Loading and Conservation

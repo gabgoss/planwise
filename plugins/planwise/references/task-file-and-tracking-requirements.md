@@ -1,5 +1,6 @@
 ---
 description: Task file template and structure, completion tracking rules, cross-sprint deferred-finding ownership, a user gate that leads with a plain-language brief and carries a "something else" answer, and walking a brief's worked example through its contract prose before dispatch
+consult-when: Authoring a task file — template, structure, completion tracking, deferred-finding ownership, and a user gate that leads with a plain-language brief and carries a "something else" answer, and a worked example walked through the contract prose before dispatch
 ---
 
 # Task Files and Completion Tracking

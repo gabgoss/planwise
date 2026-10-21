@@ -1,5 +1,6 @@
 ---
 description: Four-phase batch promotion workflow (Part 2 — Draft BBs, write files, BB structure, self-containment, decomposition, constraints). Loaded by /planwise lessons promote-batch.
+consult-when: Running `/planwise lessons promote-batch` Phases 3-4 — drafting BBs, writing files, self-containment grep
 ---
 
 # Lessons Promote-Batch Workflow — Part 2 (Draft and Write)

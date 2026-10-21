@@ -1,5 +1,6 @@
 ---
 description: Token Saver's config-gated carrying-cost budget system — two-tier policy, carrying-cost rationale, and threshold derivation
+consult-when: The `context.token_saver` key is on — carrying-cost budget system, two-tier policy, threshold derivation
 ---
 
 # Token Saver Profile

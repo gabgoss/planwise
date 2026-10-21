@@ -1,5 +1,6 @@
 ---
 description: A verifier returns FAIL or [UNCERTAIN] when Actual contradicts Expected and never fudges a PASS (§5, Check 060), a check that could not be run returns UNCERTAIN with the exact command and error rather than a narrative claim (§5.1), and an orchestrator adjudicates a BLOCKER raised from a heuristic against source before routing rework (§6).
+consult-when: Writing a verifier's output template, or a BLOCKER arrives from a heuristic — FAIL or UNCERTAIN when Actual contradicts Expected (§5, Check 060), a check that could not run returns UNCERTAIN with the exact command (§5.1), the orchestrator adjudicates against source before routing rework (§6)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

@@ -61,13 +61,15 @@ LANGUAGE = "plain-language.md"
 PRESENTATION = "plain-presentation.md"
 BOTH = [LANGUAGE, PRESENTATION]
 
-# LF-normalised SHA-256 of each shipped rule, copied from the baseline record.
-# They are literals on purpose: the authoring repo that holds the record is
-# not available to this repo's tests, so a test must not recompute them from
-# anything outside the plugin tree.
+# LF-normalised SHA-256 of each shipped rule. They are literals on purpose: a
+# change to the shipped bytes must fail here until someone reviews it and
+# re-pins. The first values were copied from the authoring repo's baseline
+# record. The current values were re-pinned on 2026-10-21 from the reviewed
+# files, after a one-line `consult-when:` frontmatter key was added to each and
+# the change was reviewed; the bodies are byte-identical to the previous pin.
 PINNED_LF_SHA256 = {
-    LANGUAGE: "08a337764550c2e2984ece3fe35a335d7d43168e7101ed33f66d1520889aad43",
-    PRESENTATION: "9d69c65a8da96336d3cc14b55cdb4c4665983f2fab4c3ea6279c315e22f07a7e",
+    LANGUAGE: "05a4e19db5a533bfd706240918c136c524620783f977b63830777e826748d2ad",
+    PRESENTATION: "1c56e036ac5095900b6f80f025d7ebc418ca251ab18a8ad796b065bccf7677dc",
 }
 
 # The four path-scoped rules `install_rules` writes, in the order it returns

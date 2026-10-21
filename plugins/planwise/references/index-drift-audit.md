@@ -1,5 +1,6 @@
 ---
 description: Canonical procedure for auditing a planwise index (plans / backlog / lessons) for drift against its source of truth — script invocation, JSON result shape, banner, the write-on-consent reconcile flow every caller shares, and reading a disagreeing pair through its writers before any source file is edited.
+consult-when: Auditing a plans/backlog/lessons index for drift against its source of truth — a drift line names two values, not the side to edit, so read the source line's writers and history before proposing a source edit
 ---
 
 # Index Drift Audit

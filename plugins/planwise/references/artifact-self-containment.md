@@ -1,5 +1,6 @@
 ---
 description: Binding rule — content-bearing artifacts (rules, agents, skills, handlers, CLAUDE.md callouts, BB rule-design sections) MUST inline content from source lessons and backlog items, never cite them. Bookkeeping artifacts (indexes, promotion logs, frontmatter pointers, BB Notes) MAY carry cross-references for traceability.
+consult-when: Deciding whether an artifact must inline lesson/backlog content vs. may cross-reference
 ---
 
 # Artifact Self-Containment

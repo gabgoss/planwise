@@ -1,5 +1,6 @@
 ---
 description: A gate-shaped deliverable requires a positive control (§1); a test whose subject is a refusal is proven load-bearing with a mutation control (§2); every MUST-be-N gate is dry-run in both directions, with the correct-post-state arm (§3); the PASS branch's artifact is specified as well as the FAIL branch's (§4); and a gate that fails everything is no more trustworthy than one that passes everything, so the dry-run pair's two arms must differ (§14).
+consult-when: Authoring a guard, hook, linter, validation pass or "MUST be empty" check, about to cite one as proof, or a gate returns FAIL on every input — the positive control (§1), the refusal test's mutation control (§2), the dry-run pair in both directions (§3), the PASS branch's artifact (§4), the two arms must differ (§14)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

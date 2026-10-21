@@ -1,5 +1,6 @@
 ---
 description: A scaffold-time declaration is a projection, not a constraint — a task's writable set must span the operation it owns, and the declared dispatch layer is a floor on what can run, never a ceiling. Covers the artifact that absorbs a merge belonging to the merging task's working set, the scaffold-time tell and its three fixes, a "may be absent" flag as a hypothesis to check, dispatching on the dependency graph rather than the layer label, and the two conditions plus three guardrails that gate a cross-layer dispatch. Consult while setting a task's Output set at scaffold time, and at run time whenever a task's dependencies have verified before its declared layer opens.
+consult-when: Setting a task's `Output:` set at scaffold time, especially for a merge/dedupe/reconcile task, or deciding at run time whether a task is dispatchable ahead of its declared layer — the absorbing artifact belongs in the merging task's writable set, a "may be absent" flag is a hypothesis to check, and the declared layer is a floor, never a ceiling
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Dispatch Decomposition Graph — A Scaffold-Time Declaration Is a Projection, Not a Constraint

@@ -1,5 +1,6 @@
 ---
 description: Backlog Schema Reference for /planwise backlog -- the backlog index table format, backlog item file naming and frontmatter, the 8-factor priority scoring system, script command-line interfaces, the status state machine, and error handling. Loaded on demand; the 8-phase triage pipeline itself stays in handlers/backlog.md.
+consult-when: Working with `/planwise backlog` — index format, frontmatter, 8-factor priority scoring, status states
 ---
 
 # Backlog Schema Reference

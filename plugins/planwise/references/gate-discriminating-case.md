@@ -1,5 +1,6 @@
 ---
 description: A gate result is evidence only if the input set could have contained the case that fails it, and that case goes missing in four places - behind a boundary the extractor drew wrongly (§1), outside the slice a runner was given (§2), below a metric's own threshold (§3), and on a failure branch that a forecast hides (§4) - so ask one question before citing any gate (§5).
+consult-when: About to cite a gate result as proof — could its input set have contained the case that fails it? An extraction boundary needs an interior and an exterior probe (§1), a sweep several runners share is gated at session scope over the full corpus (§2), a fixture must cross its metric's own threshold, not only beat the clean one (§3), and a per-item gate takes the operation's observed result, not a forecast, with a failure-injection test (§4); the one question that unifies the four (§5)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

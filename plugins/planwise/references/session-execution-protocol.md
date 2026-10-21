@@ -1,5 +1,6 @@
 ---
 description: Mandatory execution protocol - READ-CONFIRM-ACT, recovery, git workflow, and recording a runner's planned stop and the session commit in Recovery before a user gate
+consult-when: Running a planwise session — the mandatory execution protocol (READ-CONFIRM-ACT, recovery, git workflow), and recording a runner's planned stop (`GATE_PENDING`) and the session commit and push in Recovery before any user gate
 ---
 
 # Session Execution Protocol

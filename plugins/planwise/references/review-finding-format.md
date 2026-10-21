@@ -1,5 +1,6 @@
 ---
 description: Shared Startup/ToolSearch mandate, Finding Report Format, and Severity Classification table for the plan-reviewer, structural-reviewer, and rule-comparator agents — cited rather than inlined so the three review/comparator agent definitions share one canonical copy
+consult-when: Authoring/running a reviewer agent — shared Finding Report Format and severity table
 ---
 
 # Review Finding Format

@@ -1,5 +1,6 @@
 ---
 description: Discovery-phase Consolidated Context authoring MUST treat every file:line citation and third-party SDK premise in its task brief as a starting hypothesis, verify it against live source before folding it into the output Part, and surface any false premise as a prominent correction rather than a silent fix
+consult-when: Authoring Discovery-phase Consolidated Context — verify every citation/SDK premise against live source
 ---
 
 # Verify Discovery-Phase Consolidation Against Live Source

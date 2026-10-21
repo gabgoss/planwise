@@ -1,5 +1,6 @@
 ---
 description: BLI triage-time verification recipes (motivating-driver still-active recheck, un-tested-axes-first reproducer ordering, cluster-batch driver recheck, cross-cutting audit-candidate coverage at fix-agent delegation time), verifying source edits when the installed plugin is older than the source, and backlog-item citation freshness (pinned sequential identifiers, code anchors, narrative attributions, hand-authored tallies and membership lists, stated stale-side directions, contested counts) at execution time
+consult-when: Triaging a BLI or checking backlog-citation freshness — pinned IDs, code anchors, hand-authored tallies and membership lists, a stated stale-side direction, a contested count, at execution time
 ---
 
 # BLI Triage-Time Recipes and Backlog-Item Citation Freshness

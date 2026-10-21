@@ -919,3 +919,43 @@ class TestNormalizeRuleForDiffFallback(unittest.TestCase):
             )
 
 
+# A shipped reference carries a one-line `consult-when:` key: index metadata for
+# the generated reference library, not rule content. An installed copy written
+# before the key existed must still compare equal to the shipped file.
+_SHIPPED_WITH_KEY = (
+    "---\ndescription: x\nconsult-when: Writing a rule\npaths: a/**\n---\n# H\nbody\n"
+)
+_SHIPPED_KEY_LAST = "---\ndescription: x\nconsult-when: Writing a rule\n---\n# H\nbody\n"
+
+
+def test_normalize_ignores_consult_when_key():
+    """A copy that differs only by the `consult-when:` line normalizes equal."""
+    installed = "---\ndescription: x\npaths: b/**\n---\n# H\nbody\n"
+    assert ip.normalize_rule_for_diff(installed) == ip.normalize_rule_for_diff(_SHIPPED_WITH_KEY)
+    assert ip.normalize_rule_for_diff("---\ndescription: x\n---\n# H\nbody\n") == (
+        ip.normalize_rule_for_diff(_SHIPPED_KEY_LAST))
+    assert ip.normalize_rule_for_diff("# H\nbody\n") == (
+        ip.normalize_rule_for_diff("---\nconsult-when: Writing a rule\n---\n# H\nbody\n"))
+
+
+def test_normalize_still_reports_real_edits():
+    """A body or description edit still differs once the key is ignored."""
+    shipped_norm = ip.normalize_rule_for_diff(_SHIPPED_WITH_KEY)
+    body_edit = "---\ndescription: x\npaths: a/**\n---\n# H\nbody edited\n"
+    description_edit = "---\ndescription: y\npaths: a/**\n---\n# H\nbody\n"
+    assert ip.normalize_rule_for_diff(body_edit) != shipped_norm
+    assert ip.normalize_rule_for_diff(description_edit) != shipped_norm
+
+
+def test_style_rule_verdict_ignores_consult_when_key(tmp_path):
+    """The style-rule verdict reads a copy without the key as identical."""
+    import style_rules
+
+    shipped = tmp_path / "shipped.md"
+    installed = tmp_path / "installed.md"
+    shipped.write_text(_SHIPPED_KEY_LAST, encoding="utf-8")
+    installed.write_text("---\ndescription: x\n---\n# H\nbody\n", encoding="utf-8")
+    assert style_rules._verdict(shipped, installed) == "identical"
+    assert style_rules._body_differs(shipped, installed) is False
+
+

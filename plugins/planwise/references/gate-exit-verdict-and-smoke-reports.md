@@ -1,5 +1,6 @@
 ---
 description: A Sprint exit-gate verdict reflects the gate-defining step's status, never a step-count percentage, and the Verification Commands presence checks for the section, the per-file-type table, notebooks, lint and database pre-checks (§3, Reviewer Checks 013, 014, 034, 035 and 036); the operational rules for smoke reports, the Before/After block check, and the Recovery-versus-task-spec drift practice at closeout (§4, Reviewer Check 015).
+consult-when: Writing a Sprint Overview status, a smoke report or a closeout Recovery file, or reviewing a task's Verification Commands — the gate is the gate, never a step-count percentage, and the presence checks (§3, Checks 013, 014, 034, 035, 036); smoke-report rules and the Before/After block (§4, Check 015)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

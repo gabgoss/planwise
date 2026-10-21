@@ -1,5 +1,6 @@
 ---
 description: Every Before/After gate records its measured pre-edit value inline beside its post-edit expectation, written from a run against the live pre-edit tree (§10.1); a gate whose pre-edit value already satisfies its expectation is vacuous by construction and is rewritten, never shipped with a caveat (§10.2); a preservation gate is marked `invariant:` on the annotation line (§10.3); why the annotation and not only the discipline, and the WARNING/ERROR split (§10.4); Reviewer Check 082.
+consult-when: Writing or reviewing an After-block gate — every gate records its measured pre-edit value (§10.1), a value that already satisfies the expectation is vacuous and is rewritten (§10.2), a preservation gate is marked `invariant:` (§10.3), Check 082
 paths: {planwise_root}/{plans_dir}/**
 ---
 

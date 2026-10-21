@@ -1,5 +1,6 @@
 ---
 description: Verify-before-cite discipline (lesson IDs, schema files, field names, facade re-exports, upsert helper design, examples-repo version pinning, helper enumeration, field-mapping tables, tiered-fetch tactics, splitting an exemplar comparison into shape rows judged against the exemplar and data rows judged against the live source, and tracing each hazard a guard names to a mechanism in code before the guard is retired) for planwise task files and DELEGATED dispatch prompts
+consult-when: A task brief cites a lesson ID, schema file, or field name — open and skim it before citing, split an exemplar comparison into shape rows and data rows, trace each hazard before retiring a guard
 ---
 
 # Verify-Before-Cite

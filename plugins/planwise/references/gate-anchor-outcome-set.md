@@ -1,5 +1,6 @@
 ---
 description: An anchor accepts exactly the outcome set its own task's Execution Steps can produce — set equality derived at scaffold close, with the branch count carried inline, and never hardened into a count equality (§10.7, Reviewer Check 095); and a re-capture gate over a directory a tool regenerates in place names the environment-attributable files (fetched, session, timing, cost) apart from the extractor-attributable ones, so only the remainder halts (§10.10).
+consult-when: Writing a Signoff anchor, exit criterion, Execution Input gate, or a `git diff --stat` allowed set over a regenerated directory — the anchor accepts exactly the task's terminal branches (§10.7, Check 095), the allowed set names environment-attributable files apart from extractor-attributable ones (§10.10)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

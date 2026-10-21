@@ -1,5 +1,6 @@
 ---
 description: Communication style for every explanation, answer, summary, and document you write.
+consult-when: Changing the shipped prose style rule — sentence caps, active voice, one term per concept. Installed global under `style.plain_language`
 ---
 
 # Communication Style (always on)

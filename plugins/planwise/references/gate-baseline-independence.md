@@ -1,5 +1,6 @@
 ---
 description: A gate that asserts a property of a diff — comment-only, no-logic-change, N-files-touched — measures nothing when its target is untracked, and reports the file's entire body as additions once `git add -N` registers it. Covers why an untracked target makes such a gate vacuous, why intent-to-add inverts it instead of repairing it, the recorded-baseline form that discriminates, why a baseline taken from version control outranks one the executor made, why a before/after audit's PRE must come from the generation being replaced rather than from the new tool already installed, and why a chained `grep -c` skips the clean case. Consult before writing or accepting any gate whose subject is a diff, or any audit that compares a before state with an after state.
+consult-when: Writing or accepting a gate that asserts a property of a diff (comment-only, no-logic-change, N-files-touched) — an untracked target makes it vacuous, `git add -N` inverts it, pin a baseline before the first edit and prefer one the executor did not make, and take a before/after audit's PRE from the generation being replaced, never from the new tool already installed
 paths: {planwise_root}/{plans_dir}/**
 ---
 # Gate Baseline Independence — a Diff-Property Gate Needs a Baseline It Can Reach, and One It Did Not Make

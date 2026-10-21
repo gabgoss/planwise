@@ -1,5 +1,6 @@
 ---
 description: Cross-task coordination flags continued — a Key Finding that names another session's file is re-filed as a flag, a flag that tells a task to produce something is a write-set delta reconciled against the Output line and write-target row, and an ordering flag is written against the pinned command it sequences. Split out of read-confirm-act-protocol.md §1.3 when that file neared the Read-tool token gate.
+consult-when: Authoring or reconciling a cross-session flag — read X's pinned command before writing "X before Y", count a flag's produce-verbs against the `Output:` line and write-target row, and re-file a Key Finding that names another session's file as a coordination flag; carries three `§1.3` subsections of `read-confirm-act-protocol.md`
 ---
 
 # READ-CONFIRM-ACT Protocol, Part 2 — Flag Authoring Surfaces

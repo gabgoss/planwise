@@ -1,5 +1,6 @@
 ---
 description: Destructive-path and config-gated change requirements — interaction-matrix spec, independent test authorship, gated-branch pin discipline, pre-commit adversarial review, a lexical scorer's absent verdict is not evidence of absence (adjudicate before the writer runs), a similarity heuristic may only escalate in refuse-by-default tooling, and review convergence gated on consequence classes rather than severity labels, what the adversarial review must be told (seven case classes, the fix-diff review and the stopping rule), and an exemption modelled on a reference check copies the whole refusal condition
+consult-when: A branch can DELETE, OVERWRITE, MIGRATE, PRUNE or SWEEP user data — interaction-matrix spec, independent tests, adjudicating a lexical scorer's absent verdict before the writer runs, an escalate-only similarity heuristic, adversarial review gated on consequence classes, and an exemption that copies the whole refusal condition
 ---
 
 # Destructive-Path and Config-Gated Change Requirements

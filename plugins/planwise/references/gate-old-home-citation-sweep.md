@@ -1,5 +1,6 @@
 ---
 description: An old-home citation sweep is a substring match, not a parser — write the sibling citation before the anchor citation on a dual-citation line (§15.1), never tighten the pattern because a bounded wildcard converts a loud false positive into a silent false negative (§15.2), and gate on the delta against a recorded ledger of classified hits, never on the raw count (§15.3).
+consult-when: Writing the exit criterion for a citation sweep after moving a section between files — sibling citation first on a dual-citation line (§15.1), never tighten the pattern (§15.2), gate on the delta against a classified ledger (§15.3)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

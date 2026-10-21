@@ -1,5 +1,6 @@
 ---
 description: A verification gate's match pattern is derived from the property, never from convenience of measurement — per-unit existence assertions over anchored aggregate counts (§2, Check 058), match patterns cross-read from every sibling extraction format (§3), a coverage denominator scoped to real instances (§4, Check 059), a bare "condition ⇒ defect" heuristic stated with its exclusions (§9), and a counting predicate that names its unit and states both counts when a boundary mints the thing counted (§13).
+consult-when: Writing a count threshold, a coverage ratio, a keyword-proximity heuristic, a bare "condition ⇒ defect" rule for a runner, or a predicate that counts — per-unit assertions over anchored counts (§2, Check 058), patterns cross-read from sibling formats (§3), denominators scoped to real instances (§4, Check 059), exclusions stated in the same block (§9), a counting predicate names its unit (§13)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

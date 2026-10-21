@@ -1,5 +1,6 @@
 ---
 description: A fixture is never built through the API under test (§5); a known-good probe names a real target, and both halves the same one (§6); a fixture set spans input shapes, not only families (§7), and a writer's or migrator's fixture is seeded from the live file's real shapes and dry-run twice on a scratch copy (§7.1); a proof reports what it does not cover in the same breath as the result (§8); and completeness is verified against the spec's enumeration, never against the artifact (§9).
+consult-when: Building a fixture or probe, releasing a writer or migrator over a user-maintained file, or reporting a proof's coverage — never through the API under test (§5), a real target for both halves (§6), input shapes not families (§7), seed from the live file and dry-run twice on a scratch copy (§7.1), report what is not covered (§8), completeness against the spec's enumeration (§9)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

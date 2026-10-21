@@ -1,5 +1,6 @@
 ---
 description: DELEGATED dispatch discipline, Part 1 of 3 — declaration, foundations, and dispatch-prompt construction (§1.1–§1.13) for spawning task-runner subagents; extracted from agent-orchestration.md §11-§12
+consult-when: Running a DELEGATED session — the orchestrator protocol for spawning task-runners, from declaration through dispatch-prompt construction, with dispatch mechanics and returns in the Part-2 sibling and cross-cutting prompt discipline in the Part-3 sibling
 ---
 
 # DELEGATED Dispatch Discipline — Part 1: Foundations and Dispatch-Prompt Construction

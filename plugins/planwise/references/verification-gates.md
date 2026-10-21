@@ -1,5 +1,6 @@
 ---
 description: Family index for verification gates — which short gate-* reference governs a cross-process or build-versus-deploy boundary, a Sprint exit verdict, a diff-scoped gate's recorded base, the instrument's proof obligations, change- versus state-detecting shapes, or a run sheet's control; carries the reserved section numbers (§9 relocated, §12 a pointer), the `$..._BASE` definition pointer, and the map from this file's former section numbers to the topic files that now hold them.
+consult-when: Finding which gate reference governs a boundary, a verdict, a diff base, an instrument or a battery — the family index: a read-when table over the six `gate-*` topic files it indexes, the reserved §9 and §12 pointers, the `$..._BASE` definition pointer, and the map from this file's former section numbers to the topic file that now holds each one
 paths: {planwise_root}/{plans_dir}/**
 ---
 

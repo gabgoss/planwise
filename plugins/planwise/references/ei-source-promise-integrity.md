@@ -1,5 +1,6 @@
 ---
 description: EI source-promise integrity — body⇄citation presence in Consolidated Context parts, pre-extraction verification protocol, fallback hierarchy, verbatim-block behavioral freshness (ei-fidelity.md §10-§11), and a brief that cites a design pin quoting it verbatim with its fallback clause (§12)
+consult-when: Checking EI body⇄citation presence, pre-extraction verification, verbatim-block freshness, and (§12) a task brief that cites a design pin quotes it verbatim with its fallback clause, never a restatement
 ---
 
 # EI Source-Promise Integrity

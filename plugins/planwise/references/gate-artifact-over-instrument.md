@@ -1,5 +1,6 @@
 ---
 description: The artifact is authoritative and the instrument is the defect when the two disagree (§10); a gate annotation predicts the shape of correct work and never constrains it (§11); a runner's disclosure that a gate influenced the artifact is a re-derivation trigger for the orchestrator (§12); and a dispatcher pre-adjudicates a doctrine artifact's collision with a live gate at dispatch (§13).
+consult-when: A correct edit and a gate's annotated value disagree, a runner says it shaped content to satisfy a gate, or an authoring task is a live gate's subject — the artifact is authoritative (§10), an annotation predicts and never constrains (§11), a disclosure is a re-derivation trigger (§12), pre-adjudicate the collision at dispatch (§13)
 paths: {planwise_root}/{plans_dir}/**
 ---
 

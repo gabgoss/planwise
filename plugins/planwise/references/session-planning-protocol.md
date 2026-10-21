@@ -1,5 +1,6 @@
 ---
 description: Plan hierarchy, naming conventions, agent delegation, recovery protocol, checklists, and session workflow
+consult-when: Creating/executing a plan — hierarchy, naming, agent delegation, recovery protocol
 ---
 
 # Session Planning Protocol

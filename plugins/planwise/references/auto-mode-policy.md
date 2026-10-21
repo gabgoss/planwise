@@ -1,5 +1,6 @@
 ---
 description: Auto Mode policy — how any handler behaves when AskUserQuestion cannot be answered
+consult-when: A handler can't get an AskUserQuestion answer — taxonomy, gate-behavior matrix, inference defaults
 ---
 
 # Auto Mode Policy
