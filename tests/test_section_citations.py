@@ -108,7 +108,7 @@ FORM_EXAMPLES = (
     ("en-dash range", "handlers/harvest.md", 51),
     ("heading words", "handlers/doctor-Part-3-TokenSaverAndBookkeepingReadGates.md", 74),
     ("heading words holding a comma", "handlers/lessons.md", 83),
-    ("stage heading", "references/session-context-budget.md", 470),
+    ("stage heading", "references/session-context-budget.md", 497),
     ("step heading with a dash title", "agents/rule-comparator.md", 73),
     ("three-level number", "references/agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md", 2),
     ("letter series", "references/verify-against-shipped-artifact.md", 393),

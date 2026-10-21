@@ -879,7 +879,10 @@ def _run_doctor(cfg: "InitConfig") -> int:
     printing them after the verified-CLI-version drift advisory and before
     Stage 23 is the documented order. Then runs Stage 23, the style-rule check
     (run_style_stage()): per rule, its config switch, installed copy, copies
-    that also load, and token cost — also always-on and read-only. Always exits
+    that also load, and token cost — also always-on and read-only. Then runs
+    Stage 24, the consumer read-gate scan (run_read_gate_stage()), and Stage
+    25, the consumer section-citation check (run_section_citation_stage()) —
+    both always-on and read-only. Always exits
     0 (diagnostic, not a gate).
 
     Runs the plugin version-state gate FIRST (always-on, independent of Token
@@ -1142,6 +1145,30 @@ def _run_doctor(cfg: "InitConfig") -> int:
         run_style_stage(cfg)
     except Exception as exc:  # noqa: BLE001 -- the style stage must never change doctor's exit status
         print(f"Style rules: the check failed: {exc}")
+
+    # Stage 24: consumer read-gate scan — read-only, always-on. Reports each Warn or
+    # Critical file under .claude/ and the active plans, and whether a backlog item names it.
+    print()
+    print("planwise doctor — consumer read-gate scan")
+    print()
+    try:
+        from doctor_read_gate_stage import run_read_gate_stage
+
+        run_read_gate_stage(cfg)
+    except Exception as exc:  # noqa: BLE001 -- the read-gate stage must never change doctor's exit status
+        print(f"Consumer read-gate scan: the check failed: {exc}")
+
+    # Stage 25: consumer section-citation check — read-only, always-on. Reports each
+    # dangling § citation in the consumer's .claude/rules/ against the installed references/.
+    print()
+    print("planwise doctor — consumer section-citation check")
+    print()
+    try:
+        from doctor_citation_stage import run_section_citation_stage
+
+        run_section_citation_stage(cfg)
+    except Exception as exc:  # noqa: BLE001 -- the citation stage must never change doctor's exit status
+        print(f"Consumer section-citation check: the check failed: {exc}")
     return 0
 
 

@@ -421,7 +421,7 @@ Three criteria, in priority order — **whichever comes first binds**:
 
 The binding targets are the **WARN thresholds**, deliberately below the hard caps, so a compliant file never even triggers a warning. When the reading model is unknown, use the most-restrictive ratio (2.6 bytes/token).
 
-**Multi-Part Output Convention:**
+#### Multi-Part Output Convention
 
 Any artifact (task output, specification, consolidated context) may span multiple files:
 
@@ -438,6 +438,33 @@ Each part MUST:
 - Cross-reference other parts where needed
 
 **Not limited to one file.** Tasks produce full-detail outputs. If a task needs 3 files to capture the full specification, that is correct — do NOT compress detail away to dodge a split.
+
+#### Page-Cap Procedure
+
+**Purpose:** What to do when a shipped markdown file reaches the read warn. Detect the file, file an item for it, choose a disposition, and split only as the last resort.
+
+1. **Detection.**
+   - In plugin development, the budget test `tests/test_shipped_markdown_budget.py` scans the shipped tree. It fails when a file reaches Warn or worse without an allowlist entry, and it lists each unlisted file.
+   - Pytest hides the output of a passing test. Run the budget test with `-s` to print the full worklist even when it passes.
+   - In a consumer project, the doctor stage `Consumer Read-Gate Scan` names each Warn or Critical file. It also reports whether a backlog item names that file.
+2. **Filing.** File one backlog item per file with `/planwise backlog`. Title it `` Refactor `<file>` below the read warn ``. The item records the disposition chosen at step 3.
+3. **Disposition, in this order.** Stop at the first one that brings the file under the warn.
+   1. **Compress.** Keep the rule plus one WRONG/CORRECT example, and cut the rest.
+   2. **Promote to code.** Move the check into a script or a test. The prose then becomes a pointer to that check.
+   3. **Merge.** Move the content into a sibling reference that has room for it.
+   4. **Split, last.** Split only when the first three cannot bring the file under the warn.
+
+   A consumer can compress, promote and merge by hand. After each edit, check the section citations with the shipped `scripts/check_section_citations.py`. Only plugin development can split.
+4. **Split, when still needed (plugin development).** The split tool and the reference-library generator are development tools in the plugin repository. They do not ship. Run these five steps in order:
+   1. Run the split tool, `tools/split_reference.py`, with `--apply`. Without `--apply` the run is a dry run and writes nothing.
+   2. Run the shipped `scripts/check_section_citations.py`. It must exit 0.
+   3. Rerun the reference-library generator, `tools/gen_reference_library.py`.
+   4. Run the reachability test, `tests/test_reviewer_reference_reachability.py`. It must pass.
+   5. Run the full test suite. It must pass.
+
+   The split tool prints a level for each file it touches: OK, WARN or OVER. `--apply` refuses when the source remainder or the new Part measures WARN or worse. It refuses any other touched file only when that file's level rises. A citer that only gains a repointed citation at an unchanged level is reported, not refused. `--allow-warn` waives the refusal for one run, for a WARN result and an OVER result alike. The report then lists every waived file.
+
+This procedure covers the writer's side. For reading a file that is already over a gate, use [Page Large Files — Do Not Trust One Read](#reading-discipline-with-read-gates-binding) and Step 1 of [Large-File Read Tactics](#large-file-read-tactics).
 
 ### File Size Limits — Generated Artifacts (BINDING)
 
