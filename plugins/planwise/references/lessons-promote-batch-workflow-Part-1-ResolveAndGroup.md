@@ -53,7 +53,7 @@ All paths resolve from `config.yaml` (`project.planwise_root`, `project.lessons_
 | `CLAUDE.md` | Force-read binding callouts pointing to the new rules | Yes | No (BB describes the CLAUDE.md edit; the BB executor performs it) |
 | `config.yaml: categorization` | Bucket schema, slug list, sub-bucket structure | Yes | No |
 
-**Pre-condition:** `00-Categorization-By-Domain.md` must be up to date. The halt condition is specified **once**, in [`handlers/lessons.md`](../handlers/lessons.md#pre-condition-gates) § Batch-Promote Mode → Pre-condition Gates, **Gate 2**. It is corpus-wide — any lesson in the master index but in no bucket table halts the run — and it is evaluated before this workflow is entered. Do not restate it here or anywhere below; cite it. See [lessons-curate-workflow.md](lessons-curate-workflow.md) for the upstream sync mechanism.
+**Pre-condition:** `00-Categorization-By-Domain.md` must be up to date. The halt condition is specified **once**, in [`handlers/lessons.md`](../handlers/lessons.md#pre-condition-gates) § Pre-condition Gates (under Batch-Promote Mode), **Gate 2**. It is corpus-wide — any lesson in the master index but in no bucket table halts the run — and it is evaluated before this workflow is entered. Do not restate it here or anywhere below; cite it. See [lessons-curate-workflow.md](lessons-curate-workflow.md) for the upstream sync mechanism.
 
 ---
 

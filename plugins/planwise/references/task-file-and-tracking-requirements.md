@@ -220,21 +220,21 @@ A contract stated as prose and a worked example stated as a table are two instru
 Task file Required Context sections and Execution Steps are subject to the rules in [`task-content-fidelity.md`](task-content-fidelity.md). The critical fidelity rules for task file authoring are:
 
 **§9.A Required Context Fidelity (summary — see full rules in task-content-fidelity.md):**
-- §9.A.1: Update Required Context when project file structure changes
-- §9.A.2: No `~?` placeholders — token estimates MUST be concrete integers
-- §9.A.3: Derive tokens from measured bytes ÷ the content-class bytes-per-token ratio (Claude 5 family: dense markdown ~2.6, prose ~2.9, code ~2.7, cleared notebook ~2.3, raw JSON ~2.0; conservative text default 2.6 when unsure, notebook/json auto-detected by extension) — never from a line count
-- §9.A.4: Re-glob live file counts before authoring (counts >1 hour old are stale)
-- §9.A.5: Budget 1.5-2× for multi-source consolidation tasks (dedup overhead)
-- §9.A.6: Use generator-script pattern for tasks walking ≥100 files
-- §9.A.7: Declare per-artifact shape (token budget, topic) for multi-artifact outputs
+- `task-content-fidelity.md` §9.A.1: Update Required Context when project file structure changes
+- `task-content-fidelity.md` §9.A.2: No `~?` placeholders — token estimates MUST be concrete integers
+- `task-content-fidelity.md` §9.A.3: Derive tokens from measured bytes ÷ the content-class bytes-per-token ratio (Claude 5 family: dense markdown ~2.6, prose ~2.9, code ~2.7, cleared notebook ~2.3, raw JSON ~2.0; conservative text default 2.6 when unsure, notebook/json auto-detected by extension) — never from a line count
+- `task-content-fidelity.md` §9.A.4: Re-glob live file counts before authoring (counts >1 hour old are stale)
+- `task-content-fidelity.md` §9.A.5: Budget 1.5-2× for multi-source consolidation tasks (dedup overhead)
+- `task-content-fidelity.md` §9.A.6: Use generator-script pattern for tasks walking ≥100 files
+- `task-content-fidelity.md` §9.A.7: Declare per-artifact shape (token budget, topic) for multi-artifact outputs
 
-**§9.B Verify-Before-Cite (summary — see full rules in task-content-fidelity.md):**
-- §9.B.2: Reconcile field/column/parameter names against live source (DDL, function signatures) — use `{long_form_identifier}` vs `{abbreviated_identifier}` pair to illustrate drift
-- §9.B.5: SQL column names MUST be verified against pinned schema before encoding in task brief
-- §9.B.7: USED-helper enumeration: when copying helpers, enumerate USED and NOT-USED explicitly
+**§9.B Verify-Before-Cite (summary — see full rules in verify-before-cite.md):**
+- `verify-before-cite.md` §9.B.2: Reconcile field/column/parameter names against live source (DDL, function signatures) — use `{long_form_identifier}` vs `{abbreviated_identifier}` pair to illustrate drift
+- `verify-before-cite.md` §9.B.5: SQL column names MUST be verified against pinned schema before encoding in task brief
+- `verify-before-cite.md` §9.B.7: USED-helper enumeration: when copying helpers, enumerate USED and NOT-USED explicitly
 - Schema Pin: at planning time MUST be reconciled against deployed-tier schema at execution time (see `schema-pin-requirement.md` §3)
 - §9.B.2 (extended): Env vars, function signatures, and config keys verified against live source (extends `verify-before-cite.md` §9.B.2 identifier reconciliation)
-- §9.B.8: MERGE/upsert task briefs MUST include Field Mapping subsection (Source Field | DDL Column | Type Cast | Default)
+- `verify-before-cite.md` §9.B.8: MERGE/upsert task briefs MUST include Field Mapping subsection (Source Field | DDL Column | Type Cast | Default)
 
 **Cross-sprint dependency mirroring:**
 

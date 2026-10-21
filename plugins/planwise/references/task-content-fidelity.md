@@ -4,7 +4,7 @@ description: Required Context fidelity — measured estimates, freshness across 
 
 # Task Content Fidelity
 
-**Purpose:** Required Context fidelity rules (§9.A) for task files — measured estimates that stay fresh across file splits, bytes-per-token ratios, and the Token Saver large-file classification ladder. Extends [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template) with the §9.A subsection; extracted into this sibling file to keep both rule files comfortably within a single Read call. Verify-before-cite discipline (§9.B) is the split sibling [verify-before-cite.md](verify-before-cite.md).
+**Purpose:** Required Context fidelity rules (§9.A) for task files — measured estimates that stay fresh across file splits, bytes-per-token ratios, and the Token Saver large-file classification ladder. Extends [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) §9 (Task File Template) with the §9.A subsection; extracted into this sibling file to keep both rule files comfortably within a single Read call. Verify-before-cite discipline is the split sibling [verify-before-cite.md](verify-before-cite.md) (§9.B).
 
 **Companion files:** [task-file-and-tracking-requirements.md](task-file-and-tracking-requirements.md) (Task File Template, Orchestration linkage, completion tracking), [verify-before-cite.md](verify-before-cite.md) (§9.B Verify-Before-Cite — split sibling: lesson IDs, schema files, field names, facade re-exports, upsert helper design).
 

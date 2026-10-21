@@ -34,11 +34,17 @@ paths: {planwise_root}/{plans_dir}/**
 
 Two numbers stay reserved here so citations to them keep resolving.
 
-**§9 Empirical Verification Discipline** — relocated to [measurement-discipline.md](measurement-discipline.md) §8 (wc-l line-count authority over Read-output line numbers, broad-gate authority over an audit's file enumeration, headline-metric reconciliation, doctrinal-claim surface sweeps, markdown-field normalization on both read and write, idempotency-safe append/author, gate-input-set verification before trusting a predicate, and post-behavior-change surface sweeps).
+### 9. Empirical Verification Discipline
 
-**§12 Reachability Gates — a Definition Is Not a Caller.** Every gate in the topic files above measures **presence**; none measures whether production ever reaches the thing. The reachability gate — assert a **caller** that supplies the activating argument, not a definition; quote a production call site per behaviour-adding deliverable in the closing-sweep ledger; classify a runner's "dormant until a follow-up wires it" return as PARTIAL, never COMPLETE — lives in its own reference: [verify-caller-before-complete.md](verify-caller-before-complete.md). The body is not restated here.
+Relocated to [measurement-discipline.md](measurement-discipline.md) §8 (wc-l line-count authority over Read-output line numbers, broad-gate authority over an audit's file enumeration, headline-metric reconciliation, doctrinal-claim surface sweeps, markdown-field normalization on both read and write, idempotency-safe append/author, gate-input-set verification before trusting a predicate, and post-behavior-change surface sweeps).
 
-**`$..._BASE`** is defined in [gate-diff-baseline-pinning.md](gate-diff-baseline-pinning.md) §8. A citation of "`verification-gates.md` §8 as the definition site" resolves there.
+### 12. Reachability Gates — a Definition Is Not a Caller
+
+Every gate in the topic files above measures **presence**; none measures whether production ever reaches the thing. The reachability gate — assert a **caller** that supplies the activating argument, not a definition; quote a production call site per behaviour-adding deliverable in the closing-sweep ledger; classify a runner's "dormant until a follow-up wires it" return as PARTIAL, never COMPLETE — lives in its own reference: [verify-caller-before-complete.md](verify-caller-before-complete.md). The body is not restated here.
+
+### The `$..._BASE` Pointer
+
+`$..._BASE` is defined in [gate-diff-baseline-pinning.md](gate-diff-baseline-pinning.md) §8. A citation of "`verification-gates.md` §8 as the definition site" resolves there.
 
 ---
 

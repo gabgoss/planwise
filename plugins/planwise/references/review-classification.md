@@ -40,7 +40,7 @@ The custom agents (`structural-reviewer` and `plan-reviewer`) carry their own ch
 - Success criteria are measurable checkboxes
 - Declared dependencies match actual data flow between tasks
 - Agent assignment is appropriate: Haiku for lookups, Sonnet for code, Opus for decisions
-- [Token Saver on] Each task's Required Context obeys the §9.A.8 large-file ladder: no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split (see [Token Saver Compliance Check](#token-saver-compliance-check))
+- [Token Saver on] Each task's Required Context obeys the `task-content-fidelity.md` §9.A.8 large-file ladder: no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split (see [Token Saver Compliance Check](#token-saver-compliance-check))
 - Session Summary's Consumption Record present with `measured|estimated` tags; orchestrator-window total kept distinct from summed dispatch budgets
 - Every `git diff` in a task's Verification Commands or Success Criteria is scoped to a recorded baseline and path-scoped with `--`, not a `grep` pipe (Check 077)
 - Recompute each task's `sum(Required Context ~Tokens) + output + working` and compare with the header's `Estimated Tokens`. Beyond the ±0.5K a rounded header implies, the gap MUST be closed by an addend carrying a value — never by a prose qualifier ("netted by the targeted-read discipline", "rounding offsets the working margin"), which reads as a justification while calculating nothing (Catalog row 120, ERROR). Flag any task file carrying two different derivations of the same total: they can disagree with each other and still land on the same number, so agreeing totals are not evidence either is right. This is arithmetic, not judgement — recompute it rather than reading the reconciliation comment. It sits *inside* Check 024's ±10% BLOCKER band, which is why gaps of 3–5% survive that gate
@@ -195,7 +195,7 @@ Run each check below over every task in scope. Each is HIGH confidence (mechanic
 > if verdict.level == Critical and verdict.reason == "read" and task.flagged("1M-exception"):     finding
 > ```
 
-When Token Saver is off, none of the above runs — the §9.A token-estimation checks (Error Pattern Catalog #14, #37, #38) stand alone, unchanged.
+When Token Saver is off, none of the above runs — the `task-content-fidelity.md` §9.A token-estimation checks (Error Pattern Catalog #14, #37, #38) stand alone, unchanged.
 
 ---
 

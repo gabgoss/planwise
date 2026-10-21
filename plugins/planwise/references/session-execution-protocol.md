@@ -172,7 +172,7 @@ Those two defaults are chosen operating points derived from measured accumulatio
 > - [ ] The session Summary's Consumption Record is filled with the `measured|estimated` tag on every measured field
 > - [ ] `orchestrator_window_total` and `summed_dispatch_budgets` are recorded as distinct values, never summed into one figure
 >
-> See [templates/summary-template.md § Consumption Record](../templates/summary-template.md#consumption-record) for field semantics — this checklist verifies completeness, it does not restate the field list.
+> See the `## Consumption Record` block of [templates/summary-template.md](../templates/summary-template.md) for field semantics — this checklist verifies completeness, it does not restate the field list.
 
 ### Record State Changes in Recovery Before a User Gate
 

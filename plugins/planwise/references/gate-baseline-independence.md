@@ -10,7 +10,7 @@ paths: {planwise_root}/{plans_dir}/**
 
 `git diff` answers one question. It reports how the working tree differs from **the index**. An untracked file has no index entry, so the honest answer is *nothing*. A `grep -c`-shaped gate cannot tell that answer apart from *no violations found*. Both print `0`.
 
-This is the baseline half of a three-part problem. [`measurement-discipline.md`](measurement-discipline.md) §8.7 owns the **input set**, and [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) owns the **predicate**. This file owns the **base the diff is taken against**. §8.7's first remedy is to register new files with `git add -N`. That remedy is correct for a gate asking whether a forbidden pattern appears in added lines. §2 below states the gate class where it inverts.
+This is the baseline half of a three-part problem. [`measurement-discipline.md`](measurement-discipline.md) §8.7 owns the **input set**, and [`gate-predicate-discrimination.md`](gate-predicate-discrimination.md) owns the **predicate**. This file owns the **base the diff is taken against**. `measurement-discipline.md` §8.7's first remedy is to register new files with `git add -N`. That remedy is correct for a gate asking whether a forbidden pattern appears in added lines. §2 below states the gate class where it inverts.
 
 ## Table of Contents
 
@@ -70,7 +70,7 @@ For a **diff-property** gate it is worse than the vacuous form. `git add -N` rec
 >
 > | Gate asks | Register with `add -N`? |
 > |---|---|
-> | Does a forbidden pattern appear in the change? | Yes — §8.7 remedy 1 applies |
+> | Does a forbidden pattern appear in the change? | Yes — `measurement-discipline.md` §8.7 remedy 1 applies |
 > | Is the change comment-only, logic-identical, or N lines? | No — it inverts. Use §3's recorded baseline |
 
 ---

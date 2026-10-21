@@ -71,7 +71,7 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - Confirm agent assignment is appropriate (Haiku for lookups, Sonnet for code, Opus for decisions)
 - Check Execution Steps are ordered correctly and complete
 - When a brief's Success Criteria cite a test by name, walk each row of its test table through the contract prose; report a row the contract makes unreachable (`references/task-file-and-tracking-requirements.md` §9, "Walk the Worked Example Through the Contract Prose Before Dispatch")
-- [Token Saver on only] Each task's Required Context obeys the §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split
+- [Token Saver on only] Each task's Required Context obeys the `references/task-content-fidelity.md` §9.A.8 large-file ladder (Check 065): no over-ceiling task without `1M-exception`; Warn+ files carry a backlog item; a `read`-reason Critical is never `1M-exception`'d; oversized generated artifacts are Multi-Part split
 - Session Summary's Consumption Record present with `measured|estimated` tags; orchestrator-window total kept distinct from summed dispatch budgets
 
 - Check 010 — Task DELEGATED Mandatory Triggers Honored → references/agent-orchestration-delegated.md §1.1

@@ -198,7 +198,7 @@ In parallel mode you share the Recovery file with sibling runners dispatched in 
 > Full contract, derivation, and the over-tight failure mode: `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.28. The status block re-enters the orchestrator's own context window whole on return — it is bounded so that does not accumulate:
 > - **No re-quoted file content** — cite `OUTPUT_FILES` by path + `LINES_PRODUCED`, never paste an edited file's body into the block.
 > - **No restated task text** — `TASK_ID` is the reference; never re-explain the brief.
-> - **18-line ceiling on the whole block** — derived from enumerating what central reconciliation consumes (status, task id, route/flags, output files, lines produced, verify results, key findings, issues) and capping each field at its worst case; see §1.28 for the per-field table. The ceiling is a floor-preserving cap, not a target to shrink toward — it never cuts a field reconciliation needs.
+> - **18-line ceiling on the whole block** — derived from enumerating what central reconciliation consumes (status, task id, route/flags, output files, lines produced, verify results, key findings, issues) and capping each field at its worst case; see `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.28 for the per-field table. The ceiling is a floor-preserving cap, not a target to shrink toward — it never cuts a field reconciliation needs.
 > - **Bulk output routed to files** — anything a field cannot carry within its allocation goes to the session `Outputs/` folder; name the path in the block instead of inlining the content.
 
 > [!constraint] No Sneaky Recovery Writes in Parallel Mode

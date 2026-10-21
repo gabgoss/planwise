@@ -70,8 +70,8 @@ section, callout, table, prose run) is one of:
 
 Then:
 - `classification = "HAS_UNIQUE"` if any installed block is unique, else `"SUBSET"`.
-- `confidence` = worst single block: `exact` (every block byte-equal modulo §2
-  framing) ⊃ `contained` (each block's content is a subset of one shipped block —
+- `confidence` = worst single block: `exact` (every block byte-equal once § Step 2 — Strip machine-managed framing
+  has run) ⊃ `contained` (each block's content is a subset of one shipped block —
   shipped grew it) ⊃ `reorg` (content present in shipped but split/moved across
   blocks) ⊃ `unique` (residual installed-only content).
 - `unique_blocks` = the labels of the unique blocks (`[]` when SUBSET).

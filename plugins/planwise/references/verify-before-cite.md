@@ -435,7 +435,7 @@ Fix: Verify per references/verify-before-cite.md §9.B.14 | Confidence: HIGH
 > any plan artifact) MUST be gated so the produced file lands OK on all three
 > Read gates — under 22,000 measured tokens (the reading model's ratio), under
 > 240 KiB, under 2,000 lines. Verify with `measure_files.py`; if the projected
-> output exceeds the token budget, pre-split per §9.A.7.
+> output exceeds the token budget, pre-split per `task-content-fidelity.md` §9.A.7.
 >
 > WRONG — consume a data model with no field map; emit an output nobody measured:
 > ```markdown

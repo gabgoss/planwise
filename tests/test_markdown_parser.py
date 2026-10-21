@@ -32,9 +32,12 @@ from typing import ClassVar
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "plugins" / "planwise" / "scripts"))
 
 from markdown_parser import (
+    Heading,
     count_cells,
+    extract_headings,
     find_row_by_id,
     is_section_boundary,
+    numbered_heading_index,
     pad_cell,
     parse_markdown_table,
     split_row_cells,
@@ -497,6 +500,198 @@ class TestPadCell(unittest.TestCase):
 
     def test_new_value_wider_than_old_padding_still_keeps_both_sides(self):
         self.assertEqual(pad_cell(" a ", "MUCH_LONGER_VALUE"), " MUCH_LONGER_VALUE ")
+
+
+class TestExtractHeadings(unittest.TestCase):
+    """The heading extractor: every live heading form, number tokens kept
+    whole, and the literal fence rule (a line whose first non-space characters
+    are three backticks toggles; a `> ` callout line never does)."""
+
+    def _one(self, line):
+        headings = extract_headings(line + "\n")
+        self.assertEqual(len(headings), 1, headings)
+        return headings[0]
+
+    def test_dotted_top_level_number(self):
+        h = self._one("## 15. Title")
+        self.assertEqual((h.level, h.number, h.title), (2, "15", "Title"))
+
+    def test_dotted_subsection_number_without_trailing_dot(self):
+        h = self._one("### 15.1 Title")
+        self.assertEqual((h.level, h.number, h.title), (3, "15.1", "Title"))
+
+    def test_letter_series_number(self):
+        h = self._one("## 9.B Title")
+        self.assertEqual((h.number, h.title), ("9.B", "Title"))
+
+    def test_three_level_letter_series_number(self):
+        h = self._one("### 9.B.12 Title")
+        self.assertEqual((h.number, h.title), ("9.B.12", "Title"))
+
+    def test_letter_suffixed_number_with_dot(self):
+        h = self._one("### 3a. Title")
+        self.assertEqual((h.number, h.title), ("3a", "Title"))
+
+    def test_letter_suffixed_dotted_number(self):
+        h = self._one("### 3a.2 Title")
+        self.assertEqual((h.number, h.title), ("3a.2", "Title"))
+
+    def test_dotted_name_segment(self):
+        h = self._one("### 3b.archive Title")
+        self.assertEqual((h.number, h.title), ("3b.archive", "Title"))
+
+    def test_letter_suffix_is_never_stripped(self):
+        h = self._one("### 3k. A Declared API Drifts Between Builds")
+        self.assertEqual(h.number, "3k")
+
+    def test_stage_heading_with_letter_suffix(self):
+        h = self._one("### Stage 8b: Title")
+        self.assertEqual((h.level, h.number, h.title), (3, "Stage 8b", "Title"))
+
+    def test_step_heading(self):
+        h = self._one("### Step 5: Read-gate scan")
+        self.assertEqual((h.number, h.title), ("Step 5", "Read-gate scan"))
+
+    def test_unnumbered_heading(self):
+        h = self._one("### File Size Limits")
+        self.assertIsNone(h.number)
+        self.assertEqual(h.title, "File Size Limits")
+
+    def test_numbering_may_start_above_one(self):
+        h = self._one("## 5. Token Budget")
+        self.assertEqual((h.number, h.title), ("5", "Token Budget"))
+
+    def test_colon_after_number(self):
+        h = self._one("## 15: Title")
+        self.assertEqual((h.number, h.title), ("15", "Title"))
+
+    def test_word_glued_to_plain_number_is_the_title(self):
+        h = self._one("## 1.Introduction")
+        self.assertEqual((h.number, h.title), ("1", "Introduction"))
+
+    def test_glued_name_segments_after_letter_suffix_stay_whole(self):
+        self.assertEqual(self._one("## 3b.archive Old").number, "3b.archive")
+        self.assertEqual(self._one("### 3h.untested-axes Axes").number, "3h.untested-axes")
+
+    def test_letter_series_keys_stay_whole(self):
+        self.assertEqual(self._one("## 9.B.12 X").number, "9.B.12")
+        self.assertEqual(self._one("### 9.A.16 Y").number, "9.A.16")
+        self.assertEqual(self._one("### 5.A Z").number, "5.A")
+
+    def test_closing_hash_sequence_is_dropped(self):
+        h = self._one("## Read Limits ##")
+        self.assertEqual((h.number, h.title), (None, "Read Limits"))
+        self.assertEqual(self._one("## 15. Title ###").title, "Title")
+
+    def test_hash_glued_to_a_word_stays(self):
+        self.assertEqual(self._one("## C# notes").title, "C# notes")
+        self.assertEqual(self._one("## Learn C#").title, "Learn C#")
+
+    def test_date_like_heading_is_unnumbered(self):
+        self.assertIsNone(self._one("## 2026-10-20 Notes").number)
+
+    def test_raw_level_and_line_number(self):
+        headings = extract_headings("intro\n\n# Top\ntext\n###### Deep  \n")
+        self.assertEqual(
+            [(h.level, h.raw, h.line) for h in headings],
+            [(1, "# Top", 3), (6, "###### Deep", 5)],
+        )
+
+    def test_non_headings_are_skipped(self):
+        doc = "####### seven\n#tag\n ## indented\n> ## quoted\ntext ## mid\n"
+        self.assertEqual(extract_headings(doc), [])
+
+    def test_heading_inside_backtick_fence_is_skipped(self):
+        doc = "## A\n```\n## Not a heading\n```\n## B\n"
+        self.assertEqual([h.raw for h in extract_headings(doc)], ["## A", "## B"])
+
+    def test_indented_and_language_tagged_fence_toggles(self):
+        doc = "  ```python\n# comment, not a heading\n  ```\n## After\n"
+        self.assertEqual([h.raw for h in extract_headings(doc)], ["## After"])
+
+    def test_heading_shaped_line_in_callout_fence_is_not_a_heading(self):
+        # The callout fence lines start with "> ", so they never toggle, and the
+        # heading-shaped line inside starts with ">" so it is not a heading.
+        doc = "> ```\n> ## Inside callout\n> ```\n## After\n"
+        self.assertEqual([h.raw for h in extract_headings(doc)], ["## After"])
+
+    def test_callout_fence_does_not_toggle_the_fence_state(self):
+        # Had the "> ```" line opened a fence, the real fence below would close
+        # it and "## Hidden" would be indexed.
+        doc = "> ```\n## Visible\n```\n## Hidden\n```\n## Last\n"
+        self.assertEqual([h.raw for h in extract_headings(doc)], ["## Visible", "## Last"])
+
+    def test_unclosed_fence_skips_the_rest(self):
+        doc = "## A\n```\n## B\n"
+        self.assertEqual([h.raw for h in extract_headings(doc)], ["## A"])
+
+    def test_crlf_lf_and_cr_inputs_give_equal_results(self):
+        lf = "# T\n\n## 15. A\n```\n## x\n```\n### 15.1 B\n"
+        crlf = lf.replace("\n", "\r\n")
+        cr = lf.replace("\n", "\r")
+        self.assertEqual(extract_headings(crlf), extract_headings(lf))
+        self.assertEqual(extract_headings(cr), extract_headings(lf))
+        self.assertNotIn("\r", extract_headings(crlf)[1].raw)
+
+    def test_real_lines_from_gate_old_home_citation_sweep(self):
+        # Copied verbatim from references/gate-old-home-citation-sweep.md :21 and :31.
+        doc = (
+            "## 15. An Old-Home Citation Sweep Is a Substring Match — Order the "
+            "Content, Classify the Hits, Never Tighten the Pattern\n"
+            "\n"
+            "### 15.1 The dual-citation false match — write the sibling citation first\n"
+        )
+        first, second = extract_headings(doc)
+        self.assertEqual((first.level, first.number), (2, "15"))
+        self.assertTrue(first.title.startswith("An Old-Home Citation Sweep"))
+        self.assertEqual((second.level, second.number), (3, "15.1"))
+        self.assertEqual(
+            second.title, "The dual-citation false match — write the sibling citation first"
+        )
+
+
+class TestNumberedHeadingIndex(unittest.TestCase):
+    """The exact-token index the citation checker and the pair lint read."""
+
+    DOC = (
+        "## 3. Section\n"
+        "### 3a. One\n"
+        "### 3a.2 Two\n"
+        "### 3b.archive Three\n"
+        "### 3k. Four\n"
+        "## 8. Eight\n"
+        "### Stage 8b: Stage\n"
+        "## 9.B Series\n"
+        "### 9.B.1 First\n"
+        "### File Size Limits\n"
+    )
+
+    def test_keys_are_whole_tokens(self):
+        index = numbered_heading_index(extract_headings(self.DOC))
+        self.assertEqual(
+            set(index),
+            {"3", "3a", "3a.2", "3b.archive", "3k", "8", "Stage 8b", "9.B", "9.B.1"},
+        )
+        self.assertEqual(index["3k"][0].title, "Four")
+
+    def test_stage_heading_does_not_collide_with_section_number(self):
+        index = numbered_heading_index(extract_headings(self.DOC))
+        self.assertEqual([h.title for h in index["8"]], ["Eight"])
+        self.assertEqual([h.title for h in index["Stage 8b"]], ["Stage"])
+        self.assertNotIn("8b", index)
+
+    def test_unnumbered_headings_are_left_out(self):
+        index = numbered_heading_index(extract_headings(self.DOC))
+        self.assertFalse(any(h.title == "File Size Limits" for v in index.values() for h in v))
+
+    def test_duplicate_number_keeps_both_entries(self):
+        index = numbered_heading_index(extract_headings("## 2. First\ntext\n## 2. Second\n"))
+        self.assertEqual([(h.title, h.line) for h in index["2"]], [("First", 1), ("Second", 3)])
+
+    def test_heading_record_is_immutable(self):
+        h = Heading(2, "## 1. A", "1", "A", 1)
+        with self.assertRaises(AttributeError):
+            h.number = "2"
 
 
 if __name__ == "__main__":

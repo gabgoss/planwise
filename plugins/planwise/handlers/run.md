@@ -146,7 +146,7 @@ While reading, watch for structural findings beyond the literal task scope -- la
 > [!checklist] Flag-Reconciliation Preflight (Phase 1, between READ and CONFIRM)
 > - [ ] **Enumerate all four flag sources first, then read every one.** Reading one source, finding nothing missing, and reporting success proves nothing — the failure is silent in the passing direction:
 >   - [ ] This session's orchestration file, `## Pre-Known Cross-Task Coordination Flags`
->   - [ ] **Every immediately-upstream session's Recovery `Cross-Task Coordination Flags` table** — the session(s) named in this session's `Prerequisite:` field. This is the source most often skipped, and it is the ONLY path for a flag raised during execution rather than at plan time (see §1.4.B of the reference: an already-scaffolded session never re-reads the sprint plan)
+>   - [ ] **Every immediately-upstream session's Recovery `Cross-Task Coordination Flags` table** — the session(s) named in this session's `Prerequisite:` field. This is the source most often skipped, and it is the ONLY path for a flag raised during execution rather than at plan time (see `references/read-confirm-act-protocol.md` §1.4.B: an already-scaffolded session never re-reads the sprint plan)
 >   - [ ] The sprint plan's `## Carried-Forward Coordination Flags` section (if present)
 >   - [ ] The Master Plan's `## Carried-Forward Coordination Flags` section (if present)
 > - [ ] Diff the union of those four against what actually appears in the task files. A flag with no task-file hit is unrouted, however many plan files mention it
@@ -450,11 +450,11 @@ After a **parallel batch** of 3+ task-runners returns:
 
 **Unreported silence** — nothing arrives at all. This is a different branch, and it is the one where you must act on inference rather than on a report. A runner produces no observable output between dispatch and its final status block, so silence alone does not distinguish *working* from *dead* from *stalled*.
 
-1. **Do NOT re-dispatch yet.** Re-dispatching onto a live runner puts two writers on one task's declared output set (rationale: Part-3 §1.30, cited in step 2).
+1. **Do NOT re-dispatch yet.** Re-dispatching onto a live runner puts two writers on one task's declared output set (rationale: `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30, cited in step 2).
 2. **Run the liveness check** in `references/agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30: sample the runner's own transcript twice, a minute apart. A last-entry timestamp seconds old means alive. Minutes old **with no line growth across both samples** is a genuine stall. Do not substitute an agent listing or a disk inventory: neither shows whether a writer is still attached (§1.30 gives the measurement).
-3. **Alive** → wait, or steer the existing runner with a message (§1.7, §1.10). Do not replace it, and do not write to anything it owns (§1.26).
-4. **Stalled** → resume the SAME agent per §1.17, never a fresh one.
-5. **Genuinely dead** → re-dispatch, and put two things in the replacement's brief: an inventory of what the dead runner left on disk marked **UNVERIFIED**, and the frozen-snapshot self-check from §1.30 (compare the inventory against live modification times before the first write, and HOLD if anything moved).
+3. **Alive** → wait, or steer the existing runner with a message (`agent-orchestration-delegated.md` §1.7, §1.10). Do not replace it, and do not write to anything it owns (`agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.26).
+4. **Stalled** → resume the SAME agent per `agent-orchestration-delegated-Part-2-DispatchMechanicsAndReturns.md` §1.17, never a fresh one.
+5. **Genuinely dead** → re-dispatch, and put two things in the replacement's brief: an inventory of what the dead runner left on disk marked **UNVERIFIED**, and the frozen-snapshot self-check from `agent-orchestration-delegated-Part-3-CrossCuttingDispatchDiscipline.md` §1.30 (compare the inventory against live modification times before the first write, and HOLD if anything moved).
 6. Record which branch fired in Recovery, with the measurement that settled it — not the conclusion alone.
 
 ### Step 3.5: Session-Length Checkpoint
@@ -639,7 +639,7 @@ Ask the user: "Were any lessons learned during this session?"
 > Every row in the Recovery file's `Cross-Task Coordination Flags` section MUST be propagated into the downstream consumer's plan file BEFORE the Git Commit step. A flag recorded only in upstream Recovery and never propagated is functionally a dropped constraint. See [references/read-confirm-act-protocol.md §1.3](../references/read-confirm-act-protocol.md#13-cross-task-coordination-flags) for the full lifecycle and destination matrix.
 
 1. Read the Recovery file's `Cross-Task Coordination Flags` section. If the section is empty or absent, skip to Step 4.5.
-2. For each flag row, route per the destination table in §1.3:
+2. For each flag row, route per the destination table in `references/read-confirm-act-protocol.md` §1.3:
 
    | Downstream Consumer | Propagate To |
    |---------------------|--------------|
@@ -652,9 +652,9 @@ Ask the user: "Were any lessons learned during this session?"
    > [!constraint] "Future sprint" → `Carried-Forward` applies ONLY while the downstream session is unscaffolded
    > The sprint-plan `Carried-Forward Coordination Flags` destination reaches a downstream session ONLY at that session's scaffold time. Once the downstream session already exists on disk, it never re-reads the sprint plan's `Carried-Forward` section at its own start — so a flag dropped there after scaffolding is invisible to it. When the downstream session is already scaffolded, deliver the flag to that session's orchestration file front door instead (keep the sprint-plan entry as the record). The sending side NEVER edits another session's task files: it does not own that decomposition and risks racing a concurrent session. The receiving session routes the flag the last hop into its own task files at its Phase-1 Flag-Reconciliation Preflight (Step 1.1a).
 
-3. Use the Propagated Flag Block format from §1.3 — group flags under `### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}` and reserve a `### From {next-source-session-id} — to be appended when session completes` placeholder so later closeouts know where to append.
+3. Use the Propagated Flag Block format from `references/read-confirm-act-protocol.md` §1.3 — group flags under `### From {source-session-id} ({source-session-name}) — recorded {YYYY-MM-DD}` and reserve a `### From {next-source-session-id} — to be appended when session completes` placeholder so later closeouts know where to append.
 4. If the destination file does not yet have a `## Pre-Known Cross-Task Coordination Flags` (or `## Carried-Forward Coordination Flags`) section, create it; if it does, append under it.
-5. Name the consuming task in the entry whenever it is known, so the receiving orchestrator routes it at Step 1.1a without re-deriving the consumer; it stamps the entry `✅ ROUTED {date} into {task file}` once routed (§1.3).
+5. Name the consuming task in the entry whenever it is known, so the receiving orchestrator routes it at Step 1.1a without re-deriving the consumer; it stamps the entry `✅ ROUTED {date} into {task file}` once routed (`references/read-confirm-act-protocol.md` §1.3).
 6. Update the Summary file's `Cross-Task Coordination Flags` block (in Context Notes) to fill the `Propagated To` column with the destination path for every flag.
 7. Verify: every Recovery flag row now has a non-empty `Propagated To` entry in the Summary. A flag with no destination is a closeout error — return to step 2 and route it.
 

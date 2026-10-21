@@ -213,7 +213,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
    d. Override the script's route only on a signal it cannot see — a keyword hit you read and classified as self-quotation, edit evidence you judged insufficient, a `##` count inflated by appended coordination flags — and name that signal in `Reason:`. Carry the script's `LARGE_SCOPE` forward unchanged when the route stays C.
 
 <!-- AUTO-MODE: critical — discharged by auto-escalation, not by a prompt. See step 7's Auto Mode paragraph. -->
-7. **Scoped-rule pre-delegation check (§3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
+7. **Scoped-rule pre-delegation check (`verify-against-shipped-artifact.md` §3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
 
    ```bash
    grep -rn "paths:" .claude/rules/
@@ -296,7 +296,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 
 For bugs and targeted fixes with clear scope:
 
-**Pre-spawn: extract cross-cutting audit candidates (§3i):** Before building the spawn prompt, read the BLI file and look for sections named `Cross-cutting check`, `Cross-cutting consideration`, or `Notes`. Extract any cross-cutting items listed there to include in the spawn prompt. If none are found, use `"none identified"`.
+**Pre-spawn: extract cross-cutting audit candidates (`verify-backlog-citation-freshness.md` §3i):** Before building the spawn prompt, read the BLI file and look for sections named `Cross-cutting check`, `Cross-cutting consideration`, or `Notes`. Extract any cross-cutting items listed there to include in the spawn prompt. If none are found, use `"none identified"`.
 
 Delegate to the `fix-agent` via the Agent tool:
 

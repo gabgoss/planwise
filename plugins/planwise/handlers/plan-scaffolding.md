@@ -151,7 +151,7 @@ Use standard templates for all other files (sprint plans, orchestrations, recove
 
 - **Collect each sprint's write-set as the Step 3 decomposition settles.** A write-set is the directories and files that sprint **EDITS** — never the ones it merely reads. Write it into that Sprint Plan's `## Write-Set` section as a `| Path | Task |` table naming the task that writes each path.
 - **Compute the pairwise intersection for every `∥` pair** the declared-ordering line joins, and write each result into the Master Plan's `## Execution Ordering` → `### Computed Write-Set Intersection` table (`| Declared pair | Intersection | Verdict |`). Show **the intersection itself** — the named shared paths, or `∅` — and not only a verdict. A shown `∅` is as much a computation as a non-empty row; a verdict standing alone, with no result beside it, is an assertion wearing a computation's clothes.
-- **On a non-empty intersection, take exactly one of the two dispositions §16.2 permits** and record which one in the same row: (1) **serialize the pair, dropping `∥`**; or (2) **qualify the parallelism per-file, naming an explicit task-level ordering edge for each shared file** (`S0A-01-0x → S0B-01-0y`).
+- **On a non-empty intersection, take exactly one of the two dispositions `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16 (rule 16.2) permits** and record which one in the same row: (1) **serialize the pair, dropping `∥`**; or (2) **qualify the parallelism per-file, naming an explicit task-level ordering edge for each shared file** (`S0A-01-0x → S0B-01-0y`).
 - **Never infer disjointness from sprint names, cluster names, or subsystem labels.** "Agents vs handlers, disjoint files" names two clusters, and a cluster is not a write-set; the distance between the two is exactly where two concurrent sessions overwrite each other. This inference is the originating failure the rule exists to prevent, and no degree of apparent obviousness licenses it.
 - **Recompute the whole matrix whenever any sprint's write-set changes during scaffolding,** and stamp the `Last recomputed:` date beneath the table on every recomputation. A mid-plan coordination flag that admits one new file into a sprint's scope can turn a `∅` row false, and the row does not re-derive itself.
 
@@ -163,7 +163,7 @@ See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §16 for
 - **Give each entry five fields:** `id`, `adopted-at` (this pass, or the review that adopted it), `requires`, a runnable `predicate`, and the `basis` value measured when the entry was written plus its date.
 - **Dry-run each predicate against a known-bad sprint and a known-good sprint before the entry ships.** The two runs MUST return different results. A predicate that reads the same either way is decoration, not a gate.
 - **Do not discharge the register here.** Each sprint's pre-run review runs every open entry's predicate against that sprint and records what came back. Adoption owns writing the entry, and review owns running it.
-- **A discharge never reads the `basis` field in place of re-running the predicate.** The basis is a scaffold-time snapshot and expires exactly like the state claims §12.3 governs — a stale entry misleads the reviewer in the very act of applying it.
+- **A discharge never reads the `basis` field in place of re-running the predicate.** The basis is a scaffold-time snapshot and expires exactly like the state claims `references/scaffolding-hygiene.md` §12.3 governs — a stale entry misleads the reviewer in the very act of applying it.
 
 See `references/scaffolding-hygiene.md` §12.6 for the full rule, the recorded ownership reasoning, and Reviewer Check 092.
 
@@ -176,7 +176,7 @@ See `references/scaffolding-hygiene.md` §12.6 for the full rule, the recorded o
 - **Classify each hit current-roster or historical-roster before editing it.** Only current-roster surfaces move. A frozen historical list — a "formerly X" set that some sweep walks — is correct precisely while it disagrees with the live roster, and updating it breaks the sweep it feeds. Record such a hit as verified-not-owed rather than skipping it silently.
 - **Removal is the same rule as addition.** State the trigger as *the roster changed*, never as *an artifact was added*.
 
-See §13.4 for the full derivation, the frozen-list counter-example, and Reviewer Check 093.
+See `references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md` §13.4 for the full derivation, the frozen-list counter-example, and Reviewer Check 093.
 
 **`.gitkeep` emission (mirrors standard [Step 3](plan.md#step-3-create-folder-structure)):** For EVERY session folder created during scaffolding, write an empty `Outputs/.gitkeep` placeholder file inside the session's `Outputs/` directory. Empty directories are not tracked by git, so a missing `.gitkeep` means the `Outputs/` folder disappears on clone and downstream `/planwise run` cannot write summary or task-output files into the expected path. Apply to every sprint × every session — same per-session `.gitkeep` rule as the standard Step 3 constraint. Also populate each task file's Verification Commands per the [Step 8e per-file-type command map](plan.md#step-8e-populate-verification-commands-per-file-type-map) — scaffolded plans must NOT ship with blank verification placeholders any more than standard plans do.
 

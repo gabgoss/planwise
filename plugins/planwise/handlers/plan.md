@@ -590,9 +590,9 @@ PLAN CREATED: {PlanName}
 
 **Runs when this invocation authored 2+ Sprint Plan files.** It runs after every sprint's files exist — the matrix cannot be built before then — and before Step 9b.
 
-Build the file-touch matrix across the sprints this pass authored: for every path named as an edit target, the set of `(sprint, task)` writers. Take it from each Sprint Plan's `## Write-Set` section, which [`references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16.1 already requires. **Intersect every sprint pair, not only the pairs the ordering line joins with `∥`.**
+Build the file-touch matrix across the sprints this pass authored: for every path named as an edit target, the set of `(sprint, task)` writers. Take it from each Sprint Plan's `## Write-Set` section. [`scaffolding-hygiene-Part-2-DerivationAndParallelism.md`](../references/scaffolding-hygiene-Part-2-DerivationAndParallelism.md) §16 requires it (rule 16.1) and governs the emissions below (rule 16.6). **Intersect every sprint pair, not only the pairs the ordering line joins with `∥`.**
 
-For each path with two or more writing sprints, emit all three of these — none is optional, and §16.6 owns the full rule:
+For each path with two or more writing sprints, emit all three of these — none is optional:
 
 | Emit | Into | Content |
 |------|------|---------|
@@ -619,7 +619,7 @@ Sweep this pass's own output for all three classes, then harmonize what surfaces
 |-------|-------|--------------|
 | **A — section-header drift** | `Grep` each template-mandated `##` / `###` heading across every Orchestration, Sprint Plan and task file this pass authored. A heading whose hit count is below the file count is missing from the remainder | The template's exact wording, restored in every file that dropped it |
 | **B — optional formatting lines omitted** | `Grep` the same file set for the template's non-structural lines — the `**Total Estimated:**` line after the Session Task List, the `**Mode:**` line in Execution Strategy | The line restored wherever it is absent |
-| **C — `Scaffold-{Abbrev}/` absent** | `Glob` for `Exec-{Abbrev}/` first: absent ⇒ the plan is still at Discovery and this class does not apply. Present ⇒ `Glob` for `Scaffold-{Abbrev}/` | The folder created, per §8 Class C |
+| **C — `Scaffold-{Abbrev}/` absent** | `Glob` for `Exec-{Abbrev}/` first: absent ⇒ the plan is still at Discovery and this class does not apply. Present ⇒ `Glob` for `Scaffold-{Abbrev}/` | The folder created, per `scaffolding-hygiene.md` §8 Class C |
 
 > [!constraint] The Output-Naming Scheme Is a Pass-Level Decision, Not a Per-Sprint One
 > Task-output filenames may number by **task** ordinal or by **session** ordinal. Either is fine. Mixing the two across sprints in one pass is not.
@@ -770,7 +770,7 @@ Each row names a concrete trigger, not "later" — the trigger is what a future 
 An absent instruction reads as a boundary: without this section, an authoring agent that produced one session of one sprint can pass the checklist and assert the shortfall was prescribed. The counts above are what make that claim testable.
 
 > [!practice] Plan the Right Fix, Not the Easy Fix
-> When scoping reveals two treatments — a complete one that touches more surface (a full renumber, a schema migration, propagating a change through every consumer) and a narrower patch that leaves known incoherence behind — scope the complete treatment and cost it honestly. Budget pressure is answered by SPLITTING the coherent fix across tasks or sessions (see `references/session-context-budget.md` § Task-Level Estimation / Task Sizing Categories), never by shrinking it into a partial fix that is cheaper to execute. If a real constraint genuinely forces the partial path (an interface external consumers depend on, an irreversible boundary, a user-set deadline), record the constraint and the residual defect in the plan so the gap is a visible decision, not an accident. Overall project quality comes from doing the hard thing once, not the easy thing twice. Full principle, exception clause, and stage table: [do-the-hard-things.md](../references/do-the-hard-things.md).
+> When scoping reveals two treatments — a complete one that touches more surface (a full renumber, a schema migration, propagating a change through every consumer) and a narrower patch that leaves known incoherence behind — scope the complete treatment and cost it honestly. Budget pressure is answered by SPLITTING the coherent fix across tasks or sessions (see `references/session-context-budget.md` § Task-Level Estimation, § Task Sizing Categories), never by shrinking it into a partial fix that is cheaper to execute. If a real constraint genuinely forces the partial path (an interface external consumers depend on, an irreversible boundary, a user-set deadline), record the constraint and the residual defect in the plan so the gap is a visible decision, not an accident. Overall project quality comes from doing the hard thing once, not the easy thing twice. Full principle, exception clause, and stage table: [do-the-hard-things.md](../references/do-the-hard-things.md).
 
 ---
 
