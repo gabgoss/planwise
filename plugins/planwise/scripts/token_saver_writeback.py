@@ -7,7 +7,9 @@ the NAMED task files, writes the measured `KiB` and `~Tokens` cells, and
 re-rolls the totals that depend on them. Those totals are the task's
 `**Context subtotal:**` reads term and total, its `**Estimated Tokens:**`
 header, the session Orchestration's task-list cell and `**Total Estimated:**`,
-and the Sprint Plan's session row.
+and in the Sprint Plan the session row, the `**Estimated Tokens:**` header
+re-summed from the Sessions table, and the task's cell and session total
+under `## Session Details`. Each file is re-rolled whole or left as authored.
 
 Run it through the facade, which owns the argument checks:
 
@@ -20,8 +22,14 @@ path-resolution helpers from `token_saver_scan`, so the two modules price a
 file the same way.
 
 Every change is computed in memory first and written at the end. A dry run
-reports exactly what a real run would write, a second run over the same tree
-writes nothing, and on any error no file is replaced.
+reports exactly what a real run would write, and a second run over the same
+tree writes nothing. The write is all-or-nothing: an error before the write
+phase replaces no file, and a failed replace restores every file already
+replaced from a byte backup kept beside it.
+
+A `§X–§Y` span resolves through `markdown_parser.extract_headings` and
+`numbered_heading_index`, the same resolver the plugin's section-citation
+checker uses, so the two read an anchor the same way.
 """
 
 import contextlib
@@ -37,6 +45,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 
 from markdown_parser import (
+    extract_headings,
+    numbered_heading_index,
     retried_cells,
     split_row_cells,
     split_row_cells_code_aware,
@@ -60,14 +70,13 @@ _LINES_SPAN_RE = re.compile(
     r"^(?P<path>.+?)\s+lines?\s+(?P<a>\d[\d,]*)\s*[-–]\s*(?P<b>\d[\d,]*)"
     r"\s*(?:\([^()]*\))?$"
 )
-# `{path} §X–§Y` or `{path} §X`, with an optional trailing parenthetical.
+# `{path} §X–§Y` or `{path} §X`, with an optional trailing parenthetical. A
+# token is a number (`3`, `3.2`, `9.B`) or a stage/step key (`Step 5`).
+_SEC = r"(?:(?:Step|Stage)\s+)?\w+(?:\.\w+)*"
 _SECTION_SPAN_RE = re.compile(
-    r"^(?P<path>.+?)\s+§\s*(?P<x>\w+(?:\.\w+)*)\.?"
-    r"(?:\s*[-–]\s*§\s*(?P<y>\w+(?:\.\w+)*)\.?)?\s*(?:\([^()]*\))?$"
+    rf"^(?P<path>.+?)\s+§\s*(?P<x>{_SEC})\.?"
+    rf"(?:\s*[-–]\s*§\s*(?P<y>{_SEC})\.?)?\s*(?:\([^()]*\))?$"
 )
-_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
-_HEADING_TOKEN_RE = re.compile(r"^(?:§\s*|Section\s+|Part\s+)?(\w+(?:\.\w+)*)")
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 _NUM = r"\d[\d,]*(?:\.\d+)?"
 # A breakdown after a K term: `(reads: 3.9 + 0.4)` or `tokens (24.5 + 52.6)`.
 _BREAKDOWN_RE = re.compile(
@@ -192,7 +201,8 @@ def _reroll_breakdown(line: str, pos: int, values_k: list[Decimal]) -> str | Non
     if old == values_k:
         return line
     lead, trail = nums[:len(nums) - len(nums.lstrip())], nums[len(nums.rstrip()):]
-    new = lead + " + ".join(f"{v.normalize():f}" for v in values_k) + trail
+    # Each addend keeps its source cell's places: `~10.0K` -> 10.0, `~20K` -> 20.
+    new = lead + " + ".join(f"{v:f}" for v in values_k) + trail
     return line[:m.start("nums")] + new + line[m.end("nums"):]
 
 
@@ -206,69 +216,80 @@ def _fmt_k(tokens: Decimal | int, places: str = "0.1") -> str:
     return f"~{k}K"
 
 
-def _file_lines(path: Path) -> list[bytes]:
-    """The file's lines as bytes, each with its own line ending."""
-    data = path.read_bytes()
-    parts = data.split(b"\n")
-    lines = [p + b"\n" for p in parts[:-1]]
-    if parts[-1]:
-        lines.append(parts[-1])
-    return lines
+class _FileCache(dict):
+    """Per-run cache: each span file is read and split once, however many rows cite it."""
+
+    def lines(self, path: Path) -> list[bytes]:
+        """The file's lines as bytes, each with its own line ending."""
+        return self._load(path)[0]
+
+    def index(self, path: Path) -> tuple[list, dict]:
+        """`extract_headings` and `numbered_heading_index` for the file."""
+        return self._load(path)[1]
+
+    def _load(self, path: Path) -> tuple[list[bytes], tuple[list, dict]]:
+        if path not in self:
+            data = path.read_bytes()
+            parts = data.split(b"\n")
+            lines = [p + b"\n" for p in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+            heads = extract_headings(data.decode("utf-8", errors="replace"))
+            self[path] = (lines, (heads, numbered_heading_index(heads)))
+        return self[path]
 
 
-def _line_span_bytes(path: Path, a: int, b: int) -> int | None:
-    lines = _file_lines(path)
+def _line_span_bytes(path: Path, a: int, b: int, cache: _FileCache | None = None) -> int | None:
+    lines = (cache if cache is not None else _FileCache()).lines(path)
     if a < 1 or b < a or b > len(lines):
         return None
     return sum(len(x) for x in lines[a - 1:b])
 
 
-def _section_span(path: Path, x: str, y: str) -> tuple[int, int, int] | None:
+def _pick(heads: list, index: dict, key: str, after: int = 0):
+    """The one heading §key names at or after line `after`, or the reason none is.
+
+    Lookup is the citation checker's: the exact `numbered_heading_index` key,
+    then, for a stage or step key, a heading whose text starts with it and no
+    letter or digit follows. Of several hits, the shallowest is taken; two at
+    that level are ambiguous and reported, never guessed.
+    """
+    hits = [h for h in index.get(key, []) if h.line >= after]
+    if not hits and key.startswith(("Step ", "Stage ")):
+        hits = [h for h in heads if h.line >= after
+                and (b := h.raw.lstrip("#").strip().lstrip("§ ")).startswith(key)
+                and not b[len(key):len(key) + 1].isalnum()]
+    if not hits:
+        return f"§{key} heading not found"
+    top = min(h.level for h in hits)
+    hits = [h for h in hits if h.level == top]
+    return hits[0] if len(hits) == 1 else f"§{key} names {len(hits)} headings"
+
+
+def _section_span(path: Path, x: str, y: str,
+                  cache: _FileCache | None = None) -> tuple[int, int, int] | str:
     """Resolve §X..§Y to (start line, end line, bytes), 1-based and inclusive.
 
-    §X is the first heading whose number token equals X (`## 3. Name`,
-    `## Section 3: Name`, `### 3.2 Name`). The span ends before the first
-    heading after §Y at §Y's level or higher, or at EOF when none follows.
-    Headings inside fenced code blocks are ignored. A fence closes only on
-    the same character, at least as long, with no info string (CommonMark).
+    Headings come from `markdown_parser.extract_headings`, with its fence rule
+    (a line starting with three backticks toggles a fence). The span ends
+    before the first heading after §Y at §Y's level or higher, or at EOF.
+    Returns the reason when a heading is absent or ambiguous.
     """
-    lines = _file_lines(path)
-    headings = []
-    fence = None
-    for i, raw in enumerate(lines):
-        text = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-        fm = _FENCE_RE.match(text)
-        if fm:
-            marker = fm.group(1)
-            if fence is None:
-                fence = marker
-            elif (marker[0] == fence[0] and len(marker) >= len(fence)
-                  and not fm.group(2).strip()):
-                fence = None
-            continue
-        if fence:
-            continue
-        hm = _HEADING_RE.match(text)
-        if hm:
-            tm = _HEADING_TOKEN_RE.match(hm.group(2))
-            token = tm.group(1).rstrip(".") if tm else ""
-            headings.append((i, len(hm.group(1)), token))
-    start = next((h for h in headings if h[2] == x), None)
-    if start is None:
-        return None
-    end_h = next((h for h in headings if h[2] == y and h[0] >= start[0]), None)
-    if end_h is None:
-        return None
-    stop = next(
-        (h[0] for h in headings if h[0] > end_h[0] and h[1] <= end_h[1]),
-        len(lines),
-    )
-    return start[0] + 1, stop, sum(len(r) for r in lines[start[0]:stop])
+    cache = cache if cache is not None else _FileCache()
+    lines = cache.lines(path)
+    heads, index = cache.index(path)
+    start = _pick(heads, index, x)
+    if isinstance(start, str):
+        return start
+    end_h = _pick(heads, index, y, start.line)
+    if isinstance(end_h, str):
+        return end_h
+    stop = next((h.line - 1 for h in heads
+                 if h.line > end_h.line and h.level <= end_h.level), len(lines))
+    return start.line, stop, sum(len(r) for r in lines[start.line - 1:stop])
 
 
 def price_row(
     cell: str, task_path: Path, plan_root: Path, project_root: Path,
-    model: str | None,
+    model: str | None, cache: _FileCache | None = None,
 ) -> dict:
     """Price one Required Context File cell, or say why it is left as authored.
 
@@ -276,7 +297,10 @@ def price_row(
     {"priced": False, "reason"}. A whole-file row is priced only when the
     cell holds a bare path: text after the path that is not one of the two
     span forms means the author priced something narrower than the file.
+    `cache` is the run's `_FileCache`, so a file cited by several span rows
+    is read once. File I/O errors propagate as `OSError` to the caller.
     """
+    cache = cache if cache is not None else _FileCache()
     raw = cell.replace("`", "").replace("**", "").strip().strip("<>").strip()
     if not raw:
         return {"priced": False, "reason": "empty File cell"}
@@ -295,7 +319,7 @@ def price_row(
             return {"priced": False,
                     "reason": unresolved_reason(m.group("path"), project_root)}
         a, b = int(m.group("a").replace(",", "")), int(m.group("b").replace(",", ""))
-        num_bytes = _line_span_bytes(resolved, a, b)
+        num_bytes = _line_span_bytes(resolved, a, b, cache)
         if num_bytes is None:
             return {"priced": False, "reason": f"span lines {a}-{b} out of range"}
         span = f"lines {a}-{b} = {b - a + 1} lines / {num_bytes:,} bytes"
@@ -305,9 +329,9 @@ def price_row(
             return {"priced": False,
                     "reason": unresolved_reason(s.group("path"), project_root)}
         x, y = s.group("x"), s.group("y") or s.group("x")
-        found = _section_span(resolved, x, y)
-        if found is None:
-            return {"priced": False, "reason": f"span §{x}–§{y} heading not found"}
+        found = _section_span(resolved, x, y, cache)
+        if isinstance(found, str):
+            return {"priced": False, "reason": f"span §{x}–§{y}: {found}"}
         first, last, num_bytes = found
         span = (f"§{x} at :{first} → §{y} ends at :{last} = "
                 f"{last - first + 1} lines / {num_bytes:,} bytes")
@@ -418,30 +442,61 @@ class _Buffers:
         return [p for p, ls in self.lines.items() if "\n".join(ls) != self.original[p]]
 
     def commit(self, report: dict) -> None:
-        """Write every changed file, or none: temp files first, then replace."""
-        temps: list[tuple[str, Path]] = []
+        """Write every changed file, or none.
+
+        Each new body and a byte backup of each original go to temp files in
+        the target's own directory first. Then each target is replaced. If a
+        replace fails, every file already replaced is restored from its
+        backup, the failing file is named, and `written` stays empty.
+        """
+        staged: list[tuple[str, str, Path]] = []  # (new body, backup, target)
+
+        def temp(path: Path, data: bytes) -> str:
+            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.",
+                                       suffix=".tmp")
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            shutil.copymode(path, tmp)
+            return tmp
+
+        def cleanup() -> None:
+            for new, bak, _ in staged:
+                for tmp in (new, bak):
+                    with contextlib.suppress(OSError):
+                        os.remove(tmp)
+
+        path = None
         try:
             for path in self.changed():
-                fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.",
-                                           suffix=".tmp")
-                temps.append((tmp, path))
-                with os.fdopen(fd, "wb") as f:
-                    f.write("\n".join(self.lines[path]).encode("utf-8"))
-                shutil.copymode(path, tmp)
+                new = temp(path, "\n".join(self.lines[path]).encode("utf-8"))
+                try:
+                    bak = temp(path, path.read_bytes())
+                except OSError:
+                    os.remove(new)
+                    raise
+                staged.append((new, bak, path))
         except OSError as exc:
             report["errors"].append({"file": str(path), "error": str(exc)})
-            for tmp, _ in temps:
-                with contextlib.suppress(OSError):
-                    os.remove(tmp)
+            cleanup()
             return
-        for tmp, path in temps:
+        done: list[tuple[str, Path]] = []
+        for new, bak, path in staged:
             try:
-                os.replace(tmp, path)
-                report["written"].append(str(path))
+                os.replace(new, path)
             except OSError as exc:
-                report["errors"].append({"file": str(path), "error": str(exc)})
-                with contextlib.suppress(OSError):
-                    os.remove(tmp)
+                report["errors"].append({"file": str(path), "error": f"replace failed: {exc}"})
+                for b, p in reversed(done):
+                    try:
+                        os.replace(b, p)
+                    except OSError as rexc:
+                        report["errors"].append(
+                            {"file": str(p), "error": f"restore failed, backup kept at {b}: {rexc}"})
+                        staged[:] = [s for s in staged if s[1] != b]
+                cleanup()
+                return
+            done.append((bak, path))
+        cleanup()
+        report["written"].extend(str(p) for _, _, p in staged)
 
 
 def _set_cell(buf: _Buffers, report: dict, path: Path, line_idx: int,
@@ -477,20 +532,33 @@ def _set_k_after_label(buf: _Buffers, report: dict, path: Path, label_re: str,
 
 
 def _task_id(lines: list[str], task_path: Path) -> str:
+    """The Task ID without backticks, bold markers or surrounding punctuation."""
     for line in lines:
-        m = re.match(r"^\*\*Task ID:\*\*\s*(\S+)", line)
-        if m:
-            return m.group(1)
+        m = re.match(r"^\*\*Task ID:\*\*(.*)", line)
+        idm = re.search(r"[A-Za-z0-9](?:[\w-]*[A-Za-z0-9])?",
+                        m.group(1).replace("`", "").replace("*", "")) if m else None
+        if idm:
+            return idm.group(0)
     return task_path.stem
 
 
 def _write_task(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
-                project_root: Path) -> str | None:
-    """Write one task's row cells, subtotal and header. Returns the header text."""
+                project_root: Path, cache: _FileCache) -> str | None:
+    """Write one task's row cells, subtotal and header. Returns the header text.
+
+    The row cells are kept only with a re-rolled subtotal: when the subtotal
+    cannot be re-rolled, the whole task file stays as authored.
+    """
     lines = buf.get(task_path)
     text = "\n".join(lines)
     model = parse_agent(text)
     where = str(task_path)
+    saved, n_changes = list(lines), len(report["changes"])
+
+    def fail(what: str, reason: str, **extra) -> None:
+        lines[:] = saved
+        del report["changes"][n_changes:]
+        report["unreadable"].append({"file": where, "what": what, "reason": reason, **extra})
     table = _required_context_table(lines)
     if table is None:
         report["unreadable"].append({"file": where, "what": "Required Context table",
@@ -516,7 +584,11 @@ def _write_task(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
                                    "reason": "cell count differs from the header"})
             reads_known = False
             continue
-        price = price_row(cells[file_idx], task_path, plan_root, project_root, model)
+        try:
+            price = price_row(cells[file_idx], task_path, plan_root, project_root,
+                              model, cache)
+        except OSError as exc:
+            price = {"priced": False, "reason": f"read error: {exc}"}
         if price["priced"]:
             _set_cell(buf, report, task_path, row_idx, kib_idx, cells,
                       _fmt_kib(price["bytes"]), f"row {n} KiB")
@@ -539,17 +611,16 @@ def _write_task(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
             reads += value
             row_k.append(value / 1000)
 
-    if not reads_known:
-        report["unreadable"].append({"file": where, "what": "Context subtotal",
-                                     "reason": "a row's ~Tokens has no figure"})
+    has_subtotal = any(ln.startswith("**Context subtotal:**") for ln in lines)
+    if not reads_known and has_subtotal:
+        fail("Context subtotal", "a row's ~Tokens has no figure (task file left as authored)")
         return None
     for i, line in enumerate(lines):
         if not line.startswith("**Context subtotal:**"):
             continue
         rerolled = _reroll_subtotal(line, reads, row_k)
         if isinstance(rerolled, str):
-            report["unreadable"].append({"file": where, "what": "Context subtotal",
-                                         "line": i + 1, "reason": rerolled})
+            fail("Context subtotal", f"{rerolled} (task file left as authored)", line=i + 1)
             return None
         new_line, _reads_text, total_text = rerolled
         if new_line != line:
@@ -564,6 +635,7 @@ def _write_task(buf: _Buffers, report: dict, task_path: Path, plan_root: Path,
             report["unreadable"].append({"file": where, "what": "Estimated Tokens",
                                          "reason": "header line not found"})
         return total_text
+    # No subtotal line: no identity ties the row cells to a total, so they stay.
     report["unreadable"].append({"file": where, "what": "Context subtotal",
                                  "reason": "line not found"})
     return None
@@ -602,30 +674,47 @@ def _section_bounds(lines: list[str], title: str) -> tuple[int, int] | None:
     return None
 
 
-def _write_orchestration(buf: _Buffers, report: dict, orch: Path,
-                         task_totals: list[tuple[str, str, str]]) -> str | None:
-    """Copy each task's header into its task-list row; re-sum the total.
-
-    A row is the task's when its `#` cell equals the Task ID's trailing number
-    AND its Task cell names the task file's name segment. A Task ID is never
-    searched for in the row: a Depends On cell cites other tasks' IDs. Any
-    task row not found exactly once, or a total that cannot be re-rolled
-    with its breakdown, leaves the whole file as authored.
-    """
-    lines = buf.get(orch)
-    where = str(orch)
+def _guard(buf: _Buffers, report: dict, path: Path):
+    """Snapshot `path`. The returned `fail` restores it whole and reports why."""
+    lines = buf.get(path)
     saved, n_changes = list(lines), len(report["changes"])
 
     def fail(what: str, reason: str) -> None:
         lines[:] = saved
         del report["changes"][n_changes:]
-        report["unreadable"].append({"file": where, "what": what, "reason": reason})
+        report["unreadable"].append({"file": str(path), "what": what, "reason": reason})
 
+    return lines, fail
+
+
+def _write_orchestration(buf: _Buffers, report: dict, orch: Path,
+                         task_totals: list[tuple[str, str, str]]) -> str | None:
+    """Re-roll the Session Task List; any failure leaves the file as authored."""
+    lines, fail = _guard(buf, report, orch)
     bounds = _section_bounds(lines, "Session Task List") or (0, len(lines))
+    return _reroll_task_table(buf, report, orch, bounds, task_totals, fail,
+                              "Session Task List", total_required=True)
+
+
+def _reroll_task_table(buf: _Buffers, report: dict, path: Path, bounds: tuple[int, int],
+                       task_totals: list[tuple[str, str, str]], fail, label: str,
+                       total_required: bool) -> str | None:
+    """Copy each task's header into its row; re-sum `**Total Estimated:**`.
+
+    The table is the one in `bounds` with `#`, Task and token columns. A row
+    is the task's when its `#` cell equals the Task ID's trailing number AND
+    its Task cell names the task file's name segment. A Task ID is never
+    searched for in the row: a Depends On cell cites other tasks' IDs. Any
+    task row not found exactly once, or a total that cannot be re-rolled with
+    its breakdown, calls `fail`, which leaves the whole file as authored.
+    Returns the total text ("" when the optional total line is absent).
+    """
+    lines = buf.get(path)
+    where = str(path)
     tables = [t for t in _token_tables(lines, *bounds)
               if _col(t[3], ("#",)) is not None and _col(t[3], ("task",)) is not None]
     if len(tables) != 1:
-        fail("Session Task List", f"{len(tables)} tables with #, Task and token columns")
+        fail(label, f"{len(tables)} tables with #, Task and token columns")
         return None
     _, tok, rows, header = tables[0]
     num_idx, task_idx = _col(header, ("#",)), _col(header, ("task",))
@@ -652,42 +741,55 @@ def _write_orchestration(buf: _Buffers, report: dict, orch: Path,
             return None
         found.append((hits[0], task_id, total))
     for (r, cells), task_id, total in found:
-        _set_cell(buf, report, orch, r, tok, cells, total, f"task list {task_id}")
+        _set_cell(buf, report, path, r, tok, cells, total, f"{label} {task_id}")
     values = [_parse_token_cell(_cells(_split_eol(lines[r])[0], len(header))[tok])
               for r, _ in task_rows]
     if None in values:
         fail("Total Estimated", "a task-list cell has no figure")
         return None
-    values_k = [v / 1000 for v in values]
     idx = next((i for i in range(*bounds)
                 if re.match(r"^\*\*Total Estimated:\*\*", lines[i])), None)
+    if idx is None and not total_required:
+        return ""
+    return _reroll_k_line(lines, idx, [v / 1000 for v in values], fail, report, where,
+                          "Total Estimated")
+
+
+def _reroll_k_line(lines: list[str], idx: int | None, values_k: list[Decimal], fail,
+                   report: dict, where: str, what: str) -> str | None:
+    """Set the first `~NK` of line `idx` to the sum of `values_k`, with its breakdown."""
     km = _K_TERM_RE.search(lines[idx]) if idx is not None else None
     if km is None:
-        fail("Total Estimated", "line not found")
+        fail(what, "line not found")
         return None
     total_text = _fmt_k_exact(sum(values_k, Decimal(0)), km.group(0))
     line = lines[idx][:km.start()] + total_text + lines[idx][km.end():]
     line = _reroll_breakdown(line, km.start() + len(total_text), values_k)
     if line is None:
-        fail("Total Estimated", "its breakdown does not match the task rows one-to-one")
+        fail(what, "its breakdown does not match the rows one-to-one")
         return None
     if line != lines[idx]:
-        report["changes"].append({"file": where, "line": idx + 1, "what": "Total Estimated",
+        report["changes"].append({"file": where, "line": idx + 1, "what": what,
                                   "old": _split_eol(lines[idx])[0],
                                   "new": _split_eol(line)[0]})
         lines[idx] = line
     return total_text
 
 
-def _write_sprint_row(buf: _Buffers, report: dict, sprint_plan: Path,
-                      session_id: str, total_text: str) -> None:
-    """Copy the session total into the `## Sessions` row whose cell is the ID."""
-    lines = buf.get(sprint_plan)
+def _write_sprint_plan(buf: _Buffers, report: dict, sprint_plan: Path, session_id: str,
+                       total_text: str, task_totals: list[tuple[str, str, str]]) -> None:
+    """Re-roll the session's Sprint Plan figures, or leave the file as authored.
+
+    The `## Sessions` row whose cell is the ID takes the session total. The
+    `**Estimated Tokens:**` header takes the sum of the Sessions rows. Under
+    `## Session Details`, the `###` subsection naming the ID has its task
+    cells and its optional `**Total Estimated:**` re-rolled.
+    """
+    lines, fail = _guard(buf, report, sprint_plan)
     what = f"session row {session_id}"
     bounds = _section_bounds(lines, "Sessions")
     if bounds is None:
-        report["unreadable"].append({"file": str(sprint_plan), "what": what,
-                                     "reason": "no ## Sessions section"})
+        fail(what, "no ## Sessions section")
         return
     hits = []
     for _, tok, rows, header in _token_tables(lines, *bounds):
@@ -695,13 +797,34 @@ def _write_sprint_row(buf: _Buffers, report: dict, sprint_plan: Path,
             cells = _cells(_split_eol(lines[r])[0], len(header))
             if len(cells) == len(header) and any(
                     c.replace("`", "").strip() == session_id for c in cells):
-                hits.append((r, tok, cells))
+                hits.append((r, tok, cells, rows, header))
     if len(hits) != 1:
-        report["unreadable"].append({"file": str(sprint_plan), "what": what,
-                                     "reason": f"{len(hits)} Sessions rows hold the ID"})
+        fail(what, f"{len(hits)} Sessions rows hold the ID")
         return
-    r, tok, cells = hits[0]
+    r, tok, cells, rows, header = hits[0]
     _set_cell(buf, report, sprint_plan, r, tok, cells, total_text, what)
+    rows_cells = [_cells(_split_eol(lines[x])[0], len(header)) for x in rows]
+    values = [_parse_token_cell(c[tok]) for c in rows_cells
+              if len(c) == len(header) and c[0].strip().isdigit()]
+    if None in values:
+        fail("Estimated Tokens", "a Sessions cell has no figure")
+        return
+    idx = next((i for i, ln in enumerate(lines)
+                if re.match(r"^\*\*Estimated Tokens:\*\*", ln)), None)
+    if _reroll_k_line(lines, idx, [v / 1000 for v in values], fail, report,
+                      str(sprint_plan), "Estimated Tokens") is None:
+        return
+    details = _section_bounds(lines, "Session Details")
+    id_re = rf"(?<![\w-]){re.escape(session_id)}(?![\w-])"
+    start = next((i for i in range(*details) if re.match(r"^###\s", lines[i])
+                  and re.search(id_re, lines[i])), None) if details else None
+    if start is None:
+        fail("Session Details", f"no ### subsection names {session_id}")
+        return
+    stop = next((j for j in range(start + 1, details[1])
+                 if re.match(r"^#{1,3}\s", lines[j])), details[1])
+    _reroll_task_table(buf, report, sprint_plan, (start, stop), task_totals, fail,
+                       "Session Details", total_required=False)
 
 
 def write_estimates(
@@ -717,11 +840,11 @@ def write_estimates(
     report = {"plan": str(plan_root), "dry_run": dry_run, "tasks": [str(p) for p in task_paths],
               "changes": [], "left": [], "spans": [], "unreadable": [],
               "written": [], "errors": []}
-    buf = _Buffers()
+    buf, cache = _Buffers(), _FileCache()
     by_session: dict[Path, list[tuple[str, str, str]]] = {}
     try:
         for task_path in task_paths:
-            total = _write_task(buf, report, task_path, plan_root, project_root)
+            total = _write_task(buf, report, task_path, plan_root, project_root, cache)
             if total is not None:
                 task_id = _task_id(buf.get(task_path), task_path)
                 name = task_path.stem.rsplit("-", 1)[-1]
@@ -738,9 +861,11 @@ def write_estimates(
                                     "Sprint Plan")
             if sprint_plan is not None:
                 session_id = re.sub(r"-\d+$", "", totals[0][0])
-                _write_sprint_row(buf, report, sprint_plan, session_id, total_text)
+                _write_sprint_plan(buf, report, sprint_plan, session_id, total_text, totals)
     except _Undecodable as exc:
         report["errors"].append({"file": exc.args[0], "error": exc.args[1]})
+    except OSError as exc:  # a file the run must rewrite could not be read
+        report["errors"].append({"file": str(exc.filename or "?"), "error": str(exc)})
 
     # All-or-nothing: an error before the write phase replaces no file.
     if not dry_run and not report["errors"]:
@@ -777,7 +902,8 @@ def format_write_report(report: dict) -> str:
     for e in report["errors"]:
         out.append(f"ERROR: {e['file']}: {e['error']}")
     if report["errors"] and not report["written"]:
-        out.append("No file was replaced: the write is all-or-nothing.")
+        out.append("No file was changed: the write is all-or-nothing, and a file "
+                   "already replaced is restored from its backup.")
     out.append("")
     out.append(f"Files written: {len(report['written'])}")
     return "\n".join(out)

@@ -223,6 +223,9 @@ def substitute_roots(raw: str, project_root: Path) -> str:
     )
 
 
+_PLACEHOLDER_CELLS = frozenset({"n/a", "none", "-", "—", "tbd"})
+
+
 def unresolved_reason(cell: str, project_root: Path) -> str:
     """Say WHY a row did not resolve, so the list is triageable.
 
@@ -236,6 +239,9 @@ def unresolved_reason(cell: str, project_root: Path) -> str:
         return "pattern"
     if "{" in raw:
         return "placeholder"
+    if authored.strip().lower() in _PLACEHOLDER_CELLS:
+        # A placeholder (`n/a`, `TBD`, `—`) names no file, so it is not missing.
+        return "not a path (prose or command output)"
     parts = Path(raw).parts
     if "Outputs" in parts or raw.startswith("Outputs"):
         return "plan output (not yet created)"

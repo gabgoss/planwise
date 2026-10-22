@@ -322,6 +322,14 @@ class TestUnresolvedReason(unittest.TestCase):
                      "`docs/output-format.md`"):
             self.assertEqual(tss.unresolved_reason(cell, root), "missing", cell)
 
+    def test_placeholder_cells_read_not_a_path(self):
+        root = Path(tempfile.gettempdir())
+        for cell in ("n/a", "none", "-", "—", "TBD", "tbd", "N/A", "  N/A ", "`n/a`", "None"):
+            self.assertEqual(tss.unresolved_reason(cell, root),
+                             "not a path (prose or command output)", repr(cell))
+        # A real single token beside them still reads missing.
+        self.assertEqual(tss.unresolved_reason("`nonexistent.md`", root), "missing")
+
     def test_prose_cells_still_read_prose(self):
         root = Path(tempfile.gettempdir())
         for cell in ("the full suite summary output", "ruff output lines",
@@ -413,12 +421,12 @@ SPRINT_PLAN = (
     "| 1 | DM-S01-01 | Beta | Price the kit | ~30K |\n"
     "| 2 | DM-S01-02 | Gamma | Use the prices | ~15K |\n\n"
     "## Session Details\n\n"
-    "### Session 01: Beta\n\n"
+    "### Session 01: Beta (DM-S01-01)\n\n"
     + TASK_LIST_HEAD
     + "| 1 | Probe: price the kit files | Sonnet | ~10K | - |\n"
     "| 2 | Other: read what Probe wrote | Sonnet | ~20K | 1 |\n\n"
     "**Total Estimated:** ~30K tokens (10 + 20)\n\n"
-    "### Session 02: Gamma\n\n"
+    "### Session 02: Gamma (DM-S01-02)\n\n"
     + TASK_LIST_HEAD
     + "| 1 | Use: apply the prices | Sonnet | ~15K | cross-session: DM-S01-01-01 |\n\n"
     "**Total Estimated:** ~15K tokens\n"
@@ -568,7 +576,8 @@ class TestWriteEstimates(unittest.TestCase):
         found = tsw._section_span(self.project / "kit" / "guide.md", "1", "1")
         self.assertEqual(found[2], bounded)
         # A heading inside a fence is not a heading; an absent one is reported.
-        self.assertIsNone(tsw._section_span(self.project / "kit" / "guide.md", "9", "9"))
+        self.assertEqual(tsw._section_span(self.project / "kit" / "guide.md", "9", "9"),
+                         "§9 heading not found")
 
     def test_command_corpus_row_is_left_as_authored(self):
         report = self._run()
@@ -620,9 +629,39 @@ class TestWriteEstimates(unittest.TestCase):
         sprint = (self.sprint / "DM-S01-Sprint-Plan.md").read_text(encoding="utf-8")
         self.assertIn(f"| 1 | DM-S01-01 | Beta | Price the kit | ~{total + 20}K |", sprint)
         self.assertIn("| 2 | DM-S01-02 | Gamma | Use the prices | ~15K |", sprint)
-        # Session Details tables and totals are never touched.
-        self.assertIn("| 1 | Probe: price the kit files | Sonnet | ~10K | - |", sprint)
-        self.assertEqual(sprint.count("**Total Estimated:** ~30K tokens (10 + 20)"), 1)
+        # The header equals the Sessions sum, as the template requires.
+        self.assertIn(f"**Estimated Tokens:** ~{total + 35}K total across all sessions",
+                      sprint)
+        # The scoped session's Session Details cell and total move; the
+        # other session's table, which cites DM-S01-01-01, does not.
+        self.assertIn(f"| 1 | Probe: price the kit files | Sonnet | ~{total}K | - |", sprint)
+        self.assertIn(f"**Total Estimated:** ~{total + 20}K tokens ({total} + 20)", sprint)
+        self.assertNotIn("~30K tokens (10 + 20)", sprint)
+        self.assertIn("| 1 | Use: apply the prices | Sonnet | ~15K | cross-session: DM-S01-01-01 |\n\n"
+                      "**Total Estimated:** ~15K tokens", sprint)
+
+    def test_session_details_without_the_id_leaves_the_sprint_plan(self):
+        self._sprint_plan().write_text(SPRINT_PLAN.replace("Beta (DM-S01-01)", "Beta"),
+                                       encoding="utf-8")
+        before = self._sprint_plan().read_bytes()
+        report = self._run()
+        self.assertEqual(self._sprint_plan().read_bytes(), before)
+        self.assertTrue(any(u["what"] == "Session Details" for u in report["unreadable"]))
+
+    def _sprint_plan(self) -> Path:
+        return self.sprint / "DM-S01-Sprint-Plan.md"
+
+    def test_unreadable_subtotal_leaves_the_whole_task_file(self):
+        # Known-good pair: the totals test above, where a template subtotal
+        # lets the row cells move with it.
+        odd = "**Context subtotal:** ~40.0K reads × 1.2 + ~5K output = **~53K total**"
+        self.task.write_text(_wb_task(TASK_ROWS, odd), encoding="utf-8")
+        before = self.task.read_bytes()
+        report = self._run()
+        # Known-bad before the fix: the row cells moved without their subtotal.
+        self.assertEqual(self.task.read_bytes(), before)
+        self.assertFalse(any(c["file"] == str(self.task) for c in report["changes"]))
+        self.assertTrue(any("left as authored" in u["reason"] for u in report["unreadable"]))
 
     def test_unreadable_subtotal_is_reported_not_guessed(self):
         odd = "**Context subtotal:** ~40.0K reads × 1.2 + ~5K output = **~53K total**"
@@ -723,9 +762,12 @@ class TestWriteBackRealShapes(unittest.TestCase):
                                 .replace("~30K tokens (10 + 20)",
                                          f"~{total + 20}K tokens ({total} + 20)"),
                                 encoding="utf-8")
-        self._sprint().write_text(SPRINT_PLAN.replace("Price the kit | ~30K",
-                                                      f"Price the kit | ~{total + 20}K"),
-                                  encoding="utf-8")
+        self._sprint().write_text(
+            SPRINT_PLAN.replace("Price the kit | ~30K", f"Price the kit | ~{total + 20}K")
+            .replace("~45K total", f"~{total + 35}K total")
+            .replace("files | Sonnet | ~10K | - |", f"files | Sonnet | ~{total}K | - |")
+            .replace("~30K tokens (10 + 20)", f"~{total + 20}K tokens ({total} + 20)"),
+            encoding="utf-8")
         before = self._snapshot()
         report = self._run()
         self.assertEqual(report["changes"], [])
@@ -829,21 +871,139 @@ class TestWriteBackRealShapes(unittest.TestCase):
         self.assertTrue(any(u["reason"] == "a task-list cell has no figure"
                             for u in report["unreadable"]))
 
-    # -- finding 7: fence character AND length ------------------------------
-    def test_longer_fence_is_not_closed_by_a_shorter_one(self):
+    # -- fences: the span follows the citation checker's fence rule ---------
+    # `markdown_parser.extract_headings` toggles a fence on any line that
+    # starts with three backticks, whatever its length or info string. The
+    # span adopts that rule so it and the citation checker agree on every
+    # anchor; the earlier length-aware rule is retired with its tokenizer.
+    def test_span_fence_rule_matches_the_citation_checker(self):
+        import markdown_parser as mp
         doc = self.project / "kit" / "fenced.md"
         doc.write_text(
-            "## 2. Two\nbody\n````markdown\n```python\n## 3. Fake\n```\n````\n"
-            "tail\n## 3. Real\nthree\n", encoding="utf-8")
-        data = doc.read_bytes()
-        self.assertEqual(tsw._section_span(doc, "2", "2")[2], data.index(b"## 3. Real"))
-        self.assertEqual(tsw._section_span(doc, "3", "3")[0], 9)  # the real one
+            "## 2. Two\nbody\n````markdown\n```python\n## 3. Inner\n```\n````\n"
+            "tail\n## 4. Real\nfour\n", encoding="utf-8")
+        index = mp.numbered_heading_index(mp.extract_headings(doc.read_text(encoding="utf-8")))
+        for key in ("2", "3", "4"):
+            found = tsw._section_span(doc, key, key)
+            self.assertEqual(found[0], index[key][0].line, key)
 
-    def test_closing_fence_with_an_info_string_does_not_close(self):
+    def test_heading_inside_a_plain_fence_is_not_a_heading(self):
         doc = self.project / "kit" / "fenced2.md"
-        doc.write_text("## 1. One\n```\n```text\n## 2. Fake\n```\n## 2. Real\nx\n",
+        doc.write_text("## 1. One\n```text\n## 2. Fake\n```\n## 2. Real\nx\n",
                        encoding="utf-8")
-        self.assertEqual(tsw._section_span(doc, "2", "2")[0], 6)
+        self.assertEqual(tsw._section_span(doc, "2", "2")[0], 5)
+
+    # -- spans resolve through the parser's numbered index -----------------
+    def test_shallowest_numbered_heading_wins(self):
+        doc = self.project / "kit" / "nums.md"
+        doc.write_text("## 1. One\n### 2 Notes\nn\n## 2. Body\nb\n## 3. Three\n",
+                       encoding="utf-8")
+        self.assertEqual(tsw._section_span(doc, "2", "2")[:2], (4, 5))
+        doc.write_text("## 1. One\n### 2 Notes\nn\n## 3. Three\n", encoding="utf-8")
+        self.assertEqual(tsw._section_span(doc, "2", "2")[:2], (2, 3))
+
+    def test_two_headings_at_one_level_are_reported_not_guessed(self):
+        doc = self.project / "kit" / "dup.md"
+        doc.write_text("## 2. First\na\n## 2. Second\nb\n", encoding="utf-8")
+        self.assertEqual(tsw._section_span(doc, "2", "2"), "§2 names 2 headings")
+
+    def test_step_heading_needs_a_step_citation(self):
+        doc = self.project / "kit" / "steps.md"
+        doc.write_text("## Step 5: Do it\nx\n## Step 6 — Then\ny\n## 1.Introduction\nz\n",
+                       encoding="utf-8")
+        self.assertEqual(tsw._section_span(doc, "5", "5"), "§5 heading not found")
+        self.assertEqual(tsw._section_span(doc, "Step 5", "Step 5")[:2], (1, 2))
+        self.assertEqual(tsw._section_span(doc, "Step 6", "Step 6")[:2], (3, 4))
+        # The parser reads `1.Introduction` as number 1, title Introduction.
+        self.assertEqual(tsw._section_span(doc, "1", "1")[:2], (5, 6))
+        m = tsw._SECTION_SPAN_RE.match("doc.md § Step 5–§ Step 6 (two steps)")
+        self.assertEqual((m.group("x"), m.group("y")), ("Step 5", "Step 6"))
+
+    def test_span_file_is_read_once_per_run(self):
+        calls = []
+        real = tsw.extract_headings
+
+        def counting(text):
+            calls.append(1)
+            return real(text)
+
+        tsw.extract_headings = counting
+        self.addCleanup(setattr, tsw, "extract_headings", real)
+        rows = ("| 1 | `kit/guide.md` §1 | 1 | ~1K | a |\n"
+                "| 2 | `kit/guide.md` §2 | 1 | ~1K | b |\n"
+                "| 3 | `kit/guide.md` §3 | 1 | ~1K | c |")
+        self.task.write_text(_wb_task(rows, SUBTOTAL), encoding="utf-8")
+        report = self._run(dry_run=True)
+        self.assertEqual(len(report["spans"]), 3)
+        self.assertEqual(len(calls), 1)
+        # Each fresh run reads it again: the cache lives for one run only.
+        self._run(dry_run=True)
+        self.assertEqual(len(calls), 2)
+
+    # -- atomic commit: a failed replace restores every replaced file -------
+    def test_failed_second_replace_restores_every_file(self):
+        before = self._snapshot()
+        real, calls = tsw.os.replace, []
+
+        def flaky(src, dst):
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError("locked")
+            return real(src, dst)
+
+        tsw.os.replace = flaky
+        self.addCleanup(setattr, tsw.os, "replace", real)
+        code, out, _err = self._main("--write-estimates", "--task", str(self.task))
+        self.assertEqual(code, 3)
+        self.assertIn(f"ERROR: {calls[1]}: replace failed: locked", out)
+        self.assertIn("Files written: 0", out)
+        self.assertEqual(self._snapshot(), before)  # restored, and no temp or backup left
+
+    # -- read errors are reported, never a traceback -------------------------
+    def test_row_read_error_is_reported_and_the_row_left(self):
+        real = tsw.os.path.getsize
+
+        def broken(path):
+            raise PermissionError(13, "denied", str(path))
+
+        tsw.os.path.getsize = broken
+        self.addCleanup(setattr, tsw.os.path, "getsize", real)
+        code, out, _err = self._main("--write-estimates", "--dry-run", "--task", str(self.task))
+        self.assertEqual(code, 0)
+        self.assertIn("read error:", out)
+        self.assertNotIn("row 1 KiB", out)
+
+    def test_unreadable_orchestration_is_exit_3_not_a_traceback(self):
+        self._orch().unlink()
+        (self.session / "DM-S01-01-Orchestration.md").mkdir()
+        before = self._snapshot()
+        code, out, _err = self._main("--write-estimates", "--task", str(self.task))
+        self.assertEqual(code, 3)
+        self.assertIn("ERROR:", out)
+        self.assertEqual(self._snapshot(), before)
+
+    # -- Task ID decoration and breakdown precision --------------------------
+    def test_decorated_task_id_is_stripped(self):
+        for raw in ("`DM-S01-01-01`", "**DM-S01-01-01**", "(DM-S01-01-01).", "DM-S01-01-01"):
+            self.assertEqual(tsw._task_id([f"**Task ID:** {raw}"], self.task), "DM-S01-01-01")
+        self.task.write_text(_wb_task(TASK_ROWS, SUBTOTAL, task_id="`DM-S01-01-01`"),
+                             encoding="utf-8")
+        report = self._run()
+        self.assertFalse(report["unreadable"], report["unreadable"])
+        self.assertTrue(any(c["what"] == "Session Task List DM-S01-01-01"
+                            for c in report["changes"]))
+
+    def test_task_id_without_a_number_is_still_reported(self):
+        self.task.write_text(_wb_task(TASK_ROWS, SUBTOTAL, task_id="`DM`"), encoding="utf-8")
+        report = self._run()
+        self.assertTrue(any("no trailing -NN" in u["reason"] for u in report["unreadable"]))
+
+    def test_breakdown_addends_keep_tenth_k(self):
+        line = "x ~13.4K (reads: 9 + 3)"
+        values = [tsw._parse_token_cell(c) / 1000 for c in ("~10.0K", "~3.4K")]
+        self.assertEqual(tsw._reroll_breakdown(line, 8, values), "x ~13.4K (reads: 10.0 + 3.4)")
+        whole = [tsw._parse_token_cell(c) / 1000 for c in ("~20K", "~3K")]
+        self.assertEqual(tsw._reroll_breakdown(line, 8, whole), "x ~13.4K (reads: 20 + 3)")
 
     # -- finding 8: --config is passed to load_config -----------------------
     def test_config_flag_sets_the_project_root(self):
