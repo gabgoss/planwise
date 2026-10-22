@@ -624,6 +624,21 @@ def main():
     for path in hub_family_files:
         all_items.extend(_read_backlog_items(path))
 
+    # Count ids before anything below keys rows by id: a repeated id would
+    # otherwise collapse to whichever copy a dict kept last.
+    spellings_by_id: dict[str, list[str]] = {}
+    for item in all_items:
+        spellings_by_id.setdefault(normalize_id(item["id"]), []).append(item["id"])
+    duplicates = [spellings for spellings in spellings_by_id.values() if len(spellings) > 1]
+    if duplicates:
+        named = "; ".join(", ".join(spellings) for spellings in duplicates)
+        print(
+            f"Error: duplicate row id(s) in the backlog index: {named} -- "
+            f"each id must appear on exactly one row.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     if args.id and normalize_id(args.id) not in {normalize_id(i["id"]) for i in all_items}:
         # Not in the hub family -- the id may be a closed item living in an
         # Archive shard, invisible to every hub-family file. A miss here

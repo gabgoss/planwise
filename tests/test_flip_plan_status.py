@@ -16,6 +16,7 @@ import contextlib
 import datetime
 import io
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -831,6 +832,66 @@ class TestMapParsing(FlipPlanStatusTestCase):
         self.assertEqual(message.count("\n"), 0)
         self.assertNotIsInstance(ctx.exception.code, int)
 
+
+class TestStatedCountsMatchTheFilesAfterAFlip(FlipPlanStatusTestCase):
+    """A flip report states its outcome twice: as counts in prose
+    (`changed: N`, `unchanged: N  refused: N  failed: N`) and as one line per
+    plan. The files hold a third copy, the parsed `**Status:**` token. After a
+    flip every stated count must equal what a fresh parse of the files shows,
+    and a count a plan states in its own body must stay equal to its table."""
+
+    def _plan_with_body_count(self, name: str, status_value: str) -> Path:
+        path = self.write_plan(name, status_value)
+        body = (
+            "\n**Sprints:** 2\n\n"
+            "| Sprint | Name |\n|---|---|\n| 1 | First |\n| 2 | Second |\n"
+        )
+        path.write_bytes(path.read_bytes().replace(
+            b"\nBody paragraph that must not change.\n",
+            b"\nBody paragraph that must not change.\n" + body.encode("utf-8"),
+        ))
+        return path
+
+    def test_stated_counts_equal_the_parsed_files_and_the_per_plan_lines(self):
+        alpha = self._plan_with_body_count("Alpha", "IN_PROGRESS")
+        beta = self._plan_with_body_count("Beta", "NOT_STARTED")
+        gamma = self._plan_with_body_count("Gamma", "COMPLETE")
+        delta = self._plan_with_body_count("Delta", "IN_PROGRESS")
+        before = {p: p.read_bytes() for p in (alpha, beta, gamma, delta)}
+        map_file = self._write_map(
+            "Alpha/: COMPLETE\nBeta/: COMPLETE\nGamma/: COMPLETE\nDelta/: NOT_A_STATUS\n"
+        )
+
+        code, out = self._run_main(self._argv(map_file))
+
+        self.assertEqual(code, 1, out)
+        stated_changed = int(re.search(r"^changed: (\d+)$", out, re.MULTILINE).group(1))
+        stated_other = {
+            key: int(value)
+            for key, value in re.findall(r"(unchanged|refused|failed): (\d+)", out)
+        }
+        changed_files = [p for p in (alpha, beta, gamma, delta) if p.read_bytes() != before[p]]
+        self.assertEqual(stated_changed, len(changed_files))
+        self.assertEqual(stated_changed, out.count(" -> COMPLETE"))
+        self.assertEqual(stated_other["unchanged"], out.count(": unchanged ("))
+        self.assertEqual(stated_other["refused"], out.count(": REFUSED: "))
+        self.assertEqual(stated_other["failed"], out.count(": FAILED: "))
+        self.assertEqual(stated_other["unchanged"], 1)
+        self.assertEqual((stated_changed, stated_other["refused"], stated_other["failed"]), (2, 1, 0))
+        for path in changed_files:
+            self.assert_reader_agrees(path, "COMPLETE")
+        self.assertEqual(delta.read_bytes(), before[delta])
+
+    def test_a_count_the_plan_states_in_its_body_still_equals_its_table(self):
+        path = self._plan_with_body_count("Alpha", "IN_PROGRESS")
+
+        code, _ = self.flip("Alpha", "COMPLETE")
+
+        self.assertEqual(code, 0)
+        text = path.read_bytes().decode("utf-8")
+        stated = int(re.search(r"^\*\*Sprints:\*\* (\d+)$", text, re.MULTILINE).group(1))
+        table_rows = [ln for ln in text.splitlines() if re.match(r"\| \d+ \|", ln)]
+        self.assertEqual(stated, len(table_rows))
 
 if __name__ == "__main__":
     unittest.main()
