@@ -238,7 +238,8 @@ class TestStyleConfig(_StyleFixtureBase):
 
     def test_odd_values_never_raise(self):
         for value in (None, [], {}, object(), b"off", (1, 2), float("nan")):
-            with self.subTest(value=value):
+            # repr: a bare object() subtest parameter cannot cross the pytest-xdist worker channel.
+            with self.subTest(value=repr(value)):
                 result = sr.get_style_config({"style": {"plain_language": value, "plain_presentation": value}})
                 self.assertEqual(set(result), {"plain_language", "plain_presentation"})
 
