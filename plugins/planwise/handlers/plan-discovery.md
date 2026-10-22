@@ -50,7 +50,7 @@ Use `AskUserQuestion` to collect:
 
 ## Discovery Step 2: Validate and Design
 
-1. **Validate abbreviation:** 2-4 characters, unique (check `{plans_dir}` for existing). Follow the [Abbreviation Validation Protocol](plan.md#abbreviation-length-validation) — never silently truncate or adjust
+1. **Validate abbreviation:** 2-4 characters, unique (check `{plans_dir}` for existing). Follow the [Abbreviation Validation Protocol](plan-Part-2-GatherAndGenerate.md#abbreviation-length-validation) — never silently truncate or adjust
 2. **Inventory source files:** List all source files with measured KiB and token costs (`python "{plugin_root}/scripts/measure_files.py" {files...} --md`)
 3. **Confirm context exceeds 100K:** Sum total source tokens. If < 100K, recommend Standard plan instead
 4. **Group sources by domain/topic:** Each group becomes a discovery sprint or session focus area
@@ -169,7 +169,7 @@ META-PLAN CREATED: {PlanName} (Discovery Phase)
 3. After Discovery completes, scaffold the Execution Plan with `/planwise plan --scaffold`
 ```
 
-After the confirmation, proceed to [handlers/plan.md Step 10: Plan Review Gate](plan.md#step-10-plan-review-gate).
+After the confirmation, proceed to [handlers/plan-Part-3-VerifyConfirmAndReview.md Step 10: Plan Review Gate](plan-Part-3-VerifyConfirmAndReview.md#step-10-plan-review-gate).
 
 ---
 

@@ -767,5 +767,53 @@ class TestRunUpgradeTokenSaverToggle(_ProjectFixtureBase):
         )
 
 
+class TestFacadeWriteEstimates(unittest.TestCase):
+    """The facade's runnable entry point carries the write-back mode."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="rso_write_estimates_"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_write_estimates_without_task_is_refused_through_the_facade(self):
+        import contextlib
+        import io
+
+        import token_saver
+
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = token_saver.main(
+                ["--scan", "--plan", str(self.tmp), "--write-estimates"]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("--task", err.getvalue())
+
+    def test_dry_run_through_the_facade_writes_nothing(self):
+        import contextlib
+        import io
+
+        import token_saver
+
+        task = self.tmp / "T-01.md"
+        task.write_text(
+            "**Agent:** Sonnet\n\n## Required Context\n\n"
+            "| Priority | File | KiB | ~Tokens | Purpose |\n"
+            "|---|---|---:|---:|---|\n"
+            "| 1 | `doc.md` | 9.9 | ~9.9K | why |\n",
+            encoding="utf-8",
+        )
+        (self.tmp / "doc.md").write_text("x\n" * 50, encoding="utf-8")
+        before = task.read_bytes()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = token_saver.main(
+                ["--scan", "--plan", str(self.tmp), "--write-estimates",
+                 "--task", str(task), "--dry-run"]
+            )
+        self.assertEqual(code, 0)
+        self.assertEqual(task.read_bytes(), before)
+        self.assertIn("row 1 KiB: 9.9 -> 0.1", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

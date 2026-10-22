@@ -177,8 +177,8 @@ Two rules follow, and a handler must satisfy both:
 | Backlog directory | `Backlog` |
 | Lessons directory | `LessonsLearned` |
 | Abbreviation | Derive from plan name: collect initial capitals of each word, pad or truncate to 2-4 chars. If collision detected in plans index, ESCALATE TO CRITICAL (cannot infer safely). |
-| Review approach (plan.md Step 10 Q1) | `auto-review in this session` (recommended option) |
-| Review context (plan.md Step 10 Q2) | `this session` (unless plan context exceeds heuristic: >3 sprints or >10 task files → `new session`) |
+| Review approach (plan-Part-3-VerifyConfirmAndReview.md Step 10 Q1) | `auto-review in this session` (recommended option) |
+| Review context (plan-Part-3-VerifyConfirmAndReview.md Step 10 Q2) | `this session` (unless plan context exceeds heuristic: >3 sprints or >10 task files → `new session`) |
 | Lessons capture acknowledgment | `No` — skip the capture prompt and proceed without confirmation. The user can invoke `/planwise lessons capture` separately. |
 | Triage route confirmation (backlog.md Phase 4) | Accept the Phase-3 recommended route (`DIRECT_FIX` / `TASK_LIST` / `SESSION_PLANNING`) (in loop mode: the recommended route, A or B; C is never inferred) |
 | Follow-up candidate filing (backlog.md Phase 7) | `skip all` — never file a backlog item unattended. The user invokes `/planwise backlog` explicitly to surface candidates. |

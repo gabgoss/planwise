@@ -63,7 +63,6 @@ WARN_ALLOWLIST = frozenset({
     "backlog.md",                                              # 22,867
     "exit-criteria-fidelity.md",                               # 24,006
     "measurement-discipline.md",                               # 22,450
-    "plan.md",                                                 # 24,993
     "read-confirm-act-protocol.md",                            # 23,075
     "run.md",                                                  # 25,251 (OVER)
     "scaffolding-hygiene-Part-2-DerivationAndParallelism.md",  # 23,457

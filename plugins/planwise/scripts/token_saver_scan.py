@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Step 8c Token Saver large-file scan — the driver for `classify_file`.
 
-`handlers/plan.md` Step 8c makes a per-file large-file scan MANDATORY whenever
+`handlers/plan-Part-2-GatherAndGenerate.md` Step 8c makes a per-file large-file
+scan MANDATORY whenever
 the effective Token Saver value is true: derive thresholds from the measured
 overhead, classify every Required Context file in every task against the task's
 assigned model, emit a per-file recommendation block, and file a backlog item
@@ -23,6 +24,24 @@ Run it through the facade, which is the invocation Step 8c cites:
 
 Exit codes: 0 when every classified file is Green (or the scan does not apply),
 1 when any file classifies Warn or worse, 2 on a usage error.
+
+Write-back mode
+---------------
+`--write-estimates --task {task file}` (repeatable) writes the measured `KiB`
+and `~Tokens` cells back into the Required Context rows of the NAMED task
+files, then re-rolls the totals that depend on them: the task's
+`**Context subtotal:**` reads term and total, its `**Estimated Tokens:**`
+header, the session Orchestration's task-list cell and `**Total Estimated:**`,
+and the Sprint Plan's session row. `--dry-run` prints the changes and writes
+nothing. Without `--task` the mode refuses: a write-back never rewrites every
+task in a plan. Code files are priced at the code content class, the same
+class the scan's classifier uses, so the scan owns that decision. The mode
+does not depend on the Token Saver toggle, because every plan carries the
+cells. Exit codes in this mode: 0 when the run succeeds (with or without
+changes), 2 on a usage error (a `--task` that is not UTF-8 included), 3 when
+a file write fails or a plan file the run must rewrite is not UTF-8. The
+write is all-or-nothing: on any error no file is replaced. The write-back code
+lives in `token_saver_writeback`, which `main()` imports only in this mode.
 
 Why there is no band here
 -------------------------
@@ -156,6 +175,8 @@ def _clean_file_cell(cell: str) -> str:
     raw = cell.replace("`", "").replace("**", "").strip()
     # A span row cites `path §X–§Y (...)`; the path ends at the first section mark.
     raw = re.split(r"\s+§", raw)[0]
+    # A line-span row cites `path lines a-b`; the path ends before `lines`.
+    raw = re.split(r"\s+lines?\s+\d[\d,]*\s*[-–]\s*\d", raw)[0]
     raw = re.split(r"\s+—\s|\s+--\s", raw)[0]
     return raw.strip().strip("<>").strip()
 
@@ -209,7 +230,8 @@ def unresolved_reason(cell: str, project_root: Path) -> str:
     the outputs it has not produced yet, and a glob row names a set rather than
     a file. Only `missing` is a finding.
     """
-    raw = substitute_roots(_clean_file_cell(cell), project_root)
+    authored = _clean_file_cell(cell)
+    raw = substitute_roots(authored, project_root)
     if "*" in raw or "?" in raw:
         return "pattern"
     if "{" in raw:
@@ -217,9 +239,16 @@ def unresolved_reason(cell: str, project_root: Path) -> str:
     parts = Path(raw).parts
     if "Outputs" in parts or raw.startswith("Outputs"):
         return "plan output (not yet created)"
-    if not Path(raw).suffix or "output" in raw.lower():
-        # No separator and no extension, or self-described as a command's
+    # Words are counted on the AUTHORED cell: a root with a space in it
+    # must not turn one path into several words.
+    if len(authored.split()) > 1 and (
+        not Path(authored).suffix or "output" in authored.lower()
+    ):
+        # Several words with no extension, or self-described as a command's
         # output: the cell names prose or a corpus, not a file on disk.
+        # A single token is always a path, so a suffix-less file (`Makefile`),
+        # a directory (`src/pkg/`) and a path that merely contains the word
+        # "output" (`src/output_writer.py`) read `missing`, not prose.
         return "not a path (prose or command output)"
     return "missing"
 
@@ -603,7 +632,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="token_saver.py --scan",
         description=(
-            "Run the handlers/plan.md Step 8c Token Saver large-file scan over "
+            "Run the handlers/plan-Part-2-GatherAndGenerate.md Step 8c Token Saver "
+            "large-file scan over "
             "every task's Required Context in a plan."
         ),
     )
@@ -619,12 +649,57 @@ def main(argv: list[str] | None = None) -> int:
                         metavar="PATH=BYTES",
                         help="projected added bytes for a file this plan edits; "
                              "repeatable")
+    parser.add_argument("--write-estimates", action="store_true",
+                        help="write measured KiB and ~Tokens cells and the "
+                             "re-rolled totals into the --task files")
+    parser.add_argument("--task", action="append", default=[], metavar="PATH",
+                        help="a task file the write-back may rewrite; "
+                             "repeatable, required with --write-estimates")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="with --write-estimates: print the changes, "
+                             "write nothing")
     args = parser.parse_args(argv)
 
     plan_root = Path(args.plan).resolve()
     if not plan_root.is_dir():
         print(f"ERROR: --plan is not a directory: {plan_root}", file=sys.stderr)
         return 2
+
+    if (args.task or args.dry_run) and not args.write_estimates:
+        print("ERROR: --task and --dry-run apply only with --write-estimates",
+              file=sys.stderr)
+        return 2
+    if args.write_estimates and not args.task:
+        print(
+            "ERROR: --write-estimates refuses to run without --task: a "
+            "write-back never rewrites every task in a plan.\n"
+            "Fix: name each task file to rewrite, for example "
+            "--write-estimates --task <plan>/<sprint>/<session>/<task>.md "
+            "(repeat --task per file).",
+            file=sys.stderr,
+        )
+        return 2
+    task_paths: list[Path] = []
+    for raw in args.task:
+        candidate = Path(raw)
+        if not candidate.is_absolute() and not candidate.exists():
+            candidate = plan_root / raw
+        candidate = candidate.resolve()
+        if not candidate.is_file() or not _is_relative(candidate, plan_root):
+            print(f"ERROR: --task is not a file under --plan: {raw}",
+                  file=sys.stderr)
+            return 2
+        try:
+            text = candidate.read_bytes().decode("utf-8")
+        except UnicodeDecodeError:
+            print(f"ERROR: --task is not UTF-8: {raw}", file=sys.stderr)
+            return 2
+        if not re.search(r"^##+\s*Required Context", text, re.MULTILINE):
+            print(f"ERROR: --task has no Required Context section: {raw}",
+                  file=sys.stderr)
+            return 2
+        if candidate not in task_paths:
+            task_paths.append(candidate)
 
     projected: dict[str, int] = {}
     for pair in args.projected:
@@ -636,10 +711,31 @@ def main(argv: list[str] | None = None) -> int:
         projected[str(Path(key).resolve())] = int(value)
         projected[key] = int(value)
 
-    config = load_config()
+    try:
+        config = load_config(config_path=Path(args.config) if args.config else None)
+    except FileNotFoundError as exc:
+        print(f"ERROR: --config: {exc}", file=sys.stderr)
+        return 2
     project_root = Path(
-        config.get("project_root") or config.get("_config_dir") or Path.cwd()
+        config.get("project_root") or config.get("_project_root")
+        or config.get("_config_dir") or Path.cwd()
     ).resolve()
+
+    if args.write_estimates:
+        # Imported here, not at the top: the write-back module imports this
+        # one, and a plain scan never needs it.
+        from token_saver_writeback import format_write_report, write_estimates
+        report = write_estimates(task_paths, plan_root, project_root, args.dry_run)
+        print(format_write_report(report))
+        if args.json:
+            tmp_dir = tempfile.mkdtemp(prefix="planwise-tokensaver-write-")
+            json_path = os.path.join(tmp_dir, "write.json")
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2)
+            print(f"JSON: {json_path}")
+        # 3, not 1: a write failure must stay distinguishable from the scan's
+        # "Warn or worse" exit code.
+        return 3 if report["errors"] else 0
 
     result = scan_plan(plan_root, config, project_root, projected)
     print(format_report(result))

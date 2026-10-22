@@ -102,7 +102,7 @@ Issue: Master Plan declares {N_declared_sprints} sprints and {N_declared_session
        disk has {N_disk_sprints} Sprint Plans and {N_disk_sessions} session folders;
        {N_deferred} declared deferred. Missing and undeclared: {names}
 Fix: Author the missing sprints/sessions, or declare them under `## Deferred Authoring`
-     with a trigger apiece, per handlers/plan.md Deferred Authoring | Confidence: HIGH
+     with a trigger apiece, per handlers/plan-Part-3-VerifyConfirmAndReview.md Deferred Authoring | Confidence: HIGH
 ```
 
 ### Check S02 — Per-Session Outputs/ with .gitkeep

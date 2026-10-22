@@ -19,8 +19,8 @@ module exposed, including the underscore-prefixed helpers some callers reach
 through this facade, is re-exported here by explicit name so no caller needs
 to change.
 
-It is also runnable, as the driver for the `handlers/plan.md` Step 8c
-large-file scan:
+It is also runnable, as the driver for the
+`handlers/plan-Part-2-GatherAndGenerate.md` Step 8c large-file scan:
 
     python token_saver.py --scan --plan {plan_path} --config {config}
 

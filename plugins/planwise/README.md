@@ -663,7 +663,7 @@ planwise/                           # Plugin root
   .claude-plugin/
     plugin.json                     # Plugin identity
   skills/planwise/SKILL.md          # The /planwise command router
-  handlers/                         # 12 subcommand handlers across 20 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
+  handlers/                         # 12 subcommand handlers across 22 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
   agents/                           # 8 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + 2 installed as global style rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates

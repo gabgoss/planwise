@@ -226,7 +226,7 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 **Gate semantics:**
 
 - `{PLAN_ABBREV}-` hits are **always** leaks — a plan abbreviation resolves only inside the authoring repo.
-- `Sprint-[0-9]` and `Session-[0-9]` hits are leaks **unless** the line is demonstrably the plugin's own template/example vocabulary — `templates/`, `examples/`, and `handlers/plan.md` legitimately show resolved sprint and session folder names (e.g. `Sprint-NN-{Name}`) as sample output of the tool itself. Inspect every hit; never ignore one silently. The detection-pattern lines in this file match their own pattern: classify those hits as the pattern, not a leak.
+- `Sprint-[0-9]` and `Session-[0-9]` hits are leaks **unless** the line is demonstrably the plugin's own template/example vocabulary — `templates/`, `examples/`, and `handlers/plan.md` with its `handlers/plan-Part-N-{Topic}.md` parts legitimately show resolved sprint and session folder names (e.g. `Sprint-NN-{Name}`) as sample output of the tool itself. Inspect every hit; never ignore one silently. The detection-pattern lines in this file match their own pattern: classify those hits as the pattern, not a leak.
 - The predicate widens from a term list toward a shape. The leak is any `<Word>-<digits>` structure name that resolves only in an authoring repo. When a review finds a phrasing the pattern missed, add that shape to every copy of the battery.
 - The `{Sprint-N}` template placeholder (no digit after the dash) stays legal — the pattern targets resolved numerals, not the placeholder.
 - For plan sessions editing non-template plugin files (scripts, handlers, agents, references), expect strictly EMPTY.
@@ -243,7 +243,7 @@ The §4 grep matches ID-shaped bookkeeping tokens (`LL-`, `BB-`, `BLI-`, `PLG-`,
 >
 > | Bucket | What it looks like | Disposition |
 > |--------|--------------------|-------------|
-> | Plugin's own scaffold vocabulary | `templates/`, `examples/`, `handlers/plan.md` showing resolved sample structure names, and sample abbreviations invented for the doc | False positive — leave it |
+> | Plugin's own scaffold vocabulary | `templates/`, `examples/`, `handlers/plan.md` and its `handlers/plan-Part-N-{Topic}.md` parts showing resolved sample structure names, and sample abbreviations invented for the doc | False positive — leave it |
 > | Rule text enumerating the forbidden forms | This file, and any prose that must *name* `LL-NNN` / `PLG-NNN` to ban them | False positive — leave it |
 > | Declared §7 exemption | Command-syntax samples, seed starting state, template sample rows, bookkeeping frontmatter | False positive — leave it |
 > | Anything else | A real authoring repo's abbreviation, its real artifact file names, a resolved sprint reference | **Leak — reword or inline** |

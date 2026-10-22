@@ -87,10 +87,10 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 - Check 020 — Task Facade Re-Export Verification → references/verify-before-cite.md §9.B.3
 - Check 021 — Task Helper-Function Design Categorization → references/verify-before-cite.md §9.B.4
 
-<!-- STAYS-INLINE: handler-sourced (handlers/plan.md §Step 8c), out of this sprint's edit scope -->
+<!-- STAYS-INLINE: handler-sourced (handlers/plan-Part-2-GatherAndGenerate.md §Step 8c), out of this sprint's edit scope -->
 ### Check 071 — Shared-Context Measured-Size Fan-Out Consistency
 
-- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `handlers/plan.md` §Step 8c (shared-context pre-pass) | NEW
+- **Severity / Role / Source / Type:** WARNING | Task Reviewer | `handlers/plan-Part-2-GatherAndGenerate.md` §Step 8c (shared-context pre-pass) | NEW
 - **What:** When the same file path appears in the Required Context of ≥2 tasks, the `KiB`/`~Tokens` values MUST be identical across those rows AND within tolerance of a live `measure_files.py` measurement. A multiply-cited file is measured once and the single value fanned out — divergent rows, or a shared-doc figure deviating >15% from the live measurement, is a replicated-drift candidate: one stale guess copied into every citing task's Context subtotal and header. The check is direction-agnostic — an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver large-file scan or under-budget a DELEGATED dispatch — so flag ANY divergence or stale value, not only under-estimates.
 - **Detection:**
   1. Group all tasks' Required Context rows by file path. For any path cited in ≥2 rows, compare the `KiB`/`~Tokens` values — any mismatch → WARNING (name the file path, the task IDs involved, and the divergent values).
@@ -100,7 +100,7 @@ If your own reading contradicts the sheet, say so explicitly: re-measure — `wc
 [WARNING] Shared-context measured size divergent/stale across citing tasks
 File: {cited file path} | Location: Required Context rows in {task IDs}
 Issue: {KiB/~Tokens values {A} vs {B} diverge across citing tasks | fanned value {N} deviates {pct}% from live measurement ({actual})}
-Fix: Re-measure once with measure_files.py, fan the identical value into every citing row, re-roll affected subtotals/headers/session totals per handlers/plan.md Step 8c | Confidence: MEDIUM
+Fix: Re-measure once with measure_files.py, fan the identical value into every citing row, re-roll affected subtotals/headers/session totals per handlers/plan-Part-2-GatherAndGenerate.md Step 8c | Confidence: MEDIUM
 ```
 - **Insert:** Seventh item under `**New checks (task content fidelity — Required Context):**`.
 

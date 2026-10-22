@@ -66,7 +66,7 @@ LEDGERED_PLUGIN = (
     ("references/ei-fidelity.md", 2),  # HISTORY: records sections that left the file
     ("references/ei-fidelity.md", 24),  # EXAMPLE: example citation forms
     ("references/ei-source-promise-integrity.md", 2),  # HISTORY: frontmatter provenance
-    ("handlers/plan.md", 503),  # CONSUMER: a section of the generated master plan
+    ("handlers/plan-Part-3-VerifyConfirmAndReview.md", 57),  # CONSUMER: a section of the generated master plan
     ("agents/plan-reviewer.md", 158),  # LABEL: check title copied from its canonical heading
     ("agents/review-discovery.md", 78),  # CONSUMER: a section of the generated fact sheet
     ("agents/review-discovery.md", 158),  # CONSUMER: a section of the generated fact sheet

@@ -373,7 +373,7 @@ authors the plan.
        triage`. Do NOT proceed to the review step below.
      - If `TASK_STATUS: COMPLETE` and `REVIEW_REQUESTED: true` -> immediately run
        `/planwise review {PLAN_PATH}` via the Agent tool (mirroring
-       `handlers/plan.md` Step 10's auto-review dispatch) — this MUST run exactly
+       `handlers/plan-Part-3-VerifyConfirmAndReview.md` Step 10's auto-review dispatch) — this MUST run exactly
        once here; do NOT also offer `/planwise plan`'s own Step 10 review gate for
        this plan, since `backlog-planner` already skips its side of that gate for
        this exact reason. Recompute the verdict from the review report's own

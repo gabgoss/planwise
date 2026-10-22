@@ -110,7 +110,7 @@ Reflowing that tag onto its own line — a change with zero semantic content —
 > [!constraint] A fixed-size window is a measurement instrument — the subject must fit inside it
 > ```bash
 > # WRONG — a guessed window smaller than the subject; compares 13 lines of a 14-line block:
-> diff <(grep -A 12 'artifact classes this plan will touch' handlers/plan.md) \
+> diff <(grep -A 12 'artifact classes this plan will touch' handlers/plan-Part-2-GatherAndGenerate.md) \
 >      <(grep -A 12 'artifact classes this plan will touch' handlers/plan-scaffolding.md)   # EMPTY
 >
 > # CORRECT — compare the complete added-line sets, which have no window at all:
