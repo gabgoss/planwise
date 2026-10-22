@@ -28,7 +28,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 # and cannot false-fail.
 PLAN_FLOOR_PIN = 101184  # dev tree 20e4c1c+wt (plan.md router + 2 parts), 2026-10-22, folded; checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
 RUN_FLOOR_PIN = 63556  # dev tree 32370c5+wt, 2026-10-21, folded; checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
-BACKLOG_FLOOR_PIN = 33492  # dev tree 20e4c1c+wt, 2026-10-22, folded; checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
+BACKLOG_FLOOR_PIN = 33900  # dev tree ed9a39b+wt, 2026-10-22, folded; checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
 
 PINS = {"plan": PLAN_FLOOR_PIN, "run": RUN_FLOOR_PIN, "backlog": BACKLOG_FLOOR_PIN}
 

@@ -315,7 +315,7 @@ A backlog item whose deliverable edits the permission configuration is not a Rou
 
 ### Route B: Task List
 
-For medium-scope items with 3-5 discrete steps:
+For medium-scope items with 2-5 discrete steps:
 
 1. Analyze the backlog item file to extract discrete steps
 2. **(Track B)** When `TaskCreate` is in your tool list: run `TaskList` first, then `TaskCreate` one task per step with subject `[{item-id}-{n}] {step}`. Mark each `in_progress` when you start it and `completed` when it is done. When `TaskCreate` is absent, track the steps as a checklist in the item file and call none of the Task tools. The gate is `references/session-execution-protocol.md` §5.
@@ -717,9 +717,11 @@ Use this logic to determine the recommended route in Phase 3.
 | Specific file paths mentioned | Regex for code file extensions | Moderate → Direct Fix |
 | "multi-sprint" / "phased" keywords | Case-insensitive content search | Strong → Session Planning |
 | "refactor" / "redesign" / "architecture" / "migration" | Content keywords in the `## Proposed Solution` section (the whole body when the item has no such section); a stem in a title, Summary, evidence line, table row or name is listed as ignored | Strong → Session Planning |
-| 6+ sub-items or ## headings | Take the larger of two counts: the longest consecutive numbered list (two lists of 2 and 4 are 4 parts, not 6) and the H2 headers, excluding the backlog item template's own section headings (Summary, Problem, Proposed Solution, Acceptance Criteria, Related, Files Touched, Notes) | Moderate → Session Planning |
+| 6+ sub-items or ## headings | Take the larger of two counts: the longest consecutive numbered list (two lists of 2 and 4 are 4 parts, not 6) and the H2 headers, excluding the backlog item template's own section headings (Summary, Problem, Proposed Solution, Acceptance Criteria, Related, Files Touched, Notes, Resolution, Verification, Open Questions, Loop Decision Needed) | Moderate → Session Planning |
 | Multiple reference files (YY > 01) | Files column has 2+ links | Moderate → Session Planning |
-| 3-5 numbered steps | Count discrete steps | Moderate → Task List |
+| 2-5 numbered steps (`ROUTE_B_MIN_STEPS`..`ROUTE_B_MAX_STEPS` in `score_backlog.py`) | Count discrete steps | Moderate → Task List |
+| `refined: true` and the shape gate passes (`## Resolution` with at least one numbered step, `## Verification`, no open question) | `score_backlog.py --route --id` shape block | Strong → Task List; the step count is read from `## Resolution` only |
+| `needs_plan: true` in frontmatter | Read the item's `needs_plan` field | Gate → Session Planning, never A or B |
 
 ### Decision Logic
 
@@ -739,17 +741,26 @@ Use this logic to determine the recommended route in Phase 3.
     IF premise fails (bare target + all variants absent) -> SURFACE: commit probe evidence,
     route the scope decision to the user. Do NOT route to Direct Fix, regardless of edit size.
 
-IF HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6):
+IF NEEDS_PLAN:
+    -> SESSION PLANNING (Route C), LARGE_SCOPE = true   # NEEDS_PLAN: true (marked for a planning session)
+
+ELIF HAS_CLEAR_FIX AND NOT (IS_ARCHITECTURAL OR HAS_MULTI_SPRINT OR SUB_ITEMS >= 6):
     -> DIRECT FIX (Route A)          # IS_BUG strengthens this signal but is not required
 
 ELIF HAS_MULTI_SPRINT OR IS_ARCHITECTURAL OR (SUB_ITEMS >= 6):
     -> SESSION PLANNING (Route C), LARGE_SCOPE = true
 
+ELIF REFINED AND SHAPE_OK AND 1 <= STEP_COUNT <= 5:
+    -> TASK LIST (Route B)           # REFINED: 1 <= STEP_COUNT <= 5 from ## Resolution
+
+ELIF REFINED:
+    -> SESSION PLANNING (Route C), LARGE_SCOPE = false   # REFINED but shape gate failed (see shape block)
+
 ELIF 2 <= STEP_COUNT <= 5:
     -> TASK LIST (Route B)
 
 ELSE:
-    -> SESSION PLANNING (Route C) [conservative default], LARGE_SCOPE = false
+    -> SESSION PLANNING (Route C) [conservative default], LARGE_SCOPE = false   # ELSE (conservative default)
 
 3. Present recommendation via AskUserQuestion (include LARGE_SCOPE in the Scope
    Assessment Block when Route = SESSION_PLANNING)
@@ -759,4 +770,4 @@ ELSE:
    conditions above independently hold.
 ```
 
-`score_backlog.py --route` implements step 2 and the `IF` / `ELIF` / `ELSE` chain above mechanically (`compute_route_signals` and `decide_route` in that script); Phase 3 step 6 runs it. This pseudocode is the source: a script that diverges from it is defective, and the fix is to the script. Steps 0 and 0.5, the sufficiency half of `HAS_CLEAR_FIX`, and steps 3-4 stay with the handler.
+`score_backlog.py --route` implements step 2 and the `IF` / `ELIF` / `ELSE` chain above mechanically (`compute_item_shape`, `compute_route_signals` and `decide_route` in that script); Phase 3 step 6 runs it. The shape gate and the `refined` step count are read from `## Resolution`; the handler never re-derives them. This pseudocode is the source: a script that diverges from it is defective, and the fix is to the script. Steps 0 and 0.5, the sufficiency half of `HAS_CLEAR_FIX`, and steps 3-4 stay with the handler.
