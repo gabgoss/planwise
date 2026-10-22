@@ -97,7 +97,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md`
 
 Where the task's deliverable is a comparison or reconciliation (enumerate discrepancies, reconcile A against B, find drift between a spec and an implementation), the Required Context table MUST carry the reference source's **measured coverage** as its own row — the sample size, the coverage fraction, and the date measured. The brief's framing follows the measurement (per `references/task-content-fidelity.md` §9.A.12 — Size comparison tasks by reference coverage): high coverage → a reconciliation; near-zero coverage → a census with an actionable tail, budgeted for listing volume.
 
-### Schema Pin (Required when task touches DB writes)
+### Schema Pin <!-- CONDITIONAL — required when the task touches DB writes -->
 
 When this task emits SQL touching `{table_name}`, include a Schema Pin block per `references/schema-pin-requirement.md` §3:
 
@@ -185,7 +185,7 @@ When this task emits MERGE or upsert SQL, include a Field Mapping subsection wit
 
 Missing Field Mapping for MERGE/upsert tasks = BLOCKER at `/planwise review`.
 
-### USED-Helper Enumeration (Required when copying helpers from reference modules)
+### USED-Helper Enumeration <!-- CONDITIONAL — required when copying helpers from reference modules -->
 
 When this task copies helpers from a reference module, explicitly enumerate USED helpers and NOT-USED helpers per `references/verify-before-cite.md` §9.B.7:
 
@@ -335,6 +335,27 @@ EI-section-length estimates for verbatim-copy tasks (instead of body-block estim
      leaves the runner to decide. -->
 
 **DELEGATED retry-limited error recovery:** When this task runs as a delegated task-runner subagent, retry a failed step up to 3 times before reporting BLOCKED in the Recovery file (per `handlers/run.md` Self-Correction Pattern — never loop indefinitely).
+
+---
+
+## Pre-Known Cross-Task Coordination Flags <!-- OPTIONAL -->
+
+<!-- Include when an upstream session, or this session's flag preflight, routed a coordination
+     flag to this task. Omit the section when no flag was routed. A flag that contradicts an
+     Execution Step, a Success Criterion or the Output line above is a structural finding for
+     the orchestrator to raise before dispatch, not an instruction for the runner to follow. -->
+
+- **Flag {n} from {source-task-id}** (routed {YYYY-MM-DD}): {observation} → {recommended action}
+
+---
+
+## Plan-Specific Sections <!-- OPTIONAL -->
+
+Write any section that no heading above covers here, as an `###` H3. Never add it as a new `##` H2 elsewhere in this file, and draft one `idea` feedback draft for each new H3 heading (see `references/feedback-drafting.md`).
+
+### {Section Heading}
+
+{content}
 ```
 
 ---

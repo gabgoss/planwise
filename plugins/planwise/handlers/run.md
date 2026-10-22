@@ -562,6 +562,7 @@ Read recovery file and orchestration file. Generate the summary document using [
 | 7 | Consumption Record | Orchestrator window accounting for this session, plus the per-task consumption rows in Recovery. Field semantics are defined once in the template's own Consumption Record section — do not restate them here |
 | 8 | Next Session | Sprint plan dependencies |
 | 9 | Lessons Learned | Lesson files created this session (populated after Step 4.2) |
+| 10 | Plan-Specific Sections | The H3 sections this session needed that no template heading covers (omit when there are none) |
 
 Write to: `Outputs/{Abbrev}-S{XX}-{YY}-Summary.md` in the sprint folder.
 

@@ -187,9 +187,32 @@ When this section is empty (no cross-sprint file touches in this sprint), delete
 
 ---
 
+## Carried-Forward Coordination Flags <!-- OPTIONAL -->
+
+<!-- Include when an earlier session routed a coordination flag to a session of this sprint
+     that is not yet scaffolded on disk. Omit the section when there is none. When the
+     consuming session is scaffolded, re-route each row into that session's orchestration
+     file under `## Pre-Known Cross-Task Coordination Flags`, and keep the row here as the record. -->
+
+| Flag # | Source Task | Consuming Session | Observation | Recommended Action |
+|--------|-------------|-------------------|-------------|--------------------|
+| {n} | {source-task-id} | {Abbrev}-S{XX}-{YY} | {observation} | {recommended action} |
+
+---
+
 ## Change Log
 
 | Date | Change | Author |
 |------|--------|--------|
 | {today} | Sprint plan created | Claude |
+
+---
+
+## Plan-Specific Sections <!-- OPTIONAL -->
+
+Write any section that no heading above covers here, as an `###` H3. Never add it as a new `##` H2 elsewhere in this file, and draft one `idea` feedback draft for each new H3 heading (see `references/feedback-drafting.md`).
+
+### {Section Heading}
+
+{content}
 ```

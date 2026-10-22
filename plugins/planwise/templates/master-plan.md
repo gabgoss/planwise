@@ -28,6 +28,39 @@ Use this template when creating `{Abbrev}-Master-Plan.md`.
 
 ---
 
+## Execution Inputs <!-- OPTIONAL — Exec plans scaffolded from a Discovery phase -->
+
+<!-- Include only in an Exec plan scaffolded from a Discovery phase's Consolidated Context
+     parts. Omit the section, with its three H3s, in every other plan. -->
+
+Sprint-scoped files extracted from the Consolidated Context parts during scaffolding. Task files cite their sprint's Execution Input by section number, never the original parts.
+
+| Sprint | Execution Input File | Lines | Extracted From |
+|--------|----------------------|-------|----------------|
+| {XX} | `Sprint-{XX}-{Name}/{ABBREV}-S{XX}-Execution-Input.md` | {N} | Part {N} + Part {N} |
+
+### Consolidated Context Parts
+
+| Part | File | Lines | Sprint Scope |
+|------|------|-------|--------------|
+| {N} | `{path to the Consolidated Context part}` | {N} | {sprint name, or "Cross-sprint reference"} |
+
+### Sprint-to-Part Mapping
+
+| Sprint | Primary Part(s) | Reference Part(s) | Key Deliverables |
+|--------|-----------------|-------------------|------------------|
+| {XX} | Part {N} | Part {N} (cross-ref) | {deliverables} |
+
+### Global Source Map
+
+Assigns a global number to each spec output. Execution Inputs cite a source as `Spec #{N} ({filename})`, with the number from this table.
+
+| # | Source File | Primary Sprint | Also Used By |
+|---|-------------|----------------|--------------|
+| {N} | `{spec-output-filename.md}` | S{XX} | {other sprint(s), or "none"} |
+
+---
+
 ## Sprint Overview <!-- REQUIRED -->
 
 | Sprint | Name | Purpose | Sessions | Status |
@@ -145,9 +178,40 @@ recomputed: {today's date}.
 
 ---
 
+## Out of Scope <!-- OPTIONAL -->
+
+<!-- Include when the plan deliberately excludes work a reader could expect it to cover.
+     Omit the section otherwise. -->
+
+- {Excluded item} — {why it is excluded, and where it goes instead, or "not planned"}
+
+---
+
+## Carried-Forward Coordination Flags <!-- OPTIONAL -->
+
+<!-- Include when a session routed a coordination flag to a follow-up plan that is not yet
+     written. Omit the section when there is none. The follow-up plan's author reads these
+     rows at scaffold time. -->
+
+| Flag # | Source Task | Destination | Observation | Recommended Action |
+|--------|-------------|-------------|-------------|--------------------|
+| {n} | {source-task-id} | {follow-up plan or backlog item} | {observation} | {recommended action} |
+
+---
+
 ## References
 
 - [{Reference document}](path) - {What it provides}
+
+---
+
+## Plan-Specific Sections <!-- OPTIONAL -->
+
+Write any section that no heading above covers here, as an `###` H3. Never add it as a new `##` H2 elsewhere in this file, and draft one `idea` feedback draft for each new H3 heading (see `references/feedback-drafting.md`).
+
+### {Section Heading}
+
+{content}
 
 ---
 
