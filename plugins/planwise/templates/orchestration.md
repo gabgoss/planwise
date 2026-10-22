@@ -14,7 +14,7 @@ Use this template when creating `{Abbrev}-S{XX}-{YY}-Orchestration.md`.
 
 <!-- Scaffolding CONFIRM block placeholder:
      When this orchestration is part of a scaffolded plan, ensure the handler emits the CONFIRM block
-     before reading Consolidated Context parts. See handlers/plan.md Scaffolding Step 1
+     before reading Consolidated Context parts. See handlers/plan-scaffolding.md Scaffolding Step 1
      and references/scaffolding-hygiene.md §1. -->
 
 ---

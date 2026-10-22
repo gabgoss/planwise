@@ -26,7 +26,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "plugins" / "planwise"
 # The pins are ceilings measured on CRLF checkout bytes (`_file_extent` counts
 # checkout bytes under core.autocrlf=true), so an LF checkout passes with slack
 # and cannot false-fail.
-PLAN_FLOOR_PIN = 101184  # dev tree 20e4c1c+wt (plan.md router + 2 parts), 2026-10-22, folded; checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
+PLAN_FLOOR_PIN = 103640  # dev tree 4f84134+wt (plan.md router + 2 parts, Steps 4-8c render path, router reading order), 2026-10-22, folded; checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
 RUN_FLOOR_PIN = 63556  # dev tree 32370c5+wt, 2026-10-21, folded; checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
 BACKLOG_FLOOR_PIN = 33900  # dev tree ed9a39b+wt, 2026-10-22, folded; checkout bytes (CRLF under core.autocrlf), lower on an LF checkout
 

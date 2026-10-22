@@ -83,7 +83,7 @@ If validation fails, ask user to correct.
 
 ### Step 3: Create Folder Structure
 
-Create the following structure under the configured `{plans_dir}`. **Two nested loops, both bound in Step 1:** repeat the `Sprint-{XX}-{SprintName}/` block for every sprint (`{XX}` = `01` … `{sprint_count}`), and inside each one repeat the `Session-{YY}-{SessionName}/` block for every session of that sprint (`{YY}` = `01` … `{session_count[XX]}`). Do not stop after the first sprint, and do not stop after each sprint's first session.
+On the default path of [Steps 4-7](#steps-4-7-generate-files), `scaffold_plan.py render` creates this whole tree, so create no folder here and go to Steps 4-7. On the fallback path, create the following structure under the configured `{plans_dir}`. **Two nested loops, both bound in Step 1:** repeat the `Sprint-{XX}-{SprintName}/` block for every sprint (`{XX}` = `01` … `{sprint_count}`), and inside each one repeat the `Session-{YY}-{SessionName}/` block for every session of that sprint (`{YY}` = `01` … `{session_count[XX]}`). Do not stop after the first sprint, and do not stop after each sprint's first session.
 
 ```
 {plans_dir}/{PlanName}/
@@ -129,6 +129,17 @@ Worked example — 2 sprints, the second with 2 sessions (`{sprint_count}` = 2, 
 
 ### Steps 4-7: Generate Files
 
+**Default path: one spec Write, one script render.** The index-shape gate in the router's `## Workflow` has already run, so every write below sits behind it. One metadata-only spec and one `scaffold_plan.py` render produce every file of Steps 3-8. The model then writes only the prose bodies:
+
+1. Run Step 8's lessons search first, so its hits reach the spec's Required Context rows or the task bodies.
+2. `Write` ONE spec JSON, outside `{plans_dir}/{PlanName}/`, holding the plan, sprint, session and task metadata bound in Steps 1-2. The spec names no heading, because the templates carry every heading. Its fields are defined once, in the module docstring of `scaffold_plan.py` (section "Spec format").
+3. Write each Required Context row as a typed row. `kind` `"path"` (the default) takes `priority`, `path`, `kib`, `tokens_k` and `purpose`. `kind` `"span"` takes the same fields plus `span` (for example `"lines 1-80"`). `kind` `"command"` takes `priority`, `command`, `lines`, `bytes`, `kib`, `tokens_k` and `purpose`, and no `path`. Write a command-corpus row or a span row in its typed form in the spec. Never hand-fill one into the rendered table afterwards. The renderer writes a resolution record line beneath the table for each span or command row.
+4. Run `python -B "{plugin_root}/scripts/scaffold_plan.py" lint-spec --spec {spec}`. Exit 0 prints `lint=clean`. Exit 1 prints one `LINT:` line per error, quoting the row or key: fix the spec and re-run. A prose `path`, an unknown key and a malformed typed row are lint errors.
+5. Run `python -B "{plugin_root}/scripts/scaffold_plan.py" render --spec {spec} --out {plans_dir}/{PlanName}`. It refuses an `--out` folder that is not empty, so do not pre-create the Step 3 tree. It writes the Master Plan, every Sprint Plan, every Orchestration and Recovery pair, every task file with its Task Files table row, and every `Outputs/.gitkeep`, then prints `rendered <n> files to <out>; fill_markers=<k>; surviving_placeholders=<m>`.
+6. Replace every `<!-- FILL: {name} -->` marker with model-written text. The script writes metadata and derived tables only, and every body stays model-written.
+
+**Fallback: the per-template steps.** When `scaffold_plan.py` is absent, or `render` exits non-zero (1: a placeholder survived outside a FILL marker; 2: refused), generate the files with the table below and Step 8's task-file steps. An exit 1 has already written the tree, so write each fallback file over its rendered copy.
+
 Use templates from `{plugin_root}/templates/`:
 
 | Step | Template | Output File | Cardinality |
@@ -139,6 +150,10 @@ Use templates from `{plugin_root}/templates/`:
 | 7 | [recovery.md](../templates/recovery.md) | `{Abbrev}-S{XX}-{YY}-Recovery.md` | **Once per SESSION** |
 
 Step 5 repeats for every sprint; Steps 6-7 repeat for every session of every sprint. Their cardinality is **not** the sprint count — a 3-sprint plan whose second sprint has 3 sessions produces 3 Sprint Plans and **5** Orchestration/Recovery pairs. Do not stop after Sprint-01, and do not stop after each sprint's Session-01.
+
+**A section no template heading covers goes under `## Plan-Specific Sections`, as an `###` H3.** Never add it as a new H2. The catch-all is the last H2 of every plan template, and the render omits it unless the document's `optional_sections` list in the spec names `"Plan-Specific Sections"`. When the need appears after the render, add the heading from the template by hand. For each new H3 heading text, draft one `idea` through `mcp__planwise__draft_feedback`, as [`references/feedback-drafting.md`](../references/feedback-drafting.md) § Triggers describes. With `feedback.drafts` set to `off`, write no draft.
+
+After rendering and filling (or after the fallback writes), run `python -B "{plugin_root}/scripts/scaffold_plan.py" check-headings {plans_dir}/{PlanName}`. Exit 1 lists each stray H2. Move each one under the catch-all as an H3 before Step 9.
 
 ### Step 8: Generate Task Files
 
@@ -160,11 +175,24 @@ The payoff scales with repetition: a plan that repeats one task chain across sev
 
 **CRITICAL:** Create ONE task file per task in the Orchestration task list.
 
+On the default path of Steps 4-7, `render` has already written one task file per task and its Task Files table row, so fill each task file's FILL markers. The steps below are the fallback.
+
 For each task, create a file using the [task-file.md](../templates/task-file.md) template.
 
 **File name pattern:** `{Abbrev}-S{XX}-{YY}-{##}-{Agent}-{TaskName}.md` (`{XX}` = the sprint being processed, `{YY}` = the session being processed — both loop variables, neither a literal `01`)
 
 After creating task files, update the Orchestration file's Task Files table with links.
+
+> [!constraint] Repair a Generated File With One Whole-File Write
+> WRONG — a file needs several repairs after the fill, a lint or a scan, and each repair is its own `Edit`:
+> ```
+> Edit {Abbrev}-Master-Plan.md  … Edit {Abbrev}-Master-Plan.md   # one tool use per repair
+> ```
+> CORRECT — read the file once, then `Write` the whole corrected file once:
+> ```
+> Read {Abbrev}-Master-Plan.md → Write {Abbrev}-Master-Plan.md   # all repairs in one write
+> ```
+> Never apply the whole-file Write to a file listed under a Sprint Plan's `## Cross-Sprint File Touches`, because a whole-file write discards a co-writer's change. Repair that file with targeted `Edit` calls. The rule's acceptance counts two figures, each with its basis: repair tool uses (each `Edit` or `Write` call) and distinct requests (each model response, which can carry several tool calls). Several `Edit` calls can share one request, so a whole-file Write can save tool uses and no requests.
 
 ### Step 8b: Add Lessons Reference to Post-Session Checklist
 
@@ -185,15 +213,25 @@ Where `{lessons_dir}` comes from `config.yaml`.
 
 **Shared-context pre-pass (measure once, fan out):** Before computing per-task estimates, build the set of files cited in the Required Context of **two or more** tasks (group Required Context rows by file path across the whole session). For each such shared file, measure it **ONCE** — `measure_files.py` on the live file — and record its KiB and tokens once; then write the **IDENTICAL** `KiB` / `~Tokens` values into every citing task's row. A multiply-cited file's size is a single source of truth, never a per-task guess — otherwise one estimation error replicates silently into every citing task's Context subtotal and header `Estimated Tokens`. If a shared doc is edited during authoring, re-measure it and re-fan the new value into all citing rows, then re-roll the affected subtotals, headers, and session totals. The drift is direction-agnostic: an over-estimate merely inflates budgets, but an under-estimate can mis-route a file in the Token Saver Large-File Scan below or under-budget a DELEGATED dispatch.
 
+**Default path: the scan writes the estimates.** After the session's task files are filled, run once per session, from the project root, naming every task file of the session with its own `--task`:
+
+```bash
+python "{plugin_root}/scripts/token_saver.py" --scan --plan {plan_path} --write-estimates --task {task file} [--task {task file} ...]
+```
+
+The scan owns the content-class decision: it prices each row from the live file under the class its suffix gives, so a code file prices at the code ratio. It writes each resolvable row's `KiB` and `~Tokens` cells, every task's Context subtotal and `Estimated Tokens` header, the Orchestration Session Task List cell and `**Total Estimated:**`, and the Sprint Plan Sessions row. It prices every citing row from the same file, so the shared-context pre-pass above holds by construction. It leaves command-corpus, plan-output, missing, prose and qualified rows as authored, and reports each one. `--dry-run` prints the changes and writes nothing. Exit 0 is success with or without changes. Exit 2 is a usage error (no `--task` refuses, as does a `--task` outside `{plan_path}`). Exit 3 is a failed write. This mode computes no Warn levels, so the Token Saver Large-File Scan below still runs. Then apply items 2-5 below to the written figures.
+
+**Fallback: the per-task measure loop.** When the script is absent or exits non-zero, measure with the steps below. For a row the scan left as authored, measure only that row with item 1.
+
 For each task in the session, compute a bottom-up token estimate:
 
-1. **Measure Required Context files:** Run `python "{plugin_root}/scripts/measure_files.py" {files...} --model {task's Agent} --md` over every file in the task's Required Context table — it reports each file's KiB and measured tokens and emits ready-to-paste table rows
+1. **Measure Required Context files:** Run `python "{plugin_root}/scripts/measure_files.py" {files...} --model {task's Agent} --md` over every file in the task's Required Context table — it reports each file's KiB and measured tokens and emits ready-to-paste table rows. Add `--content code` for a code file, so its price matches the scan's code class
 2. **Convert to tokens:** For files that do not exist yet, estimate byte size ÷ the reading model's bytes-per-token ratio (≈3.0 prose/code, ≈2.6 dense markdown; see [Per-Operation Cost Reference](../references/session-context-budget.md#per-operation-cost-reference)) — never lines × a rate
 3. **Add output cost:** Estimate output generation tokens from the operation-level table
 4. **Compare:** If the bottom-up estimate exceeds the qualitative category estimate, use the higher number
 5. **DELEGATED check:** For DELEGATED tasks, verify `(task estimate + injected path-rule tokens + 54K overhead) < the dispatched model's window` per subagent. A subagent's window is set by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M), NOT the parent tier — a Sonnet runner is 200K even when the orchestrator is on Max. See `references/session-context-budget.md` [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window).
 
-Update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates.
+On the fallback path, update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates. On the default path, the scan wrote them, so edit a figure only where items 3-5 raise it.
 
 #### Token Saver Large-File Scan (gated on the **effective** Token Saver value)
 

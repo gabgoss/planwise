@@ -10,7 +10,7 @@ This handler spans **three files**, split by step range because the combined tex
 | 2 | [`plan-Part-2-GatherAndGenerate.md`](plan-Part-2-GatherAndGenerate.md) | Steps 1, 2, 3, 4-7, 8, 8b, 8c | Gather and validate the plan details, create the folder structure, generate the plan files and task files, and validate the token estimates |
 | 3 | [`plan-Part-3-VerifyConfirmAndReview.md`](plan-Part-3-VerifyConfirmAndReview.md) | Steps 8d, 8e, 9, 9a, 9b, 10, Validation Checklist, Deferred Authoring | Update the plans index, populate the Verification Commands, confirm the output, harmonize the pass, gate the plan review, and check completeness |
 
-Reading order by mode: Standard mode reads this file, then Part 2, then Part 3. Discovery mode reads this file, then `plan-discovery.md`, then Part 3 for Step 10. Scaffolding mode reads this file, then `plan-scaffolding.md`, then Part 3 for Steps 9a, 9b and 10, and Part 2 when it follows a Step 3 or Step 8c link.
+Reading order by mode: Standard mode reads this file, then Part 2, then Part 3. Discovery mode reads this file, then `plan-discovery.md`, then Part 3 for Step 10. Scaffolding mode reads this file, then `plan-scaffolding.md`, then Part 3 for Steps 9a, 9b and 10, and Part 2 when it follows a Step 3, 4-7, 8 or 8c link.
 
 ## Table of Contents
 
