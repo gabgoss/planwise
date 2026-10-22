@@ -191,6 +191,21 @@ def test_a_full_result_answers_a_changed_run_by_its_own_files(fake_run, monkeypa
     assert fake_run["runs"] == 0
 
 
+@pytest.mark.parametrize(("have_xdist", "expect_n"), [(True, True), (False, False)])
+def test_workers_are_requested_only_when_xdist_is_installed(tmp_path, monkeypatch, have_xdist, expect_n):
+    monkeypatch.setattr(suite, "CACHE", tmp_path / "cache")
+    monkeypatch.setattr(suite, "_have_xdist", lambda: have_xdist)
+    seen = {}
+
+    def fake_subprocess_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(suite.subprocess, "run", fake_subprocess_run)
+    suite.run_pytest(["tests"], workers=4, record_deps=False, label="full")
+    assert ("-n" in seen["cmd"]) is expect_n
+
+
 def test_a_harness_change_escalates_to_the_full_suite(monkeypatch):
     monkeypatch.setattr(suite, "load_deps", dict)
     monkeypatch.setattr(suite, "changed_paths", lambda since: ({"tests/conftest.py"}, set()))

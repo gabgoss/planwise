@@ -15,7 +15,8 @@ A suite result is a function of the tree, so the runner:
   cache when it gets the lock, because the run it waited on usually stored the
   answer
 - runs pytest in parallel with pytest-xdist (`--dist loadfile`, so a file's
-  tests stay in one worker and keep their order)
+  tests stay in one worker and keep their order). Without xdist installed it
+  runs in one process and says how to install it
 - stores a result only when the fingerprint after the run equals the one before
   it. A tree edited mid-run is reported but never cached
 
@@ -55,6 +56,7 @@ Usage, from anywhere (the runner locates the repo from its own path):
 import argparse
 import ast
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -324,12 +326,16 @@ def load_deps():
 
 # --------------------------------------------------------------------- run
 
+def _have_xdist():
+    return importlib.util.find_spec("xdist") is not None
+
+
 def run_pytest(targets, workers, record_deps, label):
     CACHE.mkdir(parents=True, exist_ok=True)
     log = CACHE / f"last-{label}.log"
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     cmd = [sys.executable, "-B", "-m", "pytest", "-q", "-rfE", "-c", str(REPO / "pytest.ini")]
-    if workers >= 2:
+    if workers >= 2 and _have_xdist():
         cmd += ["-n", str(workers), "--dist", "loadfile"]
     parts_dir = CACHE / "deps-parts"
     if record_deps:
@@ -452,6 +458,10 @@ def main(argv=None):
         }), encoding="utf-8")
         run_targets = [str(TESTS)] if full else [str(REPO / t) for t in targets]
         workers = args.workers if full else min(args.workers, len(targets) // 4)
+        if workers >= 2 and not _have_xdist():
+            print("pytest-xdist is not installed, so this run uses one process. A full run then takes "
+                  f"381-553 s instead of about 240 s. Install it: {sys.executable} -m pip install pytest-xdist",
+                  flush=True)
         result = run_pytest(run_targets, workers, record_deps=full and (args.record_deps or _deps_stale()), label=mode_name)
         result["files"] = len(_test_files()) if full else len(targets)
         after = fingerprint()
