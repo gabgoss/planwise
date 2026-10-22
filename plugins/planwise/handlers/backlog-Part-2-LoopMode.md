@@ -37,7 +37,9 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 | Item state at `--init` | In the loop set? | Reason recorded |
 |---|---|---|
 | Selectable, provisional route A or B | Yes | none |
-| Selectable, provisional route C | No, listed as excluded | `plans deferred in loop mode` |
+| Selectable, provisional route C by a strong signal (`LARGE_SCOPE` true) | No, listed as excluded | `plans deferred in loop mode` |
+| Selectable, provisional route C by the conservative default (`LARGE_SCOPE` false) | No, listed as excluded | `needs refine` |
+| Selectable, marked `needs_plan: true` in its frontmatter | No, listed as excluded | `marked for a planning session` |
 | Blocked by an open dependency | No | not selectable |
 | Held (`BLOCKED`) or closed | No | not selectable |
 
@@ -66,7 +68,9 @@ Each session handles exactly one item. The numbered steps run in order.
    | Phase 5 or Phase 4 result | Outcome |
    |---|---|
    | Every gate passed, or task list done | `COMPLETE` |
+   | Every acceptance criterion already met (Phase 3 step 5) | `COMPLETE`, with `--resolution-file` (§ Unattended close); Phases 4 and 5 are skipped for the item |
    | A decision is needed, or a gate failed | `SKIPPED`, with `--decision` |
+   | Route C re-assessed in Phase 4 | `SKIPPED`, with `--needs-plan` and `--decision` |
    | Halted item skipped at the HALT question | `SKIPPED`, with `--note halted-mid-item` |
 
    A `SKIPPED` outcome restores the item's pre-loop status. When the script prints `Restored`, regenerate the backlog index.
@@ -83,9 +87,10 @@ Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every othe
 |---|---|
 | Phase 2 held-item notice | Not reached. The queue never holds a `BLOCKED` item |
 | Phase 3 premise probe fails | Documented skip |
-| Phase 3 scoped-rule conflict | Documented skip |
-| Phase 3 acceptance criteria already met | Documented skip. The evidence names the criteria. The handler does not close an item unattended |
-| Phase 4 route | Take the recommended route when it is A or B. A Route C result is a documented skip |
+| Phase 3 scoped-rule verdict `inject` or `none` | Proceed. An `inject` verdict carries the listed rules into the fix-agent prompt |
+| Phase 3 scoped-rule verdict `placement` | Documented skip. The evidence names the destination and the rule or content tree |
+| Phase 3 acceptance criteria already met | Unattended close (§ Unattended close): every criterion's proving command is run, the record is written under `## Resolution`, and the item is closed `COMPLETE` |
+| Phase 4 route | Take the recommended route when it is A or B. A Route C result is a documented skip that also writes `needs_plan: true` (`--needs-plan`) |
 | Route A fix-agent returns `BLOCKED` | Documented skip. The evidence is the agent's blocker |
 | Phase 5 gates pass | Mark `COMPLETE` |
 | Phase 5 a gate fails | Documented skip. Revert nothing. The changes stay in the working tree, and the evidence names the failing gate and the changed files |
@@ -102,13 +107,57 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 
 The script does three things:
 
-- It appends a dated `## Loop Decision Needed` section to the item file. The section opens with a `[!gate] User input needed` callout.
+- It writes a dated `## Loop Decision Needed` section to the item file, ending in the line `<!-- loop-decision-end -->`, under the section lifecycle below. The section opens with a `[!gate] User input needed` callout.
 - It restores the item's pre-loop status when the loop had set it IN_PROGRESS.
 - It records the outcome `SKIPPED` and the flag `user_input_needed` in the run file. The end summary lists every flagged item.
 
-Write the `--decision` text as the question that would have been asked, then the options, then the evidence with its source. The next interactive run finds the section and answers it. A route re-assessment to Route C starts the text with `LOOP: re-assessed to Route C`.
+Write the `--decision` text in this shape, at most 1,200 characters (the script refuses a longer text with exit 1 and writes nothing):
+
+```
+Question: {the one question that would have been asked}
+Options: (A) {first} (B) {second}
+Evidence: {at most 3 lines, each naming its source}
+```
+
+The next interactive run finds the section and answers it. A route re-assessment to Route C starts the text with `LOOP: re-assessed to Route C` and adds `--needs-plan`.
+
+The section lifecycle: when the item already carries an unedited section from an earlier run, the script replaces it in place and lists the earlier run ids on an `Earlier runs:` line inside the callout. When a person edited that section, the script keeps it and writes the new section beside it. A legacy section, one with no end marker, is never changed: the script writes the new section after it. A repeated call in the same run writes nothing.
+
+`--decision` refuses each of these inputs with exit 1:
+
+- a text over 1,200 characters
+- a line that starts with `#` or `##` followed by a space, a tab or the end of the line
+- an unclosed code fence
+- the end-marker string `<!-- loop-decision-end -->`
+
+Answers go under `## Notes`, outside the section. A person who opens a code fence, under `## Notes` or inside the section, must close it, because an unclosed fence hides every later section.
 
 Regenerate the backlog index after the call. Then continue to Phase 7.
+
+### Unattended close
+
+Phase 3 step 5 found every acceptance criterion already met. The loop closes the item without asking. Write the record to a scratch file in this shape:
+
+```markdown
+Closed {YYYY-MM-DD}: every acceptance criterion was already met.
+
+1. {criterion} -- MET -- `{command}` -> {output excerpt}
+2. {criterion} -- MET -- `{command}` -> {output excerpt}
+```
+
+Every criterion gets one line with the command that proved it and an excerpt of that command's output. A criterion with no runnable proof is not met, and the item is not closed this way. Then run, in this order:
+
+```bash
+python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id {item-id} --status COMPLETE --resolution-file {scratch}/{item-id}-resolution.md
+python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
+python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --outcome COMPLETE --run {run-id} --id {item-id} --resolution-file {scratch}/{item-id}-resolution.md
+```
+
+The first call flips the status, moves the file to the archive and appends the record under `## Resolution`. The third records the unattended close in the run file; its own append is a no-op because the section now exists, and the script says so. When the item already carries a `## Resolution` section, neither call rewrites it. The end summary lists unattended closes under `Closed unattended`. The item is now closed, so skip Phases 4 and 5 for it: regenerate the backlog index, then continue to Phase 7, exactly as after a documented skip. Nothing is committed; the user reviews the archive move and the record in the working tree.
+
+### Verification is in scope
+
+Running the build command (`build_commands.default`), the project's test and lint commands, a shipped-tree or workspace sweep the project's rules name, and any command an item's acceptance criteria name is work the loop does. None of them is a reason to skip an item, and "needs an interactive session" is not a skip reason when the only interactive step would have been running those commands. A commit is not required for `COMPLETE`: the loop commits nothing, and the user commits after reviewing the diff. A command that fails is a failing gate, handled by the Phase 5 row above.
 
 ### Phase 8 in loop mode
 
@@ -183,7 +232,7 @@ The exit codes are 0 ok, 1 usage or config error, 2 run file missing or unparsea
 
 The loop ends in one of three ways:
 
-- The queue is empty. `--boundary` applies `--end` and prints the cross-run summary table above the marker.
+- The queue is empty. `--boundary` applies `--end` and prints the cross-run summary table above the marker. The summary groups excluded items by reason and lists items marked for a planning session and items closed unattended under their own headings.
 - The user chooses Abort at the HALT question. `--end` prints the same summary.
 - The run file is missing. Exit 2 ends the loop, as in the Resume model.
 

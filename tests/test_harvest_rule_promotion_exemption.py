@@ -24,7 +24,7 @@ BACKLOG_PLANNER = PLUGIN / "agents" / "backlog-planner.md"
 CONDITION_LITERALS = [
     "`promoted-to:`",
     "`promotion-target:` includes `rule`",
-    "`.claude/rules/`",
+    "any destination",
 ]
 
 
@@ -57,7 +57,7 @@ class BacklogStepSevenExemptionTests(unittest.TestCase):
         self.assertIn("self-containment grep", self.step7)
 
     def test_auto_mode_escalation_is_conditional(self):
-        self.assertIn("an item\n   that is not exempt **auto-escalates to Route C**", self.step7)
+        self.assertIn("a `placement` verdict **auto-escalates to Route C**", self.step7)
 
 
 class HarvestExemptionTests(unittest.TestCase):
@@ -66,9 +66,9 @@ class HarvestExemptionTests(unittest.TestCase):
 
     def test_failure_classification_splits_the_scoped_rule_row(self):
         table = _span_between(self.text, "### Step 5: Failure Classification", "### Step 6")
-        self.assertIn("| scoped-rule conflict, item not exempt |", table)
-        self.assertIn("| scoped-rule match on a rule-file promotion item |", table)
-        self.assertNotIn("| scoped-rule conflict | auto-escalate", table)
+        self.assertIn("| scoped-rule verdict placement |", table)
+        self.assertIn("| scoped-rule verdict inject |", table)
+        self.assertNotIn("| scoped-rule conflict, item not exempt |", table)
 
     def test_harvest_states_the_same_conditions_as_triage(self):
         table = _span_between(self.text, "### Step 5: Failure Classification", "### Step 6")
@@ -78,14 +78,13 @@ class HarvestExemptionTests(unittest.TestCase):
 
     def test_inherited_gates_paragraph_names_the_exemption(self):
         self.assertIn(
-            "a non-exempt match auto-escalates directly to Route C, and a rule-file "
-            "promotion item is exempt",
+            "a `placement` verdict auto-escalates directly to Route C, and an `inject` verdict",
             self.text,
         )
 
     def test_route_a_prompt_carries_matching_rules_for_exempt_items(self):
         stage3 = _span_between(self.text, "**Route behaviour:**", "#### Stage 4: Land")
-        self.assertIn("the prompt also carries the content of every scoped rule", stage3)
+        self.assertIn("carries the content of every rule the `scoped_rules` block lists", stage3)
 
     def test_stage_four_reports_unlanded_lessons_and_names_the_lander(self):
         stage4 = _span_between(self.text, "#### Stage 4: Land", "### Step 5: Failure Classification")

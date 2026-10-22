@@ -191,7 +191,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
    > - [ ] For every acceptance criterion, run the cheapest proof it is still unsatisfied before writing a fix; mark any already-satisfied criterion "already satisfied — verified"
    > - [ ] For every pre-drafted note/callout that asserts "test/section/function X does Y", verify against the live file and re-word to name the artifact that actually carries the behavior
 
-5. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow.
+5. **Staleness check:** If the item has measurable acceptance criteria (counts, percentages, coverage targets), run `{build_command}` (from config.yaml `build_commands.default`) *before* routing. If criteria are already met or nearly met, present a "Close as COMPLETE" option instead of routing through a fix workflow. In loop mode, when every criterion is already met, close the item without asking per Part 2 § Unattended close; when any criterion is unmet, continue to step 6.
    - If the BLI's motivating driver is a runtime symptom (keywords: collision, race, hang, missing endpoint, intermittent), run a `grep -rn` for the symptom in `src/` and cross-check against recent session summaries in `Plans/**/Sessions/**/Outputs/`. If the driver is no longer active (no recent matches, fix landed), mark the BLI as STALE per `verify-backlog-citation-freshness.md §3h` and skip routing. Include §3h.untested-axes and §3h.cluster signal checks per the same reference.
 
 6. **Assess the item's scope: run the mechanical signals, then reconcile the stored hint.** The [Routing Decision Tree](#routing-decision-tree) below is the source of the logic; the script applies it without modification.
@@ -200,7 +200,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
       ```bash
       python {plugin_root}/scripts/score_backlog.py --config {planwise_root}/config.yaml --route --id {item_id}
       ```
-      It prints the signal vector (`abbrev`/`is_bug`, whole-file line count, keyword hits with the line each sits on, `##` and numbered-step counts, file count, the `HAS_CLEAR_FIX` evidence shapes), the provisional route, `LARGE_SCOPE`, and the Decision Logic branch that fired. Read the keyword hit lines before accepting `HAS_MULTI_SPRINT` or `IS_ARCHITECTURAL`: an item that quotes the signal table, or names a plan whose title contains "redesign", matches every keyword without being either. `IS_ARCHITECTURAL` reads only the `## Proposed Solution` section when the item has one (an item without that heading is read whole), and inside it drops a stem that sits inside a file name, a multi-segment path, a snake_case identifier, an `**Evidence:**` line or a table row. Every dropped hit is listed under `ignored (N)` with its reason, so a stem in the title, the Summary or a Related line still shows there. A plain-prose hit that remains is still a candidate, so read its line. `HAS_CLEAR_FIX` is reported as its mechanical half only — the evidence shapes are *present*; whether they are *sufficient* is your judgment. The script never runs the pivot check or gates 3b, 4, 5 and 7.
+      It prints the signal vector (`abbrev`/`is_bug`, whole-file line count, keyword hits with the line each sits on, `##` and numbered-step counts, file count, the `HAS_CLEAR_FIX` evidence shapes), the provisional route, `LARGE_SCOPE`, and the Decision Logic branch that fired. Read the keyword hit lines before accepting `HAS_MULTI_SPRINT` or `IS_ARCHITECTURAL`: an item that quotes the signal table, or names a plan whose title contains "redesign", matches every keyword without being either. `IS_ARCHITECTURAL` reads only the `## Proposed Solution` section when the item has one (an item without that heading is read whole), and inside it drops a stem that sits inside a file name, a multi-segment path, a snake_case identifier, an `**Evidence:**` line or a table row. Every dropped hit is listed under `ignored (N)` with its reason, so a stem in the title, the Summary or a Related line still shows there. A plain-prose hit that remains is still a candidate, so read its line. `HAS_CLEAR_FIX` is reported as its mechanical half only — the evidence shapes are *present*; whether they are *sufficient* is your judgment. The script never runs the pivot check or gates 3b, 4 and 5. It computes gate 7's verdict as the `scoped_rules` block, which step 7 reads.
    b. Read the item's `route_hint` / `route_evidence` / `route_dated` frontmatter when present. The report prints them beside the computed route with a verdict: `agree`, `agree — but the hint predates the item's newest evidence`, `undecided — …`, or `script wins — …`.
    c. Reconcile the two into one recommendation, and state the reconciliation in the Scope Assessment Block's `Reason:` line rather than in a new template:
       - Script and hint agree → recommend that route and note that both agreed.
@@ -213,33 +213,23 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
    d. Override the script's route only on a signal it cannot see — a keyword hit you read and classified as self-quotation, edit evidence you judged insufficient, a `##` count inflated by appended coordination flags — and name that signal in `Reason:`. Carry the script's `LARGE_SCOPE` forward unchanged when the route stays C.
 
 <!-- AUTO-MODE: critical — discharged by auto-escalation, not by a prompt. See step 7's Auto Mode paragraph. -->
-7. **Scoped-rule pre-delegation check (`verify-against-shipped-artifact.md` §3g):** Read the BLI's `Files` section. For each named destination path, grep `.claude/rules/**/*.md` for `paths:` declarations that include the destination. If any rule scopes a path matching the BLI's destination, flag the placement decision for human review BEFORE spawning the fix-agent.
+7. **Scoped-rule pre-delegation check (`verify-against-shipped-artifact.md` §3g):** Read the `scoped_rules` block that step 6a's `--route --id` report printed. The script took the item's destinations from its `## Files Touched` table (Role `EDIT` or `CREATE`), or, when the item has no table, from the path-like tokens in its body, and matched each one against the frontmatter `paths:` of every rule under `.claude/rules/`. The block ends in one of three verdicts:
 
-   ```bash
-   grep -rn "paths:" .claude/rules/
-   ```
+   | Verdict | Meaning | What to do |
+   |---|---|---|
+   | `none` | No rule scopes any destination | Continue to step 8 |
+   | `inject` | One or more rules scope a destination, and every one of them is a behaviour rule, or the destination is an edit in place | Continue to step 8. Carry `rules_to_inject` into the Route A spawn prompt's `Scoped rules` field in the form the block's `inject_form` names: `content` pastes each listed rule file (their sizes total at most 8 KiB), `paths` lists each file's absolute path with an instruction to read it before the first edit (both forms per `references/agent-orchestration-delegated.md` §1.6). Route A VERIFY still runs the self-containment grep on any content-tree diff |
+   | `placement` | The item would create a file under a rule that declares `placement: true`, or under `.claude/rules/`, `.claude/agents/`, `.claude/skills/` or `.claude/commands/`, and no archived lesson owns the item | Interactive: present the warning below and ask whether the destination is right before delegating. Auto Mode: see the paragraph below. Loop mode: a documented skip (Part 2 § Documented skip) |
 
-   Compare each `paths:` value against the BLI's destination paths. If a match is found, present a warning:
+   > **Placement decision needed:** destination `{path}` would be created under `{rule-file or content tree}`. Confirm the file belongs there before delegating.
 
-   > **Scoped-rule conflict detected:** destination `{path}` is covered by a scoped rule in `{rule-file}`. Verify the fix targets the correct file before delegating.
+   **Promotion exemption.** An item is exempt from the `placement` verdict, for every destination, when an archived lesson names it in `promoted-to:` and that lesson's `promotion-target:` includes `rule`. The script finds the owning lessons under `{lessons_dir}` and `{lessons_dir}/Archive` and reports them in the block; `promote-batch` already decided the placement of such an item, and its existing-rule check chose between extending a rule and writing a new one. The exemption covers any destination tree, a rule file or a reference alike.
 
-   **Promotion exemption.** Do not flag a destination when both conditions hold:
-   - An archived lesson names this item in its `promoted-to:` line, and that lesson's `promotion-target:` includes `rule`.
-   - The destination lies under `.claude/rules/`.
+   This gate applies regardless of route (Route A or Route B) — do not skip it. The verdict is the script's; override it only on a signal the script cannot see, and name that signal in `Reason:`.
 
-   Find the owning lesson with `Grep` for the item id over `{lessons_dir}` and `{lessons_dir}/Archive`. `promote-batch` already decided the placement of such an item. Its existing-rule check chose between extending a rule and writing a new one. Inject the matching rules' content into the fix-agent spawn prompt, per `references/agent-orchestration-delegated.md` §1.6. Route A VERIFY still runs the self-containment grep on the rules diff. A destination outside `.claude/rules/` keeps the flag. So does an item that no lesson owns.
+   **Auto Mode.** This is a human-judgment gate, so it is classified `critical`. It issues no `AskUserQuestion`: under automation an item with a `placement` verdict **auto-escalates to Route C**, which under automation writes the `needs_plan: true` marker and skips (see Route C below). An `inject` or `none` verdict proceeds with no prompt.
 
-   This gate applies regardless of route (Route A or Route B) — do not skip it. The exemption above is the only exception.
-
-   **Auto Mode.** This is a human-judgment gate, so it is classified `critical`. It issues
-   no `AskUserQuestion`, so it is discharged differently from the critical sites in
-   `references/auto-mode-policy.md` § Critical Question Behavior: under automation an item
-   that is not exempt **auto-escalates to Route C** rather than prompting or failing loud. The placement
-   decision cannot be inferred, and the Phase-5 mechanical gate cannot backstop it — a
-   misplaced-but-valid file builds clean and leaks nothing, so nothing downstream would
-   report the error.
-
-   In loop mode a conflict is a documented skip (Part 2 § Documented skip), never an escalation to Route C.
+   In loop mode a `placement` verdict is a documented skip (Part 2 § Documented skip), never an escalation to Route C.
 
 8. Present the scope assessment to the user:
 
@@ -290,7 +280,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 - Option 2: Alternative route
 - Option 3: Skip this item
 
-**In loop mode:** ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (Part 2 § Documented skip), with a `--decision` text that starts `LOOP: re-assessed to Route C`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`. Every other decision point follows Part 2 § No questions after setup.
+**In loop mode:** ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (Part 2 § Documented skip) that also writes the marker: `--mark --outcome SKIPPED --needs-plan` with a `--decision` text that starts `LOOP: re-assessed to Route C`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`. Every other decision point follows Part 2 § No questions after setup.
 
 ### Route A: Direct Fix (fix-agent delegation)
 
@@ -312,6 +302,7 @@ Task {
     Description: {item-description}
     Affected files: {file-list}
     Build command: {build-command-from-config}
+    Scoped rules (content to honour): {per the scoped_rules block's inject_form: "content" = the content of each file in rules_to_inject; "paths" = each file's absolute path with "Read each one before your first edit"; or "none"}
     Cross-cutting audit candidates (in-scope by default): {list extracted from BLI cross-cutting sections, or "none identified" if absent}
 }
 ```
@@ -333,17 +324,15 @@ For medium-scope items with 3-5 discrete steps:
 
 ### Route C: Session Planning
 
-<!-- AUTO-MODE: critical --> Step 2 below (EnterPlanMode) requires interactive user
-consent the harness cannot obtain unattended. **If Auto Mode is active, skip directly
-to step 5's `LARGE_SCOPE: true` dispatch (below) for every Route C item regardless of
-LARGE_SCOPE, dispatching `backlog-planner` with item ID/summary/description/affected
-files ONLY — no `Approved Approach` block, since steps 1-4 (which would have produced
-a plan-mode design) never ran** — this mirrors `handlers/harvest.md` Stage 3's
-existing unattended Route C contract exactly (it dispatches `backlog-planner` with
-the item's own scope only; `agents/backlog-planner.md` §1 CLASSIFY confirms it
-authors from the item's own scope with no such input). Log the skip: "Auto Mode:
-skipping EnterPlanMode (no interactive consent channel); dispatching backlog-planner
-directly with item scope only."
+<!-- AUTO-MODE: critical --> Step 2 below (`EnterPlanMode`) requires interactive user
+consent the harness cannot obtain unattended. **If Auto Mode is active, do not run
+steps 1 to 5. Mark the item as needing a planning session and skip it:** run
+`python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id {item_id} --mark-needs-plan`,
+which writes `needs_plan: true` into the item's frontmatter and leaves its status
+unchanged; log `Auto Mode: marked for a planning session; skipping (no plan is
+authored unattended)`; regenerate the index; continue to Phase 7. No planner is
+dispatched. A later interactive run, or a planning hand-off that reads the marker,
+authors the plan.
 
 **Interactive flow (Auto Mode not active):**
 
@@ -434,7 +423,7 @@ directly with item scope only."
 
    If a hit needs repointing, return it to the fix-agent (Route A) or open a follow-up task (Route B) requesting the shell command be repointed. Do NOT proceed to step 4 with unrepointed hits outstanding.
 
-In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 4 and step 5: all gates passing means COMPLETE, and a failing gate is a documented skip that reverts nothing (Part 2 § No questions after setup).
+In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run {run-id} --id {item_id}`. Then skip step 4 and step 5: all gates passing means COMPLETE, and a failing gate is a documented skip that reverts nothing (Part 2 § No questions after setup). Running the build command, the project's tests and lint, and any command an item's criteria name is in scope here (Part 2 § Verification is in scope); none of them is a reason to skip.
 
 <!-- AUTO-MODE: critical -->
 4. Use `AskUserQuestion`:

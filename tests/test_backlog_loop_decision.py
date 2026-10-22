@@ -238,6 +238,23 @@ class TestNoQuestionsAfterSetup(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertIn(needle, text)
 
+    def test_part_2_carries_the_unattended_close_and_bounded_skip(self):
+        text = LOOP_PART2.read_text(encoding="utf-8")
+        for needle in (
+            "### Unattended close",
+            "### Verification is in scope",
+            "--resolution-file",
+            "--needs-plan",
+            "Earlier runs:",
+            "1,200",
+            "## Resolution",
+            "<!-- loop-decision-end -->",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+        self.assertNotIn("The handler does not close an item unattended", text)
+        self.assertNotIn("It appends a dated", text)
+
     def test_backlog_handler_hooks_point_at_the_contract(self):
         text = BACKLOG_HANDLER.read_text(encoding="utf-8")
         for needle in ("--mark --lessons", "§ No questions after setup", "§ Documented skip"):
