@@ -135,6 +135,7 @@ blocks: []
 | `route_hint` | enum (`A`\|`B`\|`C`) | No | The filing author's provisional triage route (Direct Fix / Task List / Session Planning) |
 | `route_evidence` | string | No | One line: why that route, from what the author verified live at filing time |
 | `route_dated` | date (YYYY-MM-DD) | No | The date the route was judged -- a stored route is a dated claim that rots like any other, and this date makes that staleness visible at triage |
+| `needs_plan` | bool | No | Written as `true` by the Route C marker-and-skip (`update_backlog.py --mark-needs-plan`, `backlog_loop.py --mark --needs-plan`); marks an item that needs a planning session. Read by the loop's eligibility and by a planning hand-off |
 
 Read `id`, `blocks`, and `created` as text. A typed YAML load turns an unquoted zero-padded id into an octal integer.
 
@@ -244,6 +245,12 @@ Two modes: **status update** (default) and **create** (`--create`).
 # Update an existing item's status
 python {plugin_root}/scripts/update_backlog.py --id ID --status STATUS
 
+# Mark an item as needing a planning session (status unchanged)
+python {plugin_root}/scripts/update_backlog.py --id ID --mark-needs-plan
+
+# Close an item whose criteria are already met, with its proof record
+python {plugin_root}/scripts/update_backlog.py --id ID --status COMPLETE --resolution-file PATH
+
 # Create a new backlog item (writes the BLI file from the template only; the
 # caller regenerates the index with generate_backlog_index.py --write)
 python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATURE \
@@ -259,8 +266,10 @@ python {plugin_root}/scripts/update_backlog.py --create --id ID --feature FEATUR
 | `--priority PRIORITY` | Create only | Priority — High, Medium, or Low (required with `--create`) |
 | `--abbrev ABBREV` | Create only | Domain abbreviation (required with `--create`) |
 | `--files FILES` | Create only | Affected files, semicolon-separated; the first is written as the new BLI file from `templates/backlog-item.md` (required with `--create`) |
+| `--mark-needs-plan` | No | Write `needs_plan: true` into the item's frontmatter without changing its status (the Route C marker-and-skip; regenerate the index afterwards) |
+| `--resolution-file PATH` | No (with `--status COMPLETE` only) | After the status flip and the archive move, append the file's text under `## Resolution`; an existing section is left unchanged and reported; on an item already COMPLETE the append still runs |
 
-**Automatic archival (COMPLETE/CLOSED):** Moves the item file to `{backlog_dir}/Archive/`. It never edits the index. The next `generate_backlog_index.py --write` renders the new link from the file's new location.
+**Automatic archival (COMPLETE/CLOSED):** Moves the item file to `{backlog_dir}/Archive/`. It never edits the index. The next `generate_backlog_index.py --write` renders the new link from the file's new location. `--mark-needs-plan` writes `needs_plan: true` without changing the status. `--status COMPLETE --resolution-file P` appends the file's text under `## Resolution` after the status flip and the archive move, and leaves an existing section unchanged.
 
 ### score_backlog.py
 
@@ -274,10 +283,10 @@ python {plugin_root}/scripts/score_backlog.py [OPTIONS]
 | `--review` | No | Output a priority review report (no index writes) |
 | `--id ID` | No | Look up one item's score by ID (bare or prefixed, matched on the numeric component) |
 | `--explain` | No | With `--id`, print the per-factor score derivation instead of just the total |
-| `--route` | No | Report the mechanical half of the triage routing signals and the provisional route for every open item; with `--id`, one item's full vector, keyword hit lines, and `route_hint` verdict. Report-only |
+| `--route` | No | Report the mechanical half of the triage routing signals and the provisional route for every open item; with `--id`, one item's full vector, keyword hit lines, and `route_hint` verdict. Report-only; with `--id`, also the `scoped_rules` block: the item's destinations, the rules whose `paths:` match each one, and the verdict `none`, `inject` or `placement` |
 | `--json` | No | With `--route`, also write the report to a JSON temp file and print `JSON: {path}` on the last line |
 
-`--route` applies the Decision Logic in `handlers/backlog.md` § Routing Decision Tree without modification; the handler's pseudocode is the source and the script follows it. It computes the eight mechanical signals from the index row and the item body it already loaded for scoring. It never runs the pivot check or any pre-routing gate, reports `HAS_CLEAR_FIX` as its mechanical half only, and never adopts a `route_hint:` -- it reports whether the hint agrees and whether `route_dated` predates the item's newest dated evidence line. A fresh, valid hint that differs from the computed route reports `undecided` when the hint's route is one that the reader's judgment of `IS_ARCHITECTURAL`, `HAS_MULTI_SPRINT` or the sufficiency half of `HAS_CLEAR_FIX` could reach, and `script wins` otherwise. `IS_ARCHITECTURAL` reads only the `## Proposed Solution` section when the item has one (the whole body otherwise), ignores a stem inside a file name, a multi-segment path, a snake_case identifier, an `**Evidence:**` line or a table row, and `--id` lists every ignored hit with its reason. `SUB_ITEMS` is the larger of the non-template `##` heading count and the longest consecutive numbered run.
+`--route` applies the Decision Logic in `handlers/backlog.md` § Routing Decision Tree without modification; the handler's pseudocode is the source and the script follows it. It computes the eight mechanical signals from the index row and the item body it already loaded for scoring. It never runs the pivot check, the existence premise, citation freshness or staleness, which stay with the handler; it computes the scoped-rule gate from the item's destinations and the project's rule frontmatter (the `scoped_rules` block); it reports `HAS_CLEAR_FIX` as its mechanical half only, and never adopts a `route_hint:` -- it reports whether the hint agrees and whether `route_dated` predates the item's newest dated evidence line. A fresh, valid hint that differs from the computed route reports `undecided` when the hint's route is one that the reader's judgment of `IS_ARCHITECTURAL`, `HAS_MULTI_SPRINT` or the sufficiency half of `HAS_CLEAR_FIX` could reach, and `script wins` otherwise. `IS_ARCHITECTURAL` reads only the `## Proposed Solution` section when the item has one (the whole body otherwise), ignores a stem inside a file name, a multi-segment path, a snake_case identifier, an `**Evidence:**` line or a table row, and `--id` lists every ignored hit with its reason. `SUB_ITEMS` is the larger of the non-template `##` heading count and the longest consecutive numbered run.
 
 ### backlog_loop.py
 
@@ -289,9 +298,9 @@ Run-state writer for `/planwise backlog` loop mode (see `handlers/backlog-Part-2
 
 | Subcommand | Arguments | Description |
 |------------|-----------|-------------|
-| `--init` | `--mode all\|specific\|n` `[--n N]` `[--items 004,009]` `[--priority P]` `[--abbrev A]` `[--status S]` `[--no-check]` | Build the loop queue and write the run file. Route C items go to `excluded`. An empty queue exits 1, prints an `error` JSON line, and writes no run file |
+| `--init` | `--mode all\|specific\|n` `[--n N]` `[--items 004,009]` `[--priority P]` `[--abbrev A]` `[--status S]` `[--no-check]` | Build the loop queue and write the run file. Route C items go to `excluded`, with the reason `plans deferred in loop mode` (strong signal) or `needs refine` (conservative default). An empty queue exits 1, prints an `error` JSON line, and writes no run file |
 | `--next` | `--run <run-id>` | Pop the next still-selectable item into `current`. Prints `{"next": id, "remaining": N, "run": ..., "state": ...}`, or `"next": null` on an empty queue (an item skipped as no longer selectable becomes `current`, so `--boundary` can still end the run). Exits 1 on an ended run |
-| `--mark` | `--run <run-id> --id X` and `--phase selected\|acting\|verifying`, or `--outcome COMPLETE\|NOT_STARTED\|SKIPPED` `[--route A\|B]` `[--note "..."]` `[--decision "..."]`, or `--lessons "LL-NNN,..."` | Record the item's phase, close it with an outcome, or record the lesson ids Phase 8 filed. A `SKIPPED` outcome restores the item's pre-loop status. `--decision` (SKIPPED only) also appends a `## Loop Decision Needed` section to the item file and flags the item `user_input_needed`. Exits 1 on an ended run |
+| `--mark` | `--run <run-id> --id X` and `--phase selected\|acting\|verifying`, or `--outcome COMPLETE\|NOT_STARTED\|SKIPPED` `[--resolution-file P]` `[--route A\|B]` `[--note "..."]` `[--decision "..."]` `[--needs-plan]`, or `--lessons "LL-NNN,..."` | Record the item's phase, close it with an outcome, or record the lesson ids Phase 8 filed. A `SKIPPED` outcome restores the item's pre-loop status. `--decision` (SKIPPED only) also appends a `## Loop Decision Needed` section to the item file and flags the item `user_input_needed`. `--needs-plan` (SKIPPED only) also writes `needs_plan: true` into the item. `--resolution-file` (COMPLETE only) appends the file's text under `## Resolution` and records an unattended close; a no-op when the section exists. `--decision` is capped at 1,200 characters, and a later run replaces an earlier run's section. Without `--route`, `--outcome` records the item's `route_at_init`; an explicit `--route` wins, and `--needs-plan` leaves the route null. Exits 1 on an ended run |
 | `--boundary` | `--run <run-id>` | Print the end summary (only when remaining is 0), then the marker line, then a final JSON object with a `marker` field. Idempotent |
 | `--end` | `--run <run-id>` | Set `ended` and print the cross-run summary table |
 | `--status` | `[--run <run-id>]` | Alone: one run's record, or a listing of every run file. Combined with `--init`: a status filter for the queue |
@@ -366,6 +375,8 @@ NOT_STARTED --[select in Phase 2]--> IN_PROGRESS
 ```
 
 A `PLANNING` item is closed by `/planwise run` closeout (`handlers/run.md` Step 4.3), never by a backlog route. The Master Plan's `**Resolves:**` header field is what links the two.
+
+In loop mode, an item whose acceptance criteria are already met goes `IN_PROGRESS → COMPLETE` with the proof record under `## Resolution`, and a Route C re-assessment restores the pre-loop status and writes `needs_plan: true`.
 
 ---
 

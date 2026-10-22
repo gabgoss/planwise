@@ -123,15 +123,18 @@ The backlog loop writes one section into an item it skips, and never more than o
 ## Loop Decision Needed
 
 <!-- loop-decision run=YYYYMMDD-HHMMSS -->
+<!-- loop-decision-hash=0123456789abcdef -->
 > [!gate] User input needed
-> Loop run YYYYMMDD-HHMMSS, YYYY-MM-DD. The loop skipped this item without working it. Answer the question below, then triage it again.
+> Loop run YYYYMMDD-HHMMSS, YYYY-MM-DD. The loop skipped this item without working it. Answer under ## Notes, outside this section, then triage it again. A later run replaces this section.
 
 Question: {one question}
 Options: (A) {first} (B) {second}
 Evidence: {at most 3 lines}
+
+<!-- loop-decision-end -->
 ```
 
-`backlog_loop.py --mark --decision` is the only writer; the text is capped at 1,200 characters, and a later run replaces the section rather than adding a second. The router ignores this section when it counts headings, steps and lines, so a skip never changes the item's route.
+`backlog_loop.py --mark --decision` is the only writer; the text is capped at 1,200 characters, and a later run replaces the section rather than adding a second, except that a section a person edited is kept, not replaced. The router ignores this section when it counts headings, steps and lines, so a skip never changes the item's route.
 
 ---
 
