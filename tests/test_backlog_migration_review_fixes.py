@@ -83,13 +83,17 @@ def test_failed_last_replace_of_a_resplit_deletes_the_new_parts(tmp_path, monkey
 def test_failed_restore_names_the_backup_directory(tmp_path, monkeypatch):
     cfg, _backlog = _over_budget(tmp_path)
 
-    def refuse_writes():
-        def boom(self, data):
+    attempts = []
+
+    def refuse_restore():
+        def boom(path, data):
+            attempts.append(path)
             raise OSError("simulated restore failure")
-        monkeypatch.setattr(Path, "write_bytes", boom)
-    _fail_replace(monkeypatch, 2, then=refuse_writes)
+        monkeypatch.setattr(bm, "_write_atomic", boom)  # only the restore calls it; nothing process-wide changes
+    _fail_replace(monkeypatch, 2, then=refuse_restore)
     report = base._migrate(cfg)
-    assert report.state == "write_failed" and "restore failed" in report.detail
+    assert attempts, "the restore never reached _write_atomic"
+    assert report.state == "write_failed" and "restore failed" in report.detail and "simulated restore failure" in report.detail
     assert str(report.backup_dir) in report.detail and str(report.backup_dir) in report.fix
 
 
