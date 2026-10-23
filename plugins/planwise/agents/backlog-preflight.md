@@ -69,13 +69,15 @@ For each candidate, re-prove its condition against the live repository. Then sep
 git log -n 5 --format='%h %ad %an %s' --date=short -- {artifact_path}
 ```
 
-Then the duplicate scan, with the Grep tool: `Grep pattern='{artifact_or_symbol}' path='{backlog_dir}' output_mode='files_with_matches'`. The path is recursive, so it covers both the open backlog and `{backlog_dir}/Archive`. Read both result sets: an archived item that names the artifact is evidence of a landed fix, and an open one is a duplicate. Discard hits inside `handover_dir` and any other run working folder, and in `refine` mode discard the candidate's own item file.
+Then the duplicate scan, with the Grep tool: `Grep pattern='{artifact_or_symbol}' path='{backlog_dir}' output_mode='files_with_matches'`. The path is recursive, so it covers both the open backlog and `{backlog_dir}/Archive`. Discard every hit under `{backlog_dir}/Backlog-Runs/` by name, which covers every run folder, stale or current. Discard hits inside `handover_dir` and any other run working folder too. In `refine` mode also discard the candidate's own item file, and any item whose `blocks:` lists the candidate, because those are its decomposed sub-items.
+
+Read each remaining hit. A hit counts only when that item states the same condition as the candidate. An item that merely cites the artifact is a related item: name it in `NOTES`, and it does not change the disposition. An open item that states the same condition is a duplicate. An archived item is evidence of a landed fix only when it states the same condition and records a resolution.
 
 | Finding | Disposition |
 |---|---|
 | Condition still holds | `HOLDS` — the planner designs it |
-| A fix landed via a differently-scoped change, and no existing item references the artifact | `RESOLVED` — do not hand it on; the commit is the evidence |
-| A fix is in progress, or an existing item already covers it | `DUPLICATE` — coordinate, do not duplicate; the covering item or commit is the evidence |
+| A fix landed via a differently-scoped change, or an archived item states the same condition and records a resolution, and no open item states the same condition | `RESOLVED` — do not hand it on; the commit or the archived item is the evidence |
+| A fix is in progress, or an open item states the same condition | `DUPLICATE` — coordinate, do not duplicate; the covering item or commit is the evidence |
 | `refine` mode only: every acceptance criterion re-checks MET (§2.3) | `ALREADY_MET` — the author writes the close record from `CRITERIA` |
 | The target a re-alignment verb points at is absent (§2.5) | `PREMISE_FAILS` — a user decision; the author writes it as one open question |
 

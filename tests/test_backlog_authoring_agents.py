@@ -38,17 +38,59 @@ def _read(path: Path) -> str:
 
 
 def _frontmatter_keys(path: Path) -> dict:
-    """Return the top-level `key: value` pairs of the YAML frontmatter block."""
+    """Return the top-level `key: value` pairs of the YAML frontmatter block.
+
+    Comment lines are skipped. A folded or literal block (`key: >` or `key: |`)
+    takes its indented continuation lines, joined by single spaces.
+    """
     lines = _read(path).splitlines()
-    assert lines[0] == "---", f"{path.name} has no frontmatter"
+    assert lines and lines[0].strip() == "---", f"{path.name} has no frontmatter"
     keys = {}
+    block_key = None
     for line in lines[1:]:
-        if line == "---":
+        if line.strip() == "---":
             return keys
-        if line and not line[0].isspace() and not line.startswith("#") and ":" in line:
+        if line.lstrip().startswith("#"):
+            continue
+        if line[:1].isspace():
+            if block_key is not None and line.strip():
+                keys[block_key] = f"{keys[block_key]} {line.strip()}".strip()
+            continue
+        block_key = None
+        if ":" in line:
             key, _, value = line.partition(":")
-            keys[key.strip()] = value.strip()
+            key, value = key.strip(), value.strip()
+            if value[:1] in (">", "|"):
+                block_key, value = key, ""
+            keys[key] = value
     raise AssertionError(f"{path.name} frontmatter is not closed")
+
+
+def _tool_list(value: str) -> list:
+    """Split a frontmatter tool line such as `Read, Write, Glob` into names."""
+    return [name.strip() for name in value.split(",") if name.strip()]
+
+
+def _section(text: str, heading: str) -> str:
+    """Return the body under `heading` up to the next heading of the same or higher level."""
+    level = len(heading) - len(heading.lstrip("#"))
+    lines = text.splitlines()
+    for start, line in enumerate(lines):
+        if line.startswith(heading):
+            break
+    else:
+        raise AssertionError(f"heading {heading!r} not found")
+    body = []
+    for line in lines[start + 1:]:
+        stripped = line.lstrip("#")
+        line_level = len(line) - len(stripped)
+        if 0 < line_level <= level and stripped.startswith(" "):
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
+DISPOSITIONS = ("HOLDS", "RESOLVED", "DUPLICATE", "ALREADY_MET", "PREMISE_FAILS")
 
 
 class BacklogAuthoringAgentContractTests(unittest.TestCase):
@@ -57,12 +99,29 @@ class BacklogAuthoringAgentContractTests(unittest.TestCase):
         for literal in ("DISPOSITION", "ANCHORS", "CRITERIA", "HOLDS"):
             with self.subTest(literal=literal):
                 self.assertIn(literal, text)
+        read_section = _section(text, "## 1. READ")
+        for field in ("DISPOSITION", "ANCHORS", "CRITERIA", "SOURCE_PINS"):
+            with self.subTest(read_field=field):
+                self.assertIn(f"`{field}`", read_section)
 
     def test_author_consumes_planner_fields(self):
         text = _read(AUTHOR)
         for literal in ("DESIGN", "STEPS", "VERIFICATION", "QUESTIONS", "SUB_ITEMS", "ITEMS_ALREADY_MET"):
             with self.subTest(literal=literal):
                 self.assertIn(literal, text)
+        # HOLDS reaches the author only through a design file, so the mapping
+        # table maps it by its DESIGN rows. The READ section names all five.
+        mapping = _section(text, "### Mapping From Inputs to the Item")
+        for value in DISPOSITIONS:
+            with self.subTest(read_disposition=value):
+                self.assertIn(f"`{value}`", _section(text, "## 1. READ"))
+            if value != "HOLDS":
+                with self.subTest(mapping_disposition=value):
+                    self.assertIn(value, mapping)
+        status_block = _section(text, "## Status Block")
+        for field in ("ITEMS_FILED", "ITEMS_REWRITTEN", "ITEMS_ALREADY_MET", "ITEMS_RETIRED"):
+            with self.subTest(status_field=field):
+                self.assertRegex(status_block, rf"(?m)^{field}:")
 
     def test_no_agent_names_the_question_tool_or_plan_mode(self):
         for path in ALL_AGENTS:
@@ -86,6 +145,14 @@ class BacklogAuthoringAgentContractTests(unittest.TestCase):
                 self.assertEqual(keys.get("model"), model)
                 self.assertEqual(keys.get("effort"), effort)
                 self.assertNotIn("background", keys)
+                self.assertTrue(keys.get("description"), "folded description parsed empty")
+        preflight = _frontmatter_keys(PREFLIGHT)
+        self.assertNotIn("Edit", _tool_list(preflight["tools"]))
+        self.assertIn("Edit", _tool_list(preflight["disallowedTools"]))
+        planner_denied = _tool_list(_frontmatter_keys(PLANNER)["disallowedTools"])
+        for name in ("SendMessage", "ToolSearch"):
+            with self.subTest(planner_denied=name):
+                self.assertIn(name, planner_denied)
 
 
 if __name__ == "__main__":

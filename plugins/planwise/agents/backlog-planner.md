@@ -34,6 +34,8 @@ The preflight's fact sheet is this agent's only evidence source. Re-read the liv
 
 The spawn prompt supplies the item id or candidate label, `handover_dir`, `plugin_root`, `planwise_root`, `backlog_dir`, and the path of the fact sheet (`{handover_dir}/preflight.md`). In refine mode it also supplies the item file path.
 
+The spawn prompt may carry one optional field, `answers`: the user's answers to an earlier `QUESTIONS` return, keyed by question number (`Q1`, `Q2`, …). A dispatch that carries `answers` is a fresh resume, and §5 governs it.
+
 1. Read the fact sheet and locate the block for this item or label.
 2. Consume these fields by name:
    - `DISPOSITION` — the preflight's verdict on the candidate.
@@ -119,6 +121,8 @@ A `QUESTIONS` return ends the dispatch, but not the agent. The caller asks the u
 3. Overwrite the design file with the new block.
 4. If some questions are still open, return `QUESTIONS` again, naming only what the answers did not cover. Never repeat an answered question.
 5. The final message is again the status block.
+
+**Fallback: a fresh dispatch.** When the caller cannot reach the earlier dispatch, it starts a fresh planner dispatch with the same item and the `answers` field (§1). This agent then has no transcript to resume from. It re-reads the fact sheet and the design file already on disk at `{handover_dir}/{id}-design.md`, and runs steps 1 to 5 above with the answers. It overwrites the design file and returns a new status block. A second `QUESTIONS` return names only what the answers did not cover.
 
 ## Stop Conditions
 

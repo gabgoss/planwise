@@ -71,7 +71,7 @@ A planner returns `DESIGN: QUESTIONS` when a choice belongs to the user. No spaw
 
 Spawn the planner in the foreground with a `name:` of the form `planner-{id-or-label}`. The planner's final message is its status block. The planner holds no messaging tool.
 
-- **Interactive run:** read the questions from the design file. Ask the user one `AskUserQuestion` per question, with the planner's options and recommendation. Then send all the answers with `SendMessage` to that dispatch name. The planner resumes from its own transcript, re-decides, overwrites the design file and returns a new status block. A second `QUESTIONS` return names only questions the answers did not cover.
+- **Interactive run:** read the questions from the design file. Ask the user one `AskUserQuestion` per question, with the planner's options and recommendation. Then send all the answers with `SendMessage` to that dispatch name. The planner resumes from its own transcript, re-decides, overwrites the design file and returns a new status block. A second `QUESTIONS` return names only questions the answers did not cover. When the earlier dispatch cannot be reached, start a fresh planner dispatch with the same item and an `answers:` line holding the answers keyed by question number. The planner re-reads the design file on disk, re-decides, overwrites it and returns a new status block.
 - **Unattended run (a loop or Auto Mode):** ask nothing. Pass the design file to the author. The author writes each question into the item as an unanswered `### Q{n}.` block under `## Open Questions`, and the item stays `refined: false` until a user answers it.
 
 ---
@@ -80,11 +80,13 @@ Spawn the planner in the foreground with a `name:` of the form `planner-{id-or-l
 
 Each preflight disposition names one action on each path. The preflight picks one disposition per candidate by this precedence: `DUPLICATE`, `RESOLVED`, `PREMISE_FAILS`, `ALREADY_MET`, `HOLDS`. In `file` mode a candidate whose criteria all re-check as met reads `RESOLVED`, because `ALREADY_MET` applies in `refine` mode only.
 
+A duplicate-scan hit counts only when that item states the same condition as the candidate. An item that only cites the artifact is a related item: the preflight names it in `NOTES`, and the disposition does not change.
+
 | Disposition | Meaning | Filing path | Refine path |
 |---|---|---|---|
 | `HOLDS` | The condition holds | Planner, then author files the item | Planner, then author rewrites the item |
-| `RESOLVED` | A fix landed and no item references the artifact | No item file. One `ITEMS_RETIRED` line with the landing commit, and the source document in `SOURCE_RECONCILE` | The author writes one `### Q{n}.` block proposing CLOSED, quoting the evidence. The loop never closes an item unattended |
-| `DUPLICATE` | An open item covers it | Same as `RESOLVED`, naming the covering item | Same as `RESOLVED` |
+| `RESOLVED` | A fix landed, or an archived item states the same condition and records a resolution, and no open item states it | No item file. One `ITEMS_RETIRED` line with the landing commit, and the source document in `SOURCE_RECONCILE` | The author writes one `### Q{n}.` block proposing CLOSED, quoting the evidence. The loop never closes an item unattended |
+| `DUPLICATE` | An open item states the same condition | Same as `RESOLVED`, naming the covering item | Same as `RESOLVED` |
 | `ALREADY_MET` | Every criterion is met | Not produced in this mode | The author writes a close record into `## Resolution`. The orchestrator flips the status |
 | `PREMISE_FAILS` | The re-alignment target is absent | The author writes one open question with the options re-target, retire and keep | Same as the filing path |
 
