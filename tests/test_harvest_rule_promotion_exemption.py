@@ -7,7 +7,7 @@ to Route C, which ends at PLANNING, so harvest stage 4 landed nothing. The fix
 spans `handlers/backlog.md` (Phase 3 step 7), `handlers/harvest.md` (Failure
 Classification, Stage 3 Route A, Stage 4) and `agents/backlog-planner.md`. These
 tests pin the exemption, its two conditions, the run-end report, and the planner
-sentence, so a later edit cannot silently restore the unconditional escalation.
+sentence that landing a lesson is not a resolution step, so a later edit cannot silently restore the unconditional escalation.
 
 Run with:  python -m pytest tests/test_harvest_rule_promotion_exemption.py -q
 """
@@ -94,11 +94,11 @@ class HarvestExemptionTests(unittest.TestCase):
 
 
 class BacklogPlannerSentenceTests(unittest.TestCase):
-    def test_planner_is_told_landing_is_not_a_plan_task(self):
+    def test_planner_is_told_landing_is_not_a_resolution_step(self):
         text = _read(BACKLOG_PLANNER)
-        author = _span_between(text, "## 2. AUTHOR", "## 3. REPORT")
-        self.assertIn("Landing a lesson is not a plan task.", author)
-        self.assertIn("harvest closeout", author)
+        decide = _span_between(text, "## 3. DECIDE", "## 4. WRITE")
+        self.assertIn("Landing a lesson is not a resolution step.", decide)
+        self.assertIn("harvest closeout", decide)
 
 
 if __name__ == "__main__":

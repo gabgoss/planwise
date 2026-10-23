@@ -1092,7 +1092,7 @@ def main():
         skipped.append(SkippedArtifact(
             artifact=str(index_path),
             reason=_backlog.detail,
-            consumer="/planwise backlog, /planwise harvest, backlog-author",
+            consumer="/planwise backlog, /planwise harvest, backlog-preflight, backlog-planner, backlog-author",
             remediation=_backlog.fix or "re-run /planwise upgrade",
         ))
 

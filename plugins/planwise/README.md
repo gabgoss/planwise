@@ -248,7 +248,7 @@ Loop mode works through several items without you at the keyboard. Each session 
 - **Graceful degradation.** Without the module the marker line prints and nothing else happens. Continue by hand with `/planwise backlog --loop-resume <run-id>`.
 - **Where state lives.** Each run keeps one file, `Backlog-Runs/{YYYYMMDD-HHMMSS}.json`, in your backlog folder. The run id is the file name without `.json`.
 
-After the setup questions, loop mode asks nothing. An item that needs a user decision is skipped. It gets a dated `## Loop Decision Needed` section in its own item file, and its status returns to its pre-loop value. The end summary lists every such item, and the next interactive `/planwise backlog <id>` run answers it. Phase 8 files any lesson on its own.
+After the setup questions, loop mode asks nothing. An item that needs a user decision is skipped. It gets a dated `## Loop Decision Needed` section in its own item file, and its status returns to its pre-loop value. The end summary lists every such item, and the next interactive `/planwise backlog <id>` run answers it. Phase 8 files any lesson on its own. An item that is not yet refined is refined in place by the creation process before it is triaged. Route C no longer authors a session plan, in an interactive run or a loop run: an item that needs one is marked needs_plan: true for a later planning session.
 
 **Archival stays in sync.** Closing an item moves its file to `Archive/`, and re-runs are safe. The next `generate_backlog_index.py --write` renders the new link from the file's new location. If an item was closed by hand and its file left stranded, `backlog` detects the drift on open and offers to reconcile it — nothing is moved without your consent. It also detects a legacy `**Status:**` line that an older item writer left under an item's title, and offers to strip it, so frontmatter `status:` stays the only status field. `--no-check` skips both detect passes for fast triage.
 
@@ -600,7 +600,7 @@ planwise is built entirely on markdown files and Python scripts — no databases
 
 ### Custom agents
 
-planwise uses eight specialized AI agents behind the scenes:
+planwise uses nine specialized AI agents behind the scenes:
 
 | Agent | What it does |
 |-------|-------------|
@@ -610,8 +610,9 @@ planwise uses eight specialized AI agents behind the scenes:
 | **task-runner** | Executes individual tasks during DELEGATED plan runs |
 | **fix-agent** | Applies targeted code fixes for small backlog items |
 | **rule-comparator** | Classifies a diverged installed rule against the shipped version during `/planwise upgrade` — stale copy vs. genuine customization |
-| **backlog-planner** | Authors a session plan for large-scope or architectural backlog items routed to a new plan |
-| **backlog-author** | Drafts and files backlog items in batch — re-verifies each candidate against the live repo, writes the item file, and updates the index |
+| **backlog-preflight** | Proves backlog candidates against the live repository before anything is designed or filed |
+| **backlog-planner** | Designs the solution for one backlog item: approach, numbered steps, verification, or the questions only the user can answer; never authors a session plan |
+| **backlog-author** | Files or rewrites backlog items from the planner's designs, writes the executable sections and the `refined` flag, and regenerates the index |
 
 You don't need to interact with these directly — they're called automatically when you use `/planwise review`, `/planwise run`, `/planwise backlog`, `/planwise lessons`, `/planwise upgrade`, and `/planwise harvest`. Agents run straight from the plugin (invoked as `planwise:<name>`); nothing is copied into your project.
 
@@ -664,7 +665,7 @@ planwise/                           # Plugin root
     plugin.json                     # Plugin identity
   skills/planwise/SKILL.md          # The /planwise command router
   handlers/                         # 12 subcommand handlers across 22 files (init, plan, review, run, upgrade, doctor, token-saver, backlog, list, lessons, feedback, harvest; help is served inline by the skill router)
-  agents/                           # 8 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
+  agents/                           # 9 custom AI agents (invoked as planwise:<name>; not mirrored into the project)
   references/                       # Knowledge base documents (4 installed as path-scoped rules + 2 installed as global style rules + the rest handler-loaded in-place / consumed inline, incl. the de-scoped session/scaffolding/orchestration/conventions/verification rules)
   templates/                        # Markdown templates
   manifests/                        # Artifact manifest and agent history
