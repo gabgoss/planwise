@@ -24,28 +24,48 @@ paths: {planwise_root}/{plans_dir}/**
 
 ### 10.5 A gate over a verification report reads the verdict line, not a bare substring
 
-One adjacent shape cannot be caught by a pre-edit annotation at all, and it belongs here because its outcome is the same — a gate that does not discriminate. When a gate's subject is a **report the work itself produces**, there is no pre-edit tree to measure against: the report does not exist until the work is finished. The protection has to come from the report's format instead.
+A report the work itself produces has no pre-edit tree, and its own headers, legend and prose legitimately contain the tokens a naive gate searches for. [templates/verification-report.md](../templates/verification-report.md) defines a single machine-readable trailing `**Verdict:** PASS|FAIL` line and a per-criterion `| FAIL |` table cell.
 
-A verification report necessarily *describes* the checks it ran, so its own column headers, legend, and residual prose legitimately contain the tokens a naive gate searches for. A bare `grep -c 'FAIL' {report}` expecting `0` is satisfied by the report's own vocabulary and fires on a report that passed — and a gate that can never report success is exactly as uninformative as one that can never report failure.
-
-[templates/verification-report.md](../templates/verification-report.md) defines the convention that removes the ambiguity: a single machine-readable trailing `**Verdict:** PASS|FAIL` line, plus per-criterion status carried in a dedicated table cell. A gate consuming a verification report MUST match the verdict line, or the `| FAIL |` row-cell pattern that `verification-report.md` defines — never a bare substring search over the whole document. Copy the verdict line's bytes from the skeleton, including the emphasis between label and value: §11.4 below.
+> [!constraint] Match the verdict line, never the report's vocabulary
+> **Rule.** A gate consuming a verification report MUST match the verdict line, or the `| FAIL |` row-cell pattern that `verification-report.md` defines — never a bare substring search over the whole document. Copy the verdict line's bytes from the skeleton, including the emphasis between label and value: §11.4 below.
+>
+> WRONG — a bare substring over the whole report, satisfied by the report's own legend:
+> ```bash
+> grep -c 'FAIL' <report>.md      # expect 0; fires on a passing report whose legend says FAIL
+> ```
+> CORRECT — the machine-readable verdict line, copied from the skeleton:
+> ```bash
+> grep -cF '**Verdict:** PASS' <report>.md   # 1 on a passing report, 0 on a failing one
+> ```
 
 ## 11. A Gate Is Pinned From a Run Over Real Content, Never From a Mental Image
 
 A pinned gate is a claim about the shape of something. The something may not exist yet, or it may exist in a form the author never looked at. The instrument then returns the wrong value on correct work, or cannot return its passing value at all. Each subsection below covers one way the claim fails. `gate-heuristic-verifier-patterns.md` §3 covers the sibling extraction formats a pattern must accept, and `gate-command-semantics.md` §10.9 covers reading a command as a program. This section covers the step both assume: the pinned gate was actually run over the real content.
 
+> [!constraint] Run the pinned gate once over the real content before it is trusted
+> **Rule.** A gate is pinned from a run over real content, never from the author's picture of that content. A gate that has never seen its subject is a claim, not a verification.
+>
+> WRONG — the gate is typed from memory of what the subject will look like, and shipped unrun:
+> ```
+> pin:      grep -c '<pattern>' <subject>   # expect N, from the author's picture of <subject>
+> run:      never, until the consuming task depends on it
+> ```
+> CORRECT — the gate is run once over the real subject, and the observed result is what gets pinned:
+> ```
+> run:      grep -c '<pattern>' <subject>   # observed N on the real file
+> pin:      the same line, with the observed value and the line it matched
+> ```
+
 ### 11.1 A gate pinned before its subject exists is a prediction
 
-A same-session gate is often pinned at scaffold time for a table row, a log line or a status word that an earlier task has not yet written. The pattern then encodes the author's picture of that text.
+A same-session gate is often pinned at scaffold time for a table row, a log line or a status word that an earlier task has not yet written.
 
 > [!constraint] Run the pinned pattern when the producer lands, and read the row on zero matches
-> **Rule.** A regex written against a cell or line that does not exist yet is a prediction. Backticks, bold, a trailing space or a different first column each turn the gate into a false negative that reads like the failure it guards. Zero matches then passes through the empty-is-not-clean hazard: an empty result looks the same whether the gate scanned the subject and found nothing or could never have seen it.
+> **Rule.** A regex written against a cell or line that does not exist yet is a prediction. Backticks, bold, a trailing space or a different first column each turn it into a false negative, and zero matches then hits the empty-is-not-clean hazard.
 >
-> Three operative points:
->
-> 1. **Run the pinned pattern at the first reconciliation after the producing task lands.** Do not wait for the consuming task's dispatch, where a false negative halts a paid sequence.
-> 2. **On zero matches, read the row before believing either side.** The runner says present, the gate says absent, and the row decides. Re-derive the pattern from the landed text. Route the corrected pattern into the consuming task as a spec delta, with the line number it matched.
-> 3. **Prefer a shape-tolerant pattern while the cell shape is not fixed.** `^\| \x60?<arm>\x60? \|` costs four characters and survives both the bare and the backticked shape. Pin the strict form only after the row has landed and been read.
+> 1. **Run the pinned pattern at the first reconciliation after the producing task lands**, not at the consuming task's dispatch.
+> 2. **On zero matches, read the row before believing either side.** Re-derive the pattern from the landed text and route it into the consuming task as a spec delta, with the line number it matched.
+> 3. **Prefer a shape-tolerant pattern while the cell shape is not fixed**, such as `^\| \x60?<arm>\x60? \|`.
 >
 > WRONG — the gate and the acceptance check share the imagined shape. Both return nothing. The runner is overruled:
 > ```
@@ -61,20 +81,15 @@ A same-session gate is often pinned at scaffold time for a table row, a log line
 > route:    <consuming task> flags it — "the un-backticked pattern matches nothing; use this one"
 > ```
 
-**Applies to.** Same-session gates on a sibling task's output, pinned at scaffold time. Any grep gate over a markdown table cell, a log line or a status word whose exact rendering the producer decides. The orchestrator's own acceptance checks after a dispatch: a check that could not have seen the subject is not a pass.
-
 ### 11.2 A gate pinned beside a content block runs over that block before the task file ships
 
-A task file sometimes pins two artifacts at once. A content block says what to write, such as a script, a config or a template. A static check beside it says what the written file will measure.
+A task file sometimes pins a content block (a script, a config, a template) and a static check on the file it produces.
 
 > [!constraint] Two pinned artifacts in one task file are one claim, and the claim is that they agree
-> **Rule.** If the author never ran the gate over the block, the pair is untested. The runner then faces a fork the spec did not resolve: edit the content to pass the gate, or ship the content and fail the gate.
+> **Rule.** Save the block to a scratch file and run every static check from the task file over it before the task file ships.
 >
-> Three operative points:
->
-> 1. **Save the block to a scratch file and run every static check from the task file over it before the task file ships.** A gate that has never seen its subject is a claim, not a verification.
-> 2. **Anchor a count on the command shape, not on a bare token.** The token occurs wherever the author mentions it, including the comment that explains it. The shape occurs only on a real call.
-> 3. **When the content and its gate disagree, the content is the deliverable and the gate is the defect.** The runner ships the block as written and reports the gate. Editing the content to satisfy an unproven count is how a comment gets deleted to make a number come out.
+> 1. **Anchor a count on the command shape, not on a bare token.** The token also occurs in the comment that explains it.
+> 2. **When the content and its gate disagree, the content is the deliverable and the gate is the defect.** The runner ships the block as written and reports the gate.
 >
 > WRONG — the block and the gate are each true in isolation and were never run together:
 > ```
@@ -88,18 +103,13 @@ A task file sometimes pins two artifacts at once. A content block says what to w
 > Verify:   grep -c -- '--phase run --resume' <script>.cmd   # expect 8 (one per driver call; the rem header also says --resume and is excluded by the shape)
 > Author:   saved the block to scratch, ran the line, saw 8, pinned it
 > ```
-> Dry run on a scratch file holding eight `--phase run --resume` lines and one comment line that contains `--resume`: the bare-token count printed 9 and the shape count printed 8.
-
-**Applies to.** Task files that pin both a content block (a script, a config, a template) and a static check on the file it produces. Any `grep -c` gate whose token can appear in a comment, docstring, log line or echo in the same file. A plan reviewer asks, for each pinned gate: "was this run over the pinned content, and what does the count include besides the thing it is meant to count?"
 
 ### 11.3 A pinned count method matches the command's real output shape
 
 A count method is part of a pinned command, and it can be wrong while the command is right.
 
 > [!constraint] Pin the extraction from one observed output line, and state the shape
-> **Rule.** Before pinning "count lines matching X", run the command once and look at one line of its real output. State the observed shape in the pin.
->
-> **Guard.** A spec that makes a zero count a FAIL ("zero means the check saw nothing") is what exposes this class. Without that guard a count of 0 can read as clean. Keep the guard on every collection-scope count.
+> **Rule.** Before pinning "count lines matching X", run the command once, read one observed output line, and state its shape in the pin. Keep a guard that makes a zero count a FAIL ("zero means the check saw nothing") on every collection-scope count.
 >
 > WRONG — pin the extraction from memory of the tool's usual output:
 > ```
@@ -112,21 +122,15 @@ A count method is part of a pinned command, and it can be wrong while the comman
 > outside = count of non-blank lines not starting "<dir>/"
 > ```
 
-**Applies to.** Any gate that counts lines from a tool's output: test collection, `grep -c`, `git status --porcelain`, linter statistics. It matters most when one task pins the count and a later task re-runs it, and when the tool's output format depends on its version or configuration.
-
 ### 11.4 A verdict-line gate copies the skeleton's bytes, emphasis included
 
-§10.5 says a gate over a verification report matches the verdict line, not a bare substring. This subsection says which bytes to match.
-
-A Markdown verdict line has a rendered form and a byte form. The rendered form is what a reader sees. The byte form is what `grep` sees. Emphasis markers sit inside the byte form, and they usually fall between the label and its value. A reviewer reads both the skeleton and the gate in rendered form, and in that form they match. The failure is invisible in review.
+A Markdown verdict line's byte form carries emphasis markers between label and value, which the rendered form a reviewer reads does not show.
 
 > [!constraint] Derive the gate pattern from the skeleton's bytes, and dry-run it on the first real output
-> **Rule.** An Expected Output skeleton prescribes the verdict line as `**Gate:** PASS | HALT`. The runner writes it exactly that way. A later task pinned the Before gate as `grep -c 'Gate: PASS' <snapshot>.md  # expect: 1`. The written line is `**Gate:** PASS`. Its bytes contain `Gate:** PASS`, with two asterisks between the colon and the space. The literal `Gate: PASS` is absent, so the gate returns 0 on a passing snapshot. The orchestration's acceptance text and the success criteria all repeated the rendered form. The defect sat in three places and all three agreed with each other. A stricter runner would have halted a correct run and named the upstream task as the failure.
+> **Rule.** Copy the verdict line out of the skeleton and escape it, emphasis included — never retype it from the rendered line.
 >
-> Two operative points:
->
-> 1. **Copy the verdict line out of the skeleton and escape it. Do not retype it.** Include the emphasis: `grep -cF '**Gate:** PASS'`, or a regex that allows it, `grep -cE '\*\*Gate:\*\* PASS'`.
-> 2. **Dry-run the gate on the first real output before a downstream task depends on it.** A verdict gate that returns 0 on the passing artifact it was written for has never discriminated. Run the pair: the passing output, and a copy with the value changed to the failing token.
+> 1. **Match the bytes:** `grep -cF '**Gate:** PASS'`, or a regex that allows the emphasis, `grep -cE '\*\*Gate:\*\* PASS'`.
+> 2. **Dry-run the gate on the first real output before a downstream task depends on it**, on the passing output and on a copy with the value changed to the failing token.
 >
 > WRONG — the pattern is typed from the rendered line:
 > ```bash
@@ -138,26 +142,18 @@ A Markdown verdict line has a rendered form and a byte form. The rendered form i
 > grep -cF '**Gate:** PASS' <snapshot>.md  # 1 on the passing file
 > grep -cF '**Gate:** PASS' known-bad.md   # 0 on a copy reading **Gate:** HALT
 > ```
-> Dry run on a scratch snapshot reading `**Gate:** PASS`: the fixed-string form printed 1, the rendered form printed 0, and the copy reading `**Gate:** HALT` printed 0 under the fixed-string form.
-
-Two other gates in the same task set followed the bytes and worked: `grep -c 'Result:\*\* WRITTEN'` and `grep -cE '^## Verdict: (PASS|FAIL)'`. The difference was whether the author wrote the pattern from the skeleton or from memory of the rendered line.
 
 `scripts/lint_verification_gates.py` Check 11 fires on a verdict, gate, result or status pattern with no emphasis between label and value: ERROR when the target file writes the bold form, WARNING when the target does not exist yet.
 
-**Applies to.** Any gate that greps a Markdown output for a verdict, status or result line: task Before and After blocks, orchestration acceptance tables, session success criteria and signoff checks. It matters most where the skeleton puts the label in bold (`**Verdict:**`, `**Result:**`, `**Gate:**`) and the value outside the bold.
-
 ### 11.5 Count a section by a line-anchored heading test, never by substring
 
-A substring pattern answers "does this text occur". It does not answer "does this file contain this section". The two questions agree only in files that never mention the section by name. The file most likely to mention it is the plan, spec or reference that introduces the convention. That file is often among the first to adopt the convention, so the collision is structural, not a coincidence. `gate-absence-and-consistency.md` §8.1 covers scrubbing a token from every surface, and §8.2 there covers asserting against the right population. This subsection covers counting a heading.
+A substring pattern answers "does this text occur", not "does this file contain this section", and the plan or reference that introduces a heading is the file most likely to quote it in prose. `gate-absence-and-consistency.md` §8.1 and §8.2 cover scrubbing a token and asserting against the right population.
 
 > [!constraint] Anchor the heading at the start of the line, and record both counts when they differ
-> **Rule.** A harvest appended one `## Index Notes (harvested <date>)` section to each of 32 master plans. The task pinned two substring gates: a pre-write gate `grep -c '## Index Notes (harvested'` expecting 0, and a post-write gate expecting 1 per target. One target was the plan that designed the harvest. It quotes the heading twice in prose, once in a decision row and once in a checklist line. The substring count read 2 before the write and 3 after. A line-anchored heading test read 0 before and 1 after. Without the fix, the pre-write gate halts the harvest on a clean target and the post-write gate fails a correct one.
+> **Rule.** Test the heading at the start of the line, and on a CRLF file anchor the start of the line and never the end, because a `$` anchor fails before `\r`.
 >
-> Three operative points:
->
-> 1. **Test the heading at the start of the line.** In Python, test `line.startswith(b'## Index Notes (harvested ')` on each line of the file read as bytes. On a CRLF file, anchor the start of the line and never the end, because a `$` anchor fails before `\r`.
-> 2. **Count per file, not files with a hit.** A file-level count such as `... | awk -F: '$NF>0' | wc -l` reads 32 either way. Only a per-file exact count exposes the extra hits.
-> 3. **When the substring count and the anchored count differ, record both beside each other with the cause.** The difference is evidence that the file documents the convention. It is not noise to absorb.
+> 1. **Count per file, not files with a hit.** Only a per-file exact count exposes the extra prose hits.
+> 2. **When the substring count and the anchored count differ, record both beside each other with the cause.** The difference is evidence that the file documents the convention.
 >
 > WRONG — a substring count: 3, one heading plus two prose mentions:
 > ```bash
@@ -167,11 +163,8 @@ A substring pattern answers "does this text occur". It does not answer "does thi
 > ```bash
 > grep -cE '^## Index Notes \(harvested ' <plan>.md
 > ```
-> Dry run on a scratch plan that quotes the heading twice in prose: before the append, the substring count printed 2 and the anchored count printed 0. After the append, they printed 3 and 1.
 
-**Applies to.** Any gate that counts, requires or forbids a Markdown section by its heading text: harvest or append gates, "exactly one section" assertions, duplicate-heading checks and migration idempotency guards. It matters most when the target set includes the plan or reference file that defines the heading.
-
-`scripts/lint_verification_gates.py` Check 12 fires on a pattern that starts with the heading marker and no `^`. Its Check 9 fires on the companion trap in operative point 1: a `$` anchor with no `\r?` guard, ERROR when the target carries CRLF line endings and WARNING when the target does not exist yet.
+`scripts/lint_verification_gates.py` Check 12 fires on a pattern that starts with the heading marker and no `^`. Its Check 9 fires on the companion trap in the rule: a `$` anchor with no `\r?` guard, ERROR when the target carries CRLF line endings and WARNING when the target does not exist yet.
 
 ---
 

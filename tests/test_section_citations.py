@@ -71,7 +71,6 @@ LEDGERED_PLUGIN = (
     ("agents/review-discovery.md", 78),  # CONSUMER: a section of the generated fact sheet
     ("agents/review-discovery.md", 158),  # CONSUMER: a section of the generated fact sheet
     ("references/exit-criteria-fidelity.md", 397),  # LABEL: the canonical check-title heading
-    ("references/gate-instrument-proof-obligations.md", 21),  # HISTORY: names the former section numbering
     ("references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", 348),  # EXAMPLE: sample value with stand-in file names
     ("references/lessons-promote-batch-workflow-Part-2-DraftAndWrite.md", 364),  # EXAMPLE: sample value with stand-in file names
     ("references/measurement-discipline-Part-2-BehaviorChangeSurfaceSweeps.md", 315),  # HISTORY: names the former section numbering
