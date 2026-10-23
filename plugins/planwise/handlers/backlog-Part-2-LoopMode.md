@@ -36,14 +36,20 @@ python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yam
 
 | Item state at `--init` | In the loop set? | Reason recorded |
 |---|---|---|
-| Selectable, provisional route A or B | Yes | none |
-| Selectable, provisional route C by a strong signal (`LARGE_SCOPE` true) | No, listed as excluded | `plans deferred in loop mode` |
-| Selectable, provisional route C by the conservative default (`LARGE_SCOPE` false) | No, listed as excluded | `needs refine` |
+| Selectable, `refined: false`, or refined with a failing shape gate, inside the refine cap or named by `--mode specific` | Yes, disposition `refine` | none |
+| Selectable, provisional route A or B, `refined: true` or past the refine cap | Yes, disposition `run` | none |
+| Selectable, `refined: false`, route C by the conservative default (`LARGE_SCOPE` false), past the refine cap | No, listed as excluded | `needs refine` |
+| Selectable, route C by a strong signal (`LARGE_SCOPE` true), or `refined: true` with a passing shape gate and route C | No, listed as excluded | `plans deferred in loop mode` |
 | Selectable, marked `needs_plan: true` in its frontmatter | No, listed as excluded | `marked for a planning session` |
+| Selectable, with an unanswered question under `## Open Questions` | No, listed as excluded | `open questions unanswered` |
 | Blocked by an open dependency | No | not selectable |
 | Held (`BLOCKED`) or closed | No | not selectable |
 
 Queue order is highest score first, then item id. Mode `n` keeps the first N of that order. Mode `specific` keeps the user's order and drops an ineligible id with a warning line.
+
+Refining is opt-in. `--init --refine-max N` (default 0) queues up to N unrefined items for the refine step, highest score first. `--mode specific` refines every named unrefined item.
+
+An open question is unanswered while its `Answer:` line is empty. It is answered once an `Answer:` line with text follows its `### Q` heading.
 
 An empty queue is an error. `--init` exits 1, prints a JSON line with an `error` key, and writes no run file. Tell the user and continue as a normal single-item run with Q1 not asked.
 
@@ -60,6 +66,8 @@ Each session handles exactly one item. The numbered steps run in order.
 3. `--next` exits 3 when the current item died mid-work. Follow the Resume model section below.
 4. `{"next": null, ...}` means the queue is empty. Run `--boundary` and finish at Phase 9.
 5. Set only the popped item IN_PROGRESS, regenerate the index, then run `--mark --phase selected --run {run-id} --id {item-id}`.
+
+   5a. When `--next` reported disposition `refine`, run § Refine step before Phase 3. An item with disposition `run` skips it.
 6. Phase 3 RESOLVE. Re-run `score_backlog.py --route --id {item-id}` and note any divergence from `route_at_init` in `Reason:`.
 7. Phase 4 ACT. Ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (see § No questions after setup). Run `--mark --phase acting --run {run-id} --id {item-id}` before the Route A or B dispatch.
 8. Phase 5 VERIFY. Run `--mark --phase verifying --run {run-id} --id {item-id}` before the gates. Ask nothing. Apply the Phase 5 default in § No questions after setup.
@@ -72,10 +80,53 @@ Each session handles exactly one item. The numbered steps run in order.
    | A decision is needed, or a gate failed | `SKIPPED`, with `--decision` |
    | Route C re-assessed in Phase 4 | `SKIPPED`, with `--needs-plan` and `--decision` |
    | Halted item skipped at the HALT question | `SKIPPED`, with `--note halted-mid-item` |
+   | Refine step returned `QUESTIONS` (§ Refine step) | `SKIPPED`, with `--note "open questions"` |
+   | Refine step returned `DECOMPOSE` | `SKIPPED`, with `--note "decomposed: {ids}"` |
+   | Refine step returned `NEEDS_PLAN` | `SKIPPED`, with `--note "needs plan"` |
+   | Refine step returned `ALREADY_MET` | `COMPLETE`, with `--note "already met"` |
+   | Refine step ended on an agent `BLOCKED` or `PARTIAL` | `SKIPPED`, with `--note "refine blocked: {agent}: {reason}"` |
 
    A `SKIPPED` outcome restores the item's pre-loop status. When the script prints `Restored`, regenerate the backlog index.
 10. Phases 7 and 8 run every iteration, for the one item of the session. Both ask nothing.
 11. Phase 9 LOOP BOUNDARY. Run `--boundary` and end the turn on the marker.
+
+---
+
+## Refine step
+
+**Purpose:** Turn an unrefined item into one the loop can run, before Phase 3. The step runs when `--next` reported disposition `refine`. An item with `disposition: run` skips this section.
+
+The refine step asks nothing. A `QUESTIONS` design is written into the item. In loop mode the question round-trip of `references/backlog-creation-process.md` does not run.
+
+Use this hand-over directory for the item's fact sheet and design file:
+
+```
+{backlog_dir}/Backlog-Runs/{run-id}-refine/{item-id}/
+```
+
+Make three dispatches, in the foreground and one at a time. `references/backlog-creation-process.md` § 3 and § 4 carry each spawn-prompt shape. Do not restate the shapes here.
+
+1. Dispatch `planwise:backlog-preflight` once, in `refine` mode, with the item id. Read the `DISPOSITIONS` field of its status block.
+2. For a `HOLDS` sheet, dispatch `planwise:backlog-planner` under the name `planner-{item-id}`. Read the `DESIGN` field of its status block. An `ALREADY_MET` sheet skips the planner and goes straight to the author.
+3. Dispatch `planwise:backlog-author` once, in `refine` mode, with the sheet and the design file. It edits the item in place and reports `ITEMS_REWRITTEN`, `ITEMS_ALREADY_MET` and `ITEMS_RETIRED`.
+
+If the item holds a pending `## Loop Decision Needed` section, the author folds its question into `## Open Questions`. The planner then returns a `QUESTIONS` design, and the loop skips the item.
+
+Then map the result to the loop action:
+
+| Planner or preflight result | Loop action |
+|---|---|
+| `REFINED` | `--mark --refined REFINED`. Regenerate the index. Re-run `score_backlog.py --route --id {item-id}`. Continue at Phase 3 in the same iteration |
+| `QUESTIONS` | `--mark --refined QUESTIONS`. Run `--mark --outcome SKIPPED --note "open questions"`. Regenerate the index. Continue to Phase 7 |
+| `ALREADY_MET` | The author writes the close record. Run `update_backlog.py --status COMPLETE`, then regenerate the index. Run `--mark --refined ALREADY_MET`, then `--mark --outcome COMPLETE --note "already met"` |
+| `DECOMPOSE` | The author files the sub-items with `blocks: [{parent}]`. Run `--mark --refined DECOMPOSE --sub-items {ids}`, then `--mark --outcome SKIPPED --note "decomposed: {ids}"`. Regenerate the index |
+| `NEEDS_PLAN` | The author writes `needs_plan: true`. Run `--mark --refined NEEDS_PLAN`, then `--mark --outcome SKIPPED --note "needs plan"`. Regenerate the index |
+| `RESOLVED` or `DUPLICATE` (refine path) | The author writes one `### Q` block that proposes CLOSED, with the evidence. Run `--mark --refined QUESTIONS`, then skip as for `QUESTIONS`. The loop never sets CLOSED unattended |
+| `PREMISE_FAILS` (refine path) | The author writes one `### Q` block that states the absent target and the options re-target, retire and keep. Run `--mark --refined QUESTIONS`, then `--mark --outcome SKIPPED --note "open questions"`. Regenerate the index |
+| Any of the three agents returns `BLOCKED` or `PARTIAL` | Resume the same agent once, naming the missing piece. On a second `BLOCKED` or `PARTIAL`, record no refine outcome. Run `--mark --outcome SKIPPED --note "refine blocked: {agent}: {reason}"`. The item stays `refined: false` and is eligible on the next run |
+| `--next` reported `disposition: run` | No refine step. Continue at Phase 3. The item carries no `refine` record, and the end summary's `Refine` column shows `-` |
+
+A refine skip uses `--note`, never `--decision`. The `QUESTIONS` skip needs no `## Loop Decision Needed` section, because the question already sits in the item's `## Open Questions`.
 
 ---
 
@@ -89,7 +140,8 @@ Q1, Q2, Q3 and the HALT question are the only questions in loop mode. Every othe
 | Phase 3 premise probe fails | Documented skip |
 | Phase 3 scoped-rule verdict `inject` or `none` | Proceed. An `inject` verdict carries the listed rules into the fix-agent prompt |
 | Phase 3 scoped-rule verdict `placement` | Documented skip. The evidence names the destination and the rule or content tree |
-| Phase 3 acceptance criteria already met | Unattended close (§ Unattended close): every criterion's proving command is run, the record is written under `## Resolution`, and the item is closed `COMPLETE` |
+| Phase 3 acceptance criteria already met | Unattended close (§ Unattended close): every criterion's proving command is run, the record is written under `## Resolution`, and the item is closed `COMPLETE`; the refine step closes an item whose preflight proved every criterion MET the same way, with the close record under `## Resolution` |
+| Refine step returns `QUESTIONS` | Written into `## Open Questions`; skip with the short note; no `--decision` |
 | Phase 4 route | Take the recommended route when it is A or B. A Route C result is a documented skip that also writes `needs_plan: true` (`--needs-plan`) |
 | Route A fix-agent returns `BLOCKED` | Documented skip. The evidence is the agent's blocker |
 | Phase 5 gates pass | Mark `COMPLETE` |
@@ -121,7 +173,7 @@ Evidence: {at most 3 lines, each naming its source}
 
 The next interactive run finds the section and answers it. A route re-assessment to Route C starts the text with `LOOP: re-assessed to Route C` and adds `--needs-plan`.
 
-The section lifecycle: when the item already carries an unedited section from an earlier run, the script replaces it in place and lists the earlier run ids on an `Earlier runs:` line inside the callout. When a person edited that section, the script keeps it and writes the new section beside it. A legacy section, one with no end marker, is never changed: the script writes the new section after it. A repeated call in the same run writes nothing.
+The section lifecycle: when the item already carries an unedited section from an earlier run, the script replaces it in place and lists the earlier run ids on an `Earlier runs:` line inside the callout. When a person edited that section, the script keeps it and writes the new section beside it. A legacy section, one with no end marker, is never changed: the script writes the new section after it. A repeated call in the same run writes nothing. A refine skip uses `--note`, never `--decision`.
 
 `--decision` refuses each of these inputs with exit 1:
 
@@ -129,6 +181,8 @@ The section lifecycle: when the item already carries an unedited section from an
 - a line that starts with `#` or `##` followed by a space, a tab or the end of the line
 - an unclosed code fence
 - the end-marker string `<!-- loop-decision-end -->`
+
+It also refuses, with exit 1, when the item file itself leaves a code fence open. On any `--decision` refusal, skip the item with `--mark --outcome SKIPPED --note "{short reason}"`, so the run continues.
 
 Answers go under `## Notes`, outside the section. A person who opens a code fence, under `## Notes` or inside the section, must close it, because an unclosed fence hides every later section.
 
@@ -153,7 +207,7 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --outcome COMPLETE --run {run-id} --id {item-id} --resolution-file {scratch}/{item-id}-resolution.md
 ```
 
-The first call flips the status, moves the file to the archive and appends the record under `## Resolution`. The third records the unattended close in the run file; its own append is a no-op because the section now exists, and the script says so. When the item already carries a `## Resolution` section, neither call rewrites it. The end summary lists unattended closes under `Closed unattended`. The item is now closed, so skip Phases 4 and 5 for it: regenerate the backlog index, then continue to Phase 7, exactly as after a documented skip. Nothing is committed; the user reviews the archive move and the record in the working tree.
+The first call flips the status, moves the file to the archive and appends the record under `## Resolution`. The third records the unattended close in the run file; its own append is a no-op because the section now holds the record, and the script says so. When the item already carries a `## Resolution` section, the first call appends a dated `### Closed {date}` block holding the record below the section's text, and the third call finds that same record and writes nothing. The end summary lists unattended closes under `Closed unattended`. The item is now closed, so skip Phases 4 and 5 for it: regenerate the backlog index, then continue to Phase 7, exactly as after a documented skip. Nothing is committed; the user reviews the archive move and the record in the working tree.
 
 ### Verification is in scope
 

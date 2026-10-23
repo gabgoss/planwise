@@ -112,12 +112,16 @@ class TestNeedsRefine(_GatesFixtureBase):
         self.assertEqual(self.read_run(payload)["excluded"][-1]["reason"], "needs refine")
 
     def test_init_specific_warns_with_the_refine_reason(self):
-        code, text, payload = self.loop("--init", "--mode", "specific", "--items", "010,003,001")
+        # --mode specific refines every named unrefined item, so the two
+        # Route C items queue as `refine` and no `needs refine` warning is
+        # left; a named needs_plan item still warns with its own reason.
+        code, text, payload = self.loop("--init", "--mode", "specific", "--items", "010,003,009,001")
 
         self.assertEqual(code, 0)
-        self.assertEqual([q["id"] for q in payload["queue"]], ["001"])
-        self.assertIn("warning: item 010 dropped: needs refine before the loop can run it", text)
-        self.assertIn("warning: item 003 dropped: route C is deferred in loop mode", text)
+        self.assertEqual([q["id"] for q in payload["queue"]], ["010", "003", "001"])
+        self.assertEqual({q["disposition"] for q in payload["queue"]}, {"refine"})
+        self.assertEqual(payload["warnings"], ["warning: item 009 dropped: marked for a planning session"])
+        self.assertNotIn("needs refine", text)
 
     def test_summary_groups_excluded_by_reason(self):
         payload = self.init("--mode", "n", "--n", "2")
@@ -246,14 +250,14 @@ class TestResolutionFile(_GatesFixtureBase):
         self.assertTrue(record["unattended_close"])
         self.assertTrue(record["resolution_written"])
 
-    def test_resolution_file_noops_when_section_exists(self):
+    def test_resolution_file_appends_dated_block_when_section_exists(self):
         payload = self.init("--mode", "all")
         run_id = payload["run"]
         self.loop("--next", "--run", run_id)
         path = self.item_file("001")
         with open(path, "a", encoding="utf-8", newline="") as handle:
-            handle.write("\n## Resolution\n\nClosed earlier.\n")
-        before = path.read_bytes()
+            handle.write("\n## Resolution\n\nClosed earlier.\n\n## Notes\n\nKeep this note.\n")
+        before = path.read_text(encoding="utf-8")
 
         code, text, marked = self.loop(
             "--mark", "--run", run_id, "--id", "001", "--outcome", "COMPLETE",
@@ -261,12 +265,26 @@ class TestResolutionFile(_GatesFixtureBase):
         )
 
         self.assertEqual(code, 0)
-        self.assertFalse(marked["resolution_written"])
-        self.assertIn("Resolution: section already present, left unchanged", text)
-        self.assertEqual(path.read_bytes(), before)
+        self.assertTrue(marked["resolution_written"])
+        self.assertIn("Resolution: section present, dated close block appended", text)
+        body = path.read_text(encoding="utf-8")
+        today = backlog_loop.datetime.now().astimezone().date().isoformat()
+        # The block sits at the end of the section: after the earlier text,
+        # before the next heading, and the section is not repeated.
+        self.assertEqual(body.count(RESOLUTION), 1)
+        self.assertTrue(body.startswith(before.split("\n## Notes")[0]))
+        block = f"### Closed {today}\n\n{RECORD}\n"
+        self.assertIn(block, body)
+        self.assertLess(body.index("Closed earlier."), body.index(block))
+        self.assertLess(body.index(block), body.index("## Notes"))
+        self.assertTrue(body.endswith("## Notes\n\nKeep this note.\n"))
         record = self.read_run(payload)["items"]["001"]
         self.assertTrue(record["unattended_close"])
-        self.assertFalse(record["resolution_written"])
+        self.assertTrue(record["resolution_written"])
+        # A retry with the same record finds it and writes nothing.
+        after = path.read_bytes()
+        self.assertEqual(update_backlog.append_resolution_section(path, RECORD).outcome, "exists")
+        self.assertEqual(path.read_bytes(), after)
 
         # A heading inside a fenced block is not a section.
         fenced = self.tmp / "fenced.md"
@@ -274,6 +292,22 @@ class TestResolutionFile(_GatesFixtureBase):
             handle.write("---\nid: 099\n---\n\n```markdown\n## Resolution\n```\n")
         self.assertEqual(update_backlog.append_resolution_section(fenced, RECORD).outcome, "appended")
         self.assertEqual(update_backlog.append_resolution_section(fenced, RECORD).outcome, "exists")
+
+    def test_resolution_substring_of_section_still_appends_block(self):
+        path = self.tmp / "substring.md"
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            handle.write("---\nid: 099\n---\n\n## Resolution\n\nDone. The helper moved.\n\n## Notes\n\nDone.\n")
+
+        # "Done." appears inside the section's text but is not that text.
+        self.assertEqual(update_backlog.append_resolution_section(path, "Done.").outcome, "closed_block")
+        body = path.read_text(encoding="utf-8")
+        today = backlog_loop.datetime.now().astimezone().date().isoformat()
+        self.assertIn(f"### Closed {today}\n\nDone.\n", body)
+        self.assertLess(body.index("### Closed"), body.index("## Notes"))
+        # The same record again matches the dated block and writes nothing.
+        after = path.read_bytes()
+        self.assertEqual(update_backlog.append_resolution_section(path, "Done.").outcome, "exists")
+        self.assertEqual(path.read_bytes(), after)
 
     def test_resolution_file_missing_or_empty_is_usage_error(self):
         payload = self.init("--mode", "all")
@@ -414,6 +448,28 @@ class TestDecisionCap(_GatesFixtureBase):
         self.assertEqual(raw.count(b"\n"), raw.count(b"\r\n"), "a bare LF entered a CRLF file")
         self.assertEqual(raw.count(HEADING.encode()), 1)
         self.assertIn(f"> Earlier runs: {OLD_RUNS[0]}, {OLD_RUNS[1]}\r\n".encode(), raw)
+
+    def test_refused_decision_falls_back_to_note_skip(self):
+        payload, run_id = self.selected_run()
+        path = self.item_file("001")
+        with open(path, "a", encoding="utf-8", newline="") as handle:
+            handle.write("\n```bash\npython -m pytest -q\n")
+        mark = ("--mark", "--run", run_id, "--id", "001", "--outcome", "SKIPPED")
+
+        code, _text, error = self.loop(*mark, "--decision", DECISION)
+        self.assertEqual(code, 1)
+        self.assertIn("Close the fence first", error["error"])
+        self.assertIsNone(self.read_run(payload)["items"]["001"]["outcome"])
+
+        # The documented fallback: skip with a short note so the run continues.
+        code, _text, _marked = self.loop(*mark, "--note", "decision refused: open fence")
+        self.assertEqual(code, 0)
+        record = self.read_run(payload)["items"]["001"]
+        self.assertEqual((record["outcome"], record["note"]), ("SKIPPED", "decision refused: open fence"))
+        self.assertIn("status: NOT_STARTED", path.read_text(encoding="utf-8"))
+        code, _text, popped = self.loop("--next", "--run", run_id)
+        self.assertEqual(code, 0)
+        self.assertIsNotNone(popped["next"])
 
 
 class TestSetFrontmatterKey(_GatesFixtureBase):

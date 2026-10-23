@@ -162,7 +162,7 @@ The canonical policy's Inline Tagging Convention applies: critical sites emit a 
 - **Action:** resolve the scope argument (forwarded verbatim to batch-promote) → group by bucket → draft item files and regenerate the backlog index → capture each lesson (archive-on-capture).
 - **Failure:** HALT if the categorisation gate still fires after stage 1 (HC3 — self-heal is explicitly forbidden; no legal action remains) or on call-site H3 (an id-list scope spanning buckets).
 - **Writes:** item files, the regenerated backlog index files, archived lesson files.
-- **Delegated drafting:** batch-promote dispatches [`agents/backlog-author.md`](../agents/backlog-author.md) per bucket to draft and file the item files. That agent causes the backlog index to change, but it never writes an index row itself — it files each item through the guarded writer, then runs `generate_backlog_index.py --write` once per dispatch, which rebuilds the whole index from item frontmatter. It is still dispatched **once per bucket, never concurrently with another instance**. The id-allocation race is the only remaining reason: `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch, so two concurrent dispatches can read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Lesson capture (status flip, archive move, lessons-index update) stays with this stage; the agent never touches a lesson file. `--dry-run` skips the dispatch entirely rather than dispatching with a no-write flag.
+- **Delegated drafting:** batch-promote dispatches the backlog creation process ([`references/backlog-creation-process.md`](../references/backlog-creation-process.md) §3) per bucket to draft and file the item files: [`agents/backlog-preflight.md`](../agents/backlog-preflight.md) once per bucket, [`agents/backlog-planner.md`](../agents/backlog-planner.md) once per `HOLDS` sheet, then [`agents/backlog-author.md`](../agents/backlog-author.md) once. Under Auto Mode a planner `DESIGN: QUESTIONS` return asks nothing: the author writes each question into the item as an unanswered block. The author causes the backlog index to change, but it never writes an index row itself — it files each item through the guarded writer, then runs `generate_backlog_index.py --write` once per dispatch, which rebuilds the whole index from item frontmatter. It is still dispatched **once per bucket, never concurrently with another instance**. The id-allocation race is the only remaining reason: `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch, so two concurrent dispatches can read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Lesson capture (status flip, archive move, lessons-index update) stays with this stage; the agent never touches a lesson file. `--dry-run` skips the dispatch entirely rather than dispatching with a no-write flag.
 
 #### Stage 3: Process
 
@@ -173,7 +173,7 @@ The canonical policy's Inline Tagging Convention applies: critical sites emit a 
 
 **Work set (decided):** the union of `promoted-to:` values across the lessons stage 2 archived this run — re-derivable from disk with no bookkeeping at all — extended to pre-existing `NOT_STARTED` items only under `--include-existing` (which requires `--max-items=N`, call-site H4).
 
-**Per-item dispatch contract.** Dispatch is foreground-only for every write-producing agent (the fix agent, `backlog-planner`) — never `run_in_background: true`, never `background: true` in frontmatter; a background subagent auto-denies Write/Edit/Bash silently. Per the delegated-orchestration reference's own table: file output → foreground; shell → foreground; read-only research → background OK. Foreground does not mean sequential: parallel-foreground via multiple dispatch calls in one turn is live precedent.
+**Per-item dispatch contract.** Dispatch is foreground-only for every write-producing agent (the fix agent) — never `run_in_background: true`, never `background: true` in frontmatter; a background subagent auto-denies Write/Edit/Bash silently. Per the delegated-orchestration reference's own table: file output → foreground; shell → foreground; read-only research → background OK. Foreground does not mean sequential: parallel-foreground via multiple dispatch calls in one turn is live precedent.
 
 - Sequential-foreground for 1–2 items, or any edit-target collision (the same source file, or the shared index).
 - Parallel-foreground for 3+ independent items with disjoint targets — multiple dispatch calls in one turn.
@@ -181,7 +181,7 @@ The canonical policy's Inline Tagging Convention applies: critical sites emit a 
 
 **Acceptance gate on every return:** verify each declared output file exists on disk BEFORE accepting a success-claiming return. Narrowed to returns that both claim success AND declare files — an honest BLOCKED with no files is not the signature; a COMPLETE declaring absent files IS, and is HC4.
 
-**Central index write:** neither the fix agent nor `backlog-planner` writes the backlog index itself; each returns a status-block delta (below), and this stage applies the single shared write after each item. This holds for stage 3's two agents and is unchanged. It does **not** describe stage 2's `backlog-author`: that agent also never writes an index row itself, but it causes the index to change directly, by running `generate_backlog_index.py --write` once per dispatch instead of returning a delta for this stage to apply. That is why it is still dispatched one instance at a time — not because it owns the index write, but because the id-allocation race survives: `--next-id` reads the generated index files, which change only when `--write` runs.
+**Central index write:** the fix agent never writes the backlog index itself; it returns a status-block delta (below), and this stage applies the single shared write after each item. This holds for stage 3's one agent and is unchanged. It does **not** describe stage 2's `backlog-author`: that agent also never writes an index row itself, but it causes the index to change directly, by running `generate_backlog_index.py --write` once per dispatch instead of returning a delta for this stage to apply. That is why it is still dispatched one instance at a time — not because it owns the index write, but because the id-allocation race survives: `--next-id` reads the generated index files, which change only when `--write` runs.
 
 **Status-block field set** (every per-item dispatch returns; verbatim):
 
@@ -195,8 +195,6 @@ VERIFY_RESULT:    clean | build-failed | test-failed | grep-hits | n/a
 KEY_FINDINGS:     {2-5 short bullets}
 ISSUES:           {one line per issue, or "none"}
 ```
-
-Route C adds `PLAN_PATH`, `PLAN_MODE: standard | meta-deferred`, `REVIEW_REQUESTED: true | false` (false only when BLOCKED).
 
 **Route behaviour:**
 - **Route A** spawns the fix agent with six fields: item id, summary, and description (from the item file); **affected files re-verified via the citation-freshness preflight, never copied** from the item file — under automation, no human catches a stale path; the build command resolved once from `config.yaml`'s `build_commands.default` at Config-Gate time; cross-cutting candidates from the item's own sections (default "none identified"). For an `inject` verdict (see Failure Classification, below), the prompt also carries the content of every rule the `scoped_rules` block lists.
@@ -224,8 +222,6 @@ Route C adds `PLAN_PATH`, `PLAN_MODE: standard | meta-deferred`, `REVIEW_REQUEST
 | scoped-rule verdict placement | auto-escalate directly to Route C, skipping A — a placement judgment the mechanical VERIFY cannot backstop (a misplaced-but-valid file builds clean). Route C here writes the marker, logs `marked for a planning session` and advances |
 | scoped-rule verdict inject | take Route A with the listed rules' content injected into the fix agent's prompt. An item an archived lesson owns (`promoted-to:` names it and `promotion-target:` includes `rule`) is exempt from the placement verdict for any destination: Stage 2 already decided placement through its existing-rule check, and Route A VERIFY still runs the self-containment grep |
 | unparseable item frontmatter | skip + log + advance |
-| planner BLOCKED | Notes `AUTO-PLAN FAILED {date}: {reason} — needs manual triage`, status `NOT_STARTED`, advance |
-| review verdict requires fixes | log only — never retried in-loop; Route C plans and reviews exactly once |
 
 ### Step 6: Halt Conditions
 

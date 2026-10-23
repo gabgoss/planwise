@@ -326,17 +326,42 @@ def set_frontmatter_key(path: Path, key: str, value: str) -> SyncStatusResult:
 RESOLUTION_HEADING = "## Resolution"
 
 
-def _heading_outside_fences(text: str, heading: str) -> bool:
-    """True when a line equal to heading exists outside every fenced block.
+def _resolution_section_span(text: str) -> tuple[int, int] | None:
+    """`(first line, end line)` of the unfenced `## Resolution` section, or None.
 
-    The fence rules are the shared scanner's (`scoped_rules.fence_flags`),
-    so this writer and the loop's writers agree on what is fenced.
+    The section runs from its heading line to the next unfenced heading of
+    level 1 or 2, or to the end of the text. The fence rules are the shared
+    scanner's (`scoped_rules.fence_flags`), so this writer and the loop's
+    writers agree on what is fenced.
     """
     lines = text.split("\n")
-    return any(
-        not fenced and line.rstrip() == heading
-        for line, fenced in zip(lines, fence_flags(text))
+    flags = fence_flags(text)
+    start = next(
+        (n for n, (line, fenced) in enumerate(zip(lines, flags))
+         if not fenced and line.rstrip() == RESOLUTION_HEADING),
+        None,
     )
+    if start is None:
+        return None
+    for n in range(start + 1, len(lines)):
+        if not flags[n] and re.match(r"#{1,2}(\s|$)", lines[n]):
+            return start, n
+    return start, len(lines)
+
+
+def _resolution_bodies(lines: list[str], flags: list[bool], span: tuple[int, int]) -> list[str]:
+    """The stripped texts of the section: its own text, then each `### Closed` block's.
+
+    A record counts as written only when it equals one of these texts, so a
+    short record that merely appears inside the section is still appended.
+    """
+    bodies: list[list[str]] = [[]]
+    for n in range(span[0] + 1, span[1]):
+        if not flags[n] and lines[n].startswith("### Closed"):
+            bodies.append([])
+        else:
+            bodies[-1].append(lines[n])
+    return ["\n".join(body).strip() for body in bodies]
 
 
 def append_resolution_section(path: Path, text: str) -> SyncStatusResult:
@@ -344,19 +369,35 @@ def append_resolution_section(path: Path, text: str) -> SyncStatusResult:
 
     Outcomes:
       - "appended": the section was written at the end of the file.
-      - "exists": a line equal to the heading already sits outside any
-        fenced block; nothing written, so a retry never stacks a copy.
+      - "closed_block": a `## Resolution` section already sits outside any
+        fenced block, so a dated `### Closed {date}` block holding text was
+        written at the end of that section.
+      - "exists": the section's own text, or one of its `### Closed`
+        blocks, already equals text; nothing written, so a retry never
+        stacks a copy.
       - "absent_file": path does not exist.
-    The section uses the file's own line endings: a blank line, the
-    heading, a blank line, the stripped text, and a final newline.
+    The writes use the file's own line endings: a blank line, the heading,
+    a blank line, the stripped text, and a final newline.
     """
     if not path.exists():
         return SyncStatusResult("absent_file", path)
     raw = read_text_preserving_newlines(path)
-    if _heading_outside_fences(raw, RESOLUTION_HEADING):
-        return SyncStatusResult("exists", path)
     eol = "\r\n" if "\r\n" in raw else "\n"
-    body = text.strip().replace("\r\n", "\n").replace("\r", "\n").replace("\n", eol)
+    plain = text.strip().replace("\r\n", "\n").replace("\r", "\n")
+    body = plain.replace("\n", eol)
+    lf_raw = raw.replace("\r\n", "\n")
+    span = _resolution_section_span(lf_raw)
+    if span is not None:
+        lines = lf_raw.split("\n")
+        if plain in _resolution_bodies(lines, fence_flags(lf_raw), span):
+            return SyncStatusResult("exists", path)
+        # Insert before the next top heading, after the section's own text.
+        head = "\n".join(lines[:span[1]]).rstrip("\n").replace("\n", eol)
+        tail = "\n".join(lines[span[1]:]).replace("\n", eol)
+        date = datetime.now().astimezone().date().isoformat()
+        block = eol.join(["", "", f"### Closed {date}", "", body, ""])
+        write_text_preserving_newlines(path, head + block + (eol + tail if tail else ""))
+        return SyncStatusResult("closed_block", path)
     if raw and not raw.endswith(("\n", "\r")):
         raw += eol
     section = eol.join(["", RESOLUTION_HEADING, "", body, ""])
@@ -793,6 +834,8 @@ def append_resolution_after_close(
         sys.exit(1)
     if result.outcome == "appended":
         print("Resolution: appended")
+    elif result.outcome == "closed_block":
+        print("Resolution: section present, dated close block appended")
     else:
         print("Resolution: section already present, left unchanged")
 

@@ -16,6 +16,15 @@ Fixture items (scores use the default weights: High 30, Medium 20, Low 10):
   005  Medium  blocked by 006 through the Blocks cell on 006's hub row
   006  Low     route A   short file; blocks 005
   007  Low     route A   short file
+  008  Low     excluded  one `### Q1.` block with an empty `Answer:` (open questions unanswered)
+  009  Low     excluded  `needs_plan: true` (marked for a planning session)
+
+Every queued item is unrefined. With no --refine-max cap each one queues with
+disposition `run` and 003 is excluded; with a cap of 5 or more the queue is
+001, 003, 002, 006, 007, each with disposition `refine`. The `refined` kind of
+`item_text` (50+ lines, three steps under `## Resolution`, a fenced
+`## Verification`, `## Open Questions` holding `None.`) is used by the tests
+that rewrite an item.
 
 Run with:  python -m pytest tests/test_backlog_loop.py -q
 """
@@ -57,6 +66,8 @@ FIXTURE_ITEMS = [
     ("005", "Dependent item", "Medium", "NOT_STARTED", "", "short"),
     ("006", "Blocker item", "Low", "NOT_STARTED", "[005]", "short"),
     ("007", "Low extra", "Low", "NOT_STARTED", "", "short"),
+    ("008", "Asked item", "Low", "NOT_STARTED", "", "questions"),
+    ("009", "Needs plan", "Low", "NOT_STARTED", "", "needs_plan"),
 ]
 
 RUN_ID = "20261007-120000"
@@ -68,15 +79,33 @@ def item_filename(item_id: str) -> str:
 
 def item_text(item_id: str, status: str, kind: str) -> str:
     """A whole item file. Its newline count steers the route (50 is the cut)."""
-    lines = ["---", f"id: {item_id}", f"status: {status}", "---", "", f"# Item {item_id}", ""]
-    if kind == "short":
+    lines = ["---", f"id: {item_id}", f"status: {status}"]
+    if kind == "refined":
+        lines.append("refined: true")
+    elif kind == "needs_plan":
+        lines.append("needs_plan: true")
+    lines.extend(["---", "", f"# Item {item_id}", ""])
+    if kind in ("short", "questions", "needs_plan"):
         lines.append("A small, well-bounded change to one helper.")
+        if kind == "questions":
+            lines.extend([
+                "", "## Open Questions", "", "### Q1. Which helper owns the change?", "",
+                "Options: (A) the reader (B) the writer",
+                "Recommendation: A. The reader holds the state.", "Answer:",
+            ])
     else:
         lines.extend(f"Background note {n} about the widget." for n in range(1, 51))
         if kind == "steps":
             lines.extend(["", "1. Read the helper.", "2. Adjust the helper.", "3. Run the checks."])
         elif kind == "multi":
             lines.extend(["", "This work spans a multi-sprint effort."])
+        elif kind == "refined":
+            lines.extend([
+                "", "## Resolution", "", "Approach: adjust the helper in place.", "",
+                "1. Read the helper.", "2. Adjust the helper.", "3. Run the checks.",
+                "", "## Verification", "", "```", "python -m pytest -q", "# expect: all pass", "```",
+                "", "## Open Questions", "", "None.",
+            ])
     return "\n".join(lines) + "\n"
 
 
@@ -139,17 +168,22 @@ class TestInit(_LoopFixtureBase):
         queue = payload["queue"]
         # Queue order is (-score, id): High 001 (30), Medium 002 (20), then the
         # two Low items by id. 003 is route C, 004 is held, 005 is blocked.
+        # No --refine-max cap: nothing is refined, so every item runs.
         self.assertEqual([q["id"] for q in queue], ["001", "002", "006", "007"])
         routes = {q["id"]: q["route_at_init"] for q in queue}
         self.assertEqual(routes["001"], "A")
         self.assertEqual(routes["002"], "B")
         self.assertEqual([q["score"] for q in queue], [30, 20, 10, 10])
+        self.assertEqual({q["disposition"] for q in queue}, {"run"})
 
-        self.assertEqual([e["id"] for e in payload["excluded"]], ["003"])
+        self.assertEqual([e["id"] for e in payload["excluded"]], ["003", "008", "009"])
         excluded = payload["excluded"][0]
         self.assertEqual(excluded["reason"], "plans deferred in loop mode")
         self.assertEqual(excluded["route"], "C")
         self.assertTrue(excluded["large_scope"])
+        reasons = {e["id"]: e["reason"] for e in payload["excluded"]}
+        self.assertEqual(reasons["008"], backlog_loop.OPEN_QUESTIONS_REASON)
+        self.assertEqual(reasons["009"], backlog_loop.NEEDS_PLAN_REASON)
 
         # Neither the BLOCKED item nor the item blocked by an open dependency
         # reaches the queue, and neither is reported as excluded.
@@ -176,14 +210,14 @@ class TestInit(_LoopFixtureBase):
         self.assertEqual(len(self.read_run(payload)["queue"]), 1)
 
     def test_init_specific_ineligible(self):
-        code, text, payload = self.loop("--init", "--mode", "specific", "--items", "007,003,002")
+        code, text, payload = self.loop("--init", "--mode", "specific", "--items", "007,009,002")
 
         self.assertEqual(code, 0)
-        # The user's order is kept; the route C id is dropped with a warning.
+        # The user's order is kept; the needs_plan id is dropped with a warning.
         self.assertEqual([q["id"] for q in payload["queue"]], ["007", "002"])
         self.assertEqual(len(payload["warnings"]), 1)
-        self.assertIn("003", payload["warnings"][0])
-        self.assertIn("warning: item 003 dropped", text)
+        self.assertIn("009", payload["warnings"][0])
+        self.assertIn("warning: item 009 dropped: marked for a planning session", text)
 
     def test_init_priority(self):
         everything = self.init("--mode", "all")
@@ -249,6 +283,7 @@ class TestNext(_LoopFixtureBase):
         self.assertEqual(code, 0)
         self.assertEqual(popped["next"], "001")
         self.assertEqual(popped["remaining"], 3)
+        self.assertEqual((popped["refined"], popped["disposition"]), (False, "run"))
         self.assertEqual(popped["run"], run_id)
         self.assertEqual(popped["state"], payload["state"])
         run = self.read_run(payload)
@@ -446,7 +481,8 @@ class TestLoadScoredItems(_LoopFixtureBase):
                 self.assertEqual(out.getvalue().strip(), f"{item_id}  score {scores[item_id].total}")
         self.assertEqual(
             {item_id: scores[item_id].total for item_id in sorted(scores)},
-            {"001": 30, "002": 20, "003": 30, "004": 30, "005": 20, "006": 10, "007": 10},
+            {"001": 30, "002": 20, "003": 30, "004": 30, "005": 20, "006": 10, "007": 10,
+             "008": 10, "009": 10},
         )
 
 

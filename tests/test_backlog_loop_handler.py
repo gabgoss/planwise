@@ -28,6 +28,7 @@ HOOK_LITERALS = [
     ("(one, in loop mode)", 2),
     ("where C is not selectable", 1),
     ("--needs-plan", 1),
+    ("§ Refine step", 1),
 ]
 
 
@@ -54,6 +55,9 @@ class BacklogLoopHandlerTests(unittest.TestCase):
                     text.count(literal), minimum,
                     f"hook literal {literal!r} is missing from backlog.md",
                 )
+
+    def test_phase_2_refine_hook_present(self):
+        self.assertIn("run Part 2 § Refine step before Phase 3", _read(BACKLOG_HANDLER))
 
     def test_phase_1_to_2_slice_unchanged_claims(self):
         text = _read(BACKLOG_HANDLER)

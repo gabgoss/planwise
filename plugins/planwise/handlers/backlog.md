@@ -74,6 +74,7 @@ Before proceeding, read these reference files from `{plugin_root}/references/`:
 - For the backlog index format, item file schema, scoring formula, script interfaces, status flow, or error handling: Read `references/backlog-schema.md`
 - For Auto Mode behavior (how a step behaves when `AskUserQuestion` cannot be answered non-interactively): Read `references/auto-mode-policy.md`
 - In loop mode, or on `--loop-resume`: Read `handlers/backlog-Part-2-LoopMode.md`
+- When filing or refining items: Read `references/backlog-creation-process.md`
 
 ---
 
@@ -167,7 +168,7 @@ python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.y
 python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write                        # once, after the loop
 ```
 
-In loop mode only the one popped item is set IN_PROGRESS. After that write, run `python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --phase selected --run {run-id} --id {item_id}`.
+In loop mode only the one popped item is set IN_PROGRESS. After that write, run `python {plugin_root}/scripts/backlog_loop.py --config {planwise_root}/config.yaml --mark --phase selected --run {run-id} --id {item_id}`. When `--next` reported disposition `refine`, run Part 2 § Refine step before Phase 3.
 
 `--status` writes frontmatter only; a non-zero `--write` exit does not undo it — fix what it names and re-run `--write`. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
 
@@ -280,7 +281,7 @@ In loop mode only the one popped item is set IN_PROGRESS. After that write, run 
 - Option 2: Alternative route
 - Option 3: Skip this item
 
-**In loop mode:** ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (Part 2 § Documented skip) that also writes the marker: `--mark --outcome SKIPPED --needs-plan` with a `--decision` text that starts `LOOP: re-assessed to Route C`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`. Every other decision point follows Part 2 § No questions after setup.
+**In loop mode:** ask nothing. Take the recommended route when it is A or B. A Route C result is a documented skip (Part 2 § Documented skip) that also writes the marker: `--mark --outcome SKIPPED --needs-plan` with a `--decision` text that starts `LOOP: re-assessed to Route C`. Before the Route A or B dispatch, run `backlog_loop.py --mark --phase acting --run {run-id} --id {item_id}`. Every other decision point follows Part 2 § No questions after setup. A refined item never reaches the default Route C branch; a `needs_plan` item is skipped per the marker rule.
 
 ### Route A: Direct Fix (fix-agent delegation)
 
@@ -328,8 +329,8 @@ For medium-scope items with 2-5 discrete steps:
 consent the harness cannot obtain unattended. **If Auto Mode is active, do not run
 steps 1 to 5. Mark the item as needing a planning session and skip it:** run
 `python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id {item_id} --mark-needs-plan`,
-which writes `needs_plan: true` into the item's frontmatter and leaves its status
-unchanged; log `Auto Mode: marked for a planning session; skipping (no plan is
+which writes `needs_plan: true` into the item's frontmatter; set `--status
+NOT_STARTED`; log `Auto Mode: marked for a planning session; skipping (no plan is
 authored unattended)`; regenerate the index; continue to Phase 7. No planner is
 dispatched. A later interactive run, or a planning hand-off that reads the marker,
 authors the plan.
@@ -356,38 +357,12 @@ authors the plan.
    - Phase 6 outcome: "Fix approved" -> COMPLETE, or "Fix reverted" -> NOT_STARTED
      (existing table rows — no new row needed for this branch).
 
-   **`LARGE_SCOPE: true`** — hand off to the full session-planning agent:
-   - Dispatch `planwise:backlog-planner` via the Agent tool, using the same
-     invocation shape Route A uses for `fix-agent` (above), passing: item ID,
-     summary, description, affected files — and, ONLY when reached via this
-     interactive flow (steps 1-4 ran and produced a plan-mode design), an
-     `Approved Approach` block containing the just-approved plan-mode plan file's
-     content (backlog-planner authors its Standard plan FROM this approach when
-     present). When this dispatch is instead reached via the Auto Mode skip above,
-     omit the `Approved Approach` block entirely — backlog-planner authors from the
-     item's own scope, exactly as `harvest.md` Stage 3 already does.
-   - Read the returned status block (`agents/backlog-planner.md` §Status Block).
-     - If `TASK_STATUS: BLOCKED` -> apply `agents/backlog-planner.md`'s own
-       Failure Semantics table verbatim: status -> NOT_STARTED (never PLANNING
-       with no plan file), Notes `AUTO-PLAN FAILED {date}: {reason} — needs manual
-       triage`. Do NOT proceed to the review step below.
-     - If `TASK_STATUS: COMPLETE` and `REVIEW_REQUESTED: true` -> immediately run
-       `/planwise review {PLAN_PATH}` via the Agent tool (mirroring
-       `handlers/plan-Part-3-VerifyConfirmAndReview.md` Step 10's auto-review dispatch) — this MUST run exactly
-       once here; do NOT also offer `/planwise plan`'s own Step 10 review gate for
-       this plan, since `backlog-planner` already skips its side of that gate for
-       this exact reason. Recompute the verdict from the review report's own
-       Verdict section per `agents/backlog-planner.md`'s Verdict Table
-       (BLOCKER > 0, or an unjustified ERROR > 0 -> NEEDS_FIXES; else ->
-       APPROVED). Record the verdict in this item's Notes.
-   - Proceed to Phase 6 (status -> PLANNING) when a plan file was produced,
-     whether the review verdict was APPROVED or NEEDS_FIXES (per
-     `backlog-planner`'s own Failure Semantics table: a `NEEDS_FIXES` verdict
-     still leaves the item PLANNING — "a plan exists, unapproved" — it does not
-     revert to NOT_STARTED). The item then stays `PLANNING` until `/planwise run`
-     closeout closes it from the Master Plan's `**Resolves:**` header field
-     (`handlers/run.md` Step 4.3) — no backlog route closes it, so a plan whose
-     Master Plan lacks the item in that field leaves the item open after shipping.
+   **`LARGE_SCOPE: true`** — mark the item for a planning session. No plan is authored here:
+   - Run `python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id {item_id} --mark-needs-plan`.
+     It writes `needs_plan: true` into the item's frontmatter. Phase 6 sets the status.
+   - Print the hand-off: "Run `/planwise plan` on this item; the plan-mode file is the
+     approved approach", and name the plan-mode file's path.
+   - Proceed to Phase 6 (outcome "Marked for a planning session").
 
 ---
 
@@ -446,9 +421,7 @@ In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run 
 **After Route C (Session Planning):**
 - `LARGE_SCOPE: false` items were already verified via the "After Route B" flow
   above — Route C's own step 5 routes them there directly.
-- `LARGE_SCOPE: true` items: no additional verification needed here — the
-  mandatory `/planwise review` pass Route C's step 5 already ran against
-  `PLAN_PATH` before this phase was reached IS this branch's verification
+- `LARGE_SCOPE: true` items: nothing to verify; the item carries the marker.
 
 ---
 
@@ -461,15 +434,14 @@ In loop mode, before step 4 run `backlog_loop.py --mark --phase verifying --run 
 | Fix approved | `--status COMPLETE` |
 | Fix reverted | `--status NOT_STARTED` |
 | Task list completed | `--status COMPLETE` |
-| Session plan created | `--status PLANNING` — `/planwise run` closeout later sets COMPLETE from the Master Plan `**Resolves:**` field |
-| Session planning failed (backlog-planner BLOCKED) | `--status NOT_STARTED` |
+| Marked for a planning session | `--status NOT_STARTED`; marker already written |
 | Skipped | No change |
 
 ```bash
 python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --id "{item_id}" --status "{new_status}"
 ```
 
-**In loop mode,** after the `update_backlog.py --status` call, record the outcome with `backlog_loop.py --mark --outcome {COMPLETE|NOT_STARTED|SKIPPED} --run {run-id} --id {item_id}`. Approved or task list done maps to COMPLETE, reverted or planner blocked to NOT_STARTED, skipped to SKIPPED (see Part 2 § Per-iteration contract).
+**In loop mode,** after the `update_backlog.py --status` call, record the outcome with `backlog_loop.py --mark --outcome {COMPLETE|NOT_STARTED|SKIPPED} --run {run-id} --id {item_id}`. Approved or task list done maps to COMPLETE, reverted to NOT_STARTED, skipped to SKIPPED (see Part 2 § Per-iteration contract).
 
 **Regenerate the index once after status changes** (skip if outcome was "Skipped" — nothing changed):
 
@@ -498,7 +470,7 @@ python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/
 > ID  | Feature                              | Action        | Status
 > ----|--------------------------------------|---------------|--------
 > 002 | Fix login redirect bug               | Direct Fix    | COMPLETE
-> 001 | Setup project CI pipeline            | Plan Created  | PLANNING
+> 001 | Setup project CI pipeline            | Marked for planning | NOT_STARTED
 > 003 | Add user profile page                | Skipped       | IN_PROGRESS
 > ```
 
@@ -577,65 +549,22 @@ Use `AskUserQuestion`: "Create backlog item from this candidate?"
 >
 > This is a different concern from shipped-artifact self-containment (`references/artifact-self-containment.md`, which strips internal identifiers out of distributed artifacts) — here the goal is that the capture itself carries its own substance.
 
-For the accepted candidate set — the gate below applies per candidate, the routing decision after it applies to the set as a whole:
+For the accepted candidate set — the gate below applies per candidate, the hand-over after it applies to the set as a whole:
 
 > [!important] Pre-filing re-verification gate (before any file is written)
 > For each candidate, re-prove the condition it asserts against the live repository, per `references/verify-backlog-citation-freshness.md` §10. Candidates sourced from a plan's out-of-scope table, an audit's findings, or a prior session's deferred-work section carry their source's authoring date, not today's state. A candidate whose condition no longer holds is not filed — it is reported with the evidence that retired it, and the source document is reconciled per §10.4.
 
-> [!decide] Delegate the batch, or file inline
-> | Accepted candidates | Path |
-> |---|---|
-> | **N ≥ 2** | Dispatch `backlog-author` once (below), then render Step 7.4 from its status block |
-> | **N = 1** | File inline via steps 1-4 below — a single item does not repay a subagent's startup and re-read cost |
->
-> The accept/skip decision in Step 7.2 has already happened and stays in this session: the interactive question tool does not exist in a spawned context. Dispatch carries only accepted candidates.
+**Hand-over to the creation process.** File the accepted set (any N ≥ 1) through the filing path of [`references/backlog-creation-process.md`](../references/backlog-creation-process.md) §3, which holds the spawn-prompt shapes. Pass only accepted candidates: no spawned agent has the question tool.
 
-**Delegated path (N ≥ 2)** — dispatch [`agents/backlog-author.md`](../agents/backlog-author.md) via the Agent tool:
-
-```
-Task {
-  subagent_type: "planwise:backlog-author"
-  description: "File {N} follow-up backlog items from {item-id} resolution"
-  prompt: |
-    File the following accepted candidates as backlog items.
-
-    plugin_root:    {plugin_root}
-    planwise_root:  {planwise_root}
-    backlog_dir:    {backlog_dir}
-    Candidates:     {one block per candidate: description, target file, severity, originating item}
-    Source docs:    {paths this session already read, for SOURCE_PINS comparison}
-
-    Run the pre-filing re-verification gate on every candidate before writing
-    anything. Do not file a candidate whose condition no longer holds — return
-    it under ITEMS_RETIRED with the evidence that retired it.
-}
-```
+1. Dispatch `backlog-preflight` once in `file` mode, one block per candidate. It runs the pre-filing re-verification gate above, so a candidate that no longer holds returns as a retirement.
+2. Dispatch `backlog-planner` once per `HOLDS` block, named `planner-{id-or-label}`.
+3. On a `QUESTIONS` return, ask each question with one `AskUserQuestion` call. Then send the answers with `SendMessage` to the planner's dispatch name (`references/backlog-creation-process.md` §5).
+4. Dispatch `backlog-author` once in `file` mode after the last planner returns. It files the batch and regenerates the index. It sets no status: a status change runs through `update_backlog.py --status` here.
 
 > [!constraint] One dispatch, never a fan-out
 > **Never dispatch two of these agents concurrently.** The id-allocation race is the only remaining reason. `--next-id` reads the generated index files, and those change only when `generate_backlog_index.py --write` runs at the end of a dispatch. Two concurrent dispatches can therefore read the same next-free id and file two items under it. This guard can retire once id allocation stops depending on the regenerated index. Batch candidates into **one** dispatch rather than fanning out per candidate. One dispatch also costs less than several. Dispatch **foreground only** — a background subagent silently auto-denies its own Write/Edit/Bash calls, and permission-bypass modes do not override that gate.
 
-**Result handling:** render Step 7.4 from the returned status block. `ITEMS_FILED < CANDIDATES_IN` is a valid COMPLETE — name each retirement and its evidence in the summary. Reconcile each source document listed under `SOURCE_RECONCILE` per `references/verify-backlog-citation-freshness.md` §10.4; the agent does not touch those files. If `SOURCE_PINS` shows a source file whose line count differs from this session's own read, re-read it before trusting the item drafted from it.
-
-**Inline path (N = 1)** — steps 1-3:
-
-1. **Get next BLI ID:**
-   ```bash
-   python {plugin_root}/scripts/parse_backlog.py --config {planwise_root}/config.yaml --next-id
-   ```
-
-2. **File the item through the guarded writer, then fill its body:**
-   ```bash
-   python {plugin_root}/scripts/update_backlog.py --config {planwise_root}/config.yaml --create --id "{NNN}" --feature "{recommendation, 120 characters or fewer}" --priority "{inferred from severity}" --abbrev "{Domain}" --files "BB-{NNN}-01-{Domain}-{Topic}.md"
-   ```
-   `--create` writes the item file at `{backlog_dir}/BB-{NNN}-01-{Domain}-{Topic}.md` from the [backlog-item.md](../templates/backlog-item.md) template. `01` is the sub-item segment that [backlog-schema.md](../references/backlog-schema.md) defines, and a new item always starts at `01`. It writes nothing else — no index row, no regeneration. **Cap the title at 120 characters** — `--create` rejects a longer `--feature`, writes nothing, and names the actual length and the cap; it never truncates. Shorten the title and move the overflow into the item body's `## Summary`. Then use `Edit` to add the candidate description, target file, and severity.
-   - **Route hint (optional, when the evidence supports it):** in the same `Edit`, add `route_hint:` (`A`, `B`, or `C`), `route_evidence:` (one line — why, from what was verified live), and `route_dated:` (today) to the frontmatter. Filing time is when the routing evidence is richest; Phase 3 step 6 reads the three fields back as a dated recommendation, never a decision. Omit all three rather than guess.
-   - **Self-containment check:** the body inlines every block, spec, or piece of evidence the item depends on — a reference may add context, but the substantive content required to act is pasted in, not only linked. (Apply the durability test above.)
-
-3. **Regenerate the index once, after the item is filed:**
-   ```bash
-   python {plugin_root}/scripts/generate_backlog_index.py --config {planwise_root}/config.yaml --write
-   ```
-   The generator rebuilds the whole index from every item file's frontmatter and computes the Score column itself — there is no separate re-score step. The generator refuses a hand-authored index on its own; a refusal here means Phase 1's Index shape gate was bypassed — run it.
+**Result handling:** render Step 7.4 from the author's status block. `ITEMS_FILED < CANDIDATES_IN` is a valid COMPLETE — name each retirement the author lists under `ITEMS_RETIRED`, with its evidence, in the summary. Reconcile each source document listed under `SOURCE_RECONCILE` per `references/verify-backlog-citation-freshness.md` §10.4; the author does not touch those files. If the preflight's `SOURCE_PINS` shows a source file whose line count differs from this session's own read, re-read it before trusting the item drafted from it.
 
 ### Step 7.4: Output Summary
 
@@ -649,7 +578,7 @@ Skipped: {N - M}
 New BLI IDs: BLI-{NNN}, BLI-{NNN+1}, ...
 ```
 
-When the number of items filed differs from the number of candidates surfaced, name each candidate that was retired rather than filed, with the evidence that retired it (from the Step 7.3 pre-filing gate) — a silent count difference is indistinguishable from a dropped candidate.
+Render this summary from the author's status block: `BLIs created` is its `ITEMS_FILED`. When the number of items filed differs from the number of candidates surfaced, name each candidate that was retired rather than filed, with the evidence that retired it (from the author's `ITEMS_RETIRED` lines) — a silent count difference is indistinguishable from a dropped candidate.
 
 ---
 

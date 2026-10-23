@@ -21,7 +21,7 @@ single-line JSON object:
              A section with no end marker is never changed either. With
              --needs-plan it marks the item `needs_plan: true`. A COMPLETE
              outcome with --resolution-file appends the close record to the
-             item file
+             item file. --refined, alone, records the refine outcome
   --boundary print the marker line the hooks module watches for
   --end      close the run and print the cross-run summary
   --status   print one run's record, or list every run
@@ -48,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True  # an installed plugin must not grow scripts/__pycache__
 from config_loader import load_config
 from constants import HOLD_STATUSES, OPEN_STATUSES
+from item_shape import _reads_true
 from markdown_parser import normalize_id
 from parse_backlog import (
     FilterCriteria,
@@ -72,6 +73,7 @@ from scoped_rules import (
 )
 from score_backlog import (
     _read_hub_family_items,
+    compute_item_shape,
     compute_route_signals,
     get_first_file_path,
     load_scored_items,
@@ -101,8 +103,13 @@ OUTCOMES = ("COMPLETE", "NOT_STARTED", "SKIPPED")
 EXCLUDED_REASON = "plans deferred in loop mode"
 NO_LONGER_SELECTABLE = "no-longer-selectable"
 DECISION_HEADING = "## Loop Decision Needed"
+REFINE_OUTCOMES = ("REFINED", "QUESTIONS", "ALREADY_MET", "DECOMPOSE", "NEEDS_PLAN")
+# An unrefined default-branch Route C item past the --refine-max cap.
 NEEDS_REFINE_REASON = "needs refine"
 NEEDS_PLAN_NOTE = "marked for a planning session"
+NEEDS_PLAN_REASON = NEEDS_PLAN_NOTE
+OPEN_QUESTIONS_REASON = "open questions unanswered"
+OPEN_QUESTIONS_NOTE = "open-questions-unanswered"
 DECISION_MAX_CHARS = 1200
 # The outcomes of write_decision_section.
 DECISION_WRITTEN = "written"
@@ -413,11 +420,15 @@ def write_decision_section(path: Path, run_id: str, text: str) -> tuple[str, str
 
 
 def marked_needs_plan(frontmatter: dict) -> bool:
-    """True when the item's frontmatter carries `needs_plan` true (`true` or `"true"`, any case)."""
+    """True when the item's frontmatter carries `needs_plan` true.
+
+    The shared truthy reader decides, so `yes`, `on` and `y` read as true
+    here exactly as they do in the route; a quoted value is unquoted first.
+    """
     value = frontmatter.get("needs_plan")
-    if value is None:
-        return False
-    return str(value).strip().strip("\"'").lower() == "true"
+    if isinstance(value, str):
+        value = value.strip().strip("\"'")
+    return _reads_true(value)
 
 
 def score_of(scores: dict, item_id: str) -> int:
@@ -447,13 +458,14 @@ def summary_lines(run: dict, config: dict) -> list[str]:
             order.append(key)
     lines = [
         f"Loop summary for run {run.get('run_id')}",
-        "| ID | Feature | Route | Outcome |",
-        "|----|---------|-------|---------|",
+        "| ID | Feature | Route | Outcome | Refine |",
+        "|----|---------|-------|---------|--------|",
     ]
     for item_id in order:
         rec = run["items"].get(item_id)
         info = meta.get(item_id, {})
         feature = info.get("feature") or ""
+        refine = ((rec or {}).get("refine") or {}).get("outcome") or "-"
         if rec is None:
             route, outcome = info.get("route_at_init") or "-", "NOT_REACHED"
         else:
@@ -462,7 +474,7 @@ def summary_lines(run: dict, config: dict) -> list[str]:
             fallback = "-" if rec.get("needs_plan") else rec.get("route_at_init") or "-"
             route = rec.get("route") or fallback
             outcome = rec.get("outcome") or "OPEN"
-        lines.append(f"| {item_id} | {feature} | {route} | {outcome} |")
+        lines.append(f"| {item_id} | {feature} | {route} | {outcome} | {refine} |")
     # One header per exclusion reason, in first-seen order. A run file from
     # before reasons were split carries the strong-signal reason on every entry.
     groups: dict[str, list[dict]] = {}
@@ -480,6 +492,18 @@ def summary_lines(run: dict, config: dict) -> list[str]:
     if unattended:
         lines.append(f"Closed unattended (criteria already met; see {RESOLUTION_HEADING}):")
         lines.extend(f"  {key}" for key in unattended)
+    refined: dict[str, list[str]] = {}
+    for key, rec in run["items"].items():
+        if rec.get("refine"):
+            refined.setdefault(rec["refine"]["outcome"], []).append(key)
+    if refined:
+        lines.append("Refine outcomes:")
+        lines.extend(
+            f"  {outcome}: {', '.join(refined[outcome])}" for outcome in REFINE_OUTCOMES if outcome in refined
+        )
+    if refined.get("QUESTIONS"):
+        lines.append("Open questions written (answer in each item's ## Open Questions):")
+        lines.extend(f"  {key}" for key in refined["QUESTIONS"])
     needs_input = [key for key, rec in run["items"].items() if rec.get("user_input_needed")]
     if needs_input:
         lines.append("User input needed (see the Loop Decision Needed section in each item file):")
@@ -514,6 +538,8 @@ def cmd_init(args, config: dict) -> int:
         raise LoopExit(EXIT_USAGE, "--mode n requires --n with a number of 1 or more")
     if args.mode == "specific" and not (args.items or "").strip():
         raise LoopExit(EXIT_USAGE, "--mode specific requires --items")
+    if args.refine_max < 0:
+        raise LoopExit(EXIT_USAGE, "--refine-max takes a number of 0 or more")
 
     items, frontmatters, scores, _open_ids = load_scored_items(config)
     if not items:
@@ -536,35 +562,66 @@ def cmd_init(args, config: dict) -> int:
     )
     selectable, held = filter_items(items, criteria, blocked_by)
 
-    eligible: list[tuple[dict, dict]] = []
-    excluded: list[dict] = []
+    def by_score(pair: tuple) -> tuple:
+        return (-score_of(scores, pair[0]["id"]), pair[0]["id"])
+
+    # First pass, in index order: the reasons that hold whatever the cap.
+    verdicts: list[tuple[dict, dict | None, str | None]] = []
     for item in selectable:
         frontmatter = frontmatters.get(item["id"], {})
         if marked_needs_plan(frontmatter):
             # An item marked for a planning session is never queued, so the
             # loop does not pick it up again on every run. No route is computed.
-            excluded.append({
-                "id": item["id"],
-                "route": None,
-                "large_scope": False,
-                "reason": NEEDS_PLAN_NOTE,
-                "feature": item["feature"],
-            })
+            verdicts.append((item, None, NEEDS_PLAN_REASON))
             continue
         signals = compute_route_signals(item, frontmatter)
-        if signals["route"] in ("A", "B"):
-            eligible.append((item, signals))
+        shape = signals["shape"]
+        if shape["open_questions"] == "unanswered":
+            reason = OPEN_QUESTIONS_REASON
+        elif signals["route"] == "C" and shape["shape_ok"]:
+            # A refined item that fails the shape gate is refined again below.
+            reason = EXCLUDED_REASON
         else:
-            # A strong scope signal defers the item to a planning session; the
-            # conservative default branch means the item needs refining first.
-            excluded.append({
-                "id": item["id"],
-                "route": signals["route"],
-                "large_scope": signals["large_scope"],
-                "reason": EXCLUDED_REASON if signals["large_scope"] else NEEDS_REFINE_REASON,
-                "feature": item["feature"],
-            })
-    eligible.sort(key=lambda pair: (-score_of(scores, pair[0]["id"]), pair[0]["id"]))
+            reason = None
+        verdicts.append((item, signals, reason))
+
+    # Refining is opt-in: --mode specific refines every named unrefined item,
+    # otherwise the --refine-max highest-scored unrefined items are refined.
+    # A refined item whose shape gate fails counts as unrefined here.
+    unrefined = sorted(
+        ((item, signals) for item, signals, reason in verdicts
+         if reason is None and not signals["shape"]["shape_ok"]),
+        key=by_score,
+    )
+    if args.mode == "specific":
+        named = {normalize_id(raw.strip()) for raw in args.items.split(",") if raw.strip()}
+        refine_ids = {item["id"] for item, _signals in unrefined if normalize_id(item["id"]) in named}
+    else:
+        refine_ids = {item["id"] for item, _signals in unrefined[: args.refine_max]}
+
+    eligible: list[tuple[dict, dict, str]] = []
+    excluded: list[dict] = []
+    for item, signals, reason in verdicts:
+        if reason is None:
+            if item["id"] in refine_ids:
+                eligible.append((item, signals, "refine"))
+                continue
+            if signals["route"] in ("A", "B"):
+                eligible.append((item, signals, "run"))
+                continue
+            # Past the cap, an unrefined Route C item keeps its old exclusion:
+            # a strong scope signal defers it to a planning session, and the
+            # conservative default branch means it needs refining first.
+            reason = EXCLUDED_REASON if signals["large_scope"] else NEEDS_REFINE_REASON
+        excluded.append({
+            "id": item["id"],
+            "route": signals["route"] if signals else None,
+            "large_scope": bool(signals and signals["large_scope"]),
+            "reason": reason,
+            "feature": item["feature"],
+            "refined": bool(signals and signals["shape"]["refined"]),
+        })
+    eligible.sort(key=by_score)
 
     warnings: list[str] = []
     if args.mode == "specific":
@@ -584,10 +641,10 @@ def cmd_init(args, config: dict) -> int:
                 queue_pairs.append(by_norm[key])
                 continue
             if key in excluded_reason:
-                if excluded_reason[key] == NEEDS_PLAN_NOTE:
-                    why = NEEDS_PLAN_NOTE
-                elif excluded_reason[key] == NEEDS_REFINE_REASON:
-                    why = "needs refine before the loop can run it"
+                # A named unrefined item is always refined, so only a reason
+                # that holds whatever the cap can drop it here.
+                if excluded_reason[key] in (NEEDS_PLAN_REASON, OPEN_QUESTIONS_REASON):
+                    why = excluded_reason[key]
                 else:
                     why = "route C is deferred in loop mode"
             elif key in held_norm:
@@ -616,6 +673,8 @@ def cmd_init(args, config: dict) -> int:
             "route_at_init": pair[1]["route"],
             "score": score_of(scores, pair[0]["id"]),
             "feature": pair[0]["feature"],
+            "refined_at_init": pair[1]["shape"]["refined"],
+            "disposition_at_init": pair[2],
         }
         for pair in queue_pairs
     }
@@ -632,6 +691,7 @@ def cmd_init(args, config: dict) -> int:
             "status": args.status or None,
         },
         "no_check": bool(args.no_check),
+        "refine_max": args.refine_max,
         "excluded": excluded,
         "queue": queue,
         "queue_meta": queue_meta,
@@ -655,7 +715,8 @@ def cmd_init(args, config: dict) -> int:
     for position, item_id in enumerate(queue, start=1):
         info = queue_meta[item_id]
         lines.append(
-            f"  {position}. {item_id}  score {info['score']}  route {info['route_at_init']}  {info['feature']}"
+            f"  {position}. {item_id}  score {info['score']}  route {info['route_at_init']}  "
+            f"{info['disposition_at_init']}  {info['feature']}"
         )
     if excluded:
         lines.append("Excluded:")
@@ -666,7 +727,15 @@ def cmd_init(args, config: dict) -> int:
     emit(lines, {
         "run": run_id,
         "state": state_text(path),
-        "queue": [{"id": i, "score": queue_meta[i]["score"], "route_at_init": queue_meta[i]["route_at_init"]} for i in queue],
+        "queue": [
+            {
+                "id": i,
+                "score": queue_meta[i]["score"],
+                "route_at_init": queue_meta[i]["route_at_init"],
+                "disposition": queue_meta[i]["disposition_at_init"],
+            }
+            for i in queue
+        ],
         "excluded": excluded,
         "warnings": warnings,
     })
@@ -705,8 +774,22 @@ def cmd_next(args, config: dict) -> int:
 
     rows_by_norm: dict | None = None
     skipped: list[str] = []
+    skip_notes: list[str] = []
     changed = False
     popped: str | None = None
+    refined = False
+    disposition = "run"
+
+    def skip(item_id: str, record: dict, note: str) -> None:
+        record.update(phase="closed", outcome="SKIPPED", started=None, closed=now_iso(), note=note)
+        run["items"][item_id] = record
+        # Keep `current` on a closed item, so `--boundary` can still end a
+        # run whose queue was skipped to exhaustion.
+        run["current"] = item_id
+        add_history(run, "mark", item_id, f"outcome=SKIPPED {note}")
+        skipped.append(item_id)
+        skip_notes.append(f"Skipped {item_id}: {note}")
+
     while run["queue"]:
         item_id = run["queue"].pop(0)
         changed = True
@@ -726,17 +809,20 @@ def cmd_next(args, config: dict) -> int:
             "note": None,
         }
         if not still_selectable(config, rows_by_norm, item_id):
-            record.update(phase="closed", outcome="SKIPPED", started=None, closed=now, note=NO_LONGER_SELECTABLE)
-            run["items"][item_id] = record
-            # Keep `current` on a closed item, so `--boundary` can still end a
-            # run whose queue was skipped to exhaustion.
-            run["current"] = item_id
-            add_history(run, "mark", item_id, f"outcome=SKIPPED {NO_LONGER_SELECTABLE}")
-            skipped.append(item_id)
+            skip(item_id, record, NO_LONGER_SELECTABLE)
             continue
         # The status before this loop touched the item, so a documented skip can
         # hand the item back the way it was found.
-        record["pre_status"] = item_status_of(config, rows_by_norm, item_id)[1] or None
+        item_path, status_now = item_status_of(config, rows_by_norm, item_id)
+        # The refine state is read from the live file, not from init.
+        shape = compute_item_shape(read_item_frontmatter(item_path) if item_path else {})
+        if shape["open_questions"] == "unanswered":
+            skip(item_id, record, OPEN_QUESTIONS_NOTE)
+            continue
+        refined = shape["refined"]
+        # A refined item whose shape gate fails keeps its init disposition.
+        disposition = "run" if shape["shape_ok"] else info.get("disposition_at_init") or "run"
+        record["pre_status"] = status_now or None
         run["items"][item_id] = record
         run["current"] = item_id
         add_history(run, "next", item_id, f"remaining={len(run['queue'])}")
@@ -746,7 +832,7 @@ def cmd_next(args, config: dict) -> int:
     if changed:
         save_run(path, run)
     remaining = len(run["queue"])
-    lines = [f"Skipped {item_id}: {NO_LONGER_SELECTABLE}" for item_id in skipped]
+    lines = list(skip_notes)
     if popped is None:
         lines.append("No items left in the queue.")
         emit(lines, {"next": None, "remaining": 0, **base_payload, "skipped": skipped})
@@ -754,7 +840,7 @@ def cmd_next(args, config: dict) -> int:
     info = run.get("queue_meta", {}).get(popped, {})
     lines.append(
         f"Next: {popped}  {info.get('feature') or ''}  (route {info.get('route_at_init')}, "
-        f"score {info.get('score')}); {remaining} remaining"
+        f"score {info.get('score')}, {disposition}); {remaining} remaining"
     )
     emit(lines, {
         "next": popped,
@@ -762,6 +848,8 @@ def cmd_next(args, config: dict) -> int:
         **base_payload,
         "route_at_init": info.get("route_at_init"),
         "score": info.get("score"),
+        "refined": refined,
+        "disposition": disposition,
         "pre_status": run["items"][popped].get("pre_status"),
         "skipped": skipped,
     })
@@ -798,11 +886,48 @@ def mark_lessons(args, config: dict) -> int:
     return EXIT_OK
 
 
+def mark_refined(args, config: dict) -> int:
+    """Record the refine step's outcome for an item, with its sub-items for DECOMPOSE.
+
+    Written under its own history event, so it never changes which event
+    `--boundary` reads as the newest mark for the item.
+    """
+    if args.phase or args.outcome or args.route or args.note or args.decision is not None:
+        raise LoopExit(EXIT_USAGE, "--refined stands alone: give no --phase, --outcome, --route, --note or --decision")
+    sub_items = [part.strip() for part in (args.sub_items or "").split(",") if part.strip()]
+    if args.refined == "DECOMPOSE" and not sub_items:
+        raise LoopExit(EXIT_USAGE, "--refined DECOMPOSE needs --sub-items with at least one item id")
+    if args.refined != "DECOMPOSE" and args.sub_items is not None:
+        raise LoopExit(EXIT_USAGE, "--sub-items applies to --refined DECOMPOSE only")
+    path = resolve_run_path(config, args.run)
+    run = load_run(path)
+    refuse_if_ended(run, {"run": path.stem, "state": state_text(path)})
+    key = resolve_item_key(run, args.id)
+    record = run["items"][key]
+    record["refine"] = {"outcome": args.refined, "at": now_iso(), "sub_items": sub_items}
+    detail = args.refined + (f" sub_items={','.join(sub_items)}" if sub_items else "")
+    add_history(run, "refine", key, detail)
+    save_run(path, run)
+    emit([f"Recorded refine outcome for {key}: {detail}"], {
+        "run": path.stem,
+        "id": key,
+        "refine": record["refine"],
+        "state": state_text(path),
+    })
+    return EXIT_OK
+
+
 def cmd_mark(args, config: dict) -> int:
     if not args.id:
         raise LoopExit(EXIT_USAGE, "--mark requires --id")
-    # These guards run before the --lessons branch, so no flag combined with
-    # --lessons is ever silently dropped.
+    # These guards run before the --refined and --lessons branches, so no
+    # flag combined with either is ever silently dropped.
+    if args.refined is not None and (
+        args.lessons is not None or args.needs_plan or args.resolution_file is not None
+    ):
+        raise LoopExit(EXIT_USAGE, "--refined stands alone: give no --lessons, --needs-plan or --resolution-file")
+    if args.sub_items is not None and args.refined is None:
+        raise LoopExit(EXIT_USAGE, "--sub-items applies to --refined DECOMPOSE only")
     if args.lessons is not None and (args.needs_plan or args.resolution_file is not None):
         raise LoopExit(EXIT_USAGE, "--lessons stands alone: give no --needs-plan or --resolution-file")
     if args.decision is not None and len(args.decision) > DECISION_MAX_CHARS:
@@ -843,10 +968,12 @@ def cmd_mark(args, config: dict) -> int:
             resolution_text = read_resolution_file(args.resolution_file)
         except ResolutionFileError as exc:
             raise LoopExit(EXIT_USAGE, str(exc))
+    if args.refined is not None:
+        return mark_refined(args, config)
     if args.lessons is not None:
         return mark_lessons(args, config)
     if bool(args.phase) == bool(args.outcome):
-        raise LoopExit(EXIT_USAGE, "--mark requires exactly one of --phase, --outcome or --lessons")
+        raise LoopExit(EXIT_USAGE, "--mark requires exactly one of --phase, --outcome, --lessons or --refined")
     if args.phase and (args.route or args.note or args.decision):
         raise LoopExit(EXIT_USAGE, "--route, --note and --decision apply to --outcome only")
     if args.decision is not None and args.outcome != "SKIPPED":
@@ -894,6 +1021,16 @@ def cmd_mark(args, config: dict) -> int:
                 raise LoopExit(EXIT_USAGE, f"--decision could not find the item file for {key}")
             if args.needs_plan and item_path is None:
                 raise LoopExit(EXIT_USAGE, f"--needs-plan could not find the item file for {key}")
+            if args.decision is not None and fence_left_open(
+                read_text_preserving_newlines(item_path).replace("\r\n", "\n")
+            ):
+                # A section written after an unclosed fence would sit inside
+                # it, where no reader sees it. Refuse before any write.
+                raise LoopExit(
+                    EXIT_USAGE,
+                    f"--decision refused: the item file for {key} opens a fenced block it never "
+                    "closes, so a new section would be hidden inside it. Close the fence first.",
+                )
             if item_path is not None:
                 pre_status = record.get("pre_status")
                 loop_set_it = bool(pre_status) and pre_status != "IN_PROGRESS" and status_now == "IN_PROGRESS"
@@ -920,7 +1057,7 @@ def cmd_mark(args, config: dict) -> int:
             if resolution_outcome == "absent_file":
                 raise LoopExit(EXIT_USAGE, f"--resolution-file could not find the item file for {key}")
             record["unattended_close"] = True
-            resolution_written = resolution_outcome == "appended"
+            resolution_written = resolution_outcome in ("appended", "closed_block")
             record["resolution_written"] = resolution_written
         now = now_iso()
         record["phase"] = "closed"
@@ -958,10 +1095,10 @@ def cmd_mark(args, config: dict) -> int:
     if needs_plan_written:
         lines.append(f"Marked {key} needs_plan: true in the item file. Regenerate the backlog index.")
     if resolution_outcome is not None:
-        lines.append(
-            "Resolution: appended" if resolution_written
-            else "Resolution: section already present, left unchanged"
-        )
+        lines.append({
+            "appended": "Resolution: appended",
+            "closed_block": "Resolution: section present, dated close block appended",
+        }.get(resolution_outcome, "Resolution: section already present, left unchanged"))
     emit(lines, {
         "run": path.stem,
         "id": key,
@@ -1136,7 +1273,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resolution-file", type=Path, default=None, dest="resolution_file",
         help=f"With --mark --outcome COMPLETE: a file whose text is appended under {RESOLUTION_HEADING} "
-             "in the item file (a no-op when the section exists)",
+             "in the item file; when the section exists, a dated '### Closed {date}' block is "
+             "appended below it",
+    )
+    parser.add_argument(
+        "--refine-max", type=int, default=0, dest="refine_max",
+        help="With --init: refine at most N unrefined items, highest score first (default 0). "
+             "--mode specific refines every named unrefined item.",
+    )
+    parser.add_argument(
+        "--refined", choices=list(REFINE_OUTCOMES), default=None,
+        help="With --mark, alone: record the refine step's outcome for the item.",
+    )
+    parser.add_argument(
+        "--sub-items", default=None, dest="sub_items",
+        help="With --mark --refined DECOMPOSE: comma-separated ids of the sub-items filed.",
     )
     return parser
 

@@ -350,7 +350,7 @@ class TestReviewRegressions(_GatesFixtureBase):
     def test_update_backlog_and_loop_agree_on_fenced_resolution_heading(self):
         fence = f"\n````markdown\n```\n## Resolution\n{HEADING}\n```\n````\n"
         before = item_text("001", "NOT_STARTED", "short") + fence
-        self.assertFalse(update_backlog._heading_outside_fences(before, "## Resolution"))
+        self.assertIsNone(update_backlog._resolution_section_span(before))
         self.assertEqual(scoped_rules.loop_section_spans(before), [])
 
         resolved = self.tmp / "resolved.md"
@@ -402,7 +402,7 @@ class TestReviewRegressions(_GatesFixtureBase):
         self.assertIsNone(self.read_run(payload)["items"]["001"]["route"])
         code, text, _payload = self.loop("--end", "--run", run_id)
         self.assertEqual(code, 0)
-        self.assertIn("| 001 | Short fix | - | SKIPPED |", text.splitlines())
+        self.assertIn("| 001 | Short fix | - | SKIPPED | - |", text.splitlines())
 
     def test_decision_with_h2_line_is_refused(self):
         payload = self.init("--mode", "all")
@@ -437,6 +437,37 @@ class TestReviewRegressions(_GatesFixtureBase):
         self.assertEqual(code, 0)
         self.assertEqual([q["id"] for q in specific["queue"]], ["001"])
         self.assertIn("warning: item 007 dropped: marked for a planning session", text)
+
+    def test_needs_plan_yes_reads_as_marked(self):
+        # The text a frontmatter read without PyYAML returns; the route's
+        # shared reader takes the same YAML 1.1 spellings.
+        for value in ("yes", "Y", "on", "True", '"TRUE"', True):
+            with self.subTest(value=value):
+                self.assertTrue(backlog_loop.marked_needs_plan({"needs_plan": value}))
+        for value in ("no", "false", "", None, False):
+            with self.subTest(value=value):
+                self.assertFalse(backlog_loop.marked_needs_plan({"needs_plan": value}))
+
+    def test_decision_append_refuses_or_closes_open_fence(self):
+        payload = self.init("--mode", "all")
+        run_id = payload["run"]
+        self.pop_and_select(run_id, "001")
+        path = self.item_file("001")
+        # A person left a fence open inside the section, so its end marker
+        # reads as fenced and the section as legacy.
+        self.write_raw(path, self.read_raw(path) + old_section(RUN_1) + "```text\nhalf an example\n" + END + "\n")
+        before_item = path.read_bytes()
+        before_run = self.run_path(payload).read_bytes()
+
+        code, _text, error = self.loop(
+            "--mark", "--run", run_id, "--id", "001", "--outcome", "SKIPPED", "--decision", DECISION,
+        )
+
+        # Refused: exit 1, and neither the item file nor the run file changes.
+        self.assertEqual(code, 1)
+        self.assertIn("never closes", error["error"])
+        self.assertEqual(path.read_bytes(), before_item)
+        self.assertEqual(self.run_path(payload).read_bytes(), before_run)
 
 
 if __name__ == "__main__":

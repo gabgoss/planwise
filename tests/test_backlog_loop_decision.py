@@ -270,9 +270,30 @@ class TestNoQuestionsAfterSetup(unittest.TestCase):
             "Route C or fix-agent `BLOCKED` (backlog.md Phase 4, loop mode)",
             "Follow-up candidate filing (backlog.md Phase 7, loop mode)",
             "Held-item notice (backlog.md Phase 2, loop mode)",
+            "Refine step (backlog-Part-2-LoopMode.md § Refine step, loop mode)",
         ):
             with self.subTest(row=row):
                 self.assertIn(row, text)
+
+    def test_part_2_carries_the_refine_step(self):
+        text = LOOP_PART2.read_text(encoding="utf-8")
+        for needle in (
+            "## Refine step",
+            "--mark --refined",
+            "Answer:",
+            "refined: false",
+            "open questions unanswered",
+            "marked for a planning session",
+            "A refine skip uses",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+
+    def test_refine_step_asks_no_question(self):
+        text = LOOP_PART2.read_text(encoding="utf-8")
+        start = text.index("## Refine step")
+        end = text.index("\n## ", start + 1)
+        self.assertEqual(_question_lines(text[start:end]), [])
 
     def test_pin_discriminates_a_planted_question(self):
         planted = LOOP_PART2.read_text(encoding="utf-8") + "\nUse `AskUserQuestion`: route or skip?\n"
