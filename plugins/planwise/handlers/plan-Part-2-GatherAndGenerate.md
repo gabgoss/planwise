@@ -226,12 +226,25 @@ The scan owns the content-class decision: it prices each row from the live file 
 For each task in the session, compute a bottom-up token estimate:
 
 1. **Measure Required Context files:** Run `python "{plugin_root}/scripts/measure_files.py" {files...} --model {task's Agent} --md` over every file in the task's Required Context table — it reports each file's KiB and measured tokens and emits ready-to-paste table rows. Add `--content code` for a code file, so its price matches the scan's code class
-2. **Convert to tokens:** For files that do not exist yet, estimate byte size ÷ the reading model's bytes-per-token ratio (≈3.0 prose/code, ≈2.6 dense markdown; see [Per-Operation Cost Reference](../references/session-context-budget.md#per-operation-cost-reference)) — never lines × a rate
+2. **Convert to tokens:** For files that do not exist yet, estimate byte size ÷ the reading model's bytes-per-token ratio (≈2.9 prose, ≈2.7 code, ≈2.6 dense markdown; see [Per-Operation Cost Reference](../references/session-context-budget.md#per-operation-cost-reference)) — never lines × a rate
 3. **Add output cost:** Estimate output generation tokens from the operation-level table
-4. **Compare:** If the bottom-up estimate exceeds the qualitative category estimate, use the higher number
+4. **Compare:** If the bottom-up estimate exceeds the qualitative category estimate ([Task Sizing Categories](#task-sizing-categories) below), use the higher number
 5. **DELEGATED check:** For DELEGATED tasks, verify `(task estimate + injected path-rule tokens + 54K overhead) < the dispatched model's window` per subagent. A subagent's window is set by its **dispatched model** (Sonnet/Haiku 200K, Opus 1M), NOT the parent tier — a Sonnet runner is 200K even when the orchestrator is on Max. See `references/session-context-budget.md` [§ Subagent Context Window](../references/session-context-budget.md#subagent-context-window).
 
 On the fallback path, update the task's `Estimated Tokens` field and the Orchestration Session Task List with the validated estimates. On the default path, the scan wrote them, so edit a figure only where items 3-5 raise it.
+
+#### Task Sizing Categories
+
+The task-size thresholds below are expressed for the Pro tier. On Max, scale by the same ratio used for session limits — a "Too Large" task on Pro is ~80% of `practical_session_limit`. The "always split a task above 80% of one session" principle is tier-invariant.
+
+| Task Size | Token Estimate (Pro) | Guideline |
+|-----------|---------------------|-----------|
+| Small | < 20K | Single file, simple lookup |
+| Medium | 20-50K | Multi-file, code generation |
+| Large | 50-80K | Complex analysis, multiple entities |
+| Too Large | > 80K (Pro) / > 320K (Max practical) | **MUST SPLIT** |
+
+**These categories are a cross-check, not the primary estimate.** Always compute the bottom-up estimate first, then compare against the category. Use the HIGHER of the two.
 
 #### Token Saver Large-File Scan (gated on the **effective** Token Saver value)
 

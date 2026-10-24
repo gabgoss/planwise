@@ -56,6 +56,21 @@ Map each Consolidated Context part to a sprint. Each part's `Scope:` and `What T
 
 ## Scaffolding Step 4: Create Execution Inputs
 
+**Write CONFIRM (before the first plan file):** Before writing any plan file (Master Plan, Execution Input, Sprint Plan, Orchestration, Recovery, task file, `Outputs/`), output this block and wait for approval. No mode waives it, Auto Mode included.
+
+> [!template] Scaffolding Write Confirmation
+> ```
+> CONTEXT LOADED
+> Plan: {plan name + abbreviation}
+> Expected outputs: 1 Master Plan + N Execution Inputs + M Sprint Plans
+> Per-sprint session count: Sprint-{XX}: K1 sessions, Sprint-{YY}: K2 sessions, ...
+> Total file count: F files (Σ session-folder × per-session file count + Master Plan + EIs + Sprint Plans)
+> Next Action: Write {first file path}
+> ```
+
+<!-- AUTO-MODE: critical -->
+Use `AskUserQuestion`: "Write these {F} plan files?"
+
 For EACH sprint, produce an **Execution Input** file -- a sprint-scoped extraction of the Consolidated Context parts. Use the [execution-input.md](../templates/execution-input.md) template.
 
 **Process:**

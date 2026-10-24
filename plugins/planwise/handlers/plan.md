@@ -76,17 +76,17 @@ All directory paths resolve as `{planwise_root}/{dir_name}` (e.g., `planwise/Pla
 
 Before proceeding, read these reference files from `{plugin_root}/references/`:
 
-**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are pre-injected by SKILL.md.
+**Base references** (`markdown-conventions.md`, `callout-conventions.md`, `agent-orchestration.md`, `do-the-hard-things.md`, `native-tool-use.md`, `feedback-drafting.md`) are linked from SKILL.md, not loaded by it. Read one only when a step below cites it.
 
 **Plan-specific references (always load):**
-1. Read `references/session-planning-protocol.md`
-2. Read `references/session-plan-requirements.md`
-3. Read `references/session-context-budget.md`
-4. Read `references/session-execution-protocol.md` — source for session invariants
-5. Read `references/read-confirm-act-protocol.md` — source for READ-CONFIRM-ACT, the structural-findings gate, and the post-step checklist (cited in this handler's checklists)
-6. Read `references/context-loading-and-conservation.md` — source for the standard-plan-vs-Meta-Plan decision (Step 0: Detect Mode) and context-conservation tactics
+1. Read `references/session-plan-requirements.md`
 
 **Conditional references:**
+- If a file this plan authors routes or reconciles a cross-task coordination flag (a `## Pre-Known Cross-Task Coordination Flags` block or a flag-routing step), records a Scope-Expansion Decision, or pins a commit-shaped criterion: Read `references/read-confirm-act-protocol.md` (READ-CONFIRM-ACT, the structural-findings gate, §1.2-§1.6) and, to author a flag, `references/read-confirm-act-protocol-Part-2-FlagAuthoringSurfaces.md`
+- If Step 0's indicator tables leave Standard vs Meta-Plan undecided, or a task file this plan authors states context-conservation rules (task list format, compaction triggers, minimal prompts, output file strategy): Read `references/context-loading-and-conservation.md`
+- If a naming or folder question is not settled by Naming Conventions and Step 3 (the With Meta-Plan tree, full Task ID format in cross-sprint references, agent delegation, pre- or post-session checklists): Read `references/session-planning-protocol.md`
+- If Step 8c's Token Saver scan reports a Warn-or-worse file, a task sizes a file that does not exist yet, or a generated artifact must be split into Parts: Read `references/session-context-budget.md` (Per-Operation Cost Reference, File Size Limits, Read-Tool Hard Limits, Threshold Formulas)
+- If the plan is a Discovery / Meta-Plan whose Master Plan carries a user-action gate outside `/planwise run`: Read `references/session-execution-protocol.md` §4.5 (Discovery / Meta-Plan Status)
 - If the plan creates or modifies agents: Read `references/agent-authoring.md`
 - If the plan creates or modifies skills: Read `references/skill-authoring.md`
 - If the plan creates or modifies rules: Read `references/rule-authoring.md`
